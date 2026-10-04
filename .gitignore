@@ -1,0 +1,79 @@
+/target
+.claude/
+target
+
+target/
+citizenui/target/
+citizenui/desktop/src-tauri/binaries/
+citizenui/desktop/src-tauri/gen/schemas/
+nodekey_*
+*.sst
+
+# Local chain state
+.local-node/
+
+# Frontend build artifacts
+node/frontend/dist/
+
+# Python cache
+**/__pycache__/
+*.pyc
+
+# Local/generated backup files
+*.spec*-backup
+
+# OS / Editor junk
+.DS_Store
+**/.DS_Store
+*.swp
+*.tmp
+*.log
+
+# IDE local settings
+.vscode/
+.idea/
+
+# JS/TS local artifacts
+# 开发依赖解析目录或本机链接均不进入Git。
+**/node_modules
+**/*.tsbuildinfo
+
+# Dart / Flutter generated files
+**/.dart_tool/
+**/.packages
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub/
+**/build/
+**/coverage/
+
+# Flutter iOS generated dependencies
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/Flutter.podspec
+
+# Flutter Android local/generated files
+**/android/.gradle/
+**/android/local.properties
+
+# Android 系统错误报告可能包含设备与网络诊断信息，禁止进入仓库。
+/bugreport-*.zip
+
+# Android signing secrets
+
+# 注册局前端构建产物
+registry/frontend/dist/
+
+# Flutter IDE user state
+**/ios/Runner.xcworkspace/xcuserdata/
+**/ios/Runner.xcodeproj/xcuserdata/
+
+# CitizenApp native generated artifacts
+**/android/.kotlin/
+
+# 本机 AI 入口直接解析唯一规则；产品源码不跟踪本机链接。
+/CODEX.md
+/CLAUDE.md

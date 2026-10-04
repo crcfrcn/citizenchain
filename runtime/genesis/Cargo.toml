@@ -1,0 +1,52 @@
+[package]
+name = "genesis-pallet"  # 创世模块：创世期/运行期切换 + 创世常量存储
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+
+primitives = { path = "../primitives", default-features = false }
+admin-primitives = { path = "../admins/admin-primitives", default-features = false }
+public-manage = { path = "../entity/public-manage", default-features = false }
+public-admins = { path = "../admins/public-admins", default-features = false }
+private-manage = { path = "../entity/private-manage", default-features = false }
+private-admins = { path = "../admins/private-admins", default-features = false }
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "public-admins/runtime-benchmarks",
+    "public-manage/runtime-benchmarks",
+    "private-admins/runtime-benchmarks",
+    "private-manage/runtime-benchmarks",
+]
+try-runtime = []
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "frame-system/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "primitives/std",
+    "admin-primitives/std",
+    "public-manage/std",
+    "public-admins/std",
+    "private-manage/std",
+    "private-admins/std",
+]
+
+[dev-dependencies]
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }

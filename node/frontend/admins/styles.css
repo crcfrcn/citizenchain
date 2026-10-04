@@ -1,0 +1,96 @@
+.institution-assignment-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.institution-assignment-top {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.institution-assignment-card .admin-card-index {
+  display: inline-flex;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(96, 165, 250, 0.14);
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.institution-assignment-top-action {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.institution-assignment-top-action .activated-tag,
+.institution-assignment-top-action .activate-button,
+.institution-assignment-top-action .vote-result-tag,
+.institution-assignment-top-action .vote-button-inline {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  margin-left: 0;
+}
+
+.institution-assignment-account,
+.institution-assignment-list {
+  display: grid;
+  gap: 7px;
+}
+
+.institution-assignment-item {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.institution-assignment-role {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+.institution-assignment-role code {
+  color: #93c5fd;
+  font-size: 11px;
+}
+
+.institution-assignment-field {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px;
+  min-height: 20px;
+  align-items: start;
+}
+
+.institution-assignment-label {
+  color: #93a4b8;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.institution-assignment-value {
+  min-height: 18px;
+  overflow-wrap: anywhere;
+  color: #e5edf6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}

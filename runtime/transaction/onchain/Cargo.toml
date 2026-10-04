@@ -1,0 +1,44 @@
+[package]
+name = "onchain"  # 链上交易手续费模块
+edition.workspace = true   # 默认 Rust 版本
+version.workspace = true   # 版本号
+authors.workspace = true   # 作者
+repository.workspace = true  #项目仓库
+license = "MIT"        # 授权协议 MIT
+
+[dependencies]
+codec = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+pallet-transaction-payment = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+scale-info = { workspace = true }
+log = { version = "0.4", default-features = false }
+primitives = { path = "../../primitives", default-features = false }
+fullnode-issuance = { path = "../../issuance/fullnode-issuance", default-features = false }
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-transaction-payment/runtime-benchmarks",
+]
+try-runtime = []
+std = [
+    "codec/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-transaction-payment/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "scale-info/std",
+    "log/std",
+    "primitives/std",
+    "fullnode-issuance/std",
+]
+
+[dev-dependencies]
+pallet-balances = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }

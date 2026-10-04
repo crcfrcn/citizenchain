@@ -1,0 +1,94 @@
+{
+  "description": "机构岗位权限与 VotePlan SCALE 金标",
+  "discriminants": {
+    "role_permission_operation": {
+      "propose": 0,
+      "vote": 1
+    },
+    "authorization_subject": {
+      "institution": 0,
+      "personal_multisig": 1
+    },
+    "voting_engine_kind": {
+      "internal": 0,
+      "joint": 1,
+      "election": 2,
+      "legislation": 3
+    }
+  },
+  "cases": [
+    {
+      "name": "role_subject_nrc_committee",
+      "type": "RoleSubject",
+      "encoded_hex": "684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d424552",
+      "expected": {
+        "cid_number": "LN001-NRC0G-944805165-2026",
+        "role_code": "COMMITTEE_MEMBER"
+      }
+    },
+    {
+      "name": "business_action_resolution_issuance",
+      "type": "BusinessActionId",
+      "encoded_hex": "1c7265732d69737300000000",
+      "expected": {
+        "module_tag": "res-iss",
+        "action_code": 0
+      }
+    },
+    {
+      "name": "permission_resolution_issuance_propose",
+      "type": "RoleBusinessPermission",
+      "encoded_hex": "684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d4245521c7265732d6973730000000000",
+      "expected": {
+        "cid_number": "LN001-NRC0G-944805165-2026",
+        "role_code": "COMMITTEE_MEMBER",
+        "module_tag": "res-iss",
+        "action_code": 0,
+        "operation": "propose"
+      }
+    },
+    {
+      "name": "authorization_personal_multisig",
+      "type": "AuthorizationSubject",
+      "encoded_hex": "010707070707070707070707070707070707070707070707070707070707070707",
+      "expected": {
+        "kind": "personal_multisig",
+        "account_hex": "0707070707070707070707070707070707070707070707070707070707070707"
+      }
+    },
+    {
+      "name": "vote_plan_resolution_issuance_joint",
+      "type": "VotePlan",
+      "encoded_hex": "1c7265732d697373000000001c7265732d69737300684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d4245520c00684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d42455200685a533030312d50524330452d3031363937343037352d3230323640434f4d4d49545445455f4d454d42455200685a533030312d50524230382d3233333338343637372d32303236204449524543544f5201abababababababababababababababababababababababababababababababab",
+      "expected": {
+        "module_tag": "res-iss",
+        "action_code": 0,
+        "proposal_owner": "res-iss",
+        "proposer": {
+          "kind": "institution",
+          "cid_number": "LN001-NRC0G-944805165-2026",
+          "role_code": "COMMITTEE_MEMBER"
+        },
+        "voters": [
+          {
+            "kind": "institution",
+            "cid_number": "LN001-NRC0G-944805165-2026",
+            "role_code": "COMMITTEE_MEMBER"
+          },
+          {
+            "kind": "institution",
+            "cid_number": "ZS001-PRC0E-016974075-2026",
+            "role_code": "COMMITTEE_MEMBER"
+          },
+          {
+            "kind": "institution",
+            "cid_number": "ZS001-PRB08-233384677-2026",
+            "role_code": "DIRECTOR"
+          }
+        ],
+        "voting_engine": "joint",
+        "business_object_hash": "abababababababababababababababababababababababababababababababab"
+      }
+    }
+  ]
+}

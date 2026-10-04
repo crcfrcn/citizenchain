@@ -1,0 +1,28 @@
+# Card 05 大市机房 PostgreSQL 调优 + PITR 参考模板。
+#
+# 说明:桌面/小市内嵌实例的 listen_addresses / archive_mode 由 onchina 自管
+# (onchina/src/core/embedded_pg.rs 首启写入)。本模板供「大市外部托管 PG」或
+# 机房手工调优参考——按服务器内存/磁盘调整数值,WAL 归档目录指向 NAS。
+
+# ── 连接 ──
+listen_addresses = '127.0.0.1'   # 仅本机;对内网由 onchina 内网 TLS 暴露
+port = 5433
+max_connections = 200
+
+# ── PITR(每日 pg_basebackup + 持续 WAL 归档到 NAS)──
+wal_level = replica
+archive_mode = on
+# %p=待归档 WAL 绝对路径,%f=文件名;改 /mnt/nas/pg-wal 为实际 NAS 路径。
+archive_command = 'test ! -f /mnt/nas/pg-wal/%f && cp %p /mnt/nas/pg-wal/%f'
+max_wal_size = 4GB
+min_wal_size = 1GB
+
+# ── 大市资源(机房服务器:按物理内存约 1/4 给 shared_buffers,3/4 给 effective_cache_size)──
+shared_buffers = 8GB
+effective_cache_size = 24GB
+work_mem = 64MB
+maintenance_work_mem = 1GB
+
+# ── 可靠性 ──
+synchronous_commit = on
+full_page_writes = on

@@ -1,0 +1,120 @@
+{
+  "_comment": "签名协议金标向量 (canonical, Rust 权威源). 完整覆盖 SIGN_OP_TAGS 中全部哈希域，即真正经 signing_message = blake2_256(GMB || op_tag || scale_payload) 的域。0x21 为 CitizenApp 本机默认账户切换，0x22 为冷钱包账户数据用途钥加密交付，0x23 为 CitizenApp 钱包账户签名模式确认，0x24 为 本机生产发布授权；均只在本机链下验签。域 domain=GMB。所有 message_hex 任何时候不得变化。二进制前缀域 0x18/0x19 签原始可解析字节，不在此金标。scale_payload_hex 仅用于跨语言金标对齐，非真实业务数据。重生方式: SIGN_GOLDEN_UPDATE=1 cargo test -p primitives --test sign_golden。【真源】本文件是唯一权威源；镜像由 CI 逐字段校验。",
+  "domain": "GMB",
+  "vectors": [
+    {
+      "message_hex": "19e050b3476dfd7db0aae9d527e205da44b8f9d00e5ddf4f81f4830ab0c00568",
+      "name": "OP_SIGN_CITIZEN_IDENTITY",
+      "op_tag": "0x10",
+      "scale_payload_hex": "0102030405060708"
+    },
+    {
+      "message_hex": "d477515eb1cb4ec972e7a3635f895ecd7f12e34b525cfdcc283fbd3a0f8f3270",
+      "name": "cid_rebind",
+      "op_tag": "0x11",
+      "scale_payload_hex": "0011223344556677"
+    },
+    {
+      "message_hex": "6611a18d502a601be15c46ae57d88d364901d4f8836dca6912c21e6234614a3e",
+      "name": "cid_occupy",
+      "op_tag": "0x12",
+      "scale_payload_hex": "8899aabbccddeeff"
+    },
+    {
+      "message_hex": "d33919e352038d7bd62172b0530362fb6ef0da3990e27b56ea9325195fc6b1a6",
+      "name": "OP_SIGN_INST",
+      "op_tag": "0x13",
+      "scale_payload_hex": "3132333435363738"
+    },
+    {
+      "message_hex": "501d0b85cf1ac826d58c974337b824b202d105dd9928a79c423052b8bd976274",
+      "name": "OP_SIGN_DEREGISTER",
+      "op_tag": "0x14",
+      "scale_payload_hex": "4142434445464748"
+    },
+    {
+      "message_hex": "4e4aece62f76d1e6e198cb6382f6bbe49d3d858d9c263d96662bf064c6fc36f0",
+      "name": "OP_SIGN_L3_PAY",
+      "op_tag": "0x15",
+      "scale_payload_hex": "5152535455565758"
+    },
+    {
+      "message_hex": "49f4eb5bdc4ce83b738568504e1df83e9ce08b39debee48977041da8f17b4af2",
+      "name": "OP_SIGN_OFFCHAIN_BATCH",
+      "op_tag": "0x16",
+      "scale_payload_hex": "6162636465666768"
+    },
+    {
+      "message_hex": "8942b83ce5d46d2e1ca865fe4fbd699c86733551c83c771189aabf65978269da",
+      "name": "OP_SIGN_L2_ACK",
+      "op_tag": "0x17",
+      "scale_payload_hex": "7172737475767778"
+    },
+    {
+      "message_hex": "ecfabbf1ad5cf526920af3e85dd129a45f45190e88fe33431f3e4d83f7a1167f",
+      "name": "OP_SIGN_CHAT_DEVICE_BIND",
+      "op_tag": "0x1a",
+      "scale_payload_hex": "696d2d62696e6431"
+    },
+    {
+      "message_hex": "76a011b084004e797527ada19d740f6a0cf0b1c6d534fd92c08972aceddb642f",
+      "name": "OP_SIGN_SQUARE_LOGIN",
+      "op_tag": "0x1b",
+      "scale_payload_hex": "73712d6c6f67696e"
+    },
+    {
+      "message_hex": "6ba60be1df51dbf63ff00a9f2ef838b44492b42933009fb2b48ec9cdd0c32ebc",
+      "name": "OP_SIGN_SQUARE_DEVICE_BIND",
+      "op_tag": "0x1c",
+      "scale_payload_hex": "73712d62696e64696e67"
+    },
+    {
+      "message_hex": "88a1c979a2018717db6313ae6ce8f5766cabd9760158317a557fded0c0119f6a",
+      "name": "OP_SIGN_SQUARE_ACTION",
+      "op_tag": "0x1d",
+      "scale_payload_hex": "73712d616374696f6e"
+    },
+    {
+      "message_hex": "b8f4a33924ded16f83713cdf1ac5e107eee6fa2b935b966fa960f24f497b78cc",
+      "name": "OP_SIGN_GRANDPA_KEY_CHANGE",
+      "op_tag": "0x1e",
+      "scale_payload_hex": "6772616e6470612d6b65792d6368616e6765"
+    },
+    {
+      "message_hex": "c8d1bf2d1f5a3c4e36aaa7d40eecaede9831639ce042f070ec0c27dd5342fc0c",
+      "name": "cid_admin_rebind",
+      "op_tag": "0x1f",
+      "scale_payload_hex": "c0ffee00c0ffee11"
+    },
+    {
+      "message_hex": "466ec54a3b9e92db537733a0ee4c386c8968d8b4d54ac7ae2b18bdb192028c6b",
+      "name": "OP_SIGN_ONCHINA_ADMIN",
+      "op_tag": "0x20",
+      "scale_payload_hex": "0102030405060708"
+    },
+    {
+      "message_hex": "cc1b53b86f3633f95550e5d79282badd09ebfe9dd277df2ed361c821f6737082",
+      "name": "OP_SIGN_SWITCH_DEFAULT_ACCOUNT",
+      "op_tag": "0x21",
+      "scale_payload_hex": "64656661756c742d6163636f756e742d737769746368"
+    },
+    {
+      "message_hex": "20e844923e60c0fea86e3294c15ca365f96eb7d6979c96ad6b49d55856443e47",
+      "name": "OP_SIGN_ACCOUNT_DATA_KEY_PROVISION",
+      "op_tag": "0x22",
+      "scale_payload_hex": "6163636f756e742d646174612d6b65792d70726f766973696f6e"
+    },
+    {
+      "message_hex": "a43124707701534a723c5518c2395f6f09c5e6af5d528be8c3e09af47c48d306",
+      "name": "OP_SIGN_WALLET_MODE",
+      "op_tag": "0x23",
+      "scale_payload_hex": "77616c6c65742d6d6f6465"
+    },
+    {
+      "message_hex": "c698c3288feaabf27dc27ff237173dea1799e6b15927e25579f636e2de2c2d2c",
+      "name": "OP_SIGN_PUBLISH",
+      "op_tag": "0x24",
+      "scale_payload_hex": "7075626c697368"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+[package]
+name = "citizen-issuance"  # 公民发行模块
+edition.workspace = true   # 默认 Rust 版本
+version.workspace = true   # 版本号
+authors.workspace = true   # 作者
+repository.workspace = true  #项目仓库
+license = "MIT"        # 授权协议 MIT
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+pallet-balances = { workspace = true }
+sp-runtime = { workspace = true }
+citizen-identity = { path = "../../misc/citizen-identity", default-features = false }
+
+primitives = { path = "../../primitives", default-features = false }
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+    # benchmark feature 需向下游 FRAME 依赖传播，保持工作区 benchmark 构建口径一致。
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "citizen-identity/runtime-benchmarks",
+]
+try-runtime = []
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-balances/std",
+    "sp-runtime/std",
+    "citizen-identity/std",
+    "primitives/std",
+]
+
+[dev-dependencies]
+sp-io = { workspace = true }

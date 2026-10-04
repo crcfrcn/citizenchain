@@ -1,0 +1,266 @@
+[
+  {
+    "role": "nrc",
+    "peerId": "12D3KooWHepcMGD3h9VC1XNWmrac3pXo63RimV5jhTU2nC2TLAyS",
+    "grandpa_public_key": "0x3719c39cf92462da2e22a7dfa760f463c801dd86a27a4151d24935e42692e5b5",
+    "domain": "nrcgch.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWPjWNXvCzPv6PPuiGnF3J5uToW3ySfaB7rKkwUrN2CALv",
+    "grandpa_public_key": "0x14803cd63d5ad6c76e0141f730f18f2c4a30ecfaa3631681e490cb5e25ca0958",
+    "domain": "prczss.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWD9EpWCRceAQBc5rxq8pMS75ke9ovDyqAF8ZjoVQVD3tt",
+    "grandpa_public_key": "0x8d9de5d1b44d39f9567b76a5348d68a497d06b73215d5e89bfdf4f6a6b2f36aa",
+    "domain": "prclns.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWJKT8iE9guv4wfem1L9Xd91bNC9CTcLmZyRgUuWkpmEqf",
+    "grandpa_public_key": "0xfebdaa3b1c416bffc6ba1e13f799b5295c4644a0d695fe6da7bff3cf6754a903",
+    "domain": "prcgds.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWAxCE4TpEkDKibtQBzFtEuTAvxrDp1JXabhXPY7tAp9qx",
+    "grandpa_public_key": "0x669d64a0c7c7ba5be629580d8898f9003105b13d18372392cd85562b2782b233",
+    "domain": "prcgxs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWJdGUANuEpVCmarfH2gi23GodbbbBBabuw9Eb4raBabt8",
+    "grandpa_public_key": "0x8860948348df8b4efe240829671408476643dbf8d2e07d0bca8f3ea6271c5c51",
+    "domain": "prcfjs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWEhovD6QmFbZZGBS7pkwKZinfGZPCAKvyEGGDqkja8HDa",
+    "grandpa_public_key": "0x2d6cfe57d3212c066260cb568645ed0d442a632b24031930b97ca3242111e021",
+    "domain": "prchns.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWB7kZKwKEPFDo7DToUeFHeyZCJWXUR1wUN1t6uW7mFr2Z",
+    "grandpa_public_key": "0x26498679676d181b1346964f5815b94bf766bd284d529ce8e5625547af1fbab3",
+    "domain": "prcyns.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWC7t4V1Z2aQWS9HikBdXQgXEaTqeZ5YD78cnxtYBDn31M",
+    "grandpa_public_key": "0x1c03da677a1ae2e9b4907dc72016ea65adc3d20711f93b8e96f2aa75468072c0",
+    "domain": "prcgzs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWHS6G18ZtqiCGFYxb3CdvXT3Hb3zds8zknuWPCsdkFPPL",
+    "grandpa_public_key": "0x4b9547092662fba8d70658eee8c999c5f5044b2574054a3ce62b2ed19b5645d1",
+    "domain": "prchus.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWNpANUi6qmJCJXkMzyAMzjf4nY9wUdkAbwcGRJgikSY13",
+    "grandpa_public_key": "0x782c1fc618af8c3e1eb225f1b068eb35dfc54e3db2c8067a0ddb55308d62a3d4",
+    "domain": "prcjxs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWKLAEv8qEicjGX3MF667gqGF8Lf1iEATskv61pRdGaxS4",
+    "grandpa_public_key": "0xa2a7643951e81f6189834bd5c70ee27eddd402ac7c4ef749f40955042b4bb43e",
+    "domain": "prczjs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWQqjnQ8wLx6qNX94PoJGZgEJkgyCA3G5ck3zetcpuQp7f",
+    "grandpa_public_key": "0xa3819330ccac67a93f09679f81e919e5cc2eedf7166e69a62d402be6ec39de2a",
+    "domain": "prcjss.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWFgD8cFDqherjpiuRkHwHfAcCwaqXcBjTS2G3LkwUBTsq",
+    "grandpa_public_key": "0xecbfcf8a0c4e9954f0d8ea71d85b91ad0142b5c5821a74fab99a041be4192948",
+    "domain": "prcsds.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWQY3DEaJy9wEBE2bQ9gG1B8XByfVaz839jf1ov75kRmD9",
+    "grandpa_public_key": "0x63e4ac90760504c650773312df9c4ce2faec662c544aeec9c6fcad41654a78c8",
+    "domain": "prcsxs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWSkKBEJ2KZXckFhzLvrqqbhpq4PVKeFuWsxdTF7hfzoGc",
+    "grandpa_public_key": "0xe9227e239d61c3ba1463ac0b2206cecf35ebe73a48c7a702a76aeac20327c653",
+    "domain": "prches.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWMXQoZ9F6nxMuoC2ZnzxEKAn4z2qPKAugP2CZFEcXDqkT",
+    "grandpa_public_key": "0x7ce0745ab3270b66570b4b2fa7ef0ea2fd4df5065488c05282cd8ed8c938c199",
+    "domain": "prchbs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWS2WYJ9AQ6Y1AKZcKjaHbmCFNkozV7XBBqqDG8kvwsH22",
+    "grandpa_public_key": "0xb10a24b974dabe5f008973007ea3fb67c4af2c7ae77b71f01e0249ac366daab8",
+    "domain": "prchis.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWNr4EWB1PwBANoU9h2FzZXfS78vxDQynLtft3TDWMQ42p",
+    "grandpa_public_key": "0x14cd5c8e07f738cc3719b4e66c33d81fa3a4baf6f6e50ae1d48d4e2ffb8e47b2",
+    "domain": "prcsis.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWD8qAmRfVPyDn65j8aNLUZ3xKpc4jVVJ2Jdro3LZKJhrY",
+    "grandpa_public_key": "0x599aa6bb3cf9d48d99599de3c5948308e32dbb427f49346cdab95fe82863b747",
+    "domain": "prccqs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWR831Zp5wr6AXtwo5f6uoLzig1vTq8GtN8PK7AL3A4t1m",
+    "grandpa_public_key": "0x26daeb08619448a235d712daa63bf81b97710f684801d22c847624e070e4f600",
+    "domain": "prcscs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWRKEFiEJGBdK6AdkJb6ei5FJiqSAvEkk4NxGnoT9p5MUS",
+    "grandpa_public_key": "0xfa9e7becc8a5984cf15c50ca83e3918adc79521281e2d75ebfcccb7d3e5be8f3",
+    "domain": "prcgss.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWQZF44Z2U9mT6Q371ULaRLHK9ucTuxPVV8WpaUnw9Q4Ug",
+    "grandpa_public_key": "0xe0dfc5bde6f32d6d41648006c69f6489dea06c37259c57b716ff025fa4fa31af",
+    "domain": "prcbps.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWE69n2vS9KqPuXvZPAVRAXwfLcnAfHLz6EDBCD6G8Zqdk",
+    "grandpa_public_key": "0x015829c6f8588903ecbf17207b5fad6d5e766f7512325b13850b43ddd2886305",
+    "domain": "prchas.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWRQt9MWd8v1F5b8nNksRgvCk7XmMgntxiv6RX12gkY5Dx",
+    "grandpa_public_key": "0x1527123566372a8082a2d1b62f2dbd00ae3c56f2f71b51b8228178400774c3f3",
+    "domain": "prcsjs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWGdzag2ekE4JBbcNYNNg3bAJJrqfrZQnsC4uaVavNpmtX",
+    "grandpa_public_key": "0xdb5d32816bddb7a0e1d0d17d3863923eb32f76eed87604d0d410a74900195b87",
+    "domain": "prcljs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWHbuz7D91uDpbEPKLpSSKE9ZVqPSsTXFMewBbYAAxJYc2",
+    "grandpa_public_key": "0x9ffdedc39ab82f7766022a3b53149ffb0f2611567961c0570880adab1a01af88",
+    "domain": "prcjls.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWE8RugcDKrBwxobPzGkVxke4WnGJhi74No53EH7zhaziB",
+    "grandpa_public_key": "0x8133cf439c9142737b34655c48658135d7f946c9d60615a80ed14bad4fec1141",
+    "domain": "prclis.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWGdFwKQQoZTyGbKHtq6FcEjmXSWJ4MfdebuM37MXXNV1T",
+    "grandpa_public_key": "0x94a7d8f2f0b613dbb1509cc31ffa832188af9f547a0ce25ffe4be56a1cb10e07",
+    "domain": "prcnxs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWEL5PTHVD4HEGRcsTxQKWanzW31qSzAGapvwnBsfdTWWS",
+    "grandpa_public_key": "0x6c5ee4dd2a7b9f82a2f04e9eb3bf5ba970adce79cffa662d2dc84adc4ce42492",
+    "domain": "prcqhs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWPC96XCXpuuErd8G7bteNhmvkk6NTPjLtccPCiRwLRGSw",
+    "grandpa_public_key": "0x903f1fcba7a60aeca0221c0fe9dad52b28437775732360a318bc07326638dd39",
+    "domain": "prcahs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWQYc1jQZQyaUQC1snk9DHGmydhMdgtJ9LZZ5pbzTciG2J",
+    "grandpa_public_key": "0x2f0fcd64f31a318077484148bdf3db0d95de25860764985214356dc3371d598e",
+    "domain": "prctws.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWNhQUZN2zvX8WTa5SvbyziGvr18qjVNnhygstb8KHQ7Ro",
+    "grandpa_public_key": "0xeaf447ce1635e7165e9588b6d2864ddf31e2a33ccff69f7a46d69ee2317b4a52",
+    "domain": "prcxzs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWMbsFaTXiGKXqjEFZjuP5Tp7iU4FFvf3MJoSmGRXDVc69",
+    "grandpa_public_key": "0x004de5bc4fa8fe5cdce4c1cb00ddce6db55ce5926b8189741cb3cd43d8155f99",
+    "domain": "prcxjs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWBczZmptJkbQkX4yx4XP7QXwtJXxZn1We8R4GtbRExUox",
+    "grandpa_public_key": "0xad9ea30f1f967672f8d1b7aabbd8443d860dd2af2e9c9fd9b6a0358fe1690d20",
+    "domain": "prcxks.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWJKCXsrzLVWLuZVTENBLeLG5F9KcLoeGhdp1tjs8qtk2y",
+    "grandpa_public_key": "0xe1dfa8bc752665d0becd9287b28415ced4193371f7cde21e244a8f5b6a1a1a48",
+    "domain": "prcals.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWMU7y4HSkWdKQYQ15xQC9L33TUkfcMfBgYQtkxMDcos9v",
+    "grandpa_public_key": "0xad5fa47ad61097e5dbe077066f34e3cdba31ca0194c184fe556a2f62c4c18172",
+    "domain": "prccls.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWG8ZyfEQo7MkkcKqUczQkY1eKVZFvvAeUpz4EPFi8vEoN",
+    "grandpa_public_key": "0xae47a89d45e0649ac98aa832eb7d6ae10d6111b30cf64eb118c428c24a00081d",
+    "domain": "prcyls.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWBjDquSWFYAjTy5LWxBqYKC453WT8FpoJTVKK6qGk2G4y",
+    "grandpa_public_key": "0x82842c89fe9ce2eca5df47ad92d787e255c0b0dd3ec18947b801077b57743520",
+    "domain": "prchxs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWSeAo5RUTjTX53NmD8Ncv6fXfnkqd461a6FBEGv8szB8N",
+    "grandpa_public_key": "0x4684cd4740972bca1df018cce973771df605cf404c3762c1976f52f9700db391",
+    "domain": "prckls.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWFrXygQG5HZ1buBcrGwe7KYQagNu29ippkUAbLUndxt9v",
+    "grandpa_public_key": "0x87f64d53701b846b019341f356e738a87d6c20b244bf2e2d89351717b385a8f3",
+    "domain": "prchts.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWBUyRBBAb6QFkJ3obK1bniWNFu4Gk7VoZAAQo7jrQfNCf",
+    "grandpa_public_key": "0xe7ef1b4ae92e95e9c8b3fb5856e86ea77f596e82c75af20802d61106ca26a25d",
+    "domain": "prcrhs.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWC4errbqKaeyDZVjpNmpryUAfbLM8h6CjvyAbkYjzgnne",
+    "grandpa_public_key": "0x0bde5599cdd158c196a45025689be5166a0e4e0ef9e932523040debed85f8b59",
+    "domain": "prcxas.crcfrcn.com"
+  },
+  {
+    "role": "prc",
+    "peerId": "12D3KooWPciaAo15DT24rXPZK5EUtBdEyotFBhvEdw6d3zBmzVHH",
+    "grandpa_public_key": "0xa69514c16012e39f3bc49941afa58871aeb46bbfb7825bd296133bad9cd0db9a",
+    "domain": "prchjs.crcfrcn.com"
+  }
+]

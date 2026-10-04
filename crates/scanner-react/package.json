@@ -1,0 +1,36 @@
+{
+  "name": "@gmb/scanner-react",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "jsqr": "1.4.0"
+  },
+  "peerDependencies": {
+    "react": "19.2.4"
+  },
+  "devDependencies": {
+    "@testing-library/react": "16.3.2",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "jsdom": "26.1.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "typescript": "6.0.2",
+    "vitest": "3.2.7"
+  },
+  "engines": {
+    "node": "25.2.1"
+  }
+}

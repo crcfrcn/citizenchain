@@ -1,0 +1,46 @@
+[package]
+name = "pow-difficulty"  # PoW 动态难度调整模块
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+serde = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+pallet-timestamp = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+primitives = { path = "../../primitives", default-features = false }
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-timestamp/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "primitives/std",
+]
+
+[dev-dependencies]
+sp-io = { workspace = true }

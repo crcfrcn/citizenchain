@@ -1,0 +1,43 @@
+[Unit]
+Description=CitizenChain Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=citizenchain
+# 权威引导节点只公开 P2P；RPC 保持回环监听，供本机组件和后续受控 Tunnel 使用。
+ExecStart=/usr/bin/citizenchain \
+  --chain citizenchain \
+  --base-path /opt/citizenchain/data \
+  --node-key-file /opt/citizenchain/data/node-key/secret_ed25519 \
+  --validator \
+  --rpc-port 9944 \
+  --rpc-methods Safe \
+  --no-prometheus \
+  --state-pruning archive \
+  --trie-cache-size 268435456 \
+  --listen-addr /ip4/0.0.0.0/tcp/30333/wss \
+  --in-peers 32 \
+  --in-peers-light 100 \
+  --out-peers 8 \
+  --max-parallel-downloads 5 \
+  --no-mdns
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+UMask=0077
+
+# 节点只允许写入自己的数据目录，禁止提权和修改系统关键区域。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/citizenchain/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

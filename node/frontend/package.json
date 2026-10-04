@@ -1,0 +1,40 @@
+{
+  "name": "citizenchain-desktop-ui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": "25.2.1"
+  },
+  "scripts": {
+    "generate:docs": "node ../../scripts/generate-local-docs.mjs",
+    "predev": "npm run generate:docs",
+    "dev": "vite",
+    "prebuild": "npm run generate:docs",
+    "build": "tsc --noEmit && vite build",
+    "test:local-doc": "node -e \"const fs=require('node:fs');const ts=require('typescript');const Module=require('node:module');const path=require('node:path');const file=path.resolve('other-tabs/LocalDocViewer.test.tsx');const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;const testModule=new Module(file,module);testModule.filename=file;testModule.paths=Module._nodeModulePaths(path.dirname(file));testModule._compile(code,file);\"",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@gmb/scanner-react": "file:../../crates/scanner-react",
+    "@noble/hashes": "2.0.1",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "2.6.0",
+    "@tauri-apps/plugin-process": "2.3.1",
+    "@tauri-apps/plugin-updater": "2.10.1",
+    "dompurify": "3.4.13",
+    "marked": "18.0.3",
+    "qrcode.react": "4.2.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "@types/node": "25.9.5",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
+    "typescript": "6.0.2",
+    "vite": "8.0.4"
+  }
+}

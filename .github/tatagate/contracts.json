@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "repository": "citizenchain",
+  "workflows": [
+    "citizenchain.linux-amd.ci",
+    "citizenchain.linux-amd.release",
+    "citizenchain.linux-arm.ci",
+    "citizenchain.linux-arm.release",
+    "citizenchain.macos.ci",
+    "citizenchain.macos.release",
+    "citizenchain.wasm.ci",
+    "citizenchain.wasm.release",
+    "citizenchain.windows.ci",
+    "citizenchain.windows.release"
+  ],
+  "node_tests": [
+    "scripts/node/ci/linux-amd/build-desktop/test.mjs",
+    "scripts/node/ci/linux-amd/changes/test.mjs",
+    "scripts/node/ci/linux-amd/verify/test.mjs",
+    "scripts/node/ci/linux-arm/build-desktop/test.mjs",
+    "scripts/node/ci/linux-arm/changes/test.mjs",
+    "scripts/node/ci/linux-arm/verify/test.mjs",
+    "scripts/node/ci/macos/build-desktop/test.mjs",
+    "scripts/node/ci/macos/changes/test.mjs",
+    "scripts/node/ci/macos/verify/test.mjs",
+    "scripts/node/ci/windows/build-desktop/test.mjs",
+    "scripts/node/ci/windows/changes/test.mjs",
+    "scripts/node/ci/windows/verify/test.mjs",
+    "scripts/node/release/linux-amd/build-desktop/test.mjs",
+    "scripts/node/release/linux-arm/build-desktop/test.mjs",
+    "scripts/node/release/macos/build-desktop/test.mjs",
+    "scripts/node/release/windows/build-desktop/test.mjs",
+    "scripts/runtime/ci/build-wasm/test.mjs",
+    "scripts/runtime/release/build-wasm/test.mjs"
+  ],
+  "checks": [
+    "repository-contracts",
+    "cross-platform-contracts",
+    "shared-contracts"
+  ],
+  "tools": {
+    "node": "25.2.1",
+    "actionlint": "1.7.12",
+    "rust": "1.97.1"
+  },
+  "platform_forbidden_values": [
+    "macOS ARM64",
+    "macos-arm64",
+    "macos_arm64"
+  ]
+}

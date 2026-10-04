@@ -1,0 +1,60 @@
+[package]
+name = "multisig"  # 多签名地址转账模块
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+pallet-balances = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+
+primitives = { path = "../../primitives", default-features = false }
+votingengine = { path = "../../votingengine", default-features = false }
+entity-primitives = { path = "../../entity/entity-primitives", default-features = false }
+public-manage = { path = "../../entity/public-manage", default-features = false }
+private-manage = { path = "../../entity/private-manage", default-features = false }
+personal-manage = { path = "../../entity/personal-manage", default-features = false }
+onchain = { path = "../onchain", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-balances/std",
+    "sp-core/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "primitives/std",
+    "votingengine/std",
+    "entity-primitives/std",
+    "public-manage/std",
+    "private-manage/std",
+    "personal-manage/std",
+    "onchain/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+]
+try-runtime = []
+
+[dev-dependencies]
+admin-primitives = { path = "../../admins/admin-primitives", default-features = true }
+public-admins = { path = "../../admins/public-admins", default-features = true }
+private-admins = { path = "../../admins/private-admins", default-features = true }
+personal-admins = { path = "../../admins/personal-admins", default-features = true }
+internal-vote = { path = "../../votingengine/internal-vote", default-features = false }

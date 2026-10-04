@@ -1,0 +1,44 @@
+[package]
+name = "joint-vote"  # 联合投票 pallet(内部投票阶段 + 全民公投阶段)
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+sp-io = { workspace = true }
+
+primitives = { path = "../../primitives", default-features = false }
+votingengine = { path = "..", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "frame-system/std",
+    "frame-benchmarking?/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "sp-io/std",
+    "primitives/std",
+    "votingengine/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "votingengine/runtime-benchmarks",
+]
+try-runtime = ["votingengine/try-runtime"]
+

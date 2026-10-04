@@ -1,0 +1,262 @@
+[package]
+name = "citizenchain"  # 运行时状态模块
+description = "CitizenChain runtime built with Substrate."
+homepage.workspace = true
+publish = false
+edition.workspace = true   # 默认 Rust 版本
+version.workspace = true   # 版本号
+authors.workspace = true   # 作者
+repository.workspace = true  #项目仓库
+license = "MIT"        # 授权协议 MIT
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+scale-info = { features = ["derive", "serde"], workspace = true }
+serde_json = { workspace = true, default-features = false, features = ["alloc"] }
+hex = { version = "0.4", default-features = false }
+hex-literal = "0.4"
+primitives = { path = "primitives", default-features = false } # 引用统一常量
+
+# frame
+frame-executive = { workspace = true }
+frame-metadata-hash-extension = { workspace = true }
+frame-support = { features = ["experimental"], workspace = true }
+frame-system = { workspace = true }
+frame-try-runtime = { optional = true, workspace = true }
+
+# frame pallets
+pallet-assets = { workspace = true }
+pallet-balances = { workspace = true }
+pallet-grandpa = { workspace = true }
+# 与工作空间固定的SDK提交统一，本步接入编译依赖。
+pallet-revive = { workspace = true }
+pallet-timestamp = { workspace = true }
+pallet-transaction-payment = { workspace = true }
+
+# primitives
+sp-api = { workspace = true }
+sp-block-builder = { workspace = true }
+sp-consensus-pow = { workspace = true }
+sp-consensus-grandpa = { workspace = true }
+sp-core = { features = ["serde"], workspace = true }
+sp-genesis-builder = { workspace = true }
+sp-inherents = { workspace = true }
+sp-io = { workspace = true }
+sp-offchain = { workspace = true }
+sp-runtime = { features = ["serde"], workspace = true }
+sp-session = { workspace = true }
+sp-storage = { workspace = true }
+sp-transaction-pool = { workspace = true }
+sp-version = { features = ["serde"], workspace = true }
+
+# RPC related
+frame-system-rpc-runtime-api = { workspace = true }
+pallet-transaction-payment-rpc-runtime-api = { workspace = true }
+
+# Used for runtime benchmarking
+frame-benchmarking = { optional = true, workspace = true }
+frame-system-benchmarking = { optional = true, workspace = true }
+
+provincialbank-interest = { path = "issuance/provincialbank-interest", default-features = false }
+fullnode-issuance = { path = "issuance/fullnode-issuance", default-features = false }
+citizen-issuance = { path = "issuance/citizen-issuance", default-features = false }
+onchain-issuance = { path = "issuance/onchain-issuance", default-features = false }
+citizen-identity = { path = "misc/citizen-identity", default-features = false }
+pow-difficulty = { path = "misc/pow-difficulty", default-features = false }
+address-registry = { path = "misc/address-registry", default-features = false }
+square-post = { path = "misc/square-post", default-features = false }
+onchain = { path = "transaction/onchain", default-features = false }
+entity-primitives = { path = "entity/entity-primitives", default-features = false }
+public-manage = { path = "entity/public-manage", default-features = false }
+private-manage = { path = "entity/private-manage", default-features = false }
+personal-manage = { path = "entity/personal-manage", default-features = false }
+personal-admins = { path = "admins/personal-admins", default-features = false }
+resolution-issuance = { path = "issuance/resolution-issuance", default-features = false }
+votingengine = { path = "votingengine", default-features = false }
+internal-vote = { path = "votingengine/internal-vote", default-features = false }
+joint-vote = { path = "votingengine/joint-vote", default-features = false }
+election-vote = { path = "votingengine/election-vote", default-features = false }
+legislation-vote = { path = "votingengine/legislation-vote", default-features = false }
+admin-primitives = { path = "admins/admin-primitives", default-features = false }
+public-admins = { path = "admins/public-admins", default-features = false }
+private-admins = { path = "admins/private-admins", default-features = false }
+grandpakey-change = { path = "governance/grandpakey-change", default-features = false }
+runtime-upgrade = { path = "governance/runtime-upgrade", default-features = false }
+legislation-yuan = { path = "public/legislation-yuan", default-features = false }
+resolution-destroy = { path = "governance/resolution-destroy", default-features = false }
+multisig = { path = "transaction/multisig", default-features = false }
+offchain = { path = "transaction/offchain", default-features = false }
+genesis-pallet = { path = "genesis", default-features = false }
+
+[build-dependencies]
+substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-benchmarking?/std",
+	"frame-executive/std",
+	"frame-metadata-hash-extension/std",
+	"frame-support/std",
+	"frame-system-benchmarking?/std",
+	"frame-system-rpc-runtime-api/std",
+	"frame-system/std",
+	"frame-try-runtime?/std",
+	"pallet-assets/std",
+	"pallet-balances/std",
+	"pallet-grandpa/std",
+	"pallet-revive/std",
+	"provincialbank-interest/std",
+	"fullnode-issuance/std",
+	"citizen-issuance/std",
+	"onchain-issuance/std",
+	"citizen-identity/std",
+	"pow-difficulty/std",
+	"address-registry/std",
+	"square-post/std",
+	"onchain/std",
+	"entity-primitives/std",
+	"public-manage/std",
+	"private-manage/std",
+	"personal-manage/std",
+	"personal-admins/std",
+	"resolution-issuance/std",
+	"votingengine/std",
+	"internal-vote/std",
+	"joint-vote/std",
+	"election-vote/std",
+	"legislation-vote/std",
+	"admin-primitives/std",
+	"public-admins/std",
+	"private-admins/std",
+	"grandpakey-change/std",
+	"runtime-upgrade/std",
+	"legislation-yuan/std",
+	"resolution-destroy/std",
+	"multisig/std",
+	"offchain/std",
+	"genesis-pallet/std",
+	"pallet-timestamp/std",
+	"pallet-transaction-payment-rpc-runtime-api/std",
+	"pallet-transaction-payment/std",
+	"scale-info/std",
+	"serde_json/std",
+	"hex/std",
+	"sp-api/std",
+	"sp-block-builder/std",
+	"sp-consensus-pow/std",
+	"sp-consensus-grandpa/std",
+	"sp-core/std",
+	"sp-genesis-builder/std",
+	"sp-inherents/std",
+	"sp-io/std",
+	"sp-offchain/std",
+	"sp-runtime/std",
+	"sp-session/std",
+	"sp-storage/std",
+	"sp-transaction-pool/std",
+	"sp-version/std",
+	"substrate-wasm-builder",
+]
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system-benchmarking/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"pallet-assets/runtime-benchmarks",
+	"pallet-balances/runtime-benchmarks",
+	"pallet-grandpa/runtime-benchmarks",
+	"pallet-timestamp/runtime-benchmarks",
+	"pallet-transaction-payment/runtime-benchmarks",
+	"provincialbank-interest/runtime-benchmarks",
+	"fullnode-issuance/runtime-benchmarks",
+	"citizen-issuance/runtime-benchmarks",
+	"onchain-issuance/runtime-benchmarks",
+	"citizen-identity/runtime-benchmarks",
+	"pow-difficulty/runtime-benchmarks",
+	"address-registry/runtime-benchmarks",
+	"square-post/runtime-benchmarks",
+	"onchain/runtime-benchmarks",
+	"public-manage/runtime-benchmarks",
+	"private-manage/runtime-benchmarks",
+	"personal-manage/runtime-benchmarks",
+	"personal-admins/runtime-benchmarks",
+	"resolution-issuance/runtime-benchmarks",
+	"votingengine/runtime-benchmarks",
+	"internal-vote/runtime-benchmarks",
+	"joint-vote/runtime-benchmarks",
+	"election-vote/runtime-benchmarks",
+	"legislation-vote/runtime-benchmarks",
+	"public-admins/runtime-benchmarks",
+	"private-admins/runtime-benchmarks",
+	"grandpakey-change/runtime-benchmarks",
+	"runtime-upgrade/runtime-benchmarks",
+	"resolution-destroy/runtime-benchmarks",
+	"multisig/runtime-benchmarks",
+	"offchain/runtime-benchmarks",
+	"genesis-pallet/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-executive/try-runtime",
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"frame-try-runtime/try-runtime",
+	"pallet-assets/try-runtime",
+	"pallet-balances/try-runtime",
+	"pallet-grandpa/try-runtime",
+	"pallet-revive/try-runtime",
+	"pallet-timestamp/try-runtime",
+	"pallet-transaction-payment/try-runtime",
+	"provincialbank-interest/try-runtime",
+	"fullnode-issuance/try-runtime",
+	"citizen-issuance/try-runtime",
+	"onchain-issuance/try-runtime",
+	"citizen-identity/try-runtime",
+	"pow-difficulty/try-runtime",
+	"address-registry/try-runtime",
+	"square-post/try-runtime",
+	"onchain/try-runtime",
+	"public-manage/try-runtime",
+	"private-manage/try-runtime",
+	"personal-manage/try-runtime",
+	"personal-admins/try-runtime",
+	"resolution-issuance/try-runtime",
+	"votingengine/try-runtime",
+	"internal-vote/try-runtime",
+	"joint-vote/try-runtime",
+	"election-vote/try-runtime",
+	"public-admins/try-runtime",
+	"private-admins/try-runtime",
+	"grandpakey-change/try-runtime",
+	"runtime-upgrade/try-runtime",
+	"resolution-destroy/try-runtime",
+	"multisig/try-runtime",
+	"offchain/try-runtime",
+	"genesis-pallet/try-runtime",
+	"sp-runtime/try-runtime",
+]
+
+# Enable the metadata hash generation.
+#
+# This is hidden behind a feature because it increases the compile time.
+# The wasm binary needs to be compiled twice, once to fetch the metadata,
+# generate the metadata hash and then a second time with the
+# `RUNTIME_METADATA_HASH` environment variable set for the `CheckMetadataHash`
+# extension.
+metadata-hash = ["substrate-wasm-builder/metadata-hash"]
+
+# A convenience feature for enabling things when doing a build
+# for an on-chain release.
+on-chain-release-build = ["metadata-hash", "sp-api/disable-logging"]
+
+
+[dev-dependencies]
+ed25519-dalek = "2.2.0"

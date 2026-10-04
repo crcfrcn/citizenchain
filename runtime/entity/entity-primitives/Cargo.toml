@@ -1,0 +1,28 @@
+[package]
+name = "entity-primitives" # 实体生命周期共用类型与 trait
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+sp-runtime = { workspace = true }
+primitives = { path = "../../primitives", default-features = false }
+admin-primitives = { path = "../../admins/admin-primitives", default-features = false }
+sp-std = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "sp-runtime/std",
+    "primitives/std",
+    "admin-primitives/std",
+    "sp-std/std",
+]

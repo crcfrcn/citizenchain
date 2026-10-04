@@ -1,0 +1,95 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "citizenchain",
+  "version": "1.0.0",
+  "identifier": "macOS.citizenappchain",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "https://127.0.0.1:5173",
+    "frontendDist": "frontend/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "公民链",
+        "width": 1360,
+        "height": 920,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; frame-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; script-src 'self'; script-src-elem 'self' 'unsafe-inline'; script-src-attr 'none'; connect-src 'self' wss://127.0.0.1:9944 wss://localhost:9944 https://raw.githubusercontent.com",
+      "capabilities": [
+        {
+          "identifier": "default",
+          "description": "公民链桌面应用默认权限",
+          "windows": [
+            "main"
+          ],
+          "permissions": [
+            "core:default",
+            "dialog:default",
+            "dialog:allow-open",
+            "process:default",
+            "updater:default"
+          ]
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "resources": {
+      "resources/": "",
+      "../onchina/src/cid/china/china.sqlite": "china.sqlite"
+    },
+    "icon": [
+      "resources/icons/32x32.png",
+      "resources/icons/128x128.png",
+      "resources/icons/128x128@2x.png",
+      "resources/icons/256x256.png",
+      "resources/icons/256x256@2x.png",
+      "resources/icons/512x512.png",
+      "resources/icons/512x512@2x.png",
+      "resources/icons/icon.png",
+      "resources/icons/icon.icns",
+      "resources/icons/icon.ico"
+    ],
+    "targets": [
+      "dmg",
+      "nsis",
+      "deb"
+    ],
+    "macOS": {
+      "entitlements": "Entitlements.plist",
+      "infoPlist": "Info.plist",
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      },
+      "nsis": {
+        "installerIcon": "resources/icons/icon.ico",
+        "installMode": "perMachine",
+        "languages": [
+          "SimpChinese"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDMDhFN0U0NDBENUMxNjMKUldSandkVkE1T2NJak5MSlhwS0s4Tnp4WFJ0TmQxSXEySkZBc0Z1TzFIQklxejNrSys4RzJVRCsK",
+      "endpoints": [
+        "https://www.crcfrcn.com/api/download/citizenchain/macOS/updater"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

@@ -1,0 +1,365 @@
+# citizenchain.linux-arm.ci 的独立 GitHub 工作流。
+name: citizenchain.linux-arm.ci
+# 远端标题只展示产品、平台、流程；内部 pipeline 仍承担唯一机器身份。
+run-name: "${{ inputs.run_title }}"
+'on':
+  workflow_dispatch:
+    inputs:
+      pipeline:
+        required: true
+        type: string
+      run_title:
+        required: true
+        type: string
+      source_sha:
+        required: false
+        type: string
+      ci_run_id:
+        required: false
+        type: string
+      version_tag:
+        required: false
+        type: string
+      software_version:
+        required: false
+        type: string
+      spec_version:
+        required: false
+        type: string
+      chain_spec_version:
+        required: false
+        type: string
+      genesis_hash:
+        required: false
+        type: string
+      finalized_head:
+        required: false
+        type: string
+concurrency:
+  group: citizenchain.linux-arm.ci
+  cancel-in-progress: false
+jobs:
+  stage_1:
+    name: 校验公民链 linux-arm 源码、Logo 与依赖
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      actions: write
+      contents: read
+    env:
+      CI: true
+      WRANGLER_SEND_METRICS: false
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: '1'
+      CARGO_INCREMENTAL: '0'
+      GH_TOKEN: "${{ github.token }}"
+      GMB_SOURCE_SHA: "${{ github.sha }}"
+      PRODUCT_PLATFORM: linux-arm
+      SOURCE_SHA: "${{ github.sha }}"
+    steps:
+    - shell: bash
+      env:
+        PIPELINE: "${{ inputs.pipeline }}"
+        RUN_TITLE: "${{ inputs.run_title }}"
+        SOURCE_SHA: "${{ inputs.source_sha }}"
+        CI_RUN_ID: "${{ inputs.ci_run_id }}"
+        VERSION_TAG: "${{ inputs.version_tag }}"
+        SOFTWARE_VERSION: "${{ inputs.software_version }}"
+        SPEC_VERSION: "${{ inputs.spec_version }}"
+        CHAIN_SPEC_VERSION: "${{ inputs.chain_spec_version }}"
+        GENESIS_HASH: "${{ inputs.genesis_hash }}"
+        FINALIZED_HEAD: "${{ inputs.finalized_head }}"
+      run: |-
+        node --input-type=module <<'NODE'
+        const e=process.env,allowed=new Set(["citizenchain.linux-arm.ci"]);
+        if(!allowed.has(e.PIPELINE||''))throw Error('产品流程身份无效');
+        if(e.RUN_TITLE!=="公民链 · LinuxARM · CI")throw Error('产品平台流程展示标题无效');
+        if([e.CI_RUN_ID,e.VERSION_TAG,e.SOFTWARE_VERSION,e.SPEC_VERSION,e.CHAIN_SPEC_VERSION,e.GENESIS_HASH,e.FINALIZED_HEAD].some(Boolean))throw Error('CI输入包含Release字段');
+        NODE
+    - name: 检出准确产品源码
+      uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        fetch-depth: 0
+        persist-credentials: false
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/changes/execute.mjs" workflow-step 0
+    - id: citizenchain_ci_node_linux_arm__changes__scope
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/changes/execute.mjs" workflow-step 1
+  stage_2:
+    name: 公民链 LinuxARM 全工程验证
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    permissions:
+      actions: write
+      contents: read
+    needs:
+    - stage_1
+    env:
+      CI: true
+      WRANGLER_SEND_METRICS: false
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: '1'
+      CARGO_INCREMENTAL: '0'
+      GH_TOKEN: "${{ github.token }}"
+      GMB_SOURCE_SHA: "${{ github.sha }}"
+      SOURCE_SHA: "${{ github.sha }}"
+    steps:
+    - name: 检出准确产品源码
+      uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        fetch-depth: 0
+        persist-credentials: false
+    - name: 装载准确Node.js
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      with:
+        node-version: 25.2.1
+    - name: 装载准确Rust
+      uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
+      with:
+        toolchain: 1.97.1
+        components: rustfmt, clippy
+    - id: citizenchain_ci_node_linux_arm__verify__ci_cache
+      env:
+        GH_TOKEN: "${{ github.token }}"
+        CI_CACHE_PRODUCT: citizenchain
+        CI_CACHE_PLATFORM: linux-arm
+        CI_CACHE_ARCHITECTURE: arm64
+        CI_CACHE_COMPONENT: citizenchain-ci-node-linux-arm--verify
+        CI_CACHE_WORKFLOW: citizenchain-linux-arm
+        CI_CACHE_JOB: citizenchain-ci-node-linux-arm--verify
+        CI_CACHE_TOOLCHAIN_FINGERPRINT: "${{ hashFiles('**/Cargo.lock', '**/pubspec.lock', '**/package-lock.json', '**/dependencies.lock.json', '**/runtime.lock.json') }}"
+        CI_CACHE_PATHS: |
+          cargo-home
+          cargo-target
+          npm
+          xdg
+        CI_CACHE_LINKS: 'target=cargo-target
+
+          '
+        CI_CACHE_FINALS: |
+          cargo-target/release/bundle
+          cargo-target/release/citizenchain
+          cargo-target/release/onchina
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 0
+    - name: 恢复上一次成功的CI增量缓存
+      continue-on-error: true
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+      with:
+        path: "${{ steps.citizenchain_ci_node_linux_arm__verify__ci_cache.outputs.success_paths }}"
+        key: "${{ steps.citizenchain_ci_node_linux_arm__verify__ci_cache.outputs.restore_key }}"
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 1
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 2
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 3
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 4
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 5
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 6
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 7
+    - working-directory: .
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 8
+    - working-directory: .
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 9
+    - working-directory: .
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 10
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 11
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 12
+    - if: "${{ failure() && !cancelled() }}"
+      env:
+        CI_CACHE_TERMINAL_STATE: failure
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 13
+    - if: "${{ failure() && !cancelled() }}"
+      name: 保存本次失败的CI增量缓存
+      id: citizenchain_ci_node_linux_arm__verify__ci_cache_save_failure
+      continue-on-error: true
+      uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
+      with:
+        path: "${{ steps.citizenchain_ci_node_linux_arm__verify__ci_cache.outputs.failure_paths }}"
+        key: "${{ steps.citizenchain_ci_node_linux_arm__verify__ci_cache.outputs.failure_key }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenchain_ci_node_linux_arm__verify__ci_cache_save_failure.outcome == 'success' }}"
+      continue-on-error: true
+      env:
+        GH_TOKEN: "${{ github.token }}"
+        CI_CACHE_TERMINAL_STATE: failure
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 14
+    - if: "${{ success() }}"
+      env:
+        CI_CACHE_TERMINAL_STATE: success
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 15
+    - if: "${{ success() }}"
+      name: 保存本次成功的CI增量缓存
+      id: citizenchain_ci_node_linux_arm__verify__ci_cache_save_success
+      continue-on-error: true
+      uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
+      with:
+        path: "${{ steps.citizenchain_ci_node_linux_arm__verify__ci_cache.outputs.success_paths }}"
+        key: "${{ steps.citizenchain_ci_node_linux_arm__verify__ci_cache.outputs.success_key }}"
+    - if: "${{ success() && steps.citizenchain_ci_node_linux_arm__verify__ci_cache_save_success.outcome == 'success' }}"
+      continue-on-error: true
+      env:
+        GH_TOKEN: "${{ github.token }}"
+        CI_CACHE_TERMINAL_STATE: success
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/verify/execute.mjs" workflow-step 16
+  flow:
+    name: 打包公民链桌面端 (LinuxARM)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    permissions:
+      actions: write
+      contents: read
+    needs:
+    - stage_2
+    env:
+      CI: true
+      WRANGLER_SEND_METRICS: false
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: '1'
+      CARGO_INCREMENTAL: '0'
+      GH_TOKEN: "${{ github.token }}"
+      GMB_SOURCE_SHA: "${{ github.sha }}"
+      PRODUCT_EXPECTED_RUNNER_ARCH: ARM64
+      PRODUCT_CI_BUNDLE_TARGETS: deb
+      PRODUCT_MANUAL_BUNDLE_TARGETS: ''
+      PRODUCT_UPDATER_MANIFEST_NAME: citizenchain-node-latest-LinuxARM.json
+      PRODUCT_PLATFORM: linux-arm
+      PRODUCT_INSTALLER_NAME: citizenchain-node-LinuxARM.deb
+      PRODUCT_UPDATER_ASSET_NAME: citizenchain-node-LinuxARM.AppImage
+      PRODUCT_DEB_ARCH: arm64
+      SOURCE_SHA: "${{ github.sha }}"
+    steps:
+    - name: 检出准确产品源码
+      uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        fetch-depth: 0
+        persist-credentials: false
+    - name: 装载准确Node.js
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      with:
+        node-version: 25.2.1
+    - name: 装载准确Rust
+      uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
+      with:
+        toolchain: 1.97.1
+    - id: citizenchain_ci_node_linux_arm__build_desktop__ci_cache
+      env:
+        GH_TOKEN: "${{ github.token }}"
+        CI_CACHE_PRODUCT: citizenchain
+        CI_CACHE_PLATFORM: linux-arm
+        CI_CACHE_ARCHITECTURE: arm64
+        CI_CACHE_COMPONENT: citizenchain-ci-node-linux-arm--build-desktop
+        CI_CACHE_WORKFLOW: citizenchain-linux-arm
+        CI_CACHE_JOB: citizenchain-ci-node-linux-arm--build-desktop
+        CI_CACHE_TOOLCHAIN_FINGERPRINT: "${{ hashFiles('**/Cargo.lock', '**/pubspec.lock', '**/package-lock.json', '**/dependencies.lock.json', '**/runtime.lock.json') }}"
+        CI_CACHE_PATHS: |
+          cargo-home
+          cargo-target
+          npm
+          xdg
+        CI_CACHE_LINKS: 'target=cargo-target
+
+          '
+        CI_CACHE_FINALS: |
+          cargo-target/release/bundle
+          cargo-target/release/citizenchain
+          cargo-target/release/onchina
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 0
+    - name: 恢复上一次成功的CI增量缓存
+      continue-on-error: true
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+      with:
+        path: "${{ steps.citizenchain_ci_node_linux_arm__build_desktop__ci_cache.outputs.success_paths }}"
+        key: "${{ steps.citizenchain_ci_node_linux_arm__build_desktop__ci_cache.outputs.restore_key }}"
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 1
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 2
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 3
+    - shell: bash
+      env:
+        EXPECTED_RUNNER_ARCH: "${{ env.PRODUCT_EXPECTED_RUNNER_ARCH }}"
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 4
+    - shell: bash
+      env:
+        CITIZENCHAIN_CI_BUNDLE_TARGETS: "${{ env.PRODUCT_CI_BUNDLE_TARGETS }}"
+        CITIZENCHAIN_MANUAL_BUNDLE_TARGETS: "${{ env.PRODUCT_MANUAL_BUNDLE_TARGETS }}"
+        CITIZENCHAIN_UPDATER_MANIFEST_NAME: "${{ env.PRODUCT_UPDATER_MANIFEST_NAME }}"
+        CITIZENCHAIN_PLATFORM: "${{ env.PRODUCT_PLATFORM }}"
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 5
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 6
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 7
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 8
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 9
+    - working-directory: ./node
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 10
+    - shell: bash
+      env:
+        INSTALLER_NAME: "${{ env.PRODUCT_INSTALLER_NAME }}"
+        UPDATER_ASSET_NAME: "${{ env.PRODUCT_UPDATER_ASSET_NAME }}"
+        EXPECTED_DEB_ARCH: "${{ env.PRODUCT_DEB_ARCH }}"
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 11
+    - if: "${{ failure() && !cancelled() }}"
+      env:
+        CI_CACHE_TERMINAL_STATE: failure
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 12
+    - if: "${{ failure() && !cancelled() }}"
+      name: 保存本次失败的CI增量缓存
+      id: citizenchain_ci_node_linux_arm__build_desktop__ci_cache_save_failure
+      continue-on-error: true
+      uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
+      with:
+        path: "${{ steps.citizenchain_ci_node_linux_arm__build_desktop__ci_cache.outputs.failure_paths }}"
+        key: "${{ steps.citizenchain_ci_node_linux_arm__build_desktop__ci_cache.outputs.failure_key }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenchain_ci_node_linux_arm__build_desktop__ci_cache_save_failure.outcome == 'success' }}"
+      continue-on-error: true
+      env:
+        GH_TOKEN: "${{ github.token }}"
+        CI_CACHE_TERMINAL_STATE: failure
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 13
+    - if: "${{ success() }}"
+      env:
+        CI_CACHE_TERMINAL_STATE: success
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 14
+    - if: "${{ success() }}"
+      name: 保存本次成功的CI增量缓存
+      id: citizenchain_ci_node_linux_arm__build_desktop__ci_cache_save_success
+      continue-on-error: true
+      uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
+      with:
+        path: "${{ steps.citizenchain_ci_node_linux_arm__build_desktop__ci_cache.outputs.success_paths }}"
+        key: "${{ steps.citizenchain_ci_node_linux_arm__build_desktop__ci_cache.outputs.success_key }}"
+    - if: "${{ success() && steps.citizenchain_ci_node_linux_arm__build_desktop__ci_cache_save_success.outcome == 'success' }}"
+      continue-on-error: true
+      env:
+        GH_TOKEN: "${{ github.token }}"
+        CI_CACHE_TERMINAL_STATE: success
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/node/ci/linux-arm/build-desktop/execute.mjs" workflow-step 15

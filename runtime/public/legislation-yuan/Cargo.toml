@@ -1,0 +1,42 @@
+[package]
+name = "legislation-yuan"  # 立法院模块:法律结构化上链 + 修法走投票引擎(ADR-027)
+edition.workspace = true   # 默认 Rust 版本
+version.workspace = true   # 版本号
+authors.workspace = true   # 作者
+repository.workspace = true  # 项目仓库
+license = "MIT"        # 授权协议 MIT
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+pallet-timestamp = { workspace = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+
+primitives = { path = "../../primitives", default-features = false }
+votingengine = { path = "../../votingengine", default-features = false }
+legislation-vote = { path = "../../votingengine/legislation-vote", default-features = false }
+entity-primitives = { path = "../../entity/entity-primitives", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-timestamp/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "primitives/std",
+    "votingengine/std",
+    "legislation-vote/std",
+    "entity-primitives/std",
+]
+try-runtime = []
+
+[dev-dependencies]
+# 测试 mock 需要 std;internal-vote 仅为投票引擎 finalizer 装配,使用其默认(std)特性。
+internal-vote = { path = "../../votingengine/internal-vote" }

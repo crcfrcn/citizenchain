@@ -1,0 +1,52 @@
+[package]
+name = "runtime-upgrade"  # 运行时协议升级治理模块
+edition.workspace = true   # 默认 Rust 版本
+version.workspace = true   # 版本号
+authors.workspace = true   # 作者
+repository.workspace = true  #项目仓库
+license = "MIT"        # 授权协议 MIT
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+
+primitives = { path = "../../primitives", default-features = false }
+entity-primitives = { path = "../../entity/entity-primitives", default-features = false }
+votingengine = { path = "../../votingengine", default-features = false }
+joint-vote = { path = "../../votingengine/joint-vote", default-features = false }
+genesis-pallet = { path = "../../genesis", default-features = false }
+pow-difficulty = { path = "../../misc/pow-difficulty", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "primitives/std",
+    "entity-primitives/std",
+    "votingengine/std",
+    "joint-vote/std",
+    "genesis-pallet/std",
+    "pow-difficulty/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "joint-vote/runtime-benchmarks",
+]
+try-runtime = []
+
+[dev-dependencies]
+internal-vote = { path = "../../votingengine/internal-vote", default-features = false }
+pallet-timestamp = { workspace = true }

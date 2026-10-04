@@ -1,0 +1,53 @@
+[package]
+name = "resolution-issuance" # 决议发行完整流程模块
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+pallet-balances = { workspace = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+sp-std = { workspace = true }
+votingengine = { path = "../../votingengine", default-features = false }
+joint-vote = { path = "../../votingengine/joint-vote", default-features = false }
+primitives = { path = "../../primitives", default-features = false }
+entity-primitives = { path = "../../entity/entity-primitives", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-balances/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "sp-std/std",
+    "votingengine/std",
+    "joint-vote/std",
+    "primitives/std",
+    "entity-primitives/std",
+]
+runtime-benchmarks = [
+    # 决议发行 benchmark 依赖 votingengine 与 balances 的 benchmark 配置，需同步传播。
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "votingengine/runtime-benchmarks",
+    "joint-vote/runtime-benchmarks",
+]
+try-runtime = []
+
+[dev-dependencies]
+internal-vote = { path = "../../votingengine/internal-vote", default-features = false }

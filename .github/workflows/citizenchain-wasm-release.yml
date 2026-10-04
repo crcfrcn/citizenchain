@@ -1,0 +1,145 @@
+# citizenchain.wasm.release 的独立 GitHub 工作流。
+name: citizenchain.wasm.release
+# 远端标题只展示产品、平台、流程；内部 pipeline 仍承担唯一机器身份。
+run-name: "${{ inputs.run_title }}"
+'on':
+  workflow_dispatch:
+    inputs:
+      pipeline:
+        required: true
+        type: string
+      run_title:
+        required: true
+        type: string
+      source_sha:
+        required: false
+        type: string
+      ci_run_id:
+        required: false
+        type: string
+      version_tag:
+        required: false
+        type: string
+      software_version:
+        required: false
+        type: string
+      spec_version:
+        required: false
+        type: string
+      chain_spec_version:
+        required: false
+        type: string
+      genesis_hash:
+        required: false
+        type: string
+      finalized_head:
+        required: false
+        type: string
+concurrency:
+  group: citizenchain.wasm.release
+  cancel-in-progress: false
+jobs:
+  flow:
+    name: 编译 WASM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      actions: write
+      # 本主Job创建准确产品正式Release；写权限仅限当前仓。
+      contents: write
+    env:
+      CI: true
+      WRANGLER_SEND_METRICS: false
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: '1'
+      CARGO_INCREMENTAL: '0'
+      GH_TOKEN: "${{ github.token }}"
+      GMB_SOURCE_SHA: "${{ inputs.source_sha }}"
+      GMB_CI_RUN_ID: "${{ inputs.ci_run_id }}"
+      GMB_VERSION_TAG: "${{ inputs.version_tag }}"
+      GMB_SOFTWARE_VERSION: "${{ inputs.software_version }}"
+      GMB_SPEC_VERSION: "${{ inputs.spec_version }}"
+      GMB_CHAIN_SPEC_VERSION: "${{ inputs.chain_spec_version }}"
+      GMB_CHAIN_GENESIS_HASH: "${{ inputs.genesis_hash }}"
+      GMB_CHAIN_FINALIZED_HEAD: "${{ inputs.finalized_head }}"
+      SOURCE_SHA: "${{ inputs.source_sha }}"
+      CI_RUN_ID: "${{ inputs.ci_run_id }}"
+      VERSION_TAG: "${{ inputs.version_tag }}"
+      SOFTWARE_VERSION: "${{ inputs.software_version }}"
+      SPEC_VERSION: "${{ inputs.spec_version }}"
+      CHAIN_SPEC_VERSION: "${{ inputs.chain_spec_version }}"
+      GENESIS_HASH: "${{ inputs.genesis_hash }}"
+      FINALIZED_HEAD: "${{ inputs.finalized_head }}"
+    steps:
+    - shell: bash
+      env:
+        PIPELINE: "${{ inputs.pipeline }}"
+        RUN_TITLE: "${{ inputs.run_title }}"
+        SOURCE_SHA: "${{ inputs.source_sha }}"
+        CI_RUN_ID: "${{ inputs.ci_run_id }}"
+        VERSION_TAG: "${{ inputs.version_tag }}"
+        SOFTWARE_VERSION: "${{ inputs.software_version }}"
+        SPEC_VERSION: "${{ inputs.spec_version }}"
+        CHAIN_SPEC_VERSION: "${{ inputs.chain_spec_version }}"
+        GENESIS_HASH: "${{ inputs.genesis_hash }}"
+        FINALIZED_HEAD: "${{ inputs.finalized_head }}"
+      run: |-
+        node --input-type=module <<'NODE'
+        const e=process.env,allowed=new Set(["citizenchain.wasm.release"]);
+        if(!allowed.has(e.PIPELINE||''))throw Error('产品流程身份无效');
+        if(e.RUN_TITLE!=="公民链 · WASM · Release")throw Error('产品平台流程展示标题无效');
+        if(!/^[0-9a-f]{40}$/.test(e.SOURCE_SHA||'')||!/^[1-9][0-9]*$/.test(e.CI_RUN_ID||'')||!e.VERSION_TAG)throw Error('Release来源输入无效');
+        if(e.SOFTWARE_VERSION||!/^[1-9][0-9]*$/.test(e.SPEC_VERSION||'')||!/^[0-9]+$/.test(e.CHAIN_SPEC_VERSION||'')||!/^(?:0x)?[0-9a-f]{64}$/.test(e.GENESIS_HASH||'')||!/^(?:0x)?[0-9a-f]{64}$/.test(e.FINALIZED_HEAD||''))throw Error('协议WASM Release输入无效');
+        NODE
+    - name: 检出准确产品源码
+      uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ inputs.source_sha }}"
+        fetch-depth: 0
+        persist-credentials: false
+    - name: 装载准确Node.js
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      with:
+        node-version: 25.2.1
+    - name: 装载准确Rust
+      uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
+      with:
+        toolchain: 1.97.1
+        targets: wasm32v1-none
+        components: rust-src, clippy
+    - env:
+        GH_TOKEN: "${{ github.token }}"
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 0
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 1
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 2
+    - working-directory: .
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 3
+    - working-directory: .
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 4
+    - working-directory: .
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 5
+    - working-directory: .
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 6
+    - working-directory: .
+      env:
+        WASM_BUILD_FROM_SOURCE: '1'
+        CITIZENCHAIN_PRODUCTION_WASM_BUILD: '1'
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 7
+    - working-directory: .
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 8
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 9
+    - working-directory: .
+      env:
+        WASM_FILE: "${{ github.workspace }}/target/release/wbuild/citizenchain/citizenchain.compact.compressed.wasm"
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 10

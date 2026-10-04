@@ -1,0 +1,29 @@
+# Windows MSVC 静态链接 C++ 运行时,消除对 MSVCP140.dll / VCRUNTIME140.dll 的依赖,
+# 让 citizenchain.exe 在未装 VC++ Redistributable 的 Windows 上也能直接运行。
+# 仅对 x86_64-pc-windows-msvc 目标生效,不影响 macOS / Linux 构建。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# runtime WASM 链接参数唯一真源。
+#
+# `ext_*`(sp_io host function)在 runtime wasm 里本来就应该链接成 wasm import，
+# 由执行器在实例化时注入。Rust 1.97 起自带的 rust-lld 不再默认放行未定义符号，
+# 缺这个 flag 会在链接阶段报满屏 `undefined symbol: ext_storage_get_version_1`
+# 之类错误，citizenchain runtime 和 polkadot-sdk 的测试夹具 runtime 全都编不出来。
+#
+# 放在这里而不是某个 build.rs：wasm-builder 对**所有** wbuild 工程都读这个环境变量，
+# 一处生效即覆盖 citizenchain 自有 runtime 与 SDK 测试夹具；写进单个 build.rs 只能救自己。
+[env]
+WASM_BUILD_RUSTFLAGS = "-C link-arg=--allow-undefined"
+
+# 中文注释：trie-db 0.30.0 是 polkadot-sdk 依赖链带入的第三方 future-incompat 报告，
+# GMB 自有 warning 已单独清零；该报告不作为本仓库自有代码门禁阻断项。
+[future-incompat-report]
+frequency = "never"
+
+# 工具链要求由塔塔从本文件读取并校验，实际工具统一由中央工具库提供。
+# Cargo 通过 --config 加载编译配置；此节不依赖 rustup 自动发现。
+[toolchain]
+channel = "1.97.1"
+targets = ["wasm32v1-none"]
+components = ["rust-src"]

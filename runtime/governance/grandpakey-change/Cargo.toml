@@ -1,0 +1,63 @@
+[package]
+name = "grandpakey-change"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+sp-core = { workspace = true }
+sp-crypto-hashing = { workspace = true }
+sp-io = { workspace = true }
+sp-consensus-grandpa = { workspace = true }
+pallet-grandpa = { workspace = true }
+curve25519-dalek = { version = "4.1.3", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "2.1.1", default-features = false, optional = true }
+
+primitives = { path = "../../primitives", default-features = false }
+entity-primitives = { path = "../../entity/entity-primitives", default-features = false }
+votingengine = { path = "../../votingengine", default-features = false }
+
+[dev-dependencies]
+internal-vote = { path = "../../votingengine/internal-vote", default-features = false }
+[features]
+default = ["std"]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "pallet-grandpa/try-runtime",
+    "sp-runtime/try-runtime",
+    "votingengine/try-runtime",
+]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "frame-system/std",
+    "frame-benchmarking?/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "sp-core/std",
+    "sp-crypto-hashing/std",
+    "sp-io/std",
+    "sp-consensus-grandpa/std",
+    "pallet-grandpa/std",
+    "primitives/std",
+    "entity-primitives/std",
+    "votingengine/std",
+]
+runtime-benchmarks = [
+    "dep:ed25519-dalek",
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]

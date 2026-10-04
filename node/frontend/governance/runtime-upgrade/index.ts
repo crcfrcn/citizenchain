@@ -1,0 +1,1 @@
+export { ProtocolUpgradeProposalPage } from './ProtocolUpgradeProposalPage';

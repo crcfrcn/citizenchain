@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 公民链唯一 Apple App ID；Developer ID 描述文件与最终签名必须同时匹配。 -->
+	<key>com.apple.application-identifier</key>
+	<string>MHYMVRN6FC.macOS.citizenappchain</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>MHYMVRN6FC</string>
+	<!-- 当前 Substrate/Wasmtime 执行运行时需要 JIT 与可执行内存；仅授予节点 App。 -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<!-- 节点端全部扫码入口共用系统摄像头；不申请麦克风等无关设备权限。 -->
+	<key>com.apple.security.device.camera</key>
+	<true/>
+</dict>
+</plist>

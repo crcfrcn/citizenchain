@@ -1,0 +1,29 @@
+[package]
+name = "chain-signing"
+description = "CitizenChain Rust host-side extrinsic signing material."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# 单文件库入口直接归属 crate 根，保留原公开 crate 名称。
+[lib]
+path = "lib.rs"
+
+[dependencies]
+citizenchain = { workspace = true, default-features = true }
+codec = { workspace = true, default-features = true }
+frame-metadata-hash-extension = { workspace = true, default-features = true }
+frame-system = { workspace = true, default-features = true }
+hex = "=0.4.3"
+pallet-transaction-payment = { workspace = true, default-features = true }
+primitives = { path = "../../runtime/primitives", default-features = true }
+sha2 = "=0.10.9"
+sp-core = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }

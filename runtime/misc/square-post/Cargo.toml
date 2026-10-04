@@ -1,0 +1,52 @@
+[package]
+name = "square-post" # 广场动态链上发布索引模块
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+serde = { workspace = true }                                                     # 创世价格播种 genesis_config 派生
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+sp-io = { workspace = true }
+primitives = { path = "../../primitives", default-features = false }              # 统一常量：费用账户派生名
+entity-primitives = { path = "../../entity/entity-primitives", default-features = false } # 机构账户查询 trait
+votingengine = { path = "../../votingengine", default-features = false }             # 平台调价统一内部投票
+
+[dev-dependencies]
+pallet-balances = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, default-features = false, features = ["std"] } # 金标 SCALE 向量 fixture
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+    "votingengine/try-runtime",
+]
+std = [
+    "codec/std",
+    "frame-benchmarking?/std",
+    "scale-info/std",
+    "frame-support/std",
+    "frame-system/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "sp-io/std",
+    "primitives/std",
+    "entity-primitives/std",
+    "votingengine/std",
+]

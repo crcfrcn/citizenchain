@@ -1,0 +1,69 @@
+{
+  "_comment": "ADR-024 账户派生金标向量 (canonical, Rust 权威源). 行为中性基线: domain=GMB, ss58_format=2027. account_id 一律为 ADR-040 规范文本: 小写 0x + 64 位十六进制. china_* 来源的 Main/Fee/Stake/SafetyFund/He account_id 必须与 china_*.rs 字面值逐字节一致(创世账户烘焙器 citizenchain/scripts/rederive_accounts.py 用 GMB+OP_* 派生的真值,原名 multisig.py). InstitutionNamed / Personal 的 account_id 由 Rust 导出测试(ACCOUNT_DERIVE_UPDATE=1)用 account_derive 计算后回填,勿手算. 重生方式: citizenchain/scripts/sync-derive-vectors.sh. 【真源】本文件是唯一权威源。改动任何向量值后必须同步全部镜像，CI 由 .github/scripts/gmb-repository/ci-repository.mjs golden-vectors 逐字段比对，不一致即失败。",
+  "domain": "GMB",
+  "ss58_format": 2027,
+  "vectors": [
+    {
+      "account_id": "0x7c0c099ee4df10c5bd3f618ddf132b6d15390fa27d2c1369f70aeb6b5f3907e5",
+      "cid_number": "LN001-NRC0G-944805165-2026",
+      "kind": "InstitutionMain",
+      "source": "china_cb NRC 中华民族联邦共和国公民储备委员会"
+    },
+    {
+      "account_id": "0xfabe3c11d600221ab4156ebaae3c00c8efae939442f4cd1a764cfdf62461a387",
+      "cid_number": "LN001-NRC0G-944805165-2026",
+      "kind": "InstitutionFee",
+      "source": "china_cb NRC 中华民族联邦共和国公民储备委员会"
+    },
+    {
+      "account_id": "0xaa23304c7b663ba25a9d3a2fb1efafdd650ecf2504a2caedc228fe81b46b4333",
+      "cid_number": "GZ018-SFGYR-201206100-2026",
+      "kind": "InstitutionMain",
+      "source": "citizenchain 公民链技术发展基金会主账户"
+    },
+    {
+      "account_id": "0xe4837d50cd5ef677c9b10ea49baf8c7d60cf11b422d748377e9e5f750640e927",
+      "cid_number": "GZ018-SFGYR-201206100-2026",
+      "kind": "InstitutionFee",
+      "source": "citizenchain 公民链技术发展基金会费用账户"
+    },
+    {
+      "account_id": "0x4ac779852c175087c445c35efecfef3ce6e0232702152ea2283f0b5ec3952e53",
+      "cid_number": "LN001-NRC0G-944805165-2026",
+      "kind": "InstitutionSafetyFund",
+      "source": "china_cb SAFETY_FUND_ACCOUNT 安全基金"
+    },
+    {
+      "account_id": "0xda5544a52e806f6e5daeba3e2f0be134b218a9c348f2804b7e933deb9ed84e86",
+      "cid_number": "LN001-NRC0G-944805165-2026",
+      "kind": "InstitutionHe",
+      "source": "china_cb NRC_HE_ACCOUNT 两和基金"
+    },
+    {
+      "account_id": "0x9ef37de03eaf9108bd90479843c749be3a14da20fbc23cd3916da1897f83fc59",
+      "cid_number": "ZS001-PRB08-233384677-2026",
+      "kind": "InstitutionStake",
+      "source": "china_ch[0] stake_account 中枢省公民储备银行 永久质押"
+    },
+    {
+      "account_id": "0x14899e9a7e03c90abf3092cafc637aebb0c960722dab088c9b6c6e8060150c90",
+      "cid_number": "GD018-SFGF0-201206100-2026",
+      "kind": "InstitutionClearing",
+      "source": "self-authored: SFGF 股份公司 清算账户(address 由 Rust ACCOUNT_DERIVE_UPDATE 回填)"
+    },
+    {
+      "account_id": "0xeb6f659c95a9c1b2172374174b00e9c6bb701f60d845b6b16c509b3c2e343ae8",
+      "account_name": "工资账户",
+      "cid_number": "LN001-NRC0G-944805165-2026",
+      "kind": "InstitutionNamed",
+      "source": "self-authored: NRC cid + 自定义命名账户(address 由 Rust 回填, op_tag 0x07)"
+    },
+    {
+      "account_id": "0x3bf667dd1e30b82ebf7e4f13ea914648f3dd13520f2627b1571988b3125e9ed3",
+      "account_name": "我的多签",
+      "creator_account_id": "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "kind": "Personal",
+      "source": "self-authored: 个人多签 creator_account_id+name(address 由 Rust 回填)"
+    }
+  ]
+}

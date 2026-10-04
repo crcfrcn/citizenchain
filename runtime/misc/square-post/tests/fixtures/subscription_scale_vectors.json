@@ -1,0 +1,101 @@
+{
+  "pallet_index": 34,
+  "state_platform": "00020068e5cf8b0100000068e5cf8b0100001c8d5b0000000000000000000000000000fc1a478c010000001c8d5b0000000000000000000000000000",
+  "vectors": [
+    {
+      "hex": "00",
+      "name": "billing_period_monthly",
+      "note": "BillingPeriod::Monthly；只表示自然日历类型"
+    },
+    {
+      "hex": "01",
+      "name": "billing_period_quarterly",
+      "note": "BillingPeriod::Quarterly；只表示自然日历类型"
+    },
+    {
+      "hex": "02",
+      "name": "billing_period_yearly",
+      "note": "BillingPeriod::Yearly；只表示自然日历类型"
+    },
+    {
+      "hex": "00",
+      "name": "issuer_platform",
+      "note": "IssuerKey::Platform"
+    },
+    {
+      "hex": "016847443030312d43545a4e312d3030303030303030362d32303236",
+      "name": "issuer_creator",
+      "note": "IssuerKey::Creator(GD001-CTZN1-000000006-2026)，创作者以 CID 为唯一主键"
+    },
+    {
+      "hex": "0002",
+      "name": "plan_platform_spark",
+      "note": "SubscriptionPlan::Platform{Spark}"
+    },
+    {
+      "hex": "0124737570706f7274657200",
+      "name": "plan_creator_supporter_monthly",
+      "note": "SubscriptionPlan::Creator{tier_id=supporter,billing_period=Monthly}"
+    },
+    {
+      "hex": "00",
+      "name": "status_active",
+      "note": "SubscriptionStatus::Active"
+    },
+    {
+      "hex": "01",
+      "name": "status_cancelled",
+      "note": "SubscriptionStatus::Cancelled"
+    },
+    {
+      "hex": "02",
+      "name": "status_terminated",
+      "note": "SubscriptionStatus::Terminated"
+    },
+    {
+      "hex": "03",
+      "name": "status_suspended",
+      "note": "SubscriptionStatus::Suspended"
+    },
+    {
+      "hex": "04",
+      "name": "status_creator_paused",
+      "note": "SubscriptionStatus::CreatorPaused（创作者掉平台会员，粉丝暂停但留调度）"
+    },
+    {
+      "hex": "00",
+      "name": "suspend_reason_need_reconsent",
+      "note": "SuspendReason::NeedReconsent（创作者计划改价/改周期待再签名）"
+    },
+    {
+      "hex": "01",
+      "name": "suspend_reason_insufficient_balance",
+      "note": "SuspendReason::InsufficientBalance（续费余额不足）"
+    },
+    {
+      "hex": "02",
+      "name": "suspend_reason_identity_binding_unavailable",
+      "note": "SuspendReason::IdentityBindingUnavailable（CID 当前无完整 active 双向账户绑定）"
+    },
+    {
+      "hex": "00020068e5cf8b0100000068e5cf8b0100001c8d5b0000000000000000000000000000fc1a478c010000001c8d5b0000000000000000000000000000",
+      "name": "state_platform_spark_active",
+      "note": "目标 SubscriptionState SCALE 顺序"
+    },
+    {
+      "hex": "010000021c8d5b00000000000000000000000000",
+      "name": "call_subscribe_platform_spark",
+      "note": "Call::subscribe{Platform,Platform{Spark},expected_price_fen}"
+    },
+    {
+      "hex": "0200",
+      "name": "call_cancel_platform",
+      "note": "Call::cancel{Platform}"
+    },
+    {
+      "hex": "22010000021c8d5b00000000000000000000000000",
+      "name": "calldata_subscribe_platform_spark",
+      "note": "pallet 0x22 + subscribe"
+    }
+  ]
+}

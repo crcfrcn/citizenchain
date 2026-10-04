@@ -1,0 +1,108 @@
+- kind_key: sign_request
+  kind_code: 1
+  temporary: true
+  fields:
+    - wire_key: a
+      field_key: action
+      constraint: positive_int
+    - wire_key: g
+      field_key: sig_alg
+      constraint: enum_int
+      allowed_ints: [1]
+    - wire_key: u
+      field_key: signer_public_key
+      constraint: signer_public_key
+      empty_for_actions: [citizen_occupy, citizen_rebind]
+    - wire_key: d
+      field_key: review_payload
+      constraint: b64u_bytes
+      min_bytes: 1
+
+- kind_key: sign_response
+  kind_code: 2
+  temporary: true
+  fields:
+    - wire_key: u
+      field_key: signer_public_key
+      constraint: b64u_bytes
+      exact_bytes: 32
+    - wire_key: s
+      field_key: signature
+      constraint: b64u_bytes
+      exact_bytes: 64
+    - wire_key: o
+      field_key: current_account_id
+      constraint: b64u_bytes
+      exact_bytes: 32
+      required: false
+    - wire_key: r
+      field_key: current_account_signature
+      constraint: b64u_bytes
+      exact_bytes: 64
+      required: false
+  optional_pairs:
+    - [o, r]
+
+- kind_key: user_contact
+  kind_code: 3
+  temporary: false
+  fields:
+    - wire_key: c
+      field_key: cid_number
+      constraint: cid_number
+    - wire_key: n
+      field_key: account_id
+      constraint: account_id
+
+- kind_key: user_transfer
+  kind_code: 4
+  temporary: true
+  fields:
+    - wire_key: n
+      field_key: account_id
+      constraint: account_id
+    - wire_key: v
+      field_key: amount
+      constraint: text_nonempty
+    - wire_key: t
+      field_key: symbol
+      constraint: text_nonempty
+    - wire_key: m
+      field_key: memo
+      constraint: text
+    - wire_key: l
+      field_key: bank_cid_number
+      constraint: cid_number
+
+- kind_key: account_id_code
+  kind_code: 5
+  temporary: false
+  fields:
+    - wire_key: n
+      field_key: account_id
+      constraint: account_id
+
+- kind_key: account_data_key_response
+  kind_code: 6
+  temporary: true
+  fields:
+    - wire_key: u
+      field_key: signer_public_key
+      constraint: b64u_bytes
+      exact_bytes: 32
+    - wire_key: s
+      field_key: signature
+      constraint: b64u_bytes
+      exact_bytes: 64
+    - wire_key: x
+      field_key: key_exchange_public_key
+      constraint: b64u_bytes
+      exact_bytes: 32
+    - wire_key: q
+      field_key: encryption_nonce
+      constraint: b64u_bytes
+      exact_bytes: 12
+    - wire_key: z
+      field_key: ciphertext
+      constraint: b64u_bytes
+      min_bytes: 17

@@ -1,0 +1,108 @@
+{
+  "_comment": "SCALE 编码原语金标向量 (canonical, Rust parity-scale-codec 权威源). 各端手写 SCALE 实现(Worker scaleCompact/scaleString/u64Le、citizenapp signing.dart、citizenwallet payload_decoder 解码方向)必须与本文件逐字节一致。【真源】改动取值集合后必须跑 SCALE_GOLDEN_UPDATE=1 重新生成。u64 上界钉在 2^53-1:TS 侧 Number.isSafeInteger 守卫不接受更大值。",
+  "compact_u32": [
+    {
+      "hex": "00",
+      "value": 0
+    },
+    {
+      "hex": "04",
+      "value": 1
+    },
+    {
+      "hex": "fc",
+      "value": 63
+    },
+    {
+      "hex": "0101",
+      "value": 64
+    },
+    {
+      "hex": "fd03",
+      "value": 255
+    },
+    {
+      "hex": "fdff",
+      "value": 16383
+    },
+    {
+      "hex": "02000100",
+      "value": 16384
+    },
+    {
+      "hex": "feff0300",
+      "value": 65535
+    },
+    {
+      "hex": "feffffff",
+      "value": 1073741823
+    }
+  ],
+  "scale_string": [
+    {
+      "hex": "00",
+      "utf8_len": 0,
+      "value": ""
+    },
+    {
+      "hex": "0461",
+      "utf8_len": 1,
+      "value": "a"
+    },
+    {
+      "hex": "fc787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+      "utf8_len": 63,
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "hex": "010178787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+      "utf8_len": 64,
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "hex": "6ce4b8ade58d8ee6b091e6978fe88194e982a6e585b1e5928ce59bbd",
+      "utf8_len": 27,
+      "value": "中华民族联邦共和国"
+    },
+    {
+      "hex": "34e585ace6b091f09fa7aae993be",
+      "utf8_len": 13,
+      "value": "公民🧪链"
+    },
+    {
+      "hex": "68434e3232302d43545a4e322d3139383830353230302d32303236",
+      "utf8_len": 26,
+      "value": "CN220-CTZN2-198805200-2026"
+    }
+  ],
+  "u64_le": [
+    {
+      "hex": "0000000000000000",
+      "value": 0
+    },
+    {
+      "hex": "0100000000000000",
+      "value": 1
+    },
+    {
+      "hex": "ff00000000000000",
+      "value": 255
+    },
+    {
+      "hex": "0001000000000000",
+      "value": 256
+    },
+    {
+      "hex": "ffffffff00000000",
+      "value": 4294967295
+    },
+    {
+      "hex": "0000000001000000",
+      "value": 4294967296
+    },
+    {
+      "hex": "ffffffffffff1f00",
+      "value": 9007199254740991
+    }
+  ]
+}

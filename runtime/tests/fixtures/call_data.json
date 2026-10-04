@@ -1,0 +1,41 @@
+{
+  "description": "跨端 SCALE 字节一致性金标。联合公投交易只包含 proposal_id 和 approve,投票资格与人口作用域由 runtime 链上公民身份读取。CitizenWallet 与 CitizenApp 测试读取本文件,任何一端编码漂移都会让测试断言失败。",
+  "baseline_commit": "fresh-genesis",
+  "spec_version": 1,
+  "cases": [
+    {
+      "name": "cast_referendum",
+      "pallet_index": 21,
+      "call_index": 1,
+      "fields": {
+        "proposal_id": 99,
+        "approve": true
+      },
+      "expected_call_data_hex": "0x1501630000000000000001",
+      "expected_byte_length": 11
+    },
+    {
+      "name": "propose_issuance",
+      "pallet_index": 8,
+      "call_index": 0,
+      "fields": {
+        "actor_cid_number": "LN001-NRC0G-944805165-2026",
+        "reason_utf8": "紧急救灾",
+        "total_amount_fen": 50000000,
+        "allocations": [
+          {
+            "recipient_hex": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "amount_fen": 0
+          },
+          {
+            "recipient_hex": "0xa2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+            "amount_fen": 0
+          }
+        ],
+        "note": "人口快照由投票引擎在联合提案创建时内联生成并绑定,本 call_data 只包含发行内容。"
+      },
+      "expected_call_data_hex": "0x0800684c4e3030312d4e524330472d3934343830353136352d3230323630e7b4a7e680a5e69591e781be80f0fa0200000000000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100000000000000000000000000000000a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a200000000000000000000000000000000",
+      "expected_byte_length": 155
+    }
+  ]
+}

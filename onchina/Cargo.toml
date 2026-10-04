@@ -1,0 +1,87 @@
+[package]
+name = "onchina"
+description = "onchina:链上中国多机构统一控制台(CID 身份 + 链下明细 + 管理员鉴权 + 颁发),经节点 RPC 读写链。"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license = "MIT"
+publish = false
+
+# onchina 控制台作为独立二进制,由节点桌面端设置页二次确认后拉起为子进程。
+[[bin]]
+name = "onchina"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Web服务与三仓第一方服务统一使用axum 0.8。
+axum = { version = "=0.8.9", features = ["multipart"] }
+# 内网 API HTTPS(Card 05;机构私有 CA 签发 + rustls/ring)
+axum-server = { version = "=0.8.0", features = ["tls-rustls-no-provider"] }
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std"] }
+rcgen = { version = "=0.13.2", default-features = false, features = ["ring", "pem", "x509-parser"] }
+x509-parser = { version = "0.16", default-features = false, features = ["verify"] }
+time = "0.3"
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "sync", "signal"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "v5"] }
+hex = "=0.4.3"
+hex-literal = "0.4"
+base64 = "=0.22.1"
+bs58 = "=0.5.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 链下库:内嵌 PostgreSQL + 行政区 SQLite 单源(china.sqlite)
+postgres = { version = "0.19", features = ["with-chrono-0_4", "with-serde_json-1"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# 加解密 / 编码 / 哈希
+blake2 = "=0.10.6"
+sha2 = "=0.10.9"
+schnorrkel = "=0.11.5"
+aes-gcm = "=0.10.3"
+hkdf = "0.12"
+zeroize = "=1.9.0"
+twox-hash = "=2.1.4"
+
+# 链交互:subxt 经节点 RPC 读写链 + reqwest 直连 HTTP RPC
+subxt = { version = "0.43.1", default-features = false, features = ["jsonrpsee", "native"] }
+reqwest = { version = "=0.13.4", default-features = false, features = ["json", "rustls"] }
+
+# 杂项
+libc = "0.2"
+dashmap = "6.1"
+async-trait = "=0.1.92"
+
+# 链上共享原语（随 workspace 统一固定到已发布的 Polkadot SDK commit）
+chain-signing = { path = "../crates/chain-signing" }
+qr-protocol = { path = "../crates/qr-protocol" } # 仓库级 QR_V1 协议真源
+sp-core = { workspace = true, default-features = true }
+sp-crypto-hashing = { workspace = true, default-features = true }
+primitives = { path = "../runtime/primitives" }
+# 链交易组装+提交(D7):与 node 端同一套 runtime 类型拼 SignedPayload/UncheckedExtrinsic
+citizenchain = { workspace = true, default-features = true }
+frame-system = { workspace = true, default-features = true }
+pallet-transaction-payment = { workspace = true, default-features = true }
+frame-metadata-hash-extension = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+codec = { workspace = true, default-features = true }
+admin-primitives = { path = "../runtime/admins/admin-primitives" }
+entity-primitives = { path = "../runtime/entity/entity-primitives" }
+webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
+mdns-sd = "0.20.1"
+
+[dev-dependencies]
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
+# 仅供立法 call-data 编码器交叉校验测试:用链端真实 Tier/VoteType
+# .encode() 比对,锁死 legislation-yuan SCALE 不漂移。
+legislation-yuan = { path = "../runtime/public/legislation-yuan" }
+frame-support = { workspace = true, default-features = true }
