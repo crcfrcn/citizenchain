@@ -20,3 +20,23 @@ pub mod institution_constraints; // 国家级单例身份与法定成员组成�
 pub mod multisig; // 多签共用 trait 与类型
 pub mod pow_const; // 全节点铸块与发行常量
 pub mod sign; // QR_V1 签名消息原语
+
+#[cfg(test)]
+mod monetary_tests {
+    use super::{core_const::*, fee_policy};
+
+    /// 表达常量必须保留分账本、ED 和既有制度费用；转换只由 SDK 实现。
+    #[test]
+    fn evm_representation_preserves_native_monetary_policy() {
+        assert_eq!(TOKEN_DECIMALS, 2);
+        assert_eq!(TOKEN_MIN_UNIT, 1);
+        assert_eq!(ACCOUNT_EXISTENTIAL_DEPOSIT, 111);
+        assert_eq!(EVM_DECIMALS, 18);
+        assert_eq!(NATIVE_TO_ETH_RATIO, 10u64.pow(16));
+        assert_eq!(100u128 * u128::from(NATIVE_TO_ETH_RATIO), 10u128.pow(18));
+        assert_eq!(fee_policy::ONCHAIN_MIN_FEE, 10);
+        assert_eq!(fee_policy::OFFCHAIN_MIN_FEE, 1);
+        assert_eq!(fee_policy::VOTE_FLAT_FEE, 100);
+        assert_eq!(fee_policy::calculate_onchain_fee(50_000), 50);
+    }
+}

@@ -4,6 +4,20 @@
 pub const TOKEN_SYMBOL: &str = "GMB"; // 公民币符号
 pub const TOKEN_DECIMALS: u32 = 2; // 精度：2 位（元 / 分制），1 GMB = 100 FEN
 pub const TOKEN_MIN_UNIT: u128 = 1; // 最小计价单位（1 分）
+
+/// EVM 原生公民币的兼容表达精度；真实账本仍永久按分计价。
+pub const EVM_DECIMALS: u32 = 18;
+/// 一个原生分单位对应的 EVM 金额单位数，供 Revive NativeToEthRatio 使用。
+pub const NATIVE_TO_ETH_RATIO: u64 = 10u64.pow(EVM_DECIMALS - TOKEN_DECIMALS);
+
+// 金额精度是协议不变量；修改任何一项必须在编译时失败。
+const _: () = {
+    assert!(TOKEN_DECIMALS == 2);
+    assert!(TOKEN_MIN_UNIT == 1);
+    assert!(EVM_DECIMALS == 18);
+    assert!(NATIVE_TO_ETH_RATIO == 10_000_000_000_000_000);
+};
+
 pub const SS58_FORMAT: u16 = 2027; // 地址格式前缀（SS58）
 pub const CHAIN_NAME: &str = "CitizenChain"; // 链显示名称
 pub const CHAIN_ID: &str = "citizenchain"; // 链唯一 ID（chain spec id）
