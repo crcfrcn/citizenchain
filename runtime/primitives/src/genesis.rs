@@ -47,6 +47,14 @@ sp_api::decl_runtime_apis! {
     }
 }
 
+/// 唯一合法的创世区块哈希；节点守卫直接使用编译常量，不接受配置覆盖。
+pub const GENESIS_HASH: [u8; 32] =
+    hex_literal::hex!("18847a5dfd263272f2e7727836fe6582f8c4463ff48609df7b96d5e4d9dd24dd");
+
+/// 唯一合法的创世状态根；运行期区块的状态根不与此值比较。
+pub const GENESIS_STATE_ROOT: [u8; 32] =
+    hex_literal::hex!("1f74a2ca094fc3ebb2143f504d807a6b4f4f9b0a3d13ac808ae84efc7cb12111");
+
 #[cfg(test)]
 mod tests {
     use super::*;

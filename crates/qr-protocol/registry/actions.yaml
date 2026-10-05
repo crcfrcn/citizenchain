@@ -1081,6 +1081,20 @@
     - actor_role_code
     - cid_number
 
+# 自助占号由绑定账户签完整交易；不能复用注册局授权动作或裸哈希签名。
+- action_key: self_occupy_cid
+  action_code: 0x0a05
+  action_label_zh: 自助注册CID
+  kind: chain_call
+  qr_kind: sign_request
+  pallet: CitizenIdentity
+  call: self_occupy_cid
+  decoder: self_occupy_cid
+  hash_only_allowed: false
+  signing_category: chain_tx
+  required_fields:
+    - cid_number
+
 - action_key: occupy_cid
   action_code: 0x0a06
   action_label_zh: 注册局占用CID

@@ -43,6 +43,205 @@ pub struct NodeGuard<I> {
     cid_lifecycle: Option<cid_lifecycle::GenesisReference>,
 }
 
+/// 只读取数据库中的真实块 0 头，不使用创世 storage 中的 BlockHash(0) 占位值。
+fn verify_genesis_identity<C: HeaderBackend<Block>>(client: &C) -> Result<(), String> {
+    let expected_hash = sp_core::H256::from(primitives::genesis::GENESIS_HASH);
+    let expected_root = sp_core::H256::from(primitives::genesis::GENESIS_STATE_ROOT);
+    let recorded_hash = client.info().genesis_hash;
+    if recorded_hash != expected_hash {
+        return Err(format!(
+            "客户端创世哈希不匹配：期望 {expected_hash:?}，实际 {recorded_hash:?}"
+        ));
+    }
+    let indexed_hash = client
+        .hash(0)
+        .map_err(|error| format!("读取块 0 哈希失败：{error}"))?
+        .ok_or_else(|| "块 0 哈希不存在".to_string())?;
+    if indexed_hash != expected_hash {
+        return Err(format!(
+            "块 0 索引哈希不匹配：期望 {expected_hash:?}，实际 {indexed_hash:?}"
+        ));
+    }
+    let header = client
+        .header(indexed_hash)
+        .map_err(|error| format!("读取创世区块头失败：{error}"))?
+        .ok_or_else(|| "创世区块头不存在".to_string())?;
+    if *header.number() != 0 {
+        return Err(format!(
+            "创世区块高度不匹配：期望 0，实际 {}",
+            header.number()
+        ));
+    }
+    if *header.state_root() != expected_root {
+        return Err(format!(
+            "创世状态根不匹配：期望 {expected_root:?}，实际 {:?}",
+            header.state_root()
+        ));
+    }
+    let computed_hash = header.hash();
+    if computed_hash != expected_hash {
+        return Err(format!(
+            "创世区块头重算哈希不匹配：期望 {expected_hash:?}，实际 {computed_hash:?}"
+        ));
+    }
+    Ok(())
+}
+
+/// 保持现有构造接口；创世身份失败立即中止装配，不能降级为启动警告。
+fn enforce_genesis_identity<C: HeaderBackend<Block>>(client: &C) {
+    if let Err(reason) = verify_genesis_identity(client) {
+        log::error!(target: "node-guard", "创世身份校验失败，拒绝启动节点：{reason}");
+        panic!("NodeGuard 拒绝启动：{reason}");
+    }
+}
+
+#[cfg(test)]
+mod genesis_identity_tests {
+    use super::*;
+    use sp_core::H256;
+
+    #[derive(Clone)]
+    struct TestClient {
+        recorded_hash: H256,
+        indexed_hash: Option<H256>,
+        header: Option<citizenchain::opaque::Header>,
+        hash_read_error: bool,
+        header_read_error: bool,
+    }
+
+    impl TestClient {
+        fn canonical() -> Self {
+            let recorded_hash = H256::from(primitives::genesis::GENESIS_HASH);
+            Self {
+                recorded_hash,
+                indexed_hash: Some(recorded_hash),
+                // 冻结块 0：空 parent/digest，以及空 extrinsics trie 的实际根。
+                header: Some(citizenchain::opaque::Header::new(
+                    0,
+                    H256::from(hex_literal::hex!(
+                        "03170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314"
+                    )),
+                    H256::from(primitives::genesis::GENESIS_STATE_ROOT),
+                    H256::zero(),
+                    Default::default(),
+                )),
+                hash_read_error: false,
+                header_read_error: false,
+            }
+        }
+    }
+
+    impl HeaderBackend<Block> for TestClient {
+        fn header(
+            &self,
+            hash: H256,
+        ) -> sp_blockchain::Result<Option<citizenchain::opaque::Header>> {
+            assert_eq!(Some(hash), self.indexed_hash);
+            if self.header_read_error {
+                return Err(sp_blockchain::Error::Backend("header read failed".into()));
+            }
+            Ok(self.header.clone())
+        }
+
+        fn info(&self) -> sp_blockchain::Info<Block> {
+            sp_blockchain::Info {
+                best_hash: self.recorded_hash,
+                best_number: 0,
+                genesis_hash: self.recorded_hash,
+                finalized_hash: self.recorded_hash,
+                finalized_number: 0,
+                finalized_state: Some((self.recorded_hash, 0)),
+                number_leaves: 1,
+                block_gap: None,
+            }
+        }
+
+        fn status(&self, hash: H256) -> sp_blockchain::Result<sp_blockchain::BlockStatus> {
+            Ok(if Some(hash) == self.indexed_hash {
+                sp_blockchain::BlockStatus::InChain
+            } else {
+                sp_blockchain::BlockStatus::Unknown
+            })
+        }
+
+        fn number(&self, hash: H256) -> sp_blockchain::Result<Option<u32>> {
+            Ok(self.header(hash)?.map(|header| *header.number()))
+        }
+
+        fn hash(&self, number: u32) -> sp_blockchain::Result<Option<H256>> {
+            assert_eq!(number, 0);
+            if self.hash_read_error {
+                return Err(sp_blockchain::Error::Backend("hash read failed".into()));
+            }
+            Ok(self.indexed_hash)
+        }
+    }
+
+    #[test]
+    fn canonical_genesis_passes_recomputed_header_and_startup_guard() {
+        let client = TestClient::canonical();
+        assert_eq!(verify_genesis_identity(&client), Ok(()));
+        enforce_genesis_identity(&client);
+    }
+
+    #[test]
+    fn invalid_or_unreadable_genesis_always_stops_startup() {
+        let canonical = TestClient::canonical();
+        let mut cases = Vec::new();
+        let mut client = canonical.clone();
+        client.recorded_hash = H256::repeat_byte(1);
+        cases.push(("客户端创世哈希不匹配", client));
+        let mut client = canonical.clone();
+        client.indexed_hash = Some(H256::repeat_byte(1));
+        cases.push(("块 0 索引哈希不匹配", client));
+        let mut client = canonical.clone();
+        client.indexed_hash = None;
+        cases.push(("块 0 哈希不存在", client));
+        let mut client = canonical.clone();
+        client.header = None;
+        cases.push(("创世区块头不存在", client));
+        let mut client = canonical.clone();
+        client.hash_read_error = true;
+        cases.push(("读取块 0 哈希失败", client));
+        let mut client = canonical.clone();
+        client.header_read_error = true;
+        cases.push(("读取创世区块头失败", client));
+        let mut client = canonical.clone();
+        client
+            .header
+            .as_mut()
+            .expect("canonical header")
+            .set_number(1);
+        cases.push(("创世区块高度不匹配", client));
+        let mut client = canonical.clone();
+        client
+            .header
+            .as_mut()
+            .expect("canonical header")
+            .set_state_root(H256::repeat_byte(1));
+        cases.push(("创世状态根不匹配", client));
+        let mut client = canonical;
+        client
+            .header
+            .as_mut()
+            .expect("canonical header")
+            .set_extrinsics_root(H256::repeat_byte(1));
+        cases.push(("创世区块头重算哈希不匹配", client));
+
+        for (label, client) in cases {
+            let error = verify_genesis_identity(&client).expect_err(label);
+            assert!(error.contains(label), "{label}: {error}");
+            let mut startup_continued = false;
+            let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                enforce_genesis_identity(&client);
+                startup_continued = true;
+            }));
+            assert!(rejected.is_err(), "{label} must stop startup");
+            assert!(!startup_continued, "{label} must not continue assembly");
+        }
+    }
+}
+
 /// 所有合法 finalize 原生发行按账户汇总后，由 `NodeGuard` 统一核对余额和总发行量。
 #[derive(Debug, Default, Eq, PartialEq)]
 pub(super) struct FinalizeIssuancePlan {
@@ -399,10 +598,14 @@ fn verify_precomputed_changes(
 impl<I> NodeGuard<I> {
     /// 装配节点守卫。
     ///
-    /// 启动阶段只做本机已持有状态的守卫自检：自检失败说明当前数据库里已有状态和当前
-    /// 节点二进制不完全匹配，但不能反过来杀死节点进程。节点守卫真正执法的边界是后续
-    /// 区块、状态包和候选 runtime 导入；这些路径仍然 fail-closed，坏输入一律不委派内层导入器。
+    /// 首先强制校验唯一合法的创世哈希与状态根，失败立即中止节点启动。
+    /// 其他本机状态自检仍只报告警告；后续区块、状态包和候选 runtime 导入保持
+    /// fail-closed，坏输入一律不委派内层导入器。
+    ///
+    /// # Panics
+    /// 创世身份不匹配、缺失或无法读取时拒绝构造守卫，保持现有调用接口不变。
     pub fn new(inner: I, client: Arc<FullClient>, backend: Arc<FullBackend>) -> Self {
+        enforce_genesis_identity(client.as_ref());
         let genesis_hash = client.info().genesis_hash;
         let mut startup_issues = Vec::<String>::new();
 

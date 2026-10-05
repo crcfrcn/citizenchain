@@ -85,6 +85,18 @@ fn actions_have_unique_keys_codes_and_chinese_labels() {
     }
 }
 
+/// 自助占号必须是完整链交易，并与现有Runtime call5保持唯一动作登记。
+#[test]
+fn self_occupy_cid_is_a_full_chain_transaction() {
+    let entries = actions().expect("动作登记可解析");
+    let action = entries.iter().find(|a| a.action_code == 0x0a05).expect("自助占号已登记");
+    assert_eq!(action.action_key, "self_occupy_cid");
+    assert_eq!(action.call.as_deref(), Some("self_occupy_cid"));
+    assert_eq!(action.kind, qr_protocol::registry::ActionKind::ChainCall);
+    assert!(!action.hash_only_allowed);
+    assert_eq!(action.required_fields, vec!["cid_number"]);
+}
+
 #[test]
 fn required_fields_all_have_chinese_labels() {
     let actions = actions().expect("actions.yaml 必须可解析");
@@ -238,7 +250,7 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "3c92f49a31a2b9f43bc160a315f622cbe325f55426bab2ce72f9326277b926d1",
+        "3e8112f13ed85a7c3d24edeb53dc74cc2b1aea361a8b55bd499866238d4454e0",
         "Dart registry 与保留的原消费者完整字节不一致"
     );
 }
