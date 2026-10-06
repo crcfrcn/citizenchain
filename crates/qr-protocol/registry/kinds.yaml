@@ -81,28 +81,3 @@
     - wire_key: n
       field_key: account_id
       constraint: account_id
-
-- kind_key: account_data_key_response
-  kind_code: 6
-  temporary: true
-  fields:
-    - wire_key: u
-      field_key: signer_public_key
-      constraint: b64u_bytes
-      exact_bytes: 32
-    - wire_key: s
-      field_key: signature
-      constraint: b64u_bytes
-      exact_bytes: 64
-    - wire_key: x
-      field_key: key_exchange_public_key
-      constraint: b64u_bytes
-      exact_bytes: 32
-    - wire_key: q
-      field_key: encryption_nonce
-      constraint: b64u_bytes
-      exact_bytes: 12
-    - wire_key: z
-      field_key: ciphertext
-      constraint: b64u_bytes
-      min_bytes: 17

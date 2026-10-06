@@ -19,6 +19,8 @@ const _: () = {
 };
 
 pub const SS58_FORMAT: u16 = 2027; // 地址格式前缀（SS58）
+/// Ethereum交易签名使用的ChainId，与SS58地址格式及chain spec标识分别管理。
+pub const ETHEREUM_CHAIN_ID: u64 = 2027;
 pub const CHAIN_NAME: &str = "CitizenChain"; // 链显示名称
 pub const CHAIN_ID: &str = "citizenchain"; // 链唯一 ID（chain spec id）
 pub const SUPPORT_URL: &str = "https://www.crcfrcn.com"; // 官方支持网址

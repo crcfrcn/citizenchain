@@ -34,7 +34,7 @@ frame-try-runtime = { optional = true, workspace = true }
 pallet-assets = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-grandpa = { workspace = true }
-# 与工作空间固定的SDK提交统一，本步接入编译依赖。
+# 与工作空间固定的SDK提交统一，提供已注册的官方Ethereum执行模块。
 pallet-revive = { workspace = true }
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
@@ -173,6 +173,7 @@ runtime-benchmarks = [
 	"pallet-assets/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-grandpa/runtime-benchmarks",
+	"pallet-revive/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"provincialbank-interest/runtime-benchmarks",

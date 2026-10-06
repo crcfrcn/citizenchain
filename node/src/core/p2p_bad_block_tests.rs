@@ -194,9 +194,10 @@ fn remark_extrinsic(genesis_hash: <Block as BlockT>::Hash) -> <Block as BlockT>:
 }
 
 fn timestamp_extrinsic(now: u64) -> <Block as BlockT>::Extrinsic {
-    let xt = citizenchain::UncheckedExtrinsic::new_bare(citizenchain::RuntimeCall::Timestamp(
-        citizenchain::TimestampCall::set { now },
-    ));
+    let xt: citizenchain::UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic::new_bare(
+        citizenchain::RuntimeCall::Timestamp(citizenchain::TimestampCall::set { now }),
+    )
+    .into();
     xt.into()
 }
 
@@ -403,7 +404,7 @@ fn start_test_node(
         select_chain,
         other: (block_import, grandpa_link, _telemetry),
         ..
-    } = new_partial(&config).expect("create partial service");
+    } = new_partial_for_test(&config).expect("create partial service");
 
     let bad_hash = import_bad_before_network.then(|| {
         import_bad_block_without_node_guard(block_import, select_chain, &client, &backend)
@@ -527,7 +528,7 @@ fn constitution_guard_rejects_manifest_delta_and_then_accepts_legal_delta() {
         backend,
         task_manager,
         ..
-    } = new_partial(&config).expect("create partial service");
+    } = new_partial_for_test(&config).expect("create partial service");
     let inner = CountingImport::default();
     let imports = inner.imports.clone();
     let guard = crate::core::constitution::ConstitutionGuard::new(inner, client.clone(), backend)

@@ -15,7 +15,7 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
     let source = env::current_dir()?;
     let work = std::path::PathBuf::from(env::var_os("OUT_DIR").ok_or("缺少 OUT_DIR")?)
         .join("tauri");
-    let repository = source.parent().and_then(Path::parent).ok_or("缺少仓库根目录")?;
+    let repository = source.parent().ok_or("缺少仓库根目录")?;
     if !work.is_absolute() || work.starts_with(repository) {
         return Err("Tauri 生成文件不能写入公民链源码目录".into());
     }

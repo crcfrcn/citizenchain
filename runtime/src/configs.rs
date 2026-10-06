@@ -39,8 +39,8 @@ use frame_support::{
     parameter_types,
     traits::{
         fungible::{Balanced, Credit},
-        ConstU128, ConstU32, ConstU64, ConstU8, Contains, EnsureOrigin, FindAuthor, OnUnbalanced,
-        VariantCountOf,
+        ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, Contains, EnsureOrigin, FindAuthor,
+        OnUnbalanced, VariantCountOf,
     },
     weights::{
         constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -78,9 +78,9 @@ parameter_types! {
     pub const VotingExecutionRetryGraceBlocks: BlockNumber = 21_600;
     pub const Version: RuntimeVersion = VERSION;
 
-    /// 每个区块允许 60 秒计算预算（weight ref_time）。
+    /// 每个区块允许 60 秒计算预算及 8MiB 空间预算；资源限额不参与费用计算。
     pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
-        Weight::from_parts(60u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
+        Weight::from_parts(60u64 * WEIGHT_REF_TIME_PER_SECOND, 8 * 1024 * 1024),
         NORMAL_DISPATCH_RATIO,
     );
     pub RuntimeBlockLength: BlockLength = BlockLength::builder()
@@ -176,6 +176,14 @@ pub struct RuntimeCallFilter;
 impl Contains<RuntimeCall> for RuntimeCallFilter {
     fn contains(call: &RuntimeCall) -> bool {
         match call {
+            // 只开放 Ethereum 外层及验签转换后的执行入口；来源由 SetOrigin 校验。
+            // 普通合约不能借原生 dispatch 入口访问业务 pallet。
+            RuntimeCall::Revive(call) => matches!(
+                call,
+                pallet_revive::Call::eth_transact { .. }
+                    | pallet_revive::Call::eth_call { .. }
+                    | pallet_revive::Call::eth_instantiate_with_code { .. }
+            ),
             // Balances 只作为底层余额账本和内部 Currency 能力保留。
             // 外部单账户链上转账唯一入口是 OnchainTransaction::transfer_with_remark。
             RuntimeCall::Balances(_) => false,
@@ -483,6 +491,15 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
         use primitives::fee_policy::FeeRoute;
 
         match call {
+            // 金额只做严格整分转换，费用分类和计算仍走既有 signer_onchain_route。
+            RuntimeCall::Revive(
+                pallet_revive::Call::eth_call { value, .. }
+                | pallet_revive::Call::eth_instantiate_with_code { value, .. },
+            ) => match pallet_revive::BalanceWithDust::<Balance>::from_value::<Runtime>(*value) {
+                Ok(value) => signer_onchain_route(who, value.deconstruct().0),
+                Err(_) => FeeRoute::Reject,
+            },
+            RuntimeCall::Revive(_) => FeeRoute::Reject,
             RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
                 amount,
                 ..
@@ -3182,4 +3199,94 @@ impl onchain_issuance::pallet::Config for Runtime {
     type ReasonHashLen = OnchainAssetReasonHashLen;
     type MaxScheduledPerBlock = OnchainAssetMaxScheduledPerBlock;
     type WeightInfo = onchain_issuance::weights::ZeroWeight;
+}
+
+parameter_types! {
+    /// 零存储押金，不增设任何收费或退款规则。
+    pub const ReviveCodeHashLockupDepositPercent: Perbill = Perbill::zero();
+    /// 资源上限固定取正常单笔预算的一半，与手续费无关。
+    pub const ReviveMaxEthExtrinsicWeight: sp_runtime::FixedU128 =
+        sp_runtime::FixedU128::from_rational(1, 2);
+}
+
+/// 只读报价与付款预检复用当前交易支付配置；实际扣款由同一收费器执行一次。
+pub struct RuntimeNativeFee;
+
+fn native_fee_error(
+    error: sp_runtime::transaction_validity::TransactionValidityError,
+) -> sp_runtime::transaction_validity::InvalidTransaction {
+    match error {
+        sp_runtime::transaction_validity::TransactionValidityError::Invalid(reason) => reason,
+        _ => sp_runtime::transaction_validity::InvalidTransaction::Payment,
+    }
+}
+
+impl pallet_revive::evm::fees::NativeFee<Runtime> for RuntimeNativeFee {
+    type Charger = <Runtime as pallet_transaction_payment::Config>::OnChargeTransaction;
+
+    fn quote(
+        who: &AccountId,
+        call: &RuntimeCall,
+    ) -> Result<Balance, sp_runtime::transaction_validity::InvalidTransaction> {
+        use frame_support::dispatch::GetDispatchInfo;
+        onchain::charge_details::<Runtime, Balances, RuntimeFeeRouter>(
+            who,
+            call,
+            &call.get_dispatch_info(),
+            0,
+        )
+        .map(|details| details.map_or(0, |(_, fee)| fee))
+        .map_err(native_fee_error)
+    }
+
+    fn validate(
+        who: &AccountId,
+        call: &RuntimeCall,
+    ) -> Result<(), sp_runtime::transaction_validity::InvalidTransaction> {
+        use frame_support::dispatch::GetDispatchInfo;
+        use pallet_transaction_payment::OnChargeTransaction;
+        <Self::Charger as OnChargeTransaction<Runtime>>::can_withdraw_fee(
+            who, call, &call.get_dispatch_info(), 0, 0,
+        )
+            .map_err(native_fee_error)
+    }
+}
+
+/// Ethereum 使用同一个整分余额账本；gas 仅约束执行资源，费用仍完全归原有制度。
+impl pallet_revive::Config for Runtime {
+    type Time = crate::Timestamp;
+    type Balance = Balance;
+    type Currency = Balances;
+    type OnBurn = RuntimeDustHandler;
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type RuntimeOrigin = RuntimeOrigin;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type WeightInfo = pallet_revive::weights::SubstrateWeight<Runtime>;
+    type Precompiles = ();
+    type FindAuthor = PowDigestAuthor;
+    type DepositPerByte = ConstU128<0>;
+    type DepositPerItem = ConstU128<0>;
+    type DepositPerChildTrieItem = ConstU128<0>;
+    type CodeHashLockupDepositPercent = ReviveCodeHashLockupDepositPercent;
+    type AddressMapper = pallet_revive::AccountId32Mapper<Runtime>;
+    type AllowEVMBytecode = ConstBool<true>;
+    type UploadOrigin = frame_system::EnsureSigned<AccountId>;
+    type InstantiateOrigin = frame_system::EnsureSigned<AccountId>;
+    type RuntimeMemory = ConstU32<{ 128 * 1024 * 1024 }>;
+    type PVFMemory = ConstU32<{ 512 * 1024 * 1024 }>;
+    type ChainId = ConstU64<{ primitives::core_const::ETHEREUM_CHAIN_ID }>;
+    type NativeToEthRatio = ConstU64<{ primitives::core_const::NATIVE_TO_ETH_RATIO }>;
+    type StrictNativeBalance = ConstBool<true>;
+    type FeeInfo = pallet_revive::evm::fees::NativeInfo<
+        crate::Address,
+        crate::Signature,
+        crate::EthExtraImpl,
+        RuntimeNativeFee,
+    >;
+    type Deposit = ();
+    type MaxEthExtrinsicWeight = ReviveMaxEthExtrinsicWeight;
+    type DebugEnabled = ConstBool<false>;
+    type AutoMap = ConstBool<false>;
+    type GasScale = ConstU32<10>;
 }

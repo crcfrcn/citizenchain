@@ -15,7 +15,7 @@ use sp_core::{sr25519, Pair as _};
 use sp_crypto_hashing::twox_128;
 use sp_runtime::{
     generic::Preamble,
-    traits::{BlakeTwo256, Header as _, LazyExtrinsic},
+    traits::{BlakeTwo256, ExtrinsicCall, Header as _, LazyExtrinsic},
     AccountId32, MultiAddress,
 };
 use sp_state_machine::{Backend, OverlayedChanges, StateMachine};
@@ -164,7 +164,7 @@ pub mod storage_key {
 }
 
 fn signed_account(xt: &UncheckedExtrinsic) -> Option<[u8; 32]> {
-    match &xt.preamble {
+    match &xt.0.preamble {
         Preamble::Signed(MultiAddress::Id(account), _, _) => Some(account.clone().into()),
         _ => None,
     }
@@ -172,7 +172,7 @@ fn signed_account(xt: &UncheckedExtrinsic) -> Option<[u8; 32]> {
 
 fn protected_fee(xt: &UncheckedExtrinsic) -> Option<ProtectedFee> {
     let payer_account_id = signed_account(xt)?;
-    match &xt.function {
+    match xt.call() {
         RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
             amount,
             ..

@@ -159,7 +159,12 @@ pub type TxExtension = (
     frame_system::CheckWeight<Runtime>,
     pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
     frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
-    frame_system::WeightReclaim<Runtime>,
+    // 默认来源标记不增加原生编码字节；嵌套末两项避免超过Rust元组标准trait的12项上限。
+    // 执行顺序仍为CheckMetadataHash、SetOrigin、WeightReclaim。
+    (
+        pallet_revive::evm::tx_extension::SetOrigin<Runtime>,
+        frame_system::WeightReclaim<Runtime>,
+    ),
 );
 
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo, Debug)]
@@ -221,7 +226,38 @@ where
 
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
-    generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+    pallet_revive::evm::runtime::UncheckedExtrinsic<Address, Signature, EthExtraImpl>;
+
+/// Ethereum 验签转换复用全部既有交易扩展，不引入另一套收费规则。
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct EthExtraImpl;
+
+impl pallet_revive::evm::runtime::EthExtra for EthExtraImpl {
+    type Config = Runtime;
+    type ExtensionV0 = TxExtension;
+    type ExtensionOtherVersions = sp_runtime::traits::InvalidVersion;
+
+    fn get_eth_extension(nonce: Nonce, tip: Balance) -> TxExtension {
+        (
+            frame_system::AuthorizeCall::<Runtime>::new(),
+            frame_system::CheckNonZeroSender::<Runtime>::new(),
+            CheckNonStakeSender,
+            frame_system::CheckSpecVersion::<Runtime>::new(),
+            frame_system::CheckTxVersion::<Runtime>::new(),
+            frame_system::CheckGenesis::<Runtime>::new(),
+            frame_system::CheckEra::<Runtime>::from(generic::Era::Immortal),
+            frame_system::CheckNonce::<Runtime>::from(nonce),
+            frame_system::CheckWeight::<Runtime>::new(),
+            // SDK 严格原生模式在调用本函数前拒绝非零 tip。
+            pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(tip),
+            frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
+            (
+                pallet_revive::evm::tx_extension::SetOrigin::<Runtime>::new_from_eth_transaction(),
+                frame_system::WeightReclaim::<Runtime>::new(),
+            ),
+        )
+    }
+}
 
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
@@ -395,6 +431,10 @@ mod runtime {
     // 广场动态发布索引模块：只记录 post_id/content_hash/storage_receipt_id 等链上索引。
     #[runtime::pallet_index(34)]
     pub type SquarePost = square_post;
+
+    // 官方 Ethereum 执行模块；32 仍永久留空。
+    #[runtime::pallet_index(35)]
+    pub type Revive = pallet_revive;
 }
 
 #[cfg(test)]

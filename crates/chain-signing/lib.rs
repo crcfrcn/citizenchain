@@ -51,7 +51,8 @@ pub fn build_tx_extension(nonce: u32) -> runtime::TxExtension {
             primitives::fee_policy::TRANSACTION_TIP,
         ),
         frame_metadata_hash_extension::CheckMetadataHash::<runtime::Runtime>::new(false),
-        frame_system::WeightReclaim::<runtime::Runtime>::new(),
+        // 末两项与Runtime嵌套组合一致；两个空编码扩展保持原生签名材料不变。
+        (Default::default(), frame_system::WeightReclaim::<runtime::Runtime>::new()),
     )
 }
 
@@ -94,7 +95,7 @@ pub fn build_signing_material_from_call(
         (),
         (),
         None,
-        (),
+        ((), ()),
     );
     // 审阅载荷是 SignedPayload 的原始三元组 SCALE 字节，用于钱包完整解码和中文展示。
     // 签名字节另走 `using_encoded`，保留 Substrate 对 >256B payload 签 hash 的规则。
@@ -171,12 +172,13 @@ pub fn assemble_signed_extrinsic(
     public: sr25519::Public,
     signature: sr25519::Signature,
 ) -> runtime::UncheckedExtrinsic {
-    runtime::UncheckedExtrinsic::new_signed(
+    sp_runtime::generic::UncheckedExtrinsic::new_signed(
         material.call,
         MultiAddress::Id(account_id_from_public(public)),
         runtime::Signature::Sr25519(signature),
         material.tx_ext,
     )
+    .into()
 }
 
 /// signed extrinsic 的 0x-prefixed SCALE hex。
@@ -342,5 +344,43 @@ mod tests {
         );
         assert!(message.starts_with("链运行时校验失败，交易未提交"));
         assert!(message.contains("TaggedTransactionQueue_validate_transaction"));
+    }
+    /// 与接入前十二项扩展逐字节比较，兼容既有钱包/QR原生交易。
+    #[test]
+    fn ethereum_origin_marker_keeps_native_extension_bytes_unchanged() {
+        let legacy = (
+            frame_system::AuthorizeCall::<runtime::Runtime>::new(),
+            frame_system::CheckNonZeroSender::<runtime::Runtime>::new(),
+            runtime::CheckNonStakeSender,
+            frame_system::CheckSpecVersion::<runtime::Runtime>::new(),
+            frame_system::CheckTxVersion::<runtime::Runtime>::new(),
+            frame_system::CheckGenesis::<runtime::Runtime>::new(),
+            frame_system::CheckEra::<runtime::Runtime>::from(Era::Immortal),
+            frame_system::CheckNonce::<runtime::Runtime>::from(5),
+            frame_system::CheckWeight::<runtime::Runtime>::new(),
+            pallet_transaction_payment::ChargeTransactionPayment::<runtime::Runtime>::from(0),
+            frame_metadata_hash_extension::CheckMetadataHash::<runtime::Runtime>::new(false),
+            frame_system::WeightReclaim::<runtime::Runtime>::new(),
+        );
+        assert_eq!(build_tx_extension(5).encode(), legacy.encode());
+        let call = runtime::RuntimeCall::System(frame_system::Call::remark { remark: vec![7; 8] });
+        let additional = (
+            (),
+            (),
+            (),
+            1u32,
+            1u32,
+            H256::repeat_byte(9),
+            H256::repeat_byte(9),
+            (),
+            (),
+            (),
+            None::<[u8; 32]>,
+            (),
+        );
+        let legacy_payload = (call.clone(), legacy, additional).encode();
+        let material = build_signing_material_from_call(call, H256::repeat_byte(9), 5, 1, 1);
+        assert_eq!(material.payload, legacy_payload);
+        assert_eq!(material.signing_bytes, legacy_payload);
     }
 }

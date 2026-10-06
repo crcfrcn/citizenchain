@@ -59,12 +59,8 @@
   field_label_zh: 创建阈值
 - field_key: eligible_total
   field_label_zh: 合格选民数
-- field_key: device_public_key
-  field_label_zh: 设备公钥
-- field_key: recipient_public_key
-  field_label_zh: 接收公钥
-- field_key: key_purposes
-  field_label_zh: 用途钥范围
+- field_key: public_key
+  field_label_zh: MLS公钥
 - field_key: expires_at
   field_label_zh: 过期时间
 - field_key: product_id

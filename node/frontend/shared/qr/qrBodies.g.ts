@@ -209,64 +209,6 @@ export const QR_BODY_SCHEMA = [
     "kind_key": "account_id_code",
     "optional_pairs": [],
     "temporary": false
-  },
-  {
-    "fields": [
-      {
-        "allowed_ints": [],
-        "constraint": "b64u_bytes",
-        "empty_for_action_codes": [],
-        "exact_bytes": 32,
-        "field_key": "signer_public_key",
-        "min_bytes": null,
-        "required": true,
-        "wire_key": "u"
-      },
-      {
-        "allowed_ints": [],
-        "constraint": "b64u_bytes",
-        "empty_for_action_codes": [],
-        "exact_bytes": 64,
-        "field_key": "signature",
-        "min_bytes": null,
-        "required": true,
-        "wire_key": "s"
-      },
-      {
-        "allowed_ints": [],
-        "constraint": "b64u_bytes",
-        "empty_for_action_codes": [],
-        "exact_bytes": 32,
-        "field_key": "key_exchange_public_key",
-        "min_bytes": null,
-        "required": true,
-        "wire_key": "x"
-      },
-      {
-        "allowed_ints": [],
-        "constraint": "b64u_bytes",
-        "empty_for_action_codes": [],
-        "exact_bytes": 12,
-        "field_key": "encryption_nonce",
-        "min_bytes": null,
-        "required": true,
-        "wire_key": "q"
-      },
-      {
-        "allowed_ints": [],
-        "constraint": "b64u_bytes",
-        "empty_for_action_codes": [],
-        "exact_bytes": null,
-        "field_key": "ciphertext",
-        "min_bytes": 17,
-        "required": true,
-        "wire_key": "z"
-      }
-    ],
-    "kind_code": 6,
-    "kind_key": "account_data_key_response",
-    "optional_pairs": [],
-    "temporary": true
   }
 ] as const;
 

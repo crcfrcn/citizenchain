@@ -8,7 +8,6 @@ pub enum QrKind {
     UserContact = 3,
     UserTransfer = 4,
     AccountIdCode = 5,
-    AccountDataKeyResponse = 6,
 }
 
 impl QrKind {

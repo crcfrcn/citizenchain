@@ -497,11 +497,16 @@ fn emit_fee_share_burn<T: pallet::Config>(reason: pallet::BurnReason, amount: u1
     pallet::Pallet::<T>::deposit_event(pallet::Event::FeeShareBurnt { reason, amount });
 }
 
-type ChargeDetails<AccountId, Balance> = Option<(AccountId, Balance)>;
+/// 现有外层收费明细：收费时携带确切付款账户及金额，免费或业务内清算时为 None。
+pub type ChargeDetails<AccountId, Balance> = Option<(AccountId, Balance)>;
 
-// 费用计算返回类型同时绑定 runtime 账户和 Currency 余额，保持两者的编译期一致性。
+/// 只读查询现有收费明细，供交易报价与实际扣款共同使用。
+///
+/// 本函数只消费唯一 FeeRoute 并调用既有费用公式，不扣款、不分账、不发事件。
+/// 报价不代替付款余额检查；余额检查和实际扣款仍由 OnchainChargeAdapter 执行。
+/// 返回类型同时绑定 runtime 账户和 Currency 余额，保持两者的编译期一致性。
 #[allow(clippy::type_complexity)]
-fn charge_details<T, Currency, FeeRouteProvider>(
+pub fn charge_details<T, Currency, FeeRouteProvider>(
     who: &T::AccountId,
     call: &T::RuntimeCall,
     _dispatch_info: &DispatchInfoOf<T::RuntimeCall>,

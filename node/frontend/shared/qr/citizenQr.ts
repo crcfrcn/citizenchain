@@ -64,14 +64,6 @@ export interface AccountIdCodeBody {
   account_id: string;
 }
 
-/** `k=6` 冷钱包用途钥响应；这里只映射统一注册表字段，不参与 Node 业务处理。 */
-export interface AccountDataKeyResponseBody {
-  signer_public_key: string;
-  signature: string;
-  key_exchange_public_key: string;
-  encryption_nonce: string;
-  ciphertext: string;
-}
 
 export type QrBodyByKind = {
   sign_request: SignRequestBody;
@@ -79,7 +71,6 @@ export type QrBodyByKind = {
   user_contact: UserContactBody;
   user_transfer: UserTransferBody;
   account_id_code: AccountIdCodeBody;
-  account_data_key_response: AccountDataKeyResponseBody;
 };
 
 export interface QrEnvelope<K extends QrKind = QrKind> {
@@ -182,17 +173,6 @@ function parseAccountIdCodeBody(
   return { account_id: b['n'] as string };
 }
 
-function parseAccountDataKeyResponseBody(
-  b: Record<string, unknown>,
-): AccountDataKeyResponseBody {
-  return {
-    signer_public_key: b64ToHex(requireString(b, 'u'), 'u'),
-    signature: b64ToHex(requireString(b, 's'), 's'),
-    key_exchange_public_key: b64ToHex(requireString(b, 'x'), 'x'),
-    encryption_nonce: b64ToHex(requireString(b, 'q'), 'q'),
-    ciphertext: b64ToHex(requireString(b, 'z'), 'z'),
-  };
-}
 
 export function parseQrEnvelope(
   raw: string | Record<string, unknown>,
@@ -241,9 +221,6 @@ export function parseQrEnvelope(
       break;
     case 'account_id_code':
       body = parseAccountIdCodeBody(b);
-      break;
-    case 'account_data_key_response':
-      body = parseAccountDataKeyResponseBody(b);
       break;
   }
 

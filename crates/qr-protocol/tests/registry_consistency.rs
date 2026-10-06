@@ -89,7 +89,10 @@ fn actions_have_unique_keys_codes_and_chinese_labels() {
 #[test]
 fn self_occupy_cid_is_a_full_chain_transaction() {
     let entries = actions().expect("动作登记可解析");
-    let action = entries.iter().find(|a| a.action_code == 0x0a05).expect("自助占号已登记");
+    let action = entries
+        .iter()
+        .find(|a| a.action_code == 0x0a05)
+        .expect("自助占号已登记");
     assert_eq!(action.action_key, "self_occupy_cid");
     assert_eq!(action.call.as_deref(), Some("self_occupy_cid"));
     assert_eq!(action.kind, qr_protocol::registry::ActionKind::ChainCall);
@@ -222,7 +225,7 @@ fn fields_yaml_has_no_orphan_entries() {
     }
 }
 
-// 中文注释：生成器金标固定于组织重构保留的原消费者完整字节，不读取未发布邻仓。
+// 中文注释：生成器金标固定当前注册表正式导出的完整字节，不读取未发布邻仓。
 fn generated_sha256(source: &str) -> Result<String, Box<dyn std::error::Error>> {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -250,7 +253,7 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "3e8112f13ed85a7c3d24edeb53dc74cc2b1aea361a8b55bd499866238d4454e0",
+        "c7ce2f501a02a52739438b39668c1d06a07772ef1c9b3f82a173482e360122e6",
         "Dart registry 与保留的原消费者完整字节不一致"
     );
 }
@@ -289,7 +292,35 @@ fn qr_kinds_are_unique_and_constraints_are_closed() {
             assert!(field_keys.contains(pair[1].as_str()));
         }
     }
-    assert_eq!(kind_codes, HashSet::from([1, 2, 3, 4, 5, 6]));
+    assert_eq!(kind_codes, HashSet::from([1, 2, 3, 4, 5]));
+}
+
+/// MLS登记只保留动作13与同一public_key；未登记动作和码型必须拒绝。
+#[test]
+fn mls_device_bind_is_the_only_public_key_registration() {
+    let entries = actions().expect("动作登记可解析");
+    let action = entries
+        .iter()
+        .find(|entry| entry.action_code == 13)
+        .expect("MLS登记动作已登记");
+    assert_eq!(action.action_key, "mls_device_bind");
+    assert_eq!(action.decoder, "mls_device_bind");
+    assert_eq!(action.signing_category, SigningCategory::MlsDeviceBind);
+    assert_eq!(
+        action.required_fields,
+        vec![
+            "cid_number",
+            "binding_revision",
+            "account_id",
+            "public_key",
+            "issued_at"
+        ]
+    );
+    assert!(entries.iter().all(|entry| entry.action_code != 14));
+    assert!(kinds()
+        .expect("码型登记可解析")
+        .iter()
+        .all(|entry| entry.kind_code != 6));
 }
 
 #[test]
@@ -301,7 +332,7 @@ fn generated_qr_body_validators_are_current() {
     assert_eq!(
         generated_sha256(&export_qr_bodies_dart().expect("Dart body schema 必须可生成"))
             .expect("Dart body 原消费者金标摘要"),
-        "ad5c008b7ded5c7158430599880645946cadda2737aacf457396f344d3c946ac",
+        "b8e228e48f8f1a49171c138148aae7b8a8a98f53253d1a1b937a9ea65c4dfec8",
         "Dart body 与原消费者完整字节不一致"
     );
     let cases = [

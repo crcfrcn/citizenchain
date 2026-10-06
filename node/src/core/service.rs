@@ -82,7 +82,8 @@ pub(crate) struct SimplePow {
 }
 
 impl SimplePow {
-    fn new(client: Arc<FullClient>) -> Self {
+    /// 核心服务与真实区块验收共用同一难度读取和 seal 校验实现。
+    pub(super) fn new(client: Arc<FullClient>) -> Self {
         Self { client }
     }
 }
@@ -158,14 +159,15 @@ impl PowAlgorithm<Block> for SimplePow {
     }
 }
 
-fn pow_hash(pre_hash: &[u8], nonce: u64) -> [u8; 32] {
+// RPC 运行态验收复用实际矿工的 PoW 计算，不另建测试算法。
+pub(super) fn pow_hash(pre_hash: &[u8], nonce: u64) -> [u8; 32] {
     let mut payload = Vec::with_capacity(pre_hash.len() + std::mem::size_of::<u64>());
     payload.extend_from_slice(pre_hash);
     payload.extend_from_slice(&nonce.to_le_bytes());
     blake2_256(&payload)
 }
 
-fn hash_meets_difficulty(hash: &[u8; 32], difficulty: U256) -> bool {
+pub(super) fn hash_meets_difficulty(hash: &[u8; 32], difficulty: U256) -> bool {
     if difficulty.is_zero() {
         return false;
     }
@@ -302,6 +304,25 @@ fn mining_ready_transactions(ready: usize, is_major_syncing: bool) -> usize {
 }
 
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
+    #[cfg(test)]
+    return new_partial_inner(config, None);
+    #[cfg(not(test))]
+    new_partial_inner(config)
+}
+
+// 正式入口始终使用冻结身份；此独立入口不进入任何正式节点二进制。
+#[cfg(test)]
+pub(super) fn new_partial_for_test(config: &Configuration) -> Result<Service, ServiceError> {
+    let identity = crate::core::node_guard::TestGenesisIdentity::from_chain_spec(
+        config.chain_spec.as_ref(),
+    ).map_err(ServiceError::Other)?;
+    new_partial_inner(config, Some(identity))
+}
+
+fn new_partial_inner(
+    config: &Configuration,
+    #[cfg(test)] test_genesis_identity: Option<crate::core::node_guard::TestGenesisIdentity>,
+) -> Result<Service, ServiceError> {
     let telemetry = config
         .telemetry_endpoints
         .clone()
@@ -364,8 +385,19 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         },
     );
 
-    // 节点守卫统一承载宪法以外的节点级死规则。启动自检失败只记录警戒状态，
-    // 不能阻断节点进程；后续区块、完整状态和候选 runtime 导入仍由守卫强拒绝。
+    // 节点守卫统一承载宪法以外的节点级死规则。创世身份必须通过，其他本机自检沿用警戒状态；
+    // 后续区块、完整状态和候选 runtime 导入仍由守卫强拒绝。
+    // 测试链只替换声明的创世信任输入，所有身份和导入规则仍完整核验。
+    #[cfg(test)]
+    let node_guard = match test_genesis_identity {
+        Some(identity) => crate::core::node_guard::NodeGuard::new_for_test(
+            pow_block_import, client.clone(), backend.clone(), identity,
+        ),
+        None => crate::core::node_guard::NodeGuard::new(
+            pow_block_import, client.clone(), backend.clone(),
+        ),
+    };
+    #[cfg(not(test))]
     let node_guard =
         crate::core::node_guard::NodeGuard::new(pow_block_import, client.clone(), backend.clone());
 
@@ -415,6 +447,15 @@ pub fn new_full(
     // offchain::settlement::reserve 对账周期(秒),None=默认 300,Some(0)=关闭
     clearing_reserve_monitor_interval_secs: Option<u64>,
 ) -> Result<TaskManager, ServiceError> {
+    // 先装载可信 RPC 证书并取走端点，禁止上游 spawn_tasks 同时开启明文监听。
+    // 进程内 RpcHandlers 仍正常创建，CLI 和桌面共用本服务入口。
+    let rpc_endpoints = config.rpc.addr.take().unwrap_or_default();
+    let rpc_tls = if rpc_endpoints.is_empty() {
+        None
+    } else {
+        Some(crate::core::rpc_tls::RpcTls::load()
+            .map_err(|error| ServiceError::Other(format!("装载 RPC TLS 失败: {error}")))?)
+    };
     // 生成或加载 TLS 自签证书，注入到网络配置中。
     let tls_cert = crate::core::tls_cert::load_or_generate_tls_cert(config.base_path.path())
         .map_err(ServiceError::Other)?;
@@ -561,7 +602,7 @@ pub fn new_full(
         })
     };
 
-    let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
+    let rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
         network: Arc::new(network.clone()),
         client: client.clone(),
         keystore: keystore.clone(),
@@ -576,6 +617,27 @@ pub fn new_full(
         telemetry: telemetry.as_mut(),
         tracing_execute_block: None,
     })?;
+
+    if let Some(rpc_tls) = rpc_tls {
+        // 原生后端仅在进程内使用；公开副本显式覆盖为 Safe，防止 Unsafe 扩展泄漏。
+        let native = (*rpc_handlers.handle()).clone();
+        task_manager.spawn_essential_handle().spawn("ethereum-rpc-tls", Some("rpc"), async move {
+            let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
+                let (ethereum, synchronization) = crate::core::ethereum_rpc::initialize(native.clone()).await?;
+                let mut exposed = native;
+                exposed.merge(ethereum)?;
+                tokio::try_join!(
+                    async { synchronization.await.map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) }) },
+                    rpc_tls.run(rpc_endpoints, exposed),
+                )?;
+                Ok(())
+            }.await;
+            if let Err(error) = result {
+                log::error!("Ethereum RPC/TLS 必要任务失败: {error}");
+            }
+            // 必要任务退出由 TaskManager 终止节点，禁止继续报告 RPC 可用。
+        });
+    }
 
     // 普通全节点不会像 GRANDPA voter 那样把交易池交给最终性组件持有。
     // 这里显式让 TaskManager 持有一个 clone，避免 `new_full` 返回后交易池句柄提前释放，

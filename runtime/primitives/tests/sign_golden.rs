@@ -3,7 +3,7 @@
 
 use codec::Encode;
 use primitives::core_const::GMB;
-use primitives::sign::{signing_message, SIGN_OP_TAGS};
+use primitives::sign::{signing_message, OP_SIGN_MLS_DEVICE_BIND, SIGN_OP_TAGS};
 
 const FIXTURE_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -63,7 +63,16 @@ fn sign_golden_vectors() {
         .clone();
     assert!(!vectors.is_empty(), "fixture 至少需 1 条向量");
 
-    // 每个注册 op_tag 都必须有向量。
+    assert_eq!(OP_SIGN_MLS_DEVICE_BIND, 0x1C);
+    assert_eq!(SIGN_OP_TAGS.len(), 16);
+    assert_eq!(vectors.len(), SIGN_OP_TAGS.len());
+    for vector in &vectors {
+        assert!(
+            SIGN_OP_TAGS.contains(&parse_op_tag(vector)),
+            "金标含未登记签名域"
+        );
+    }
+    // 每个注册op_tag都必须有且只有当前闭集内的向量。
     for tag in SIGN_OP_TAGS {
         let present = vectors.iter().any(|v| parse_op_tag(v) == tag);
         assert!(present, "op_tag 0x{tag:02x} 在注册表却无金标向量");

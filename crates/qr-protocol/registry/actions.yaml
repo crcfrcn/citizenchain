@@ -85,45 +85,24 @@
     - account_count
     - expires_at
 
-# 当前 CID 的 P-256 设备子钥登记——冷账户在 CitizenWallet 上签现有 0x1C 绑定域。
-# 热账户仍由 CitizenApp 本机签；两种方式的签名字节完全一致，不新增 runtime 域。
-- action_key: square_device_bind
+# 同一MLS公钥登记；当前CID绑定账户授权，签名摘要保持0x1C。
+# 热账户本机签署，冷账户由CitizenWallet扫码签署相同字节。
+- action_key: mls_device_bind
   action_code: 13
-  action_label_zh: 设备子钥绑定
+  action_label_zh: MLS设备登记
   kind: offchain_sign
   qr_kind: sign_request
   pallet:
   call:
-  decoder: square_device_bind
+  decoder: mls_device_bind
   hash_only_allowed: false
-  signing_category: square_device_bind
+  signing_category: mls_device_bind
   required_fields:
     - cid_number
     - binding_revision
     - account_id
-    - device_public_key
+    - public_key
     - issued_at
-
-# 冷账户为 CitizenApp 提供当前 CID 绑定版本的数据用途钥。请求只携带一次性接收
-# 公钥与用途编号；CitizenWallet 返回独立 k=6 加密响应，不把用途钥放进签名响应。
-- action_key: account_data_key_provision
-  action_code: 14
-  action_label_zh: 账户数据用途钥提供
-  kind: offchain_sign
-  qr_kind: sign_request
-  pallet:
-  call:
-  decoder: account_data_key_provision
-  hash_only_allowed: false
-  signing_category: account_data_key_provision
-  required_fields:
-    - genesis_hash
-    - cid_number
-    - binding_revision
-    - account_id
-    - recipient_public_key
-    - key_purposes
-    - expires_at
 
 # 产品正式发布授权——冷钱包审阅并签署精确产品、平台、Release、产物摘要、
 # 回滚锚点和短时随机挑战。该签名只授权一次本机发布，不向平台发送钱包信息。

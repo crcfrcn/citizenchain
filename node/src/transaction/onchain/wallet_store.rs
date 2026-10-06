@@ -159,7 +159,17 @@ mod tests {
         assert!(decode_store(&serde_json::to_string(&mismatched).unwrap()).is_err());
         let mut dangling = store;
         dangling.active_account_id = Some("0x2222222222222222222222222222222222222222222222222222222222222222".to_string());
-        assert!(decode_store(&serde_json::to_string(&dangling).unwrap()).is_err());
+        // Cold 文件的活动标识可能指向动态 Hot；读取时只校验规范格式并原样保留。
+        assert_eq!(decode_store(&serde_json::to_string(&dangling).unwrap()).unwrap(), dangling);
+        for invalid in [
+            "0x1234",
+            "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "not-an-account",
+        ] {
+            let mut invalid_active = dangling.clone();
+            invalid_active.active_account_id = Some(invalid.to_string());
+            assert!(decode_store(&serde_json::to_string(&invalid_active).unwrap()).is_err());
+        }
     }
 
     fn cold_wallet_for_account(account_id: &str) -> Wallet {

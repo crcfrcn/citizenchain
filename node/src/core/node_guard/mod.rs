@@ -47,6 +47,15 @@ pub struct NodeGuard<I> {
 fn verify_genesis_identity<C: HeaderBackend<Block>>(client: &C) -> Result<(), String> {
     let expected_hash = sp_core::H256::from(primitives::genesis::GENESIS_HASH);
     let expected_root = sp_core::H256::from(primitives::genesis::GENESIS_STATE_ROOT);
+    verify_genesis_identity_against(client, expected_hash, expected_root)
+}
+
+// 生产入口的期望值只来自冻结常量；共用核验不从客户端事实推导信任值。
+fn verify_genesis_identity_against<C: HeaderBackend<Block>>(
+    client: &C,
+    expected_hash: sp_core::H256,
+    expected_root: sp_core::H256,
+) -> Result<(), String> {
     let recorded_hash = client.info().genesis_hash;
     if recorded_hash != expected_hash {
         return Err(format!(
@@ -92,6 +101,41 @@ fn enforce_genesis_identity<C: HeaderBackend<Block>>(client: &C) {
     if let Err(reason) = verify_genesis_identity(client) {
         log::error!(target: "node-guard", "创世身份校验失败，拒绝启动节点：{reason}");
         panic!("NodeGuard 拒绝启动：{reason}");
+    }
+}
+
+// 临时链身份只存在于测试构建，由声明的创世 storage 独立计算。
+// 不使用数据库自身的哈希/头作为期望值，且必须使用本次内置的准确 WASM。
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(super) struct TestGenesisIdentity {
+    hash: sp_core::H256,
+    state_root: sp_core::H256,
+}
+
+#[cfg(test)]
+impl TestGenesisIdentity {
+    pub(super) fn from_chain_spec(spec: &dyn sc_service::ChainSpec) -> Result<Self, String> {
+        let storage = spec.as_storage_builder().build_storage()?;
+        if storage.top.get(sp_core::storage::well_known_keys::CODE).map(Vec::as_slice)
+            != citizenchain::WASM_BINARY
+        {
+            return Err("测试创世必须使用本次内置的准确 WASM".into());
+        }
+        let state_version = citizenchain::VERSION.state_version();
+        let mut changes = vec![(
+            None,
+            storage.top.into_iter().map(|(key, value)| (key, Some(value))).collect::<Vec<_>>(),
+        )];
+        changes.extend(storage.children_default.into_values().map(|child| (
+            Some(child.child_info),
+            child.data.into_iter().map(|(key, value)| (key, Some(value))).collect::<Vec<_>>(),
+        )));
+        let mut state = sp_state_machine::new_in_mem::<sp_runtime::traits::BlakeTwo256>();
+        state.insert(changes, state_version);
+        let state_root = *state.root();
+        let block = sc_service::construct_genesis_block::<Block>(state_root, state_version);
+        Ok(Self { hash: block.header().hash(), state_root })
     }
 }
 
@@ -182,6 +226,24 @@ mod genesis_identity_tests {
         let client = TestClient::canonical();
         assert_eq!(verify_genesis_identity(&client), Ok(()));
         enforce_genesis_identity(&client);
+    }
+
+    #[test]
+    fn declared_test_identity_does_not_change_frozen_production_identity() {
+        let mut client = TestClient::canonical();
+        client.header.as_mut().expect("header").set_state_root(H256::repeat_byte(7));
+        let identity = TestGenesisIdentity {
+            hash: client.header.as_ref().expect("header").hash(),
+            state_root: H256::repeat_byte(7),
+        };
+        client.recorded_hash = identity.hash;
+        client.indexed_hash = Some(identity.hash);
+        assert_eq!(verify_genesis_identity_against(&client, identity.hash, identity.state_root), Ok(()));
+        assert!(verify_genesis_identity(&client).is_err());
+        client.header.as_mut().expect("header").set_state_root(H256::repeat_byte(8));
+        assert!(verify_genesis_identity_against(&client, identity.hash, identity.state_root).is_err());
+        client = TestClient::canonical();
+        assert!(verify_genesis_identity_against(&client, identity.hash, identity.state_root).is_err());
     }
 
     #[test]
@@ -606,6 +668,23 @@ impl<I> NodeGuard<I> {
     /// 创世身份不匹配、缺失或无法读取时拒绝构造守卫，保持现有调用接口不变。
     pub fn new(inner: I, client: Arc<FullClient>, backend: Arc<FullBackend>) -> Self {
         enforce_genesis_identity(client.as_ref());
+        Self::assemble(inner, client, backend)
+    }
+
+    // 仅测试入口可提供声明的临时链身份；身份核验与生产使用同一完整拒绝路径。
+    #[cfg(test)]
+    pub(super) fn new_for_test(
+        inner: I,
+        client: Arc<FullClient>,
+        backend: Arc<FullBackend>,
+        identity: TestGenesisIdentity,
+    ) -> Self {
+        verify_genesis_identity_against(client.as_ref(), identity.hash, identity.state_root)
+            .unwrap_or_else(|reason| panic!("测试 NodeGuard 拒绝启动：{reason}"));
+        Self::assemble(inner, client, backend)
+    }
+
+    fn assemble(inner: I, client: Arc<FullClient>, backend: Arc<FullBackend>) -> Self {
         let genesis_hash = client.info().genesis_hash;
         let mut startup_issues = Vec::<String>::new();
 
@@ -1532,9 +1611,11 @@ mod finalize_issuance_tests {
     }
 
     fn timestamp_extrinsic(now: u64) -> <Block as BlockT>::Extrinsic {
-        let xt = citizenchain::UncheckedExtrinsic::new_bare(citizenchain::RuntimeCall::Timestamp(
-            citizenchain::TimestampCall::set { now },
-        ));
+        let xt: citizenchain::UncheckedExtrinsic =
+            sp_runtime::generic::UncheckedExtrinsic::new_bare(
+                citizenchain::RuntimeCall::Timestamp(citizenchain::TimestampCall::set { now }),
+            )
+            .into();
         xt.into()
     }
 
@@ -1907,8 +1988,12 @@ mod finalize_issuance_tests {
             backend,
             task_manager: _task_manager,
             ..
-        } = crate::core::service::new_partial(&config).expect("create partial node service");
-        let guard = NodeGuard::new(CountingImport::default(), client.clone(), backend.clone());
+        } = crate::core::service::new_partial_for_test(&config).expect("create partial node service");
+        let identity = TestGenesisIdentity::from_chain_spec(config.chain_spec.as_ref())
+            .expect("declared test genesis");
+        let guard = NodeGuard::new_for_test(
+            CountingImport::default(), client.clone(), backend.clone(), identity,
+        );
 
         let legal = legal_remark_block_params(&client);
         assert_eq!(
@@ -1953,7 +2038,7 @@ mod finalize_issuance_tests {
             backend,
             task_manager: _task_manager,
             ..
-        } = crate::core::service::new_partial(&config).expect("create partial node service");
+        } = crate::core::service::new_partial_for_test(&config).expect("create partial node service");
         let genesis_hash = client.info().genesis_hash;
         let parent_state = backend
             .state_at(genesis_hash, TrieCacheContext::Untrusted)
@@ -1984,10 +2069,12 @@ mod finalize_issuance_tests {
             backend,
             task_manager: _task_manager,
             ..
-        } = crate::core::service::new_partial(&config).expect("create partial node service");
+        } = crate::core::service::new_partial_for_test(&config).expect("create partial node service");
         let inner = SharedCountingImport::default();
         let imports = inner.imports.clone();
-        let guard = NodeGuard::new(inner, client.clone(), backend.clone());
+        let identity = TestGenesisIdentity::from_chain_spec(config.chain_spec.as_ref())
+            .expect("declared test genesis");
+        let guard = NodeGuard::new_for_test(inner, client.clone(), backend.clone(), identity);
 
         let mut malicious = legal_remark_block_params(&client);
         mutate_precomputed_changes_to_guarded_state(&mut malicious, &client, &backend, true);

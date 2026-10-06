@@ -1,0 +1,447 @@
+{
+  "schema": 1,
+  "product_id": "citizenchain",
+  "entry": "scripts/build.mjs",
+  "platforms": {
+    "macos": {
+      "tools": [
+        {
+          "id": "git",
+          "version": "2.54.0"
+        },
+        {
+          "id": "node",
+          "version": "25.2.1"
+        },
+        {
+          "id": "rust",
+          "version": "1.97.1"
+        },
+        {
+          "id": "python",
+          "version": "3.14.3"
+        },
+        {
+          "id": "xcode",
+          "version": "27.0"
+        },
+        {
+          "id": "posix",
+          "version": "27.0"
+        }
+      ],
+      "locks": [
+        {
+          "ecosystem": "cargo",
+          "path": "Cargo.lock"
+        },
+        {
+          "ecosystem": "npm",
+          "path": "node/frontend/package-lock.json"
+        }
+      ],
+      "ci": {
+        "entry": ".github/workflows/citizenchain-macos-ci.yml",
+        "tools": [
+          {
+            "id": "protoc",
+            "version": "35.0"
+          },
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      },
+      "release": {
+        "entry": ".github/workflows/citizenchain-macos-release.yml",
+        "tools": [
+          {
+            "id": "protoc",
+            "version": "35.0"
+          },
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      }
+    },
+    "windows": {
+      "tools": [
+        {
+          "id": "git",
+          "version": "2.54.0"
+        },
+        {
+          "id": "node",
+          "version": "25.2.1"
+        },
+        {
+          "id": "rust",
+          "version": "1.97.1"
+        },
+        {
+          "id": "python",
+          "version": "3.14.3"
+        },
+        {
+          "id": "xcode",
+          "version": "27.0"
+        },
+        {
+          "id": "posix",
+          "version": "27.0"
+        }
+      ],
+      "locks": [
+        {
+          "ecosystem": "cargo",
+          "path": "Cargo.lock"
+        }
+      ],
+      "ci": {
+        "entry": ".github/workflows/citizenchain-windows-ci.yml",
+        "tools": [
+          {
+            "id": "protoc",
+            "version": "35.0"
+          },
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      },
+      "release": {
+        "entry": ".github/workflows/citizenchain-windows-release.yml",
+        "tools": [
+          {
+            "id": "protoc",
+            "version": "35.0"
+          },
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      }
+    },
+    "linux-arm": {
+      "tools": [
+        {
+          "id": "git",
+          "version": "2.54.0"
+        },
+        {
+          "id": "node",
+          "version": "25.2.1"
+        },
+        {
+          "id": "rust",
+          "version": "1.97.1"
+        },
+        {
+          "id": "python",
+          "version": "3.14.3"
+        },
+        {
+          "id": "xcode",
+          "version": "27.0"
+        },
+        {
+          "id": "posix",
+          "version": "27.0"
+        }
+      ],
+      "locks": [
+        {
+          "ecosystem": "cargo",
+          "path": "Cargo.lock"
+        }
+      ],
+      "ci": {
+        "entry": ".github/workflows/citizenchain-linux-arm-ci.yml",
+        "tools": [
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      },
+      "release": {
+        "entry": ".github/workflows/citizenchain-linux-arm-release.yml",
+        "tools": [
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      }
+    },
+    "linux-amd": {
+      "tools": [
+        {
+          "id": "git",
+          "version": "2.54.0"
+        },
+        {
+          "id": "node",
+          "version": "25.2.1"
+        },
+        {
+          "id": "rust",
+          "version": "1.97.1"
+        },
+        {
+          "id": "python",
+          "version": "3.14.3"
+        },
+        {
+          "id": "xcode",
+          "version": "27.0"
+        },
+        {
+          "id": "posix",
+          "version": "27.0"
+        }
+      ],
+      "locks": [
+        {
+          "ecosystem": "cargo",
+          "path": "Cargo.lock"
+        }
+      ],
+      "ci": {
+        "entry": ".github/workflows/citizenchain-linux-amd-ci.yml",
+        "tools": [
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      },
+      "release": {
+        "entry": ".github/workflows/citizenchain-linux-amd-release.yml",
+        "tools": [
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      }
+    },
+    "wasm": {
+      "tools": [
+        {
+          "id": "git",
+          "version": "2.54.0"
+        },
+        {
+          "id": "node",
+          "version": "25.2.1"
+        },
+        {
+          "id": "rust",
+          "version": "1.97.1"
+        },
+        {
+          "id": "python",
+          "version": "3.14.3"
+        },
+        {
+          "id": "xcode",
+          "version": "27.0"
+        },
+        {
+          "id": "posix",
+          "version": "27.0"
+        }
+      ],
+      "locks": [
+        {
+          "ecosystem": "cargo",
+          "path": "Cargo.lock"
+        }
+      ],
+      "ci": {
+        "entry": ".github/workflows/citizenchain-wasm-ci.yml",
+        "tools": [
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      },
+      "release": {
+        "entry": ".github/workflows/citizenchain-wasm-release.yml",
+        "tools": [
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "rust",
+            "version": "1.97.1"
+          },
+          {
+            "id": "python",
+            "version": "3.14.3"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      }
+    }
+  }
+}

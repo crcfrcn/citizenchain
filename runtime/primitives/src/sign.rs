@@ -42,18 +42,13 @@ pub const fn qr_chain_action(pallet_index: u8, call_index: u8) -> u16 {
 // 签名 op_tag 单一权威源:
 // - 0x10-0x13/0x14-0x17:哈希域,走 `signing_message`,进入 `SIGN_OP_TAGS`。
 // - 0x18/0x19:二进制前缀域,只签原始 payload,不进入 `SIGN_OP_TAGS`。
-// - 0x1A:Chat 设备绑定哈希域,走 `signing_message`。
-// - 0x1B-0x1D:广场 BFF 登录/设备绑定/账户动作哈希域,走 `signing_message`,进入
-//   `SIGN_OP_TAGS`。仅链下(Cloudflare Worker + App)验签,链上 pallet 不引用,
-//   故新增它们不触发 runtime 变更/创世,只维护本单源与金标。
+// - 0x1C:同一MLS公钥登记；0x1D:广场账户敏感动作。均由当前绑定账户授权，
+//   链下服务验证；签名摘要仍走统一signing_message。
 // - 0x1E:GRANDPA 验证密钥更换证明哈希域，由旧、新 ed25519 私钥签同一摘要。
 // - 0x1F:注册局代办换绑哈希域,与首次占号(0x12)域分离。
-// - 0x20:OnChina 管理员治理哈希域(链下 onchina 验签)。0x10-0x1F 十六格已排满,
-//   本域起签名段续用 0x20+;账户派生段仍是 0x00-0x0F(现用到 0x08),两段永不相交。
+// - 0x20:OnChina管理员治理哈希域；账户派生段与签名段分离。
 // - 0x21:CitizenApp 本机默认账户切换哈希域。只证明原默认账户授权完整目标顺序,
 //   不包含 CID/binding revision,不进入 pallet、Storage、Extrinsic 或换绑流程。
-// - 0x22:冷钱包账户数据用途钥提供哈希域。证明指定账户授权把精确 CID 绑定版本的
-//   指定用途钥加密交给一次性接收公钥；不提交链，也不改变 CID 绑定。
 // - 0x23:CitizenApp 钱包账户签名模式确认哈希域。只用于本机验证热钱包私钥确实
 //   控制目标 AccountId 后写入 Hot；不提交链、不修改账户控制权。
 // - 0x24:本机生产发布授权哈希域。冷钱包签署精确 Release、产物摘要、
@@ -88,13 +83,9 @@ pub const OP_SIGN_L2_ACK: u8 = 0x17;
 pub const OP_SIGN_ACTIVATE_ADMIN: u8 = 0x18;
 /// 解密授权二进制前缀域;不走 `signing_message`。
 pub const OP_SIGN_DECRYPT: u8 = 0x19;
-/// Chat 设备绑定（链下 Worker 验签，硬件 P-256 设备子钥签 digest）。
-pub const OP_SIGN_CHAT_DEVICE_BIND: u8 = 0x1A;
 
-/// 广场 BFF 登录挑战(链下 Worker 验签,设备子钥 ES256 签 digest)。
-pub const OP_SIGN_SQUARE_LOGIN: u8 = 0x1B;
-/// 广场 BFF 设备子钥绑定(链下 Worker 验签,sr25519 主钥签)。
-pub const OP_SIGN_SQUARE_DEVICE_BIND: u8 = 0x1C;
+/// 同一MLS公钥登记；由当前CID绑定的sr25519账户授权，链下服务验签。
+pub const OP_SIGN_MLS_DEVICE_BIND: u8 = 0x1C;
 /// 广场 BFF 账户敏感动作:注销/退订(链下 Worker 验签,sr25519 主钥签)。
 pub const OP_SIGN_SQUARE_ACTION: u8 = 0x1D;
 /// GRANDPA 验证密钥正常更换与紧急恢复的持钥证明。
@@ -112,9 +103,6 @@ pub const OP_SIGN_ONCHINA_ADMIN: u8 = 0x20;
 /// CitizenApp 本机切换默认账户：变化前的原默认账户签署完整目标账户顺序。
 /// 该证明只在移动端本机验签，不提交链，也不得复用 CID 换绑域。
 pub const OP_SIGN_SWITCH_DEFAULT_ACCOUNT: u8 = 0x21;
-/// 冷钱包为 CitizenApp 提供账户数据用途钥：签署请求上下文、一次性发送公钥、
-/// AES-GCM nonce 与密文摘要。只证明交付授权，不公开用途钥，也不进入链上业务。
-pub const OP_SIGN_ACCOUNT_DATA_KEY_PROVISION: u8 = 0x22;
 /// CitizenApp 钱包账户签名模式确认：本机私钥签署创世哈希、目标 AccountId、
 /// `hot` 模式与一次性挑战。只用于本机重标验证，不提交链。
 pub const OP_SIGN_WALLET_MODE: u8 = 0x23;
@@ -195,7 +183,7 @@ pub fn decrypt_admin_payload(
 }
 
 /// 全部哈希域签名 op_tag。新增哈希域 op_tag 必须同步追加并刷新金标。
-pub const SIGN_OP_TAGS: [u8; 19] = [
+pub const SIGN_OP_TAGS: [u8; 16] = [
     OP_SIGN_CITIZEN_IDENTITY,
     OP_SIGN_CID_REBIND,
     OP_SIGN_CID_OCCUPY,
@@ -204,15 +192,12 @@ pub const SIGN_OP_TAGS: [u8; 19] = [
     OP_SIGN_L3_PAY,
     OP_SIGN_OFFCHAIN_BATCH,
     OP_SIGN_L2_ACK,
-    OP_SIGN_CHAT_DEVICE_BIND,
-    OP_SIGN_SQUARE_LOGIN,
-    OP_SIGN_SQUARE_DEVICE_BIND,
+    OP_SIGN_MLS_DEVICE_BIND,
     OP_SIGN_SQUARE_ACTION,
     OP_SIGN_GRANDPA_KEY_CHANGE,
     OP_SIGN_CID_ADMIN_REBIND,
     OP_SIGN_ONCHINA_ADMIN,
     OP_SIGN_SWITCH_DEFAULT_ACCOUNT,
-    OP_SIGN_ACCOUNT_DATA_KEY_PROVISION,
     OP_SIGN_WALLET_MODE,
     OP_SIGN_PUBLISH,
 ];

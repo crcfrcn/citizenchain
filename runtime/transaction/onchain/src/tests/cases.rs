@@ -892,3 +892,135 @@ fn exposed_fee_constants_forward_fee_policy_exactly() {
     assert_eq!(fee_rate, primitives::fee_policy::ONCHAIN_FEE_RATE);
     assert_eq!(vote_fee, primitives::fee_policy::VOTE_FLAT_FEE);
 }
+
+
+/// 多次报价必须保持整个链上状态不变，五类路由仍由原制度决定。
+#[test]
+fn charge_details_is_read_only_for_existing_fee_routes() {
+    new_test_ext().execute_with(|| {
+        let who = account(1);
+        let call = sample_call();
+        let info = call.get_dispatch_info();
+        let state_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        for _ in 0..2 {
+            assert_eq!(
+                charge_details::<Test, Balances, FeeRouteOnchain>(&who, &call, &info, 0),
+                Ok(Some((who.clone(), primitives::fee_policy::calculate_onchain_fee(50_000))))
+            );
+            assert_eq!(
+                charge_details::<Test, Balances, FeeRouteVote>(&who, &call, &info, 0),
+                Ok(Some((who.clone(), primitives::fee_policy::VOTE_FLAT_FEE)))
+            );
+            assert_eq!(
+                charge_details::<Test, Balances, FeeRouteTinyAccount2>(&who, &call, &info, 0),
+                Ok(Some((account(2), primitives::fee_policy::ONCHAIN_MIN_FEE)))
+            );
+            assert_eq!(
+                charge_details::<Test, Balances, FeeRouteFree>(&who, &call, &info, 0),
+                Ok(None)
+            );
+            assert_eq!(
+                charge_details::<Test, Balances, FeeRouteOffchain>(&who, &call, &info, 0),
+                Ok(None)
+            );
+            assert_eq!(
+                charge_details::<Test, Balances, FeeRouteReject>(&who, &call, &info, 0),
+                Err(InvalidTransaction::Call.into())
+            );
+        }
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), state_before);
+        assert!(!has_fee_paid_event());
+    });
+}
+
+/// 零金额调用复用现有最低费；报价拒绝非零 tip，不能产生第二套费用规则。
+#[test]
+fn charge_details_zero_amount_keeps_minimum_fee_and_rejects_tip() {
+    struct ZeroAmountFeeRoute;
+    impl CallFeeRoute<AccountId32, RuntimeCall, Balance> for ZeroAmountFeeRoute {
+        fn fee_route(
+            who: &AccountId32,
+            _call: &RuntimeCall,
+        ) -> primitives::fee_policy::FeeRoute<AccountId32, Balance> {
+            primitives::fee_policy::FeeRoute::Onchain {
+                transaction_amount: 0,
+                payer_account_id: who.clone(),
+            }
+        }
+    }
+    new_test_ext().execute_with(|| {
+        let who = account(1);
+        let call = sample_call();
+        let info = call.get_dispatch_info();
+        let state_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_eq!(
+            charge_details::<Test, Balances, ZeroAmountFeeRoute>(&who, &call, &info, 0),
+            Ok(Some((who.clone(), primitives::fee_policy::ONCHAIN_MIN_FEE)))
+        );
+        assert_eq!(
+            charge_details::<Test, Balances, ZeroAmountFeeRoute>(&who, &call, &info, 1),
+            Err(InvalidTransaction::Payment.into())
+        );
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), state_before);
+    });
+}
+
+/// 报价中的实际付款账户和金额必须与实扣一致，签名者不能成为备用付款人。
+#[test]
+fn charge_details_matches_actual_payer_and_single_withdrawal() {
+    type Adapter = OnchainChargeAdapter<Balances, (), FeeRouteTinyAccount2>;
+    new_test_ext().execute_with(|| {
+        let who = account(1);
+        let call = sample_call();
+        let info = call.get_dispatch_info();
+        let payer = account(2);
+        let quoted = charge_details::<Test, Balances, FeeRouteTinyAccount2>(
+            &who, &call, &info, primitives::fee_policy::TRANSACTION_TIP,
+        )
+        .expect("已归类调用必须能够报价")
+        .expect("链上操作必须携带收费明细");
+        assert_eq!(quoted.0, payer);
+        let signer_before = Balances::free_balance(&who);
+        let payer_before = Balances::free_balance(&payer);
+        let liquidity = <Adapter as OnChargeTransaction<Test>>::withdraw_fee(
+            &who, &call, &info, u128::MAX, 0,
+        )
+        .expect("必须从路由中的付款账户完整扣款");
+        assert_eq!(Balances::free_balance(&who), signer_before);
+        assert_eq!(Balances::free_balance(&payer), payer_before - quoted.1);
+        assert_ok!(<Adapter as OnChargeTransaction<Test>>::correct_and_deposit_fee(
+            &who, &info, &Default::default(), 0, 0, liquidity,
+        ));
+        assert_eq!(Balances::free_balance(&who), signer_before);
+        assert_eq!(Balances::free_balance(&payer), payer_before - quoted.1);
+        let paid_count = System::events().iter().filter(|record| matches!(
+            &record.event,
+            RuntimeEvent::OnchainTransaction(pallet::Event::FeePaid { account_id, fee })
+                if account_id == &payer && *fee == quoted.1
+        )).count();
+        assert_eq!(paid_count, 1);
+    });
+}
+
+/// 只读报价不是余额许可：余额不足仍由原收费器拒绝，预检不得留下扣款或事件。
+#[test]
+fn charge_details_does_not_bypass_existing_balance_validation() {
+    type Adapter = OnchainChargeAdapter<Balances, (), FeeRouteOnchain>;
+    new_test_ext().execute_with(|| {
+        let who = account(3);
+        let call = sample_call();
+        let info = call.get_dispatch_info();
+        let state_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_eq!(
+            charge_details::<Test, Balances, FeeRouteOnchain>(&who, &call, &info, 0),
+            Ok(Some((who.clone(), primitives::fee_policy::calculate_onchain_fee(50_000))))
+        );
+        assert_eq!(
+            <Adapter as OnChargeTransaction<Test>>::can_withdraw_fee(
+                &who, &call, &info, 0, 0,
+            ),
+            Err(InvalidTransaction::Payment.into())
+        );
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), state_before);
+    });
+}

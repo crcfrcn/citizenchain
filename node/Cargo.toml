@@ -36,6 +36,15 @@ serde_json = { workspace = true, default-features = true }
 primitives = { path = "../runtime/primitives" }
 ocl = { version = "0.19", optional = true }
 rcgen = { version = "=0.13.2", default-features = false, features = ["ring"] }
+# TLS 复用统一 rustls 版本，证书材料仅由运行环境提供。
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std"] }
+tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring"] }
+tower = { version = "=0.4.13", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors"] }
+pallet-revive = { workspace = true, default-features = true }
+pallet-revive-eth-rpc = { workspace = true }
+sc-rpc-api = { workspace = true }
+sc-rpc-server = { workspace = true }
 
 # substrate client
 sc-basic-authorship = { workspace = true, default-features = true }
@@ -133,6 +142,8 @@ tauri-plugin-updater = "=2.10.1"
 tauri-plugin-process = "=2.3.1"
 
 [dev-dependencies]
+# Ethereum 服务验收直接装配正式原生 RPC，复用同一链客户端与交易池。
+sc-rpc = { workspace = true }
 # 区块链测试 harness 只进 dev-dependencies，用于复用坏块/坏导入态验收矩阵。
 blockchain-harness = { path = "../crates/blockchain-harness" }
 # 普通块坏注入验收专用：按真实 BlockBuilder 生成合法 proposal，再篡改预计算状态变更。

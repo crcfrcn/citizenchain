@@ -49,8 +49,7 @@ pub enum SigningCategory {
     CitizenOccupy,
     CitizenRebind,
     SwitchDefaultAccount,
-    SquareDeviceBind,
-    AccountDataKeyProvision,
+    MlsDeviceBind,
     Publish,
 }
 
