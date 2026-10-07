@@ -17,7 +17,9 @@ Warning: truncated output (original token count: 220007)
 
 生产顺序固定为：现有旧Node承载新Runtime升级；新Runtime在正式链升级成功后，创世身份结果必须与真实块0一致，并继续正常出块与最终确认；随后才在Node增加对应创世身份守卫，再更新各节点软件。API源码存在或返回编译常量不代替链上验证。Cloudflare证书、CSR及HTTPS网关候选可提前准备，公共RPC激活在上述顺序及完整TLS链路验收之后，避免新Node守卫提前拒绝旧Runtime造成升级死锁。
 
-本轮公共接入候选的84项Worker合同与所选既有回归通过，TypeScript候选生产闭包及所选测试0诊断；没有修改Runtime、生产节点、创世、Cloudflare公开路由或证书，没有执行节点编译、CI、Release或正式链升级。任务仍为开发中，生产TLS、真实eth_chainId=0x7eb、广播回执、实际费用及MetaMask操作须据实完成。
+生产证书准备已推进：服务器/opt/citizenchain/tls中已生成RSA3072私钥及公开CSR，PEM私钥root:root 0600、同密钥PKCS8 DER root:citizenchain 0640、CSR root:root 0444；仅公开CSR提交Cloudflare。chain.crcfrcn.com的Origin CA证书已签发，CA签名链、服务器域名及CSR公钥匹配均已验证；公开叶证书与官方RSA CA根已安装于/opt/citizenchain/tls，均为root:root 0444；生产OpenSSL3.0.13实际验证CA签名链、chain.crcfrcn.com域名及CSR公钥一致性通过。重复安装先只读核对已有两份普通非链接文件的权限、完整内容与证书链，一致则成功退出；材料不完整或不符时明确报告阶段并拒绝覆盖，首次安装仍要求root及服务器内私钥一致性验证。真实TLS链路仍待切换与验收。叶证书到期为2041年10月3日，当前官方RSA Origin CA根到期为2029年8月15日，必须在信任根实际到期前更新并重新验收，不能把叶证书有效期当作CA根有效期。
+
+本轮公共接入候选的84项Worker合同与所选既有回归通过，TypeScript候选生产闭包及所选测试0诊断；没有修改Runtime、生产节点软件、创世或Cloudflare公开路由，没有执行节点编译、CI、Release或正式链升级。任务仍为开发中，生产TLS、真实eth_chainId=0x7eb、广播回执、实际费用及MetaMask操作须据实完成。
 
 ## 聊天功能的唯一产品归属
 
