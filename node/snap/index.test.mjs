@@ -96,3 +96,151 @@ test('发布入口无需依赖或宿主能力，清单摘要覆盖实际代码',
   assert.deepEqual(pkg.files, ['index.js', 'snap.manifest.json']);
   assert.equal(pkg.dependencies, undefined);
 });
+
+// 执行实际接入页脚本，检查官方钱包方法、授权时机和失败状态；不冒充钱包页面验收。
+const installPage = ({ href = 'https://localhost:9443/node/snap/install.html', provider, response } = {}) => {
+  const html = readFileSync(new URL('./install.html', import.meta.url), 'utf8');
+  const source = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const elements = Object.fromEntries(['rpc', 'add-network', 'install-snap', 'status'].map(id => [id, {
+    value: '', textContent: '', disabled: false, handlers: {},
+    addEventListener(name, callback) { this.handlers[name] = callback; },
+  }]));
+  const calls = [];
+  const listeners = {};
+  const manifest = JSON.parse(readFileSync(new URL('./snap.manifest.json', import.meta.url)));
+  const fakeProvider = provider ?? {
+    isMetaMask: true,
+    async request(request) {
+      calls.push(request);
+      if (request.method === 'wallet_addEthereumChain') return null;
+      const [id, options] = Object.entries(request.params)[0];
+      return { [id]: { id, version: options.version, enabled: true, blocked: false } };
+    },
+  };
+  const fetches = [];
+  const window = {
+    ethereum: fakeProvider,
+    addEventListener(name, callback) { listeners[name] = callback; },
+    dispatchEvent(event) { calls.push({ event: event.type }); },
+  };
+  vm.runInNewContext(source, {
+    document: { getElementById: id => elements[id] }, window, location: new URL(href), URL,
+    Event: class { constructor(type) { this.type = type; } },
+    async fetch(url, options) {
+      fetches.push({ url: url.href, options });
+      return response ?? { ok: true, json: async () => manifest };
+    },
+  }, { timeout: 1000 });
+  return { elements, calls, fetches, listeners, fakeProvider };
+};
+
+test('加载接入页不请求账户或安装权限，添加网络使用准确链号和兼容精度', async () => {
+  const page = installPage();
+  assert.deepEqual(JSON.parse(JSON.stringify(page.calls)), [{ event: 'eip6963:requestProvider' }]);
+  page.elements.rpc.value = 'https://localhost:9944';
+  await page.elements['add-network'].handlers.click();
+  assert.deepEqual(JSON.parse(JSON.stringify(page.calls[1])), {
+    method: 'wallet_addEthereumChain',
+    params: [{ chainId: '0x7eb', chainName: '公民链',
+      nativeCurrency: { name: '公民币', symbol: 'GMB', decimals: 18 }, rpcUrls: ['https://localhost:9944/'] }],
+  });
+  assert.match(page.elements.status.textContent, /公民链已添加/);
+  assert.equal(page.fetches.length, 0);
+});
+
+test('接入页拒绝明文、异常地址和嵌入凭据，失败后恢复操作', async () => {
+  for (const value of ['', 'invalid', 'http://localhost:9944', 'wss://localhost:9944',
+    'https://user:password@localhost:9944', 'https://localhost:9944/?key=token', 'https://localhost:9944/#fragment']) {
+    const page = installPage();
+    page.elements.rpc.value = value;
+    await page.elements['add-network'].handlers.click();
+    assert.equal(page.calls.length, 1);
+    assert.match(page.elements.status.textContent, /HTTPS/);
+    assert.equal(page.elements['add-network'].disabled, false);
+    assert.equal(page.elements['install-snap'].disabled, false);
+    assert.doesNotMatch(page.elements.status.textContent, /password|token/);
+  }
+  const page = installPage({ href: 'http://localhost:9443/node/snap/install.html' });
+  page.elements.rpc.value = 'https://localhost:9944';
+  await page.elements['add-network'].handlers.click();
+  assert.equal(page.calls.length, 1);
+  assert.equal(page.elements.status.textContent, '请通过 HTTPS 打开本页面。');
+});
+
+test('接入页只在用户操作后按同源清单的准确 npm 名称与版本安装', async () => {
+  const page = installPage();
+  assert.equal(page.fetches.length, 0);
+  await page.elements['install-snap'].handlers.click();
+  assert.deepEqual(JSON.parse(JSON.stringify(page.calls[1])), {
+    method: 'wallet_requestSnaps', params: { 'npm:@crcfrcn/citizenchain-fees': { version: '1.0.0' } },
+  });
+  assert.equal(page.fetches[0].url, 'https://localhost:9443/node/snap/snap.manifest.json');
+  assert.deepEqual(JSON.parse(JSON.stringify(page.fetches[0].options)), { credentials: 'omit', redirect: 'error' });
+  assert.match(page.elements.status.textContent, /公民链费用已安装/);
+});
+
+test('本地 Snap 只允许显式选择的 HTTPS 回环来源，公网不能切换为 local', async () => {
+  const local = installPage({ href: 'https://localhost:9443/node/snap/install.html?snap=local' });
+  await local.elements['install-snap'].handlers.click();
+  assert.ok(local.calls[1].params['local:https://localhost:9443/node/snap/']);
+  const remote = installPage({ href: 'https://www.crcfrcn.com/node/snap/install.html?snap=local' });
+  await remote.elements['install-snap'].handlers.click();
+  assert.equal(remote.calls.length, 1);
+  assert.doesNotMatch(remote.elements.status.textContent, /已安装/);
+});
+
+test('不可读或无效清单不会发起安装，异常安装回执不能显示成功', async () => {
+  for (const response of [{ ok: false }, { ok: true, json: async () => ({}) },
+    { ok: true, json: async () => ({ version: 'latest', source: { location: { npm: {} } } }) }]) {
+    const page = installPage({ response });
+    await page.elements['install-snap'].handlers.click();
+    assert.equal(page.calls.length, 1);
+    assert.doesNotMatch(page.elements.status.textContent, /已安装/);
+  }
+  const page = installPage({ provider: { isMetaMask: true, request: async () => ({}) } });
+  await page.elements['install-snap'].handlers.click();
+  assert.doesNotMatch(page.elements.status.textContent, /已安装/);
+});
+
+test('EIP-6963 找到 MetaMask 时不用其他注入钱包，缺失钱包明确提示', async () => {
+  const page = installPage({ provider: {} });
+  page.listeners['eip6963:announceProvider']({ detail: { info: { rdns: 'other.wallet' }, provider: {
+    request: async () => { throw new Error('不得选择其他钱包'); },
+  } } });
+  await page.elements['install-snap'].handlers.click();
+  assert.match(page.elements.status.textContent, /已安装 MetaMask/);
+  const requests = [];
+  page.listeners['eip6963:announceProvider']({ detail: { info: { rdns: 'io.metamask' }, provider: {
+    request: async request => { requests.push(request); return null; },
+  } } });
+  page.elements.rpc.value = 'https://localhost:9944';
+  await page.elements['add-network'].handlers.click();
+  assert.equal(requests[0].method, 'wallet_addEthereumChain');
+});
+
+test('等待中的钱包请求不能重复发送，取消和第三方异常不回显敏感内容', async () => {
+  let release;
+  let count = 0;
+  const page = installPage({ provider: { isMetaMask: true, request: () => {
+    count++;
+    return new Promise(resolve => { release = resolve; });
+  } } });
+  page.elements.rpc.value = 'https://localhost:9944';
+  const pending = page.elements['add-network'].handlers.click();
+  await page.elements['add-network'].handlers.click();
+  await page.elements['install-snap'].handlers.click();
+  assert.equal(count, 1);
+  assert.equal(page.elements['add-network'].disabled, true);
+  release(null);
+  await pending;
+  for (const [code, expected] of [[4001, '你已取消请求。'], [-32002, 'MetaMask 中已有待确认请求，请先处理。'],
+    [undefined, '操作未完成，请检查 RPC 是否可用、费用插件是否已发布，并在 MetaMask 中查看原因。']]) {
+    const rejected = installPage({ provider: { isMetaMask: true, request: async () => {
+      throw { code, message: '不可输出的第三方错误内容' };
+    } } });
+    rejected.elements.rpc.value = 'https://localhost:9944';
+    await rejected.elements['add-network'].handlers.click();
+    assert.equal(rejected.elements.status.textContent, expected);
+    assert.equal(rejected.elements['add-network'].disabled, false);
+  }
+});

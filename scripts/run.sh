@@ -194,7 +194,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     # Tauri 2 的 build 默认使用优化 profile；--debug 才会切换为调试产物。
     # 编译与封装分离，时间戳瞬时失败时只重试封装签名，不重复整轮 Rust 编译。
     # 前端已在私有工程完成构建；清除 Tauri 的源码 npm 钩子，避免重复构建或回写主仓。
-    tauri_override="$(python3 -c 'import json,sys; print(json.dumps({"build":{"beforeBuildCommand":None,"frontendDist":sys.argv[1]},"bundle":{"resources":{sys.argv[2]+"/":"",sys.argv[3]+"/":"",sys.argv[4]:"china.sqlite"}}}))' "$NODE_FRONTEND_DIST" "$PACKAGE_RESOURCES" "$REPO_ROOT/node/resources" "$REPO_ROOT/onchina/src/cid/china/china.sqlite")"
+    tauri_override="$(python3 -c 'import json,sys; print(json.dumps({"build":{"beforeBuildCommand":None,"frontendDist":sys.argv[1]},"bundle":{"resources":{sys.argv[2]+"/":"",sys.argv[3]+"/":"icons/",sys.argv[4]:"china.sqlite"}}}))' "$NODE_FRONTEND_DIST" "$PACKAGE_RESOURCES" "$REPO_ROOT/crates/icons" "$REPO_ROOT/onchina/src/cid/china/china.sqlite")"
     CITIZENCHAIN_FRONTEND_DIST="$NODE_FRONTEND_DIST" CARGO_INCREMENTAL=1 \
         node "$NODE_FRONTEND_PROJECT/node_modules/@tauri-apps/cli/tauri.js" build --config "$tauri_override" \
         --no-bundle --ci -- --locked --config "$REPO_ROOT/config.toml"

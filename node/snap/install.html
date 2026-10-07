@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'">
+  <title>公民链 · MetaMask</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 480px; margin: 8vh auto; padding: 24px; line-height: 1.6; }
+    header { display: flex; align-items: center; gap: 16px; }
+    header img { width: 64px; height: 64px; border-radius: 14px; }
+    h1 { margin: 0; font-size: 26px; }
+    header p { margin: 0; }
+    label { display: block; margin-top: 28px; }
+    input, button { box-sizing: border-box; width: 100%; padding: 13px; font: inherit; border-radius: 8px; }
+    input { margin: 8px 0 16px; border: 1px solid #8b9693; background: transparent; }
+    button { margin-bottom: 12px; border: 0; background: #008b70; color: white; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid #008b70; outline-offset: 3px; }
+    #status { min-height: 3em; overflow-wrap: anywhere; }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="../../crates/icons/gmb_019473.png" alt="公民币 GMB 图标">
+    <div><h1>公民链</h1><p>Chain ID 2027 · 公民币 GMB</p></div>
+  </header>
+  <p>添加公民链后，可在 MetaMask 中选择公民链并发起转账。安装公民链费用插件，可在交易确认时查看适用费率和本笔应付手续费。</p>
+  <label for="rpc">公民链 RPC 地址</label>
+  <input id="rpc" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="请输入公民链的 HTTPS RPC 地址">
+  <button id="add-network" type="button">添加公民链</button>
+  <button id="install-snap" type="button">安装公民链费用</button>
+  <p id="status" role="status" aria-live="polite"></p>
+  <a href="https://www.crcfrcn.com/" rel="noreferrer">公民链官网</a>
+  <script>
+    (() => {
+      'use strict';
+      const rpc = document.getElementById('rpc');
+      const add = document.getElementById('add-network');
+      const install = document.getElementById('install-snap');
+      const status = document.getElementById('status');
+      let announcedProvider;
+      let busy = false;
+
+      // 复用官方 EIP-6963 发现事件，不在加载页面时请求账户或安装权限。
+      window.addEventListener('eip6963:announceProvider', (event) => {
+        const detail = event.detail;
+        if (detail?.info?.rdns === 'io.metamask' && typeof detail?.provider?.request === 'function') {
+          announcedProvider ??= detail.provider;
+        }
+      });
+      window.dispatchEvent(new Event('eip6963:requestProvider'));
+
+      const wallet = () => {
+        if (location.protocol !== 'https:') throw new Error('请通过 HTTPS 打开本页面。');
+        const provider = announcedProvider ?? (window.ethereum?.isMetaMask ? window.ethereum : undefined);
+        if (typeof provider?.request !== 'function') throw new Error('请在已安装 MetaMask 的浏览器中打开本页面。');
+        return provider;
+      };
+
+      // 只接受公开 HTTPS 端点；错误反馈不回显地址中的凭据或钱包原始错误。
+      const rpcUrl = () => {
+        let url;
+        try { url = new URL(rpc.value.trim()); } catch { throw new Error('请输入有效的 HTTPS RPC 地址。'); }
+        if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+          throw new Error('RPC 必须使用 HTTPS，且不能包含凭据、查询参数或片段。');
+        }
+        return url.href;
+      };
+
+      const run = async (action) => {
+        if (busy) return;
+        busy = true;
+        add.disabled = install.disabled = true;
+        status.textContent = '请在 MetaMask 中确认请求。';
+        try {
+          await action();
+        } catch (error) {
+          status.textContent = error?.code === 4001 ? '你已取消请求。'
+            : error?.code === -32002 ? 'MetaMask 中已有待确认请求，请先处理。'
+            : error?.code === -32601 ? '当前钱包不支持该操作，请使用支持 Snaps 的 MetaMask。'
+            : error?.localMessage ?? '操作未完成，请检查 RPC 是否可用、费用插件是否已发布，并在 MetaMask 中查看原因。';
+        } finally {
+          busy = false;
+          add.disabled = install.disabled = false;
+        }
+      };
+
+      // 自有输入错误只提供固定中文提示，避免展示第三方返回的敏感内容。
+      const locally = (action) => {
+        try { return action(); } catch (error) { error.localMessage = error.message; throw error; }
+      };
+
+      add.addEventListener('click', () => run(async () => {
+        const provider = locally(wallet);
+        const url = locally(rpcUrl);
+        const result = await provider.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: '0x7eb',
+            chainName: '公民链',
+            nativeCurrency: { name: '公民币', symbol: 'GMB', decimals: 18 },
+            rpcUrls: [url],
+          }],
+        });
+        if (result !== null) throw new Error('钱包未返回有效的添加结果');
+        status.textContent = '公民链已添加。请在 MetaMask 中选择公民链。';
+      }));
+
+      install.addEventListener('click', () => run(async () => {
+        const provider = locally(wallet);
+        // 安装名称及准确版本直接读取同源清单，避免维护第二份发布合同。
+        const manifestUrl = new URL('./snap.manifest.json', location.href);
+        const response = await fetch(manifestUrl, { credentials: 'omit', redirect: 'error' });
+        if (!response.ok) throw new Error('费用插件清单不可读');
+        const manifest = await response.json();
+        const packageName = manifest?.source?.location?.npm?.packageName;
+        if (!/^@[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/.test(packageName ?? '')
+          || !/^\d+\.\d+\.\d+$/.test(manifest?.version ?? '')
+          || manifest?.source?.location?.npm?.registry !== 'https://registry.npmjs.org/') {
+          throw new Error('费用插件清单无效');
+        }
+        let snapId = `npm:${packageName}`;
+        // 本地来源仅在 HTTPS 回环页面显式启用，供 Flask 隔离验收；公网页面使用 npm。
+        if (new URL(location.href).searchParams.get('snap') === 'local') {
+          if (!['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+            throw new Error('本地插件只允许回环来源');
+          }
+          snapId = `local:${new URL('./', location.href).href}`;
+        }
+        const result = await provider.request({
+          method: 'wallet_requestSnaps',
+          params: { [snapId]: { version: manifest.version } },
+        });
+        const installed = result?.[snapId];
+        if (installed?.id !== snapId || installed.version !== manifest.version
+          || installed.enabled === false || installed.blocked === true) {
+          throw new Error('费用插件安装结果无效');
+        }
+        status.textContent = '公民链费用已安装。转账确认时可查看适用费率和本笔应付手续费。';
+      }));
+    })();
+  </script>
+</body>
+</html>

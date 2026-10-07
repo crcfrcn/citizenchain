@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // 公民产品 Logo 唯一派生器。
-// 唯一设计真源是 citizenchain/node/resources/icons/logo.png；产品目录里的 PNG/ICNS/ICO 都只是生成物。
+// 唯一设计真源是 citizenchain/crates/icons/logo.png；产品目录里的 PNG/ICNS/ICO 都只是生成物。
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -11,7 +11,7 @@ import process from 'node:process';
 import { deflateSync, inflateSync } from 'node:zlib';
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const masterPath = path.join(repoRoot, 'node/resources/icons/logo.png');
+const masterPath = path.join(repoRoot, 'crates/icons/logo.png');
 const productRoots = new Map([['citizenchain', repoRoot]]);
 for (const product of ['citizenapp', 'citizenwallet']) {
   const key = '--' + product + '-root';
@@ -489,10 +489,10 @@ async function buildOutputs() {
     // PNG 固定头之后，IHDR 数据的第 10 字节是 color type；6 表示 RGBA。
     // 该断言钉住 Tauri 的真实编译前提，避免生成器与错误 RGB 派生物一起“自洽通过”。
     assert.equal(png[25], 6, `CitizenChain Tauri 图标 ${name} 必须是 RGBA PNG`);
-    outputs.set(`citizenchain/node/resources/icons/${name}`, png);
+    outputs.set(`citizenchain/crates/icons/${name}`, png);
   }
-  outputs.set('citizenchain/node/resources/icons/icon.icns', encodeIcns(desktopPng));
-  outputs.set('citizenchain/node/resources/icons/icon.ico', encodeIco(desktopPng));
+  outputs.set('citizenchain/crates/icons/icon.icns', encodeIcns(desktopPng));
+  outputs.set('citizenchain/crates/icons/icon.ico', encodeIco(desktopPng));
 }
 
 async function writeOrCheck() {
@@ -514,7 +514,7 @@ async function writeOrCheck() {
     const files = Object.fromEntries([...outputs].filter(([name]) => name.startsWith('citizenapp/'))
       .map(([name, bytes]) => [name.slice('citizenapp/'.length), hash(bytes)]).sort(([a], [b]) => a.localeCompare(b)));
     const manifest = JSON.stringify({ schema: 1, product: 'citizenapp',
-      source: { repository: 'crcfrcn/citizenchain', path: 'node/resources/icons/logo.png',
+      source: { repository: 'crcfrcn/citizenchain', path: 'crates/icons/logo.png',
         sha256: hash(await readFile(masterPath)) }, files }, null, 2) + '\n';
     const target = path.join(productRoots.get('citizenapp'), 'scripts/logo-assets.json');
     if (checkOnly) {
@@ -523,7 +523,7 @@ async function writeOrCheck() {
     } else await writeFile(target, manifest);
   }
   if (mismatches.length > 0) {
-    throw new Error(`以下 Logo 派生物未由 citizenchain/node/resources/icons/logo.png 生成：\n${mismatches.map((item) => `- ${item}`).join('\n')}`);
+    throw new Error(`以下 Logo 派生物未由 citizenchain/crates/icons/logo.png 生成：\n${mismatches.map((item) => `- ${item}`).join('\n')}`);
   }
   if (checkOnly) {
     const forbiddenLegacyAssets = [
@@ -557,7 +557,7 @@ async function writeOrCheck() {
   }
   process.stdout.write(checkOnly
     ? `Logo 唯一真源检查通过：${outputs.size} 个派生文件。\n`
-    : `已从 citizenchain/node/resources/icons/logo.png 生成 ${outputs.size} 个 Logo 派生文件。\n`);
+    : `已从 citizenchain/crates/icons/logo.png 生成 ${outputs.size} 个 Logo 派生文件。\n`);
 }
 
 for (const base of productRoots.values()) {

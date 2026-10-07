@@ -7,6 +7,18 @@ Warning: truncated output (original token count: 220007)
 第8、9步完成目录与路径实现、根文档迁移及测试源码维护，未运行测试、门禁、编译或安装。本文唯一原件位于/Users/rhett/citizenchain/CitizenChainNode.md；产品接口及流程直接以本仓实际代码和声明为准，业务字典库与其检查已撤销，不另建登记副本。历史验收事实不表示本轮改造已经通过验收，统一测试在第10步进行。根技术文档由本仓门禁按原文、JSON解码值及既有补丁快照扫描机密，仅报告路径；文档迁出不减少资料安全检查。
 
 
+## Cloudflare 公共钱包接入的生产前置条件（2026年10月7日）
+
+公共钱包域名 https://rpc.crcfrcn.com/ 由 CitizenServe Worker 承接，Cloudflare自动管理公网DNS和边缘证书；Worker内部继续调用现有受Access Service Auth保护的Tunnel。节点9944不公开，网关18080仍只监听回环，源节点保留Safe、DenyUnsafe及全局预算。客户端限流在Worker边缘按真实IP执行，节点仍承担回环来源的总预算，不依赖可伪造的转发头。
+
+回源目标证书使用Cloudflare Origin CA，SAN为chain.crcfrcn.com。私钥只在生产服务器生成和保存；只上传CSR，证书公开部分与Origin CA根用于验证。节点实际读取CITIZENCHAIN_RPC_TLS_CERTIFICATE的PEM证书链及CITIZENCHAIN_RPC_TLS_PRIVATE_KEY的PKCS#8 DER私钥。网关到节点采用HTTPS、显式CA、SNI及chain.crcfrcn.com域名校验，HTTP Host仍为127.0.0.1:9944以满足节点HostFilter。cloudflared到网关也采用HTTPS，originServerName与httpHostHeader使用chain.crcfrcn.com，caPool明确指定CA根文件，禁止noTLSVerify和明文降级。
+
+本轮实际SSH只读确认国储会节点、Nginx、cloudflared运行正常；运行二进制为citizenchain 1.0.1-babef11d9a7，现有网关/etc/nginx/sites-available/guo-rpc转发至HTTP回环9944，真实TLS握手失败。该部署二进制未检出Ethereum RPC及新TLS配置标识，实际链上Ethereum接口与链ID尚未验收。不能仅添加Cloudflare域名或证书后把旧节点视为当前以太坊兼容实现；具备已验收接口的准确Node/Runtime部署须先单独落实，禁止用临时测试链冒充正式公民链。
+
+生产顺序固定为：现有旧Node承载新Runtime升级；新Runtime在正式链升级成功后，创世身份结果必须与真实块0一致，并继续正常出块与最终确认；随后才在Node增加对应创世身份守卫，再更新各节点软件。API源码存在或返回编译常量不代替链上验证。Cloudflare证书、CSR及HTTPS网关候选可提前准备，公共RPC激活在上述顺序及完整TLS链路验收之后，避免新Node守卫提前拒绝旧Runtime造成升级死锁。
+
+本轮公共接入候选的84项Worker合同与所选既有回归通过，TypeScript候选生产闭包及所选测试0诊断；没有修改Runtime、生产节点、创世、Cloudflare公开路由或证书，没有执行节点编译、CI、Release或正式链升级。任务仍为开发中，生产TLS、真实eth_chainId=0x7eb、广播回执、实际费用及MetaMask操作须据实完成。
+
 ## 聊天功能的唯一产品归属
 
 **聊天客户端的逻辑功能只能在 TataChatSDK 中实现；聊天服务端的逻辑功能只能在 TataChatServer 中实现。公民、途遇及其他产品只依赖使用。**
@@ -57,6 +69,12 @@ CITIZENCHAIN_TEST_SESSION_SECONDS限定就绪后保留1至1800秒，默认自动
 既有三节点会话测试使用真实 eth_gasPrice、eth_maxPriorityFeePerGas 和 eth_estimateGas 构造 Legacy/EIP-1559 签名，真实完成 1、104.99、105、1000 GMB 转账，业务费分别为 0.10、0.10、0.11、1.00 GMB。gas 缓冲及价格上限未改变该费用；逐笔核对单次 FeePaid、付款者、转账余额、nonce、区块基价与精确回执乘积，三个独立数据库由官方 GRANDPA 最终确认到第5块，费用历史零优先费和无效金额/价格报价拒绝均通过。就绪记录保存四笔交易、每账户两次 nonce，累计收费分别为21分和110分；受控停机及端口释放通过。另一服务回归同时通过真实合约、分叉日志/回执、迟到第三节点、最终链和同库重启。完整5项测试耗时956.81秒，不表示 MetaMask 页面已经通过。
 
 费用洞察源码位于 node/snap，原空 node/target 已按用户许可改名。onTransaction 只对 eip155:2027 返回官方 panel 内的两项：适用费率、本笔应付手续费。费率永久为 0.1%，金额先按 10^16 换成整数分，费用为 max((金额分 + 500) / 1000, 10) 分；拒绝非整分、异常编码及超过 u128 的原生金额。两位小数 GMB 展示包含最低费及四舍五入结果，不另列最低费或计算过程。金额修改重新计算，gas 缓冲和价格上限不改变业务费；不新增链端报价或 metadata API，不逐笔读取固定费率。清单只申请 endowment:transaction-insight，包没有依赖，source.shasum 校验实际入口；实际 npm 包仅包含 index.js、package.json 和 snap.manifest.json，测试及产品文档不进入包。模块测试和打包回读已通过，npm 分发名称为候选，发布与钱包安装仍待真实验收。
+
+MetaMask 接入页位于 node/snap/install.html，以 HTTPS 提供“添加公民链”和“安装公民链费用”两个操作。网络参数固定为公民链、0x7eb、公民币 GMB、Ethereum 兼容精度18；RPC由用户明确输入有效的公开 HTTPS 地址，不预设尚未部署的公网端点，不接受地址中的凭据、查询参数或片段。添加通过 wallet_addEthereumChain，安装通过 wallet_requestSnaps；页面加载仅做 EIP-6963 钱包发现，不请求账户、签名或安装权限。安装名称和准确版本读取同源 snap.manifest.json，不复制第二份包名；默认使用 npm 来源，只有 HTTPS 回环页面显式传入 snap=local 时才使用同源本地来源供 Flask 验收。清单或钱包回执无效时不能显示成功，等待中禁止重复请求；固定中文错误不回显第三方原始错误。页面和图标不进入费用 Snap 的 npm 包，真实钱包安装与转账结果仍须单独验收。
+
+公民链图标资源统一位于 crates/icons，原 node/resources 目录已移除。Tauri 桌面图标及 Windows 安装图标直接引用 ../crates/icons，打包资源映射到安装包内的 icons/，本机开发入口使用同一资源目录；Logo 派生器的应用母版为 crates/icons/logo.png，公民 App 的来源清单同步指向此路径。公民币专用图标由用户指定为 crates/icons/gmb_019473.png，原图1254×1254、970817字节，移动后逐字节保持一致；不把此图替换为应用 Logo 母版。
+
+对外网络资料官网固定为 https://www.crcfrcn.com。2027 网络资料向 ethereum-lists/chains 提交后可供 Chainlist 使用；MetaMask 当前开发分支的搜索读取该清单，但网络和原生币图标仍分别维护，不能仅凭登记库图标推断用户钱包已显示。登记库图标需公开可解析的 IPFS 图片且小于250KB，本产品保留上述原图作为指定源，登记导出和上传待完成。目前尚无已确认公共 RPC、npm 发布登录及 IPFS 上传入口，未提交网络登记、图标收录或发布费用 Snap。完整接入仍须准备公共 HTTPS RPC、登记合并及图标收录、npm 发布和真实钱包验收；本机三节点结果不代替这些结果。
 
 第8步三节点合约同步验收在既有 node/src/core/ethereum_rpc.rs 服务级测试内扩展：三个独立 RocksDB、真实 TLS P2P、生产导入队列与源码 WASM；通过各自 HTTPS 核对代码、存储、余额、nonce、回执和日志，覆盖更重分叉、迟到节点追块、断开后同库重启及重放单次收费。此前实际服务回归2项通过、1项失败；更重分支同步后SDK遗漏祖先通知，日志查询保留旧分支记录，用例中途停止，第三节点追块及断开重启尚未执行。2026年10月6日用户确认执行本次方案后，SDK正式main的Revive RPC修复候选已写入：最佳块处理先沿父哈希收集并校验缺失祖先，确认父哈希、高度连续且在256块窗口内到达已索引父块或创世，再正序执行同高分叉清理与收据写入；全部成功后才推进最佳块并发布通知。每块旧分支删除、交易位置、日志及块映射使用同一SQLite事务，提交成功后才替换内存缓存；失败保留旧索引并允许重试。缺失父块、错误父链及超窗拒绝处理；测试覆盖跳过分叉祖先、重复通知、缺失及错误父链、窗口边界、创世、真实合约事件及删除/插入故障回滚。Node夹具只在cfg(test)创世配置使用公开Alice GRANDPA测试权威，先完成未最终化分叉，再启动官方voter/observer；分别等待各独立客户端的最终块哈希，并经HTTPS核对safe/finalized，继续覆盖迟到及同库重启节点。已移除手动finalize证明；正式Runtime、创世及Node生产实现不由该夹具改动。SDK修复源码已直接离线编译并通过完整RPC库52项测试，包含祖先边界、真实SQLite故障回滚及3条非空合约事件的完整元数据/重复通知断言；合约夹具及开发Runtime WASM均实际构建。Node新增GRANDPA夹具使用当前SDK的KeystoreContainer::keystore取得测试内存密钥库，继续使用公开Alice权威。节点服务验收使用显式std特性，custom-protocol仅涉及桌面资产嵌入，其默认桌面包准备尚未通过，不将服务测试代替桌面验收。首轮服务测试因遗漏WASM_BUILD_FROM_SOURCE在启动前失败，补齐原build.rs要求的环境并使用产品原config.toml后，源码WASM及节点服务重编译通过。最终真实服务回归2项通过、1项失败，耗时427.26秒：两个独立节点经TLS P2P导入更重分叉，HTTPS的eth_getLogs逐项比较发现跟随节点保留旧分支0x2日志，源节点只返回规范0x3日志；用例在此停止，GRANDPA启动、迟到第三节点及同库重启未执行。上轮失败测试的产品消费为ac4a17f99d39e6e67b47a9e809351a763fe789f0，旧BestBlocks实现只处理通知尖端，尚未包含本次已通过52项回归的SDK修复。SDK修复现已本地保存为add12c738a8510cb2253e4a98393e8955286e2b6，保存内容与已通过52项回归源码逐字一致，尚未推送。用户第二次准确确认后，产品三份声明/锁已落实add12c738a8510cb2253e4a98393e8955286e2b6，唯一依赖库SDK原件和328包来源同步替换，版本、checksum及非SDK连接不变。新固定消费源码WASM/Node服务编译通过，真实Ethereum服务3项全部通过，耗时943.77秒、退出0：跨节点分叉日志/回执、官方GRANDPA最终性、safe/finalized、迟到第三节点、原库重启及真实单次收费均完成。结果仅覆盖这3项服务测试，默认桌面包、移动正式页面、MetaMask及正式链升级仍待验收；SDK本地保存未推送。
 第8步升级预检固定核对 SDK bundle 内 chain/manifest.json、chainspec.json 与 light_sync_state.json：9项摘要、创世身份、状态根、协议和币种属性回读一致；该 light-sync 检查点仍为创世块。冻结链内嵌旧 WASM 与开发候选均声明 spec_version/transaction_version 为0，但二者内容不同，这些静态值不能替代已部署 finalized RuntimeVersion。正式升级只能通过既有受保护 HTTPS 读取器及操作绑定的 Keychain/Touch ID，按 finalized spec_version+1 构建已验真 Release；公网 bootstrap 明确不公开 RPC，MetaMask需另行确认测试端点与受信证书。
@@ -3016,3 +3034,17 @@ Pod由pods中的name、version、checksum匹配当前Podfile.lock；spec保存�
 Start只接受当前产品声明所对应平台target内的真实App目录；拒绝源码、其它平台和链接候选。产物验签、声明及可执行文件回读、前后摘要、取消处理和原启动顺序保持。
 
 资源取消对同一真实进程组每轮只发送一次信号；组不存在或Windows时才发送给主进程。仍等待主进程和后代实际退出，8秒未退出才强杀，12秒仍未确认则保留现场并失败；取消不能成为成功。
+
+
+本产品scripts/build.mjs的模块初始化与CLI执行分离：私有异步runCLI承载原命令主体，仅在直接执行文件时启动，拒绝时输出错误并以退出码1失败。模块求值先完成，scripts/resources.mjs可反向导入同一checkWork、requirements和平台校验，不复制实现或增加启动入口；普通import不启动CLI。现有公开参数、JSON请求、--offline、锁定Node验真和必要重入、资源/准备/编译/适用签名安装回读步骤以及取消与结果合同保持。离线缺件和非法输入必须真实失败，禁止以未完成顶层await退出替代完整结果。对应真实CLI回归只在自有target测试现场替换资源供给边界，验证反向导入、参数与错误传播，不据此声称实际产品编译通过。
+
+
+本产品scripts/resources.mjs的普通inventory清单保持独占文件要求；工具原件toolInventory复用同一扫描实现，只允许全部真实名称均位于同一规范payload内的硬链接组。扫描按dev/ino分组，实际名称数量必须与nlink闭合；工具普通文件以O_NOFOLLOW打开，打开及读取后复验身份、计数、权限和字节相关元数据，扫描结束再回读全部目录、文件及链接身份与规范目标。原件外额外名称、目录或链接越界、特殊项、读取期间替换/权限/内容变化均失败。清单仍逐路径保留原有path/sha256/executable或directory/target格式，继续由既有回执、准确官方归档/版本、配方和编译输入证明验真；regular与其它资源默认独占校验不放宽。不新增公开命令、参数、声明字段或原件登记，不改版本、锁、配方和工具原件，不以拆分内部链接、重新安装或下载解决验真。回归复制本仓完整实现到所属target测试现场，仅替换文件IO边界以确定性制造读取变化，并在夹具内暴露已有私有验真函数；纯合成对象覆盖正常、拒绝与回执漂移，不据此宣称真实工具或产品编译通过。
+
+
+本产品资源验真将下载运输元数据与源码工具编译身份分开：仅在源码工具证明和本产品声明的比较副本中，验证并移除archive.mirrors与upstream_patches各项mirrors。镜像须为非空、无重复、无控制字符/空白、无账号/口令/片段的准确规范HTTPS地址数组；错误格式直接失败。官方来源URL、版本、归档字节摘要、kind/root/executable、补丁来源/摘要/顺序、前置与依赖闭包、其它位置同名字段及未知字段继续严格比较。Xcode/POSIX输入、recipe.source和source.archive/source.gem摘要、原回执清单及入口独占规则不变；比较不改写原证明、声明或回执，不改变原件/登记/配方/版本/锁和实际下载策略，不读取控制台登记作为产品版本或策略来源。既有回归使用完整本仓资源实现及纯合成物理证明，逐次重算清单，验证运输差异可复用与真正输入漂移必须失败；测试不启动工具或冒充真实编译交付。
+
+
+本仓平台命名门禁仍扫描完整Git跟踪路径和正文，仅在内存副本识别scripts/resources.mjs中唯一规范的toolDefinitions与flutterPatch声明。规范JSON回读及唯一工具身份阻断重复键、转义、歧义和重复声明；使用Flutter时核验准确官方来源、版本对应归档和本仓补丁来源与全文摘要，未使用Flutter时只接受已核实固定来源与全文SHA-256的共同原补丁。仅处理官方native_assets_host.dart中与准确文件头、行号、lipoDylibs签名及紧邻调用同时闭合的一行原上下文注释，其它新增、删除、上下文、源码和路径的旧平台名称继续拒绝；实际资源源码、补丁、版本、锁和原件不变。目录边界回归以unlinkSync删除自身合成目录符号链接，继续完整验证根target普通目录可用、嵌套target/目录链接/普通文件拒绝；生产目录边界规则不变。回归使用本仓真实门禁与完整Git跟踪合成文件，只在本产品准确target测试现场运行，不将扫描夹具作为真实产品编译或发布证据。
+
+本仓门禁的测试子进程白名单仅保留已有PRODUCT_GIT_BIN准确执行器路径，供完整Git索引夹具使用；缺少该准确入口时回归失败，不查询PATH、不回退系统Git、不传凭据或其它产品材料。不新增工具版本、声明字段、公开参数或生产资源获取步骤。

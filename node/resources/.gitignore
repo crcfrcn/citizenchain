@@ -1,8 +1,0 @@
-# 真打包产物只在CI或产品源码外工作目录生成，产品仓库不保留占位目录。
-onchina-bin/
-postgres/*
-!postgres/.gitkeep
-onchina-frontend/dist/
-# 创世状态包由 bake/prepack 生成并随安装包分发,体积大且不作为源码入库。
-genesis-state/*
-china.sqlite

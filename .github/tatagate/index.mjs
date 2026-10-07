@@ -628,10 +628,81 @@ export function checkGuardrails(root, env, execute) {
   if (result.error || result.signal || result.status !== 0) fail('产品增量防护未通过');
 }
 
-function platformContent(path,source) {
-  if (path!=='.github/tatagate/contracts.json') return source;
-  try { const value=JSON.parse(source);value.platform_forbidden_values=[];return JSON.stringify(value); }
-  catch { return source; }
+// 官方原上下文仅在扫描副本处理；补丁全文摘要、固定来源和唯一位置必须同时闭合。
+function flutterPatchContent(patch, metadata) {
+  const commit = 'd3b14c876900e553bc736ca19295fc09e3853e8e';
+  if (typeof patch !== 'string' || !metadata || Array.isArray(metadata)
+    || Object.keys(metadata).sort().join('\0') !== 'path\0sha256\0source'
+    || metadata.path !== 'flutter.patch'
+    || metadata.source !== 'https://github.com/flutter/flutter/commit/' + commit
+    || !/^[0-9a-f]{64}$/u.test(metadata.sha256)
+    || !patch.startsWith('# Flutter Android new DSL — fixed source ' + commit + '\n')
+    || createHash('sha256').update(patch).digest('hex') !== metadata.sha256) return null;
+  const file = 'packages/flutter_tools/lib/src/isolated/native_assets/macos/native_assets_host.dart';
+  const comment = ' /// ios device or ' + ['macos', 'arm64'].join(' ') + '.';
+  const context = '--- a/' + file + '\n+++ b/' + file + '\n@@ -66,7 +66,8 @@\n' + comment
+    + '\n Future<void> lipoDylibs(File target, List<File> sources) async {\n'
+    + '   final RunResult lipoResult = await globals.processUtils.run(<String>[\n';
+  if (patch.split(context).length !== 2) return null;
+  return patch.replace(context, context.replace(comment, ''));
+}
+
+// 准确官方归档字段不是产品平台名称；其余工具字段与文字仍参与完整扫描。
+function flutterArchiveURL(tool) {
+  if (!tool || tool.id !== 'flutter' || !/^\d+\.\d+\.\d+$/u.test(tool.version)
+    || tool.source !== 'https://storage.googleapis.com/flutter_infra_release/releases/releases_macos.json'
+    || tool.archive?.root !== 'flutter' || tool.archive.executable !== 'bin/flutter'
+    || tool.archive.kind !== 'extract' || !/^[0-9a-f]{64}$/u.test(tool.archive.sha256)) return null;
+  const url = 'https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_'
+    + ['macos', 'arm64'].join('_') + '_' + tool.version + '-stable.zip';
+  return tool.archive.url === url ? url : null;
+}
+
+function resourcePlatformContent(source) {
+  // 唯一规范声明回读阻断重复键、重复变量、转义与格式歧义；无效时保留原文扫描。
+  const declarations = [...source.matchAll(/^const toolDefinitions=(\[.*\]);$/gmu)];
+  const patches = [...source.matchAll(/^const flutterPatch=(".*");$/gmu)];
+  if (declarations.length !== 1 || patches.length !== 1
+    || [...source.matchAll(/\b(?:const|let|var)\s+toolDefinitions\b/gu)].length !== 1
+    || [...source.matchAll(/\b(?:const|let|var)\s+flutterPatch\b/gu)].length !== 1) return source;
+  try {
+    const [declaration] = declarations, [literal] = patches;
+    const tools = JSON.parse(declaration[1]), patch = JSON.parse(literal[1]);
+    if (!Array.isArray(tools) || !tools.length || JSON.stringify(tools) !== declaration[1]
+      || tools.some(tool => !tool || Array.isArray(tool) || typeof tool !== 'object'
+        || typeof tool.id !== 'string' || !/^[a-z][a-z0-9-]*$/u.test(tool.id))
+      || new Set(tools.map(tool => tool.id)).size !== tools.length
+      || typeof patch !== 'string' || JSON.stringify(patch) !== literal[1]) return source;
+    const flutter = tools.filter(tool => tool.id === 'flutter');
+    if (flutter.length > 1 || (flutter.length === 1 && !flutterArchiveURL(flutter[0]))) return source;
+    // 未使用的共同原补丁仅接受这份已核实全文；不读取其它仓库或私有登记。
+    const metadata = flutter.length === 1 ? flutter[0].patch : {
+      path: 'flutter.patch',
+      sha256: '76ef76ca73b2b00423009bd7ebca62f23026e2c9d411504324d2c8ff64da4657',
+      source: 'https://github.com/flutter/flutter/commit/d3b14c876900e553bc736ca19295fc09e3853e8e',
+    };
+    const scanned = flutterPatchContent(patch, metadata);
+    if (scanned === null) return source;
+    // 按原文坐标从右向左替换，仅改变两个准确字面量的扫描副本。
+    const changes = [{ match: literal, text: 'const flutterPatch=' + JSON.stringify(scanned) + ';' }];
+    if (flutter.length === 1) {
+      flutter[0].archive.url = '';
+      changes.push({ match: declaration, text: 'const toolDefinitions=' + JSON.stringify(tools) + ';' });
+    }
+    let text = source;
+    for (const { match, text: replacement } of changes.sort((a, b) => b.match.index - a.match.index)) {
+      text = text.slice(0, match.index) + replacement + text.slice(match.index + match[0].length);
+    }
+    return text;
+  } catch { return source; }
+}
+
+function platformContent(root, path, source) {
+  if (path === '.github/tatagate/contracts.json') {
+    try { const value = JSON.parse(source); value.platform_forbidden_values = []; return JSON.stringify(value); }
+    catch { return source; }
+  }
+  return path === 'scripts/resources.mjs' ? resourcePlatformContent(source) : source;
 }
 
 // 平台命名闭集只来自本仓门禁合同，不读取其它产品或私有资料。
@@ -643,7 +714,7 @@ export function validatePlatformNaming(root) {
     if (ignoredPrefixesFor(contract.repository).some(prefix => path.startsWith(prefix))
 ) continue;
     if (values.slice(1).some(value => path.toLowerCase().includes(value.toLowerCase()))) fail('产品存在禁用平台目录：' + path);
-    const text = platformContent(path, readFileSync(resolve(root,path),'utf8')).toLowerCase();
+    const text = platformContent(root, path, readFileSync(resolve(root,path),'utf8')).toLowerCase();
     if (values.some(value => text.includes(value.toLowerCase()))) fail('产品存在禁用平台命名：' + path);
   }
 }
@@ -715,7 +786,7 @@ function environment(root, work) {
   const names=['HOME','USER','LOGNAME','LANG','LC_ALL','PATH','RUSTUP_HOME','RUSTUP_TOOLCHAIN',
     'GITHUB_ACTIONS','GITHUB_WORKSPACE','GITHUB_SHA','GITHUB_EVENT_NAME','GITHUB_REF',
     'GITHUB_WORKFLOW','GITHUB_JOB','GITHUB_REPOSITORY','RUNNER_TOOL_CACHE','RUNNER_TEMP',
-    'GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT',
+    'GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','PRODUCT_GIT_BIN',
     'DEVELOPER_DIR','SDKROOT','CC','CXX','CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER'];
   const result=Object.fromEntries(names.filter(name=>typeof process.env[name]==='string').map(name=>[name,process.env[name]]));
   Object.assign(result,{ TMPDIR:resolve(work,'tmp'),CARGO_HOME:resolve(work,'cargo-home'),

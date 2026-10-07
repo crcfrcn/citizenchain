@@ -308,7 +308,7 @@ test('链门禁子进程保留宿主链接器和SDK并隔离无关环境', async
 
 // 本仓target是唯一源码内生成边界；嵌套或链接旁路仍必须拒绝。
 test('产品门禁允许自有根target并拒绝嵌套与链接输出', async () => {
-  const { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } = await import('node:fs');
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, unlinkSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { testRoot } = await import('../../scripts/build.mjs');
   const { assertNoProductOutputDirectories, gateContract } = await import('./index.mjs');
@@ -327,7 +327,7 @@ test('产品门禁允许自有根target并拒绝嵌套与链接输出', async ()
     const outside = join(fixture, 'outside'); mkdirSync(outside);
     symlinkSync(outside, target, 'dir');
     assert.throws(() => assertNoProductOutputDirectories(root, gateContract().repository), /生成状态目录/u);
-    rmSync(target);
+    unlinkSync(target);
     writeFileSync(target, 'ordinary file');
     assert.throws(() => assertNoProductOutputDirectories(root, gateContract().repository), /生成状态目录/u);
   } finally { rmSync(fixture, { recursive: true, force: true }); }
@@ -394,4 +394,129 @@ test('根技术文档机密扫描保留正文、令牌和转义快照拒绝', as
   assert.throws(() => hasSecretMaterial('<!-- PATCH_DATA\n{}'), /快照结构/u);
   assert.throws(() => hasSecretMaterial('<!-- PATCH_DATA\ninvalid\nPATCH_DATA -->'), /快照结构/u);
   assert.throws(() => hasSecretMaterial(null), /输入必须/u);
+});
+
+
+// 正负输入均经过本仓真实门禁的完整Git跟踪扫描，不裁剪补丁或增加生产测试出口。
+test('官方补丁只处理准确原上下文，未使用补丁和工具声明的来源摘要及其它文字仍严格检查', async () => {
+  const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  const { join, isAbsolute } = await import('node:path');
+  const { execFileSync } = await import('node:child_process');
+  const { createHash } = await import('node:crypto');
+  const { testRoot } = await import('../../scripts/build.mjs');
+  const { validatePlatformNaming } = await import('./index.mjs');
+  const gitBin = process.env.PRODUCT_GIT_BIN;
+  assert.ok(typeof gitBin === 'string' && isAbsolute(gitBin), '测试需要当前获准Git绝对入口');
+  const root = mkdtempSync(join(testRoot(), 'tatagate-patch-'));
+  const env = { HOME: process.env.HOME, PATH: process.env.PATH, LANG: 'C', LC_ALL: 'C',
+    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' };
+  const git = (...args) => execFileSync(gitBin,
+    ['-c', 'credential.helper=', '-c', 'core.hooksPath=/dev/null', '-C', root, ...args],
+    { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const source = readFileSync(new URL('../../scripts/resources.mjs', import.meta.url), 'utf8');
+  const tools = JSON.parse(source.match(/^const toolDefinitions=(\[.*\]);$/mu)[1]);
+  const patch = JSON.parse(source.match(/^const flutterPatch=(".*");$/mu)[1]);
+  assert.equal(tools.filter(tool => tool.id === 'flutter').length, 0);
+  const marker = ['macos', 'arm64'].join(' '), legacy = ['macos', 'arm64'].join('_');
+  const comment = ' /// ios device or ' + marker + '.';
+  const hash = body => createHash('sha256').update(body).digest('hex');
+  const declaration = values => 'const toolDefinitions=' + JSON.stringify(values) + ';\n';
+  const patchDeclaration = body => 'const flutterPatch=' + JSON.stringify(body) + ';\n';
+  const combined = (values = tools, body = patch) => declaration(values) + patchDeclaration(body);
+  // 合成工具只用于扫描边界；不登记、下载或运行Flutter，也不声称产品实际使用该工具。
+  const flutter = { id: 'flutter', version: '3.47.2',
+    source: 'https://storage.googleapis.com/flutter_infra_release/releases/releases_macos.json',
+    archive: { url: 'https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_'
+      + legacy + '_3.47.2-stable.zip',
+      sha256: 'f456fd6733053d9301828a2e702d6cbec872923126809aa8c48eb0a696d6cc01',
+      root: 'flutter', executable: 'bin/flutter', kind: 'extract' },
+    patch: { path: 'flutter.patch', sha256: hash(patch),
+      source: 'https://github.com/flutter/flutter/commit/d3b14c876900e553bc736ca19295fc09e3853e8e' } };
+  const file = join(root, 'scripts', 'resources.mjs');
+  const accept = body => {
+    writeFileSync(file, body);
+    assert.doesNotThrow(() => validatePlatformNaming(root));
+    assert.equal(readFileSync(file, 'utf8'), body, '扫描不得改写物理源码');
+  };
+  const reject = body => {
+    writeFileSync(file, body);
+    assert.throws(() => validatePlatformNaming(root), /禁用平台命名/u);
+    assert.equal(readFileSync(file, 'utf8'), body);
+  };
+  const changedTool = change => { const tool = structuredClone(flutter); change(tool); return combined([tool]); };
+  const changedPatch = change => {
+    const body = change(patch), tool = structuredClone(flutter);
+    tool.patch.sha256 = hash(body);
+    return combined([tool], body);
+  };
+  try {
+    git('init', '--quiet', '--initial-branch=main');
+    mkdirSync(join(root, 'scripts')); mkdirSync(join(root, '.github', 'tatagate'), { recursive: true });
+    writeFileSync(join(root, '.github', 'tatagate', 'contracts.json'), JSON.stringify(gateContract()));
+    writeFileSync(file, source); git('add', '--all');
+    accept(source);
+    accept(combined());
+    accept(patchDeclaration(patch) + declaration(tools));
+    accept(combined([flutter]));
+    accept(patchDeclaration(patch) + declaration([flutter]));
+    for (const body of [
+      patch + '\n', patch.replace('fixed source', 'other source'),
+      patch.replace('d3b14c876900e553bc736ca19295fc09e3853e8e', '0'.repeat(40)),
+      patch.replace('Future<void> lipoDylibs', 'Future<void> changed'),
+      patch.replaceAll('native_assets_host.dart', 'other.dart'),
+      patch.replace(comment, '+' + comment.slice(1)), patch + patch,
+      patch + '\n+// ' + marker + '\n',
+    ]) reject(combined(tools, body));
+    // 伪造登记摘要也不能放行其它新增行、原上下文、旧名字或改变核实位置。
+    for (const invalid of [
+      changedPatch(body => body.replace('Future<void> lipoDylibs', 'Future<void> changed')),
+      changedPatch(body => body.replaceAll('native_assets_host.dart', 'other.dart')),
+      changedPatch(body => body.replace('@@ -66,7 +66,8 @@', '@@ -67,7 +67,8 @@')),
+      changedPatch(body => body.replace(comment, '+' + comment.slice(1))),
+      changedPatch(body => body + '\n+// ' + marker + '\n'),
+      changedPatch(body => body + '\n // ' + marker + '\n'),
+      changedPatch(body => body + '\n-// ' + marker + '\n'),
+      changedPatch(body => body + '\n' + body),
+      changedTool(tool => { tool.patch.source = 'https://example.invalid/commit/' + 'a'.repeat(40); }),
+      changedTool(tool => { tool.patch.source = tool.patch.source.replace('https:', 'http:'); }),
+      changedTool(tool => { tool.patch.source = 'https://github.com/flutter/flutter/commit/' + '0'.repeat(40); }),
+      changedTool(tool => { tool.patch.sha256 = '0'.repeat(64); }),
+      changedTool(tool => { tool.patch.path = 'other.patch'; }),
+      changedTool(tool => { tool.patch.extra = 'unexpected'; }),
+      changedTool(tool => { tool.archive.url = tool.archive.url.replace('storage.googleapis.com', 'example.invalid'); }),
+      changedTool(tool => { tool.archive.url = tool.archive.url.replace('https:', 'http:'); }),
+      changedTool(tool => { tool.version = '0.0.0'; }),
+      changedTool(tool => { tool.archive.url = tool.archive.url.replace('-stable.zip', '-other.zip'); }),
+      changedTool(tool => { tool.source = 'https://example.invalid/releases.json'; }),
+      changedTool(tool => { tool.archive.root = 'other'; }),
+      changedTool(tool => { tool.archive.executable = 'other'; }),
+      changedTool(tool => { tool.archive.kind = 'native-source'; }),
+      changedTool(tool => { tool.archive.sha256 = 'invalid'; }),
+      changedTool(tool => { tool.title = legacy; }),
+      changedTool(tool => { tool.archive.extra = legacy; }),
+      combined([flutter, flutter]), combined([...tools, tools[0]]),
+      combined([null]), combined([[]]), combined([{ id: 1 }]), combined([{ id: 'invalid id' }]), combined([]),
+      combined() + declaration(tools),
+      combined() + declaration(tools).replace('const toolDefinitions=', 'const toolDefinitions = '),
+      combined() + patchDeclaration(patch),
+      combined() + patchDeclaration(patch).replace('const flutterPatch=', 'let flutterPatch = '),
+      combined().replace('"id":', '"id":"other","id":'),
+      combined().replace('"id":', '"\\u0069d":'),
+      combined().replace('fixed source', 'fixed\\u0020source'),
+      combined().replace('const toolDefinitions=', 'const toolDefinitions = '),
+      declaration(tools) + 'const flutterPatch=' + JSON.stringify(patch).slice(0, -1) + ';\n',
+      'const toolDefinitions=[invalid];\n' + patchDeclaration(patch),
+      'const toolDefinitions=' + JSON.stringify({ tools }) + ';\n' + patchDeclaration(patch),
+      'const toolDefinitions=' + JSON.stringify([flutter]).replace('"flutter"', '"flutt\\u0065r"') + ';\n' + patchDeclaration(patch),
+      combined() + '// ' + marker + '\n',
+    ]) reject(invalid);
+    for (const alias of gateContract().platform_forbidden_values) reject(combined() + '// ' + alias);
+    accept(combined());
+    const other = join(root, 'other.mjs'); writeFileSync(other, combined()); git('add', '--all');
+    assert.throws(() => validatePlatformNaming(root), /禁用平台命名/u);
+    rmSync(other); git('add', '--all');
+    mkdirSync(join(root, legacy)); writeFileSync(join(root, legacy, 'source.mjs'), 'export const fixture=true;\n');
+    git('add', '--all');
+    assert.throws(() => validatePlatformNaming(root), /禁用平台目录/u);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
