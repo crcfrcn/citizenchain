@@ -8,7 +8,13 @@ CITIZENCHAIN_ROOT="$(cd "$PREPARE_SCRIPT_DIR/.." && pwd)"
 NODE_FRONTEND_SOURCE="$CITIZENCHAIN_ROOT/node/frontend"
 ONCHINA_FRONTEND_SOURCE="$CITIZENCHAIN_ROOT/onchina/frontend"
 
-CITIZENCHAIN_WORK_DIR="${CITIZENCHAIN_WORK_DIR:-${TMPDIR:-/tmp}/citizenchain/work}"
+case "$(uname -s)/$(uname -m)" in
+  Darwin/arm64) CITIZENCHAIN_WORK_PLATFORM=macos ;;
+  Linux/aarch64) CITIZENCHAIN_WORK_PLATFORM=linux-arm ;;
+  Linux/x86_64) CITIZENCHAIN_WORK_PLATFORM=linux-amd ;;
+  *) echo 'CitizenChain当前宿主未声明' >&2; exit 1 ;;
+esac
+CITIZENCHAIN_WORK_DIR="${CITIZENCHAIN_WORK_DIR:-$CITIZENCHAIN_ROOT/target/$CITIZENCHAIN_WORK_PLATFORM/build}"
 CITIZENCHAIN_DEPENDENCY_DIR="${CITIZENCHAIN_DEPENDENCY_DIR:-$CITIZENCHAIN_WORK_DIR/dependencies}"
 python3 - "$CITIZENCHAIN_ROOT" "$CITIZENCHAIN_WORK_DIR" "$CITIZENCHAIN_DEPENDENCY_DIR" "${CARGO_TARGET_DIR:-$CITIZENCHAIN_WORK_DIR/cargo-target}" <<'CHECK_WORK'
 from pathlib import Path
@@ -17,8 +23,8 @@ source = Path(sys.argv[1]).resolve()
 for value in sys.argv[2:]:
     raw = Path(value)
     target = raw.resolve()
-    if not raw.is_absolute() or target == source or source in target.parents:
-        raise SystemExit(f'CitizenChain可写目录必须是源码外绝对路径：{value}')
+    if not raw.is_absolute() or source / 'target' not in target.parents:
+        raise SystemExit(f'CitizenChain可写目录必须是本产品target内绝对路径：{value}')
 CHECK_WORK
 export npm_config_cache="${npm_config_cache:-$CITIZENCHAIN_DEPENDENCY_DIR/npm}"
 mkdir -p "$npm_config_cache" "$CITIZENCHAIN_WORK_DIR/source"

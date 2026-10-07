@@ -1,0 +1,16 @@
+{
+  "name": "@crcfrcn/citizenchain-fees",
+  "version": "1.0.0",
+  "description": "公民链交易适用费率和本笔应付手续费",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/crcfrcn/citizenchain.git",
+    "directory": "node/snap"
+  },
+  "main": "index.js",
+  "files": ["index.js", "snap.manifest.json"],
+  "scripts": {
+    "test": "node --test index.test.mjs"
+  }
+}

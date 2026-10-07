@@ -10,6 +10,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHAIN_ROOT="$(dirname "$SCRIPT_DIR")"
 
+case "$(uname -s)/$(uname -m)" in
+  Darwin/arm64) BENCHMARK_PLATFORM=macos ;;
+  Linux/aarch64) BENCHMARK_PLATFORM=linux-arm ;;
+  Linux/x86_64) BENCHMARK_PLATFORM=linux-amd ;;
+  *) echo '公民链benchmark宿主未声明' >&2; exit 1 ;;
+esac
+CITIZENCHAIN_WORK_DIR="$CHAIN_ROOT/target/$BENCHMARK_PLATFORM/test/benchmark"
+export CITIZENCHAIN_WORK_DIR
+export CARGO_TARGET_DIR="$CITIZENCHAIN_WORK_DIR/cargo-target"
 # benchmark 必须基于当前源码生成 weights，不从 GitHub CI 下载 wasm。
 # runtime 正式升级走链上 setCode，CI wasm 只供链上升级流程显式使用。
 unset WASM_FILE
@@ -20,16 +29,16 @@ echo "==> 使用本地源码构建 benchmark runtime，不下载 GitHub CI WASM.
 
 # ── 1. 清除 runtime 缓存，用当前源码编译 ──
 echo "==> 清除 runtime 缓存..."
-find "$CHAIN_ROOT/target" -maxdepth 3 -type d -name "citizenchain-*" -path "*/build/*" -exec rm -rf {} + 2>/dev/null || true
-find "$CHAIN_ROOT/target" -maxdepth 2 -type d -name "citizenchain" -path "*/wbuild/*" -exec rm -rf {} + 2>/dev/null || true
+find "$CARGO_TARGET_DIR" -maxdepth 3 -type d -name "citizenchain-*" -path "*/build/*" -exec rm -rf {} + 2>/dev/null || true
+find "$CARGO_TARGET_DIR" -maxdepth 2 -type d -name "citizenchain" -path "*/wbuild/*" -exec rm -rf {} + 2>/dev/null || true
 echo "    已清除"
 
 # ── 2. 编译带 benchmark feature 的 node ──
-FRONTEND_DIST="$CHAIN_ROOT/node/frontend/dist"
+# 编译前端只在本轮target工程副本准备；冻结源码继续只读。
+source "$SCRIPT_DIR/prepare-toolchain.sh"
+FRONTEND_DIST="$NODE_FRONTEND_PROJECT/dist"
 if [ ! -d "$FRONTEND_DIST" ]; then
-    echo "==> frontend/dist 不存在，先生成 Tauri 前端产物..."
-    npm --prefix "$CHAIN_ROOT/node/frontend" run build
-    echo "    前端产物已生成"
+    npm --prefix "$NODE_FRONTEND_PROJECT" run build
 fi
 
 echo "==> 编译 benchmark node（release）..."
@@ -40,9 +49,11 @@ echo "    编译完成"
 # 当前 runtime 的链规 preset 只在 std 节点侧提供，WASM 不能通过
 # `--genesis-builder=runtime` 构造完整创世状态。基准因此从当前二进制导出一次性
 # fresh spec，并用 spec-genesis 交给 benchmark externalities；退出后立即删除。
-BENCHMARK_SPEC="$(mktemp -t citizenchain-benchmark-spec)"
+BENCHMARK_TMP_ROOT="$CHAIN_ROOT/target/$BENCHMARK_PLATFORM/test/benchmark/tmp"
+mkdir -p "$BENCHMARK_TMP_ROOT"
+BENCHMARK_SPEC="$(mktemp "$BENCHMARK_TMP_ROOT/citizenchain-benchmark-spec.XXXXXX")"
 trap 'rm -f "$BENCHMARK_SPEC"' EXIT
-./target/release/citizenchain export-chain-spec \
+"$CARGO_TARGET_DIR/release/citizenchain" export-chain-spec \
     --chain citizenchain-fresh \
     --output "$BENCHMARK_SPEC"
 echo "==> 已导出当前源码 fresh spec: $BENCHMARK_SPEC"
@@ -90,7 +101,7 @@ for entry in "${PALLETS[@]}"; do
     echo "══════════════════════════════════════"
     echo "▶ $PALLET"
     echo "══════════════════════════════════════"
-    if ./target/release/citizenchain benchmark pallet \
+    if "$CARGO_TARGET_DIR/release/citizenchain" benchmark pallet \
         --chain="$BENCHMARK_SPEC" \
         --genesis-builder=spec-genesis \
         --pallet="$PALLET" \

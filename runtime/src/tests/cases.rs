@@ -3295,6 +3295,13 @@ mod ethereum_execution {
     };
 
     const GAS: u64 = 100_000_000;
+    // 测试预算同时覆盖最低资源额度与金额对应费用，价格仍由真实 Runtime 报价。
+    fn fee_gas(amount: Balance) -> u64 {
+        pallet_revive::evm::fees::native_fee_to_gas::<Runtime>(
+            primitives::fee_policy::calculate_onchain_fee(amount),
+        )
+        .expect("测试金额的费用 gas 必须可准确表达")
+    }
     fn signer() -> AccountId {
         pallet_revive::evm::Account::default().substrate_account()
     }
@@ -3347,8 +3354,8 @@ mod ethereum_execution {
             input: pallet_revive::evm::Bytes(input).into(),
             chain_id: Some(primitives::core_const::ETHEREUM_CHAIN_ID.into()),
             nonce: Some(System::account_nonce(signer()).into()),
-            gas: Some(GAS.into()),
-            gas_price: Some(primitives::core_const::NATIVE_TO_ETH_RATIO.into()),
+            gas: Some(GAS.max(fee_gas(amount)).into()),
+            gas_price: Some(Revive::evm_base_fee()),
             value: Some(
                 U256::from(amount) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO),
             ),
@@ -3567,6 +3574,69 @@ mod ethereum_execution {
             }
         });
     }
+
+    #[test]
+    fn wallet_quotes_and_signed_transfers_cover_minimum_rounding_and_percentage_fees() {
+        for (amount, fee) in [(100, 10), (10_499, 10), (10_500, 11), (100_000, 100)] {
+            for kind in [pallet_revive::evm::TYPE_LEGACY, pallet_revive::evm::TYPE_EIP1559] {
+                ext().execute_with(|| {
+                    let price = Revive::evm_base_fee();
+                    assert_eq!(price, U256::from(1_000_000_000u64));
+                    let dest = H160::repeat_byte(0x49);
+                    let receiver = pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&dest);
+                    Balances::set_balance(&receiver, EXISTENTIAL_DEPOSIT);
+                    let before = Balances::free_balance(signer());
+                    let receiver_before = Balances::free_balance(&receiver);
+                    let mut transaction = tx(Some(dest), vec![], amount);
+                    transaction.r#type = Some(kind.into());
+                    if kind == pallet_revive::evm::TYPE_EIP1559 {
+                        transaction.gas_price = None;
+                        transaction.max_fee_per_gas = Some(price * U256::from(2));
+                        transaction.max_priority_fee_per_gas = Some(U256::zero());
+                    }
+                    // 钱包增加 gas 缓冲或费用上限不能改变业务费或产生第二次扣费。
+                    transaction.gas = transaction.gas.map(|gas| gas * U256::from(2));
+                    let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+                    let quote = Revive::dry_run_eth_transact(transaction.clone(), Default::default()).unwrap();
+                    assert!(U256::from(quote.eth_gas) * price
+                        >= U256::from(fee) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO));
+                    assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+                    System::reset_events();
+                    apply(transaction);
+                    assert_eq!(Balances::free_balance(signer()), before - amount - fee);
+                    assert_eq!(Balances::free_balance(&receiver), receiver_before + amount);
+                    assert_eq!(paid_fees(), vec![(signer(), fee)]);
+                    assert_eq!(System::account_nonce(signer()), 1);
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn wallet_price_priority_and_signed_fee_limits_reject_before_charging() {
+        ext().execute_with(|| {
+            let price = Revive::evm_base_fee();
+            for variant in 0..4 {
+                let mut transaction = tx(Some(H160::repeat_byte(0x49)), vec![], 10_500);
+                match variant {
+                    0 => transaction.gas_price = Some(price + U256::one()),
+                    1 | 2 => {
+                        transaction.r#type = Some(pallet_revive::evm::TYPE_EIP1559.into());
+                        transaction.gas_price = None;
+                        transaction.max_fee_per_gas = Some(if variant == 1 { price - U256::one() } else { price });
+                        transaction.max_priority_fee_per_gas = Some(if variant == 2 { U256::one() } else { U256::zero() });
+                    }
+                    _ => transaction.gas = Some((fee_gas(10_500) - 1).into()),
+                }
+                let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+                assert!(apply_checked(extrinsic(transaction)).is_err(), "无效费用参数 {variant}");
+                assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+                assert_eq!(System::account_nonce(signer()), 0);
+                assert!(paid_fees().is_empty());
+            }
+        });
+    }
+
     #[test]
     fn revert_and_out_of_gas_roll_back_value_storage_and_keep_one_original_fee() {
         for (code, expected) in [
@@ -3586,8 +3656,7 @@ mod ethereum_execution {
                 let storage_before = Revive::get_storage(dest,[0;32]).unwrap();
                 let shares = fee_accounts().map(|account| Balances::free_balance(account));
                 System::reset_events();
-                let mut transaction = tx(Some(dest),vec![],20_000);
-                transaction.gas = Some(GAS.into());
+                let transaction = tx(Some(dest),vec![],20_000);
                 apply(transaction);
                 let fee = primitives::fee_policy::calculate_onchain_fee(20_000);
                 assert_eq!(Balances::free_balance(signer()),before-fee);

@@ -136,7 +136,7 @@ jobs:
           cargo-target
           npm
           xdg
-        CI_CACHE_LINKS: 'target=cargo-target
+        CI_CACHE_LINKS: '
 
           '
         CI_CACHE_FINALS: |
@@ -274,7 +274,7 @@ jobs:
           cargo-target
           npm
           xdg
-        CI_CACHE_LINKS: 'target=cargo-target
+        CI_CACHE_LINKS: '
 
           '
         CI_CACHE_FINALS: |

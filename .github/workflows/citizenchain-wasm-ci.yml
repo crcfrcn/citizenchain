@@ -106,7 +106,7 @@ jobs:
           cargo-target
           npm
           xdg
-        CI_CACHE_LINKS: 'target=cargo-target
+        CI_CACHE_LINKS: '
 
           '
         CI_CACHE_FINALS: 'cargo-target/release/wbuild
@@ -150,7 +150,7 @@ jobs:
       run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 10
     - working-directory: .
       env:
-        WASM_FILE: "${{ github.workspace }}/target/release/wbuild/citizenchain/citizenchain.compact.compressed.wasm"
+        WASM_FILE: "${{ env.CARGO_TARGET_DIR }}/release/wbuild/citizenchain/citizenchain.compact.compressed.wasm"
       shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 11
     - if: "${{ failure() && !cancelled() }}"

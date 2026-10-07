@@ -77,8 +77,8 @@ test('公开链真源只读准确SHA，拒绝网络、重定向、超限及伪�
 
 // 用隔离的合成Git提交验证门禁读取真实初始内容；不修改产品仓或调用仓库保存/推送。
 test('保留源码不按每文件汉字数量判定，真实第一方临时注释仍拒绝', async () => {
-  const [{ mkdtempSync, mkdirSync, writeFileSync, rmSync }, { join }, { tmpdir }, { execFileSync }, { validateQuality }] = await Promise.all([
-    import('node:fs'), import('node:path'), import('node:os'), import('node:child_process'), import('./index.mjs'),
+  const [{ mkdtempSync, mkdirSync, writeFileSync, rmSync }, { join }, { testRoot: tmpdir }, { execFileSync }, { validateQuality }] = await Promise.all([
+    import('node:fs'), import('node:path'), import('../../scripts/build.mjs'), import('node:child_process'), import('./index.mjs'),
   ]);
   const root = mkdtempSync(join(tmpdir(), 'tatagate-quality-'));
   const env = { HOME: process.env.HOME, PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C',
@@ -128,8 +128,8 @@ test('协议拒绝断言只归属本仓登记测试中的真实代码', async ()
 
 // 执行本仓真实Shell增量防护，检查CLI/浏览器边界、拒绝断言、真实残留和大输入通道。
 test('增量防护执行真实归属判断并支持超过argv单项限制的输入', async () => {
-  const [{ mkdtempSync, mkdirSync, writeFileSync, rmSync }, { join, dirname }, { tmpdir }, { execFileSync, spawnSync }, { checkGuardrails }] = await Promise.all([
-    import('node:fs'), import('node:path'), import('node:os'), import('node:child_process'), import('./index.mjs'),
+  const [{ mkdtempSync, mkdirSync, writeFileSync, rmSync }, { join, dirname }, { testRoot: tmpdir }, { execFileSync, spawnSync }, { checkGuardrails }] = await Promise.all([
+    import('node:fs'), import('node:path'), import('../../scripts/build.mjs'), import('node:child_process'), import('./index.mjs'),
   ]);
   const root = mkdtempSync(join(tmpdir(), 'tatagate-guard-'));
   const env = { HOME: process.env.HOME, PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C',
@@ -251,8 +251,8 @@ test('账户派生金标覆盖机构与个人的真实语义键', async () => {
 
 // Rustup 的命令入口是 shim；远端必须交付登记工具链的 Cargo 原件，解析失败不得继续运行门禁。
 test('远端链门禁取得准确Cargo原件并拒绝解析失败', async () => {
-  const [{ mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync }, { join }, { tmpdir }, { spawnSync }] = await Promise.all([
-    import('node:fs'), import('node:path'), import('node:os'), import('node:child_process'),
+  const [{ mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync }, { join }, { testRoot: tmpdir }, { spawnSync }] = await Promise.all([
+    import('node:fs'), import('node:path'), import('../../scripts/build.mjs'), import('node:child_process'),
   ]);
   const work = mkdtempSync(join(tmpdir(), 'chain-cargo-delivery-'));
   try {
@@ -304,4 +304,94 @@ test('链门禁子进程保留宿主链接器和SDK并隔离无关环境', async
   assert.equal(env.CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER, env.CC);
   assert.equal(env.SDKROOT, '/verified/SDK'); assert.equal(env.DEVELOPER_DIR, '/verified/Developer');
   for (const key of ['GITHUB_TOKEN', 'OTHER_PRODUCT_ROOT', 'DYLD_INSERT_LIBRARIES']) assert.equal(env[key], undefined);
+});
+
+// 本仓target是唯一源码内生成边界；嵌套或链接旁路仍必须拒绝。
+test('产品门禁允许自有根target并拒绝嵌套与链接输出', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { testRoot } = await import('../../scripts/build.mjs');
+  const { assertNoProductOutputDirectories, gateContract } = await import('./index.mjs');
+  const fixture = mkdtempSync(join(testRoot(), 'target-boundary-'));
+  const root = join(fixture, 'source'), target = join(root, 'target');
+  mkdirSync(root);
+  try {
+    mkdirSync(join(target, 'test', 'build'), { recursive: true });
+    writeFileSync(join(target, 'test', 'build', 'generated.txt'), 'generated fixture');
+    assert.doesNotThrow(() => assertNoProductOutputDirectories(root, gateContract().repository));
+    const nested = join(root, 'source', 'target');
+    mkdirSync(nested, { recursive: true });
+    assert.throws(() => assertNoProductOutputDirectories(root, gateContract().repository), /生成状态目录/u);
+    rmSync(join(root, 'source'), { recursive: true });
+    rmSync(target, { recursive: true });
+    const outside = join(fixture, 'outside'); mkdirSync(outside);
+    symlinkSync(outside, target, 'dir');
+    assert.throws(() => assertNoProductOutputDirectories(root, gateContract().repository), /生成状态目录/u);
+    rmSync(target);
+    writeFileSync(target, 'ordinary file');
+    assert.throws(() => assertNoProductOutputDirectories(root, gateContract().repository), /生成状态目录/u);
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+});
+
+// 所属根文档验收只读本仓，负向夹具在本产品target内，不借其它仓库资料。
+test('所属根技术文档拒绝缺失、空文件、链接、副本与错误文件类型', async () => {
+  const { validateProductDocuments } = await import('./index.mjs');
+  const { mkdtempSync, writeFileSync, unlinkSync, symlinkSync, mkdirSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { testRoot } = await import('../../scripts/build.mjs');
+  const root = mkdtempSync(join(testRoot(), 'product-documents-'));
+  const names = ["CitizenChainNode.md", "CitizenChainRuntime.md", "CitizenChainOnChina.md"];
+  try {
+    assert.throws(() => validateProductDocuments(root), /根技术文档/u);
+    for (const name of names) writeFileSync(join(root, name), '产品技术文档\n');
+    writeFileSync(join(root, 'README.md'), '产品简介\n');
+    assert.equal(validateProductDocuments(root), true);
+    const file = join(root, names[0]);
+    writeFileSync(file, '');
+    assert.throws(() => validateProductDocuments(root), /根技术文档/u);
+    unlinkSync(file); symlinkSync(join(root, 'README.md'), file);
+    assert.throws(() => validateProductDocuments(root), /根技术文档/u);
+    unlinkSync(file); mkdirSync(file);
+    assert.throws(() => validateProductDocuments(root), /根技术文档/u);
+    rmSync(file, { recursive: true }); writeFileSync(file, '产品技术文档\n');
+    writeFileSync(join(root, 'Extra.md'), '第二技术文档\n');
+    assert.throws(() => validateProductDocuments(root), /额外技术文档/u);
+    unlinkSync(join(root, 'Extra.md'));
+    const readme = join(root, 'README.md'); unlinkSync(readme); symlinkSync(file, readme);
+    assert.throws(() => validateProductDocuments(root), /非空普通原件/u);
+    unlinkSync(readme); writeFileSync(readme, '产品简介\n');
+    assert.equal(validateProductDocuments(root), true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// 文档迁出后保留同等资料扫描，测试只使用合成材料。
+test('根技术文档机密扫描保留正文、令牌和转义快照拒绝', async () => {
+  const { hasSecretMaterial } = await import('./index.mjs');
+  const header = type => '-----BEGIN ' + type + 'PRIVATE KEY-----';
+  const footer = type => '-----END ' + type + 'PRIVATE KEY-----';
+  for (const type of ['', 'RSA ', 'EC ', 'OPENSSH ']) {
+    const begin = header(type), end = footer(type);
+    assert.equal(hasSecretMaterial('识别格式 ' + JSON.stringify(begin)), false);
+    assert.equal(hasSecretMaterial(begin + '\\n\\(fixtureData.base64EncodedString())\\n' + end), false);
+    const shaped = begin + '\n' + 'A'.repeat(96) + '\n' + end;
+    assert.equal(hasSecretMaterial(shaped), true);
+    assert.equal(hasSecretMaterial(shaped.replaceAll('\n', '\\n')), true);
+    assert.equal(hasSecretMaterial(JSON.stringify({ original: shaped })), true);
+    const escaped = JSON.stringify({ original: shaped }).replace('BEGIN', '\\u0042EGIN');
+    assert.equal(hasSecretMaterial(escaped), true);
+    assert.equal(hasSecretMaterial(JSON.stringify({ original: JSON.stringify(shaped).replace('BEGIN', '\\u0042EGIN') })), true);
+    assert.equal(hasSecretMaterial(JSON.stringify({ [shaped]: '合成键名' }).replace('BEGIN', '\\u0042EGIN')), true);
+    const snapshot = '<!-- PATCH_DATA\n' + escaped + '\nPATCH_DATA -->';
+    assert.equal(hasSecretMaterial(snapshot), true);
+    assert.equal(hasSecretMaterial(begin + '\n' + 'A'.repeat(32)), true);
+  }
+  for (const [prefix, length] of [['AKIA', 16], ['github_pat_', 20], ['ghp_', 30], ['sk_live_', 16]]) {
+    assert.equal(hasSecretMaterial(prefix + 'A'.repeat(length)), true);
+    assert.equal(hasSecretMaterial(JSON.stringify({ example: prefix + 'A'.repeat(length) })), true);
+  }
+  assert.equal(hasSecretMaterial('格式说明，没有凭据正文'), false);
+  assert.equal(hasSecretMaterial(header('') + '\nfixture-only\n' + footer('')), false);
+  assert.throws(() => hasSecretMaterial('<!-- PATCH_DATA\n{}'), /快照结构/u);
+  assert.throws(() => hasSecretMaterial('<!-- PATCH_DATA\ninvalid\nPATCH_DATA -->'), /快照结构/u);
+  assert.throws(() => hasSecretMaterial(null), /输入必须/u);
 });

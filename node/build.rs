@@ -9,15 +9,19 @@ fn main() {
     build_tauri().expect("Tauri 构建失败");
 }
 
-// tauri-build 固定向当前目录写 gen/schemas；只在 Cargo 的中央 OUT_DIR 中运行它。
+// tauri-build 固定向当前目录写 gen/schemas；只在本仓 target 内的规范 OUT_DIR 中运行它。
 // Rust 源码和 generate_context! 仍读取原始工程，权限直接来自 tauri.conf.json。
 fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
     let source = env::current_dir()?;
-    let work = std::path::PathBuf::from(env::var_os("OUT_DIR").ok_or("缺少 OUT_DIR")?)
-        .join("tauri");
-    let repository = source.parent().ok_or("缺少仓库根目录")?;
-    if !work.is_absolute() || work.starts_with(repository) {
-        return Err("Tauri 生成文件不能写入公民链源码目录".into());
+    let output = std::path::PathBuf::from(env::var_os("OUT_DIR").ok_or("缺少 OUT_DIR")?);
+    let work = output.join("tauri");
+    let repository = source.parent().ok_or("缺少仓库根目录")?.canonicalize()?;
+    if !output.is_absolute()
+        || !output.starts_with(repository.join("target"))
+        || output.canonicalize()? != output
+        || (fs::symlink_metadata(&work).is_ok() && work.canonicalize()? != work)
+    {
+        return Err("Tauri 生成目录必须是公民链 target 内的规范路径".into());
     }
     let target = tauri_utils::platform::Target::from_triple(&env::var("TARGET")?);
     let (mut config, paths) = tauri_utils::config::parse::read_from(target, &source)?;

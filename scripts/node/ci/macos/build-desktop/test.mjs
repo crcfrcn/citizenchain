@@ -111,7 +111,7 @@ test('CitizenChain四端只使用产品锁定的官方protoc 35.0', () => {
 test('Node白皮书唯一Git输入的正常、失败与路径边界', async () => {
   const { prepareWhitepaperSource } = await import('../../../../dependencies.mjs');
   const { mkdtempSync, realpathSync, mkdirSync, symlinkSync, writeFileSync, rmSync } = await import('node:fs');
-  const { join } = await import('node:path'); const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path'); const { testRoot: tmpdir } = await import('../../../../build.mjs');
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'node-whitepaper-')));
   try {
     assert.throws(() => prepareWhitepaperSource('relative'), /绝对路径/u);

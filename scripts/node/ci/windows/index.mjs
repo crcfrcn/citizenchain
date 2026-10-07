@@ -4,7 +4,8 @@
 // 本文件是 citizenchain/ci-node-windows.yml 的完整动作入口。
 // 所需实现内嵌于本文件，运行时不得导入其它产品或动作脚本。
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { temporaryRoot } from '../../../build.mjs';
+const tmpdir=()=>temporaryRoot(undefined,'tmp');
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';

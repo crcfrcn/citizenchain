@@ -32,7 +32,7 @@ function safeWork(value) {
   if (!isAbsolute(value)) fail('CitizenChain工具工作目录必须是绝对路径');
   const source = realpathSync(join(scripts, '..'));
   const target = resolve(value);
-  if (target === source || target.startsWith(source + '/')) fail('CitizenChain工具不得写入源码目录');
+  if ((target === source || target.startsWith(source + '/')) && !target.startsWith(join(source,'target') + '/')) fail('CitizenChain工具只能在源码target内写入');
   mkdirSync(target, { recursive: true, mode: 0o700 });
   const actual = realpathSync(target);
   if (actual !== target) fail('CitizenChain工具工作目录禁止符号链接');

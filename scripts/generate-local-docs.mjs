@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { temporaryRoot } from './build.mjs';
+const tmpdir=()=>temporaryRoot(undefined,'tmp');
 import { prepareWhitepaperSource } from './dependencies.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url)); // citizenchain/scripts

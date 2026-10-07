@@ -5,7 +5,7 @@
 # 冻结 SSOT 为 plain JSON(runtime WASM + genesis patch + bootnodes)。脚本启动临时节点物化块 0,
 # 同时导出用于正式创世审计的 genesis-state 链数据库包;CitizenApp/smoldot 用 stateRootHash 轻形态。
 #
-# 默认模式只生成预览文件到 target/chainspec,不覆盖冻结 SSOT。
+# 默认模式只生成预览文件到 target/wasm/tmp/chainspec,不覆盖冻结 SSOT。
 # 正式创世必须在 GitHub WASM CI 成功后执行:
 #   citizenchain/scripts/bake-chainspec.sh --finalize \
 #     --wasm /path/to/citizenchain.compact.compressed.wasm \
@@ -26,12 +26,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHAIN_ROOT="$(dirname "$SCRIPT_DIR")"
 REPO_ROOT="$(dirname "$CHAIN_ROOT")"
-OUT="$CHAIN_ROOT/target/chainspec/citizenchain.json"
-APP_OUT="$CHAIN_ROOT/target/chainspec/chainspec.app.json"
-APP_LIGHT_SYNC_STATE_OUT="$CHAIN_ROOT/target/chainspec/light_sync_state.json"
-APP_PUBLIC_INSTITUTION_OUT="$CHAIN_ROOT/target/chainspec/public_institutions"
-CLOUDFLARE_WRANGLER_OUT="$CHAIN_ROOT/target/chainspec/wrangler.toml"
-GENESIS_STATE_OUT="$CHAIN_ROOT/target/chainspec/genesis-state"
+HOST_TEMP="$(node "$CHAIN_ROOT/scripts/build.mjs" temporary-root '' macos)" || exit 1
+export CARGO_TARGET_DIR="$HOST_TEMP/bake-chainspec/cargo-target"
+export TMPDIR="$HOST_TEMP/bake-chainspec/tmp"
+mkdir -p "$TMPDIR"
+OUT="$CHAIN_ROOT/target/wasm/tmp/chainspec/citizenchain.json"
+APP_OUT="$CHAIN_ROOT/target/wasm/tmp/chainspec/chainspec.app.json"
+APP_LIGHT_SYNC_STATE_OUT="$CHAIN_ROOT/target/wasm/tmp/chainspec/light_sync_state.json"
+APP_PUBLIC_INSTITUTION_OUT="$CHAIN_ROOT/target/wasm/tmp/chainspec/public_institutions"
+CLOUDFLARE_WRANGLER_OUT="$CHAIN_ROOT/target/wasm/tmp/chainspec/wrangler.toml"
+GENESIS_STATE_OUT="$CHAIN_ROOT/target/wasm/tmp/chainspec/genesis-state"
 FINALIZE=0
 SKIP_CHECK=0
 WASM_FILE_ARG=""
@@ -119,9 +123,9 @@ Usage:
   citizenchain/scripts/bake-chainspec.sh --finalize --wasm FILE --wasm-ci-run-id ID --wasm-ci-head-sha SHA [--out FILE]
 
 Options:
-  --out FILE       生成 plain chainspec 的输出路径。默认 citizenchain/target/chainspec/citizenchain.json
+  --out FILE       生成 plain chainspec 的输出路径。默认 citizenchain/target/wasm/tmp/chainspec/citizenchain.json
   --genesis-state-out DIR
-                   生成已物化创世链状态包的输出目录。默认 citizenchain/target/chainspec/genesis-state
+                   生成已物化创世链状态包的输出目录。默认 citizenchain/target/wasm/tmp/chainspec/genesis-state
   --wasm FILE      GitHub WASM CI 产出的 runtime wasm。正式创世必须提供
   --wasm-ci-run-id ID
                    该 WASM artifact 所属 GitHub Actions run id
@@ -211,9 +215,9 @@ else
     echo "==> 未指定 --wasm,仅做本地预览:从源码构建 runtime WASM"
 fi
 
-mkdir -p "$(dirname "$OUT")"
-TMP="$(mktemp "$CHAIN_ROOT/target/chainspec/.citizenchain.plain.XXXXXX.json")"
-NODE_TMP_DIR="$(mktemp -d "$CHAIN_ROOT/target/chainspec/.bakenode.XXXXXX")"
+mkdir -p "$(dirname "$OUT")" "$CHAIN_ROOT/target/wasm/tmp/chainspec"
+TMP="$(mktemp "$CHAIN_ROOT/target/wasm/tmp/chainspec/.citizenchain.plain.XXXXXX.json")"
+NODE_TMP_DIR="$(mktemp -d "$CHAIN_ROOT/target/wasm/tmp/chainspec/.bakenode.XXXXXX")"
 NODE_PID=""
 cleanup() {
     [[ -n "$NODE_PID" ]] && kill "$NODE_PID" 2>/dev/null || true
@@ -250,7 +254,7 @@ echo "==> 启动临时节点物化创世(国家/省/市公权机构,记录耗时
 GENESIS_T0=$(date +%s)
 (
     cd "$CHAIN_ROOT"
-    CITIZENCHAIN_HEADLESS=1 ./target/debug/citizenchain --chain "$TMP" \
+    CITIZENCHAIN_HEADLESS=1 "$CARGO_TARGET_DIR/debug/citizenchain" --chain "$TMP" \
         --base-path "$NODE_TMP_DIR" --rpc-port "$RPC_PORT" \
         --no-mdns --no-prometheus --no-telemetry \
         >"$NODE_TMP_DIR/node.log" 2>&1

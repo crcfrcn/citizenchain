@@ -36,7 +36,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tool="$(mktemp -d "$RUNNER_TEMP/tatagate-actionlint-XXXXXX")"
+          mkdir -p "$GITHUB_WORKSPACE/target/macos/test/tatagate"
+          tool="$(mktemp -d "$GITHUB_WORKSPACE/target/macos/test/tatagate/tatagate-actionlint-XXXXXX")"
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
             'https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz' -o "$tool/archive.tar.gz"
           printf '%s  %s\n' '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' "$tool/archive.tar.gz" > "$tool/SHA256"

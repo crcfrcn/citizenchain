@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, chmodSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { testRoot as tmpdir } from './build.mjs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -35,7 +35,7 @@ test('源码外输出、WASM隔离和首条失败收口', t => {
   assert.notEqual(spawnSync('/bin/bash', [entry, 'windows', root], { env: { CARGO: tool, RUSTC: tool } }).status, 0);
 });
 
-// 所有前端直接导入都必须有自己的声明；本仓file依赖须与默认npm ci的链接模型一致。
+// 所有前端直接导入必须自行声明；节点本仓扫码包锁须符合install-links=true的复制安装。
 test('三个前端源码直接导入和本仓锁条目完整', () => {
   for (const project of ['node/frontend', 'onchina/frontend', 'crates/scanner-react']) {
     const directory = join(root, project);
@@ -62,9 +62,23 @@ test('三个前端源码直接导入和本仓锁条目完整', () => {
     assert.deepEqual(lock.packages[''].dependencies, manifest.dependencies);
     if (declared['@gmb/scanner-react']) {
       const local = lock.packages['node_modules/@gmb/scanner-react'];
-      assert.equal(local.link, true);
-      const target = lock.packages[local.resolved];
       const scanner = JSON.parse(readFileSync(join(root, 'crates/scanner-react/package.json'), 'utf8'));
+      // 只约束本轮节点资产修复；其它前端的既有锁由各自任务维护。
+      let target;
+      if (project === 'node/frontend') {
+        assert.match(readFileSync(join(directory, '.npmrc'), 'utf8'), /^install-links=true$/mu);
+        assert.equal(local.link, undefined);
+        assert.equal(local.resolved, manifest.dependencies['@gmb/scanner-react']);
+        assert.equal(lock.packages['../../crates/scanner-react'], undefined);
+        assert.deepEqual(local.peerDependencies, scanner.peerDependencies);
+        assert.deepEqual(local.engines, scanner.engines);
+        assert.equal(manifest.dependencies.react, scanner.peerDependencies.react);
+        assert.equal(lock.packages['node_modules/react'].version, scanner.peerDependencies.react);
+        target = local;
+      } else {
+        assert.equal(local.link, true);
+        target = lock.packages[local.resolved];
+      }
       assert.equal(target.version, scanner.version);
       assert.deepEqual(target.dependencies, scanner.dependencies);
     }

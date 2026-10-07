@@ -12,7 +12,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"   # citizenchain/scripts
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"          # citizenchain/
 HERE="$ROOT/node"                             # citizenchain/node
-CITIZENCHAIN_WORK_DIR="${CITIZENCHAIN_PREPACK_WORK_DIR:-${TMPDIR:-/tmp}/citizenchain/prepack}"
+# 所有独立入口的工具临时状态归本产品target；宿主已交付的产品工作根继续归当前任务。
+PRODUCT_TEMP_SCRIPT="${BASH_SOURCE[0]}"
+while [[ -L "$PRODUCT_TEMP_SCRIPT" ]]; do
+  PRODUCT_TEMP_LINK="$(readlink "$PRODUCT_TEMP_SCRIPT")"
+  [[ "$PRODUCT_TEMP_LINK" == /* ]] || PRODUCT_TEMP_LINK="$(cd "$(dirname "$PRODUCT_TEMP_SCRIPT")" && pwd -P)/$PRODUCT_TEMP_LINK"
+  PRODUCT_TEMP_SCRIPT="$PRODUCT_TEMP_LINK"
+done
+PRODUCT_TEMP_SOURCE="$(cd "$(dirname "$PRODUCT_TEMP_SCRIPT")/.." && pwd -P)"
+PRODUCT_TARGET_TEMP_ROOT="$("${PRODUCT_NODE_BIN:-${NODE:-node}}" "$PRODUCT_TEMP_SOURCE/scripts/build.mjs" temporary-root "${PLATFORM:-${platform:-}}" 'macos')" || exit 1
+if [[ -z "${PRODUCT_WORK_DIR:-}" && "${TMPDIR:-}" != "$PRODUCT_TEMP_SOURCE/target/"* ]]; then
+  export TMPDIR="$PRODUCT_TARGET_TEMP_ROOT/"
+fi
+CITIZENCHAIN_WORK_DIR="${CITIZENCHAIN_PREPACK_WORK_DIR:-${TMPDIR:-$PRODUCT_TARGET_TEMP_ROOT}/citizenchain/prepack}"
 CITIZENCHAIN_DEPENDENCY_DIR="${CITIZENCHAIN_DEPENDENCY_DIR:-$CITIZENCHAIN_WORK_DIR/dependencies}"
 export CITIZENCHAIN_WORK_DIR CITIZENCHAIN_DEPENDENCY_DIR
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$CITIZENCHAIN_WORK_DIR/cargo-target}"
@@ -52,7 +64,7 @@ else
   echo "                解压后 export CITIZENCHAIN_PG_DIST=<解压目录> 再重跑;否则安装包不含内嵌 PG。"
 fi
 
-# 中文注释：release 状态包只作为正式创世审计制品保留在 target/chainspec，不进入任一
+# 中文注释：release 状态包只作为正式创世审计制品保留在 target/wasm/tmp/chainspec，不进入任一
 # 平台安装包；清掉旧预打包残留，保证本机 prepack 与 GitHub CI 使用同一轻量合同。
 rm -rf "$PACKAGE_RESOURCES/genesis-state"
 echo "[prepack] 已确认安装包不携带 genesis-state；首启按冻结 plain chainspec 本地物化"

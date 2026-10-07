@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 下载指定成功运行的 CitizenChain WASM CI artifact 到 citizenchain/target/wasm-ci/。
+# 下载指定成功运行的 CitizenChain WASM CI artifact 到 citizenchain/target/wasm/ci/download/。
 # 正式创世必须同时钉死 run id、提交 SHA 和候选 tag，禁止按“最新成功”推断产物来源。
 
 set -euo pipefail
@@ -13,7 +13,7 @@ ARTIFACT_NAME="citizenchain-wasm"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CITIZENCHAIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-OUT_DIR="$CITIZENCHAIN_DIR/target/wasm-ci"
+OUT_DIR="$CITIZENCHAIN_DIR/target/wasm/ci/download"
 RUN_ID=""
 EXPECTED_HEAD_SHA=""
 EXPECTED_REF=""
@@ -123,7 +123,9 @@ if [[ ! "$ARTIFACT_ID" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gmb-wasm-ci.XXXXXX")"
+WASM_TMP_ROOT="$CITIZENCHAIN_DIR/target/wasm/tmp"
+mkdir -p "$WASM_TMP_ROOT"
+TMP_DIR="$(mktemp -d "$WASM_TMP_ROOT/gmb-wasm-ci.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 echo "下载 artifact $ARTIFACT_ID 到临时校验目录..."

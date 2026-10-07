@@ -165,7 +165,6 @@ mod tests {
     use jsonrpsee::core::client::SubscriptionClientT;
     use pallet_revive::evm::{Account, Bytes, GenericTransaction};
     use sc_chain_spec::{ChainType, Properties};
-    use sc_client_api::backend::Finalizer;
     use sc_consensus::{
         BlockImport, BlockImportParams, ForkChoiceStrategy, ImportResult, StateAction,
         StorageChanges,
@@ -186,13 +185,29 @@ mod tests {
         crypto::{Ss58AddressFormat, Ss58Codec},
         sr25519, Pair,
     };
-    use sp_keyring::Sr25519Keyring;
+    use sp_keyring::{Ed25519Keyring, Sr25519Keyring};
     use sp_runtime::{traits::Block as BlockT, Digest, DigestItem, OpaqueExtrinsic};
     use std::{sync::Arc, time::Duration};
 
     fn chain_spec() -> crate::core::chain_spec::ChainSpec {
+        chain_spec_with_accounts(&[])
+    }
+
+    /// 只在测试创世中预置公开签名夹具；原生账户继续使用官方 Revive 映射。
+    fn chain_spec_with_accounts(
+        accounts: &[(sp_runtime::AccountId32, u128)],
+    ) -> crate::core::chain_spec::ChainSpec {
         let wasm = citizenchain::WASM_BINARY.expect("必须执行真实源码 WASM，禁止跳过");
         let mut genesis = citizenchain::genesis::genesis_config();
+        // 仅替换隔离夹具的 GRANDPA 权威，使用公开测试密钥完成真实投票。
+        // 正式创世、链身份和 Runtime 源码不从此测试配置取得。
+        let authority = sp_consensus_grandpa::AuthorityId::from(Ed25519Keyring::Alice.public());
+        genesis["grandpa"]["authorities"] = serde_json::json!([[
+            authority.to_ss58check_with_version(Ss58AddressFormat::custom(
+                primitives::core_const::SS58_FORMAT
+            )),
+            1,
+        ]]);
         for account in [
             Account::default().substrate_account(),
             Sr25519Keyring::Alice.to_account_id(),
@@ -206,6 +221,14 @@ mod tests {
                     )),
                     1_000_000_000_000u128,
                 ]));
+        }
+        for (account, balance) in accounts {
+            let address = account.to_ss58check_with_version(Ss58AddressFormat::custom(
+                primitives::core_const::SS58_FORMAT,
+            ));
+            let balances = genesis["balances"]["balances"].as_array_mut().unwrap();
+            balances.retain(|entry| entry[0] != address);
+            balances.push(serde_json::json!([address, balance]));
         }
         let mut properties = Properties::new();
         properties.insert(
@@ -232,6 +255,15 @@ mod tests {
             "gmb-ethereum-rpc-{node_name}-{}-{unique}",
             std::process::id()
         ));
+        test_config_at(node_name, tokio_handle, root)
+    }
+
+    /// 调用方交付本产品生成目录；每个节点仍拥有独立数据库与网络身份。
+    fn test_config_at(
+        node_name: &str,
+        tokio_handle: tokio::runtime::Handle,
+        root: std::path::PathBuf,
+    ) -> Configuration {
         std::fs::create_dir_all(&root).expect("创建本轮 Ethereum RPC 隔离验收目录");
         let base_path = BasePath::new(root.clone());
         let mut network = NetworkConfiguration::new(
@@ -359,10 +391,24 @@ mod tests {
         String,
         tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
     ) {
+        serve_on_port(partial, credentials, 0).await
+    }
+
+    /// 显式会话使用固定端口；占用时失败，普通自动化夹具继续使用随机端口。
+    async fn serve_on_port(
+        partial: &Service,
+        credentials: &rcgen::CertifiedKey,
+        port: u16,
+    ) -> (
+        String,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    ) {
         let mut module = native(partial);
         let (ethereum, synchronization) = initialize(module.clone()).await.unwrap();
         module.merge(ethereum).unwrap();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
+            .await
+            .expect("测试 RPC 端口被占用或不能绑定");
         let address = listener.local_addr().unwrap();
         drop(listener);
         let tls = crate::core::rpc_tls::RpcTls::from_der(
@@ -426,13 +472,27 @@ mod tests {
         input: Vec<u8>,
         value: u128,
     ) -> (String, OpaqueExtrinsic) {
+        transaction_from(&Account::default(), nonce, to, input, value)
+    }
+
+    fn transaction_from(
+        account: &Account,
+        nonce: u32,
+        to: Option<H160>,
+        input: Vec<u8>,
+        value: u128,
+    ) -> (String, OpaqueExtrinsic) {
+        let fee_gas = pallet_revive::evm::fees::native_fee_to_gas::<citizenchain::Runtime>(
+            primitives::fee_policy::calculate_onchain_fee(value),
+        ).expect("测试金额必须有可表达的费用 gas");
         let tx = GenericTransaction {
-            from: Some(Account::default().address()),
+            from: Some(account.address()),
             to,
             nonce: Some(nonce.into()),
             chain_id: Some(primitives::core_const::ETHEREUM_CHAIN_ID.into()),
-            gas: Some(100_000_000u64.into()),
-            gas_price: Some(primitives::core_const::NATIVE_TO_ETH_RATIO.into()),
+            gas: Some(100_000_000u64.max(fee_gas).into()),
+            // 测试签名复用已消费 SDK 的钱包报价，不能手填旧的一分 gas 价格掩盖问题。
+            gas_price: Some(pallet_revive::Pallet::<citizenchain::Runtime>::evm_base_fee()),
             value: Some(
                 U256::from(value) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO),
             ),
@@ -440,7 +500,12 @@ mod tests {
             r#type: Some(pallet_revive::evm::TYPE_LEGACY.into()),
             ..Default::default()
         };
-        let payload = Account::default()
+        signed_transaction(account, tx)
+    }
+
+    /// 同一真实签名与原生包装供固定夹具及钱包 RPC 报价交易使用。
+    fn signed_transaction(account: &Account, tx: GenericTransaction) -> (String, OpaqueExtrinsic) {
+        let payload = account
             .sign_transaction(tx.try_into_unsigned().unwrap())
             .signed_payload();
         let xt: citizenchain::UncheckedExtrinsic =
@@ -559,10 +624,19 @@ mod tests {
         backend: Arc<FullBackend>,
         network: Arc<dyn NetworkService>,
         sync: Arc<sc_network_sync::SyncingService<Block>>,
+        pending_finality: Option<Box<dyn FnOnce() + Send>>,
         _task_manager: sc_service::TaskManager,
     }
 
-    fn start_test_network(config: &mut Configuration, partial: Service) -> TestNode {
+    impl TestNode {
+        fn start_finality(&mut self) {
+            self.pending_finality
+                .take()
+                .expect("每个节点只启动一次 GRANDPA")();
+        }
+    }
+
+    fn start_test_network(config: &mut Configuration, partial: Service, voter: bool) -> TestNode {
         type NetworkBackend = sc_network::NetworkWorker<Block, <Block as BlockT>::Hash>;
         let tls =
             crate::core::tls_cert::load_or_generate_tls_cert(config.base_path.path()).unwrap();
@@ -574,6 +648,7 @@ mod tests {
             task_manager,
             import_queue,
             transaction_pool,
+            keystore_container,
             other: (_, grandpa_link, _),
             ..
         } = partial;
@@ -587,12 +662,12 @@ mod tests {
             &client.info().genesis_hash,
             &config.chain_spec,
         );
-        let (grandpa_protocol, _) = sc_consensus_grandpa::grandpa_peers_set_config::<
-            _,
-            NetworkBackend,
-        >(
-            protocol, metrics.clone(), net_config.peer_store_handle()
-        );
+        let (grandpa_protocol, notification_service) =
+            sc_consensus_grandpa::grandpa_peers_set_config::<_, NetworkBackend>(
+                protocol.clone(),
+                metrics.clone(),
+                net_config.peer_store_handle(),
+            );
         net_config.add_notification_protocol(grandpa_protocol);
         let warp = Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
             backend.clone(),
@@ -603,7 +678,7 @@ mod tests {
             config,
             net_config,
             client: client.clone(),
-            transaction_pool,
+            transaction_pool: transaction_pool.clone(),
             spawn_handle: task_manager.spawn_handle(),
             spawn_essential_handle: task_manager.spawn_essential_handle(),
             import_queue,
@@ -613,12 +688,109 @@ mod tests {
             metrics,
         })
         .unwrap();
+        let keystore = if voter {
+            let keystore = keystore_container.keystore();
+            let public = keystore
+                .ed25519_generate_new(sp_consensus_grandpa::KEY_TYPE, Some("//Alice"))
+                .unwrap();
+            assert_eq!(public, Ed25519Keyring::Alice.public());
+            Some(keystore)
+        } else {
+            None
+        };
+        let grandpa_config = sc_consensus_grandpa::Config {
+            gossip_duration: Duration::from_millis(333),
+            justification_generation_period: 1,
+            name: Some(config.network.node_name.clone()),
+            observer_enabled: false,
+            keystore,
+            local_role: config.role,
+            telemetry: None,
+            protocol_name: protocol,
+        };
+        let grandpa_network = network.clone();
+        let grandpa_sync = sync.clone();
+        let spawn = task_manager.spawn_handle();
+        let essential = task_manager.spawn_essential_handle();
+        // 保留真实通知服务与导入链接，先完成未最终化分叉，再启动官方投票/观察任务。
+        let pending_finality = Some(Box::new(move || {
+            if voter {
+                let params = sc_consensus_grandpa::GrandpaParams {
+                    config: grandpa_config,
+                    link: grandpa_link,
+                    network: grandpa_network,
+                    sync: grandpa_sync,
+                    notification_service,
+                    voting_rule: (),
+                    prometheus_registry: None,
+                    shared_voter_state: sc_consensus_grandpa::SharedVoterState::empty(),
+                    telemetry: None,
+                    offchain_tx_pool_factory:
+                        sc_transaction_pool_api::OffchainTransactionPoolFactory::new(
+                            transaction_pool,
+                        ),
+                };
+                essential.spawn_blocking(
+                    "grandpa-voter",
+                    None,
+                    sc_consensus_grandpa::run_grandpa_voter(params).unwrap(),
+                );
+            } else {
+                spawn.spawn_blocking(
+                    "grandpa-observer",
+                    None,
+                    sc_consensus_grandpa::run_grandpa_observer(
+                        grandpa_config,
+                        grandpa_link,
+                        grandpa_network,
+                        grandpa_sync,
+                        notification_service,
+                    )
+                    .unwrap(),
+                );
+            }
+        }) as Box<dyn FnOnce() + Send>);
         TestNode {
             client,
             backend,
             network,
             sync,
+            pending_finality,
             _task_manager: task_manager,
+        }
+    }
+
+    async fn wait_finalized(node: &TestNode, hash: sp_core::H256, number: u32) {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while node.client.info().finalized_hash != hash {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("独立节点必须通过真实 GRANDPA 获得同一最终块");
+        assert_eq!(node.client.info().finalized_number, number);
+    }
+
+    async fn assert_finalized_rpc(http: &reqwest::Client, url: &str, expected: &serde_json::Value) {
+        for tag in ["safe", "finalized"] {
+            let block = tokio::time::timeout(Duration::from_secs(30), async {
+                loop {
+                    let block = rpc(
+                        http,
+                        url,
+                        "eth_getBlockByNumber",
+                        serde_json::json!([tag, false]),
+                    )
+                    .await;
+                    if block["hash"] == expected["hash"] {
+                        break block;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("每个 HTTPS RPC 必须推进到经 GRANDPA 验证的同一最终块");
+            assert_eq!(block["number"], expected["number"]);
         }
     }
 
@@ -702,6 +874,339 @@ mod tests {
         }
     }
 
+    /// 自动回归也真实运行会话；只有显式参数延长就绪后的保留时间，不忽略测试。
+    fn session_seconds(value: &str) -> Result<u64, &'static str> {
+        match value.parse::<u64>() {
+            Ok(seconds @ 1..=1800) => Ok(seconds),
+            _ => Err("测试会话就绪后的保留时间必须为 1 至 1800 秒"),
+        }
+    }
+
+    fn session_path(path: &std::path::Path) -> Result<(), &'static str> {
+        use std::path::Component;
+        let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        if !path.is_absolute()
+            || path.parent().is_none()
+            || !path.starts_with(repository.join("target"))
+            || path.components().any(|part| matches!(part, Component::CurDir | Component::ParentDir))
+        {
+            return Err("测试会话必须使用本产品 target 内的规范绝对目录");
+        }
+        Ok(())
+    }
+
+    /// 测试失败、超时或取消时也关闭监听与出块任务，避免占用后续验收资源。
+    struct AbortSessionTask<T>(tokio::task::JoinHandle<T>);
+    impl<T> Drop for AbortSessionTask<T> {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+
+    #[test]
+    fn metamask_session_settings_reject_source_paths_and_unbounded_duration() {
+        for value in ["1", "5", "1800"] {
+            assert!(session_seconds(value).is_ok());
+        }
+        for value in ["", "0", "1801", "-1", "1.5", "18446744073709551616"] {
+            assert!(session_seconds(value).is_err(), "{value}");
+        }
+        let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for path in [std::path::PathBuf::from("relative"), repository.join("node/session"),
+            std::path::PathBuf::from("/"), std::path::PathBuf::from("/tmp/../session"),
+            std::env::temp_dir().join("../session")] {
+            assert!(session_path(&path).is_err(), "{}", path.display());
+        }
+        assert!(session_path(&repository.join("target/macos/build/tmp/citizenchain-session")).is_ok());
+        assert!(session_path(&repository.join("target/linux-amd/ci/tmp/citizenchain-session")).is_ok());
+    }
+
+    async fn session_receipt(
+        http: &reqwest::Client,
+        url: &str,
+        transaction: &serde_json::Value,
+    ) -> serde_json::Value {
+        tokio::time::timeout(Duration::from_secs(120), async {
+            loop {
+                let receipt = rpc(http, url, "eth_getTransactionReceipt",
+                    serde_json::json!([transaction])).await;
+                if !receipt.is_null() {
+                    assert_eq!(receipt["status"], "0x1", "测试账户转账必须真实成功");
+                    return receipt;
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        }).await.expect("交易池中的签名交易必须经真实出块取得成功回执")
+    }
+
+    /// 独立读取同一原生账本；Ethereum 可用余额另扣账户保留金，不能混为总余额。
+    fn session_native_balance(
+        client: &FullClient,
+        account: &sp_runtime::AccountId32,
+    ) -> u128 {
+        use sc_client_api::StorageProvider;
+        let key = frame_system::Account::<citizenchain::Runtime>::hashed_key_for(account);
+        let data = client.storage(client.info().best_hash, &sp_storage::StorageKey(key))
+            .unwrap().expect("预置测试账户必须存在于真实原生账本");
+        type AccountInfo = frame_system::AccountInfo<citizenchain::Nonce,
+            <citizenchain::Runtime as frame_system::Config>::AccountData>;
+        AccountInfo::decode_all(&mut &data.0[..]).unwrap().data.free
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn metamask_three_node_session_uses_pool_pow_tls_and_grandpa() {
+        use sc_transaction_pool_api::{ChainEvent, InPoolTransaction, MaintainedTransactionPool, TransactionPool};
+        use sp_runtime::transaction_validity::TransactionSource;
+        let explicit_root = std::env::var_os("CITIZENCHAIN_TEST_SESSION_ROOT");
+        let root = explicit_root.as_ref().map(std::path::PathBuf::from).unwrap_or_else(|| {
+            std::env::temp_dir().canonicalize().unwrap().join(format!("citizenchain-session-{}-{}", std::process::id(),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))
+        });
+        session_path(&root).unwrap();
+        assert_eq!(root.parent().unwrap().canonicalize().unwrap(), root.parent().unwrap(),
+            "会话父目录不能经过符号链接");
+        let seconds = session_seconds(&std::env::var("CITIZENCHAIN_TEST_SESSION_SECONDS")
+            .unwrap_or_else(|_| "1".into())).unwrap();
+        std::fs::create_dir(&root).expect("只创建本轮全新会话，禁止覆盖旧数据库");
+        // 这两个固定密钥是公开、可复现的测试向量，永远不能控制正式资产。
+        let accounts = [Account::from_secret_key([1; 32]), Account::from_secret_key([2; 32])];
+        let initial = 1_000_000u128; // 每个账户 10000 GMB，真实账本按分保存。
+        let endowed = accounts.iter().map(|account| (account.substrate_account(), initial))
+            .collect::<Vec<_>>();
+        println!("三节点会话：从源码 WASM 计算本轮测试创世状态");
+        let mut session_spec: Box<dyn sc_service::ChainSpec> = Box::new(chain_spec_with_accounts(&endowed));
+        let storage = session_spec.as_storage_builder().build_storage().unwrap();
+        assert_eq!(storage.top.get(sp_core::storage::well_known_keys::CODE).map(Vec::as_slice),
+            citizenchain::WASM_BINARY, "测试创世必须包含本轮准确源码 WASM");
+        // 同一会话只执行一次创世构造；三个数据库独立导入相同、已核对源码的 storage。
+        session_spec.set_storage(storage);
+        let mut configs = ["primary", "peer-two", "peer-three"].map(|name| {
+            let mut config = test_config_at(name, tokio::runtime::Handle::current(), root.join(name));
+            config.chain_spec = session_spec.cloned_box();
+            config
+        });
+        configs[0].role = Role::Authority;
+        println!("三节点会话：初始化主节点的源码 WASM 与独立数据库");
+        let partial = crate::core::service::new_partial_for_test(&configs[0]).unwrap();
+        let pool = partial.transaction_pool.clone();
+        let client = partial.client.clone();
+        let identity = crate::core::node_guard::TestGenesisIdentity::from_chain_spec(
+            configs[0].chain_spec.as_ref()).unwrap();
+        let raw_import = sc_consensus_pow::PowBlockImport::new(partial.other.0.clone(),
+            client.clone(), crate::core::service::SimplePow::new(client.clone()), 0,
+            partial.select_chain.clone(),
+            |_, ()| async { Ok((sp_timestamp::InherentDataProvider::from_system_time(),)) });
+        let guarded = crate::core::node_guard::NodeGuard::new_for_test(raw_import,
+            client.clone(), partial.backend.clone(), identity);
+        let importer = crate::core::constitution::ConstitutionGuard::new(guarded,
+            client.clone(), partial.backend.clone()).unwrap();
+        let credentials = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        // 只导出公开测试证书。RPC 私钥始终保留内存，浏览器信任在后续步骤配置。
+        std::fs::write(root.join("rpc-certificate.der"), credentials.cert.der().as_ref()).unwrap();
+        let http = reqwest::Client::builder().https_only(true).no_proxy()
+            .add_root_certificate(reqwest::Certificate::from_der(credentials.cert.der().as_ref()).unwrap())
+            .timeout(Duration::from_secs(15)).build().unwrap();
+        let (url, rpc_task) = serve_on_port(&partial, &credentials,
+            if explicit_root.is_some() { 9944 } else { 0 }).await;
+        let mut rpc_tasks = vec![AbortSessionTask(rpc_task)];
+        let mut primary = start_test_network(&mut configs[0], partial, true);
+        let mut peers = Vec::new();
+        let mut urls = vec![url.clone()];
+        for config in &mut configs[1..] {
+            println!("三节点会话：初始化 {}", config.network.node_name);
+            let partial = crate::core::service::new_partial_for_test(config).unwrap();
+            let (peer_url, task) = serve(&partial, &credentials).await;
+            rpc_tasks.push(AbortSessionTask(task));
+            urls.push(peer_url);
+            let mut peer = start_test_network(config, partial, false);
+            connect_peer(&peer, &primary).await;
+            peer.start_finality();
+            peers.push(peer);
+        }
+        primary.start_finality();
+        println!("三节点会话：TLS P2P 已连接，核对原生总余额与 Ethereum 可用余额");
+        for (node, endpoint) in urls.iter().enumerate() {
+            let endpoint_client = if node == 0 { &client } else { &peers[node - 1].client };
+            assert_eq!(rpc(&http, endpoint, "eth_chainId", serde_json::json!([])).await, "0x7eb");
+            for account in &accounts {
+                assert_eq!(session_native_balance(endpoint_client, &account.substrate_account()), initial);
+                let balance: U256 = serde_json::from_value(rpc(&http, endpoint, "eth_getBalance",
+                    serde_json::json!([account.address(), "latest"])).await).unwrap();
+                assert_eq!(balance, U256::from(initial - citizenchain::EXISTENTIAL_DEPOSIT)
+                    * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO));
+                assert_eq!(rpc(&http, endpoint, "eth_getTransactionCount",
+                    serde_json::json!([account.address(), "latest"])).await, "0x0");
+            }
+        }
+        let (stop_authoring, mut stopped) = tokio::sync::oneshot::channel::<()>();
+        let author_pool = pool.clone();
+        let author_client = client.clone();
+        let synchronization = primary.sync.clone();
+        let mut authoring = AbortSessionTask(tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(250));
+            let mut previous_timestamp = 0;
+            loop {
+                tokio::select! {
+                    _ = &mut stopped => return Ok::<(), String>(()),
+                    _ = interval.tick() => {}
+                }
+                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|error| error.to_string())?.as_millis() as u64;
+                if timestamp < previous_timestamp + 12_000 { continue; }
+                // 只消费真实交易池中的 ready 交易；空池不制造空块或修改账户 nonce。
+                let body = author_pool.ready().take(1).map(|transaction| (**transaction.data()).clone())
+                    .collect::<Vec<_>>();
+                if body.is_empty() { continue; }
+                let block = proposal(&author_client, author_client.info().best_hash, body, timestamp);
+                let hash = block.post_hash();
+                let result = importer.import_block(block).await.map_err(|error| format!("{error:?}"))?;
+                if !matches!(result, ImportResult::Imported(_)) {
+                    return Err(format!("正式守卫拒绝测试交易区块：{result:?}"));
+                }
+                author_pool.maintain(ChainEvent::NewBestBlock { hash, tree_route: None }).await;
+                synchronization.announce_block(hash, None);
+                previous_timestamp = timestamp;
+            }
+        }));
+        let price: U256 = serde_json::from_value(rpc(&http, &url, "eth_gasPrice", serde_json::json!([])).await).unwrap();
+        assert_eq!(price, U256::from(1_000_000_000u64));
+        assert_eq!(rpc(&http, &url, "eth_maxPriorityFeePerGas", serde_json::json!([])).await, "0x0");
+        // 非整分金额和无效价格参数必须在真实 WASM 报价阶段拒绝，不能进入交易池。
+        for invalid in [
+            serde_json::json!({"value":U256::one()}),
+            serde_json::json!({"gasPrice":price + U256::one()}),
+            serde_json::json!({"maxFeePerGas":price - U256::one(),"maxPriorityFeePerGas":"0x0"}),
+            serde_json::json!({"maxFeePerGas":price,"maxPriorityFeePerGas":"0x1"}),
+        ] {
+            let mut request = invalid;
+            request["from"] = serde_json::to_value(accounts[0].address()).unwrap();
+            request["to"] = serde_json::to_value(accounts[1].address()).unwrap();
+            assert!(response(&http, &url, "eth_estimateGas", serde_json::json!([request])).await.get("error").is_some());
+        }
+        assert_eq!(session_native_balance(&client, &accounts[0].substrate_account()), initial);
+        assert_eq!(rpc(&http, &url, "eth_getTransactionCount", serde_json::json!([accounts[0].address(), "latest"])).await, "0x0");
+        let transfers = [(0, 1, 100u128, 10u128), (1, 0, 10_499, 10),
+            (0, 1, 10_500, 11), (1, 0, 100_000, 100)];
+        let mut receipts = Vec::new();
+        let mut transactions = Vec::new();
+        let mut nonces = [0u32; 2];
+        for (index, &(sender, recipient, value, fee)) in transfers.iter().enumerate() {
+            println!("三节点会话：广播并等待第 {} 笔真实转账回执", index + 1);
+            let request = serde_json::json!({"from":accounts[sender].address(),
+                "to":accounts[recipient].address(),
+                "value":U256::from(value) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO)});
+            let estimate: U256 = serde_json::from_value(rpc(&http, &url, "eth_estimateGas",
+                serde_json::json!([request])).await).unwrap();
+            assert!(estimate * price >= U256::from(fee) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO));
+            // 真实钱包按报价增加 gas 缓冲；Legacy 与 EIP-1559 均不能改变实际业务费。
+            let eip1559 = index % 2 == 1;
+            let tx = GenericTransaction {
+                from: Some(accounts[sender].address()), to: Some(accounts[recipient].address()),
+                chain_id: Some(primitives::core_const::ETHEREUM_CHAIN_ID.into()),
+                nonce: Some(nonces[sender].into()), gas: Some(estimate * U256::from(2)),
+                gas_price: if eip1559 { None } else { Some(price) },
+                max_fee_per_gas: if eip1559 { Some(price * U256::from(2)) } else { None },
+                max_priority_fee_per_gas: if eip1559 { Some(U256::zero()) } else { None },
+                value: Some(U256::from(value) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO)),
+                r#type: Some(if eip1559 { pallet_revive::evm::TYPE_EIP1559 } else { pallet_revive::evm::TYPE_LEGACY }.into()),
+                ..Default::default()
+            };
+            let (raw, _) = signed_transaction(&accounts[sender], tx);
+            let hash = rpc(&http, &url, "eth_sendRawTransaction", serde_json::json!([raw])).await;
+            receipts.push(session_receipt(&http, &url, &hash).await);
+            transactions.push(hash);
+            nonces[sender] += 1;
+        }
+        // 用独立的公开 Alice 账户产生第三个合法块，验证真实最终性且不扰动测试账户。
+        pool.submit_one(client.info().best_hash, TransactionSource::Local,
+            native_remark(&client, 0)).await.unwrap();
+        wait_block(&http, &url, 5).await;
+        let hash = client.info().best_hash;
+        for peer in &peers { wait_peer(peer, hash).await; }
+        wait_finalized(&primary, hash, 5).await;
+        for peer in &peers { wait_finalized(peer, hash, 5).await; }
+        let head = rpc(&http, &url, "eth_getBlockByNumber", serde_json::json!(["latest", false])).await;
+        for endpoint in &urls { assert_finalized_rpc(&http, endpoint, &head).await; }
+        let mut fees = [0u128; 2];
+        let mut expected = [initial; 2];
+        for (index, receipt) in receipts.iter().enumerate() {
+            // Ethereum 回执哈希与原生头哈希不同；按已验证的同一高度读取原生费用事件。
+            let number = (index + 1) as u32;
+            assert_eq!(receipt["blockNumber"], format!("0x{number:x}"));
+            let ethereum_block = rpc(&http, &url, "eth_getBlockByNumber",
+                serde_json::json!([format!("0x{number:x}"), false])).await;
+            assert_eq!(ethereum_block["hash"], receipt["blockHash"]);
+            let block_hash = client.hash(number).unwrap().expect("成功转账必须具有同高度原生区块");
+            let paid = paid_fees(&client, block_hash);
+            assert_eq!(paid.len(), 1, "一笔 Ethereum 转账只能产生一次真实手续费事件");
+            let (sender, recipient, value, fee) = transfers[index];
+            assert_eq!(paid[0], (accounts[sender].substrate_account(), fee));
+            let used: U256 = serde_json::from_value(receipt["gasUsed"].clone()).unwrap();
+            let effective: U256 = serde_json::from_value(receipt["effectiveGasPrice"].clone()).unwrap();
+            assert_eq!(effective, price);
+            assert_eq!(used * effective, U256::from(fee) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO));
+            assert_eq!(ethereum_block["baseFeePerGas"], serde_json::to_value(price).unwrap());
+            fees[sender] += fee;
+            expected[sender] -= value + fee;
+            expected[recipient] += value;
+        }
+        let history = rpc(&http, &url, "eth_feeHistory", serde_json::json!(["0x1", "latest", [0, 50, 100]])).await;
+        assert_eq!(history["baseFeePerGas"], serde_json::json!([price, price]));
+        assert_eq!(history["reward"], serde_json::json!([["0x0", "0x0", "0x0"]]));
+        for (node, endpoint) in urls.iter().enumerate() {
+            let endpoint_client = if node == 0 { &client } else { &peers[node - 1].client };
+            for (index, account) in accounts.iter().enumerate() {
+                assert_eq!(session_native_balance(endpoint_client, &account.substrate_account()), expected[index]);
+                let balance: U256 = serde_json::from_value(rpc(&http, endpoint, "eth_getBalance",
+                    serde_json::json!([account.address(), "latest"])).await).unwrap();
+                assert_eq!(balance, U256::from(expected[index] - citizenchain::EXISTENTIAL_DEPOSIT)
+                    * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO));
+                assert_eq!(rpc(&http, endpoint, "eth_getTransactionCount",
+                    serde_json::json!([account.address(), "latest"])).await, "0x2");
+            }
+            for (transaction, receipt) in transactions.iter().zip(&receipts) {
+                assert_eq!(rpc(&http, endpoint, "eth_getTransactionReceipt",
+                    serde_json::json!([transaction])).await, *receipt);
+            }
+        }
+        let ready = serde_json::json!({"rpc":url,"chain_id":2027,"genesis_hash":client.info().genesis_hash,
+            "runtime_wasm_blake2_256":sp_core::H256::from(sp_crypto_hashing::blake2_256(citizenchain::WASM_BINARY.unwrap())),
+            "nodes":3,"finalized_hash":hash,"ethereum_finalized_hash":head["hash"],"finalized_number":5,
+            "accounts":accounts.iter().enumerate().map(|(index, account)| serde_json::json!({
+                "address":account.address(),"account_id":format!("0x{}", hex::encode(account.substrate_account())),
+                "initial_fen":initial,"balance_fen":expected[index],
+                "ethereum_balance_fen":expected[index] - citizenchain::EXISTENTIAL_DEPOSIT,
+                "existential_deposit_fen":citizenchain::EXISTENTIAL_DEPOSIT,"fee_fen":fees[index],"nonce":nonces[index]
+            })).collect::<Vec<_>>(),"transactions":transactions,"hold_seconds":seconds});
+        std::fs::write(root.join("ready.json"), serde_json::to_vec_pretty(&ready).unwrap()).unwrap();
+        println!("测试链真实就绪：{ready}");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(seconds);
+        while tokio::time::Instant::now() < deadline {
+            assert!(!authoring.0.is_finished(), "测试出块任务提前结束");
+            assert!(rpc_tasks.iter().all(|task| !task.0.is_finished()), "测试 RPC 提前结束");
+            let stop = root.join("stop");
+            if let Ok(metadata) = std::fs::symlink_metadata(&stop) {
+                assert!(metadata.is_file() && !metadata.file_type().is_symlink(), "停止请求必须是普通文件");
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        stop_authoring.send(()).unwrap();
+        (&mut authoring.0).await.unwrap().unwrap();
+        for task in &mut rpc_tasks { task.0.abort(); let _ = (&mut task.0).await; }
+        drop(peers);
+        drop(primary);
+        drop(pool);
+        drop(client);
+        let port = url.rsplit_once(':').unwrap().1.parse::<u16>().unwrap();
+        let released = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
+            .await.expect("停止后必须释放原 RPC 端口");
+        drop(released);
+        std::fs::write(root.join("stopped.json"), br#"{"stopped":true}"#).unwrap();
+        println!("测试会话已停止，监听及三节点服务已关闭");
+        if explicit_root.is_none() { std::fs::remove_dir_all(root).unwrap(); }
+    }
+
     #[test]
     fn standard_subscription_kinds_and_parameter_boundaries_are_enforced() {
         use jsonrpsee::types::Params;
@@ -759,6 +1264,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn signed_transactions_receipts_logs_finality_reorg_and_restart_over_real_tls_wasm() {
         let mut config = test_config("ethereum", tokio::runtime::Handle::current());
+        config.role = Role::Authority;
         let root = config.base_path.path().to_path_buf();
         let identity = crate::core::node_guard::TestGenesisIdentity::from_chain_spec(
             config.chain_spec.as_ref(),
@@ -796,12 +1302,12 @@ mod tests {
             .build()
             .unwrap();
         let (url, server) = serve(&partial, &credentials).await;
-        let partial = start_test_network(&mut config, partial);
+        let mut partial = start_test_network(&mut config, partial, true);
         let mut peer_config = test_config("ethereum-peer", tokio::runtime::Handle::current());
         let peer_root = peer_config.base_path.path().to_path_buf();
         let peer_partial = crate::core::service::new_partial_for_test(&peer_config).unwrap();
         let (peer_url, peer_server) = serve(&peer_partial, &credentials).await;
-        let peer = start_test_network(&mut peer_config, peer_partial);
+        let mut peer = start_test_network(&mut peer_config, peer_partial, false);
         connect_peer(&peer, &partial).await;
         assert_eq!(
             rpc(&http, &url, "eth_chainId", serde_json::json!([])).await,
@@ -1170,40 +1676,30 @@ mod tests {
             serde_json::from_value::<U256>(failure["cumulativeGasUsed"].clone()).unwrap(),
             first + second
         );
-        partial.client.finalize_block(hash3, None, true).unwrap();
-        // 此夹具没有 GRANDPA voter；远端最佳块不能冒充已验证最终性证明。
+        // 分叉验收完成之前不能固化旧分支；最佳块通知不构成最终性证明。
+        assert_eq!(partial.client.info().finalized_number, 0);
         assert_eq!(peer.client.info().finalized_number, 0);
+        peer.start_finality();
+        partial.start_finality();
+        wait_finalized(&partial, hash3, 3).await;
+        wait_finalized(&peer, hash3, 3).await;
         let log = tokio::time::timeout(Duration::from_secs(10), logs.next())
             .await
             .unwrap()
             .unwrap()
             .unwrap();
         assert_eq!(log["transactionHash"], call_hash);
-        tokio::time::timeout(Duration::from_secs(30), async {
-            while rpc(
-                &http,
-                &url,
-                "eth_getBlockByNumber",
-                serde_json::json!(["finalized", false]),
-            )
-            .await["number"]
-                != "0x3"
-            {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        assert_eq!(
-            rpc(
-                &http,
-                &url,
-                "eth_getBlockByNumber",
-                serde_json::json!(["safe", false])
-            )
-            .await["number"],
-            "0x3"
-        );
+        let finalized3 = rpc(
+            &http,
+            &url,
+            "eth_getBlockByNumber",
+            serde_json::json!(["0x3", false]),
+        )
+        .await;
+        assert_eq!(finalized3["number"], "0x3");
+        for node_url in [&url, &peer_url] {
+            assert_finalized_rpc(&http, node_url, &finalized3).await;
+        }
         assert!(response(
             &http,
             &url,
@@ -1253,11 +1749,14 @@ mod tests {
         let late_partial = crate::core::service::new_partial_for_test(&late_config).unwrap();
         assert_eq!(late_partial.client.info().best_number, 0);
         let (late_url, late_server) = serve(&late_partial, &credentials).await;
-        let late = start_test_network(&mut late_config, late_partial);
+        let mut late = start_test_network(&mut late_config, late_partial, false);
         connect_peer(&late, &partial).await;
         partial.sync.announce_block(hash3, None);
         wait_peer(&late, hash3).await;
         wait_block(&http, &late_url, 3).await;
+        late.start_finality();
+        wait_finalized(&late, hash3, 3).await;
+        assert_finalized_rpc(&http, &late_url, &finalized3).await;
         assert_peer_state(
             &http,
             &url,
@@ -1298,10 +1797,25 @@ mod tests {
         let peer_partial = crate::core::service::new_partial_for_test(&peer_config).unwrap();
         assert_eq!(peer_partial.client.info().best_hash, hash3);
         let (peer_url, peer_server) = serve(&peer_partial, &credentials).await;
-        let peer = start_test_network(&mut peer_config, peer_partial);
+        let mut peer = start_test_network(&mut peer_config, peer_partial, false);
+        peer.start_finality();
         connect_peer(&peer, &partial).await;
         wait_peer(&peer, hash4).await;
         wait_block(&http, &peer_url, 4).await;
+        let finalized4 = rpc(
+            &http,
+            &url,
+            "eth_getBlockByNumber",
+            serde_json::json!(["0x4", false]),
+        )
+        .await;
+        assert_eq!(finalized4["number"], "0x4");
+        for node in [&partial, &peer, &late] {
+            wait_finalized(node, hash4, 4).await;
+        }
+        for node_url in [&url, &peer_url, &late_url] {
+            assert_finalized_rpc(&http, node_url, &finalized4).await;
+        }
         for peer_url in [&peer_url, &late_url] {
             assert_peer_state(
                 &http,
