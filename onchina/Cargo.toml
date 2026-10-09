@@ -62,8 +62,8 @@ dashmap = "6.1"
 async-trait = "=0.1.92"
 
 # 链上共享原语（随 workspace 统一固定到已发布的 Polkadot SDK commit）
-chain-signing = { path = "../crates/chain-signing" }
-qr-protocol = { path = "../crates/qr-protocol" } # 仓库级 QR_V1 协议真源
+chain-signing = { path = "../crates/signing" }
+qr-protocol = { path = "../crates/protocol" } # 仓库级 QR_V1 协议真源
 sp-core = { workspace = true, default-features = true }
 sp-crypto-hashing = { workspace = true, default-features = true }
 primitives = { path = "../runtime/primitives" }

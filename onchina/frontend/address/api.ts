@@ -1,5 +1,5 @@
-import { adminHeaders, request } from '../utils/http';
-import type { AdminAuth } from '../auth/types';
+import { adminHeaders, request } from '../helpers/http';
+import type { AdminAuth } from '../authentication/types';
 
 export type AddressNameRow = {
   province_code: string;

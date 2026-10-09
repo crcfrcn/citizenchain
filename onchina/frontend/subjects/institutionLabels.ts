@@ -2,7 +2,7 @@
 // 取代原前端硬编码 INSTITUTION_CODE_LABEL。模块级缓存 + 一次拉取(免登录),多组件挂载复用同一份。
 
 import { useEffect, useState } from 'react';
-import { publicRequest } from '../utils/http';
+import { publicRequest } from '../helpers/http';
 
 export type InstitutionCodeLabelMap = Record<string, string>;
 

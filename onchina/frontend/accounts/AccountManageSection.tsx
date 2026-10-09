@@ -10,13 +10,13 @@
 
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Input, Space } from 'antd';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { getOwnInstitution } from '../admins/api';
 import { submitChainSign, useChainSign } from '../core/useChainSign';
 import { deleteAccount, listAccounts, type InstitutionAccount } from './api';
 import { AccountList } from './AccountList';
 import { CreateAccountModal } from './CreateAccountModal';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 
 export type AccountManageSectionProps = {
   auth: AdminAuth;

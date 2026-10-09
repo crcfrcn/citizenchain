@@ -1,7 +1,7 @@
 // 投票签名流程：选钱包 → 显示 QR → 摄像头扫描响应 → 提交。
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { sanitizeError } from '../tauri';
-import { CitizenSignaturePanel } from '../shared/qr/CitizenSignaturePanel';
+import { CitizenSignaturePanel } from '../protocol/CitizenSignaturePanel';
 import { governanceApi as api } from './api';
 import type { AdminSignerMatch, VoteSignRequestResult } from './types';
 

@@ -14,8 +14,8 @@ import {
   listDocuments,
   uploadDocument,
 } from './api';
-import type { AdminAuth } from '../auth/types';
-import { notice } from '../utils/notice';
+import type { AdminAuth } from '../authentication/types';
+import { notice } from '../helpers/notice';
 
 interface Props {
   auth: AdminAuth;

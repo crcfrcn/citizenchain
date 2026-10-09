@@ -11,11 +11,11 @@
 //   ...在 JSX 末尾渲染 {chainSignModal}
 
 import { useCallback, useState, type ReactNode } from 'react';
-import type { AdminAuth } from '../auth/types';
-import { parseSignedReceiptPayload } from '../utils/parseSignedPayload';
+import type { AdminAuth } from '../authentication/types';
+import { parseSignedReceiptPayload } from '../helpers/parseSignedPayload';
 import { CitizenSignatureModal } from './CitizenSignatureModal';
-import { notice } from '../utils/notice';
-import { adminHeaders, request } from '../utils/http';
+import { notice } from '../helpers/notice';
+import { adminHeaders, request } from '../helpers/http';
 
 export type ChainSignResult = {
   account_id: string;

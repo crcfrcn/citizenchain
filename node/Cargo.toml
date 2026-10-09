@@ -25,7 +25,7 @@ workspace = true
 [dependencies]
 async-channel = "1.9"
 hex = "=0.4.3"
-qr-protocol = { path = "../crates/qr-protocol" } # 仓库级 QR_V1 协议真源：registry + 载荷编解码
+qr-protocol = { path = "../crates/protocol" } # 仓库级 QR_V1 协议真源：registry + 载荷编解码
 hex-literal = "0.4"
 clap = { workspace = true }
 futures = { workspace = true }
@@ -108,7 +108,7 @@ frame-benchmarking-cli = { workspace = true, default-features = true }
 frame-benchmarking = { workspace = true, default-features = true }
 
 # Local Dependencies
-chain-signing = { path = "../crates/chain-signing" }
+chain-signing = { path = "../crates/signing" }
 citizenchain = { workspace = true }
 grandpakey-change = { path = "../runtime/governance/grandpakey-change", default-features = true }
 pow-difficulty = { path = "../runtime/misc/pow-difficulty", default-features = true }
@@ -145,7 +145,7 @@ tauri-plugin-process = "=2.3.1"
 # Ethereum 服务验收直接装配正式原生 RPC，复用同一链客户端与交易池。
 sc-rpc = { workspace = true }
 # 区块链测试 harness 只进 dev-dependencies，用于复用坏块/坏导入态验收矩阵。
-blockchain-harness = { path = "../crates/blockchain-harness" }
+blockchain-harness = { path = "../crates/harness" }
 # 普通块坏注入验收专用：按真实 BlockBuilder 生成合法 proposal，再篡改预计算状态变更。
 sc-block-builder = { workspace = true, default-features = true }
 # P2P 坏块注入验收专用：读取真实同步服务连接数、请求数并主动广播测试坏块。

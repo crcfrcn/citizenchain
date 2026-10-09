@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "5.6.1",
-    "@gmb/scanner-react": "file:../../crates/scanner-react",
+    "@gmb/scanner-react": "file:../../crates/scanner",
     "@noble/hashes": "2.0.1",
     "antd": "5.29.3",
     "dayjs": "1.11.19",

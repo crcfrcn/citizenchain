@@ -1,7 +1,7 @@
 // 公民链基金会平台价格 API；通用 Bearer 请求仍复用 utils/http.ts。
 
-import type { AdminAuth } from '../auth/types';
-import { adminRequest } from '../utils/http';
+import type { AdminAuth } from '../authentication/types';
+import { adminRequest } from '../helpers/http';
 import type {
   PlatformMembershipLevel,
   PlatformPrices,

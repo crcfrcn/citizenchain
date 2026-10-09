@@ -12,13 +12,13 @@ import type { ColumnsType } from 'antd/es/table';
 import { useAuth } from '../hooks/useAuth';
 import { useScope } from '../hooks/useScope';
 import { isTier1Registry, TIER2_REGISTRY_CODE } from '../platform/registryTier';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { CidCityItem } from '../china/api';
 import type { CityRegistryAdminRow } from './cityRegistryAdminsApi';
 import { glassCardStyle, glassCardHeadStyle } from '../core/cardStyles';
 import { MAX_CITY_REGISTRY_ADMINS_PER_CITY, sameHexAccount } from './adminUtils';
 import type { RegistryAdminsSharedState } from './adminUtils';
-import { usePasskeyRegistration } from '../auth/passkey/usePasskey';
+import { usePasskeyRegistration } from '../authentication/usePasskey';
 import { AddCityRegistryAdminModal } from './AddCityRegistryAdminModal';
 import { FederalRegistryAdminSubTab } from './FederalRegistryAdminSubTab';
 import {
@@ -26,8 +26,8 @@ import {
   assignmentDisplayLabel,
   formatAdminBalanceFen,
 } from './InstitutionAssignmentCard';
-import { GovDetailPage } from '../gov/GovDetailPage';
-import { getFederalRegistry, listOfficialInstitutions } from '../gov/api';
+import { GovDetailPage } from '../government/GovDetailPage';
+import { getFederalRegistry, listOfficialInstitutions } from '../government/api';
 import type { InstitutionListRow } from '../subjects/api';
 import { CID_MODAL_Z_INDEX } from '../core/modalStack';
 

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Form, Input, Select, Space, Table, Typography } from 'antd';
 import { CopyOutlined, ReloadOutlined } from '@ant-design/icons';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { glassCardHeadStyle, glassCardStyle } from '../core/cardStyles';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 import {
   listAddressItems,
   listAddressNames,

@@ -16,7 +16,7 @@ import { glassCardStyle, glassCardHeadStyle } from '../core/cardStyles';
 import { CityGrid } from '../core/CityGrid';
 import { CitizenCreateModal } from './CitizenCreateModal';
 import { CitizenDetailPage } from './CitizenDetailPage';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 
 const CITIZEN_PAGE_SIZE = 50;
 

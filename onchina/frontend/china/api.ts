@@ -1,7 +1,7 @@
 // CID 元数据 API。这里承接省份、城市、机构码等跨页面选择项。
 
-import { adminHeaders, request } from '../utils/http';
-import type { AdminAuth } from '../auth/types';
+import { adminHeaders, request } from '../helpers/http';
+import type { AdminAuth } from '../authentication/types';
 
 export type CidInstitutionCodeItem = {
   institution_code: string;

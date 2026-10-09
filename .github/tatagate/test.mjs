@@ -190,16 +190,7 @@ test('准确上游许可证注释不等于明文网络入口', async () => {
 });
 
 // 中文注释：执行实际 Python RPC 配置验证，拒绝明文及隐式缺省；不发网络请求。
-test('链 Python RPC 只接受严格 HTTPS 输入', async () => {
-  const { spawnSync } = await import('node:child_process');
-  const script = new URL('../../scripts/check-constitution-genesis.py', import.meta.url).pathname;
-  const code = 'import runpy,sys; module=runpy.run_path(sys.argv[1]); module["RpcTop"](sys.argv[2],None)';
-  for (const [url, rejected] of [['https://example.invalid', false], ['http' + '://localhost', true], ['ws' + '://localhost', true], ['https://user:pass@example.invalid', true], ['', true]]) {
-    const result = spawnSync('/usr/bin/python3', ['-B', '-c', code, script, url], { encoding: 'utf8' });
-    assert.equal(result.status !== 0, rejected, result.stderr);
-  }
-});
-
+test('链Python RPC只接受严格HTTPS输入',async()=>{const {BUILD_SOURCES,testRoot}=await import('../../scripts/build.mjs');const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');const {join}=await import('node:path');const {spawnSync}=await import('node:child_process');const dir=mkdtempSync(join(testRoot(),'rpc-python-'));try{const file=join(dir,'check.py');writeFileSync(file,BUILD_SOURCES.constitution);for(const [url,rejected]of [['https://example.invalid',false],['http'+ '://localhost',true],['ws'+ '://localhost',true],['https://user:pass@example.invalid',true],['',true]]){const r=spawnSync(process.env.PRODUCT_TEST_PYTHON,['-B','-c','import runpy,sys; module=runpy.run_path(sys.argv[1]); module["RpcTop"](sys.argv[2],None)',file,url],{encoding:'utf8'});assert.equal(r.status!==0,rejected,r.stderr);}}finally{rmSync(dir,{recursive:true,force:true});}});
 // 中文注释：组织重构原件完整保留，路径错配及任何字节变化都不能免检。
 test('保留原件以完整字节摘要闭合', async () => {
   const { retainedOriginalSource } = await import('./index.mjs');
@@ -508,12 +499,12 @@ test('本仓Git测试集合不得漏项、增项、重复或混入门禁自身',
   const { validateNodeInventory } = await import('./index.mjs');
   const paths = ['scripts/build.mjs', 'scripts/build.test.mjs', 'test/api.spec.mjs', '.github/tatagate/test.mjs'];
   const registered = ['scripts/build.test.mjs', 'test/api.spec.mjs'];
-  assert.deepEqual(validateNodeInventory(paths, registered), registered);
+  assert.deepEqual(validateNodeInventory(paths, registered,undefined,()=>''), registered);
   for (const listed of [registered.slice(1), [...registered, 'missing.test.mjs'], [...registered, registered[0]], []]) {
-    assert.throws(() => validateNodeInventory(paths, listed));
+    assert.throws(() => validateNodeInventory(paths, listed,undefined,()=>''));
   }
-  assert.throws(() => validateNodeInventory([...paths, 'scripts/new.test.mjs'], registered));
-  assert.throws(() => validateNodeInventory([...paths, paths[0]], registered));
+  assert.throws(() => validateNodeInventory([...paths, 'scripts/new.test.mjs'], registered,undefined,()=>''));
+  assert.throws(() => validateNodeInventory([...paths, paths[0]], registered,undefined,()=>''));
 });
 test('成功退出但零用例、失败、取消或跳过不能作为完整测试回执', async () => {
   const { successfulTestSummary } = await import('./index.mjs');
@@ -618,10 +609,4 @@ test('门禁请求协调目录拒绝相对、源码和无效目录',async()=>{
 });
 
 // 回读本仓实际已跟踪测试来源；完整映射不可空跑、漏登记或混入不存在的入口。
-test('本仓真实功能源码清单与登记准确闭合',async()=>{
- const [{validateFunctionalInventory},{fileURLToPath}]=await Promise.all([import('./index.mjs'),import('node:url')]);
- const root=fileURLToPath(new URL('../../',import.meta.url)).replace(/\/$/u,'');
- assert.equal(validateFunctionalInventory(root).length,gateContract().functions.length);
- assert.throws(()=>validateFunctionalInventory(root,gateContract().functions.slice(1)),/本仓功能测试存在遗漏/u);
- assert.throws(()=>validateFunctionalInventory(root,[...gateContract().functions,{function:'不存在的入口',path:'missing.test.mjs',runner:'node',target:'.'}]),/本仓功能测试存在遗漏/u);
-});
+test('本仓真实功能源码清单与登记准确闭合',async()=>{const {validateFunctionalInventory}=await import('./index.mjs');const {fileURLToPath}=await import('node:url');const {readdirSync,lstatSync}=await import('node:fs');const {join,relative}=await import('node:path');const root=fileURLToPath(new URL('../../',import.meta.url)).replace(/\/$/u,''),paths=[];function visit(dir){for(const n of readdirSync(dir)){if(['.git','target','node_modules'].includes(n))continue;const p=join(dir,n),s=lstatSync(p);if(s.isDirectory())visit(p);else if(s.isFile())paths.push(relative(root,p));}}visit(root);assert.equal(validateFunctionalInventory(root,gateContract().functions,paths).length,gateContract().functions.length);assert.throws(()=>validateFunctionalInventory(root,gateContract().functions.slice(1),paths),/本仓功能测试存在遗漏/);assert.throws(()=>validateFunctionalInventory(root,[...gateContract().functions,{function:'不存在',path:'missing.test.mjs',runner:'node',target:'.'}],paths),/本仓功能测试存在遗漏/);});

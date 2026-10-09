@@ -4,10 +4,10 @@
 // 私权机构目录或其它机构详情入口。所有写权限仍由后端按准确机构 CID 独立校验。
 
 import { Empty } from 'antd';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { OwnInstitutionAdminsView } from '../admins/RegistryAdminsView';
 import { AccountManageSection } from '../accounts/AccountManageSection';
-import { OwnInstitutionInfoPanel } from './judicial/JudicialDisplay';
+import { OwnInstitutionInfoPanel } from '../judicial/JudicialDisplay';
 import { PlatformPricePanel } from '../membership/PlatformPricePanel';
 import { WorkspaceShell } from './WorkspaceShell';
 

@@ -38,7 +38,7 @@ import {
   Upload,
 } from 'antd';
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { LegalRepresentativePhoto } from '../subjects/LegalRepresentativePhoto';
 import type { AdminActionType, AdminSecurityGrantOutput } from '../admins/securityApi';
 import {
@@ -55,13 +55,13 @@ import {
   uploadLegalRepresentativePhoto,
   type InstitutionDetail,
   type ParentInstitutionRow,
-} from './common/api';
+} from './api';
 import { searchLegalRepresentativeCitizens } from '../citizens/api';
 import { AccountList } from '../accounts/AccountList';
 import { DocsLibrary } from '../docs/DocsLibrary';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 import { InstitutionDetailNavLayout } from '../core/InstitutionDetailNavLayout';
-import { OperationRecords } from '../gov/OperationRecords';
+import { OperationRecords } from '../government/OperationRecords';
 import { submitChainSign, useChainSign } from '../core/useChainSign';
 import {
   prepareInstitutionGovernance,

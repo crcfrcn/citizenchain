@@ -2,7 +2,7 @@
 // 只缓存省市代码、确定性机构展示列表和机构详情快照;普通公民/机构精确搜索结果不得放进这里。
 // 教育机构缓存仅限市详情直显的确定性市公民教育委员会,不缓存学校和 F+JY 搜索结果。
 
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { InstitutionDetail, InstitutionListRow } from '../subjects/api';
 import { getCidMeta, listCidCities, type CidCityItem, type CidMetaResult } from './api';
 

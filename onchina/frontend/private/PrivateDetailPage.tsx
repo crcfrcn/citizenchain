@@ -2,9 +2,9 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Typography } from 'antd';
-import { getInstitution, type InstitutionDetail } from './common/api';
-import type { AdminAuth } from '../auth/types';
-import { notice } from '../utils/notice';
+import { getInstitution, type InstitutionDetail } from './api';
+import type { AdminAuth } from '../authentication/types';
+import { notice } from '../helpers/notice';
 import { PrivateDetailLayout } from './PrivateDetailLayout';
 import {
   commitAdminAction,
@@ -12,7 +12,7 @@ import {
   type AdminActionType,
   type AdminSecurityGrantOutput,
 } from '../admins/securityApi';
-import { parseSignedReceiptPayload } from '../utils/parseSignedPayload';
+import { parseSignedReceiptPayload } from '../helpers/parseSignedPayload';
 import { CitizenSignatureModal } from '../core/CitizenSignatureModal';
 import {
   institutionDetailCacheKey,

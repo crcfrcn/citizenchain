@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, DatePicker, Form, Input, Modal, Select, Switch } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { editCitizen, type CitizenRow, type CitizenSex, type EditCitizenInput } from './api';
 import {
   getCidMeta,
@@ -20,7 +20,7 @@ import {
   type CidProvinceItem,
   type CidTownItem,
 } from '../china/api';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 
 interface Props {
   auth: AdminAuth | null;

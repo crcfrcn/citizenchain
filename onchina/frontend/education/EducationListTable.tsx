@@ -4,7 +4,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { InstitutionListRow } from './api';
 import { listEducationInstitutions } from './api';
 import { EDUCATION_TYPE_LABEL, SUBJECT_PROPERTY_LABEL } from '../subjects/labels';
@@ -13,7 +13,7 @@ import {
   readCachedEducationCommitteeRows,
   writeCachedEducationCommitteeRows,
 } from '../china/metaCache';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 
 interface Props {
   auth: AdminAuth;

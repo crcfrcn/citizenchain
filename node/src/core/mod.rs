@@ -6,9 +6,11 @@ pub(crate) mod benchmarking;
 pub(crate) mod chain_spec;
 pub(crate) mod cli;
 pub(crate) mod command;
+#[path = "../constitution/mod.rs"]
 pub(crate) mod constitution;
 pub(crate) mod ethereum_rpc;
 pub(crate) mod grandpa_rotation;
+#[path = "../guard/mod.rs"]
 pub(crate) mod node_guard;
 pub(crate) mod rpc;
 pub(crate) mod rpc_tls;

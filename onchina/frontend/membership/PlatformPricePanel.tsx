@@ -5,10 +5,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Card, Input, Radio, Space, Spin, Typography } from 'antd';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { glassCardHeadStyle, glassCardStyle } from '../core/cardStyles';
 import { submitChainSign, useChainSign } from '../core/useChainSign';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 import { getPlatformPrices, proposePlatformPrice } from './api';
 import type { PlatformMembershipLevel, PlatformPrices } from './types';
 

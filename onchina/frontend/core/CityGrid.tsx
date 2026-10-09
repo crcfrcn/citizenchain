@@ -3,7 +3,7 @@
 // 过滤掉 city_code="000" 的"本省统一"占位。
 
 import React, { useEffect, useState } from 'react';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { CidCityItem } from '../china/api';
 import { loadCachedCidCities, readCachedCidCities } from '../china/metaCache';
 

@@ -42,20 +42,17 @@
   "bundle": {
     "active": true,
     "resources": {
-      "../crates/icons/": "icons/",
-      "../onchina/src/cid/china/china.sqlite": "china.sqlite"
+      "../icons/": "icons/",
+      "../onchina/src/codes/china.sqlite": "china.sqlite"
     },
     "icon": [
-      "../crates/icons/32x32.png",
-      "../crates/icons/128x128.png",
-      "../crates/icons/128x128@2x.png",
-      "../crates/icons/256x256.png",
-      "../crates/icons/256x256@2x.png",
-      "../crates/icons/512x512.png",
-      "../crates/icons/512x512@2x.png",
-      "../crates/icons/icon.png",
-      "../crates/icons/icon.icns",
-      "../crates/icons/icon.ico"
+      "../icons/32x32.png",
+      "../icons/128x128.png",
+      "../icons/256x256.png",
+      "../icons/512x512.png",
+      "../icons/icon.png",
+      "../icons/icon.icns",
+      "../icons/icon.ico"
     ],
     "targets": [
       "dmg",
@@ -72,7 +69,7 @@
         "type": "offlineInstaller"
       },
       "nsis": {
-        "installerIcon": "../crates/icons/icon.ico",
+        "installerIcon": "../icons/icon.ico",
         "installMode": "perMachine",
         "languages": [
           "SimpChinese"

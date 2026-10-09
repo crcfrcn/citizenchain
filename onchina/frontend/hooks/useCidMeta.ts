@@ -6,7 +6,7 @@
 //   - 失败时把错误写到 error,不抛到组件外
 
 import { useCallback, useEffect, useState } from 'react';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { CidMetaResult } from '../china/api';
 import { loadCachedCidMeta } from '../china/metaCache';
 

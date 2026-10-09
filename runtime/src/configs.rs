@@ -2582,6 +2582,8 @@ parameter_types! {
     pub const LegislationMaxPendingActivations: u32 = 100;
 }
 
+impl citizen_election::Config for Runtime {}
+
 impl legislation_yuan::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     // 立法投票引擎接真实 legislation-vote sub-pallet(ADR-027 第2步),投票端到端流程打通。

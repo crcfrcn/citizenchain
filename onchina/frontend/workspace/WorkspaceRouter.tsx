@@ -1,11 +1,11 @@
 // 机构工作台路由。工作台类型由后端按准确机构 CID 下发，前端不得自行猜测权限。
 
 import { Alert } from 'antd';
-import type { AdminAuth } from '../auth/types';
-import type { CapabilitySet } from '../auth/AuthContext';
+import type { AdminAuth } from '../authentication/types';
+import type { CapabilitySet } from '../authentication/AuthContext';
 import type { CidMetaResult } from '../china/api';
 import { GenericWorkspace } from './GenericWorkspace';
-import { JudicialWorkspace } from './judicial/JudicialWorkspace';
+import { JudicialWorkspace } from '../judicial/JudicialWorkspace';
 import { PrivateInstitutionWorkspace } from './PrivateInstitutionWorkspace';
 import { RegistryWorkspace } from './RegistryWorkspace';
 

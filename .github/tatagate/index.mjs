@@ -1,3 +1,4 @@
+import {fixedWork,withFixedWork,checkFixedWork,assertTargetTopology} from '../../scripts/target.mjs';
 import {gateToolInterfaces,gateCleanupAllowed,runResourceProcess,prepareGateResources,verifyGateResourceDelivery} from '../../scripts/resources.mjs';
 const {toolEnvironment}=gateToolInterfaces;
 import { remoteEnvironment as productRemoteEnvironment } from '../../scripts/build.mjs';
@@ -351,11 +352,11 @@ export default async function* reporter(events) {
 }
 
 // 扫描准确本仓Git已跟踪的Node测试，不接受漏登记、失效登记或重复入口。
-export function validateNodeInventory(paths, registered, repository = contract.repository) {
+export function validateNodeInventory(paths, registered, repository = contract.repository, readSource = path => {try{return readFileSync(resolve(gateDirectory,'../..',path),'utf8');}catch{return '';}}) {
   if (!Array.isArray(paths) || !Array.isArray(registered)) fail('本仓测试清单类型无效');
   const owned = paths.filter(path => !path.startsWith('.github/tatagate/')
     && !ignoredPrefixesFor(repository).some(prefix => path.startsWith(prefix))
-    && /(?:^|\/)(?:test\.mjs|[^/]+[._-](?:test|spec)\.mjs)$/u.test(path)).sort();
+    && (/(?:^|\/)(?:test\.mjs|[^/]+[._-](?:test|spec)\.mjs)$/u.test(path)||path.endsWith('.mjs')&&readSource(path).includes('if(inlineTestEntry)'))).sort();
   if (!owned.length || new Set(paths).size !== paths.length
     || new Set(registered).size !== registered.length
     || owned.join('\0') !== [...registered].sort().join('\0')) fail('本仓实际测试与门禁登记不闭合');
@@ -408,6 +409,7 @@ export function validateProductDocuments(root) {
   return true;
 }
 export function assertNoProductOutputDirectories(root, repository) {
+ if(root===resolve(import.meta.dirname,'../..'))assertTargetTopology();
   const ignored = new Set(['.git', 'node_modules', 'vendor', 'Pods', '.pub-cache', '.gradle']);
   const forbidden = new Set(['build', 'target', '.dart_tool', '.kotlin']);
   const violations = [];
@@ -590,7 +592,7 @@ export async function checkCrossPlatform(root, { request = fetch, report = conso
 
 // 只识别本仓实际执行测试中的拒绝断言；字符串、模板及注释中的同文不构成豁免。
 export function protocolAssertionLines(path, source) {
-  if (!contract.node_tests.includes(path) || !isTestPath(path) || !path.endsWith('.mjs')) return [];
+  if (!contract.node_tests.includes(path) || (!isTestPath(path)&&!source.includes('if(inlineTestEntry)')) || !path.endsWith('.mjs')) return [];
   const literal = String.raw`assert.doesNotMatch(source, /\/v1(?:\/|\b)/);`;
   const opaque = [...source.matchAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`/gu)]
     .map(match => [match.index, match.index + match[0].length]);
@@ -897,7 +899,7 @@ function environment(root, work) {
     'GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','PRODUCT_GIT_BIN','PRODUCT_BASH_BIN','PRODUCT_GREP_BIN','PRODUCT_SED_BIN',
     'DEVELOPER_DIR','SDKROOT','CC','CXX','CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER'];
   const result=Object.fromEntries(names.filter(name=>typeof process.env[name]==='string').map(name=>[name,process.env[name]]));
-  Object.assign(result,{ TMPDIR:resolve(work,'tmp'),CARGO_HOME:process.env.CARGO_HOME||resolve(work,'cargo-home'),
+  Object.assign(result,{ TMPDIR:resolve(work,'tmp'),CARGO_HOME:resolve(work,'cargo-home'),
     CARGO_TARGET_DIR:resolve(work,'cargo'),CARGO_INCREMENTAL:'0' });
   result[contract.repository.toUpperCase()+'_ROOT']=root;
   mkdirSync(result.TMPDIR,{recursive:true});
@@ -973,7 +975,7 @@ export async function executeGate({ root, baseSHA, headSHA, work, actionlint, ca
       || !/^cargo 1\.97\.1(?:\s|$)/u.test(cargoVersion.stdout)) fail('链门禁Cargo版本不符');
     env.PATH = dirname(cargo) + ':' + env.PATH;
     // 中文注释：旧聚合仓共享门禁实际管理 QR 独立工具 workspace，编译主体仍属于产品 CI。
-    const manifest = resolve(root, 'crates/qr-protocol/Cargo.toml');
+    const manifest = resolve(root, 'crates/protocol/Cargo.toml');
     await run(cargo, ['fmt','--manifest-path',manifest,'--all','--','--check'], 'QR工具格式');
     await run(cargo, ['clippy','--manifest-path',manifest,'--workspace','--all-targets','--locked','--','-D','warnings'], 'QR工具Clippy');
     await run(cargo, ['test','--manifest-path',manifest,'--workspace','--all-targets','--locked'], 'QR工具完整测试');
@@ -1003,13 +1005,6 @@ async function prepareNodeDependencyViews(root,work,env,run){
  env.NODE_OPTIONS='--import='+hook;
 }
 
-function ownedResourceWork(root,mode){
- const declaration=JSON.parse(readFileSync(resolve(root,'scripts/flows.json'),'utf8'));
- if(declaration.product_id!==contract.repository)fail('本仓资源产品身份无效');
- const platforms=Object.keys(declaration.platforms),parent=resolve(root,'target',...(platforms.length===1?[]:[platforms.includes(process.platform==='darwin'?'macos':'linux-amd')?(process.platform==='darwin'?'macos':'linux-amd'):platforms.includes(process.platform==='darwin'?'host-macos':'host-linux-amd')?(process.platform==='darwin'?'host-macos':'host-linux-amd'):platforms[0]]),'test');
- mkdirSync(parent,{recursive:true});if(realpathSync(parent)!==parent||lstatSync(parent).isSymbolicLink())fail('本仓资源临时祖先无效');
- const work=resolve(parent,'tatagate-'+mode+'-'+process.pid+'-'+Date.now());mkdirSync(work,{mode:0o700});return work;
-}
 
 async function repositoryGateDispatch(args,signal) {
   const [mode, root, baseSHA, headSHA, work] = args;
@@ -1019,10 +1014,10 @@ async function repositoryGateDispatch(args,signal) {
     return;
   }
   if (mode === 'local' && args.length === 5) {
-    const resourceWork=ownedResourceWork(root,'local');
+    const resourceWork=fixedWork('test');
     validateGateRequestWork(root,work);
     const resourceReceipt=await prepareGateResources(resourceWork,{signal});
-    const executionWork=resolve(resourceWork,'gate-execution');mkdirSync(executionWork);
+    const executionWork=resourceWork;
     return executeGate({root,baseSHA,headSHA,work:executionWork,resourceReceipt,signal,
       actionlint:resourceReceipt.environment.TATAGATE_ACTIONLINT,cargo:resourceReceipt.environment.CARGO});
   }
@@ -1034,17 +1029,16 @@ async function repositoryGateDispatch(args,signal) {
       || event.ref !== 'refs/heads/main' || event.after !== headSHA
       || event.repository?.full_name !== contract.github_repository
       || process.env.GITHUB_REPOSITORY !== contract.github_repository || event.deleted) fail('远端push门禁身份无效');
-    const resourceReceipt=await prepareGateResources(ownedResourceWork(root,'remote'),{signal});
+    const resourceReceipt=await prepareGateResources(fixedWork('test'),{signal});
     Object.assign(process.env,await verifyGateResourceDelivery(resourceReceipt));
     const baseSHA = pushBaseSHA({ forced: event.forced, before: event.before, headSHA,
       parents: event.forced === true ? git(root, ['rev-list', '--parents', '-n', '1', headSHA]).trim() : undefined,
       commitCount: event.forced === true ? git(root, ['rev-list', '--count', headSHA]).trim() : undefined });
     if (baseSHA === emptyTreeSHA) git(root, ['hash-object','-w','-t','tree','/dev/null']);
     const work = resolve(resourceReceipt.work,'gate-execution');
-    mkdirSync(work);
     try { return await executeGate({ root, baseSHA, headSHA, work,
       resourceReceipt,signal,actionlint: resourceReceipt.environment.TATAGATE_ACTIONLINT, cargo: resourceReceipt.environment.CARGO }); }
-    finally { if(gateCleanupAllowed(resourceReceipt,work))rmSync(work,{recursive:true}); }
+    finally { if(!gateCleanupAllowed(resourceReceipt,work))fail('资源工具退出未确认，禁止清场'); }
   }
   fail('本仓塔塔门禁参数或身份无效');
 }
@@ -1053,7 +1047,7 @@ async function repositoryGateDispatch(args,signal) {
 export async function repositoryGateMain(args){
  const controller=new AbortController(),cancel=()=>controller.abort(Error('门禁取消即失败'));
  for(const name of ['SIGTERM','SIGINT'])process.once(name,cancel);
- try{const result=await repositoryGateDispatch(args,controller.signal);controller.signal.throwIfAborted();return result;}
+ try{const result=await (args[0]==='physical'?repositoryGateDispatch(args,controller.signal):withFixedWork('test',()=>repositoryGateDispatch(args,controller.signal)));controller.signal.throwIfAborted();return result;}
  finally{for(const name of ['SIGTERM','SIGINT'])process.removeListener(name,cancel);}
 }
 
@@ -1207,12 +1201,12 @@ export function validateFunctionalContract(functions) {
 }
 
 // 源码清单与受检提交直接回读；新增测试必须进入本仓门禁，声明本身不能证明执行成功。
-export function validateFunctionalInventory(root,functions=contract.functions) {
+export function validateFunctionalInventory(root,functions=contract.functions,files=trackedFiles(root)) {
   validateFunctionalContract(functions);
-  const owned=trackedFiles(root).filter(path=>!path.startsWith('.github/')&&!functionalIgnoredPrefixes.some(prefix=>path.startsWith(prefix)));
+  const owned=files.filter(path=>!path.startsWith('.github/')&&!functionalIgnoredPrefixes.some(prefix=>path.startsWith(prefix)));
   const expected=new Set();
   for(const path of owned){
-    if(/(?:^|\/)(?:test\.mjs|[^/]+[._-](?:test|spec)\.mjs)$/u.test(path)
+    if(path.endsWith('.mjs')&&readFileSync(resolve(root,path),'utf8').includes('if(inlineTestEntry)')||/(?:^|\/)(?:test\.mjs|[^/]+[._-](?:test|spec)\.mjs)$/u.test(path)
       ||/(?:^|\/)test\/.*_test\.dart$/u.test(path)||/[._](?:test|spec)\.tsx?$/u.test(path)
       ||/(?:^|\/)test_[^/]+\.py$/u.test(path)||path.startsWith('app/Tests/')&&path.endsWith('.swift'))expected.add(path);
     else if(path.endsWith('.rs')&&/#\[(?:test|(?:tokio|async_std)::test(?:\([^\]]*\))?|rstest)\]\s*(?:#\[[\s\S]*?\]\s*)*(?:pub\s+)?(?:async\s+)?fn\s+\w+\s*\(/u.test(lexicalParts(path,readFileSync(resolve(root,path),'utf8')).code))expected.add(path);
@@ -1302,5 +1296,6 @@ export function validateFunctionalCompletion(root,headSHA,work) {
 
 // 保留固定调用参数，只验真调用方协调目录；产品测试不向该目录写入临时状态。
 export function validateGateRequestWork(root,work){
- if(!isAbsolute(work)||resolve(work)!==work||realpathSync(work)!==work||!lstatSync(work).isDirectory()||work===root||root.startsWith(work+'/')||readdirSync(work).length)fail('本仓门禁请求协调目录无效');return true;
+ if(root!==resolve(import.meta.dirname,'../..')||work!==fixedWork('test'))fail('本仓门禁只接受本产品target/test固定目录');
+ return checkFixedWork(work);
 }

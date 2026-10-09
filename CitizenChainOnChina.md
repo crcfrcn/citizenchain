@@ -14,9 +14,9 @@
 
 本仓现行入口以`scripts/flows.json`及产品公开scripts实现为准；本文按日期保留的历史验收只描述当时结果，不作为当前工具、私有调用者或已撤销Publish实现的运行条件。独立塔塔门禁候选的职责和未验收状态见文末。
 
-## 当前工作目录归属（第8步，2026-10-06）
+## 当前工作目录归属
 
-本产品全部测试、编译临时数据和产物归 `<本仓根>/target`。多平台先使用声明中的完整平台身份，再在平台内按build、ci、release、publish、test、tmp隔离。独立入口与控制台调用消费同一产品流程；产品独立拥有需求与流程步骤；经控制台执行时，控制台按产品声明准备、保存并供给工具与依赖，同时创建任务、调用与跟踪。下载半包、工具编译候选、工程视图、Runner步骤临时状态和测试夹具均属于当前产品工作区；永久工具与依赖原件继续归原件库。整个根target不进入Git、源码快照、程序摘要或打包输入。准确流程短锁、活跃任务保护、成功产物保护和原清理规则继续适用。
+OnChina 与 Node、Runtime 共用完整 CitizenChain 仓的工作边界。生成工作根仅为 `<本仓根>/target`，固定目录、串行领取、清理及输出排除合同统一见 `CitizenChainNode.md` 的“本机固定执行目录”；平台保留在执行身份中，不建立平台目录。本节规定执行职责，不表示当前全部流程已通过验收。
 
 第8、9步完成目录与路径实现、根文档迁移及测试源码维护，未运行测试、门禁、编译或安装。本文唯一原件位于<本仓根>/CitizenChainOnChina.md；产品接口及流程直接以本仓实际代码和声明为准，业务字典库与其检查已撤销，不另建登记副本。历史验收事实不表示本轮改造已经通过验收，统一测试在第10步进行。根技术文档由本仓门禁按原文、JSON解码值及既有补丁快照扫描机密，仅报告路径；文档迁出不减少资料安全检查。
 
@@ -44,7 +44,7 @@ OnChina 地址库模块负责读取本地 `china.sqlite.addresses`，并构造 `
 模块路径：
 
 ```text
-citizenchain/onchina/src/domains/address/
+citizenchain/onchina/src/address/
 ├── mod.rs              # 地址域聚合入口
 ├── model.rs            # API DTO
 ├── repo.rs             # china.sqlite 只读查询
@@ -59,7 +59,7 @@ citizenchain/onchina/frontend/address/
 
 #### 2. 数据边界
 
-- 地址主数据仍在 `citizenchain/onchina/src/cid/china/china.sqlite`。
+- 地址主数据仍在 `citizenchain/onchina/src/codes/china.sqlite`。
 - 后端只读打开 SQLite，不在运行态复制或改写地址主数据。
 - 链上 call data 只用于地址变更冷签，不在 OnChina 后端直接提交 extrinsic。
 - 前端只展示查询结果和生成的 call data，不绕过 QR_V1/冷签流程。
@@ -103,8 +103,8 @@ action = (33 << 8) | call_index
 ```text
 cargo check --manifest-path citizenchain/Cargo.toml -p onchina
 npm --prefix citizenchain/onchina/frontend run build
-python3 citizenchain/scripts/check_code_immutable.py
-sqlite3 citizenchain/onchina/src/cid/china/china.sqlite "PRAGMA integrity_check"
+node citizenchain/scripts/maintain.mjs codes
+sqlite3 citizenchain/onchina/src/codes/china.sqlite "PRAGMA integrity_check"
 ```
 
 ---
@@ -147,6 +147,7 @@ citizenchain/onchina/src/
 
 #### 3. 目录铁律
 
+- 后端源码只归 `<本仓根>/onchina/src/`，不建立独立后端、前端链调用层或平台源码副本。
 - 禁止恢复旧独立身份系统产品目录。
 - 禁止恢复旧 registry 目录。
 - 禁止恢复 `backend/src/` 源码壳。
@@ -364,7 +365,9 @@ curl -ksS -i https://onchina.local:8964/api/admin/auth/check -H "authorization: 
 
 #### 2. 行政区数据
 
-- 开发真源：`citizenchain/onchina/src/cid/china/china.sqlite`
+行政区名称字段仅为 `country_name`、`province_name`、`city_name`、`town_name`、`division_name`，不得以泛化名称字段替代。国家全称、简称的链定义见 `CitizenChainRuntime.md` 的“Runtime 修改与链协议边界”。本段是命名合同，不表示所有字段均已在当前接口使用或验收。
+
+- 开发真源：`citizenchain/onchina/src/codes/china.sqlite`
 - 生产读取：`ONCHINA_CHINA_DB` 指向随包只读 SQLite
 - 省级常量：`citizenchain/runtime/primitives/cid/code.rs`
 - 镇下完整地址：`addresses` 单表保存当前有效地址；开发库随安装包发布，链上 `AddressRegistry` 记录单条地址变更事实和当前哈希
@@ -381,6 +384,8 @@ curl -ksS -i https://onchina.local:8964/api/admin/auth/check -H "authorization: 
 
 #### 3. CID 号
 
+机构全称、简称字段仅为 `cid_full_name`、`cid_short_name`；管理员集合仅为 `admins`。字段结构由所属真实接口定义，不另建字典或字段登记库。
+
 CID 号格式为 `R5-K3P1C1-N9-D4`。
 
 - `R5`：省码 2 位 + 市码 3 位。
@@ -390,14 +395,14 @@ CID 号格式为 `R5-K3P1C1-N9-D4`。
 - `N9`：9 位稳定散列序列。
 - `D4`：年份。
 
-CID 号生成和校验唯一源码目录为 `citizenchain/onchina/src/cid/`。任何端不得维护第二份号码格式、机构码表或省码表。
+CID 号生成和校验唯一源码目录为 `citizenchain/onchina/src/codes/`。任何端不得维护第二份号码格式、机构码表或省码表。
 
 公权机构 CID 与机构信息不在 OnChina 运行态生成。所有公权机构唯一真源是链上 `PublicManage::Institutions` / `PublicManage::InstitutionAccounts`;OnChina 只保存 `sync-gov` 同步出的本地查询投影,投影状态以 `chain_projection_state(public-gov)` 为准。CitizenApp 内置的 `assets/public_institutions/` 是从链上创世状态导出的公权机构快照缓存,只能用于本地快速展示和增量同步,不得作为第二真源。
 
 ##### 3.1 公民 CID 和护照号
 
 - 公民 CID 的机构代码固定为 `CTZN`;个人码不携带办理市码,R5 市段固定为 `000`。
-- 公民护照号由 `citizenchain/onchina/src/domains/citizens/passport_no.rs` 生成,格式为省码 2 位 + Crockford Base32 主体 8 位 + 校验位 1 位。
+- 公民护照号由 `citizenchain/onchina/src/citizens/passport_no.rs` 生成,格式为省码 2 位 + Crockford Base32 主体 8 位 + 校验位 1 位。
 - 护照号终身唯一;`passport_numbers` 负责全局查重。
 - 护照号资源回收只允许通过 `passport_number_recycle_pool` 回收号码本身,不得保存旧公民姓名、出生地、账户、公民 CID 或其它个人资料。
 - 公民档案本地创建阶段允许没有 `account_id`;儿童或暂未开户公民不得被强制生成账户。
@@ -406,7 +411,7 @@ CID 号生成和校验唯一源码目录为 `citizenchain/onchina/src/cid/`。�
 
 #### 4. 权限范围
 
-OnChina 管理端只承认当前节点 active binding 绑定机构的链上 active admin 登录。登录态必须携带 `institution_code`、`admin_level`、`scope_province_name`、`scope_city_name`、`scope_town_name`、后端下发的 `workspace` 和 `capabilities`。
+OnChina 管理端只承认当前节点 active binding 绑定机构的链上 active admin 登录。工作台身份仅由 `institution_code + workspace` 表达，注册局复用同一路径，不得新增专用机构身份字段、独立身份表或独立授权分支。登录态的 `admin_level`、`scope_province_name`、`scope_city_name`、`scope_town_name` 和 `capabilities` 只承载链上身份派生的范围与可见能力，不得成为授权真源。
 
 管理员登录反查、节点绑定确认、会话签发、周期撤权复查和管理员列表必须使用同一个链上分层解析器，并把每次解析固定到单一 finalized 区块。带 CID 管理员只认 CID 当前绑定 `account_id`；私权 LR 的有效 CID 可来自本机构法定代表人记录；冻结公权无 CID 管理员与私权非 LR 无 CID 管理员按名册 `account_id`；个人多签不进入 OnChina。岗位任职仍以名册 `account_id` 为关联锚点，不能把岗位锚点误当成换绑后的签名账户，也不能把本地 PostgreSQL 变成第二授权真源。
 
@@ -517,8 +522,8 @@ OnChina 只签发投票引擎已经定义的资格凭证、人口快照或身份
 #### 8. 验收
 
 ```text
-python3 citizenchain/scripts/check_code_immutable.py
-sqlite3 citizenchain/onchina/src/cid/china/china.sqlite "PRAGMA integrity_check"
+node citizenchain/scripts/maintain.mjs codes
+sqlite3 citizenchain/onchina/src/codes/china.sqlite "PRAGMA integrity_check"
 rg "旧独立身份系统名|backend/src|frontend/api|frontend/chain" memory AGENTS.md citizenchain/onchina --glob '!tasks/**' --glob '!docs/**' --glob '!**/node_modules/**' --glob '!**/dist/**'
 ```
 
@@ -561,7 +566,7 @@ citizenchain/onchina/frontend/
 - 功能模块自己的后端 API 调用放在所属功能目录的 `api.ts`。
 - 通用 HTTP 封装只允许放在 `frontend/utils/http.ts`，不得承载业务接口。
 - 二维码解析、生成、签名响应识别和确认页字段展示必须走现有 `core` 统一实现；链交易固定复用 `core/useChainSign.tsx` 的请求二维码、CitizenWallet 一次签名响应二维码和 OnChina 回扫流程。
-- 摄像头设备层唯一使用仓库根 `citizenchain/crates/scanner-react/` 的 `ScannerView`，固定走
+- 摄像头设备层唯一使用仓库根 `citizenchain/crates/scanner/` 的 `ScannerView`，固定走
   `jsQR + canvas`。`core/CitizenSignaturePanel.tsx` 与 `core/ScanAccountModal.tsx` 只负责
   各自入口状态、允许码型、提示和业务动作；禁止恢复产品内 `cameraScanner.ts`、
   `BarcodeDetector` 或直接导入 `jsqr`。产品 `.npmrc` 固定 `install-links=true`，使共享
@@ -610,7 +615,7 @@ citizenchain/onchina/frontend/
 
 #### 5. 提示入口
 
-所有用户提示统一由 `citizenchain/onchina/frontend/utils/notice.ts` 管理。业务组件只允许调用统一 notice 方法，禁止直接调用 Ant Design `message.*`、`Modal.confirm`、`Modal.warning` 或浏览器 `alert`。
+所有用户提示统一由 `citizenchain/onchina/frontend/helpers/notice.ts` 管理。业务组件只允许调用统一 notice 方法，禁止直接调用 Ant Design `message.*`、`Modal.confirm`、`Modal.warning` 或浏览器 `alert`。
 
 统一入口负责：
 
@@ -722,7 +727,7 @@ OnChina 可以向 CitizenApp 或 Cloudflare 边缘层提供公开目录、链上
 - 后端：Rust + Axum + PostgreSQL
 - 前端：React + TypeScript + Vite + Ant Design
 - 链交互：Substrate RPC、SCALE、统一 QR_V1 扫码签名协议
-- 行政区开发真源：`citizenchain/onchina/src/cid/china/china.sqlite`
+- 行政区开发真源：`citizenchain/onchina/src/codes/china.sqlite`
 
 #### 3. 启动流程
 
@@ -752,8 +757,8 @@ schema 初始化和链上业务投影必须分离。schema 入口只允许幂等
 #### 4. 行政区和 CID 号真源
 
 - 国家码、省级行政区码和机构码常量唯一真源：`citizenchain/runtime/primitives/cid/code.rs`。
-- 市、镇和地址段开发真源：`citizenchain/onchina/src/cid/china/china.sqlite`。
-- CID 号生成和校验唯一源码目录：`citizenchain/onchina/src/cid/`。
+- 市、镇和地址段开发真源：`citizenchain/onchina/src/codes/china.sqlite`。
+- CID 号生成和校验唯一源码目录：`citizenchain/onchina/src/codes/`。
 
 生产环境中 `ONCHINA_CHINA_DB` 固定指向随包只读 SQLite。市镇地址段变更只能修改开发库并重新发布安装包，禁止运行期在线编辑行政区。
 
@@ -857,7 +862,7 @@ OnChina 高并发目标建立在结构化表、组合索引、省分区和省市
 
 #### 8. 前端规则
 
-前端所有用户提示统一走 `citizenchain/onchina/frontend/utils/notice.ts`。业务组件不得直接调用 Ant Design `message.*`、`Modal.confirm`、`Modal.warning` 或浏览器 `alert`。
+前端所有用户提示统一走 `citizenchain/onchina/frontend/helpers/notice.ts`。业务组件不得直接调用 Ant Design `message.*`、`Modal.confirm`、`Modal.warning` 或浏览器 `alert`。
 
 机构详情页身份字段统一显示为 `身份ID`，不得使用代码框包裹，不得展示 `SubjectProperty 类型` 或机构链上状态。机构链上状态只属于机构账户，允许在账户列表展示。
 
@@ -937,16 +942,16 @@ OnChina 是公民链 `citizenchain` 内置的链上中国平台能力，不再�
 #### 源码边界
 
 - `citizenchain/onchina/src/core/`：数据库连接、HTTP 安全、统一响应、运行期维护、链交互和 QR 协议辅助。
-- `citizenchain/onchina/src/cid/`：身份 ID 编码、机构码、CID 号生成和校验。
-- `citizenchain/onchina/src/cid/china/`：中国行政区划 SQLite 开发真源。
-- `citizenchain/onchina/src/auth/`：管理员登录、扫码二次确认、会话鉴权和权限上下文。
+- `citizenchain/onchina/src/codes/`：身份 ID 编码、机构码、CID 号生成和校验。
+- `citizenchain/onchina/src/codes/`：中国行政区划 SQLite 开发真源。
+- `citizenchain/onchina/src/authentication/`：管理员登录、扫码二次确认、会话鉴权和权限上下文。
 - `citizenchain/onchina/src/workspace/`：机构工作台类型、三段式分区和登录态工作台清单。
-- `citizenchain/onchina/src/domains/gov/`：公权机构目录和公权机构查询。
-- `citizenchain/onchina/src/domains/private/`：私权机构登记和六类私权机构能力。
-- `citizenchain/onchina/src/institution/subjects/`：主体公共模型、注册内核、主体详情、公开查询和非法人能力。
-- `citizenchain/onchina/src/domains/citizens/`：公民录入、电子护照档案、CitizenApp 查询和投票凭证。
-- `citizenchain/onchina/src/institution/accounts/`：机构账户管理。
-- `citizenchain/onchina/src/domains/docs/`：机构资料库。
+- `citizenchain/onchina/src/government/`：公权机构目录和公权机构查询。
+- `citizenchain/onchina/src/private/`：私权机构登记和六类私权机构能力。
+- `citizenchain/onchina/src/subjects/`：主体公共模型、注册内核、主体详情、公开查询和非法人能力。
+- `citizenchain/onchina/src/citizens/`：公民录入、电子护照档案、CitizenApp 查询和投票凭证。
+- `citizenchain/onchina/src/accounts/`：机构账户管理。
+- `citizenchain/onchina/src/docs/`：机构资料库。
 - `citizenchain/onchina/src/audit.rs`：审计查询入口。
 - `citizenchain/onchina/src/indexer/`：链上交易索引。
 
@@ -978,7 +983,7 @@ OnChina 以 PostgreSQL 结构化表作为唯一持久化真源。进程内缓存
 
 #### 权限边界
 
-管理员唯一真源为机构或个人多签的 `admins`。OnChina 管理端通过 `institution_code + workspace` 表达当前机构工作台，注册局与其它机构同走这一条路径，不得恢复 `registry_org_code` 专用分支、独立管理员身份表或第二授权真源。
+管理员登录资格、当前签名账户及业务授权统一按本文“权限范围”的链上分层解析器核验；机构 `admins` 是人员名册，业务权限来自有效岗位任职与岗位权限，不能由本地数据或工作台标签产生。个人多签不进入 OnChina；不得恢复 `registry_org_code` 专用分支或第二授权真源。
 
 - 联邦注册局机构 `admins`：联合读取全量管理员钱包和省专员岗位任职，本省 5 席置顶；目录完全只读，换届由治理业务写入 entity，业务数据仍按所属省限制。
 - 市注册局机构 `admins`：只能读取和写入所属市数据。
@@ -1019,10 +1024,12 @@ FRG/CREG，只返回同一 finalized 区块中的 CID 状态、当前账户、�
 
 ## 目录整合与平台输入
 
-前端二维码生成文件归入 `onchina/frontend/core/qrBodies.g.ts`，导出器及调用方同时调整。中国行政区静态数据直接位于 `onchina/src/cid/china/area_code_2024.csv.gz`；数据字节与查询语义保持不变。Runtime 与上游不参与本次目录调整。
+前端二维码生成文件归入 `onchina/frontend/core/qrBodies.g.ts`，导出器及调用方同时调整。中国行政区静态数据直接位于 `onchina/src/codes/area_code_2024.csv.gz`；数据字节与查询语义保持不变。Runtime 与上游不参与本次目录调整。
 ## 完整产品组织与执行合同
 
-所有者：`citizenchain`，正式源码根 `<本仓根>`；本说明属于该完整产品内的OnChina组件资料。组件不会拆成独立仓库或目录产品。所有执行身份统一为 `产品.平台.流程`，单平台物理目录省略平台层，执行身份仍保留真实平台。
+所有者：`citizenchain`，正式源码根 `<本仓根>`；本说明属于该完整产品内的OnChina组件资料。组件不会拆成独立仓库或目录产品。所有执行身份统一为 `产品.平台.流程`；工作目录合同由 `CitizenChainNode.md` 的“本机固定执行目录”唯一承载，不建立平台工作目录层。
+
+OnChina 随 Node 安装包交付，不新增独立 Workflow；CI、Release 的准确入口与单主 `flow` Job 合同统一见 `CitizenChainNode.md` 的“独立 GitHub CI 与 Release 工作流”。
 
 真实平台目标：`macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。
 
@@ -1046,7 +1053,7 @@ FRG/CREG，只返回同一 finalized 区块中的 CID 状态、当前账户、�
 
 源码工程直接读取各自package.json及原始package-lock.json。OnChina直接使用的图标包与dayjs分别固定5.6.1与1.11.19，不依赖其它包的间接声明。依赖归档仍按锁定完整性进入唯一依赖库，安装树归源码外工作目录；正式源码的node_modules只保留Git忽略的本机解析链接，TypeScript从正式源码检查实际业务类型。源码与Runtime不复制、不移动，依赖解析恢复不启动应用、TLS服务或链编译。
 
-Node和OnChina的本仓file依赖使用npm锁文件原生link条目，并登记../../crates/scanner-react的准确包元数据；禁止用缺少本仓目标条目的打包归档条目代替本仓链接，默认npm ci按原锁离线安装成功。
+Node和OnChina的本仓file依赖使用npm锁文件原生link条目，并登记../../crates/scanner的准确包元数据；禁止用缺少本仓目标条目的打包归档条目代替本仓链接，默认npm ci按原锁离线安装成功。
 
 本仓扫码链接包与宿主通过Vite resolve.dedupe统一react、react-dom的实际实例；依赖版本仍由原锁固定，不建立React别名或第二套版本。
 
@@ -1061,7 +1068,7 @@ Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复�
 
 门禁的工具与依赖需求、固定来源、准备配方、完整验真及同版复用合同统一由本仓 `scripts/resources.mjs` 拥有；门禁只调用公开接口，不维护第二份工具版本或配方。按当前职责规范，独立执行由产品获取和保存资源，经控制台执行由控制台准备和供给；下述既有接口与验收记录不代表控制台供给接入已完成。`prepareGateResources`准备本仓独占资源现场，`verifyGateResourceDelivery`回读准确来源、完整对象、执行器、宿主闭包和工作环境，`gateResourcePlan`从本仓既有声明派生来源。既有tools模块如存在仅转发产品资源接口。Linux门禁新增Ubuntu 24.04 x64宿主交付，macOS门禁复用本仓既有生产资源准备；不改生产流程顺序、工具版本、产品原锁或不可变原件。
 
-固定Git输入只从本仓声明或门禁明确的40位提交取得，不消费其它产品当前main。独立执行的依赖原件归产品独立资源库，经控制台执行的依赖原件由控制台保存供给，任务缓存和编译数据归本轮target；已有多平台产品按本仓首个登记平台的test现场分配，单平台使用target/test。`gateLanguageView`使用受检Git快照与产品现有安全解包器物化本轮target工程视图，正式源码、声明和锁只读；Git包仅在任务视图元数据中投影为已验真的固定输入。
+固定Git输入只从本仓声明或门禁明确的40位提交取得，不消费其它产品当前main。独立执行的依赖原件归产品独立资源库，经控制台执行的依赖原件由控制台保存供给，任务缓存和编译数据归本轮target；全部平台测试使用本仓target/test，平台只用于任务身份及准确资源选择。`gateLanguageView`使用受检Git快照与产品现有安全解包器物化本轮target工程视图，正式源码、声明和锁只读；Git包仅在任务视图元数据中投影为已验真的固定输入。
 
 `ownedLanguageTests`按本仓已有原锁与公开入口派生适用语言调度，`validateLanguageResult`核对实际非空执行结果。有Cargo锁的工作区执行离线原锁的全部测试目标及文档测试；Flutter项目执行原有正式测试入口或完整analyze/test；已有Vitest业务套件与TypeScript公开回归实际执行。Node依赖先准备独占视图；需要实际编译产物的既有测试先调用所属产品原Build入口。依赖缺失、宿主不适用、工具加载失败或语言结果不完整均失败，不以跳过或零退出码代替通过。
 
@@ -1074,11 +1081,11 @@ Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复�
 
 ## 独立功能门禁
 
-本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：链协议、投票引擎、身份和机构权限、发行与交易、节点和OnChina。已有真实入口为：runtime现有真实用例；crates/qr-protocol/tests；crates/scanner-react/test；node/frontend和onchina/frontend用例。`contracts.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 196 件既有测试来源（cargo 168 件、node 24 件、node-entry 1 件、vitest 3 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
+本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：链协议、投票引擎、身份和机构权限、发行与交易、节点和OnChina。已有真实入口为：runtime现有真实用例；crates/protocol/tests；crates/scanner/test；node/frontend和onchina/frontend用例。`contracts.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 196 件既有测试来源（cargo 168 件、node 24 件、node-entry 1 件、vitest 3 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
 
 Node完整报告逐文件核对；Flutter和Vitest从实际机器结果读取本仓具名套件完成数；Rust按准确原锁工作区及所属包运行全目标和文档测试，核对具名用例；Python调用实际unittest套件，拒绝零用例、失败、跳过、预期失败和意外成功。适用的原生门禁回读真实XCTest结果。执行回执绑定本仓、本次工作根和同一HEAD SHA，历史回执、加载事件、总数非空或单独零退出码均不足以证明全部功能检查成功。门禁协议夹具只证明核验器和调用边界，不能替代实际产品功能验收。
 
-门禁资源仍由本仓 `scripts/resources.mjs` 准备和验真，实际用例需要的Cargo/npm原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，不能读取邻仓或跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target内准确平台现场，不改变生产平台、生产工具版本、依赖版本或锁。
+门禁资源仍由本仓 `scripts/resources.mjs` 准备和验真，实际用例需要的Cargo/npm原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，不能读取邻仓或跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target/test本轮现场，不改变生产平台、生产工具版本、依赖版本或锁。
 
 main推送自动触发本仓同SHA `tatagate.yml`，不调度其它产品门禁或CI/Release。中文注释、真实接口、所属文档与回归同步检查继续执行。当前只准备实现、注释和用例，未运行测试、语法检查、门禁、下载或编译。浏览器交互、真机、真实API/服务/数据库环境及适用平台不能由登记清单、单元测试或编译替代，须在整项实现后的统一验收逐项核对。
 
@@ -1090,3 +1097,20 @@ main推送自动触发本仓同SHA `tatagate.yml`，不调度其它产品门禁�
 功能清单核验回读本仓实际Git跟踪源码，使用明确的本仓上游排除边界；漏登记、重复、不存在的入口或Rust具名用例集合不一致均失败。归档消费者仍属于本仓功能检查，不因上游目录豁免而排除。
 
 本产品源码工具依赖准备仅返回源码外归档存储中的验真输入映射；工具候选不创建旧originals目录，也不清理不存在的目录。原始归档及编译输入仍由既有工具对象和回执完整保存，错误归档、缺前置工具、编译失败、缺输出及越界继续失败。修正后的配方形成自身对象身份，不覆盖历史原件；测试夹具遵守同一目录合同。
+
+
+## 三级目录与单一视觉资源（2026-10-09）
+
+Runtime、node/vendor与node/libp2p保持原件。其它源码最深三级，第三层只有文件，每个目录至少两个真实直接子项；Rust公开包名、逻辑模块与业务接口保持，只以编译器文件定位调整物理结构。共享库归crates/harness、signing、protocol、scanner；QR金标直接归protocol/fixtures。节点与OnChina业务模块提升到各自src和frontend直属，目录使用完整单词；导入、Cargo本地路径及npm锁定本地来源同步。
+
+根icons是本产品唯一持久静态视觉资源目录。Logo与公民币母版字节保持，重复PNG仅留一份，ICO/ICNS格式保留；六处扫码按钮共用原SVG几何并保持currentColor和尺寸，宪法背景从唯一PNG编码进离线HTML。官网白皮书图片按本轮Git输入读取，只进入该任务工程的icons视图并由Vite导入打包；生成模块不进入源码。
+
+scripts保持23件：核心build/resources/flow/start/icons/docs/maintain与flows声明，ci/release各有五个平台文件，外层Runtime维护工具及模板保留。内嵌测试位于对应正式实现之后，仅直接node --test时注册；导入无执行副作用。原Job阶段、独立产品平台流程身份、候选校验、缓存隔离与失败条件保持；同一平台同一流程共享其本文件实现，阶段号仍由既有Workflow固定。
+
+本机输出只归target/build或target/test。非macOS检查通过同一显式工具入口，Windows预打包将原资源组装到本轮现场；本轮npm视图按锁定原件复制安装，不依赖旧控制台缓存链接。金标镜像读取公民App当前test/citizen/shared路径；未执行任何Runtime生成或刷新。实际验收及待确认状态只记录于唯一任务卡，本文目录合同不冒充完整发布或运行验收。
+
+本地scanner的file依赖按所属源码的package.json名称、版本与实际路径验真；远端包继续按原锁SRI验真。根工程复制到本仓target内的任务现场时排除target自身，避免递归复制。固定Git原件显式导入锁定提交，按其原有refs/tata引用格式处理，来源与版本保持原锁。
+
+registry与Git的目录源按原锁准确来源隔离，同名同版本不会混合。SDK临时发布视图保留其Git相对依赖身份；上游dev和可选依赖声明均保持原Git提交，只物化消费锁实际需要的包。原锁和上游原件不被改写。
+
+统一扫码SVG以原几何独立资源输出，消费端使用currentColor的CSS遮罩，保留18×18尺寸并在WebKit实际窗口显示；不依赖外部SVG symbol引用。Rust build-std依赖按已验真Rust工具原始Cargo.lock物化，产品Cargo锁和工具版本保持。

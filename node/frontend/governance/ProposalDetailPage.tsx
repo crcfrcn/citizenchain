@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { sanitizeError } from '../tauri';
 import { accountIdToSs58 } from '../shared/ss58';
-import { MultisigTransferProposalDetailSection } from '../transaction/multisig/ProposalDetailSection';
+import { MultisigTransferProposalDetailSection } from '../multisig/ProposalDetailSection';
 import { adminsChangeApi } from '../admins/api';
 import { InstitutionAssignmentCard } from '../admins/InstitutionAssignmentCard';
 import { governanceApi as api } from './api';

@@ -14,9 +14,9 @@
 
 本仓现行入口以`scripts/flows.json`及产品公开scripts实现为准；本文按日期保留的历史验收只描述当时结果，不作为当前工具、私有调用者或已撤销Publish实现的运行条件。独立塔塔门禁候选的职责和未验收状态见文末。
 
-## 当前工作目录归属（第8步，2026-10-06）
+## 当前工作目录归属
 
-本产品全部测试、编译临时数据和产物归 `<本仓根>/target`。多平台先使用声明中的完整平台身份，再在平台内按build、ci、release、publish、test、tmp隔离。独立入口与控制台调用消费同一产品流程；产品独立拥有需求与流程步骤；经控制台执行时，控制台按产品声明准备、保存并供给工具与依赖，同时创建任务、调用与跟踪。下载半包、工具编译候选、工程视图、Runner步骤临时状态和测试夹具均属于当前产品工作区；永久工具与依赖原件继续归原件库。整个根target不进入Git、源码快照、程序摘要或打包输入。准确流程短锁、活跃任务保护、成功产物保护和原清理规则继续适用。
+Runtime 与 Node、OnChina 共用完整 CitizenChain 仓的工作边界。生成工作根仅为 `<本仓根>/target`，固定目录、串行领取、清理及输出排除合同统一见 `CitizenChainNode.md` 的“本机固定执行目录”；平台保留在执行身份中，不建立平台目录。本节规定执行职责，不表示当前全部流程已通过验收。
 
 第8、9步完成目录与路径实现、根文档迁移及测试源码维护，未运行测试、门禁、编译或安装。本文唯一原件位于<本仓根>/CitizenChainRuntime.md；产品接口及流程直接以本仓实际代码和声明为准，业务字典库与其检查已撤销，不另建登记副本。历史验收事实不表示本轮改造已经通过验收，统一测试在第10步进行。根技术文档由本仓门禁按原文、JSON解码值及既有补丁快照扫描机密，仅报告路径；文档迁出不减少资料安全检查。
 
@@ -30,6 +30,14 @@ CitizenChainRuntime 涉及聊天时只作为依赖使用方；本条不代表尚
 - 本机开发直接依赖仓库路径；公民、途遇等产品的正式版本依赖塔塔聊天正式 Release；第三方市场分发使用公开市场版本。依赖使用不以公开市场发布为前置条件，也不改变实现归属。
 
 # CitizenChain Runtime 技术文档
+
+## Runtime 修改与链协议边界
+
+任何可能改变 `<本仓根>/runtime/` 的修改、格式化、生成或批量命令，必须先列出完整绝对路径、预计差异和原因，取得用户第二次明确确认后执行。本文档修改不授予 Runtime 源码修改、编译或链上升级权限。
+
+Runtime 账户类型必须使用 `AccountId`；账户、公钥和 SS58 的字段与文本合同统一见 `CitizenChainNode.md` 的“账户标识目标契约”。国家名称的基础字段仅为 `country_full_name`、`country_short_name`；既有语言字段由 `runtime/primitives/cid/code.rs` 的真实接口定义，不另建字段真源。行政区、机构名称和管理员集合字段的消费边界见 `CitizenChainOnChina.md` 的“行政区数据”和“CID 号”。
+
+哈希域签名仅使用 `runtime/primitives/src/sign.rs` 的 `primitives::sign::signing_message(op_tag, scale_payload)`，结果为 `blake2_256(GMB ‖ op_tag ‖ SCALE)`；既有 `0x18/0x19` 二进制前缀域按同文件定义执行，不改为哈希域。Pallet 的非签名业务哈希必须使用所属 Pallet 的 `MODULE_TAG` 作域；提案数据归属按本文“MODULE_TAG 注册表”核验。
 
 ## Runtime 创世身份 API
 
@@ -378,7 +386,7 @@ ADR-039 已冻结机构岗位权限目标模型。任务卡第 2 步已落地共
 - 已定义 `RoleSubject { cid_number, role_code }`，作为机构业务授权和机构岗位投票资格的唯一主体。
 - 已定义 `BusinessActionId { module_tag, action_code: u32 }`、`RoleBusinessPermission { role_subject, business_action_id, operation }` 和 `AuthorizationSubject` 强类型；个人多签使用 discriminant `1` 的独立 `PersonalMultisig(AccountId)` 变体。
 - `RolePermissionOperation` 的 SCALE discriminant 固定为 `Propose = 0`、`Vote = 1`；`AuthorizationSubject` 固定为 `Institution = 0`、`PersonalMultisig = 1`。
-- 跨端 SCALE 金标唯一文件为受保护测试资产 `citizenchain/runtime/tests/fixtures/role_permission.json`；Node 使用本 crate 共享类型逐字节解码，OnChina、CitizenApp、CitizenWallet 对同一金标严格解码并拒绝尾随字段。
+- 跨端 SCALE 金标唯一文件为受保护测试资产 `citizenchain/runtime/primitives/tests/fixtures/role_permission.json`；Node 使用本 crate 共享类型逐字节解码，OnChina、CitizenApp、CitizenWallet 对同一金标严格解码并拒绝尾随字段。
 - 定义 `InstitutionCapabilityPolicy` 与 `InstitutionRoleAuthorizationQuery`，供业务模块校验“CID 顶层能力 + 岗位权限 + 有效任职”；本 crate 只定义 trait，不保存权限 storage、不选择投票引擎。
 - `business_action.rs` 是稳定 `module_tag/action_code` 与受保护创世岗位固定权限唯一目录；协议升级与决议发行采用同一联合权限矩阵：NRC/PRC 委员岗位拥有 `Propose + Vote`，PRB 正式 `DIRECTOR / 董事` 只有 `Vote`。该目录不选择投票引擎，也不表示尚未迁移的业务已经按岗位执法。
 - 机构内 `role_code` 与 `role_name` 分别唯一；同名多人属于一个岗位的多个任职席位。一个管理员可以担任多个不同岗位，但同一岗位内不得重复占席。
@@ -643,7 +651,7 @@ pub trait DeveloperUpgradeCheck {
 
 #### 6. NodeGuard 执法
 
-`node/src/core/node_guard/genesis_pallet.rs` 在四条路径执行：
+`node/src/guard/genesis_pallet.rs` 在四条路径执行：
 
 1. 节点启动：读取 block#0 的整个 `GenesisPallet` 前缀，确认创世事实和缺省阶段状态；
 2. 普通区块：三个创世事实和 StorageVersion 任何触碰都拒绝；
@@ -674,7 +682,7 @@ pub trait DeveloperUpgradeCheck {
 - `citizenchain/runtime/genesis/src/tests/mod.rs`：pallet 单元测试；
 - `citizenchain/runtime/primitives/src/genesis.rs`：三个创世事实的固定真源；
 - `citizenchain/runtime/src/genesis.rs`：真实 runtime genesis patch；
-- `citizenchain/node/src/core/node_guard/genesis_pallet.rs`：节点独立永久规则。
+- `citizenchain/node/src/guard/genesis_pallet.rs`：节点独立永久规则。
 
 ### GRANDPA 验证密钥更换模块技术文档
 
@@ -852,7 +860,7 @@ PRC 只由本 PRC 的 9 个委员岗位投票，机构阈值为 6。投票资格
 - `submit_grandpa_key_change`
 - `get_grandpa_key_change_status`
 
-节点页面位于 `node/frontend/governance/grandpa-key/`。管理员选择目标机构委员任职，
+节点页面位于 `node/frontend/keys/`。管理员选择目标机构委员任职，
 输入本机解锁密码，完成管理员交易签名后提交。页面明确区分：
 
 - 正常更换：无投票、旧新私钥双签、延迟生效；
@@ -1142,8 +1150,8 @@ cargo test --offline --manifest-path citizenchain/runtime/governance/resolution-
 
 代码位置：
 - `runtime/governance/runtime-upgrade/src/lib.rs`
-- `node/src/governance/runtime_upgrade/`
-- `node/frontend/governance/runtime-upgrade/`
+- `node/src/upgrade/`
+- `node/frontend/upgrade/`
 
 命名说明：
 - 2026-04-29 起，本模块统一使用 `runtime-upgrade` / `runtime_upgrade` / `RuntimeUpgrade`。
@@ -1541,7 +1549,7 @@ finalize，`src/weights.rs` 由 Substrate benchmark CLI 重新生成；当前测
 
 #### 7. 节点永久守卫
 
-`citizenchain/node/src/core/node_guard/citizen_issuance.rs` 使用 RAW storage key 和节点本地 SCALE
+`citizenchain/node/src/guard/citizen_issuance.rs` 使用 RAW storage key 和节点本地 SCALE
 镜像，不读取 runtime metadata。它检查：
 
 - 创世只能包含 FRAME 规范空状态：存储版本 0、两个计数的精确零值；
@@ -1892,7 +1900,7 @@ src/
 
 #### 3. 清算行合法性模型
 
-清算行 = `K1=S` 私法人或 `K1=F` 非法人(两者皆私权机构),对应 `citizenchain/onchina/src/cid/category.rs` 的 `InstitutionCategory::PrivateInstitution`。
+清算行 = `K1=S` 私法人或 `K1=F` 非法人(两者皆私权机构),对应 `citizenchain/onchina/src/codes/category.rs` 的 `InstitutionCategory::PrivateInstitution`。
 
 链上**不新增** CID 枚举,而是直接对实体生命周期模块登记的 `cid_number` 字节做 K1 字节匹配。
 
@@ -2671,7 +2679,7 @@ FeePaid { who: 实际付款账户, fee: 完整手续费 }
 
 #### 7. 外部同步
 
-- `citizenchain/crates/chain-signing/`：统一构造 `tip=0` 的交易扩展。
+- `citizenchain/crates/signing/`：统一构造 `tip=0` 的交易扩展。
 - `citizenchain/node/src/core/rpc.rs`：`fee_blockFees` 只累计 `FeePaid.fee`，不再拼接 FRAME tip 事件。
 - `citizenapp/lib/rpc/signed_extrinsic_builder.dart`：热签 payload 和 extrinsic 固定 `tip=0`。
 - `citizenwallet/lib/signer/payload_decoder.dart`：冷签前拒绝非零 tip。
@@ -2713,7 +2721,7 @@ FeePaid { who: 实际付款账户, fee: 完整手续费 }
 
 `votingengine` 是链上中国 runtime 的统一投票引擎。
 
-业务模块只提交提案语义，不能自行实现投票流程、人口快照、投票资格、计票、通过判定或清理状态机。
+全部投票流程只归投票引擎。业务模块只提交提案语义并调用既定投票接口，不得实现、复刻、绕过或内嵌投票流程，不得自行处理人口快照、投票资格、联合签名、状态推进、计票、通过判定或清理状态机。
 
 ADR-039 已于 2026-07-19 冻结机构岗位主体目标。任务卡第 5A、5B、5C 已依次完成联合、内部、立法和选举投票迁移；全部机构 Track 都按 `VotePlan` 中的完整岗位主体冻结资格，不再以 CID 全体 admins 作为发起或投票资格。个人多签仍使用独立管理员主体。
 
@@ -2834,7 +2842,7 @@ legislation-vote/
 - `election-vote` 只产生不可变当选结果快照，不解释职位、席位、任期或目标机构业务规则，也不得构造 `InstitutionGovernanceResult` 直写 entity。
 - 普选/互选底层创建 extrinsic 已物理删除；当前外部只保留 `cast_popular_vote` 与 `cast_mutual_vote`。
 - 真实创建必须由 `runtime/public/` 下对应的具体选举业务模块校验本机构发起岗位、目标 `role_code`、候选人、选民范围、席位和任期后调用引擎；结果也必须先回到原具体业务模块复核，再由业务模块调用 entity 任职入口。
-- 无具体规则的开发期通用选举业务壳已经删除，原 pallet index 32 永久留空；不得恢复、改名或扩展成所有选举规则的集中模块。具体业务模块本身就是该类选举的规则真源。
+- `runtime/public/citizen-election` 为公民选举公职人员的业务模块，复用 pallet index 32；当前仅占位，不提供交易入口、业务存储或事件。后续逐步实现具体选举业务规则并接入 `election-vote`，本次不恢复已删除的开发期通用选举实现。
 - 机构只能发起本机构岗位选举。最终元数据只保留 `actor_cid_number + role_code`，发起岗位、互选岗位和被选举岗位的 CID 必须相同。
 - 提案实例只使用投票引擎生成的全链唯一 `proposal_id`，业务类型由 `BusinessActionId` 表达；不得保留无权威规则表支撑的通用规则编号。
 
@@ -3283,7 +3291,7 @@ Runtime WASM CI 已接入统一 CI 缓存，Rust target 使用受控生成目录
 
 ## 独立 GitHub CI 与 Release 工作流
 
-本产品每个实际产品、平台、流程身份使用下列独立文件，主 Job 为 `flow`；CI 验证源码，Release 生成正式产物，本步不实现Publish，发布待后续逐产品重建。
+WASM 的 CI、Release 各只有下列一个本仓顶层 Workflow，均有且仅有一个主 `flow` Job；必要辅助 Job 只服务该身份。Workflow 只调用本仓 `scripts`，不执行保存、拉取、推送、Start 或 Publish，不读取 TataConsole 私有源码和资料。CI 验证源码，Release 生成正式产物；Publish 是否已接入以本仓当前声明及实际入口为准，不由本文新增。
 
 - `.github/workflows/citizenchain-wasm-ci.yml`
 - `.github/workflows/citizenchain-wasm-release.yml`
@@ -3297,7 +3305,7 @@ Node、Runtime、OnChina同属完整citizenchain仓。原聚合Cargo工作空间
 本产品正式Release主flow Job实际创建GitHub版本，contents权限准确为当前仓write；辅助Job与其它权限保持原登记。源提交、成功CI、版本及资产验真不放宽，不派发发布。
 ## 完整产品组织与执行合同
 
-所有者：`citizenchain`，正式源码根 `<本仓根>`；本说明属于该完整产品内的Runtime组件资料。组件不会拆成独立仓库或目录产品。所有执行身份统一为 `产品.平台.流程`，单平台物理目录省略平台层，执行身份仍保留真实平台。
+所有者：`citizenchain`，正式源码根 `<本仓根>`；本说明属于该完整产品内的Runtime组件资料。组件不会拆成独立仓库或目录产品。所有执行身份统一为 `产品.平台.流程`；工作目录合同由 `CitizenChainNode.md` 的“本机固定执行目录”唯一承载，不建立平台工作目录层。
 
 真实平台目标：`macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。
 
@@ -3315,7 +3323,7 @@ Node、Runtime、OnChina同属完整citizenchain仓。原聚合Cargo工作空间
 
 本次依赖统一同时覆盖归档差分测试的第一方smoldot C ABI适配及hex/parking_lot直接声明；对应Cargo锁与SDK冻结摘要原子同步。上游PoW与libp2p内部闭包仍按来源保留，不把第一方适配当成上游例外。全17仓直接声明回归按准确源码归属检查Cargo、Pub与npm，不只比较依赖库索引。
 
-QR协议的 self_occupy_cid 动作0x0a05对齐现有Runtime单cid_number参数；修改仅属crates/qr-protocol，不改变Runtime。
+QR协议的 self_occupy_cid 动作0x0a05对齐现有Runtime单cid_number参数；修改仅属crates/protocol，不改变Runtime。
 
 ## 第5步执行注册与空间资源边界
 
@@ -3377,7 +3385,7 @@ Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复�
 
 门禁的工具与依赖需求、固定来源、准备配方、完整验真及同版复用合同统一由本仓 `scripts/resources.mjs` 拥有；门禁只调用公开接口，不维护第二份工具版本或配方。按当前职责规范，独立执行由产品获取和保存资源，经控制台执行由控制台准备和供给；下述既有接口与验收记录不代表控制台供给接入已完成。`prepareGateResources`准备本仓独占资源现场，`verifyGateResourceDelivery`回读准确来源、完整对象、执行器、宿主闭包和工作环境，`gateResourcePlan`从本仓既有声明派生来源。既有tools模块如存在仅转发产品资源接口。Linux门禁新增Ubuntu 24.04 x64宿主交付，macOS门禁复用本仓既有生产资源准备；不改生产流程顺序、工具版本、产品原锁或不可变原件。
 
-固定Git输入只从本仓声明或门禁明确的40位提交取得，不消费其它产品当前main。独立执行的依赖原件归产品独立资源库，经控制台执行的依赖原件由控制台保存供给，任务缓存和编译数据归本轮target；已有多平台产品按本仓首个登记平台的test现场分配，单平台使用target/test。`gateLanguageView`使用受检Git快照与产品现有安全解包器物化本轮target工程视图，正式源码、声明和锁只读；Git包仅在任务视图元数据中投影为已验真的固定输入。
+固定Git输入只从本仓声明或门禁明确的40位提交取得，不消费其它产品当前main。独立执行的依赖原件归产品独立资源库，经控制台执行的依赖原件由控制台保存供给，任务缓存和编译数据归本轮target；全部平台测试使用本仓target/test，平台只用于任务身份及准确资源选择。`gateLanguageView`使用受检Git快照与产品现有安全解包器物化本轮target工程视图，正式源码、声明和锁只读；Git包仅在任务视图元数据中投影为已验真的固定输入。
 
 `ownedLanguageTests`按本仓已有原锁与公开入口派生适用语言调度，`validateLanguageResult`核对实际非空执行结果。有Cargo锁的工作区执行离线原锁的全部测试目标及文档测试；Flutter项目执行原有正式测试入口或完整analyze/test；已有Vitest业务套件与TypeScript公开回归实际执行。Node依赖先准备独占视图；需要实际编译产物的既有测试先调用所属产品原Build入口。依赖缺失、宿主不适用、工具加载失败或语言结果不完整均失败，不以跳过或零退出码代替通过。
 
@@ -3390,11 +3398,11 @@ Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复�
 
 ## 独立功能门禁
 
-本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：链协议、投票引擎、身份和机构权限、发行与交易、节点和OnChina。已有真实入口为：runtime现有真实用例；crates/qr-protocol/tests；crates/scanner-react/test；node/frontend和onchina/frontend用例。`contracts.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 196 件既有测试来源（cargo 168 件、node 24 件、node-entry 1 件、vitest 3 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
+本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：链协议、投票引擎、身份和机构权限、发行与交易、节点和OnChina。已有真实入口为：runtime现有真实用例；crates/protocol/tests；crates/scanner/test；node/frontend和onchina/frontend用例。`contracts.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 196 件既有测试来源（cargo 168 件、node 24 件、node-entry 1 件、vitest 3 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
 
 Node完整报告逐文件核对；Flutter和Vitest从实际机器结果读取本仓具名套件完成数；Rust按准确原锁工作区及所属包运行全目标和文档测试，核对具名用例；Python调用实际unittest套件，拒绝零用例、失败、跳过、预期失败和意外成功。适用的原生门禁回读真实XCTest结果。执行回执绑定本仓、本次工作根和同一HEAD SHA，历史回执、加载事件、总数非空或单独零退出码均不足以证明全部功能检查成功。门禁协议夹具只证明核验器和调用边界，不能替代实际产品功能验收。
 
-门禁资源仍由本仓 `scripts/resources.mjs` 准备和验真，实际用例需要的Cargo/npm原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，不能读取邻仓或跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target内准确平台现场，不改变生产平台、生产工具版本、依赖版本或锁。
+门禁资源仍由本仓 `scripts/resources.mjs` 准备和验真，实际用例需要的Cargo/npm原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，不能读取邻仓或跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target/test本轮现场，不改变生产平台、生产工具版本、依赖版本或锁。
 
 main推送自动触发本仓同SHA `tatagate.yml`，不调度其它产品门禁或CI/Release。中文注释、真实接口、所属文档与回归同步检查继续执行。当前只准备实现、注释和用例，未运行测试、语法检查、门禁、下载或编译。浏览器交互、真机、真实API/服务/数据库环境及适用平台不能由登记清单、单元测试或编译替代，须在整项实现后的统一验收逐项核对。
 

@@ -1,6 +1,7 @@
+import scanIcon from "../../../icons/scan.svg?url";
 import { useState, useEffect, useCallback } from 'react';
 import { sanitizeError } from '../tauri';
-import { AddressScanModal } from '../shared/qr/AddressScanModal';
+import { AddressScanModal } from '../protocol/AddressScanModal';
 import { normalizeSs58Address } from '../shared/ss58';
 import { settingsApi as api } from './api';
 import type { RewardAccount } from './types';
@@ -129,10 +130,7 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
           disabled={saving}
         />
         <button type="button" className="scan-icon-btn" onClick={() => setShowAddressScan(true)} disabled={saving} title="扫码填入">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-            <rect x="7" y="7" width="10" height="10" rx="1"/>
-          </svg>
+          <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url(${scanIcon})`,WebkitMaskImage:`url(${scanIcon})`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
         </button>
         <button
           disabled={saving}

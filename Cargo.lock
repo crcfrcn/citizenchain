@@ -2936,6 +2936,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "citizen-election"
+version = "1.0.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+]
+
+[[package]]
 name = "citizen-identity"
 version = "1.0.0"
 dependencies = [
@@ -2972,6 +2982,7 @@ version = "1.0.0"
 dependencies = [
  "address-registry",
  "admin-primitives",
+ "citizen-election",
  "citizen-identity",
  "citizen-issuance",
  "ed25519-dalek",

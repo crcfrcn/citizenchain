@@ -31,13 +31,13 @@ import {
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { glassCardHeadStyle, glassCardStyle } from '../core/cardStyles';
 import { CitizenSignatureModal } from '../core/CitizenSignatureModal';
 import { EditCitizenModal } from './EditCitizenModal';
 import { ScanAccountModal } from '../core/ScanAccountModal';
 import { submitChainSign, useChainSign } from '../core/useChainSign';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 import {
   CITIZEN_DOCUMENT_TYPES,
   completeCitizenOnchainSignature,

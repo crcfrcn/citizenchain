@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import App from './App';
-import { DisplayScreen } from './legislation/display/DisplayScreen';
+import { DisplayScreen } from './display/DisplayScreen';
 import ErrorBoundary from './core/ErrorBoundary';
 import { cidTheme } from './theme';
 import 'antd/dist/reset.css';

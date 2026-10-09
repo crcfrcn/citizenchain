@@ -14,8 +14,11 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 mod audit;
+#[path = "authentication/mod.rs"]
 mod auth;
+#[path = "codes/mod.rs"]
 mod cid;
+#[path = "client/mod.rs"]
 mod citizenapp;
 mod core;
 mod crypto;

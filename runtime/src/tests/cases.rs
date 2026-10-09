@@ -2,6 +2,22 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use super::*;
+
+#[test]
+fn citizen_election_reserves_index_32_without_business_entries() {
+    let metadata = Runtime::metadata_ir();
+    let pallet = metadata
+        .pallets
+        .iter()
+        .find(|pallet| pallet.name == "CitizenElection")
+        .expect("公民选举占位模块必须注册到 Runtime");
+
+    assert_eq!(pallet.index, 32);
+    assert!(pallet.calls.is_none());
+    assert!(pallet.event.is_none());
+    assert!(pallet.storage.is_none());
+}
+
 // 簇 1:Runtime 整体自检(4 个用例)
 #[test]
 fn time_and_currency_constants_are_consistent() {

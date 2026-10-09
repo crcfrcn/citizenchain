@@ -2,7 +2,7 @@
 // 从机构详情页点击"管理员列表"入口卡片进入。
 import { useEffect, useState, useCallback } from 'react';
 import { sanitizeError } from '../tauri';
-import { CitizenSignatureModal } from '../shared/qr/CitizenSignatureModal';
+import { CitizenSignatureModal } from '../protocol/CitizenSignatureModal';
 import { adminsChangeApi as api } from './api';
 import { InstitutionAssignmentCard } from './InstitutionAssignmentCard';
 import type {

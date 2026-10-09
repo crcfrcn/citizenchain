@@ -14,10 +14,10 @@ import { join } from 'node:path';
 // `assertPasskey` 走 WebAuthn(navigator.credentials),这里 mock 掉:
 // 要测真实 WebAuthn 就得 mock 整套浏览器 API,测的是 mock 而非真实行为。
 
-vi.mock('../auth/passkey/passkeyClient', async () => {
+vi.mock('../authentication/passkeyClient', async () => {
   const actual = await vi.importActual<
-    typeof import('../auth/passkey/passkeyClient')
-  >('../auth/passkey/passkeyClient');
+    typeof import('../authentication/passkeyClient')
+  >('../authentication/passkeyClient');
   return {
     ...actual,
     // 只替换需要浏览器的那一个;常量仍取真实值,否则跨端锁就成了自证。
@@ -31,7 +31,7 @@ const {
   securityGrantSubmitHeaders,
 } = await import('./securityApi');
 const { PASSKEY_ASSERTION_HEADER } = await import(
-  '../auth/passkey/passkeyClient'
+  '../authentication/passkeyClient'
 );
 
 const ONCHINA_SRC = join(import.meta.dirname, '..', '..', 'src');
@@ -49,16 +49,16 @@ function rustConst(relativePath: string, name: string): string {
 describe('前端 header 名与 Rust 后端一致(直读后端源码)', () => {
   // 照搬 cloudflare/test/cross_end_contract.test.ts 的做法:直接读另一端源文件。
   // 两端各自的测试都只对齐自己这一侧,名字漂移会两边全绿而线上 100% 拒绝。
-  it('SECURITY_GRANT_HEADER 与 auth/actions.rs 的 ADMIN_SECURITY_GRANT_HEADER 逐字一致', () => {
-    const backend = rustConst('auth/actions.rs', 'ADMIN_SECURITY_GRANT_HEADER');
+  it('SECURITY_GRANT_HEADER 与 authentication/actions.rs 的 ADMIN_SECURITY_GRANT_HEADER 逐字一致', () => {
+    const backend = rustConst('authentication/actions.rs', 'ADMIN_SECURITY_GRANT_HEADER');
     expect(SECURITY_GRANT_HEADER).toBe(backend);
   });
 
-  it('PASSKEY_ASSERTION_HEADER 与 auth/passkey/mod.rs 逐字一致', () => {
+  it('PASSKEY_ASSERTION_HEADER 与 authentication/passkey.rs 逐字一致', () => {
     // 严格相等,不做大小写归一:后端 http_security.rs 用 HeaderName::from_static
     // 注册该头,那个 API 只接受小写、否则 panic,故小写是全仓唯一合法写法。
     const backend = rustConst(
-      'auth/passkey/mod.rs',
+      'authentication/passkey.rs',
       'PASSKEY_ASSERTION_HEADER',
     );
     expect(PASSKEY_ASSERTION_HEADER).toBe(backend);

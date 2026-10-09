@@ -9,7 +9,7 @@ import { Badge, Button, Card, Empty, Form, Grid, Modal, Space, Spin, Table, Tool
 import type { ModalProps } from 'antd';
 import { useAuth } from '../hooks/useAuth';
 import { normalizeScopeProvinceName } from '../hooks/useScope';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { CityRegistryAdminRow } from './cityRegistryAdminsApi';
 import type { FederalRegistryAdminRow, OwnInstitutionAdminListOutput, OwnInstitutionAdminRow } from './api';
 import type { CidCityItem } from '../china/api';
@@ -22,18 +22,18 @@ import {
 } from './securityApi';
 import { listFederalRegistryAdmins, listOwnInstitutionAdmins } from './api';
 import { loadCachedCidCities, readCachedCidCities } from '../china/metaCache';
-import { decodeSs58 } from '../utils/ss58';
+import { decodeSs58 } from '../helpers/ss58';
 import { MAX_CITY_REGISTRY_ADMINS_PER_CITY, sameHexAccount } from './adminUtils';
 import type { AccountScanTarget, RegistryAdminsSharedState } from './adminUtils';
 import { isSubordinateRegistry, isTier1Registry } from '../platform/registryTier';
 import { CityRegistryView, FederalRegistryView } from './ProvinceDetailView';
-import { parseSignedReceiptPayload } from '../utils/parseSignedPayload';
+import { parseSignedReceiptPayload } from '../helpers/parseSignedPayload';
 import { CitizenSignatureModal } from '../core/CitizenSignatureModal';
 import { CID_MODAL_Z_INDEX } from '../core/modalStack';
-import { notice } from '../utils/notice';
-import { getFederalRegistry, listOfficialInstitutions } from '../gov/api';
+import { notice } from '../helpers/notice';
+import { getFederalRegistry, listOfficialInstitutions } from '../government/api';
 import type { InstitutionDetail } from '../subjects/api';
-import { usePasskeyRegistration } from '../auth/passkey/usePasskey';
+import { usePasskeyRegistration } from '../authentication/usePasskey';
 import {
   InstitutionAssignmentCard,
   InstitutionAssignmentDetails,

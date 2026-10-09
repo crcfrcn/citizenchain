@@ -4,8 +4,8 @@ members = [
     "node/vendor",                           # 本地覆盖的 GRANDPA voter 持久化实现
     "node/libp2p",                 # 本地覆盖的 libp2p WebSocket 传输(经 [patch.crates-io] 生效)
     "onchina",                               # onchina 多机构统一控制台:CID 身份 + 链下明细 + 鉴权 + 颁发(ADR-029/030)
-    "crates/blockchain-harness",             # 区块链真实验收与坏块构造测试工具（非生产路径）
-    "crates/chain-signing",                  # Rust host 端链交易签名材料唯一真源
+    "crates/harness",             # 区块链真实验收与坏块构造测试工具（非生产路径）
+    "crates/signing",                  # Rust host 端链交易签名材料唯一真源
     "runtime",                               # 链上运行时
     "runtime/primitives",                    # 运行时共享常量与基础类型
 
@@ -17,6 +17,7 @@ members = [
     "runtime/governance/resolution-destroy",   # 治理-决议销毁模块 pallet
     "runtime/governance/runtime-upgrade",    # 治理-协议升级模块 pallet
     "runtime/public/legislation-yuan",       # 公权模组-立法院模块 pallet(法律结构化上链,ADR-027)
+    "runtime/public/citizen-election",       # 公权模组-公民选举模块 pallet（当前仅占位）
     "runtime/votingengine",    # 投票引擎核心(共用基础设施:Proposals/反向索引/状态机/快照/锁/清理)
     "runtime/votingengine/internal-vote",  # 内部投票 pallet(管理员一人一票)
     "runtime/votingengine/joint-vote",     # 联合投票 pallet(管理员多签 + 全民兜底)
@@ -44,7 +45,7 @@ members = [
 
 ]
 # QR 协议位于本产品目录，由根部轻量工具 workspace 单独验证；节点通过 path 使用。
-exclude = ["crates/qr-protocol"]
+exclude = ["crates/protocol"]
 resolver = "2"
 
 [workspace.package]                                         # 子工作空间元信息

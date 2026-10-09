@@ -9,9 +9,9 @@
 
 import { useCallback, useState, type ReactNode } from 'react';
 import type { PrepareAdminActionOutput } from '../admins/securityApi';
-import { parseSignedReceiptPayload } from '../utils/parseSignedPayload';
+import { parseSignedReceiptPayload } from '../helpers/parseSignedPayload';
 import { CitizenSignatureModal } from './CitizenSignatureModal';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 
 type PendingScanSign = {
   prepared: PrepareAdminActionOutput;

@@ -2,7 +2,7 @@
 // 必选本市学校本部为所属法人)。表单 UI 复用 core/institution,本文件只负责注入 education API。
 
 import React from 'react';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { CreateInstitutionForm } from '../core/CreateInstitutionForm';
 import {
   checkCidFullName,

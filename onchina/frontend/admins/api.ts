@@ -1,8 +1,8 @@
 // 联邦注册局管理员目录 API；岗位换届由治理业务写入 entity，本页只读。
 
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { InstitutionDetail } from '../subjects/api';
-import { adminHeaders, request } from '../utils/http';
+import { adminHeaders, request } from '../helpers/http';
 
 // 联邦注册局管理员对外行(API 返回结构)。
 //

@@ -115,31 +115,31 @@ jobs:
       with:
         toolchain: 1.97.1
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 0
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 0
     - shell: bash
       env:
         EXPECTED_RUNNER_ARCH: "${{ env.PRODUCT_EXPECTED_RUNNER_ARCH }}"
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 1
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 1
     - shell: bash
       env:
         CITIZENCHAIN_CI_BUNDLE_TARGETS: "${{ env.PRODUCT_CI_BUNDLE_TARGETS }}"
         CITIZENCHAIN_MANUAL_BUNDLE_TARGETS: "${{ env.PRODUCT_MANUAL_BUNDLE_TARGETS }}"
         CITIZENCHAIN_UPDATER_MANIFEST_NAME: "${{ env.PRODUCT_UPDATER_MANIFEST_NAME }}"
         CITIZENCHAIN_PLATFORM: "${{ env.PRODUCT_PLATFORM }}"
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 2
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 2
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 3
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 3
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 4
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 4
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 5
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 5
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 6
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 6
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 7
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 7
     - working-directory: ./node
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 8
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 8
     - shell: bash
       env:
         INSTALLER_NAME: "${{ env.PRODUCT_INSTALLER_NAME }}"
@@ -147,8 +147,12 @@ jobs:
         EXPECTED_DEB_ARCH: "${{ env.PRODUCT_DEB_ARCH }}"
         TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.UPDATE_KEY }}"
         TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "${{ secrets.UPDATE_PASS }}"
-      run: node "$GITHUB_WORKSPACE/scripts/node/release/linux-amd/build-desktop/execute.mjs" workflow-step 9
+      run: node "$GITHUB_WORKSPACE/scripts/release/linux-amd.mjs" build-desktop workflow-step 9
     - name: 签署节点平台正式资产构建来源
       uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
       with:
         subject-path: ${{ github.workspace }}/target/linux-amd/release/citizenchain-release/*
+    - name: 清空本产品固定构建目录
+      if: always()
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/target.mjs" finish build

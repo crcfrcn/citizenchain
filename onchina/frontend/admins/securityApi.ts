@@ -2,9 +2,9 @@
 // 管理端权限统一为 SESSION / PASSKEY / PASSKEY_COLD_SIGN 三档。
 // PASSKEY_COLD_SIGN 动作走 prepare → CitizenWallet 扫码签名一次并显示响应二维码 → OnChina 回扫 commit。
 
-import type { AdminAuth } from '../auth/types';
-import { assertPasskey, PASSKEY_ASSERTION_HEADER } from '../auth/passkey/passkeyClient';
-import { ApiError, adminRequest } from '../utils/http';
+import type { AdminAuth } from '../authentication/types';
+import { assertPasskey, PASSKEY_ASSERTION_HEADER } from '../authentication/passkeyClient';
+import { ApiError, adminRequest } from '../helpers/http';
 
 export const SECURITY_GRANT_HEADER = 'x-cid-security-grant';
 

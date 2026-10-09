@@ -12,10 +12,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { Button, Form, Input, Modal, Typography } from 'antd';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { submitChainSign, useChainSign } from '../core/useChainSign';
 import { createAccount, type InstitutionAccount } from './api';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 
 interface Props {
   auth: AdminAuth;

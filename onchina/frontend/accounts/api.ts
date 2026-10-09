@@ -4,9 +4,9 @@
 // (PrepareInstitutionChainOutput),由发起管理员使用签名钱包冷签一笔普通 extrinsic 上链,机构内部
 // 投票通过后才生效。冷签扫码 + 提交复用 core/useChainSign。账户列表读侧已切链上真源。
 
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { PrepareInstitutionChainOutput } from '../admins/api';
-import { adminRequest } from '../utils/http';
+import { adminRequest } from '../helpers/http';
 import type { InstitutionAccount } from '../subjects/api';
 
 export type { InstitutionAccount, MultisigChainStatus } from '../subjects/api';

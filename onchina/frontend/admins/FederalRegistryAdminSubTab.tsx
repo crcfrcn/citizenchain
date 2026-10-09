@@ -10,7 +10,7 @@ import { normalizeScopeProvinceName } from '../hooks/useScope';
 import { CID_MODAL_Z_INDEX } from '../core/modalStack';
 import type { FederalRegistryAdminRow } from './api';
 import { sameHexAccount } from './adminUtils';
-import { usePasskeyRegistration } from '../auth/passkey/usePasskey';
+import { usePasskeyRegistration } from '../authentication/usePasskey';
 import {
   InstitutionAssignmentDetails,
   assignmentDisplayLabel,

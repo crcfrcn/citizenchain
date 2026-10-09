@@ -5,8 +5,8 @@ import { AdminListPage } from '../admins';
 import { InstitutionListView } from './InstitutionListView';
 import { InstitutionDetailPage } from './InstitutionDetailPage';
 import { ProposalDetailPage } from './ProposalDetailPage';
-import { CreateMultisigTransferPage } from '../transaction/multisig/CreateProposalPage';
-import { SweepProposalPage } from '../transaction/multisig/SweepProposalPage';
+import { CreateMultisigTransferPage } from '../multisig/CreateProposalPage';
+import { SweepProposalPage } from '../multisig/SweepProposalPage';
 import type { AdminSignerMatch } from './types';
 
 type PrbView =

@@ -14,9 +14,9 @@ Warning: truncated output (original token count: 220007)
 
 本仓现行入口以`scripts/flows.json`及产品公开scripts实现为准；本文按日期保留的历史验收只描述当时结果，不作为当前工具、私有调用者或已撤销Publish实现的运行条件。独立塔塔门禁候选的职责和未验收状态见文末。
 
-## 当前工作目录归属（第8步，2026-10-06）
+## 当前工作目录归属
 
-本产品全部测试、编译临时数据和产物归 `<本仓根>/target`。多平台先使用声明中的完整平台身份，再在平台内按build、ci、release、publish、test、tmp隔离。独立入口与控制台调用消费同一产品流程；产品独立拥有需求与流程步骤；经控制台执行时，控制台按产品声明准备、保存并供给工具与依赖，同时创建任务、调用与跟踪。下载半包、工具编译候选、工程视图、Runner步骤临时状态和测试夹具均属于当前产品工作区；永久工具与依赖原件继续归原件库。整个根target不进入Git、源码快照、程序摘要或打包输入。准确流程短锁、活跃任务保护、成功产物保护和原清理规则继续适用。
+Node、Runtime、OnChina 的全部测试、编译临时数据和产物使用完整 CitizenChain 仓的同一工作边界；固定工作目录和收尾合同统一见本文“本机固定执行目录”。平台只进入执行身份、授权、日志和状态，不建立平台工作目录层；独立入口与控制台调用使用本仓同一流程实现。
 
 第8、9步完成目录与路径实现、根文档迁移及测试源码维护，未运行测试、门禁、编译或安装。本文唯一原件位于<本仓根>/CitizenChainNode.md；产品接口及流程直接以本仓实际代码和声明为准，业务字典库与其检查已撤销，不另建登记副本。历史验收事实不表示本轮改造已经通过验收，统一测试在第10步进行。根技术文档由本仓门禁按原文、JSON解码值及既有补丁快照扫描机密，仅报告路径；文档迁出不减少资料安全检查。
 
@@ -95,11 +95,11 @@ CITIZENCHAIN_TEST_SESSION_SECONDS限定就绪后保留1至1800秒，默认自动
 
 桌面浏览器扩展与手机App共用同一接入页及添加/切换合同。桌面使用已安装MetaMask扩展的浏览器，手机从MetaMask App的“探索”内置浏览器打开同一HTTPS页面；两端需要分别添加网络。页面优先发现EIP-6963中rdns为io.metamask的钱包，也接受MetaMask注入的window.ethereum；每次点击读取当前提供者，允许加载后注入。未发现有效钱包时展示两端使用引导，不请求账户、网络或签名权限；取消添加、取消切换、无效回执及错误链号保留真实结果。接入页、两种注入方式及延迟注入/取消用例的本轮改动尚未运行测试，桌面与手机版余额、四档转账、费用和图标统一留到隧道重构及两端实现完成后验收。
 
-MetaMask接入页位于node/snap/install.html，指定母版保留crates/icons/gmb_019473.png；公开派生图标为crates/icons/gmb.png，256×256、43679字节。https://nrcrpc.crcfrcn.com/的GET/HEAD交付接入页，同域/crates/icons/gmb.png交付图标；根POST继续钱包JSON-RPC。两份静态文件部署至国储会/opt/citizenchain/metamask/install.html与gmb.png，经现有nrcgch-rpc Tunnel、Access Service Auth和HTTPS网关转发；Nginx仅给两个准确路径配置alias及GET/HEAD权限，不开放目录或任意代理。CitizenServe从既有CHAIN_URL的origin读取固定资源，以服务端Access身份、3秒超时、128KiB实际字节硬顶及媒体类型校验取得正文，不复制上游头、Cookie或错误。页面不在CitizenWeb另建入口、不另建Pages；钱包加载时不请求账户或签名，取消、部分成功、错误回执及重复点击均按真实结果处理。
+MetaMask接入页位于node/snap/install.html，指定母版保留icons/gmb_019473.png；公开派生图标为icons/gmb.png，256×256、43679字节。https://nrcrpc.crcfrcn.com/的GET/HEAD交付接入页，同域/icons/gmb.png交付图标；根POST继续钱包JSON-RPC。两份静态文件部署至国储会/opt/citizenchain/metamask/install.html与gmb.png，经现有nrcgch-rpc Tunnel、Access Service Auth和HTTPS网关转发；Nginx仅给两个准确路径配置alias及GET/HEAD权限，不开放目录或任意代理。CitizenServe从既有CHAIN_URL的origin读取固定资源，以服务端Access身份、3秒超时、128KiB实际字节硬顶及媒体类型校验取得正文，不复制上游头、Cookie或错误。页面不在CitizenWeb另建入口、不另建Pages；钱包加载时不请求账户或签名，取消、部分成功、错误回执及重复点击均按真实结果处理。
 
-公民链图标资源统一位于 crates/icons，原 node/resources 目录已移除。Tauri 桌面图标及 Windows 安装图标直接引用 ../crates/icons，打包资源映射到安装包内的 icons/，本机开发入口使用同一资源目录；Logo 派生器的应用母版为 crates/icons/logo.png，公民 App 的来源清单同步指向此路径。公民币专用图标由用户指定为 crates/icons/gmb_019473.png，原图1254×1254、970817字节，移动后逐字节保持一致；不把此图替换为应用 Logo 母版。
+公民链图标资源统一位于 icons，原 node/resources 目录已移除。Tauri 桌面图标及 Windows 安装图标直接引用 ../icons，打包资源映射到安装包内的 icons/，本机开发入口使用同一资源目录；Logo 派生器的应用母版为 icons/logo.png，公民 App 的来源清单同步指向此路径。公民币专用图标由用户指定为 icons/gmb_019473.png，原图1254×1254、970817字节，移动后逐字节保持一致；不把此图替换为应用 Logo 母版。
 
-对外网络资料官网固定为https://www.crcfrcn.com，永久公共RPC固定为https://nrcrpc.crcfrcn.com/，隧道重构不改变对外地址。2027资料已于2026-10-08T11:38:48Z合并至ethereum-lists/chains，PR为https://github.com/ethereum-lists/chains/pull/8828，合并提交1673f362779c138e407be2bdca90cf478d12f28f；原登记为incubating、空rpc及省略icon；本轮登记更新只将rpc补为["https://nrcrpc.crcfrcn.com/"]，保持incubating及其余链资料。提交、维护者合并与公开数据刷新分别回读，未合并前不记为登记更新完成；RPC真实可用及转账验收继续按既定生产顺序完成。图标为可选登记字段，省略该字段不需要IPFS；本方案不使用IPFS、Filebase或费用Snap。既有安装页与/crates/icons/gmb.png统一通过现有Cloudflare Tunnel及HTTPS交付，不另建网站。网页图标不表示MetaMask内部原生币/网络图标已收录，需向钱包官方提供指定PNG及2027/GMB资料，按扩展端与手机端的实际取图来源分别核对官方收录和已安装版本显示；wallet_addEthereumChain的iconUrls参数不能当作已收录证据。当前生产节点仍是旧版，公共RPC尚未激活；实际钱包已完成添加/切换及首笔1GMB，剩余三档转账、确认费用和原生币图标仍待验收，2027登记已合并，MetaMask扩展及手机网络/GMB原生币图标申请https://github.com/MetaMask/metamask-extension/issues/46932仍为open、零评论，收录及用户已安装版本显示待验收。生产顺序固定为旧Node承载Runtime升级、链上实际创世身份与持续出块/最终性通过后，再补Node守卫并更新节点，最后完成全程Cloudflare TLS与公共域名激活；候选开发与本地测试不改变该顺序。 此前候选接入页15项、服务端164项及合成服务的真实HTTPS传输5项全部通过，零失败/忽略，TypeScript无诊断；这些结果不代表生产Tunnel、Nginx实际加载或MetaMask钱包已经验收。
+对外网络资料官网固定为https://www.crcfrcn.com，永久公共RPC固定为https://nrcrpc.crcfrcn.com/，隧道重构不改变对外地址。2027资料已于2026-10-08T11:38:48Z合并至ethereum-lists/chains，PR为https://github.com/ethereum-lists/chains/pull/8828，合并提交1673f362779c138e407be2bdca90cf478d12f28f；原登记为incubating、空rpc及省略icon；本轮登记更新只将rpc补为["https://nrcrpc.crcfrcn.com/"]，保持incubating及其余链资料。提交、维护者合并与公开数据刷新分别回读，未合并前不记为登记更新完成；RPC真实可用及转账验收继续按既定生产顺序完成。图标为可选登记字段，省略该字段不需要IPFS；本方案不使用IPFS、Filebase或费用Snap。既有安装页与/icons/gmb.png统一通过现有Cloudflare Tunnel及HTTPS交付，不另建网站。网页图标不表示MetaMask内部原生币/网络图标已收录，需向钱包官方提供指定PNG及2027/GMB资料，按扩展端与手机端的实际取图来源分别核对官方收录和已安装版本显示；wallet_addEthereumChain的iconUrls参数不能当作已收录证据。当前生产节点仍是旧版，公共RPC尚未激活；实际钱包已完成添加/切换及首笔1GMB，剩余三档转账、确认费用和原生币图标仍待验收，2027登记已合并，MetaMask扩展及手机网络/GMB原生币图标申请https://github.com/MetaMask/metamask-extension/issues/46932仍为open、零评论，收录及用户已安装版本显示待验收。生产顺序固定为旧Node承载Runtime升级、链上实际创世身份与持续出块/最终性通过后，再补Node守卫并更新节点，最后完成全程Cloudflare TLS与公共域名激活；候选开发与本地测试不改变该顺序。 此前候选接入页15项、服务端164项及合成服务的真实HTTPS传输5项全部通过，零失败/忽略，TypeScript无诊断；这些结果不代表生产Tunnel、Nginx实际加载或MetaMask钱包已经验收。
 
 第8步三节点合约同步验收在既有 node/src/core/ethereum_rpc.rs 服务级测试内扩展：三个独立 RocksDB、真实 TLS P2P、生产导入队列与源码 WASM；通过各自 HTTPS 核对代码、存储、余额、nonce、回执和日志，覆盖更重分叉、迟到节点追块、断开后同库重启及重放单次收费。此前实际服务回归2项通过、1项失败；更重分支同步后SDK遗漏祖先通知，日志查询保留旧分支记录，用例中途停止，第三节点追块及断开重启尚未执行。2026年10月6日用户确认执行本次方案后，SDK正式main的Revive RPC修复候选已写入：最佳块处理先沿父哈希收集并校验缺失祖先，确认父哈希、高度连续且在256块窗口内到达已索引父块或创世，再正序执行同高分叉清理与收据写入；全部成功后才推进最佳块并发布通知。每块旧分支删除、交易位置、日志及块映射使用同一SQLite事务，提交成功后才替换内存缓存；失败保留旧索引并允许重试。缺失父块、错误父链及超窗拒绝处理；测试覆盖跳过分叉祖先、重复通知、缺失及错误父链、窗口边界、创世、真实合约事件及删除/插入故障回滚。Node夹具只在cfg(test)创世配置使用公开Alice GRANDPA测试权威，先完成未最终化分叉，再启动官方voter/observer；分别等待各独立客户端的最终块哈希，并经HTTPS核对safe/finalized，继续覆盖迟到及同库重启节点。已移除手动finalize证明；正式Runtime、创世及Node生产实现不由该夹具改动。SDK修复源码已直接离线编译并通过完整RPC库52项测试，包含祖先边界、真实SQLite故障回滚及3条非空合约事件的完整元数据/重复通知断言；合约夹具及开发Runtime WASM均实际构建。Node新增GRANDPA夹具使用当前SDK的KeystoreContainer::keystore取得测试内存密钥库，继续使用公开Alice权威。节点服务验收使用显式std特性，custom-protocol仅涉及桌面资产嵌入，其默认桌面包准备尚未通过，不将服务测试代替桌面验收。首轮服务测试因遗漏WASM_BUILD_FROM_SOURCE在启动前失败，补齐原build.rs要求的环境并使用产品原config.toml后，源码WASM及节点服务重编译通过。最终真实服务回归2项通过、1项失败，耗时427.26秒：两个独立节点经TLS P2P导入更重分叉，HTTPS的eth_getLogs逐项比较发现跟随节点保留旧分支0x2日志，源节点只返回规范0x3日志；用例在此停止，GRANDPA启动、迟到第三节点及同库重启未执行。上轮失败测试的产品消费为ac4a17f99d39e6e67b47a9e809351a763fe789f0，旧BestBlocks实现只处理通知尖端，尚未包含本次已通过52项回归的SDK修复。SDK修复现已本地保存为add12c738a8510cb2253e4a98393e8955286e2b6，保存内容与已通过52项回归源码逐字一致，尚未推送。用户第二次准确确认后，产品三份声明/锁已落实add12c738a8510cb2253e4a98393e8955286e2b6，唯一依赖库SDK原件和328包来源同步替换，版本、checksum及非SDK连接不变。新固定消费源码WASM/Node服务编译通过，真实Ethereum服务3项全部通过，耗时943.77秒、退出0：跨节点分叉日志/回执、官方GRANDPA最终性、safe/finalized、迟到第三节点、原库重启及真实单次收费均完成。结果仅覆盖这3项服务测试，默认桌面包、移动正式页面、MetaMask及正式链升级仍待验收；SDK本地保存未推送。
 第8步升级预检固定核对 SDK bundle 内 chain/manifest.json、chainspec.json 与 light_sync_state.json：9项摘要、创世身份、状态根、协议和币种属性回读一致；该 light-sync 检查点仍为创世块。冻结链内嵌旧 WASM 与开发候选均声明 spec_version/transaction_version 为0，但二者内容不同，这些静态值不能替代已部署 finalized RuntimeVersion。正式升级只能通过既有受保护 HTTPS 读取器及操作绑定的 Keychain/Touch ID，按 finalized spec_version+1 构建已验真 Release；公网 bootstrap 明确不公开 RPC，MetaMask需另行确认测试端点与受信证书。
@@ -174,8 +174,8 @@ CLI采用2 steps / 1 repeat验证执行路径，生成文件只写任务缓存�
 受控缓存固定为 `citizenchain/target/<platform>/<build|ci|release|publish>/`；四个流程目录永久独立，启动不建目录。macOS Build 的三个 Node 工程均在 `build/source-view/` 只读引用源码并把各自 `node_modules` 安装在该视图，Cargo、Tauri、前端输出、日志和候选也只写 `build/`。
 
 CitizenChain 的 Node 四端与 Runtime CI/Release 只使用官方 Protocol Buffers Compiler 35.0。
-产品依赖真源固定为 `citizenchain/scripts/dependencies.json`：逐端锁定 GitHub 官方 Release URL、
-SHA-256 与可执行文件路径；`citizenchain/scripts/dependencies.mjs` 只把准确归档下载、验真并展开到
+产品依赖真源固定为 `citizenchain/scripts/resources.mjs的resourceToolContract`：逐端锁定 GitHub 官方 Release URL、
+SHA-256 与可执行文件路径；`citizenchain/scripts/resources.mjs` 只把准确归档下载、验真并展开到
 所属产品target内的当前工作目录，随后再次核验 `libprotoc 35.0` 并返回唯一可执行文件路径。本机入口和
 十四个远端编译 Job 都显式设置 `PROTOC`，不从 PATH 猜测版本；Linux 的 APT 系统依赖不得安装第二份
 协议编译器。外部调用方 仅可按这份产品声明缓存同一官方原件，不能成为产品入口、版本真源
@@ -184,6 +184,8 @@ SHA-256 与可执行文件路径；`citizenchain/scripts/dependencies.mjs` 只�
 本文是 CitizenChain 节点唯一技术事实文档，统一收录区块链总览、桌面节点、网络、挖矿、设置与节点安全边界。
 
 ## 受控源码归属
+
+`node/vendor/`、`node/libp2p/` 内经来源清单核实的上游原有结构，必须保留官方加载所需目录、版权、许可证与清单必需文档。该保留边界不得用于第一方改写、新增包装层或可删除的原件与生成物；来源与自有差异必须分别核实，不因目录名自动认定所有权。
 
 节点与OnChina的reqwest使用受控依赖库唯一固定版本，共用原始`citizenchain/Cargo.lock`，由Cargo解析更新，不手工改锁。节点的HTTPS请求按实际调用启用blocking、json、query、rustls；query是查询参数调用所需的显式功能。锁维护只写该锁及已批准的消费者清单，源码Runtime不参与写入。Polkadot SDK仍使用原锁固定Git仓库与提交，取源由受控唯一原件提供；锁解析通过不代表节点编译或网络运行验收通过。
 
@@ -204,7 +206,7 @@ SHA-256 与可执行文件路径；`citizenchain/scripts/dependencies.mjs` 只�
 
 | crate | 唯一路径 | 用途 |
 |---|---|---|
-| `qr-protocol` | `citizenchain/crates/qr-protocol/` | QR_V1 协议、registry、生成器、金标夹具和跨端守卫 |
+| `qr-protocol` | `citizenchain/crates/protocol/` | QR_V1 协议、registry、生成器、金标夹具和跨端守卫 |
 | `citizen-signer` | `shared/citizen-signer/` | CitizenApp、CitizenWallet 共用 sr25519 派生与签名源码 |
 
 #### 格式与静态检查
@@ -220,7 +222,7 @@ Clippy 和测试，禁止只跑 `citizenchain --workspace` 后误报共享模块
 
 #### 金标夹具
 
-`citizenchain/crates/qr-protocol/tests/golden_fixtures.rs` 与 `repo_guard.rs` 是 QR 协议的跨端锁步夹具；
+`citizenchain/crates/protocol/tests/golden_fixtures.rs` 与 `repo_guard.rs` 是 QR 协议的跨端锁步夹具；
 改动 QR 协议字段序时，它们与四端（onchina、citizenapp、citizenwallet、node）必须同改，
 另有 `.github/scripts/repository/ci-repository.mjs golden-vectors` 在 CI 侧校验真源与各端镜像一致。
 
@@ -274,8 +276,8 @@ PG 官方二进制来源:https://www.postgresql.org/download/(解压后含 bin/l
 #### 大市机房形态(如香港:800万公民/500万公司/百管理员)
 
 - 机房服务器 + RAID/NAS(数十 TB:法人照片、档案材料)+ UPS。
-- 数据库两选:① 内嵌私有 PG(`ONCHINA_EMBEDDED_PG=1`,OnChina 自管);② 外部托管 PG(关 `ONCHINA_EMBEDDED_PG`,直接给 `DATABASE_URL`;调优参考 `citizenchain/scripts/onchina-postgresql.conf.sample`)。
-- **备份/PITR**:`ONCHINA_PG_WAL_ARCHIVE_DIR` 指向 NAS → 持续 WAL 归档;`citizenchain/scripts/onchina-backup.sh` cron 每日 `pg_basebackup` 全量落 NAS(默认保留 14 份);`citizenchain/scripts/onchina-restore.sh` 做 PITR 恢复(可指定 `RECOVERY_TARGET_TIME`)。温备:NAS + 第二台服务器持全量 + WAL,故障切换。
+- 数据库两选:① 内嵌私有 PG(`ONCHINA_EMBEDDED_PG=1`,OnChina 自管);② 外部托管 PG(关 `ONCHINA_EMBEDDED_PG`,直接给 `DATABASE_URL`;调优参考 `citizenchain/onchina/postgresql.conf.sample`)。
+- **备份/PITR**:`ONCHINA_PG_WAL_ARCHIVE_DIR` 指向 NAS → 持续 WAL 归档;`citizenchain/scripts/maintain.mjs backup` cron 每日 `pg_basebackup` 全量落 NAS(默认保留 14 份);`citizenchain/scripts/maintain.mjs restore` 做 PITR 恢复(可指定 `RECOVERY_TARGET_TIME`)。温备:NAS + 第二台服务器持全量 + WAL,故障切换。
 - 联邦节点**按省管理**:每市自治节点跑自己的 OnChina+PG;联邦注册局按省给市配管理员(链上,3a/3b)。
 - **联邦注册局（FRG）每节点单省部署**：本节点所辖省由首次 active admin 的链上省专员岗位任职确定。管理员钱包从 `PublicAdmins::AdminAccounts` 读取，省域从 `PublicManage::InstitutionRoleAssignments` 的 `PROVINCE_COMMISSIONER_<省码>` 读取。
   本地省组投影表、虚拟省组 storage 和 `seed-federal-admins` CLI 均已退役；FRG 节点不要求安装前配置省名，未绑定时由冷钱包管理员登录后确认其有效任职省域。
@@ -499,12 +501,13 @@ CitizenApp P2P 暂时不可用时，聊天和广场不依赖链节点 RPC，继�
 ##### 9.4 公权业务模块（`runtime/public/`）
 - 负责公权机构的业务壳。业务壳只解释业务规则和写回业务真源，不复刻投票流程。
 - `legislation-yuan` 是立法业务壳；立法表决、计票和公投流程归 `legislation-vote`。
-- 开发期通用选举业务骨架已经删除。未来每种具体公权选举业务在 `runtime/public/` 下新增独立模块；具体业务模块定义规则，选举投票、计票和结果快照统一归 `election-vote`。
+- `citizen-election` 是公民选举公职人员的业务模块，当前仅占位；后续逐步实现具体选举规则，选举投票、计票和结果快照统一归 `election-vote`。
 
 当前模块：
 - `legislation-yuan`（idx25）
+- `citizen-election`（idx32，当前仅占位）
 
-已删除的开发期通用选举业务壳原占用 index 32；该编号永久留空，不复用。
+index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，用于公民选举公职人员；当前仅占位，不提供交易入口、业务存储或事件。
 
 ##### 9.5 发行模块（`runtime/issuance/`）
 - 负责公民发行、全节点发行、省储行利息、决议发行完整流程。
@@ -542,7 +545,7 @@ CitizenApp P2P 暂时不可用时，聊天和广场不依赖链节点 RPC，继�
 - `node/frontend/<功能名>` 负责 React 前端页面与交互。
 - `citizenchain/node` 负责启动 / 停止内嵌节点进程，管理 bootnode 地址、奖励地址、GRANDPA 地址、节点名称等本地设置，并展示节点状态、链状态、网络概览、挖矿面板与其他辅助信息。
 - 管理员、治理、转账、清算和奖励设置等桌面桥接统一把账户字段输出为 `account_id` / `<role>_account_id`，把签名公钥输出为 `signer_public_key`，把展示地址输出为 `ss58_address`；前端不得重新创造同义字段。
-- Node 端所有公民钱包离线扫码签名 UI 统一由 `node/frontend/shared/qr/CitizenSignaturePanel.tsx` 和 `CitizenSignatureModal.tsx` 承载：左侧固定“扫码签名”，右侧固定“识别签名”，面板只显示二维码有效期倒计时，不显示内部 request id 或签名账户地址；业务页面只负责构造请求、验签和提交交易。地址扫码填入等非签名二维码不纳入该组件。
+- Node 端所有公民钱包离线扫码签名 UI 统一由 `node/frontend/protocol/CitizenSignaturePanel.tsx` 和 `CitizenSignatureModal.tsx` 承载：左侧固定“扫码签名”，右侧固定“识别签名”，面板只显示二维码有效期倒计时，不显示内部 request id 或签名账户地址；业务页面只负责构造请求、验签和提交交易。地址扫码填入等非签名二维码不纳入该组件。
 - 设置页的“全节点模式”当前展示归档全节点和普通全节点：默认归档全节点；普通全节点置灰不可选择；在底层剪裁能力完成前，节点实际仍按归档全节点运行。
 - 设置页在“全节点模式”之后提供“链上中国平台”手动启动行，显示 `未开启` / `启动中` / `已开启` 状态标签、固定入口 `https://onchina.local:8964` 和“启动 / 关闭”按钮；点击后必须二次确认，只启动或停止 OnChina 子进程，不自动打开浏览器；只有 `/api/health` 真实健康检查通过后才显示 `已开启`。
 
@@ -792,7 +795,7 @@ CitizenApp P2P 暂时不可用时，聊天和广场不依赖链节点 RPC，继�
 
 - 更新日期:2026-07-22
 - 事实源:本文是流程导读;字段与编码以代码为准
-  - `citizenchain/onchina/src/domains/citizens/`(建档 + 上链准备)
+  - `citizenchain/onchina/src/citizens/`(建档 + 上链准备)
   - `citizenchain/runtime/misc/citizen-identity/src/lib.rs`(链上身份 + 人口计数)
   - `citizenchain/runtime/votingengine/legislation-vote/src/lib.rs`(快照消费)
   - `CitizenChainOnChina.md`(扫码动作登记)
@@ -1028,7 +1031,7 @@ sudo apt install -y build-essential clang cmake pkg-config libssl-dev git curl
 - `build-essential`、`clang`、`cmake`、`pkg-config` 用于编译 Rust 和 Substrate 相关依赖。
 - `libssl-dev` 用于 TLS/加密相关编译依赖。
 - `protoc` 不从 APT 或系统 PATH 取得；克隆产品源码后必须通过
-  `citizenchain/scripts/dependencies.mjs` 按产品锁定声明准备官方 35.0。
+  `citizenchain/scripts/resources.mjs` 按产品锁定声明准备官方 35.0。
 
 ##### 6.3 安装 Rust
 
@@ -1272,7 +1275,7 @@ WantedBy=multi-user.target
 - 安装前创建 `citizenchain` 专用系统账户和 `/opt/citizenchain/data` 数据目录。
 - 把编译产物安装为 `/usr/bin/citizenchain`；节点只允许写入自己的数据目录。
 - 禁止在 `ExecStart` 中恢复 `--rpc-external`、`--unsafe-rpc-external` 或 `--rpc-cors all`。
-- 仓库中的标准模板为 `citizenchain/scripts/citizenchain-node.service`，服务器配置必须与其保持一致。
+- 仓库中的标准模板为 `citizenchain/node/citizenchain.service`，服务器配置必须与其保持一致。
 
 ##### 11.2 重新加载并启动服务
 
@@ -1397,14 +1400,14 @@ case "$(uname -m)" in
   x86_64) citizenchain_protoc_platform=linux-amd ;;
   *) echo '不支持的CitizenChain节点架构' >&2; exit 1 ;;
 esac
-export PROTOC="$(node scripts/dependencies.mjs prepare protoc "$citizenchain_protoc_platform" \
+export PROTOC="$(node scripts/resources.mjs prepare protoc "$citizenchain_protoc_platform" \
   "$PWD/target/$citizenchain_protoc_platform/build/dependencies/protoc")"
 export CARGO_TARGET_DIR="$(node scripts/build.mjs temporary-root '' macos)/cargo-target"
 cargo build --release -p node
 sudo useradd --system --user-group --home-dir /opt/citizenchain --shell /usr/sbin/nologin citizenchain
 sudo install -m 0755 "$CARGO_TARGET_DIR/release/citizenchain" /usr/bin/citizenchain
 sudo install -d -o citizenchain -g citizenchain -m 0700 /opt/citizenchain/data
-sudo install -m 0644 scripts/citizenchain-node.service /etc/systemd/system/citizenchain.service
+sudo install -m 0644 node/citizenchain.service /etc/systemd/system/citizenchain.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now citizenchain
 ```
@@ -1688,7 +1691,7 @@ runtime/
    `target/chainspec/genesis-state/chains/citizenchain/db/**`。它记录 release 块 0、CI
    provenance 和交叉哈希，只保存在忽略产物目录；四平台安装包不携带 RocksDB。
 3. **CitizenApp 轻形态 chainspec**：`ci…170007 tokens truncated…世快照缓存 + 链投影增量更新”。
-- 重新创世部署(6 节点 mesh);创世后重跑 CitizenApp 公权机构快照包生成器(塔塔规则:否则机构全断)。
+- 重新创世部署(6 节点 mesh);创世后重跑 CitizenApp 公权机构快照包生成器。
 - 旧全量镇级创世资产已废弃。2026-07-16 的
   `genesis_hash=0x840d5b12c541a010783e54069c9168a13d102ba63cd8f3a00263440c1803aad9`
   只保留为历史冻结记录，已被 2026-07-26 正式创世替代。
@@ -1898,7 +1901,7 @@ OnChina 是 CitizenChain 安装包内置能力，不是第五个产品。OnChina
 6. 安全、审计、限流和可观测性。
 7. 真实运行态验收。
 
-任何涉及 `citizenchain/runtime/` 的修改，仍必须按 runtime 二次确认硬规则单独说明路径、内容和原因，并获得第二次确认。
+Runtime 修改授权统一见 `CitizenChainRuntime.md` 的“Runtime 修改与链协议边界”。
 
 ---
 
@@ -2344,7 +2347,7 @@ CidByAccountId[account_id] -> cid_number
 
 #### 后续动作
 
-- 后续变更继续遵守本 ADR；涉及 runtime 时必须按完整路径取得二次确认。
+- 后续变更继续遵守本 ADR；Runtime 修改授权统一见 `CitizenChainRuntime.md` 的“Runtime 修改与链协议边界”。
 - 正式创世已经完成，不再执行“最终重新创世”。后续 runtime 变更只能通过正式链升级流程，
   并对既有状态执行必要的原子迁移，不得恢复旧命名或兼容分支。
 
@@ -2631,7 +2634,6 @@ ADR-020 中 OpenMLS、本机加密存储、消息幂等和 WebRTC 端到端传�
   受控执行合同和仓库隔离均由测试校验。
 - CitizenChain 节点 Release 的前置验证与正式构建统一使用从当前最新 `main` 隔离拉取的 Release 工具，禁止回退到 CI 产物中的旧脚本。
 - 所有 12 个独立 Release 动作统一传递 `--latest false`。GitHub 仓库级 Latest 不参与产品版本判断；每个产品、端、动作的版本由本产品正式标签与GitHub记录独立确定。
-- 每次修改代码、测试、配置、脚本、工作流或数据合同，必须同步更新对应既有技术文档和当前任务记录；如果没有合适的既有文档，必须先取得用户许可，禁止自行新增文档文件。
 
 #### 12 个 Release 原子事务统一
 
@@ -2661,7 +2663,7 @@ Artifact，新任务失败只删除同分组旧失败 Run 及全部 Artifact，�
 LinuxAMD、LinuxARM、macOS、Windows 及 Runtime WASM CI 已接入统一 CI 缓存。各平台缓存身份
 严格隔离；Runner/包架构仍分别使用官方 `amd64`、`arm64`、`x86_64` 等技术值，Release 继续
 执行全量构建。
-四端节点 CI 的统一工具链指纹覆盖仓库全部 `package-lock.json`；`citizenchain/crates/scanner-react`、节点前端和 OnChina 前端仍逐项执行安装、检查、测试与构建门禁。
+四端节点 CI 的统一工具链指纹覆盖仓库全部 `package-lock.json`；`citizenchain/crates/scanner`、节点前端和 OnChina 前端仍逐项执行安装、检查、测试与构建门禁。
 
 ## Release 全量构建（第 7.4 步）
 
@@ -2798,7 +2800,7 @@ CitizenChain 正式 Release 自定义资产名现固定为以下闭集；`<VERSI
 
 ## 独立 GitHub CI 与 Release 工作流
 
-本产品每个实际产品、平台、流程身份使用下列独立文件，主 Job 为 `flow`；CI 验证源码，Release 生成正式产物，本步不实现Publish，发布待后续逐产品重建。
+Node 的每个实际平台×CI或Release只有下列一个本仓顶层 Workflow，均有且仅有一个主 `flow` Job；必要辅助 Job 只服务该身份。Workflow 只调用本仓 `scripts`，不执行保存、拉取、推送、Start 或 Publish，不读取 TataConsole 私有源码和资料。CI 验证源码，Release 生成正式产物；Publish 是否已接入以本仓当前声明及实际入口为准，不由本文新增。
 
 - `.github/workflows/citizenchain-linux-amd-ci.yml`
 - `.github/workflows/citizenchain-linux-amd-release.yml`
@@ -2811,13 +2813,13 @@ CitizenChain 正式 Release 自定义资产名现固定为以下闭集；`<VERSI
 
 ## 目录整合与平台输入
 
-Runtime 与上游/派生目录冻结。自有 `crates/chain-signing/lib.rs` 由 Cargo `[lib] path` 显式登记；`blockchain-harness/src/harness.rs`、`qr-protocol/src/export_registry.rs` 由原名称的 `[[bin]]` 登记。Node 二维码生成目标为 `node/frontend/shared/qr/qrBodies.g.ts`；P2P 坏块测试位于 `node/src/core/p2p_bad_block_tests.rs`，仍由 service 原测试模块引入。移除空的 postgres `.gitkeep`，不清理实际数据库。
+Runtime 与上游/派生目录冻结。自有 `crates/signing/lib.rs` 由 Cargo `[lib] path` 显式登记；`blockchain-harness/src/harness.rs`、`qr-protocol/src/export_registry.rs` 由原名称的 `[[bin]]` 登记。Node 二维码生成目标为 `node/frontend/protocol/qrBodies.g.ts`；P2P 坏块测试位于 `node/src/core/p2p_bad_block_tests.rs`，仍由 service 原测试模块引入。移除空的 postgres `.gitkeep`，不清理实际数据库。
 
 ### 完整链根与白皮书来源
 节点、Runtime、OnChina和scanner保持同一完整CitizenChain仓。节点run/clean-run/prepare-toolchain不再使用旧聚合父根。内置白皮书仍由官网src/whitepaper.md及原图片生成；产品dependencies.json只声明crcfrcn/citizenweb的main，准备器每轮先捕获main真实SHA，再取得该不可变提交并验真detached、origin及干净状态。生成器退出时清理自己创建的输入目录；正文、图片嵌入、摘要和节点功能合同保持不变。首轮门禁须在官网真实main推送后执行相关链编译。
 ## 完整产品组织与执行合同
 
-所有者：`citizenchain`，正式源码根 `<本仓根>`；本说明属于该完整产品内的Node组件资料。组件不会拆成独立仓库或目录产品。所有执行身份统一为 `产品.平台.流程`，单平台物理目录省略平台层，执行身份仍保留真实平台。
+所有者：`citizenchain`，正式源码根 `<本仓根>`；本说明属于该完整产品内的Node组件资料。组件不会拆成独立仓库或目录产品。所有执行身份统一为 `产品.平台.流程`；工作目录合同由本文“本机固定执行目录”唯一承载，不建立平台工作目录层。
 
 真实平台目标：`macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。
 
@@ -2875,7 +2877,7 @@ Node开发页和HMR仅允许HTTPS/WSS；开发及预览必须提供完整匹配�
 
 源码工程直接读取各自package.json及原始package-lock.json。OnChina直接使用的图标包与dayjs分别固定5.6.1与1.11.19，不依赖其它包的间接声明。依赖归档仍按锁定完整性进入唯一依赖库，安装树归源码外工作目录；正式源码的node_modules只保留Git忽略的本机解析链接，TypeScript从正式源码检查实际业务类型。源码与Runtime不复制、不移动，依赖解析恢复不启动应用、TLS服务或链编译。
 
-Node和OnChina的本仓file依赖使用npm锁文件原生link条目，并登记../../crates/scanner-react的准确包元数据；禁止用缺少本仓目标条目的打包归档条目代替本仓链接，默认npm ci按原锁离线安装成功。
+Node和OnChina的本仓file依赖使用npm锁文件原生link条目，并登记../../crates/scanner的准确包元数据；禁止用缺少本仓目标条目的打包归档条目代替本仓链接，默认npm ci按原锁离线安装成功。
 
 本仓扫码链接包与宿主通过Vite resolve.dedupe统一react、react-dom的实际实例；依赖版本仍由原锁固定，不建立React别名或第二套版本。
 
@@ -3027,7 +3029,7 @@ Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复�
 
 门禁的工具与依赖需求、固定来源、准备配方、完整验真及同版复用合同统一由本仓 `scripts/resources.mjs` 拥有；门禁只调用公开接口，不维护第二份工具版本或配方。按当前职责规范，独立执行由产品获取和保存资源，经控制台执行由控制台准备和供给；下述既有接口与验收记录不代表控制台供给接入已完成。`prepareGateResources`准备本仓独占资源现场，`verifyGateResourceDelivery`回读准确来源、完整对象、执行器、宿主闭包和工作环境，`gateResourcePlan`从本仓既有声明派生来源。既有tools模块如存在仅转发产品资源接口。Linux门禁新增Ubuntu 24.04 x64宿主交付，macOS门禁复用本仓既有生产资源准备；不改生产流程顺序、工具版本、产品原锁或不可变原件。
 
-固定Git输入只从本仓声明或门禁明确的40位提交取得，不消费其它产品当前main。独立执行的依赖原件归产品独立资源库，经控制台执行的依赖原件由控制台保存供给，任务缓存和编译数据归本轮target；已有多平台产品按本仓首个登记平台的test现场分配，单平台使用target/test。`gateLanguageView`使用受检Git快照与产品现有安全解包器物化本轮target工程视图，正式源码、声明和锁只读；Git包仅在任务视图元数据中投影为已验真的固定输入。
+固定Git输入只从本仓声明或门禁明确的40位提交取得，不消费其它产品当前main。独立执行的依赖原件归产品独立资源库，经控制台执行的依赖原件由控制台保存供给，任务缓存和编译数据归本轮target；全部平台测试使用本仓target/test，平台只用于任务身份及准确资源选择。`gateLanguageView`使用受检Git快照与产品现有安全解包器物化本轮target工程视图，正式源码、声明和锁只读；Git包仅在任务视图元数据中投影为已验真的固定输入。
 
 `ownedLanguageTests`按本仓已有原锁与公开入口派生适用语言调度，`validateLanguageResult`核对实际非空执行结果。有Cargo锁的工作区执行离线原锁的全部测试目标及文档测试；Flutter项目执行原有正式测试入口或完整analyze/test；已有Vitest业务套件与TypeScript公开回归实际执行。Node依赖先准备独占视图；需要实际编译产物的既有测试先调用所属产品原Build入口。依赖缺失、宿主不适用、工具加载失败或语言结果不完整均失败，不以跳过或零退出码代替通过。
 
@@ -3040,11 +3042,11 @@ Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复�
 
 ## 独立功能门禁
 
-本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：链协议、投票引擎、身份和机构权限、发行与交易、节点和OnChina。已有真实入口为：runtime现有真实用例；crates/qr-protocol/tests；crates/scanner-react/test；node/frontend和onchina/frontend用例。`contracts.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 196 件既有测试来源（cargo 168 件、node 24 件、node-entry 1 件、vitest 3 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
+本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：链协议、投票引擎、身份和机构权限、发行与交易、节点和OnChina。已有真实入口为：runtime现有真实用例；crates/protocol/tests；crates/scanner/test；node/frontend和onchina/frontend用例。`contracts.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 196 件既有测试来源（cargo 168 件、node 24 件、node-entry 1 件、vitest 3 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
 
 Node完整报告逐文件核对；Flutter和Vitest从实际机器结果读取本仓具名套件完成数；Rust按准确原锁工作区及所属包运行全目标和文档测试，核对具名用例；Python调用实际unittest套件，拒绝零用例、失败、跳过、预期失败和意外成功。适用的原生门禁回读真实XCTest结果。执行回执绑定本仓、本次工作根和同一HEAD SHA，历史回执、加载事件、总数非空或单独零退出码均不足以证明全部功能检查成功。门禁协议夹具只证明核验器和调用边界，不能替代实际产品功能验收。
 
-门禁资源仍由本仓 `scripts/resources.mjs` 准备和验真，实际用例需要的Cargo/npm原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，不能读取邻仓或跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target内准确平台现场，不改变生产平台、生产工具版本、依赖版本或锁。
+门禁资源仍由本仓 `scripts/resources.mjs` 准备和验真，实际用例需要的Cargo/npm原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，不能读取邻仓或跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target/test本轮现场，不改变生产平台、生产工具版本、依赖版本或锁。
 
 main推送自动触发本仓同SHA `tatagate.yml`，不调度其它产品门禁或CI/Release。中文注释、真实接口、所属文档与回归同步检查继续执行。当前只准备实现、注释和用例，未运行测试、语法检查、门禁、下载或编译。浏览器交互、真机、真实API/服务/数据库环境及适用平台不能由登记清单、单元测试或编译替代，须在整项实现后的统一验收逐项核对。
 
@@ -3060,6 +3062,29 @@ main推送自动触发本仓同SHA `tatagate.yml`，不调度其它产品门禁�
 
 ## 本机固定执行目录
 
-target直属仅允许build、test两个固定目录，不建立平台、ci、release、publish或tmp固定目录。平台仍属于任务身份。编译器必需的内部目录只在本轮执行时存在；本轮工具全部退出、结果核验和记录完成后，成功或失败都清空对应现场。同产品共用固定编译根的任务串行领取，禁止清理其他活动任务。测试现场归test，测试结束清空。最终编译包也属于本轮现场，不保留在target根；控制台自身更新先完成既有原子安装，再清空build。远端CI、Release继续在GitHub执行，不建立本机固定流程目录。
+生成工作边界仅为 `<本仓根>/target`，直属只允许build、test两个固定目录；build用于本机编译，test用于测试，不建立平台、ci、release、publish或tmp固定目录。整个target必须忽略，并从源码复制、快照、摘要、资料门禁及打包输入中排除；源码中不得保留其它编译目录、工具缓存或生成视图。永久工具与依赖原件保留在源码外既有资源边界。
 
-历史验收路径保留原记录；本节为当前本机目录规则。
+每个任务仍绑定完整 `citizenchain.<platform>.<flow>` 身份。使用同一固定现场的任务必须串行领取；首个文件步骤先核对身份、规范真实路径、无链接父路径和活跃任务保护，取得准确现场短锁，清空旧现场并回读为空，失败立即终止。不同任务不得互清；Start和仓库操作不得借用编译或测试现场。
+
+候选产物、过程数据、临时日志、可写包管理器视图及工具内部目录只属于本轮build或test现场。工具全部退出、结果核验及既有状态库记录完成后，成功或失败都必须清空对应现场，保留为空的build、test固定根；退出未确认时必须先取消并确认退出，不得清理或登记成功。最终编译包不在target根或替代持久目录保留；任务终态及有界日志由调用方既有状态库保存。CI、Release在GitHub执行，不建立本机固定流程目录。
+
+本机Build由本仓完整execute入口完成：macOS只编译并验真产物，禁止自动安装；windows、linux-arm、linux-amd和wasm只编译。Build不得启动节点、执行链上升级或部署；任一步失败即任务失败。Runtime源码修改授权见 `CitizenChainRuntime.md`，节点部署和Runtime开发升级的控制台协调合同归 `TataConsole.md`，不得并入普通CI或Release。
+
+历史验收路径保留原记录；本节为当前职责规范，不证明既有实现或真实流程已经通过本次验收。
+
+
+## 三级目录与单一视觉资源（2026-10-09）
+
+Runtime、node/vendor与node/libp2p保持原件。其它源码最深三级，第三层只有文件，每个目录至少两个真实直接子项；Rust公开包名、逻辑模块与业务接口保持，只以编译器文件定位调整物理结构。共享库归crates/harness、signing、protocol、scanner；QR金标直接归protocol/fixtures。节点与OnChina业务模块提升到各自src和frontend直属，目录使用完整单词；导入、Cargo本地路径及npm锁定本地来源同步。
+
+根icons是本产品唯一持久静态视觉资源目录。Logo与公民币母版字节保持，重复PNG仅留一份，ICO/ICNS格式保留；六处扫码按钮共用原SVG几何并保持currentColor和尺寸，宪法背景从唯一PNG编码进离线HTML。官网白皮书图片按本轮Git输入读取，只进入该任务工程的icons视图并由Vite导入打包；生成模块不进入源码。
+
+scripts保持23件：核心build/resources/flow/start/icons/docs/maintain与flows声明，ci/release各有五个平台文件，外层Runtime维护工具及模板保留。内嵌测试位于对应正式实现之后，仅直接node --test时注册；导入无执行副作用。原Job阶段、独立产品平台流程身份、候选校验、缓存隔离与失败条件保持；同一平台同一流程共享其本文件实现，阶段号仍由既有Workflow固定。
+
+本机输出只归target/build或target/test。非macOS检查通过同一显式工具入口，Windows预打包将原资源组装到本轮现场；本轮npm视图按锁定原件复制安装，不依赖旧控制台缓存链接。金标镜像读取公民App当前test/citizen/shared路径；未执行任何Runtime生成或刷新。实际验收及待确认状态只记录于唯一任务卡，本文目录合同不冒充完整发布或运行验收。
+
+本地scanner的file依赖按所属源码的package.json名称、版本与实际路径验真；远端包继续按原锁SRI验真。根工程复制到本仓target内的任务现场时排除target自身，避免递归复制。固定Git原件显式导入锁定提交，按其原有refs/tata引用格式处理，来源与版本保持原锁。
+
+registry与Git的目录源按原锁准确来源隔离，同名同版本不会混合。SDK临时发布视图保留其Git相对依赖身份；上游dev和可选依赖声明均保持原Git提交，只物化消费锁实际需要的包。原锁和上游原件不被改写。
+
+统一扫码SVG以原几何独立资源输出，消费端使用currentColor的CSS遮罩，保留18×18尺寸并在WebKit实际窗口显示；不依赖外部SVG symbol引用。Rust build-std依赖按已验真Rust工具原始Cargo.lock物化，产品Cargo锁和工具版本保持。

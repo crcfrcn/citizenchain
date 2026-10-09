@@ -8,16 +8,16 @@
 import { useEffect, useState } from 'react';
 import { QrcodeOutlined } from '@ant-design/icons';
 import { Button, Card, Layout, Typography } from 'antd';
-import { AuthProvider } from './auth/AuthContext';
+import { AuthProvider } from './authentication/AuthContext';
 import { useAuth } from './hooks/useAuth';
-import { writeStoredAuth, clearStoredAuth } from './utils/storedAuth';
-import type { AdminAuth } from './auth/types';
-import { adminLogout, checkAdminAuth } from './auth/api';
-import { getPasskeyStatus } from './auth/passkey/passkeyClient';
+import { writeStoredAuth, clearStoredAuth } from './helpers/storedAuth';
+import type { AdminAuth } from './authentication/types';
+import { adminLogout, checkAdminAuth } from './authentication/api';
+import { getPasskeyStatus } from './authentication/passkeyClient';
 import type { CidMetaResult } from './china/api';
-import { LoginView, OrganizationCaNotice } from './auth/LoginView';
+import { LoginView, OrganizationCaNotice } from './authentication/LoginView';
 import { WorkspaceRouter } from './workspace/WorkspaceRouter';
-import { notice } from './utils/notice';
+import { notice } from './helpers/notice';
 
 const { Header, Content } = Layout;
 

@@ -406,7 +406,9 @@ mod runtime {
     #[runtime::pallet_index(26)]
     pub type LegislationVote = legislation_vote;
 
-    // pallet index 32 永久留空，不复用已删除的开发期通用选举业务壳编号。
+    // 公民选举模块：用于公民选举公职人员，当前仅占位。
+    #[runtime::pallet_index(32)]
+    pub type CitizenElection = citizen_election;
 
     // 公权机构管理员模块：含创世写入的固定治理机构运行期管理员治理。
     #[runtime::pallet_index(27)]
@@ -432,7 +434,7 @@ mod runtime {
     #[runtime::pallet_index(34)]
     pub type SquarePost = square_post;
 
-    // 官方 Ethereum 执行模块；32 仍永久留空。
+    // 官方 Ethereum 执行模块。
     #[runtime::pallet_index(35)]
     pub type Revive = pallet_revive;
 }

@@ -7,16 +7,16 @@ import { ProvinceGrid } from '../core/ProvinceGrid';
 import { CityGrid } from '../core/CityGrid';
 import { PrivateDetailPage } from './PrivateDetailPage';
 import { useScope } from '../hooks/useScope';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { CidMetaResult } from '../china/api';
 import type { PrivateType } from '../subjects/api';
 import { glassCardHeadStyle, glassCardStyle } from '../core/cardStyles';
-import { SolePage } from './sole';
-import { PartnershipPage } from './partnership';
-import { CompanyPage } from './company';
-import { CorporationPage } from './corporation';
-import { WelfarePage } from './welfare';
-import { AssociationPage } from './association';
+import { SolePage } from '../sole';
+import { PartnershipPage } from '../partnership';
+import { CompanyPage } from '../company';
+import { CorporationPage } from '../corporation';
+import { WelfarePage } from '../welfare';
+import { AssociationPage } from '../association';
 
 interface Props {
   auth: AdminAuth;

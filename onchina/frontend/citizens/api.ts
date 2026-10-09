@@ -2,9 +2,9 @@
 // 注册局管理员提交档案字段,后端自动生成身份 CID、护照号和护照有效期。
 // 通用请求能力只从 utils/http.ts 引入,本文件不承接机构或管理员模块接口。
 
-import type { AdminAuth } from '../auth/types';
-import { assertPasskey, PASSKEY_ASSERTION_HEADER } from '../auth/passkey/passkeyClient';
-import { adminHeaders, adminRequest, request } from '../utils/http';
+import type { AdminAuth } from '../authentication/types';
+import { assertPasskey, PASSKEY_ASSERTION_HEADER } from '../authentication/passkeyClient';
+import { adminHeaders, adminRequest, request } from '../helpers/http';
 
 export type CitizenState = 'NORMAL' | 'REVOKED';
 export type CitizenSex = 'MALE' | 'FEMALE';

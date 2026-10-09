@@ -83,10 +83,14 @@ jobs:
         fetch-depth: 0
         persist-credentials: false
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/changes/execute.mjs" workflow-step 0
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" changes workflow-step 0
     - id: citizenchain_ci_node_macos__changes__scope
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/changes/execute.mjs" workflow-step 1
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" changes workflow-step 1
+    - name: 清空本产品固定构建目录
+      if: always()
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/target.mjs" finish build
   stage_2:
     name: 公民链全工程验证
     runs-on: ubuntu-24.04
@@ -144,7 +148,7 @@ jobs:
           cargo-target/release/citizenchain
           cargo-target/release/onchina
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 0
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 0
     - name: 恢复上一次成功的CI增量缓存
       continue-on-error: true
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -152,37 +156,37 @@ jobs:
         path: "${{ steps.citizenchain_ci_node_macos__verify__ci_cache.outputs.success_paths }}"
         key: "${{ steps.citizenchain_ci_node_macos__verify__ci_cache.outputs.restore_key }}"
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 1
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 1
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 2
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 2
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 3
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 3
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 4
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 4
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 5
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 5
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 6
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 6
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 7
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 7
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 8
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 8
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 9
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 9
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 10
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 10
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 11
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 11
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 12
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 12
     - if: "${{ failure() && !cancelled() }}"
       env:
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 13
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 13
     - if: "${{ failure() && !cancelled() }}"
       name: 保存本次失败的CI增量缓存
       id: citizenchain_ci_node_macos__verify__ci_cache_save_failure
@@ -197,12 +201,12 @@ jobs:
         GH_TOKEN: "${{ github.token }}"
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 14
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 14
     - if: "${{ success() }}"
       env:
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 15
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 15
     - if: "${{ success() }}"
       name: 保存本次成功的CI增量缓存
       id: citizenchain_ci_node_macos__verify__ci_cache_save_success
@@ -217,7 +221,11 @@ jobs:
         GH_TOKEN: "${{ github.token }}"
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/verify/execute.mjs" workflow-step 16
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" verify workflow-step 16
+    - name: 清空本产品固定构建目录
+      if: always()
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/target.mjs" finish build
   flow:
     name: 打包公民链桌面端 (macOS)
     runs-on: macos-15
@@ -282,7 +290,7 @@ jobs:
           cargo-target/release/citizenchain
           cargo-target/release/onchina
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 0
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 0
     - name: 恢复上一次成功的CI增量缓存
       continue-on-error: true
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -290,49 +298,49 @@ jobs:
         path: "${{ steps.citizenchain_ci_node_macos__build_desktop__ci_cache.outputs.success_paths }}"
         key: "${{ steps.citizenchain_ci_node_macos__build_desktop__ci_cache.outputs.restore_key }}"
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 1
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 1
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 2
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 2
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 3
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 3
     - shell: bash
       env:
         EXPECTED_RUNNER_ARCH: "${{ env.PRODUCT_EXPECTED_RUNNER_ARCH }}"
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 4
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 4
     - shell: bash
       env:
         CITIZENCHAIN_CI_BUNDLE_TARGETS: "${{ env.PRODUCT_CI_BUNDLE_TARGETS }}"
         CITIZENCHAIN_MANUAL_BUNDLE_TARGETS: "${{ env.PRODUCT_MANUAL_BUNDLE_TARGETS }}"
         CITIZENCHAIN_UPDATER_MANIFEST_NAME: "${{ env.PRODUCT_UPDATER_MANIFEST_NAME }}"
         CITIZENCHAIN_PLATFORM: "${{ env.PRODUCT_PLATFORM }}"
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 5
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 5
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 6
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 6
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 7
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 7
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 8
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 8
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 9
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 9
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 10
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 10
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 11
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 11
     - working-directory: ./node
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 12
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 12
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 13
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 13
     - shell: bash
       env:
         INSTALLER_NAME: "${{ env.PRODUCT_INSTALLER_NAME }}"
         UPDATER_ASSET_NAME: "${{ env.PRODUCT_UPDATER_ASSET_NAME }}"
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 14
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 14
     - if: "${{ failure() && !cancelled() }}"
       env:
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 15
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 15
     - if: "${{ failure() && !cancelled() }}"
       name: 保存本次失败的CI增量缓存
       id: citizenchain_ci_node_macos__build_desktop__ci_cache_save_failure
@@ -347,12 +355,12 @@ jobs:
         GH_TOKEN: "${{ github.token }}"
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 16
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 16
     - if: "${{ success() }}"
       env:
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 17
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 17
     - if: "${{ success() }}"
       name: 保存本次成功的CI增量缓存
       id: citizenchain_ci_node_macos__build_desktop__ci_cache_save_success
@@ -367,4 +375,8 @@ jobs:
         GH_TOKEN: "${{ github.token }}"
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/node/ci/macos/build-desktop/execute.mjs" workflow-step 18
+      run: node "$GITHUB_WORKSPACE/scripts/ci/macos.mjs" build-desktop workflow-step 18
+    - name: 清空本产品固定构建目录
+      if: always()
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/target.mjs" finish build

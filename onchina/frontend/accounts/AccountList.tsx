@@ -9,7 +9,7 @@ import {
   type InstitutionAccount,
   type MultisigChainStatus,
 } from './api';
-import { tryEncodeSs58 } from '../utils/ss58';
+import { tryEncodeSs58 } from '../helpers/ss58';
 
 interface Props {
   accounts: InstitutionAccount[];

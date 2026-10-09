@@ -1,11 +1,11 @@
 // 通用机构工作台。未落专属 UI 的机构先使用三段式通用壳。
 
 import { Empty } from 'antd';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { OwnInstitutionAdminsView } from '../admins/RegistryAdminsView';
 import { AccountManageSection } from '../accounts/AccountManageSection';
-import { LegislationView } from '../legislation/operator/LegislationView';
-import { OwnInstitutionInfoPanel } from './judicial/JudicialDisplay';
+import { LegislationView } from '../legislation/LegislationView';
+import { OwnInstitutionInfoPanel } from '../judicial/JudicialDisplay';
 import { WorkspaceShell } from './WorkspaceShell';
 
 export type GenericWorkspaceProps = {

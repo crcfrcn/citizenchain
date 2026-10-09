@@ -15,29 +15,24 @@
   ],
   "node_tests": [
     "node/snap/index.test.mjs",
-    "scripts/build-local.test.mjs",
-    "scripts/build.test.mjs",
-    "scripts/flow.test.mjs",
-    "scripts/node/ci/linux-amd/build-desktop/test.mjs",
-    "scripts/node/ci/linux-amd/changes/test.mjs",
-    "scripts/node/ci/linux-amd/verify/test.mjs",
-    "scripts/node/ci/linux-arm/build-desktop/test.mjs",
-    "scripts/node/ci/linux-arm/changes/test.mjs",
-    "scripts/node/ci/linux-arm/verify/test.mjs",
-    "scripts/node/ci/macos/build-desktop/test.mjs",
-    "scripts/node/ci/macos/changes/test.mjs",
-    "scripts/node/ci/macos/verify/test.mjs",
-    "scripts/node/ci/windows/build-desktop/test.mjs",
-    "scripts/node/ci/windows/changes/test.mjs",
-    "scripts/node/ci/windows/verify/test.mjs",
-    "scripts/node/release/linux-amd/build-desktop/test.mjs",
-    "scripts/node/release/linux-arm/build-desktop/test.mjs",
-    "scripts/node/release/macos/build-desktop/test.mjs",
-    "scripts/node/release/windows/build-desktop/test.mjs",
-    "scripts/resources.test.mjs",
-    "scripts/runtime/ci/build-wasm/test.mjs",
-    "scripts/runtime/release/build-wasm/test.mjs",
-    "scripts/start.test.mjs"
+    "scripts/build.mjs",
+    "scripts/ci/linux-amd.mjs",
+    "scripts/ci/linux-arm.mjs",
+    "scripts/ci/macos.mjs",
+    "scripts/ci/wasm.mjs",
+    "scripts/ci/windows.mjs",
+    "scripts/docs.mjs",
+    "scripts/flow.mjs",
+    "scripts/icons.mjs",
+    "scripts/maintain.mjs",
+    "scripts/release/linux-amd.mjs",
+    "scripts/release/linux-arm.mjs",
+    "scripts/release/macos.mjs",
+    "scripts/release/wasm.mjs",
+    "scripts/release/windows.mjs",
+    "scripts/resources.mjs",
+    "scripts/start.mjs",
+    "scripts/target.test.mjs"
   ],
   "checks": [
     "repository-contracts",
@@ -57,8 +52,8 @@
   "github_repository": "crcfrcn/citizenchain",
   "functions": [
     {
-      "function": "crates/blockchain-harness/src/lib",
-      "path": "crates/blockchain-harness/src/lib.rs",
+      "function": "crates.harness.src.lib",
+      "path": "crates/harness/src/lib.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "blockchain-harness",
@@ -72,8 +67,8 @@
       ]
     },
     {
-      "function": "crates/chain-signing/lib",
-      "path": "crates/chain-signing/lib.rs",
+      "function": "crates.signing.lib",
+      "path": "crates/signing/lib.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "chain-signing",
@@ -88,10 +83,10 @@
       ]
     },
     {
-      "function": "crates/qr-protocol/src/codec",
-      "path": "crates/qr-protocol/src/codec.rs",
+      "function": "crates.protocol.src.codec",
+      "path": "crates/protocol/src/codec.rs",
       "runner": "cargo",
-      "target": "crates/qr-protocol/Cargo.toml",
+      "target": "crates/protocol/Cargo.toml",
       "package": "qr-protocol",
       "cases": [
         "decodes_public_key_to_lowercase_prefixed_hex",
@@ -104,10 +99,10 @@
       ]
     },
     {
-      "function": "crates/qr-protocol/tests/golden_fixtures",
-      "path": "crates/qr-protocol/tests/golden_fixtures.rs",
+      "function": "crates.protocol.tests.golden_fixtures",
+      "path": "crates/protocol/tests/golden_fixtures.rs",
       "runner": "cargo",
-      "target": "crates/qr-protocol/Cargo.toml",
+      "target": "crates/protocol/Cargo.toml",
       "package": "qr-protocol",
       "cases": [
         "fixtures_cover_all_five_kinds_with_matching_k",
@@ -119,10 +114,10 @@
       ]
     },
     {
-      "function": "crates/qr-protocol/tests/registry_consistency",
-      "path": "crates/qr-protocol/tests/registry_consistency.rs",
+      "function": "crates.protocol.tests.registry_consistency",
+      "path": "crates/protocol/tests/registry_consistency.rs",
       "runner": "cargo",
-      "target": "crates/qr-protocol/Cargo.toml",
+      "target": "crates/protocol/Cargo.toml",
       "package": "qr-protocol",
       "cases": [
         "actions_have_unique_keys_codes_and_chinese_labels",
@@ -139,10 +134,10 @@
       ]
     },
     {
-      "function": "crates/qr-protocol/tests/repo_guard",
-      "path": "crates/qr-protocol/tests/repo_guard.rs",
+      "function": "crates.protocol.tests.repo_guard",
+      "path": "crates/protocol/tests/repo_guard.rs",
       "runner": "cargo",
-      "target": "crates/qr-protocol/Cargo.toml",
+      "target": "crates/protocol/Cargo.toml",
       "package": "qr-protocol",
       "cases": [
         "tracked_source_scope_rejects_repository_parent",
@@ -155,32 +150,32 @@
       ]
     },
     {
-      "function": "crates/scanner-react/test/ScannerView.test",
-      "path": "crates/scanner-react/test/ScannerView.test.tsx",
+      "function": "crates.scanner.test.ScannerView.test",
+      "path": "crates/scanner/test/ScannerView.test.tsx",
       "runner": "vitest",
-      "target": "crates/scanner-react"
+      "target": "crates/scanner"
     },
     {
-      "function": "crates/scanner-react/test/scanner.test",
-      "path": "crates/scanner-react/test/scanner.test.ts",
+      "function": "crates.scanner.test.scanner.test",
+      "path": "crates/scanner/test/scanner.test.ts",
       "runner": "vitest",
-      "target": "crates/scanner-react"
+      "target": "crates/scanner"
     },
     {
-      "function": "node/frontend/other-tabs/LocalDocViewer.test",
-      "path": "node/frontend/other-tabs/LocalDocViewer.test.tsx",
+      "function": "node.frontend.other.LocalDocViewer.test",
+      "path": "node/frontend/other/LocalDocViewer.test.tsx",
       "runner": "node-entry",
       "target": "node/frontend"
     },
     {
-      "function": "node/snap/index.test",
+      "function": "node.snap.index.test",
       "path": "node/snap/index.test.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "node/src/admins/management/codec",
-      "path": "node/src/admins/management/codec.rs",
+      "function": "node.src.admins.management_codec",
+      "path": "node/src/admins/management_codec.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -192,8 +187,8 @@
       ]
     },
     {
-      "function": "node/src/admins/management/storage",
-      "path": "node/src/admins/management/storage.rs",
+      "function": "node.src.admins.management_storage",
+      "path": "node/src/admins/management_storage.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -204,8 +199,8 @@
       ]
     },
     {
-      "function": "node/src/core/constitution/guard",
-      "path": "node/src/core/constitution/guard.rs",
+      "function": "node.src.constitution.guard",
+      "path": "node/src/constitution/guard.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -214,8 +209,8 @@
       ]
     },
     {
-      "function": "node/src/core/constitution/mod",
-      "path": "node/src/core/constitution/mod.rs",
+      "function": "node.src.constitution.mod",
+      "path": "node/src/constitution/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -270,7 +265,7 @@
       ]
     },
     {
-      "function": "node/src/core/ethereum_rpc",
+      "function": "node.src.core.ethereum_rpc",
       "path": "node/src/core/ethereum_rpc.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -284,7 +279,7 @@
       ]
     },
     {
-      "function": "node/src/core/grandpa_rotation",
+      "function": "node.src.core.grandpa_rotation",
       "path": "node/src/core/grandpa_rotation.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -294,8 +289,8 @@
       ]
     },
     {
-      "function": "node/src/core/node_guard/cid_lifecycle",
-      "path": "node/src/core/node_guard/cid_lifecycle.rs",
+      "function": "node.src.guard.cid_lifecycle",
+      "path": "node/src/guard/cid_lifecycle.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -309,8 +304,8 @@
       ]
     },
     {
-      "function": "node/src/core/node_guard/citizen_issuance",
-      "path": "node/src/core/node_guard/citizen_issuance.rs",
+      "function": "node.src.guard.citizen_issuance",
+      "path": "node/src/guard/citizen_issuance.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -327,8 +322,8 @@
       ]
     },
     {
-      "function": "node/src/core/node_guard/fullnode_issuance",
-      "path": "node/src/core/node_guard/fullnode_issuance.rs",
+      "function": "node.src.guard.fullnode_issuance",
+      "path": "node/src/guard/fullnode_issuance.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -351,8 +346,8 @@
       ]
     },
     {
-      "function": "node/src/core/node_guard/genesis_pallet",
-      "path": "node/src/core/node_guard/genesis_pallet.rs",
+      "function": "node.src.guard.genesis_pallet",
+      "path": "node/src/guard/genesis_pallet.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -366,8 +361,8 @@
       ]
     },
     {
-      "function": "node/src/core/node_guard/governance_skeleton",
-      "path": "node/src/core/node_guard/governance_skeleton.rs",
+      "function": "node.src.guard.governance_skeleton",
+      "path": "node/src/guard/governance_skeleton.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -388,8 +383,8 @@
       ]
     },
     {
-      "function": "node/src/core/node_guard/mod",
-      "path": "node/src/core/node_guard/mod.rs",
+      "function": "node.src.guard.mod",
+      "path": "node/src/guard/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -418,8 +413,8 @@
       ]
     },
     {
-      "function": "node/src/core/node_guard/national_body_composition",
-      "path": "node/src/core/node_guard/national_body_composition.rs",
+      "function": "node.src.guard.national_body_composition",
+      "path": "node/src/guard/national_body_composition.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -436,8 +431,8 @@
       ]
     },
     {
-      "function": "node/src/core/node_guard/provincialbank_interest",
-      "path": "node/src/core/node_guard/provincialbank_interest.rs",
+      "function": "node.src.guard.provincialbank_interest",
+      "path": "node/src/guard/provincialbank_interest.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -452,8 +447,8 @@
       ]
     },
     {
-      "function": "node/src/core/node_guard/runtime_policy",
-      "path": "node/src/core/node_guard/runtime_policy.rs",
+      "function": "node.src.guard.runtime_policy",
+      "path": "node/src/guard/runtime_policy.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -466,7 +461,7 @@
       ]
     },
     {
-      "function": "node/src/core/p2p_bad_block_tests",
+      "function": "node.src.core.p2p_bad_block_tests",
       "path": "node/src/core/p2p_bad_block_tests.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -477,7 +472,7 @@
       ]
     },
     {
-      "function": "node/src/core/rpc_tls",
+      "function": "node.src.core.rpc_tls",
       "path": "node/src/core/rpc_tls.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -488,7 +483,7 @@
       ]
     },
     {
-      "function": "node/src/core/service",
+      "function": "node.src.core.service",
       "path": "node/src/core/service.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -508,7 +503,7 @@
       ]
     },
     {
-      "function": "node/src/governance/institution",
+      "function": "node.src.governance.institution",
       "path": "node/src/governance/institution.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -518,7 +513,7 @@
       ]
     },
     {
-      "function": "node/src/governance/proposal",
+      "function": "node.src.governance.proposal",
       "path": "node/src/governance/proposal.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -537,8 +532,8 @@
       ]
     },
     {
-      "function": "node/src/governance/runtime_upgrade/call_data",
-      "path": "node/src/governance/runtime_upgrade/call_data.rs",
+      "function": "node.src.upgrade.call_data",
+      "path": "node/src/upgrade/call_data.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -547,7 +542,7 @@
       ]
     },
     {
-      "function": "node/src/governance/signing",
+      "function": "node.src.governance.signing",
       "path": "node/src/governance/signing.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -566,7 +561,7 @@
       ]
     },
     {
-      "function": "node/src/governance/storage_keys",
+      "function": "node.src.governance.storage_keys",
       "path": "node/src/governance/storage_keys.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -576,7 +571,7 @@
       ]
     },
     {
-      "function": "node/src/home/sync_guard",
+      "function": "node.src.home.sync_guard",
       "path": "node/src/home/sync_guard.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -591,7 +586,7 @@
       ]
     },
     {
-      "function": "node/src/mining/dashboard",
+      "function": "node.src.mining.dashboard",
       "path": "node/src/mining/dashboard.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -601,7 +596,7 @@
       ]
     },
     {
-      "function": "node/src/mining/gpu_miner",
+      "function": "node.src.mining.gpu_miner",
       "path": "node/src/mining/gpu_miner.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -614,7 +609,7 @@
       ]
     },
     {
-      "function": "node/src/mining/network_overview",
+      "function": "node.src.mining.network_overview",
       "path": "node/src/mining/network_overview.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -633,7 +628,7 @@
       ]
     },
     {
-      "function": "node/src/settings/bootnodes_address",
+      "function": "node.src.settings.bootnodes_address",
       "path": "node/src/settings/bootnodes_address.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -643,7 +638,7 @@
       ]
     },
     {
-      "function": "node/src/settings/grandpa_address",
+      "function": "node.src.settings.grandpa_address",
       "path": "node/src/settings/grandpa_address.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -654,7 +649,7 @@
       ]
     },
     {
-      "function": "node/src/settings/node_mode",
+      "function": "node.src.settings.node_mode",
       "path": "node/src/settings/node_mode.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -668,7 +663,7 @@
       ]
     },
     {
-      "function": "node/src/shared/cid_config_tests",
+      "function": "node.src.shared.cid_config_tests",
       "path": "node/src/shared/cid_config_tests.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -679,7 +674,7 @@
       ]
     },
     {
-      "function": "node/src/shared/constants",
+      "function": "node.src.shared.constants",
       "path": "node/src/shared/constants.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -690,7 +685,7 @@
       ]
     },
     {
-      "function": "node/src/shared/keystore",
+      "function": "node.src.shared.keystore",
       "path": "node/src/shared/keystore.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -702,7 +697,7 @@
       ]
     },
     {
-      "function": "node/src/shared/rpc",
+      "function": "node.src.shared.rpc",
       "path": "node/src/shared/rpc.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -715,7 +710,7 @@
       ]
     },
     {
-      "function": "node/src/shared/storage_keys",
+      "function": "node.src.shared.storage_keys",
       "path": "node/src/shared/storage_keys.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -727,7 +722,7 @@
       ]
     },
     {
-      "function": "node/src/shared/validation",
+      "function": "node.src.shared.validation",
       "path": "node/src/shared/validation.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -751,8 +746,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/multisig/proposal",
-      "path": "node/src/transaction/multisig/proposal.rs",
+      "function": "node.src.multisig.proposal",
+      "path": "node/src/multisig/proposal.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -764,8 +759,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/endpoint",
-      "path": "node/src/transaction/offchain/endpoint.rs",
+      "function": "node.src.offchain.endpoint",
+      "path": "node/src/offchain/endpoint.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -777,8 +772,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/health",
-      "path": "node/src/transaction/offchain/health.rs",
+      "function": "node.src.offchain.health",
+      "path": "node/src/offchain/health.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -789,8 +784,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/institution_read/chain",
-      "path": "node/src/transaction/offchain/institution_read/chain.rs",
+      "function": "node.src.institution.chain",
+      "path": "node/src/institution/chain.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -802,8 +797,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/ledger",
-      "path": "node/src/transaction/offchain/ledger.rs",
+      "function": "node.src.offchain.ledger",
+      "path": "node/src/offchain/ledger.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -821,8 +816,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/mod",
-      "path": "node/src/transaction/offchain/mod.rs",
+      "function": "node.src.offchain.mod",
+      "path": "node/src/offchain/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -831,8 +826,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/rpc",
-      "path": "node/src/transaction/offchain/rpc.rs",
+      "function": "node.src.offchain.rpc",
+      "path": "node/src/offchain/rpc.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -849,8 +844,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/settlement/admin_unlock",
-      "path": "node/src/transaction/offchain/settlement/admin_unlock.rs",
+      "function": "node.src.settlement.admin_unlock",
+      "path": "node/src/settlement/admin_unlock.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -864,8 +859,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/settlement/listener",
-      "path": "node/src/transaction/offchain/settlement/listener.rs",
+      "function": "node.src.settlement.listener",
+      "path": "node/src/settlement/listener.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -879,8 +874,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/settlement/packer",
-      "path": "node/src/transaction/offchain/settlement/packer.rs",
+      "function": "node.src.settlement.packer",
+      "path": "node/src/settlement/packer.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -895,8 +890,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/settlement/reserve",
-      "path": "node/src/transaction/offchain/settlement/reserve.rs",
+      "function": "node.src.settlement.reserve",
+      "path": "node/src/settlement/reserve.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -909,8 +904,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/settlement/signer",
-      "path": "node/src/transaction/offchain/settlement/signer.rs",
+      "function": "node.src.settlement.signer",
+      "path": "node/src/settlement/signer.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -923,8 +918,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/settlement/submitter",
-      "path": "node/src/transaction/offchain/settlement/submitter.rs",
+      "function": "node.src.settlement.submitter",
+      "path": "node/src/settlement/submitter.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -937,8 +932,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/offchain/signing",
-      "path": "node/src/transaction/offchain/signing.rs",
+      "function": "node.src.offchain.signing",
+      "path": "node/src/offchain/signing.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -952,8 +947,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/onchain/mod",
-      "path": "node/src/transaction/onchain/mod.rs",
+      "function": "node.src.onchain.mod",
+      "path": "node/src/onchain/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -968,8 +963,8 @@
       ]
     },
     {
-      "function": "node/src/transaction/onchain/wallet_store",
-      "path": "node/src/transaction/onchain/wallet_store.rs",
+      "function": "node.src.onchain.wallet_store",
+      "path": "node/src/onchain/wallet_store.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "node",
@@ -983,14 +978,14 @@
       ]
     },
     {
-      "function": "onchina/frontend/admins/securityHeaders.test",
+      "function": "onchina.frontend.admins.securityHeaders.test",
       "path": "onchina/frontend/admins/securityHeaders.test.ts",
       "runner": "vitest",
       "target": "onchina/frontend"
     },
     {
-      "function": "onchina/src/auth/action_sign",
-      "path": "onchina/src/auth/action_sign.rs",
+      "function": "onchina.src.authentication.action_sign",
+      "path": "onchina/src/authentication/action_sign.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -999,8 +994,8 @@
       ]
     },
     {
-      "function": "onchina/src/auth/operation_auth",
-      "path": "onchina/src/auth/operation_auth.rs",
+      "function": "onchina.src.authentication.operation_auth",
+      "path": "onchina/src/authentication/operation_auth.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1019,20 +1014,8 @@
       ]
     },
     {
-      "function": "onchina/src/auth/passkey/mod",
-      "path": "onchina/src/auth/passkey/mod.rs",
-      "runner": "cargo",
-      "target": "Cargo.toml",
-      "package": "onchina",
-      "cases": [
-        "admin_user_uuid_is_stable_for_canonical_account_id",
-        "build_webauthn_config_validation",
-        "passkey_register_and_authenticate_round_trip"
-      ]
-    },
-    {
-      "function": "onchina/src/auth/repo",
-      "path": "onchina/src/auth/repo.rs",
+      "function": "onchina.src.authentication.repo",
+      "path": "onchina/src/authentication/repo.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1046,8 +1029,8 @@
       ]
     },
     {
-      "function": "onchina/src/auth/security_model",
-      "path": "onchina/src/auth/security_model.rs",
+      "function": "onchina.src.authentication.security_model",
+      "path": "onchina/src/authentication/security_model.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1056,21 +1039,8 @@
       ]
     },
     {
-      "function": "onchina/src/cid/china/store",
-      "path": "onchina/src/cid/china/store.rs",
-      "runner": "cargo",
-      "target": "Cargo.toml",
-      "package": "onchina",
-      "cases": [
-        "town_exists_true_for_real_triple",
-        "town_exists_false_for_retired_town_code",
-        "town_exists_false_for_unknown_province",
-        "town_exists_true_for_empty_town_code"
-      ]
-    },
-    {
-      "function": "onchina/src/cid/generator",
-      "path": "onchina/src/cid/generator.rs",
+      "function": "onchina.src.codes.generator",
+      "path": "onchina/src/codes/generator.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1082,8 +1052,8 @@
       ]
     },
     {
-      "function": "onchina/src/citizenapp/public_institution",
-      "path": "onchina/src/citizenapp/public_institution.rs",
+      "function": "onchina.src.client.public_institution",
+      "path": "onchina/src/client/public_institution.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1094,7 +1064,7 @@
       ]
     },
     {
-      "function": "onchina/src/core/chain_citizen_identity",
+      "function": "onchina.src.core.chain_citizen_identity",
       "path": "onchina/src/core/chain_citizen_identity.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1108,7 +1078,7 @@
       ]
     },
     {
-      "function": "onchina/src/core/chain_runtime",
+      "function": "onchina.src.core.chain_runtime",
       "path": "onchina/src/core/chain_runtime.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1126,7 +1096,7 @@
       ]
     },
     {
-      "function": "onchina/src/core/chain_submit",
+      "function": "onchina.src.core.chain_submit",
       "path": "onchina/src/core/chain_submit.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1138,7 +1108,7 @@
       ]
     },
     {
-      "function": "onchina/src/core/http_security",
+      "function": "onchina.src.core.http_security",
       "path": "onchina/src/core/http_security.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1151,7 +1121,7 @@
       ]
     },
     {
-      "function": "onchina/src/core/institution_call",
+      "function": "onchina.src.core.institution_call",
       "path": "onchina/src/core/institution_call.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1167,8 +1137,8 @@
       ]
     },
     {
-      "function": "onchina/src/core/qr/mod",
-      "path": "onchina/src/core/qr/mod.rs",
+      "function": "onchina.src.protocol.mod",
+      "path": "onchina/src/protocol/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1185,7 +1155,7 @@
       ]
     },
     {
-      "function": "onchina/src/core/tls",
+      "function": "onchina.src.core.tls",
       "path": "onchina/src/core/tls.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1197,7 +1167,7 @@
       ]
     },
     {
-      "function": "onchina/src/crypto/pubkey",
+      "function": "onchina.src.crypto.pubkey",
       "path": "onchina/src/crypto/pubkey.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1209,8 +1179,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/citizens/admin_entry",
-      "path": "onchina/src/domains/citizens/admin_entry.rs",
+      "function": "onchina.src.citizens.admin_entry",
+      "path": "onchina/src/citizens/admin_entry.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1224,8 +1194,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/citizens/model",
-      "path": "onchina/src/domains/citizens/model.rs",
+      "function": "onchina.src.citizens.model",
+      "path": "onchina/src/citizens/model.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1234,8 +1204,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/citizens/occupy",
-      "path": "onchina/src/domains/citizens/occupy.rs",
+      "function": "onchina.src.citizens.occupy",
+      "path": "onchina/src/citizens/occupy.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1255,8 +1225,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/citizens/passport_no",
-      "path": "onchina/src/domains/citizens/passport_no.rs",
+      "function": "onchina.src.citizens.passport_no",
+      "path": "onchina/src/citizens/passport_no.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1268,8 +1238,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/genesis_projection",
-      "path": "onchina/src/domains/genesis_projection.rs",
+      "function": "onchina.src.domains_genesis_projection",
+      "path": "onchina/src/domains_genesis_projection.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1279,8 +1249,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/budget/model",
-      "path": "onchina/src/domains/legislation/budget/model.rs",
+      "function": "onchina.src.budget.model",
+      "path": "onchina/src/budget/model.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1290,8 +1260,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/category",
-      "path": "onchina/src/domains/legislation/category.rs",
+      "function": "onchina.src.legislation.category",
+      "path": "onchina/src/legislation/category.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1303,8 +1273,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/chain_read_proposal",
-      "path": "onchina/src/domains/legislation/chain_read_proposal.rs",
+      "function": "onchina.src.legislation.chain_read_proposal",
+      "path": "onchina/src/legislation/chain_read_proposal.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1315,8 +1285,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/display/chain_read",
-      "path": "onchina/src/domains/legislation/display/chain_read.rs",
+      "function": "onchina.src.display.chain_read",
+      "path": "onchina/src/display/chain_read.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1329,8 +1299,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/display/handler",
-      "path": "onchina/src/domains/legislation/display/handler.rs",
+      "function": "onchina.src.display.handler",
+      "path": "onchina/src/display/handler.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1341,8 +1311,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/display/service",
-      "path": "onchina/src/domains/legislation/display/service.rs",
+      "function": "onchina.src.display.service",
+      "path": "onchina/src/display/service.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1352,8 +1322,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/law/chain_propose",
-      "path": "onchina/src/domains/legislation/law/chain_propose.rs",
+      "function": "onchina.src.law.chain_propose",
+      "path": "onchina/src/law/chain_propose.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1364,8 +1334,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/law/chain_read",
-      "path": "onchina/src/domains/legislation/law/chain_read.rs",
+      "function": "onchina.src.law.chain_read",
+      "path": "onchina/src/law/chain_read.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1375,8 +1345,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/law/chain_vote",
-      "path": "onchina/src/domains/legislation/law/chain_vote.rs",
+      "function": "onchina.src.law.chain_vote",
+      "path": "onchina/src/law/chain_vote.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1386,8 +1356,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/law/model",
-      "path": "onchina/src/domains/legislation/law/model.rs",
+      "function": "onchina.src.law.model",
+      "path": "onchina/src/law/model.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1399,8 +1369,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/law/routing",
-      "path": "onchina/src/domains/legislation/law/routing.rs",
+      "function": "onchina.src.law.routing",
+      "path": "onchina/src/law/routing.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1413,8 +1383,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/law/service",
-      "path": "onchina/src/domains/legislation/law/service.rs",
+      "function": "onchina.src.law.service",
+      "path": "onchina/src/law/service.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1429,8 +1399,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/model",
-      "path": "onchina/src/domains/legislation/model.rs",
+      "function": "onchina.src.legislation.model",
+      "path": "onchina/src/legislation/model.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1440,8 +1410,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/legislation/personnel/model",
-      "path": "onchina/src/domains/legislation/personnel/model.rs",
+      "function": "onchina.src.personnel.model",
+      "path": "onchina/src/personnel/model.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1451,8 +1421,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/membership/chain_call",
-      "path": "onchina/src/domains/membership/chain_call.rs",
+      "function": "onchina.src.membership.chain_call",
+      "path": "onchina/src/membership/chain_call.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1462,8 +1432,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/private/common",
-      "path": "onchina/src/domains/private/common.rs",
+      "function": "onchina.src.private.common",
+      "path": "onchina/src/private/common.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1472,8 +1442,8 @@
       ]
     },
     {
-      "function": "onchina/src/domains/projection",
-      "path": "onchina/src/domains/projection.rs",
+      "function": "onchina.src.domains_projection",
+      "path": "onchina/src/domains_projection.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1494,8 +1464,8 @@
       ]
     },
     {
-      "function": "onchina/src/institution/admins/chain_roles",
-      "path": "onchina/src/institution/admins/chain_roles.rs",
+      "function": "onchina.src.admins.chain_roles",
+      "path": "onchina/src/admins/chain_roles.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1506,8 +1476,8 @@
       ]
     },
     {
-      "function": "onchina/src/institution/subjects/photos",
-      "path": "onchina/src/institution/subjects/photos.rs",
+      "function": "onchina.src.subjects.photos",
+      "path": "onchina/src/subjects/photos.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1516,8 +1486,8 @@
       ]
     },
     {
-      "function": "onchina/src/institution/subjects/service",
-      "path": "onchina/src/institution/subjects/service.rs",
+      "function": "onchina.src.subjects.service",
+      "path": "onchina/src/subjects/service.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1526,8 +1496,8 @@
       ]
     },
     {
-      "function": "onchina/src/institution/subjects/unincorporated_org",
-      "path": "onchina/src/institution/subjects/unincorporated_org.rs",
+      "function": "onchina.src.subjects.unincorporated_org",
+      "path": "onchina/src/subjects/unincorporated_org.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "onchina",
@@ -1542,7 +1512,7 @@
       ]
     },
     {
-      "function": "onchina/src/platform/capability",
+      "function": "onchina.src.platform.capability",
       "path": "onchina/src/platform/capability.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1556,7 +1526,7 @@
       ]
     },
     {
-      "function": "onchina/src/scope/rules",
+      "function": "onchina.src.scope.rules",
       "path": "onchina/src/scope/rules.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1578,7 +1548,7 @@
       ]
     },
     {
-      "function": "onchina/src/workspace/manifest",
+      "function": "onchina.src.workspace.manifest",
       "path": "onchina/src/workspace/manifest.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1589,7 +1559,7 @@
       ]
     },
     {
-      "function": "runtime/admins/admin-primitives/src/lib",
+      "function": "runtime.admins.admin-primitives.src.lib",
       "path": "runtime/admins/admin-primitives/src/lib.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1604,7 +1574,7 @@
       ]
     },
     {
-      "function": "runtime/admins/personal-admins/src/tests/mod",
+      "function": "runtime.admins.personal-admins.src.tests.mod",
       "path": "runtime/admins/personal-admins/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1614,7 +1584,7 @@
       ]
     },
     {
-      "function": "runtime/admins/private-admins/src/tests/mod",
+      "function": "runtime.admins.private-admins.src.tests.mod",
       "path": "runtime/admins/private-admins/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1627,7 +1597,7 @@
       ]
     },
     {
-      "function": "runtime/admins/public-admins/src/tests/mod",
+      "function": "runtime.admins.public-admins.src.tests.mod",
       "path": "runtime/admins/public-admins/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1646,7 +1616,7 @@
       ]
     },
     {
-      "function": "runtime/entity/entity-primitives/src/business_action",
+      "function": "runtime.entity.entity-primitives.src.business_action",
       "path": "runtime/entity/entity-primitives/src/business_action.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1661,7 +1631,7 @@
       ]
     },
     {
-      "function": "runtime/entity/entity-primitives/src/institution_role",
+      "function": "runtime.entity.entity-primitives.src.institution_role",
       "path": "runtime/entity/entity-primitives/src/institution_role.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1676,7 +1646,7 @@
       ]
     },
     {
-      "function": "runtime/entity/entity-primitives/src/lib",
+      "function": "runtime.entity.entity-primitives.src.lib",
       "path": "runtime/entity/entity-primitives/src/lib.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1686,7 +1656,7 @@
       ]
     },
     {
-      "function": "runtime/entity/personal-manage/src/tests/cases",
+      "function": "runtime.entity.personal-manage.src.tests.cases",
       "path": "runtime/entity/personal-manage/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1716,7 +1686,7 @@
       ]
     },
     {
-      "function": "runtime/entity/private-manage/src/tests/cases",
+      "function": "runtime.entity.private-manage.src.tests.cases",
       "path": "runtime/entity/private-manage/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1746,7 +1716,7 @@
       ]
     },
     {
-      "function": "runtime/entity/public-manage/src/tests/cases",
+      "function": "runtime.entity.public-manage.src.tests.cases",
       "path": "runtime/entity/public-manage/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1772,7 +1742,7 @@
       ]
     },
     {
-      "function": "runtime/genesis/src/institution/fixed_roles",
+      "function": "runtime.genesis.src.institution.fixed_roles",
       "path": "runtime/genesis/src/institution/fixed_roles.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1785,7 +1755,7 @@
       ]
     },
     {
-      "function": "runtime/genesis/src/tests/mod",
+      "function": "runtime.genesis.src.tests.mod",
       "path": "runtime/genesis/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1799,7 +1769,7 @@
       ]
     },
     {
-      "function": "runtime/governance/grandpakey-change/src/tests/cases",
+      "function": "runtime.governance.grandpakey-change.src.tests.cases",
       "path": "runtime/governance/grandpakey-change/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1821,7 +1791,7 @@
       ]
     },
     {
-      "function": "runtime/governance/resolution-destroy/src/tests/cases",
+      "function": "runtime.governance.resolution-destroy.src.tests.cases",
       "path": "runtime/governance/resolution-destroy/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1844,7 +1814,7 @@
       ]
     },
     {
-      "function": "runtime/governance/runtime-upgrade/src/tests/cases",
+      "function": "runtime.governance.runtime-upgrade.src.tests.cases",
       "path": "runtime/governance/runtime-upgrade/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1871,7 +1841,7 @@
       ]
     },
     {
-      "function": "runtime/issuance/citizen-issuance/src/tests/mod",
+      "function": "runtime.issuance.citizen-issuance.src.tests.mod",
       "path": "runtime/issuance/citizen-issuance/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1894,7 +1864,7 @@
       ]
     },
     {
-      "function": "runtime/issuance/citizen-issuance/tests/integration_citizen_identity",
+      "function": "runtime.issuance.citizen-issuance.tests.integration_citizen_identity",
       "path": "runtime/issuance/citizen-issuance/tests/integration_citizen_identity.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1908,7 +1878,7 @@
       ]
     },
     {
-      "function": "runtime/issuance/fullnode-issuance/src/tests/cases",
+      "function": "runtime.issuance.fullnode-issuance.src.tests.cases",
       "path": "runtime/issuance/fullnode-issuance/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1935,7 +1905,7 @@
       ]
     },
     {
-      "function": "runtime/issuance/onchain-issuance/src/tests/blacklist",
+      "function": "runtime.issuance.onchain-issuance.src.tests.blacklist",
       "path": "runtime/issuance/onchain-issuance/src/tests/blacklist.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1945,7 +1915,7 @@
       ]
     },
     {
-      "function": "runtime/issuance/onchain-issuance/src/tests/cases",
+      "function": "runtime.issuance.onchain-issuance.src.tests.cases",
       "path": "runtime/issuance/onchain-issuance/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1955,7 +1925,7 @@
       ]
     },
     {
-      "function": "runtime/issuance/onchain-issuance/src/tests/monitor",
+      "function": "runtime.issuance.onchain-issuance.src.tests.monitor",
       "path": "runtime/issuance/onchain-issuance/src/tests/monitor.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1965,7 +1935,7 @@
       ]
     },
     {
-      "function": "runtime/issuance/onchain-issuance/src/validation",
+      "function": "runtime.issuance.onchain-issuance.src.validation",
       "path": "runtime/issuance/onchain-issuance/src/validation.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1979,7 +1949,7 @@
       ]
     },
     {
-      "function": "runtime/issuance/provincialbank-interest/src/tests/cases",
+      "function": "runtime.issuance.provincialbank-interest.src.tests.cases",
       "path": "runtime/issuance/provincialbank-interest/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -1996,7 +1966,7 @@
       ]
     },
     {
-      "function": "runtime/issuance/resolution-issuance/src/tests/cases",
+      "function": "runtime.issuance.resolution-issuance.src.tests.cases",
       "path": "runtime/issuance/resolution-issuance/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2018,7 +1988,7 @@
       ]
     },
     {
-      "function": "runtime/misc/citizen-identity/src/tests/mod",
+      "function": "runtime.misc.citizen-identity.src.tests.mod",
       "path": "runtime/misc/citizen-identity/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2108,7 +2078,7 @@
       ]
     },
     {
-      "function": "runtime/misc/pow-difficulty/src/tests/mod",
+      "function": "runtime.misc.pow-difficulty.src.tests.mod",
       "path": "runtime/misc/pow-difficulty/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2128,7 +2098,7 @@
       ]
     },
     {
-      "function": "runtime/misc/square-post/src/tests/mod",
+      "function": "runtime.misc.square-post.src.tests.mod",
       "path": "runtime/misc/square-post/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2168,7 +2138,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/cid/china/area",
+      "function": "runtime.primitives.cid.china.area",
       "path": "runtime/primitives/cid/china/area.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2179,7 +2149,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/cid/china/china_ch",
+      "function": "runtime.primitives.cid.china.china_ch",
       "path": "runtime/primitives/cid/china/china_ch.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2192,7 +2162,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/cid/china/mod",
+      "function": "runtime.primitives.cid.china.mod",
       "path": "runtime/primitives/cid/china/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2207,7 +2177,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/cid/code",
+      "function": "runtime.primitives.cid.code",
       "path": "runtime/primitives/cid/code.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2223,7 +2193,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/cid/generator",
+      "function": "runtime.primitives.cid.generator",
       "path": "runtime/primitives/cid/generator.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2238,7 +2208,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/cid/number",
+      "function": "runtime.primitives.cid.number",
       "path": "runtime/primitives/cid/number.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2258,7 +2228,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/cid/official_derive",
+      "function": "runtime.primitives.cid.official_derive",
       "path": "runtime/primitives/cid/official_derive.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2270,7 +2240,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/cid/official_template",
+      "function": "runtime.primitives.cid.official_template",
       "path": "runtime/primitives/cid/official_template.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2281,7 +2251,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/constitution",
+      "function": "runtime.primitives.src.constitution",
       "path": "runtime/primitives/src/constitution.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2299,7 +2269,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/count_const",
+      "function": "runtime.primitives.src.count_const",
       "path": "runtime/primitives/src/count_const.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2309,7 +2279,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/fee_policy",
+      "function": "runtime.primitives.src.fee_policy",
       "path": "runtime/primitives/src/fee_policy.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2326,7 +2296,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/genesis",
+      "function": "runtime.primitives.src.genesis",
       "path": "runtime/primitives/src/genesis.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2338,7 +2308,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/governance_skeleton",
+      "function": "runtime.primitives.src.governance_skeleton",
       "path": "runtime/primitives/src/governance_skeleton.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2354,7 +2324,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/institution_asset",
+      "function": "runtime.primitives.src.institution_asset",
       "path": "runtime/primitives/src/institution_asset.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2364,7 +2334,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/institution_constraints",
+      "function": "runtime.primitives.src.institution_constraints",
       "path": "runtime/primitives/src/institution_constraints.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2377,7 +2347,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/lib",
+      "function": "runtime.primitives.src.lib",
       "path": "runtime/primitives/src/lib.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2387,7 +2357,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/pow_const",
+      "function": "runtime.primitives.src.pow_const",
       "path": "runtime/primitives/src/pow_const.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2398,7 +2368,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/src/sign",
+      "function": "runtime.primitives.src.sign",
       "path": "runtime/primitives/src/sign.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2409,7 +2379,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/tests/account_derive_golden",
+      "function": "runtime.primitives.tests.account_derive_golden",
       "path": "runtime/primitives/tests/account_derive_golden.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2419,7 +2389,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/tests/scale_codec_golden",
+      "function": "runtime.primitives.tests.scale_codec_golden",
       "path": "runtime/primitives/tests/scale_codec_golden.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2431,7 +2401,7 @@
       ]
     },
     {
-      "function": "runtime/primitives/tests/sign_golden",
+      "function": "runtime.primitives.tests.sign_golden",
       "path": "runtime/primitives/tests/sign_golden.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2441,7 +2411,7 @@
       ]
     },
     {
-      "function": "runtime/public/legislation-yuan/src/tests/cases",
+      "function": "runtime.public.legislation-yuan.src.tests.cases",
       "path": "runtime/public/legislation-yuan/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2493,7 +2463,7 @@
       ]
     },
     {
-      "function": "runtime/src/genesis",
+      "function": "runtime.src.genesis",
       "path": "runtime/src/genesis.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2512,12 +2482,13 @@
       ]
     },
     {
-      "function": "runtime/src/tests/cases",
+      "function": "runtime.src.tests.cases",
       "path": "runtime/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
       "package": "citizenchain",
       "cases": [
+        "citizen_election_reserves_index_32_without_business_entries",
         "time_and_currency_constants_are_consistent",
         "fsc_genesis_governance_enables_fcsf_multisig_transfer",
         "protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_roles",
@@ -2581,7 +2552,7 @@
       ]
     },
     {
-      "function": "runtime/src/tests/mod",
+      "function": "runtime.src.tests.mod",
       "path": "runtime/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2591,7 +2562,7 @@
       ]
     },
     {
-      "function": "runtime/transaction/multisig/src/tests/cases",
+      "function": "runtime.transaction.multisig.src.tests.cases",
       "path": "runtime/transaction/multisig/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2623,7 +2594,7 @@
       ]
     },
     {
-      "function": "runtime/transaction/offchain/src/bank_check",
+      "function": "runtime.transaction.offchain.src.bank_check",
       "path": "runtime/transaction/offchain/src/bank_check.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2637,7 +2608,7 @@
       ]
     },
     {
-      "function": "runtime/transaction/offchain/src/batch_item",
+      "function": "runtime.transaction.offchain.src.batch_item",
       "path": "runtime/transaction/offchain/src/batch_item.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2652,7 +2623,7 @@
       ]
     },
     {
-      "function": "runtime/transaction/offchain/src/fee_config",
+      "function": "runtime.transaction.offchain.src.fee_config",
       "path": "runtime/transaction/offchain/src/fee_config.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2662,7 +2633,7 @@
       ]
     },
     {
-      "function": "runtime/transaction/offchain/src/tests/cases",
+      "function": "runtime.transaction.offchain.src.tests.cases",
       "path": "runtime/transaction/offchain/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2687,7 +2658,7 @@
       ]
     },
     {
-      "function": "runtime/transaction/onchain/src/tests/cases",
+      "function": "runtime.transaction.onchain.src.tests.cases",
       "path": "runtime/transaction/onchain/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2720,7 +2691,7 @@
       ]
     },
     {
-      "function": "runtime/votingengine/election-vote/src/tally",
+      "function": "runtime.votingengine.election-vote.src.tally",
       "path": "runtime/votingengine/election-vote/src/tally.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2732,7 +2703,7 @@
       ]
     },
     {
-      "function": "runtime/votingengine/election-vote/src/tests/mod",
+      "function": "runtime.votingengine.election-vote.src.tests.mod",
       "path": "runtime/votingengine/election-vote/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2753,7 +2724,7 @@
       ]
     },
     {
-      "function": "runtime/votingengine/internal-vote/src/tests/cases",
+      "function": "runtime.votingengine.internal-vote.src.tests.cases",
       "path": "runtime/votingengine/internal-vote/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2851,7 +2822,7 @@
       ]
     },
     {
-      "function": "runtime/votingengine/internal-vote/src/tests/dual_id",
+      "function": "runtime.votingengine.internal-vote.src.tests.dual_id",
       "path": "runtime/votingengine/internal-vote/src/tests/dual_id.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2865,7 +2836,7 @@
       ]
     },
     {
-      "function": "runtime/votingengine/joint-vote/src/tests/mod",
+      "function": "runtime.votingengine.joint-vote.src.tests.mod",
       "path": "runtime/votingengine/joint-vote/src/tests/mod.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2885,7 +2856,7 @@
       ]
     },
     {
-      "function": "runtime/votingengine/legislation-vote/src/tests/cases",
+      "function": "runtime.votingengine.legislation-vote.src.tests.cases",
       "path": "runtime/votingengine/legislation-vote/src/tests/cases.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2927,7 +2898,7 @@
       ]
     },
     {
-      "function": "runtime/votingengine/src/types",
+      "function": "runtime.votingengine.src.types",
       "path": "runtime/votingengine/src/types.rs",
       "runner": "cargo",
       "target": "Cargo.toml",
@@ -2940,142 +2911,131 @@
       ]
     },
     {
-      "function": "scripts/build-local.test",
-      "path": "scripts/build-local.test.mjs",
+      "function": "scripts.build",
+      "path": "scripts/build.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/build.test",
-      "path": "scripts/build.test.mjs",
+      "function": "scripts.flow",
+      "path": "scripts/flow.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/flow.test",
-      "path": "scripts/flow.test.mjs",
+      "function": "scripts.ci.linux-amd",
+      "path": "scripts/ci/linux-amd.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/linux-amd/build-desktop/test",
-      "path": "scripts/node/ci/linux-amd/build-desktop/test.mjs",
+      "function": "scripts.ci.linux-arm",
+      "path": "scripts/ci/linux-arm.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/linux-amd/changes/test",
-      "path": "scripts/node/ci/linux-amd/changes/test.mjs",
+      "function": "scripts.ci.macos",
+      "path": "scripts/ci/macos.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/linux-amd/verify/test",
-      "path": "scripts/node/ci/linux-amd/verify/test.mjs",
+      "function": "scripts.ci.windows",
+      "path": "scripts/ci/windows.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/linux-arm/build-desktop/test",
-      "path": "scripts/node/ci/linux-arm/build-desktop/test.mjs",
+      "function": "scripts.release.linux-amd",
+      "path": "scripts/release/linux-amd.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/linux-arm/changes/test",
-      "path": "scripts/node/ci/linux-arm/changes/test.mjs",
+      "function": "scripts.release.linux-arm",
+      "path": "scripts/release/linux-arm.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/linux-arm/verify/test",
-      "path": "scripts/node/ci/linux-arm/verify/test.mjs",
+      "function": "scripts.release.macos",
+      "path": "scripts/release/macos.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/macos/build-desktop/test",
-      "path": "scripts/node/ci/macos/build-desktop/test.mjs",
+      "function": "scripts.release.windows",
+      "path": "scripts/release/windows.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/macos/changes/test",
-      "path": "scripts/node/ci/macos/changes/test.mjs",
+      "function": "scripts.resources",
+      "path": "scripts/resources.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/macos/verify/test",
-      "path": "scripts/node/ci/macos/verify/test.mjs",
+      "function": "scripts.ci.wasm",
+      "path": "scripts/ci/wasm.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/windows/build-desktop/test",
-      "path": "scripts/node/ci/windows/build-desktop/test.mjs",
+      "function": "scripts.release.wasm",
+      "path": "scripts/release/wasm.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/windows/changes/test",
-      "path": "scripts/node/ci/windows/changes/test.mjs",
+      "function": "scripts.start",
+      "path": "scripts/start.mjs",
       "runner": "node",
       "target": "node"
     },
     {
-      "function": "scripts/node/ci/windows/verify/test",
-      "path": "scripts/node/ci/windows/verify/test.mjs",
-      "runner": "node",
-      "target": "node"
+      "function": "onchina.src.authentication.passkey",
+      "path": "onchina/src/authentication/passkey.rs",
+      "runner": "cargo",
+      "target": "onchina/Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "admin_user_uuid_is_stable_for_canonical_account_id",
+        "build_webauthn_config_validation",
+        "passkey_register_and_authenticate_round_trip"
+      ]
     },
     {
-      "function": "scripts/node/release/linux-amd/build-desktop/test",
-      "path": "scripts/node/release/linux-amd/build-desktop/test.mjs",
-      "runner": "node",
-      "target": "node"
+      "function": "onchina.src.codes.china_store",
+      "path": "onchina/src/codes/china_store.rs",
+      "runner": "cargo",
+      "target": "onchina/Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "town_exists_true_for_real_triple",
+        "town_exists_false_for_retired_town_code",
+        "town_exists_false_for_unknown_province",
+        "town_exists_true_for_empty_town_code"
+      ]
     },
     {
-      "function": "scripts/node/release/linux-arm/build-desktop/test",
-      "path": "scripts/node/release/linux-arm/build-desktop/test.mjs",
+      "function": "scripts.icons",
+      "path": "scripts/icons.mjs",
       "runner": "node",
-      "target": "node"
+      "target": "."
     },
     {
-      "function": "scripts/node/release/macos/build-desktop/test",
-      "path": "scripts/node/release/macos/build-desktop/test.mjs",
+      "function": "scripts.docs",
+      "path": "scripts/docs.mjs",
       "runner": "node",
-      "target": "node"
+      "target": "."
     },
     {
-      "function": "scripts/node/release/windows/build-desktop/test",
-      "path": "scripts/node/release/windows/build-desktop/test.mjs",
+      "function": "scripts.maintain",
+      "path": "scripts/maintain.mjs",
       "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts/resources.test",
-      "path": "scripts/resources.test.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts/runtime/ci/build-wasm/test",
-      "path": "scripts/runtime/ci/build-wasm/test.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts/runtime/release/build-wasm/test",
-      "path": "scripts/runtime/release/build-wasm/test.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts/start.test",
-      "path": "scripts/start.test.mjs",
-      "runner": "node",
-      "target": "node"
+      "target": "."
     }
   ]
 }

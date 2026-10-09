@@ -1,8 +1,8 @@
 // 机构资料库前端 API。资料上传、下载、删除都归 docs 模块。
 
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { passkeySubmitHeaders } from '../admins/securityApi';
-import { adminHeaders, adminRequest } from '../utils/http';
+import { adminHeaders, adminRequest } from '../helpers/http';
 import type { InstitutionDocument } from '../subjects/api';
 
 export type { InstitutionDocument } from '../subjects/api';

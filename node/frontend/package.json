@@ -7,7 +7,7 @@
     "node": "25.2.1"
   },
   "scripts": {
-    "generate:docs": "node ../../scripts/generate-local-docs.mjs",
+    "generate:docs": "node ../../scripts/docs.mjs",
     "predev": "npm run generate:docs",
     "dev": "vite",
     "prebuild": "npm run generate:docs",
@@ -16,7 +16,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@gmb/scanner-react": "file:../../crates/scanner-react",
+    "@gmb/scanner-react": "file:../../crates/scanner",
     "@noble/hashes": "2.0.1",
     "@tauri-apps/api": "2.11.1",
     "@tauri-apps/plugin-dialog": "2.6.0",

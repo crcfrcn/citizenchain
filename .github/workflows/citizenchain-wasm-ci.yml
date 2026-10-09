@@ -113,7 +113,7 @@ jobs:
 
           '
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 0
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 0
     - name: 恢复上一次成功的CI增量缓存
       continue-on-error: true
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -121,43 +121,43 @@ jobs:
         path: "${{ steps.citizenchain_ci_runtime_wasm__build_wasm__ci_cache.outputs.success_paths }}"
         key: "${{ steps.citizenchain_ci_runtime_wasm__build_wasm__ci_cache.outputs.restore_key }}"
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 1
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 1
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 2
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 2
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 3
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 3
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 4
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 4
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 5
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 5
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 6
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 6
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 7
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 7
     - working-directory: .
       env:
         WASM_BUILD_FROM_SOURCE: '1'
         CITIZENCHAIN_PRODUCTION_WASM_BUILD: '1'
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 8
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 8
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 9
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 9
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 10
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 10
     - working-directory: .
       env:
         WASM_FILE: "${{ env.CARGO_TARGET_DIR }}/release/wbuild/citizenchain/citizenchain.compact.compressed.wasm"
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 11
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 11
     - if: "${{ failure() && !cancelled() }}"
       env:
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 12
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 12
     - if: "${{ failure() && !cancelled() }}"
       name: 保存本次失败的CI增量缓存
       id: citizenchain_ci_runtime_wasm__build_wasm__ci_cache_save_failure
@@ -172,12 +172,12 @@ jobs:
         GH_TOKEN: "${{ github.token }}"
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 13
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 13
     - if: "${{ success() }}"
       env:
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 14
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 14
     - if: "${{ success() }}"
       name: 保存本次成功的CI增量缓存
       id: citizenchain_ci_runtime_wasm__build_wasm__ci_cache_save_success
@@ -192,4 +192,8 @@ jobs:
         GH_TOKEN: "${{ github.token }}"
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/ci/build-wasm/execute.mjs" workflow-step 15
+      run: node "$GITHUB_WORKSPACE/scripts/ci/wasm.mjs" build-wasm workflow-step 15
+    - name: 清空本产品固定构建目录
+      if: always()
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/target.mjs" finish build

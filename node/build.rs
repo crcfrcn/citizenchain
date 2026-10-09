@@ -16,8 +16,37 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
     let output = std::path::PathBuf::from(env::var_os("OUT_DIR").ok_or("缺少 OUT_DIR")?);
     let work = output.join("tauri");
     let repository = source.parent().ok_or("缺少仓库根目录")?.canonicalize()?;
+    // 远端工程副本读取自身源码，编译输出仍只能属于原产品的固定工作根。
+    let target_root = match (
+        env::var_os("CITIZENCHAIN_SOURCE_ROOT"),
+        env::var_os("CITIZENCHAIN_WORK_DIR"),
+    ) {
+        (Some(original), Some(task)) => {
+            let original = std::path::PathBuf::from(original).canonicalize()?;
+            let task = std::path::PathBuf::from(task).canonicalize()?;
+            if task != original.join("target/build") && task != original.join("target/test") {
+                return Err("Tauri 任务只能使用公民链固定工作根".into());
+            }
+            if repository != original && repository != task.join("source") {
+                return Err("Tauri 源码不属于公民链原件或本轮工程副本".into());
+            }
+            task
+        }
+        (None, None) => {
+            let build = repository.join("target/build");
+            let test = repository.join("target/test");
+            if output.starts_with(&build) {
+                build
+            } else if output.starts_with(&test) {
+                test
+            } else {
+                return Err("Tauri 输出只能位于公民链固定 build 或 test 目录".into());
+            }
+        }
+        _ => return Err("Tauri 原产品与固定任务身份必须同时提供".into()),
+    };
     if !output.is_absolute()
-        || !output.starts_with(repository.join("target"))
+        || !output.starts_with(target_root)
         || output.canonicalize()? != output
         || (fs::symlink_metadata(&work).is_ok() && work.canonicalize()? != work)
     {
@@ -42,12 +71,17 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
     // 保持源码配置和 CLI 覆盖中的资源引用含义，不受临时工作目录影响。
     if let Some(resources) = config.pointer_mut("/bundle/resources") {
         match resources {
-            Value::Array(paths) => paths.iter_mut().for_each(|path| absolute_path(path, &source)),
+            Value::Array(paths) => paths
+                .iter_mut()
+                .for_each(|path| absolute_path(path, &source)),
             Value::Object(paths) => {
                 *paths = std::mem::take(paths)
                     .into_iter()
                     .map(|(path, destination)| {
-                        (source.join(path).to_string_lossy().into_owned(), destination)
+                        (
+                            source.join(path).to_string_lossy().into_owned(),
+                            destination,
+                        )
                     })
                     .collect();
             }
@@ -56,7 +90,9 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
     }
     for key in ["/bundle/icon", "/bundle/externalBin"] {
         if let Some(Value::Array(paths)) = config.pointer_mut(key) {
-            paths.iter_mut().for_each(|path| absolute_path(path, &source));
+            paths
+                .iter_mut()
+                .for_each(|path| absolute_path(path, &source));
         }
     }
     if let Some(path) = config.pointer_mut("/bundle/windows/webviewInstallMode/path") {
@@ -65,8 +101,11 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&work)?;
     // Cargo.toml 的 workspace 继承继续指向原始工作空间；不复制或编译另一套源码。
     let workspace = serde_json::to_string(&source.parent().ok_or("缺少工作空间")?)?;
-    let manifest = fs::read_to_string(source.join("Cargo.toml"))?
-        .replacen("[package]", &format!("[package]\nworkspace = {workspace}"), 1);
+    let manifest = fs::read_to_string(source.join("Cargo.toml"))?.replacen(
+        "[package]",
+        &format!("[package]\nworkspace = {workspace}"),
+        1,
+    );
     write_if_changed(&work.join("Cargo.toml"), manifest.as_bytes())?;
     let config = serde_json::to_string(&config)?;
     write_if_changed(&work.join("tauri.conf.json"), config.as_bytes())?;

@@ -1,7 +1,7 @@
 // QR_V1 统一协议 TS 类型与解析器。
 //
-// 唯一事实源：citizenchain/crates/qr-protocol/registry.json
-// Golden fixtures:citizenchain/crates/qr-protocol/tests/fixtures/*.json
+// 唯一事实源：citizenchain/crates/protocol/registry.json
+// Golden fixtures:citizenchain/crates/protocol/fixtures/*.json
 //
 // body/envelope 约束由 core/qr/generated 产物统一解释；本文件只映射业务类型。
 //

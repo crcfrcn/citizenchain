@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Descriptions, Typography } from 'antd';
-import { tryEncodeSs58 } from '../utils/ss58';
+import { tryEncodeSs58 } from '../helpers/ss58';
 
 /** 管理员账户与机构岗位的一条任职关系；姓名按链上管理员记录的两个字段投影。 */
 export type InstitutionAssignmentLike = {

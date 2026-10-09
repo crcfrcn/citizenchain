@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { tmpdir } from 'node:os';
@@ -42,6 +43,7 @@ export default defineConfig(({ command }) => {
     outDir: process.env.ONCHINA_FRONTEND_DIST || join(tmpdir(), 'citizenchain', 'onchina-frontend')
   },
   server: {
+    fs: {allow: [fileURLToPath(new URL('.',import.meta.url)),fileURLToPath(new URL('../../icons',import.meta.url)),fileURLToPath(new URL('../../crates/scanner',import.meta.url))]},
     https,
     hmr: { protocol: "wss", clientPort: 5179 },
     port: 5179,

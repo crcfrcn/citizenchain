@@ -10,7 +10,7 @@
 // 鉴权真源在后端;本 hook 只服务前端 UX:写按钮置灰(canWrite*)+ 进 tab 跳级导航(skip*)。
 
 import { useMemo } from 'react';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { isTier1Registry } from '../platform/registryTier';
 
 export interface VisibleScope {

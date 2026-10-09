@@ -5,13 +5,13 @@ import { check, type Update } from '@tauri-apps/plugin-updater';
 import { NrcSection } from '../governance/NrcSection';
 import { PrcSection } from '../governance/PrcSection';
 import { PrbSection } from '../governance/PrbSection';
-import { ClearingBankSection } from '../transaction/offchain/section';
+import { ClearingBankSection } from '../offchain/section';
 import { HomeNodeSection } from '../home';
-import { TransactionPanel } from '../transaction/onchain/TransactionPanel';
+import { TransactionPanel } from '../onchain/TransactionPanel';
 import { MiningDashboardSection } from '../mining';
-import { OtherTabsSection } from '../other-tabs';
+import { OtherTabsSection } from '../other';
 import { settingsApi } from '../settings/api';
-import { SettingsSection } from '../settings/settings-panel';
+import { SettingsSection } from '../settings';
 import { shouldShowDesktopUpdateDot } from '../settings/updateIndicator';
 import type { DesktopUpdateInfo } from '../settings/types';
 

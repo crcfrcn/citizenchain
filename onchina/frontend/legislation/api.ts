@@ -3,9 +3,9 @@
 // OnChina 回扫后通过唯一提交入口上链；
 // 读法律/提案进度直读链投影。通用 http 走 utils/http.ts,本模块不另造请求封装。
 
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { ChainSignPrepare } from '../core/useChainSign';
-import { adminRequest } from '../utils/http';
+import { adminRequest } from '../helpers/http';
 import type {
   LawView,
   LegProposalState,

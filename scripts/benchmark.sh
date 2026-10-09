@@ -16,7 +16,7 @@ case "$(uname -s)/$(uname -m)" in
   Linux/x86_64) BENCHMARK_PLATFORM=linux-amd ;;
   *) echo '公民链benchmark宿主未声明' >&2; exit 1 ;;
 esac
-CITIZENCHAIN_WORK_DIR="$CHAIN_ROOT/target/$BENCHMARK_PLATFORM/test/benchmark"
+CITIZENCHAIN_WORK_DIR="$CHAIN_ROOT/target/test/benchmark"
 export CITIZENCHAIN_WORK_DIR
 export CARGO_TARGET_DIR="$CITIZENCHAIN_WORK_DIR/cargo-target"
 # benchmark 必须基于当前源码生成 weights，不从 GitHub CI 下载 wasm。
@@ -35,7 +35,8 @@ echo "    已清除"
 
 # ── 2. 编译带 benchmark feature 的 node ──
 # 编译前端只在本轮target工程副本准备；冻结源码继续只读。
-source "$SCRIPT_DIR/prepare-toolchain.sh"
+export CITIZENCHAIN_SOURCE_ROOT="$CHAIN_ROOT"
+source <("${PRODUCT_NODE_BIN:?}" "$CHAIN_ROOT/scripts/build.mjs" shell-source prepare)
 FRONTEND_DIST="$NODE_FRONTEND_PROJECT/dist"
 if [ ! -d "$FRONTEND_DIST" ]; then
     npm --prefix "$NODE_FRONTEND_PROJECT" run build
@@ -49,7 +50,7 @@ echo "    编译完成"
 # 当前 runtime 的链规 preset 只在 std 节点侧提供，WASM 不能通过
 # `--genesis-builder=runtime` 构造完整创世状态。基准因此从当前二进制导出一次性
 # fresh spec，并用 spec-genesis 交给 benchmark externalities；退出后立即删除。
-BENCHMARK_TMP_ROOT="$CHAIN_ROOT/target/$BENCHMARK_PLATFORM/test/benchmark/tmp"
+BENCHMARK_TMP_ROOT="$CHAIN_ROOT/target/test/benchmark/tmp"
 mkdir -p "$BENCHMARK_TMP_ROOT"
 BENCHMARK_SPEC="$(mktemp "$BENCHMARK_TMP_ROOT/citizenchain-benchmark-spec.XXXXXX")"
 trap 'rm -f "$BENCHMARK_SPEC"' EXIT

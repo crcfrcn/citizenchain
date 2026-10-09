@@ -89,6 +89,7 @@ private-admins = { path = "admins/private-admins", default-features = false }
 grandpakey-change = { path = "governance/grandpakey-change", default-features = false }
 runtime-upgrade = { path = "governance/runtime-upgrade", default-features = false }
 legislation-yuan = { path = "public/legislation-yuan", default-features = false }
+citizen-election = { path = "public/citizen-election", default-features = false }
 resolution-destroy = { path = "governance/resolution-destroy", default-features = false }
 multisig = { path = "transaction/multisig", default-features = false }
 offchain = { path = "transaction/offchain", default-features = false }
@@ -139,6 +140,7 @@ std = [
 	"grandpakey-change/std",
 	"runtime-upgrade/std",
 	"legislation-yuan/std",
+	"citizen-election/std",
 	"resolution-destroy/std",
 	"multisig/std",
 	"offchain/std",
@@ -194,6 +196,7 @@ runtime-benchmarks = [
 	"internal-vote/runtime-benchmarks",
 	"joint-vote/runtime-benchmarks",
 	"election-vote/runtime-benchmarks",
+	"citizen-election/runtime-benchmarks",
 	"legislation-vote/runtime-benchmarks",
 	"public-admins/runtime-benchmarks",
 	"private-admins/runtime-benchmarks",
@@ -234,6 +237,7 @@ try-runtime = [
 	"internal-vote/try-runtime",
 	"joint-vote/try-runtime",
 	"election-vote/try-runtime",
+	"citizen-election/try-runtime",
 	"public-admins/try-runtime",
 	"private-admins/try-runtime",
 	"grandpakey-change/try-runtime",

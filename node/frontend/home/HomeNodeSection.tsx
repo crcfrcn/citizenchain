@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sanitizeError } from '../tauri';
 import { homeNodeApi as api } from './api';
-import { ChainSection } from './components/ChainSection';
-import { IdentitySection } from './components/IdentitySection';
-import { IssuanceSection } from './components/IssuanceSection';
+import { ChainSection } from './ChainSection';
+import { IdentitySection } from './IdentitySection';
+import { IssuanceSection } from './IssuanceSection';
 import type { ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake } from './types';
 
 const PARTIAL_REFRESH_ERROR_PREFIX = '部分数据刷新失败：';

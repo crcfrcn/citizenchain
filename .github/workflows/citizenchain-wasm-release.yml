@@ -110,36 +110,40 @@ jobs:
     - env:
         GH_TOKEN: "${{ github.token }}"
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 0
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 0
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 1
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 1
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 2
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 2
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 3
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 3
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 4
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 4
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 5
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 5
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 6
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 6
     - working-directory: .
       env:
         WASM_BUILD_FROM_SOURCE: '1'
         CITIZENCHAIN_PRODUCTION_WASM_BUILD: '1'
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 7
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 7
     - working-directory: .
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 8
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 8
     - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 9
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 9
     - working-directory: .
       env:
         WASM_FILE: "${{ env.CARGO_TARGET_DIR }}/release/wbuild/citizenchain/citizenchain.compact.compressed.wasm"
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/runtime/release/build-wasm/execute.mjs" workflow-step 10
+      run: node "$GITHUB_WORKSPACE/scripts/release/wasm.mjs" build-wasm workflow-step 10
+    - name: 清空本产品固定构建目录
+      if: always()
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/target.mjs" finish build

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Image, Modal } from 'antd';
-import type { AdminAuth } from '../auth/types';
-import { adminBlobRequest } from '../utils/http';
-import { notice } from '../utils/notice';
+import type { AdminAuth } from '../authentication/types';
+import { adminBlobRequest } from '../helpers/http';
+import { notice } from '../helpers/notice';
 
 export function LegalRepresentativePhoto({ auth, path, name }: {
   auth: AdminAuth;

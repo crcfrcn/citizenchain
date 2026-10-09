@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AutoComplete, Button, Col, Form, Input, Modal, Row, Select, Spin, Typography } from 'antd';
 import { DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { listCidTowns, type CidCityItem, type CidTownItem } from '../china/api';
 import { loadCachedCidCities } from '../china/metaCache';
 import type {
@@ -37,7 +37,7 @@ import {
   SUBJECT_PROPERTY_LABEL,
   type CreateFormCategory,
 } from '../subjects/labels';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 import { submitChainSign, useChainSign } from './useChainSign';
 
 // 第 6 步新原子创建业务接入前保持关闭；不得用旧 call 5 临时放开。

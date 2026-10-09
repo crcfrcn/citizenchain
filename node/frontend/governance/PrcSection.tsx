@@ -4,10 +4,10 @@ import { AdminListPage } from '../admins';
 import { InstitutionListView } from './InstitutionListView';
 import { InstitutionDetailPage } from './InstitutionDetailPage';
 import { ProposalDetailPage } from './ProposalDetailPage';
-import { CreateMultisigTransferPage } from '../transaction/multisig/CreateProposalPage';
-import { SweepProposalPage } from '../transaction/multisig/SweepProposalPage';
-import { ProtocolUpgradeProposalPage } from './runtime-upgrade';
-import { GrandpaKeyChangePage } from './grandpa-key/GrandpaKeyChangePage';
+import { CreateMultisigTransferPage } from '../multisig/CreateProposalPage';
+import { SweepProposalPage } from '../multisig/SweepProposalPage';
+import { ProtocolUpgradeProposalPage } from '../upgrade';
+import { GrandpaKeyChangePage } from '../keys/GrandpaKeyChangePage';
 import type { AdminSignerMatch } from './types';
 
 type PrcView =

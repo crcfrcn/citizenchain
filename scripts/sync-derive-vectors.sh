@@ -34,7 +34,7 @@ export TMPDIR="$SHARED_WORK_DIR/"
 
 PRIMITIVES_MANIFEST="${REPO_ROOT}/citizenchain/runtime/primitives/Cargo.toml"
 CANONICAL="${REPO_ROOT}/citizenchain/runtime/primitives/tests/fixtures/account_derive_vectors.json"
-DART_COPY="${REPO_ROOT}/citizenapp/test/governance/shared/account_derive_vectors.json"
+DART_COPY="${REPO_ROOT}/citizenapp/test/citizen/shared/account_derive_vectors.json"
 
 MODE="check"
 if [[ "${1:-}" == "--write" ]]; then

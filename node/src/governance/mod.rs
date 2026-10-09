@@ -8,6 +8,7 @@ pub(crate) mod chain_query;
 pub(crate) mod institution;
 pub mod proposal;
 pub(crate) mod registry;
+#[path = "../upgrade/mod.rs"]
 pub mod runtime_upgrade;
 pub mod signing;
 pub(crate) mod storage_keys;

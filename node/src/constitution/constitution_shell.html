@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>公民宪法 | Citizen Constitution</title>
+<style>
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* 样式采用正式文书版阅读界面；正文中英文结构不变。 */
+  :root {
+    --doc-bg: #f6f1e8;
+    --doc-bg-2: #eee6da;
+    --doc-paper: #fffaf0;
+    --doc-ink: #2d211c;
+    --doc-subtle: #756b60;
+    --doc-line: #e6d8c5;
+    --doc-accent: #d20f18;
+    --doc-accent-2: #0b6fc2;
+    --doc-soft-accent: #f8e9df;
+    --doc-shadow: 0 18px 42px rgba(83, 53, 24, 0.12);
+    --doc-radius: 8px;
+    --doc-toc-width: 318px;
+    --doc-grid-gap: 24px;
+    --doc-title-offset: 171px;
+    --doc-sticky-header-offset: 196px;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(180deg, var(--doc-bg), var(--doc-bg-2));
+    color: var(--doc-ink);
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  .page {
+    width: min(1320px, calc(100% - 60px));
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 30px 0 26px;
+    background: transparent;
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: var(--doc-toc-width) minmax(0, 1fr);
+    gap: var(--doc-grid-gap);
+    align-items: start;
+  }
+
+  .cover {
+    grid-column: 1 / -1;
+    position: sticky;
+    top: 8px;
+    z-index: 40;
+    margin: 0;
+    padding: 30px 34px;
+    display: grid;
+    grid-template-columns: minmax(330px, 1fr) minmax(320px, auto) minmax(330px, 1fr);
+    align-items: center;
+    gap: 24px;
+    text-align: center;
+    border: 1px solid #dbcbb5;
+    border-radius: var(--doc-radius);
+    background: var(--doc-paper);
+    box-shadow: var(--doc-shadow);
+    overflow: hidden;
+  }
+
+  .cover::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 8px;
+    background: var(--doc-accent);
+  }
+
+  .country-mark {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    justify-self: start;
+    text-align: left;
+    color: #3a1d17;
+  }
+
+  .country-emblem {
+    flex: 0 0 auto;
+    width: 72px;
+    height: 72px;
+    border: 4px solid #fff;
+    border-radius: 999px;
+    outline: 1px solid rgba(210, 15, 24, 0.25);
+    background-image: url("__CONSTITUTION_BACKGROUND__");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 206px auto;
+    box-shadow: 0 12px 26px rgba(120, 40, 28, 0.18);
+  }
+
+  .country-text {
+    min-width: 0;
+  }
+
+  .country-cn,
+  .country-en {
+    display: block;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.35;
+  }
+
+  .country-cn {
+    color: #3a1d17;
+    font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+    font-size: 24px;
+    font-weight: 800;
+  }
+
+  .country-en {
+    margin-top: 4px;
+    color: var(--doc-subtle);
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  .title-mark {
+    justify-self: center;
+    text-align: center;
+    transform: translateX(var(--doc-title-offset));
+  }
+
+  .doc-title-en {
+    display: block;
+    margin-top: 8px;
+    color: var(--doc-subtle);
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    transform: none;
+  }
+
+  .doc-title-cn {
+    display: block;
+    color: #321e18;
+    font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+    font-size: clamp(30px, 4.4vw, 44px);
+    font-weight: 800;
+    line-height: 1.2;
+  }
+
+  .doc-version-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 10px;
+    color: var(--doc-subtle);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .doc-version-cn::after {
+    content: "·";
+    margin-left: 8px;
+    color: #b49d82;
+  }
+
+  .toc {
+    grid-column: 1;
+    position: sticky;
+    top: var(--doc-sticky-header-offset);
+    margin: 0;
+    padding: 0;
+    border: 1px solid #dacbb7;
+    border-radius: var(--doc-radius);
+    background: var(--doc-paper);
+    box-shadow: var(--doc-shadow);
+    max-height: calc(100vh - var(--doc-sticky-header-offset) - 12px);
+    overflow: auto;
+  }
+
+  .toc-title {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: 0;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--doc-line);
+    background: #fbf3e6;
+    color: var(--doc-ink);
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.35;
+    text-align: center;
+  }
+
+  .toc-title .en {
+    display: block;
+    margin-top: 2px;
+    color: var(--doc-subtle);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .toc-list {
+    padding: 8px;
+    column-count: auto;
+  }
+
+  .toc-node {
+    margin: 2px 0;
+  }
+
+  .toc-children {
+    display: none;
+    margin: 2px 0 4px 14px;
+    padding-left: 8px;
+    border-left: 1px dashed #cfdae8;
+  }
+
+  .toc-node.expanded > .toc-children {
+    display: block;
+  }
+
+  .toc-item {
+    display: block;
+    margin: 2px 0;
+    border-radius: 10px;
+    color: #4b3a31;
+    text-decoration: none;
+    position: relative;
+    transition: background 120ms ease, color 120ms ease;
+  }
+
+  .toc-branch > .toc-item {
+    cursor: pointer;
+    padding-left: 26px;
+  }
+
+  .toc-branch > .toc-item::before {
+    content: "▸";
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    color: #806c5c;
+    font-size: 11px;
+    line-height: 1;
+    transition: transform 120ms ease;
+  }
+
+  .toc-branch.expanded > .toc-item::before {
+    transform: rotate(90deg);
+  }
+
+  .toc-item:hover,
+  .toc-item.active {
+    background: var(--doc-soft-accent);
+    color: #823127;
+    text-decoration: none;
+  }
+
+  .toc-item.active {
+    font-weight: 700;
+  }
+
+  .toc-cn,
+  .toc-en {
+    display: block;
+    min-width: 0;
+    word-break: break-word;
+  }
+
+  .toc-en {
+    color: var(--doc-subtle);
+  }
+
+  .toc-level-1,
+  .toc-level-2,
+  .toc-level-3 {
+    padding: 8px 10px;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.4;
+  }
+
+  .toc-level-1 {
+    margin-top: 4px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .toc-level-2 {
+    padding-left: 10px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .toc-level-3 {
+    padding-left: 10px;
+    font-size: 12px;
+    font-weight: 500;
+    opacity: 0.9;
+  }
+
+  .toc-branch > .toc-level-2 {
+    padding-left: 26px;
+  }
+
+  .toc-level-1 .toc-en,
+  .toc-level-2 .toc-en,
+  .toc-level-3 .toc-en {
+    margin-top: 2px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .content {
+    grid-column: 2;
+    min-width: 0;
+    padding: clamp(20px, 4vw, 42px);
+    border: 1px solid #dacbb7;
+    border-radius: var(--doc-radius);
+    background: var(--doc-paper);
+    box-shadow: var(--doc-shadow);
+    color: #2b2520;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 16px;
+    line-height: 1.82;
+    animation: local-doc-fade-in 260ms ease-out;
+  }
+
+  .block {
+    scroll-margin-top: 178px;
+  }
+
+  .chapter-title,
+  .section-title,
+  .article-title {
+    color: #2f211b;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.35;
+  }
+
+  .chapter-title {
+    margin: 1.6em 0 0.7em;
+    padding: 0;
+    border: 0;
+    text-align: center;
+    font-size: clamp(22px, 2.8vw, 30px);
+    font-weight: 700;
+  }
+
+  .section-title {
+    margin: 1.5em 0 0.7em;
+    padding-left: 10px;
+    border-left: 6px solid var(--doc-accent);
+    font-size: clamp(20px, 2.4vw, 26px);
+    font-weight: 700;
+  }
+
+  .article-title {
+    margin: 1.2em 0 0.45em;
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  .immutable-badge {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+    margin-left: 8px;
+    padding: 2px 6px;
+    border: 1px solid rgba(210, 15, 24, 0.24);
+    border-radius: 8px;
+    background: rgba(210, 15, 24, 0.08);
+    color: var(--doc-accent);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    transform: translateY(-1px);
+  }
+
+  .immutable-badge-cn {
+    font-size: 10px;
+  }
+
+  .immutable-badge-en {
+    color: #9f3a32;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .heading-cn,
+  .heading-en,
+  .body-cn,
+  .body-en {
+    display: block;
+  }
+
+  .heading-en {
+    margin-top: 2px;
+    color: var(--doc-subtle);
+    font-weight: 600;
+  }
+
+  .article-paragraph {
+    margin: 0.7em 0;
+    color: #2b2520;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1.82;
+    text-align: justify;
+  }
+
+  .body-cn {
+    font-size: 16px;
+    font-weight: 400;
+  }
+
+  .body-en {
+    margin-top: 3px;
+    color: var(--doc-subtle);
+    font-size: 15px;
+    font-weight: 400;
+  }
+
+  .to-top {
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    z-index: 50;
+    width: 42px;
+    height: 42px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--doc-accent);
+    color: #fff;
+    box-shadow: 0 8px 18px rgba(15, 118, 110, 0.25);
+    cursor: pointer;
+    font-size: 18px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity 140ms ease, transform 140ms ease;
+  }
+
+  .to-top.visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  @keyframes local-doc-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (max-width: 1180px) {
+    .page {
+      grid-template-columns: 1fr;
+      width: min(100% - 24px, 860px);
+    }
+
+    .cover,
+    .toc,
+    .content {
+      grid-column: 1;
+    }
+
+    .cover {
+      position: static;
+      grid-template-columns: 1fr;
+      text-align: center;
+    }
+
+    .country-mark {
+      justify-self: center;
+      text-align: center;
+      justify-content: center;
+    }
+
+    .title-mark,
+    .doc-title-en {
+      transform: none;
+    }
+
+    .toc {
+      position: static;
+      max-height: 320px;
+    }
+
+    .block {
+      scroll-margin-top: 18px;
+    }
+  }
+
+  @media print {
+    body {
+      background: #fff;
+    }
+
+    .page {
+      display: block;
+      width: auto;
+      margin: 0;
+      padding: 0;
+    }
+
+    .cover,
+    .toc,
+    .content {
+      box-shadow: none;
+      border-radius: 0;
+    }
+
+    .toc,
+    .to-top {
+      display: none;
+    }
+
+    .content {
+      border: 0;
+      padding: 2.5cm;
+    }
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <header class="cover">
+      <div class="country-mark">
+        <span class="country-emblem" aria-hidden="true"></span>
+        <span class="country-text">
+          <span class="country-cn">中华民族联邦共和国</span>
+          <span class="country-en">Federal Republic of the Chinese Nation</span>
+        </span>
+      </div>
+      <div class="title-mark">
+        <span class="doc-title-cn">《公民宪法》</span>
+        <span class="doc-title-en">CITIZEN CONSTITUTION</span>
+        <span class="doc-version-label"><!--CONSTITUTION_VERSION_LABEL--></span>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="目录 / Table of Contents">
+      <h1 class="toc-title">
+        <span class="cn">目录</span>
+        <span class="en">Table of Contents</span>
+      </h1>
+      <div class="toc-list">
+<!--CONSTITUTION_TOC-->
+      </div>
+    </nav>
+
+    <section class="content">
+<!--CONSTITUTION_CONTENT-->
+    </section>
+  </main>
+  <script>
+    // 静态 HTML 只负责目录折叠、高亮和回到顶部，不改变正文中英文显示结构。
+    (() => {
+      const tocList = document.querySelector('.toc-list');
+      const toTop = document.querySelector('.to-top');
+      if (!tocList) return;
+
+      const originalLinks = Array.from(tocList.children).filter((node) =>
+        node.classList?.contains('toc-item'),
+      );
+      const childrenByNode = new WeakMap();
+
+      const getLevel = (link) => {
+        if (link.classList.contains('toc-level-1')) return 1;
+        if (link.classList.contains('toc-level-2')) return 2;
+        return 3;
+      };
+
+      const createNode = (link, level) => {
+        const node = document.createElement('div');
+        node.className = `toc-node toc-node-level-${level}`;
+        link.classList.add('toc-link');
+
+        if (level < 3) {
+          node.classList.add('toc-branch');
+          link.setAttribute('role', 'button');
+          link.setAttribute('aria-expanded', 'false');
+          const children = document.createElement('div');
+          children.className = 'toc-children';
+          node.append(link, children);
+          childrenByNode.set(node, children);
+        } else {
+          node.classList.add('toc-leaf');
+          node.append(link);
+        }
+
+        return node;
+      };
+
+      const fragment = document.createDocumentFragment();
+      let currentChapter = null;
+      let currentSection = null;
+
+      originalLinks.forEach((link) => {
+        const level = getLevel(link);
+        const node = createNode(link, level);
+
+        if (level === 1) {
+          fragment.append(node);
+          currentChapter = node;
+          currentSection = null;
+          return;
+        }
+
+        if (level === 2) {
+          const parent = currentChapter ? childrenByNode.get(currentChapter) : fragment;
+          parent.append(node);
+          currentSection = node;
+          return;
+        }
+
+        const parent = currentSection
+          ? childrenByNode.get(currentSection)
+          : currentChapter
+            ? childrenByNode.get(currentChapter)
+            : fragment;
+        parent.append(node);
+      });
+
+      tocList.replaceChildren(fragment);
+
+      const links = Array.from(tocList.querySelectorAll('.toc-item'));
+      const targets = links
+        .map((link) => {
+          const id = decodeURIComponent((link.getAttribute('href') || '').replace(/^#/, ''));
+          const target = id ? document.getElementById(id) : null;
+          return target ? { link, target } : null;
+        })
+        .filter(Boolean);
+
+      const setExpanded = (node, expanded) => {
+        if (!node?.classList.contains('toc-branch')) return;
+        node.classList.toggle('expanded', expanded);
+        node.querySelector(':scope > .toc-item')?.setAttribute('aria-expanded', String(expanded));
+      };
+
+      const expandAncestors = (link) => {
+        let child = link.closest('.toc-node');
+        let parent = child?.parentElement?.closest('.toc-node');
+        while (parent && tocList.contains(parent)) {
+          setExpanded(parent, true);
+          child = parent;
+          parent = child.parentElement?.closest('.toc-node');
+        }
+      };
+
+      const setActive = (id, reveal = false) => {
+        links.forEach((link) => {
+          const active = link.getAttribute('href') === `#${id}`;
+          link.classList.toggle('active', active);
+          if (active && reveal) expandAncestors(link);
+        });
+      };
+
+      links.forEach((link) => {
+        const node = link.closest('.toc-node');
+        const isBranch = node?.classList.contains('toc-branch');
+        link.addEventListener('click', (event) => {
+          const href = link.getAttribute('href') || '';
+          const id = href.replace(/^#/, '');
+          if (!id || !href.startsWith('#')) return;
+          event.preventDefault();
+          if (isBranch) {
+            setExpanded(node, !node.classList.contains('expanded'));
+            setActive(id, false);
+            return;
+          }
+          // sandbox srcDoc 默认 hash 导航在桌面 WebView 中可能白屏，目录条目统一改为 iframe 内部滚动。
+          const target = document.getElementById(id);
+          if (target) {
+            setActive(id, true);
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        });
+      });
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) setActive(entry.target.id, false);
+          });
+        },
+        { root: null, rootMargin: '-38% 0px -52% 0px', threshold: 0.1 },
+      );
+
+      targets.forEach(({ target }) => observer.observe(target));
+
+      const handleScroll = () => {
+        if (!toTop) return;
+        toTop.classList.toggle('visible', window.scrollY > 260);
+      };
+
+      window.addEventListener('scroll', handleScroll, { passive: true });
+      handleScroll();
+      toTop?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    })();
+  </script>
+</body>
+</html>

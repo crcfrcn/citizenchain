@@ -14,9 +14,9 @@ import { ProvinceGrid } from '../core/ProvinceGrid';
 import { CityGrid } from '../core/CityGrid';
 import { EducationListTable } from './EducationListTable';
 import { EducationCreateModal } from './EducationCreateModal';
-import { GovDetailPage } from '../gov/GovDetailPage';
+import { GovDetailPage } from '../government/GovDetailPage';
 import { useScope } from '../hooks/useScope';
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import type { CidMetaResult } from '../china/api';
 import { glassCardStyle, glassCardHeadStyle } from '../core/cardStyles';
 

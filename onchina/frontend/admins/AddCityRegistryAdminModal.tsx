@@ -1,9 +1,10 @@
+import scanIcon from "../../../icons/scan.svg?url";
 // 新增市注册局管理员 Modal
 // 当 selectedCity 有值时，城市字段预填并锁定（已在某市详情页内新增）
 
 import { useEffect } from 'react';
 import { Button, Form, Input, Modal, Select } from 'antd';
-import { decodeSs58 } from '../utils/ss58';
+import { decodeSs58 } from '../helpers/ss58';
 import { ScanAccountModal } from '../core/ScanAccountModal';
 import { CID_MODAL_Z_INDEX } from '../core/modalStack';
 import { MAX_CITY_REGISTRY_ADMINS_PER_CITY, type RegistryAdminsSharedState } from './adminUtils';
@@ -159,13 +160,7 @@ export function AddCityRegistryAdminModal({ state }: AddCityRegistryAdminModalPr
                   style={{ cursor: 'pointer', display: 'inline-flex', color: '#0d9488' }}
                   onClick={() => setAccountScanTarget('city_registry')}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 7V5a2 2 0 0 1 2-2h2" />
-                    <path d="M17 3h2a2 2 0 0 1 2 2v2" />
-                    <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
-                    <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
-                    <rect x="7" y="7" width="10" height="10" rx="1" />
-                  </svg>
+                  <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url(${scanIcon})`,WebkitMaskImage:`url(${scanIcon})`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
                 </span>
               }
             />

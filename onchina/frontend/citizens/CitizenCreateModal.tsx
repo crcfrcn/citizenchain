@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { Alert, Button, Form, Input, Modal, Select } from 'antd';
 
-import type { AdminAuth } from '../auth/types';
+import type { AdminAuth } from '../authentication/types';
 import { submitChainSign, useChainSign } from '../core/useChainSign';
 import {
   prepareCitizenOccupy,
@@ -18,7 +18,7 @@ import {
   type CreateCitizenResult,
   type CitizenType,
 } from './api';
-import { notice } from '../utils/notice';
+import { notice } from '../helpers/notice';
 
 interface Props {
   auth: AdminAuth | null;

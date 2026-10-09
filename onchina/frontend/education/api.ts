@@ -1,8 +1,8 @@
 // 教育机构前端 API。JY 教育机构统一从这里调用后端:
 // 市详情确定性市公民教育委员会直接列表展示,学校和 F+JY 非法人教育机构按精确搜索返回。
 
-import type { AdminAuth } from '../auth/types';
-import { adminRequest } from '../utils/http';
+import type { AdminAuth } from '../authentication/types';
+import { adminRequest } from '../helpers/http';
 import type {
   CreateInstitutionInput,
   CreateInstitutionOutput,

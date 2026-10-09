@@ -4,11 +4,11 @@ import { useState } from 'react';
 import { AdminListPage } from '../admins';
 import { InstitutionDetailPage } from './InstitutionDetailPage';
 import { ProposalDetailPage } from './ProposalDetailPage';
-import { CreateMultisigTransferPage } from '../transaction/multisig/CreateProposalPage';
-import { SafetyFundProposalPage } from '../transaction/multisig/SafetyFundProposalPage';
-import { SweepProposalPage } from '../transaction/multisig/SweepProposalPage';
-import { ProtocolUpgradeProposalPage } from './runtime-upgrade';
-import { GrandpaKeyChangePage } from './grandpa-key/GrandpaKeyChangePage';
+import { CreateMultisigTransferPage } from '../multisig/CreateProposalPage';
+import { SafetyFundProposalPage } from '../multisig/SafetyFundProposalPage';
+import { SweepProposalPage } from '../multisig/SweepProposalPage';
+import { ProtocolUpgradeProposalPage } from '../upgrade';
+import { GrandpaKeyChangePage } from '../keys/GrandpaKeyChangePage';
 import type { AdminSignerMatch } from './types';
 
 // 国家储委会 cidNumber（全链唯一，直接进入详情）。

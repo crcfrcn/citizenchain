@@ -1,19 +1,19 @@
 // 注册局工作台挂载层。私权目录是注册局登记与管理入口，不是私权机构自己的工作台。
 
 import { useEffect, useState } from 'react';
-import type { AdminAuth } from '../auth/types';
-import type { CapabilitySet } from '../auth/AuthContext';
+import type { AdminAuth } from '../authentication/types';
+import type { CapabilitySet } from '../authentication/AuthContext';
 import type { CidMetaResult } from '../china/api';
 import { loadCachedCidMeta } from '../china/metaCache';
-import { notice } from '../utils/notice';
-import { GovView } from '../gov/GovView';
+import { notice } from '../helpers/notice';
+import { GovView } from '../government/GovView';
 import { PrivateShell } from '../private/PrivateShell';
 import { EducationView } from '../education/EducationView';
 import { OwnInstitutionAdminsView, RegistryAdminsView } from '../admins/RegistryAdminsView';
 import { isSubordinateRegistry, isTier1Registry } from '../platform/registryTier';
 import { CitizensView } from '../citizens/CitizensView';
 import { AddressManageView } from '../address/AddressManageView';
-import { LegislationView } from '../legislation/operator/LegislationView';
+import { LegislationView } from '../legislation/LegislationView';
 import type { PrivateType } from '../subjects/api';
 
 type ActiveView =

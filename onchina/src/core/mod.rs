@@ -13,6 +13,7 @@ pub(crate) mod http_security;
 /// 机构治理裸 SCALE call data 编码器（OnChina 唯一真源）。
 pub(crate) mod institution_call;
 /// QR_V1 协议和链上中国平台签名二维码构造。
+#[path = "../protocol/mod.rs"]
 pub(crate) mod qr;
 /// HTTP API 通用响应、分页和健康检查输出模型。
 pub(crate) mod response;
