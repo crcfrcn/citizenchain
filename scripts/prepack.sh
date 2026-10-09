@@ -64,7 +64,7 @@ else
   echo "                解压后 export CITIZENCHAIN_PG_DIST=<解压目录> 再重跑;否则安装包不含内嵌 PG。"
 fi
 
-# 中文注释：release 状态包只作为正式创世审计制品保留在 target/wasm/tmp/chainspec，不进入任一
+# 中文注释：release 状态包只作为正式创世审计制品保留在 target/build/chainspec，不进入任一
 # 平台安装包；清掉旧预打包残留，保证本机 prepack 与 GitHub CI 使用同一轻量合同。
 rm -rf "$PACKAGE_RESOURCES/genesis-state"
 echo "[prepack] 已确认安装包不携带 genesis-state；首启按冻结 plain chainspec 本地物化"

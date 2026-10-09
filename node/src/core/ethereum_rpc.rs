@@ -1074,9 +1074,9 @@ mod tests {
         // 非整分金额和无效价格参数必须在真实 WASM 报价阶段拒绝，不能进入交易池。
         for invalid in [
             serde_json::json!({"value":U256::one()}),
-            serde_json::json!({"gasPrice":price + U256::one()}),
+            serde_json::json!({"gasPrice":price - U256::one()}),
             serde_json::json!({"maxFeePerGas":price - U256::one(),"maxPriorityFeePerGas":"0x0"}),
-            serde_json::json!({"maxFeePerGas":price,"maxPriorityFeePerGas":"0x1"}),
+            serde_json::json!({"maxFeePerGas":price,"maxPriorityFeePerGas":price + U256::one()}),
         ] {
             let mut request = invalid;
             request["from"] = serde_json::to_value(accounts[0].address()).unwrap();
@@ -1092,21 +1092,29 @@ mod tests {
         let mut nonces = [0u32; 2];
         for (index, &(sender, recipient, value, fee)) in transfers.iter().enumerate() {
             println!("三节点会话：广播并等待第 {} 笔真实转账回执", index + 1);
-            let request = serde_json::json!({"from":accounts[sender].address(),
+            // 报价和签名携带同一钱包字段；非零优先费不能仅在签名替身中覆盖。
+            let eip1559 = index % 2 == 1;
+            let priority = if index == 1 { U256::one() } else { U256::from(1_000_000u64) };
+            let mut request = serde_json::json!({"from":accounts[sender].address(),
                 "to":accounts[recipient].address(),
                 "value":U256::from(value) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO)});
+            if eip1559 {
+                request["maxFeePerGas"] = serde_json::to_value(price * U256::from(2)).unwrap();
+                request["maxPriorityFeePerGas"] = serde_json::to_value(priority).unwrap();
+            } else {
+                request["gasPrice"] = serde_json::to_value(price + U256::one()).unwrap();
+            }
             let estimate: U256 = serde_json::from_value(rpc(&http, &url, "eth_estimateGas",
                 serde_json::json!([request])).await).unwrap();
             assert!(estimate * price >= U256::from(fee) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO));
             // 真实钱包按报价增加 gas 缓冲；Legacy 与 EIP-1559 均不能改变实际业务费。
-            let eip1559 = index % 2 == 1;
             let tx = GenericTransaction {
                 from: Some(accounts[sender].address()), to: Some(accounts[recipient].address()),
                 chain_id: Some(primitives::core_const::ETHEREUM_CHAIN_ID.into()),
                 nonce: Some(nonces[sender].into()), gas: Some(estimate * U256::from(2)),
-                gas_price: if eip1559 { None } else { Some(price) },
+                gas_price: if eip1559 { None } else { Some(price + U256::one()) },
                 max_fee_per_gas: if eip1559 { Some(price * U256::from(2)) } else { None },
-                max_priority_fee_per_gas: if eip1559 { Some(U256::zero()) } else { None },
+                max_priority_fee_per_gas: if eip1559 { Some(priority) } else { None },
                 value: Some(U256::from(value) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO)),
                 r#type: Some(if eip1559 { pallet_revive::evm::TYPE_EIP1559 } else { pallet_revive::evm::TYPE_LEGACY }.into()),
                 ..Default::default()

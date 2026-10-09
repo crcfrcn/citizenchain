@@ -55,11 +55,11 @@ pub const GENESIS_HASH: [u8; 32] =
 pub const GENESIS_STATE_ROOT: [u8; 32] =
     hex_literal::hex!("1f74a2ca094fc3ebb2143f504d807a6b4f4f9b0a3d13ac808ae84efc7cb12111");
 
-// 链身份 Runtime API：供节点查询实际 runtime 的创世哈希常量。
+// 链身份 Runtime API：验证并读取当前链状态中保存的实际创世哈希。
 sp_api::decl_runtime_apis! {
     #[api_version(1)]
     pub trait ChainIdentityApi {
-        /// 返回编译进当前 runtime 的创世哈希常量。
+        /// 返回已与冻结身份核对的实际创世哈希；缺失、零值或不一致时调用失败。
         fn genesis_hash() -> [u8; 32];
     }
 }

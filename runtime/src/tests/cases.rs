@@ -3578,7 +3578,15 @@ mod ethereum_execution {
     #[test]
     fn wallet_quotes_and_signed_transfers_cover_minimum_rounding_and_percentage_fees() {
         for (amount, fee) in [(100, 10), (10_499, 10), (10_500, 11), (100_000, 100)] {
-            for kind in [pallet_revive::evm::TYPE_LEGACY, pallet_revive::evm::TYPE_EIP1559] {
+            // 四档金额覆盖 Legacy/访问列表价格缓冲及三种合法钱包优先费。
+            for (kind, priority) in [
+                (pallet_revive::evm::TYPE_LEGACY, None),
+                (pallet_revive::evm::TYPE_EIP2930, None),
+                (pallet_revive::evm::TYPE_EIP1559, Some(U256::zero())),
+                (pallet_revive::evm::TYPE_EIP1559, Some(U256::one())),
+                (pallet_revive::evm::TYPE_EIP1559, Some(U256::from(1_000_000u64))),
+                (pallet_revive::evm::TYPE_EIP1559, Some(U256::from(2_000_000_000u64))),
+            ] {
                 ext().execute_with(|| {
                     let price = Revive::evm_base_fee();
                     assert_eq!(price, U256::from(1_000_000_000u64));
@@ -3592,7 +3600,9 @@ mod ethereum_execution {
                     if kind == pallet_revive::evm::TYPE_EIP1559 {
                         transaction.gas_price = None;
                         transaction.max_fee_per_gas = Some(price * U256::from(2));
-                        transaction.max_priority_fee_per_gas = Some(U256::zero());
+                        transaction.max_priority_fee_per_gas = priority;
+                    } else {
+                        transaction.gas_price = Some(price + U256::one());
                     }
                     // 钱包增加 gas 缓冲或费用上限不能改变业务费或产生第二次扣费。
                     transaction.gas = transaction.gas.map(|gas| gas * U256::from(2));
@@ -3619,12 +3629,12 @@ mod ethereum_execution {
             for variant in 0..4 {
                 let mut transaction = tx(Some(H160::repeat_byte(0x49)), vec![], 10_500);
                 match variant {
-                    0 => transaction.gas_price = Some(price + U256::one()),
+                    0 => transaction.gas_price = Some(price - U256::one()),
                     1 | 2 => {
                         transaction.r#type = Some(pallet_revive::evm::TYPE_EIP1559.into());
                         transaction.gas_price = None;
                         transaction.max_fee_per_gas = Some(if variant == 1 { price - U256::one() } else { price });
-                        transaction.max_priority_fee_per_gas = Some(if variant == 2 { U256::one() } else { U256::zero() });
+                        transaction.max_priority_fee_per_gas = Some(if variant == 2 { price + U256::one() } else { U256::zero() });
                     }
                     _ => transaction.gas = Some((fee_gas(10_500) - 1).into()),
                 }
@@ -3744,4 +3754,111 @@ mod ethereum_execution {
             assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
         });
     }
+}
+
+// 通过官方 Runtime API 分发入口验收，不复制创世身份校验实现。
+fn chain_identity_api_genesis_hash() -> [u8; 32] {
+    use codec::Decode;
+
+    let encoded = crate::apis::api::dispatch("ChainIdentityApi_genesis_hash", &[])
+        .expect("已注册链身份 Runtime API");
+    assert_eq!(encoded.len(), 32, "API 保持既有 32 字节返回编码");
+    <[u8; 32]>::decode(&mut &encoded[..]).expect("创世哈希 SCALE 编码有效")
+}
+
+#[test]
+fn chain_identity_api_returns_actual_hash_without_writing_storage() {
+    new_test_ext().execute_with(|| {
+        frame_system::BlockHash::<Runtime>::insert(
+            0u32,
+            sp_core::H256::from(primitives::genesis::GENESIS_HASH),
+        );
+        let before = sp_io::storage::root(VERSION.state_version());
+        // 当前状态根与冻结的创世根不同，合法的历史创世身份仍应通过。
+        assert_ne!(before, primitives::genesis::GENESIS_STATE_ROOT.to_vec());
+        assert_eq!(
+            chain_identity_api_genesis_hash(),
+            primitives::genesis::GENESIS_HASH
+        );
+        assert_eq!(
+            chain_identity_api_genesis_hash(),
+            primitives::genesis::GENESIS_HASH
+        );
+        assert_eq!(sp_io::storage::root(VERSION.state_version()), before);
+    });
+}
+
+#[test]
+#[should_panic(expected = "创世区块哈希缺失")]
+fn chain_identity_api_rejects_missing_genesis_hash() {
+    new_test_ext().execute_with(|| {
+        frame_system::BlockHash::<Runtime>::remove(0u32);
+        chain_identity_api_genesis_hash();
+    });
+}
+
+#[test]
+#[should_panic(expected = "创世区块哈希不得为零")]
+fn chain_identity_api_rejects_zero_genesis_hash() {
+    new_test_ext().execute_with(|| {
+        frame_system::BlockHash::<Runtime>::insert(0u32, sp_core::H256::zero());
+        chain_identity_api_genesis_hash();
+    });
+}
+
+#[test]
+#[should_panic(expected = "创世区块哈希与冻结身份不一致")]
+fn chain_identity_api_rejects_wrong_genesis_hash() {
+    new_test_ext().execute_with(|| {
+        frame_system::BlockHash::<Runtime>::insert(0u32, sp_core::H256::repeat_byte(0x42));
+        chain_identity_api_genesis_hash();
+    });
+}
+
+#[test]
+#[should_panic(expected = "创世区块哈希与冻结身份不一致")]
+fn chain_identity_api_rechecks_storage_on_every_query() {
+    new_test_ext().execute_with(|| {
+        frame_system::BlockHash::<Runtime>::insert(
+            0u32,
+            sp_core::H256::from(primitives::genesis::GENESIS_HASH),
+        );
+        assert_eq!(
+            chain_identity_api_genesis_hash(),
+            primitives::genesis::GENESIS_HASH
+        );
+        // 成功查询后改成错误身份，后续查询必须失败，不能复用常量或缓存结果。
+        frame_system::BlockHash::<Runtime>::insert(0u32, sp_core::H256::repeat_byte(0x42));
+        chain_identity_api_genesis_hash();
+    });
+}
+
+#[test]
+fn chain_identity_api_keeps_genesis_after_actual_block_hash_pruning() {
+    new_test_ext().execute_with(|| {
+        frame_system::BlockHash::<Runtime>::insert(
+            0u32,
+            sp_core::H256::from(primitives::genesis::GENESIS_HASH),
+        );
+        frame_system::BlockHash::<Runtime>::insert(1u32, sp_core::H256::repeat_byte(0x42));
+
+        // 实际调用 System::finalize：窗口边界保留块 0，下一高度裁剪块 1。
+        System::set_block_number(BLOCK_HASH_COUNT + 1);
+        let _ = System::finalize();
+        assert!(frame_system::BlockHash::<Runtime>::contains_key(0u32));
+        assert!(frame_system::BlockHash::<Runtime>::contains_key(1u32));
+        assert_eq!(
+            chain_identity_api_genesis_hash(),
+            primitives::genesis::GENESIS_HASH
+        );
+
+        System::set_block_number(BLOCK_HASH_COUNT + 2);
+        let _ = System::finalize();
+        assert!(!frame_system::BlockHash::<Runtime>::contains_key(1u32));
+        assert!(frame_system::BlockHash::<Runtime>::contains_key(0u32));
+        assert_eq!(
+            chain_identity_api_genesis_hash(),
+            primitives::genesis::GENESIS_HASH
+        );
+    });
 }

@@ -55,7 +55,7 @@ fn check_generated_files() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("qr-protocol 必须位于 citizenchain/crates/qr-protocol")?;
     let cases = [
         (
-            "citizenwallet/lib/qr/generated/qr_bodies.g.dart",
+            "citizenwallet/lib/protocol/generated/qr_bodies.g.dart",
             export_qr_bodies_dart()?,
         ),
         (

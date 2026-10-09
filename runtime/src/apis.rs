@@ -303,7 +303,20 @@ pallet_revive::impl_runtime_apis_plus_revive_traits!(Runtime, Revive, Executive,
 
     impl primitives::genesis::ChainIdentityApi<Block> for Runtime {
         fn genesis_hash() -> [u8; 32] {
-            primitives::genesis::GENESIS_HASH
+            // ValueQuery 缺键会返回零值，必须先确认实际链状态确实保存了块 0。
+            assert!(
+                frame_system::BlockHash::<Runtime>::contains_key(0u32),
+                "创世区块哈希缺失"
+            );
+            let genesis_hash: [u8; 32] = System::block_hash(0u32).into();
+            assert!(genesis_hash != [0u8; 32], "创世区块哈希不得为零");
+            // 只验证历史块 0 的哈希；当前状态根随运行变化，不能当作创世状态根。
+            assert_eq!(
+                genesis_hash,
+                primitives::genesis::GENESIS_HASH,
+                "创世区块哈希与冻结身份不一致"
+            );
+            genesis_hash
         }
     }
 

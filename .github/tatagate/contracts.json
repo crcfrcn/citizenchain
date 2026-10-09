@@ -14,6 +14,10 @@
     "citizenchain.windows.release"
   ],
   "node_tests": [
+    "node/snap/index.test.mjs",
+    "scripts/build-local.test.mjs",
+    "scripts/build.test.mjs",
+    "scripts/flow.test.mjs",
     "scripts/node/ci/linux-amd/build-desktop/test.mjs",
     "scripts/node/ci/linux-amd/changes/test.mjs",
     "scripts/node/ci/linux-amd/verify/test.mjs",
@@ -30,8 +34,10 @@
     "scripts/node/release/linux-arm/build-desktop/test.mjs",
     "scripts/node/release/macos/build-desktop/test.mjs",
     "scripts/node/release/windows/build-desktop/test.mjs",
+    "scripts/resources.test.mjs",
     "scripts/runtime/ci/build-wasm/test.mjs",
-    "scripts/runtime/release/build-wasm/test.mjs"
+    "scripts/runtime/release/build-wasm/test.mjs",
+    "scripts/start.test.mjs"
   ],
   "checks": [
     "repository-contracts",
@@ -47,5 +53,3029 @@
     "macOS ARM64",
     "macos-arm64",
     "macos_arm64"
+  ],
+  "github_repository": "crcfrcn/citizenchain",
+  "functions": [
+    {
+      "function": "crates/blockchain-harness/src/lib",
+      "path": "crates/blockchain-harness/src/lib.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "blockchain-harness",
+      "cases": [
+        "system_remark_call_data_uses_runtime_system_remark_indices",
+        "parse_h256_rejects_wrong_length",
+        "imported_state_bad_case_matrix_is_stable",
+        "summarize_exported_blocks_json_reads_json_lines",
+        "tamper_first_state_root_json_rewrites_only_state_root",
+        "tamper_first_state_root_json_rejects_same_root"
+      ]
+    },
+    {
+      "function": "crates/chain-signing/lib",
+      "path": "crates/chain-signing/lib.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "chain-signing",
+      "cases": [
+        "signing_material_roundtrip_and_hash_rule",
+        "tail_data_in_call_is_rejected",
+        "public_key_requires_prefixed_lowercase_hex",
+        "classify_invalid_tx_known_variants",
+        "dry_run_reject_future_gives_user_hint",
+        "preflight_runtime_api_error_stops_before_submit",
+        "ethereum_origin_marker_keeps_native_extension_bytes_unchanged"
+      ]
+    },
+    {
+      "function": "crates/qr-protocol/src/codec",
+      "path": "crates/qr-protocol/src/codec.rs",
+      "runner": "cargo",
+      "target": "crates/qr-protocol/Cargo.toml",
+      "package": "qr-protocol",
+      "cases": [
+        "decodes_public_key_to_lowercase_prefixed_hex",
+        "round_trips_signature_length",
+        "rejects_wrong_length_without_truncating",
+        "rejects_non_base64url_input",
+        "public_key_b64_rejects_wrong_length",
+        "schema_rejects_unknown_keys_and_noncanonical_account_id",
+        "schema_enforces_signer_public_key_action_condition"
+      ]
+    },
+    {
+      "function": "crates/qr-protocol/tests/golden_fixtures",
+      "path": "crates/qr-protocol/tests/golden_fixtures.rs",
+      "runner": "cargo",
+      "target": "crates/qr-protocol/Cargo.toml",
+      "package": "qr-protocol",
+      "cases": [
+        "fixtures_cover_all_five_kinds_with_matching_k",
+        "fixture_envelopes_respect_fixed_and_temporary_shape",
+        "fixture_bodies_use_exact_single_letter_keys",
+        "fixtures_contain_no_legacy_long_field_names",
+        "fixture_account_ids_are_canonical",
+        "sign_request_fixture_action_is_registered"
+      ]
+    },
+    {
+      "function": "crates/qr-protocol/tests/registry_consistency",
+      "path": "crates/qr-protocol/tests/registry_consistency.rs",
+      "runner": "cargo",
+      "target": "crates/qr-protocol/Cargo.toml",
+      "package": "qr-protocol",
+      "cases": [
+        "actions_have_unique_keys_codes_and_chinese_labels",
+        "self_occupy_cid_is_a_full_chain_transaction",
+        "required_fields_all_have_chinese_labels",
+        "field_and_reject_reason_keys_are_unique_and_chinese",
+        "removed_ambiguous_account_fields_cannot_return",
+        "hash_only_is_limited_to_runtime_upgrade",
+        "fields_yaml_has_no_orphan_entries",
+        "generated_dart_registries_are_current",
+        "qr_kinds_are_unique_and_constraints_are_closed",
+        "mls_device_bind_is_the_only_public_key_registration",
+        "generated_qr_body_validators_are_current"
+      ]
+    },
+    {
+      "function": "crates/qr-protocol/tests/repo_guard",
+      "path": "crates/qr-protocol/tests/repo_guard.rs",
+      "runner": "cargo",
+      "target": "crates/qr-protocol/Cargo.toml",
+      "package": "qr-protocol",
+      "cases": [
+        "tracked_source_scope_rejects_repository_parent",
+        "github_entry_only_runs_product_ci_and_release",
+        "product_sources_do_not_depend_on_the_control_program",
+        "product_flow_directories_have_one_final_name",
+        "citizenchain_owns_one_exact_protoc_dependency_path",
+        "runtime_upgrade_implementation_is_not_in_product",
+        "only_qr_v1_is_versioned"
+      ]
+    },
+    {
+      "function": "crates/scanner-react/test/ScannerView.test",
+      "path": "crates/scanner-react/test/ScannerView.test.tsx",
+      "runner": "vitest",
+      "target": "crates/scanner-react"
+    },
+    {
+      "function": "crates/scanner-react/test/scanner.test",
+      "path": "crates/scanner-react/test/scanner.test.ts",
+      "runner": "vitest",
+      "target": "crates/scanner-react"
+    },
+    {
+      "function": "node/frontend/other-tabs/LocalDocViewer.test",
+      "path": "node/frontend/other-tabs/LocalDocViewer.test.tsx",
+      "runner": "node-entry",
+      "target": "node/frontend"
+    },
+    {
+      "function": "node/snap/index.test",
+      "path": "node/snap/index.test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "node/src/admins/management/codec",
+      "path": "node/src/admins/management/codec.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "public_institution_admins_decode_citizen_identity_fields",
+        "account_only_layout_and_empty_person_name_are_rejected",
+        "private_institution_admins_preserve_citizen_cid",
+        "institution_role_permission_fixture_matches_shared_rust_types"
+      ]
+    },
+    {
+      "function": "node/src/admins/management/storage",
+      "path": "node/src/admins/management/storage.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "source_ref_keeps_text_and_hexes_binary_ids",
+        "permission_operation_uses_stable_chinese_labels",
+        "assignment_term_window_is_inclusive"
+      ]
+    },
+    {
+      "function": "node/src/core/constitution/guard",
+      "path": "node/src/core/constitution/guard.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "four_constitution_tamper_classes_return_known_bad_without_stopping_next_import"
+      ]
+    },
+    {
+      "function": "node/src/core/constitution/mod",
+      "path": "node/src/core/constitution/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "key_derivation_is_stable_and_distinct",
+        "full_check_required_for_legislation_or_runtime_code_delta",
+        "existing_history_and_amendment_proofs_are_frozen_against_runtime_rewrites",
+        "proof_version_cannot_hide_above_declared_latest_version",
+        "imported_state_precheck_passes_valid_state",
+        "imported_state_precheck_rejects_mutated_immutable_article",
+        "imported_state_precheck_rejects_missing_constitution_keys",
+        "reference_derives_all_immutable_articles",
+        "passes_when_immutable_unchanged_even_if_mutable_changed",
+        "reference_derives_core_articles_excluding_immutable",
+        "rejects_core_clause_change_without_special",
+        "allows_core_clause_change_with_special",
+        "rejects_core_clause_change_without_referendum_proof",
+        "rejects_core_clause_change_with_failing_referendum",
+        "allows_unchanged_core_clause_with_non_special",
+        "rejects_amendment_without_guard_proof",
+        "rejects_amendment_with_failing_guard_review",
+        "rejects_when_an_immutable_article_mutated",
+        "rejects_when_an_immutable_article_deleted",
+        "rejects_when_constitution_storage_missing",
+        "rejects_when_tier_changed",
+        "rejects_when_repealed",
+        "allows_pending_status_during_amendment",
+        "rejects_when_houses_changed",
+        "rejects_when_constitution_not_unique",
+        "rejects_when_constitution_hidden_from_scope_list",
+        "rejects_runtime_manifest_mutation",
+        "rejects_law_value_with_wrong_identity",
+        "rejects_invalid_status_or_version_pointers",
+        "rejects_version_identity_and_content_hash_mismatch",
+        "rejects_duplicate_article_number",
+        "rejects_duplicate_chapter_number",
+        "rejects_duplicate_section_number_within_chapter",
+        "allows_same_section_number_in_different_chapters",
+        "rejects_duplicate_article_number_across_chapters",
+        "rejects_tampered_historical_constitution_version",
+        "imported_state_rejects_hidden_version_above_latest",
+        "imported_state_rejects_malformed_version_and_proof_hashers",
+        "real_runtime_genesis_satisfies_full_constitution_guard",
+        "fresh_chain_spec_genesis_satisfies_full_constitution_guard",
+        "effective_version_uses_explicit_pointer",
+        "manifest_passes_when_list_and_hashes_consistent",
+        "manifest_rejects_wrong_list",
+        "manifest_rejects_tampered_hash",
+        "full_constitution_values_reject_trailing_bytes",
+        "render_rebuilds_expected_anchors",
+        "render_uses_chain_law_version_label"
+      ]
+    },
+    {
+      "function": "node/src/core/ethereum_rpc",
+      "path": "node/src/core/ethereum_rpc.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "metamask_session_settings_reject_source_paths_and_unbounded_duration",
+        "metamask_three_node_session_uses_pool_pow_tls_and_grandpa",
+        "standard_subscription_kinds_and_parameter_boundaries_are_enforced",
+        "pending_mapping_reads_native_storage_and_rejects_corrupt_accounts",
+        "signed_transactions_receipts_logs_finality_reorg_and_restart_over_real_tls_wasm"
+      ]
+    },
+    {
+      "function": "node/src/core/grandpa_rotation",
+      "path": "node/src/core/grandpa_rotation.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "both_call_indices_decode_with_runtime_contract"
+      ]
+    },
+    {
+      "function": "node/src/core/node_guard/cid_lifecycle",
+      "path": "node/src/core/node_guard/cid_lifecycle.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "cid_guard_checks_only_province_city_code_profit_and_checksum",
+        "ordinary_institution_can_be_deleted_but_genesis_institution_cannot",
+        "citizen_identity_uses_permanent_cid_and_current_account_id_binding",
+        "anonymous_person_cid_binds_account_without_voting_identity",
+        "candidate_identity_requires_active_normal_voter_and_locks_identity_fields",
+        "candidate_identity_can_only_be_deleted_with_cid_and_voting_revocation"
+      ]
+    },
+    {
+      "function": "node/src/core/node_guard/citizen_issuance",
+      "path": "node/src/core/node_guard/citizen_issuance.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "pending_reward_key_and_value_match_runtime_contract",
+        "valid_pending_reward_registers_exact_finalize_plan",
+        "queue_gap_wrong_identity_and_residual_pending_are_rejected",
+        "missing_markers_reverse_index_and_wrong_rewarded_count_are_rejected",
+        "either_cid_or_account_permanent_marker_rejects_reward",
+        "genesis_must_have_no_claim_or_pending_state",
+        "twox_pending_key_parser_rejects_tampering",
+        "malicious_identity_claim_and_unknown_delta_are_rejected",
+        "genesis_rejects_trailing_zero_and_unknown_keys"
+      ]
+    },
+    {
+      "function": "node/src/core/node_guard/fullnode_issuance",
+      "path": "node/src/core/node_guard/fullnode_issuance.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "raw_storage_keys_match_runtime_contract",
+        "deterministic_schedule_boundaries_are_fixed",
+        "valid_bound_reward_account_reward_passes",
+        "valid_unbound_miner_reward_falls_back_to_author",
+        "wrong_reward_amount_or_recipient_is_rejected",
+        "wrong_audit_height_miner_and_last_authored_are_rejected",
+        "reward_is_registered_in_shared_finalize_issuance_plan",
+        "imported_state_missing_balances_total_issuance_is_rejected",
+        "post_reward_range_finalize_must_not_mint_or_rewrite_audit",
+        "missing_author_and_pre_finalize_counter_tamper_are_rejected",
+        "warp_state_rejects_wrong_cumulative_issuance",
+        "warp_state_accepts_exact_first_reward_state",
+        "genesis_rejects_nonzero_audit_state",
+        "scale_values_with_trailing_bytes_are_rejected",
+        "pow_author_digest_rejects_trailing_bytes"
+      ]
+    },
+    {
+      "function": "node/src/core/node_guard/genesis_pallet",
+      "path": "node/src/core/node_guard/genesis_pallet.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "raw_keys_are_frame_storage_keys",
+        "canonical_genesis_and_operation_states_pass",
+        "fixed_facts_and_unknown_storage_are_rejected",
+        "malformed_scale_and_noncanonical_defaults_are_rejected",
+        "only_atomic_runtime_upgrade_transition_passes",
+        "partial_reverse_and_fixed_fact_transitions_are_rejected"
+      ]
+    },
+    {
+      "function": "node/src/core/node_guard/governance_skeleton",
+      "path": "node/src/core/node_guard/governance_skeleton.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "valid_fixed_admin_role_and_assignment_state_passes",
+        "foundation_genesis_identity_is_frozen_and_only_wallet_may_change",
+        "citizenchain_foundation_uses_private_storage_and_allows_one_person_three_roles",
+        "institution_admins_layout_is_exact",
+        "public_person_identity_fields_can_remain_empty_without_changing_authority",
+        "missing_or_wrong_code_fixed_account_is_rejected",
+        "missing_or_renamed_fixed_role_is_rejected_and_dynamic_role_is_allowed",
+        "missing_or_changed_fixed_role_permissions_are_rejected",
+        "changed_seat_count_or_non_admin_assignment_is_rejected",
+        "member_source_and_term_fields_are_outside_native_structure_guard",
+        "raw_key_derivation_and_trigger_prefixes_are_stable",
+        "ordinary_block_checks_only_the_affected_protected_institution",
+        "malformed_extra_role_key_is_ignored_but_trailing_value_is_rejected"
+      ]
+    },
+    {
+      "function": "node/src/core/node_guard/mod",
+      "path": "node/src/core/node_guard/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "canonical_genesis_passes_recomputed_header_and_startup_guard",
+        "declared_test_identity_does_not_change_frozen_production_identity",
+        "invalid_or_unreadable_genesis_always_stops_startup",
+        "block_requires_timestamp_and_at_least_one_user_transaction",
+        "combined_rewards_for_same_account_are_checked_once",
+        "unexpected_finalize_account_change_is_rejected",
+        "initialize_business_transfer_is_not_misclassified_as_finalize_issuance",
+        "new_reward_account_must_match_balances_default_shape",
+        "guarded_import_delegates_only_after_explicit_success",
+        "imported_state_bad_cases_return_known_bad_before_inner_import",
+        "legal_block_zero_imported_state_delegates_after_guard_success",
+        "precomputed_changes_must_match_reexecuted_normal_block",
+        "imported_state_rejects_when_cid_startup_baseline_unavailable",
+        "current_wasm_passes_candidate_runtime_policy_behavior_probes",
+        "self_consistent_bad_precomputed_block_is_known_bad_before_inner_import",
+        "finalize_plan_rejects_overflow_wrong_total_and_non_free_mutation",
+        "imported_state_is_partitioned_in_one_shared_pass",
+        "real_genesis_complete_state_passes_all_policies_in_one_scan",
+        "complete_state_rejects_missing_fixed_role_and_allows_dynamic_role_key",
+        "complete_state_rejects_each_policy_before_inner_import",
+        "cid_policy_accepts_complete_state_import_at_non_genesis_height"
+      ]
+    },
+    {
+      "function": "node/src/core/node_guard/national_body_composition",
+      "path": "node/src/core/node_guard/national_body_composition.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "unconstituted_and_valid_constituted_states_pass",
+        "member_names_do_not_define_membership_but_must_be_valid",
+        "partial_or_out_of_range_composition_is_rejected",
+        "constituted_body_cannot_return_to_unconstituted",
+        "fixed_governance_threshold_snapshot_is_enforced",
+        "runtime_upgrade_rechecks_existing_fixed_threshold_snapshots",
+        "non_member_singletons_do_not_enter_composition_guard",
+        "six_singleton_threshold_snapshots_are_not_frozen_by_node_guard",
+        "fixed_proposal_without_canonical_threshold_is_rejected"
+      ]
+    },
+    {
+      "function": "node/src/core/node_guard/provincialbank_interest",
+      "path": "node/src/core/node_guard/provincialbank_interest.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "raw_keys_match_runtime_contract",
+        "genesis_allows_stake_topup_but_rejects_principal_spend",
+        "genesis_rejects_unknown_interest_storage",
+        "year_formula_is_fixed_from_one_to_one_hundred",
+        "annual_transition_registers_exact_forty_three_account_plan",
+        "annual_plan_closes_with_balances_and_total_issuance",
+        "annual_transition_rejects_wrong_audit_and_stake_mutation"
+      ]
+    },
+    {
+      "function": "node/src/core/node_guard/runtime_policy",
+      "path": "node/src/core/node_guard/runtime_policy.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "node_fixed_fee_values_are_exact",
+        "rates_above_zero_point_one_percent_are_rejected",
+        "actual_onchain_fee_event_must_match_fixed_formula",
+        "actual_offchain_settlement_uses_recipient_rate_and_one_fen_minimum",
+        "cid_storage_keys_use_compact_len_prefix"
+      ]
+    },
+    {
+      "function": "node/src/core/p2p_bad_block_tests",
+      "path": "node/src/core/p2p_bad_block_tests.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "constitution_guard_rejects_manifest_delta_and_then_accepts_legal_delta",
+        "p2p_sync_rejects_self_consistent_bad_node_guard_block"
+      ]
+    },
+    {
+      "function": "node/src/core/rpc_tls",
+      "path": "node/src/core/rpc_tls.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "missing_relative_invalid_and_mismatched_credentials_are_rejected",
+        "https_wss_certificate_validation_safe_methods_and_plaintext_rejection"
+      ]
+    },
+    {
+      "function": "node/src/core/service",
+      "path": "node/src/core/service.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "pow_hash_deterministic",
+        "pow_hash_differs_with_different_nonce",
+        "pow_hash_differs_with_different_pre_hash",
+        "pow_hash_matches_manual_blake2",
+        "hash_meets_difficulty_zero_always_false",
+        "hash_meets_difficulty_one_always_true",
+        "hash_meets_difficulty_max_only_zero_hash",
+        "hash_meets_difficulty_boundary",
+        "mining_ready_transactions_keeps_nonempty_pool_when_not_major_syncing",
+        "mining_ready_transactions_keeps_empty_pool_blocked",
+        "mining_ready_transactions_blocks_during_major_sync"
+      ]
+    },
+    {
+      "function": "node/src/governance/institution",
+      "path": "node/src/governance/institution.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "decode_account_balance_basic"
+      ]
+    },
+    {
+      "function": "node/src/governance/proposal",
+      "path": "node/src/governance/proposal.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "truncate_chars_keeps_short_input_unchanged",
+        "truncate_chars_appends_ellipsis_when_over_limit",
+        "truncate_chars_safe_for_multibyte_utf8",
+        "format_runtime_upgrade_summary_truncates_long_reason",
+        "decode_runtime_upgrade_action_uses_current_summary_layout",
+        "format_issuance_summary_shows_count_and_amount",
+        "decode_resolution_issuance_action_requires_explicit_role_code",
+        "format_destroy_summary_falls_back_to_unknown_institution",
+        "format_fee_rate_summary_shows_percent",
+        "split_action_into_details_maps_each_variant"
+      ]
+    },
+    {
+      "function": "node/src/governance/runtime_upgrade/call_data",
+      "path": "node/src/governance/runtime_upgrade/call_data.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "manual_call_encoding_matches_runtime_metadata_contract"
+      ]
+    },
+    {
+      "function": "node/src/governance/signing",
+      "path": "node/src/governance/signing.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "encode_compact_u32_single_byte",
+        "encode_compact_u32_two_bytes",
+        "sha256_hash_deterministic",
+        "account_id_to_ss58_roundtrip",
+        "classify_invalid_tx_known_variants",
+        "classify_invalid_tx_unknown_transaction",
+        "classify_invalid_tx_unrecognized_code_does_not_panic",
+        "dry_run_reject_future_gives_user_hint",
+        "dry_run_reject_other_variants_keep_technical_reason",
+        "now_secs_returns_positive"
+      ]
+    },
+    {
+      "function": "node/src/governance/storage_keys",
+      "path": "node/src/governance/storage_keys.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "system_account_key_has_correct_length"
+      ]
+    },
+    {
+      "function": "node/src/home/sync_guard",
+      "path": "node/src/home/sync_guard.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "detects_sync_network_detached_without_block_height",
+        "does_not_degrade_when_raw_network_is_disconnected",
+        "does_not_degrade_when_sync_peers_exist",
+        "does_not_degrade_while_major_syncing",
+        "does_not_degrade_without_identified_raw_peer",
+        "degraded_window_prunes_old_entries"
+      ]
+    },
+    {
+      "function": "node/src/mining/dashboard",
+      "path": "node/src/mining/dashboard.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "mining_cache_rejects_unknown_field"
+      ]
+    },
+    {
+      "function": "node/src/mining/gpu_miner",
+      "path": "node/src/mining/gpu_miner.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "difficulty_to_target_be_zero_returns_zeros",
+        "difficulty_to_target_be_one_returns_max",
+        "difficulty_to_target_be_two",
+        "difficulty_to_target_be_roundtrip"
+      ]
+    },
+    {
+      "function": "node/src/mining/network_overview",
+      "path": "node/src/mining/network_overview.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "cid_count_storage_key_matches_chain_pallet_and_storage_name",
+        "cid_count_decodes_exactly_eight_scale_bytes",
+        "normalize_peer_id_valid",
+        "normalize_peer_id_trims_whitespace",
+        "normalize_peer_id_empty_rejected",
+        "normalize_peer_id_too_long_rejected",
+        "normalize_peer_id_max_length_ok",
+        "normalize_peer_id_too_short_rejected",
+        "normalize_peer_id_non_alphanumeric_rejected",
+        "network_overview_json_excludes_removed_cards"
+      ]
+    },
+    {
+      "function": "node/src/settings/bootnodes_address",
+      "path": "node/src/settings/bootnodes_address.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "old_duplicate_name_field_is_rejected_instead_of_silently_accepted"
+      ]
+    },
+    {
+      "function": "node/src/settings/grandpa_address",
+      "path": "node/src/settings/grandpa_address.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "every_grandpa_cid_uses_runtime_cid_short_name_without_duplicate_catalog_name",
+        "old_duplicate_name_field_is_rejected_instead_of_silently_accepted"
+      ]
+    },
+    {
+      "function": "node/src/settings/node_mode",
+      "path": "node/src/settings/node_mode.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "pending_selected_mode_falls_back_to_archive",
+        "mode_options_expose_archive_active_and_normal_pending",
+        "wire_value_rejects_unknown_node_mode",
+        "pending_wire_value_is_not_selectable",
+        "stored_communication_mode_is_cleaned_to_archive"
+      ]
+    },
+    {
+      "function": "node/src/shared/cid_config_tests",
+      "path": "node/src/shared/cid_config_tests.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "https_base_urls_preserve_the_explicit_origin",
+        "plaintext_credentials_and_ambiguous_urls_are_rejected"
+      ]
+    },
+    {
+      "function": "node/src/shared/constants",
+      "path": "node/src/shared/constants.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "ss58_prefix_values_consistent",
+        "ss58_prefix_is_2027"
+      ]
+    },
+    {
+      "function": "node/src/shared/keystore",
+      "path": "node/src/shared/keystore.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "ensure_directory_secure_creates_path",
+        "ensure_directory_secure_sets_permissions_to_0700",
+        "grandpa_rotation_preserves_both_keys_then_removes_only_old_key"
+      ]
+    },
+    {
+      "function": "node/src/shared/rpc",
+      "path": "node/src/shared/rpc.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "normalize_genesis_hash_accepts_valid_hash",
+        "normalize_genesis_hash_rejects_missing_prefix",
+        "normalize_genesis_hash_rejects_wrong_length",
+        "normalize_genesis_hash_rejects_non_hex"
+      ]
+    },
+    {
+      "function": "node/src/shared/storage_keys",
+      "path": "node/src/shared/storage_keys.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "prefix_matches_known_system_account",
+        "blake2_map_layout_is_prefix_plus_concat",
+        "twox64_map_layout_is_prefix_plus_concat"
+      ]
+    },
+    {
+      "function": "node/src/shared/validation",
+      "path": "node/src/shared/validation.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "account_id_empty_rejected",
+        "account_id_valid_hex",
+        "account_id_hex_wrong_length",
+        "account_id_hex_non_hex_chars",
+        "account_id_hex_uppercase_rejected",
+        "account_id_requires_0x_prefix",
+        "public_key_uses_prefixed_lowercase_hex",
+        "node_key_empty_rejected",
+        "node_key_valid_no_prefix",
+        "node_key_valid_with_0x_prefix",
+        "node_key_wrong_length",
+        "grandpa_key_empty_rejected",
+        "grandpa_key_valid",
+        "grandpa_key_strips_0x",
+        "grandpa_key_wrong_length"
+      ]
+    },
+    {
+      "function": "node/src/transaction/multisig/proposal",
+      "path": "node/src/transaction/multisig/proposal.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "transfer_summary_truncates_long_remark",
+        "transfer_action_decodes_actor_cid_and_funding_account_id",
+        "sweep_summary_uses_unknown_institution_fallback",
+        "action_into_details_maps_each_field"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/endpoint",
+      "path": "node/src/transaction/offchain/endpoint.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "encode_cid_key_data_round_trip",
+        "empty_cid_rejected",
+        "over_long_cid_rejected",
+        "clearing_bank_nodes_key_starts_with_pallet_prefix"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/health",
+      "path": "node/src/transaction/offchain/health.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "empty_domain_dns_check_fails_fast",
+        "finalize_marks_all_ok_when_every_check_passes",
+        "finalize_flags_failure_when_any_fails"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/institution_read/chain",
+      "path": "node/src/transaction/offchain/institution_read/chain.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "encode_cid_key_data_round_trip",
+        "empty_cid_rejected",
+        "over_long_cid_rejected",
+        "main_and_fee_accounts_differ"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/ledger",
+      "path": "node/src/transaction/offchain/ledger.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "accept_payment_rejects_signature_from_another_operation_tag",
+        "deposited_then_withdrawn_roundtrip",
+        "save_load_roundtrip",
+        "wrong_password_rejected",
+        "settled_same_bank_moves_pending_to_confirmed",
+        "settled_cross_bank_payer_side_only_no_ghost_recipient",
+        "settled_cross_bank_recipient_side_only",
+        "settled_sum_invariant_same_bank_drops_by_fee",
+        "accept_cross_bank_recipient_uses_chain_balance_without_ghost_payer",
+        "accept_cross_bank_recipient_nonce_counts_local_pending"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/mod",
+      "path": "node/src/transaction/offchain/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "last_clearing_batch_seq_key_layout_stable"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/rpc",
+      "path": "node/src/transaction/offchain/rpc.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "user_bank_storage_key_layout",
+        "l2_fee_rate_bp_storage_key_layout",
+        "l3_payment_nonce_storage_key_layout",
+        "deposit_balance_storage_key_layout",
+        "storage_keys_distinct_per_account",
+        "hex_codec_roundtrip",
+        "hex_decode_rejects_odd_length",
+        "calc_fee_matches_runtime_rounding",
+        "l2_ack_signing_message_changes_with_inputs"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/settlement/admin_unlock",
+      "path": "node/src/transaction/offchain/settlement/admin_unlock.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "challenge_payload_layout_uses_shared_protocol_length",
+        "challenge_payload_signer_public_key_position",
+        "legacy_108_byte_payload_is_rejected",
+        "build_decrypt_admin_request_rejects_short_signer_public_key",
+        "list_decrypted_admins_filters_by_cid",
+        "lock_decrypted_admin_removes_entry"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/settlement/listener",
+      "path": "node/src/transaction/offchain/settlement/listener.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "deposited_event_updates_own_bank_ledger",
+        "deposited_event_ignored_for_other_bank",
+        "withdrawn_decreases_confirmed",
+        "convert_event_deposited",
+        "convert_event_payment_settled_maps_field_names",
+        "convert_event_non_offchain_returns_none"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/settlement/packer",
+      "path": "node/src/transaction/offchain/settlement/packer.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "should_pack_is_false_when_empty",
+        "noop_signer_triggers_rollback",
+        "happy_path_submits_and_keeps_pending",
+        "initial_batch_seq_continues_from_chain_value",
+        "submitter_error_rolls_back",
+        "batch_signing_message_is_deterministic",
+        "node_batch_item_encodes_deterministically"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/settlement/reserve",
+      "path": "node/src/transaction/offchain/settlement/reserve.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "confirmed_sum_empty_is_zero",
+        "confirmed_sum_adds_across_users",
+        "confirmed_sum_after_withdraw",
+        "bank_total_deposits_key_layout_stable",
+        "bank_total_deposits_key_differs_per_bank"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/settlement/signer",
+      "path": "node/src/transaction/offchain/settlement/signer.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "sign_produces_verifiable_signature",
+        "sign_without_key_loaded_errs",
+        "different_messages_produce_different_signatures",
+        "signature_does_not_verify_against_wrong_key",
+        "hot_swap_key_takes_effect"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/settlement/submitter",
+      "path": "node/src/transaction/offchain/settlement/submitter.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "batch_bytes_decodes_to_items",
+        "encode_bounded_sig_respects_limit",
+        "encode_bounded_batch_respects_limit",
+        "decode_batch_items_rejects_invalid_bytes",
+        "sign_key_slot_none_returns_err"
+      ]
+    },
+    {
+      "function": "node/src/transaction/offchain/signing",
+      "path": "node/src/transaction/offchain/signing.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "register_call_data_starts_with_pallet_and_call",
+        "register_call_rejects_empty_cid",
+        "register_call_rejects_low_port",
+        "unregister_call_only_has_cid",
+        "signer_public_key_uses_prefixed_lowercase_hex",
+        "signer_public_key_rejects_bad_length"
+      ]
+    },
+    {
+      "function": "node/src/transaction/onchain/mod",
+      "path": "node/src/transaction/onchain/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "sign_mode_routes_only_to_matching_path",
+        "persisted_store_accepts_only_unique_cold_accounts",
+        "persisted_store_rejects_account_and_address_mismatch",
+        "compact_u32_single_byte",
+        "compact_u32_two_bytes",
+        "transfer_with_remark_call_data_uses_onchain_transaction_pallet",
+        "transfer_remark_rejects_more_than_99_bytes"
+      ]
+    },
+    {
+      "function": "node/src/transaction/onchain/wallet_store",
+      "path": "node/src/transaction/onchain/wallet_store.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "sign_mode_serializes_only_hot_and_cold",
+        "wallet_store_uses_account_id_and_required_sign_mode",
+        "wallet_store_rejects_old_or_missing_mode_fields",
+        "current_store_round_trips_without_rewriting",
+        "current_store_rejects_legacy_and_ambiguous_fields",
+        "current_store_rejects_duplicates_and_inconsistent_accounts"
+      ]
+    },
+    {
+      "function": "onchina/frontend/admins/securityHeaders.test",
+      "path": "onchina/frontend/admins/securityHeaders.test.ts",
+      "runner": "vitest",
+      "target": "onchina/frontend"
+    },
+    {
+      "function": "onchina/src/auth/action_sign",
+      "path": "onchina/src/auth/action_sign.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "canonical_admin_payload_includes_actor_cid_number_in_fixed_order"
+      ]
+    },
+    {
+      "function": "onchina/src/auth/operation_auth",
+      "path": "onchina/src/auth/operation_auth.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "operation_auth_has_exactly_three_tiers",
+        "governing_capability_boundary_excludes_institution_update_and_upload",
+        "citizen_onchain_push_uses_one_passkey_and_round_trips",
+        "legislation_actions_are_cold_sign_and_round_trip",
+        "all_actions_list_covers_every_variant",
+        "every_action_tier_matches_the_registry",
+        "no_write_action_falls_back_to_session_tier",
+        "governance_and_signing_actions_must_require_cold_sign",
+        "tier_membership_counts_are_pinned",
+        "action_type_string_mapping_round_trips_for_every_variant",
+        "unknown_action_type_is_rejected"
+      ]
+    },
+    {
+      "function": "onchina/src/auth/passkey/mod",
+      "path": "onchina/src/auth/passkey/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "admin_user_uuid_is_stable_for_canonical_account_id",
+        "build_webauthn_config_validation",
+        "passkey_register_and_authenticate_round_trip"
+      ]
+    },
+    {
+      "function": "onchina/src/auth/repo",
+      "path": "onchina/src/auth/repo.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "frg_role_province_cannot_be_overwritten_by_institution_location",
+        "frg_authorization_fails_without_role_province",
+        "scope_errors_are_prefixed_for_classification",
+        "non_tier1_accepts_scope_derived_without_projection",
+        "private_institution_cid_yields_province_and_city",
+        "person_cid_scope_is_rejected"
+      ]
+    },
+    {
+      "function": "onchina/src/auth/security_model",
+      "path": "onchina/src/auth/security_model.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "legacy_challenge_without_actor_cid_number_is_rejected"
+      ]
+    },
+    {
+      "function": "onchina/src/cid/china/store",
+      "path": "onchina/src/cid/china/store.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "town_exists_true_for_real_triple",
+        "town_exists_false_for_retired_town_code",
+        "town_exists_false_for_unknown_province",
+        "town_exists_true_for_empty_town_code"
+      ]
+    },
+    {
+      "function": "onchina/src/cid/generator",
+      "path": "onchina/src/cid/generator.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "citizen_cid_is_country_prefixed",
+        "public_legal_keeps_real_city_code",
+        "three_char_national_layout_shape",
+        "pmul_has_no_number"
+      ]
+    },
+    {
+      "function": "onchina/src/citizenapp/public_institution",
+      "path": "onchina/src/citizenapp/public_institution.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "public_dto_excludes_sensitive_admin_fields",
+        "public_dto_keeps_directory_fields",
+        "citizen_public_filter_keeps_all_public_institutions"
+      ]
+    },
+    {
+      "function": "onchina/src/core/chain_citizen_identity",
+      "path": "onchina/src/core/chain_citizen_identity.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "active_binding_requires_positive_revision",
+        "revoked_cid_has_no_active_binding_even_when_audit_mapping_remains",
+        "voting_or_candidate_requires_registry_rebind",
+        "finalized_storage_decode_rejects_trailing_layout_bytes",
+        "timestamp_may_only_be_missing_at_genesis"
+      ]
+    },
+    {
+      "function": "onchina/src/core/chain_runtime",
+      "path": "onchina/src/core/chain_runtime.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "platform_price_storage_values_decode_strictly",
+        "onchain_institution_admin_account_decodes_unified_records_only",
+        "private_institution_admin_account_decodes_unified_layout",
+        "frozen_public_admin_without_cid_uses_roster_account_only",
+        "console_pallets_allow_njd_and_block_desktop_governance",
+        "console_pallets_keep_unincorporated_dual_probe_and_personal_rejected",
+        "parse_hex_hash32_accepts_prefixed_hash",
+        "trusted_production_chain_lookup_returns_none_for_unknown_hash",
+        "production_mode_detects_prod_env"
+      ]
+    },
+    {
+      "function": "onchina/src/core/chain_submit",
+      "path": "onchina/src/core/chain_submit.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "signing_material_roundtrip_and_hash_rule",
+        "tail_data_in_call_is_rejected",
+        "only_post_submit_uncertainty_carries_recoverable_tx_hash"
+      ]
+    },
+    {
+      "function": "onchina/src/core/http_security",
+      "path": "onchina/src/core/http_security.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "hashed_assets_get_immutable_cache",
+        "index_and_spa_routes_must_revalidate",
+        "assets_prefix_requires_trailing_slash",
+        "unhashed_future_resources_default_to_revalidate"
+      ]
+    },
+    {
+      "function": "onchina/src/core/institution_call",
+      "path": "onchina/src/core/institution_call.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "admin_payload_encodes_account_cid_family_name_and_given_name",
+        "public_admin_payload_encodes_account_cid_family_name_and_given_name",
+        "governance_payload_matches_runtime_call_field_order",
+        "register_admins_payload_matches_runtime_call_field_order",
+        "add_account_payload_matches_runtime_call_field_order",
+        "close_institution_payload_matches_runtime_call_field_order",
+        "private_institution_routes_add_and_close_to_pallet_31"
+      ]
+    },
+    {
+      "function": "onchina/src/core/qr/mod",
+      "path": "onchina/src/core/qr/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "account_id_code_parser_returns_canonical_account_id",
+        "account_id_code_parser_rejects_aliases_extra_and_temporary_fields",
+        "account_id_code_parser_rejects_noncanonical_account_id",
+        "account_id_code_parser_rejects_legacy_chat_node_pairing_payload",
+        "account_id_code_parser_rejects_other_kinds",
+        "login_request_always_targets_account_id_code_account",
+        "sign_response_parses_paired_current_account_handover_signature",
+        "domain_sign_request_leaves_account_empty_and_carries_exact_authorization_template",
+        "occupy_and_rebind_actions_are_distinct_registered_codes"
+      ]
+    },
+    {
+      "function": "onchina/src/core/tls",
+      "path": "onchina/src/core/tls.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "restart_and_profile_change_never_rotate_root_ca",
+        "incomplete_root_ca_pair_fails_without_overwrite",
+        "mismatched_root_ca_key_fails_without_certificate_overwrite"
+      ]
+    },
+    {
+      "function": "onchina/src/crypto/pubkey",
+      "path": "onchina/src/crypto/pubkey.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "account_id_accepts_only_canonical_text",
+        "account_comparison_has_no_case_or_prefix_fallback",
+        "ss58_is_derived_without_changing_account_id"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/citizens/admin_entry",
+      "path": "onchina/src/domains/citizens/admin_entry.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "empty_immutable_fields_are_initialized",
+        "immutable_birth_date_cannot_change",
+        "name_is_mutable_not_locked",
+        "immutable_field_kept_when_input_matches_or_empty",
+        "voting_eligible_requires_birth_date",
+        "illegal_sex_is_rejected"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/citizens/model",
+      "path": "onchina/src/domains/citizens/model.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "citizen_record_computes_identity_status_from_status_and_validity"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/citizens/occupy",
+      "path": "onchina/src/domains/citizens/occupy.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "submit_rebind_input_uses_exact_current_and_new_account_fields",
+        "retry_phase_is_projection_only_after_finalized_marker",
+        "first_submit_and_safe_resubmit_share_authorization_policy",
+        "authorization_expiry_uses_chain_time_and_keeps_runtime_margin",
+        "revoked_or_inconsistent_cid_never_becomes_rebind_source",
+        "finalized_target_rejects_pending_failed_and_accepts_only_exact_target",
+        "finalized_occupy_target_requires_same_registrar_and_account_commitment",
+        "encode_occupy_cid_call_byte_golden",
+        "encode_admin_rebind_cid_account_id_call_byte_golden",
+        "verify_occupy_signature_roundtrip_and_domain_separation",
+        "verify_admin_rebind_signature_roundtrip_and_domain_separation",
+        "verify_current_account_signature_requires_chain_current_account_and_own_domain"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/citizens/passport_no",
+      "path": "onchina/src/domains/citizens/passport_no.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "passport_city_namespace_is_unique_for_city_codes_in_scope",
+        "passport_no_uses_province_body_and_check_char",
+        "passport_no_supports_last_local_sequence",
+        "passport_validity_switches_at_sixteen"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/genesis_projection",
+      "path": "onchina/src/domains/genesis_projection.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "split_province_city_reads_foundation_scope",
+        "split_province_city_rejects_person_cid"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/budget/model",
+      "path": "onchina/src/domains/legislation/budget/model.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "budget_amounts_serialize_as_strings",
+        "budget_amounts_roundtrip_without_precision_loss"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/category",
+      "path": "onchina/src/domains/legislation/category.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "review_house_has_no_proposal_candidates",
+        "education_committee_proposes_only_education_vote_types",
+        "houses_propose_non_education_at_their_tier",
+        "non_legislative_institution_has_no_role_or_candidates"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/chain_read_proposal",
+      "path": "onchina/src/domains/legislation/chain_read_proposal.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "proposal_decodes_from_field_ordered_golden",
+        "split_meta_mirrors_decode_independently",
+        "build_state_projects_tally_and_houses"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/display/chain_read",
+      "path": "onchina/src/domains/legislation/display/chain_read.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "active_proposal_ids_decode_from_vec_u64_golden",
+        "active_proposal_ids_decode_empty",
+        "proposal_subject_institution_cid_key_encodes_scale_enum",
+        "ballot_value_decodes_bool",
+        "representative_ticket_key_decodes_complete_role_identity"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/display/handler",
+      "path": "onchina/src/domains/legislation/display/handler.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "scope_label_joins_province_and_city",
+        "scope_label_national_when_empty",
+        "scope_label_province_only"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/display/service",
+      "path": "onchina/src/domains/legislation/display/service.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "seats_left_join_ballots_and_count_by_vote",
+        "empty_roster_yields_no_seats"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/law/chain_propose",
+      "path": "onchina/src/domains/legislation/law/chain_propose.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "tier_and_vote_type_bytes_match_runtime_enums",
+        "enact_law_call_matches_codec_golden_and_prefix",
+        "amend_and_repeal_prefix_law_id_and_repeal_tail"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/law/chain_read",
+      "path": "onchina/src/domains/legislation/law/chain_read.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "law_decodes_from_runtime_encoded_bytes",
+        "law_version_decodes_and_builds_view"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/law/chain_vote",
+      "path": "onchina/src/domains/legislation/law/chain_vote.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "cast_representative_vote_matches_codec_golden",
+        "all_vote_calls_share_shape_and_call_index"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/law/model",
+      "path": "onchina/src/domains/legislation/law/model.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "proposal_request_deserializes_camel_case",
+        "chapters_convert_to_encoder_args_preserving_text",
+        "chapter_args_round_trip_back_to_display_chapters",
+        "institution_code_text_trims_trailing_nul"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/law/routing",
+      "path": "onchina/src/domains/legislation/law/routing.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "national_routing_two_houses_with_legislature",
+        "constitution_routes_like_national_non_education",
+        "provincial_two_houses_municipal_single_house",
+        "provincial_education_and_illegal_combos_have_no_routing",
+        "vote_type_education_flags_match_chain"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/law/service",
+      "path": "onchina/src/domains/legislation/law/service.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "enact_national_builds_call_with_propose_prefix",
+        "municipal_education_proposer_differs_from_voting_house",
+        "amend_without_law_id_is_rejected",
+        "unresolved_institution_cid_fails_closed",
+        "provincial_education_has_no_routing",
+        "scope_precheck_enforces_tier_and_region",
+        "representative_vote_call_targets_legislation_vote_pallet"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/model",
+      "path": "onchina/src/domains/legislation/model.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "proposal_category_serializes_to_snake_case",
+        "proposal_category_index_matches_doc"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/legislation/personnel/model",
+      "path": "onchina/src/domains/legislation/personnel/model.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "personnel_decision_serializes_camel_case",
+        "propose_personnel_input_roundtrips_and_categorizes"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/membership/chain_call",
+      "path": "onchina/src/domains/membership/chain_call.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "platform_price_call_has_exact_indices_and_field_order",
+        "zero_price_is_rejected"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/private/common",
+      "path": "onchina/src/domains/private/common.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "association_keeps_instance_p1_while_fixed_types_define_p1"
+      ]
+    },
+    {
+      "function": "onchina/src/domains/projection",
+      "path": "onchina/src/domains/projection.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "out_of_scope_city_is_skipped",
+        "out_of_scope_province_is_skipped",
+        "r5_province_city_reads_institution_scope",
+        "r5_province_city_rejects_person_cid",
+        "fresh_projection_maps_chain_fields_and_blank_offchain",
+        "reprojection_preserves_offchain_original_fields",
+        "candidate_chain_name_overrides_local",
+        "revoked_status_projects_and_clears_voting_eligible",
+        "finalized_missing_account_never_falls_back_to_local_account",
+        "projection_rejects_revision_regression_and_same_revision_account_change",
+        "institution_out_of_scope_is_skipped",
+        "institution_fresh_projection_maps_chain_fields",
+        "institution_reprojection_preserves_photo_and_local_classification"
+      ]
+    },
+    {
+      "function": "onchina/src/institution/admins/chain_roles",
+      "path": "onchina/src/institution/admins/chain_roles.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "assignment_term_window_is_inclusive_and_non_term_requires_zeroes",
+        "role_assignment_anchor_survives_admin_account_rebind",
+        "institution_role_permission_fixture_decodes_exactly"
+      ]
+    },
+    {
+      "function": "onchina/src/institution/subjects/photos",
+      "path": "onchina/src/institution/subjects/photos.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "photo_reference_must_be_a_database_record_url"
+      ]
+    },
+    {
+      "function": "onchina/src/institution/subjects/service",
+      "path": "onchina/src/institution/subjects/service.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "validate_account_name_basic"
+      ]
+    },
+    {
+      "function": "onchina/src/institution/subjects/unincorporated_org",
+      "path": "onchina/src/institution/subjects/unincorporated_org.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "education_school_parent_requires_same_city",
+        "private_parent_is_nationwide",
+        "gov_parent_locality_follows_institution_code_level",
+        "locality_violation_checks_province_and_city",
+        "unincorporated_org_attaches_to_any_legal_parent",
+        "schools_recognized_committees_are_not",
+        "p1_inherits_from_parent"
+      ]
+    },
+    {
+      "function": "onchina/src/platform/capability",
+      "path": "onchina/src/platform/capability.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "tier1_registry_keeps_subordinate_registry_business_superset",
+        "subordinate_registry_can_read_federal_registry_without_registry_crud_flags",
+        "national_judicial_yuan_can_view_own_admins_only",
+        "legislative_institutions_get_role_based_legislation_capabilities",
+        "reserve_governance_institutions_stay_out_of_onchina"
+      ]
+    },
+    {
+      "function": "onchina/src/scope/rules",
+      "path": "onchina/src/scope/rules.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "national_sees_every_province",
+        "province_limited_to_own_province_all_cities",
+        "city_limited_to_own_city_all_towns",
+        "town_limited_to_own_town",
+        "empty_scope_matches_nothing",
+        "frg_is_province_scoped_despite_national_level",
+        "frg_without_province_fails_closed",
+        "national_ministry_sees_nationwide",
+        "province_level_limited_to_own_province",
+        "city_level_limited_to_own_city",
+        "town_level_limited_to_own_town",
+        "town_level_missing_town_fails_closed",
+        "private_none_level_falls_back_to_city"
+      ]
+    },
+    {
+      "function": "onchina/src/workspace/manifest",
+      "path": "onchina/src/workspace/manifest.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchina",
+      "cases": [
+        "private_legal_institution_gets_own_private_workspace",
+        "registry_and_private_workspaces_never_share_kind"
+      ]
+    },
+    {
+      "function": "runtime/admins/admin-primitives/src/lib",
+      "path": "runtime/admins/admin-primitives/src/lib.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "admin-primitives",
+      "cases": [
+        "institution_assignment_account_id_field_order_matches_node_guard",
+        "admin_field_order_is_account_cid_family_given",
+        "missing_person_name_uses_management_default",
+        "required_admin_elements_operation_truth_table",
+        "personal_multisig_cid_never_required",
+        "admin_satisfies_by_required_elements"
+      ]
+    },
+    {
+      "function": "runtime/admins/personal-admins/src/tests/mod",
+      "path": "runtime/admins/personal-admins/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "personal-admins",
+      "cases": [
+        "propose_admin_set_change_updates_personal_admins_and_threshold"
+      ]
+    },
+    {
+      "function": "runtime/admins/private-admins/src/tests/mod",
+      "path": "runtime/admins/private-admins/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "private-admins",
+      "cases": [
+        "private_admins_normalize_missing_person_name_before_storage",
+        "private_admins_accept_private_codes_and_private_owned_unincorporated_codes",
+        "private_admins_activate_and_query_active_admins",
+        "private_admins_reject_public_codes"
+      ]
+    },
+    {
+      "function": "runtime/admins/public-admins/src/tests/mod",
+      "path": "runtime/admins/public-admins/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "public-admins",
+      "cases": [
+        "public_admins_allow_temporarily_empty_identity_and_name_fields",
+        "operation_phase_requires_complete_public_admin_fields",
+        "operation_phase_resolves_only_current_cid_account_id_after_rebind",
+        "public_admin_nonempty_citizen_cid_must_match_citizen_identity_binding",
+        "public_admins_accept_public_codes_and_reject_private_codes",
+        "public_admins_activate_and_query_active_admins",
+        "public_admins_fix_size_only_for_full_genesis_identity",
+        "permanent_member_body_protection_is_scoped_to_genesis_cid",
+        "member_body_admins_are_registered_without_owning_institution_threshold",
+        "fixed_governance_admin_update_only_replaces_people_records"
+      ]
+    },
+    {
+      "function": "runtime/entity/entity-primitives/src/business_action",
+      "path": "runtime/entity/entity-primitives/src/business_action.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "entity-primitives",
+      "cases": [
+        "runtime_upgrade_is_shared_by_nrc_and_prc_committees",
+        "grandpa_rotation_is_direct_but_emergency_recovery_is_internal_vote",
+        "fsc_lr_and_director_get_multisig_transfer_others_do_not",
+        "protocol_upgrade_and_resolution_issuance_give_prb_vote_only",
+        "judicial_and_technology_roles_are_least_privilege",
+        "legislation_lr_and_institution_capabilities_are_separate"
+      ]
+    },
+    {
+      "function": "runtime/entity/entity-primitives/src/institution_role",
+      "path": "runtime/entity/entity-primitives/src/institution_role.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "entity-primitives",
+      "cases": [
+        "status_discriminants_match_governance_skeleton",
+        "role_permission_discriminants_are_stable",
+        "dynamic_role_code_uses_exact_domain_and_never_accepts_lowercase",
+        "role_business_permission_field_order_is_stable",
+        "institution_role_field_order_matches_node_guard",
+        "institution_assignment_field_order_matches_node_guard"
+      ]
+    },
+    {
+      "function": "runtime/entity/entity-primitives/src/lib",
+      "path": "runtime/entity/entity-primitives/src/lib.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "entity-primitives",
+      "cases": [
+        "institution_info_field_order_matches_node_guard"
+      ]
+    },
+    {
+      "function": "runtime/entity/personal-manage/src/tests/cases",
+      "path": "runtime/entity/personal-manage/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "personal-manage",
+      "cases": [
+        "propose_create_does_not_mandate_personal_multisig_cid",
+        "propose_create_writes_pending_and_reserves_fee",
+        "create_executes_when_internal_vote_reaches_threshold",
+        "create_rejected_cleanup_releases_reserve_and_emits_event",
+        "propose_create_rejects_duplicate_personal_account",
+        "propose_create_stores_regular_threshold_and_uses_all_admin_create_threshold",
+        "two_admin_personal_create_uses_two_of_two_for_regular_and_create_threshold",
+        "sixty_four_admin_personal_create_is_allowed_and_uses_full_create_threshold",
+        "sixty_five_admin_personal_create_cannot_be_encoded",
+        "propose_create_rejects_duplicate_admins",
+        "propose_create_rejects_below_minimum_amount",
+        "propose_create_rejects_reserved_and_protected_accounts",
+        "propose_close_writes_pending_and_blocks_concurrent",
+        "close_executes_when_internal_vote_reaches_threshold",
+        "propose_close_rejects_when_balance_below_minimum",
+        "propose_close_rejects_reserved_and_protected_beneficiary",
+        "create_execution_failed_terminal_cleans_pending_and_emits_once",
+        "close_execution_failed_terminal_keeps_account_and_clears_pending",
+        "propose_close_rejects_when_not_personal_account",
+        "non_admin_cannot_propose_or_vote",
+        "existential_deposit_is_preserved_after_close"
+      ]
+    },
+    {
+      "function": "runtime/entity/private-manage/src/tests/cases",
+      "path": "runtime/entity/private-manage/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "private-manage",
+      "cases": [
+        "direct_institution_creation_call_is_permanently_absent",
+        "private_dynamic_role_is_authorized_only_for_assigned_admin",
+        "operation_phase_lr_without_roster_cid_falls_back_to_identity_record",
+        "operation_phase_authorizes_by_cid_and_survives_wallet_rebind",
+        "private_legal_representative_role_is_unique_and_allows_zero_or_one_assignment",
+        "genesis_phase_allows_empty_legal_representative",
+        "operation_phase_requires_complete_legal_representative",
+        "create_uses_cid_as_the_only_institution_identity",
+        "protocol_accounts_are_automatically_created_with_zero_balance",
+        "creation_derives_protocol_accounts_without_client_account_input",
+        "update_and_add_account_keep_cid_as_the_target_key",
+        "add_account_proposal_then_vote_inserts_account",
+        "add_account_requires_institution_admin_and_role",
+        "add_account_rejects_protocol_names_and_duplicate_custom_names",
+        "duplicate_add_proposal_is_rejected_while_pending",
+        "rejected_add_is_cleaned_only_by_votingengine_callback",
+        "only_named_account_can_be_closed_and_institution_stays_alive",
+        "rejected_close_is_cleaned_only_by_votingengine_callback",
+        "protocol_account_close_is_rejected",
+        "account_operation_rejects_actor_cid_mismatch",
+        "non_admin_cannot_start_institution_account_close"
+      ]
+    },
+    {
+      "function": "runtime/entity/public-manage/src/tests/cases",
+      "path": "runtime/entity/public-manage/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "public-manage",
+      "cases": [
+        "direct_institution_creation_call_is_permanently_absent",
+        "dynamic_role_lifecycle_persists_permissions_and_never_reuses_code",
+        "operation_phase_authorizes_by_cid_and_survives_wallet_rebind",
+        "dynamic_role_name_cannot_duplicate_fixed_legal_representative_role",
+        "assignment_authorization_respects_inclusive_term_window",
+        "update_info_and_add_account_keep_cid_as_only_entity_key",
+        "add_account_rejects_protocol_names_and_duplicate_custom_names",
+        "add_account_proposal_then_vote_inserts_account",
+        "add_account_requires_institution_admin_and_role",
+        "duplicate_add_proposal_is_rejected_while_pending",
+        "rejected_add_is_cleaned_only_by_votingengine_callback",
+        "derive_account_distinguishes_protocol_and_custom_account_kinds",
+        "close_requires_matching_actor_cid_and_an_institution_admin",
+        "protocol_accounts_cannot_be_closed",
+        "approved_close_removes_only_custom_account",
+        "rejected_close_is_cleaned_only_by_votingengine_callback",
+        "duplicate_close_proposal_is_rejected_while_pending"
+      ]
+    },
+    {
+      "function": "runtime/genesis/src/institution/fixed_roles",
+      "path": "runtime/genesis/src/institution/fixed_roles.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "genesis-pallet",
+      "cases": [
+        "fixed_account_id_counts_equal_seat_totals",
+        "committee_and_bank_account_ids_map_to_single_role",
+        "judicial_account_id_order_maps_to_seven_one_two_five",
+        "federal_registry_maps_five_account_ids_per_province_role"
+      ]
+    },
+    {
+      "function": "runtime/genesis/src/tests/mod",
+      "path": "runtime/genesis/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "genesis-pallet",
+      "cases": [
+        "default_phase_is_genesis",
+        "default_developer_upgrade_enabled",
+        "developer_upgrade_check_trait_reads_storage",
+        "storage_can_be_switched_to_operation",
+        "genesis_config_initializes_declarations"
+      ]
+    },
+    {
+      "function": "runtime/governance/grandpakey-change/src/tests/cases",
+      "path": "runtime/governance/grandpakey-change/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "grandpakey-change",
+      "cases": [
+        "weak_small_order_new_key_is_rejected_before_signature_check",
+        "emergency_recovery_is_only_the_target_institutions_internal_vote",
+        "emergency_recovery_schedules_after_internal_threshold_and_updates_only_after_activation",
+        "rejected_emergency_recovery_releases_active_state_and_reserved_key",
+        "routine_rotation_uses_call_one_without_creating_a_vote",
+        "routine_rotation_requires_both_old_and_new_private_key_signatures",
+        "proof_nonce_and_expiry_prevent_replay",
+        "routine_rotation_rejects_non_member_and_wrong_institution",
+        "emergency_recovery_blocks_routine_rotation_for_same_institution",
+        "second_change_waits_until_the_first_authority_change_activates",
+        "key_owned_by_another_institution_cannot_be_reused",
+        "emergency_execution_remains_retryable_while_another_grandpa_change_is_pending",
+        "non_active_catalog_key_cannot_be_rotated_or_recovered"
+      ]
+    },
+    {
+      "function": "runtime/governance/resolution-destroy/src/tests/cases",
+      "path": "runtime/governance/resolution-destroy/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "resolution-destroy",
+      "cases": [
+        "nrc_destroy_executes_when_yes_votes_reach_threshold",
+        "destroy_fee_shortage_never_falls_back_to_admin",
+        "prc_destroy_executes_when_yes_votes_reach_threshold",
+        "prb_destroy_executes_when_yes_votes_reach_threshold",
+        "destroy_business_rejects_other_internal_vote_institutions",
+        "non_admin_cannot_propose_or_vote",
+        "zero_amount_and_insufficient_balance_are_rejected",
+        "existential_deposit_is_preserved",
+        "rejected_proposal_does_not_block_new_proposal",
+        "execute_destroy_succeeds_after_failed_auto_execution",
+        "executed_proposal_does_not_block_new_proposal",
+        "duplicate_vote_is_rejected_by_votingengine",
+        "execute_destroy_requires_role_voter_snapshot",
+        "institution_query_returns_none_for_invalid_account"
+      ]
+    },
+    {
+      "function": "runtime/governance/runtime-upgrade/src/tests/cases",
+      "path": "runtime/governance/runtime-upgrade/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "runtime-upgrade",
+      "cases": [
+        "joint_proposers_can_propose_runtime_upgrade",
+        "administrator_without_committee_role_cannot_propose_runtime_upgrade",
+        "proposal_data_stored_in_votingengine",
+        "rejected_joint_vote_marks_proposal_rejected",
+        "approved_joint_vote_executes_runtime_upgrade",
+        "approved_referendum_executes_runtime_upgrade",
+        "approved_upgrade_atomically_stages_versioned_pow_params",
+        "approved_joint_vote_execution_failure_emits_event",
+        "rejected_joint_vote_retains_object_for_unified_cleanup",
+        "owns_proposal_returns_true_for_own_proposals",
+        "approved_success_marks_engine_status_executed",
+        "joint_vote_callback_requires_voting_status",
+        "finalize_nonexistent_proposal_fails",
+        "developer_direct_upgrade_allows_nrc_admin_when_enabled",
+        "developer_direct_upgrade_fails_when_disabled",
+        "developer_direct_upgrade_rejects_prc_admin",
+        "developer_direct_upgrade_rejects_non_nrc_admin",
+        "developer_direct_upgrade_rejects_empty_code"
+      ]
+    },
+    {
+      "function": "runtime/issuance/citizen-issuance/src/tests/mod",
+      "path": "runtime/issuance/citizen-issuance/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "citizen-issuance",
+      "cases": [
+        "pending_reward_scale_and_storage_key_match_node_guard_contract",
+        "voting_identity_registered_issues_reward",
+        "max_cap_stops_reward",
+        "max_count_minus_one_allows_last_reward_then_rejects_next",
+        "same_citizen_identity_only_rewards_once",
+        "same_citizen_identity_with_different_account_only_rewards_once",
+        "consecutive_rewards_switch_from_high_to_normal_in_same_block",
+        "boundary_switches_to_normal_reward_at_high_reward_count",
+        "high_reward_count_minus_one_still_gets_high_reward",
+        "same_account_second_citizen_identity_is_not_marked_reward_claimed",
+        "different_accounts_and_citizen_identities_reward_independently",
+        "same_account_different_citizen_identities_only_rewards_once",
+        "same_block_pending_tables_prevent_duplicate_account_reward",
+        "same_block_pending_tables_prevent_duplicate_cid_reward_after_account_change"
+      ]
+    },
+    {
+      "function": "runtime/issuance/citizen-issuance/tests/integration_citizen_identity",
+      "path": "runtime/issuance/citizen-issuance/tests/integration_citizen_identity.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "citizen-issuance",
+      "cases": [
+        "register_voting_identity_triggers_reward_issuance",
+        "candidate_first_onchain_triggers_reward_issuance",
+        "voting_first_then_candidate_upgrade_does_not_double_issue",
+        "updating_existing_identity_does_not_issue_second_reward",
+        "max_reward_cap_is_applied_from_identity_callback"
+      ]
+    },
+    {
+      "function": "runtime/issuance/fullnode-issuance/src/tests/cases",
+      "path": "runtime/issuance/fullnode-issuance/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "fullnode-issuance",
+      "cases": [
+        "bind_reward_account_only_once",
+        "bind_rejects_miner_reward_account",
+        "bind_succeeds_for_miner_that_never_authored",
+        "reward_issued_within_range_when_bound",
+        "reward_to_miner_when_not_bound",
+        "no_reward_outside_reward_range",
+        "reward_issued_on_end_boundary_block",
+        "reward_accumulates_across_multiple_blocks",
+        "skip_event_emitted_when_author_not_found",
+        "reward_issued_to_miner_when_reward_account_not_bound",
+        "prebound_reward_account_receives_first_authored_block_reward",
+        "reward_account_can_be_rebound_by_miner",
+        "rebind_rejects_miner_reward_account",
+        "rebind_rejects_unchanged_reward_account",
+        "rebind_requires_existing_binding",
+        "reward_goes_to_new_reward_account_id_after_rebind",
+        "on_initialize_declares_weight_only_within_reward_range",
+        "reward_audit_scale_contract_matches_node_guard"
+      ]
+    },
+    {
+      "function": "runtime/issuance/onchain-issuance/src/tests/blacklist",
+      "path": "runtime/issuance/onchain-issuance/src/tests/blacklist.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchain-issuance",
+      "cases": [
+        "default_blacklist_keeps_currency_and_anchor_terms"
+      ]
+    },
+    {
+      "function": "runtime/issuance/onchain-issuance/src/tests/cases",
+      "path": "runtime/issuance/onchain-issuance/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchain-issuance",
+      "cases": [
+        "business_action_codes_are_stable_and_distinct"
+      ]
+    },
+    {
+      "function": "runtime/issuance/onchain-issuance/src/tests/monitor",
+      "path": "runtime/issuance/onchain-issuance/src/tests/monitor.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchain-issuance",
+      "cases": [
+        "monitor_action_codes_are_stable_and_distinct"
+      ]
+    },
+    {
+      "function": "runtime/issuance/onchain-issuance/src/validation",
+      "path": "runtime/issuance/onchain-issuance/src/validation.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchain-issuance",
+      "cases": [
+        "institution_context_requires_cid_and_execution_account",
+        "decimals_boundary",
+        "class_only_plain",
+        "blacklist_hits_case_insensitive_ascii",
+        "blacklist_hits_chinese_bytes"
+      ]
+    },
+    {
+      "function": "runtime/issuance/provincialbank-interest/src/tests/cases",
+      "path": "runtime/issuance/provincialbank-interest/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "provincialbank-interest",
+      "cases": [
+        "first_year_mints_all_banks_and_writes_exact_audit",
+        "settlement_only_happens_in_finalize",
+        "second_year_uses_decayed_rate_and_cumulative_audit",
+        "missing_previous_year_rolls_back_entire_settlement",
+        "non_boundary_and_zero_period_never_mint",
+        "interest_goes_to_main_account_not_permanent_stake_account",
+        "year_100_is_last_and_uses_one_basis_point",
+        "audit_scale_field_order_is_stable_for_node_guard"
+      ]
+    },
+    {
+      "function": "runtime/issuance/resolution-issuance/src/tests/cases",
+      "path": "runtime/issuance/resolution-issuance/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "resolution-issuance",
+      "cases": [
+        "only_authorized_admin_can_propose",
+        "administrator_without_committee_role_cannot_propose",
+        "authorized_admin_cannot_replace_committee_role_with_another_role",
+        "authorized_admin_cannot_supply_invalid_actor_cid",
+        "reject_invalid_allocation_count",
+        "approved_callback_executes_issuance",
+        "approved_referendum_callback_executes_issuance",
+        "callback_rejects_non_finalizable_engine_status",
+        "callback_requires_votingengine_scope",
+        "second_callback_after_executed_is_rejected",
+        "rejected_callback_does_not_issue",
+        "callback_rejects_corrupted_reason_with_reason_too_long",
+        "issuance_event_comes_from_unified_pallet"
+      ]
+    },
+    {
+      "function": "runtime/misc/citizen-identity/src/tests/mod",
+      "path": "runtime/misc/citizen-identity/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "citizen-identity",
+      "cases": [
+        "cid_record_scale_contract_matches_node_guard",
+        "cid_authorization_scale_contract_keeps_canonical_field_order",
+        "genesis_cid_binding_writes_active_registry_and_bidirectional_indexes",
+        "genesis_cid_binding_rejects_duplicate_cid",
+        "genesis_cid_binding_rejects_invalid_cid_number",
+        "genesis_cid_binding_rejects_duplicate_account_id",
+        "register_voting_identity_stores_identity_and_counts_scope",
+        "self_occupy_cid_binds_account_and_stays_anonymous",
+        "self_occupy_cid_is_idempotent_for_same_account_id",
+        "self_occupy_cid_rejects_second_cid_for_same_account_id",
+        "self_occupy_cid_rejects_cid_taken_by_another_account_id",
+        "self_occupy_cid_rejects_non_citizen_code",
+        "self_occupy_cid_accepts_resident_natp_type",
+        "self_occupy_cid_rejects_smtp_type",
+        "self_rebind_cid_account_id_moves_binding_to_new_account_id",
+        "self_rebind_cid_account_id_rejects_unoccupied_cid",
+        "self_rebind_cid_account_id_rejects_invalid_current_account_signature",
+        "self_rebind_cid_account_id_rejects_new_account_bound_to_another_cid",
+        "self_rebind_cid_account_id_rejects_civic_cid",
+        "self_rebind_rejects_wrong_revision_expiry_same_account_and_cross_chain_signature",
+        "self_rebind_rejects_a_historical_authorization_after_two_later_rotations",
+        "admin_rebind_cid_account_id_moves_binding_to_new_account_id",
+        "admin_rebind_cid_account_id_rejects_unoccupied_cid",
+        "admin_rebind_cid_account_id_rebinds_civic_cid_with_scoped_registrar",
+        "admin_rebind_cid_account_id_rejects_unauthorized_registrar",
+        "admin_rebind_cid_account_id_rejects_invalid_new_signature",
+        "admin_rebind_rejects_stale_expired_same_account_and_cross_chain_authorizations",
+        "admin_rebind_cid_account_id_rejects_new_account_bound_to_another_cid",
+        "natp_resident_cannot_become_voting_citizen",
+        "duplicate_cid_cannot_move_to_another_account_id",
+        "updating_identity_cannot_replace_permanent_cid",
+        "candidate_identity_requires_full_profile_and_enables_candidate_reader",
+        "citizen_subject_requires_active_bidirectional_cid_account_id_binding",
+        "citizen_subject_rejects_revoked_identity_and_cid",
+        "candidate_identity_requires_family_name_and_given_name_separately",
+        "revoke_identity_marks_status_and_removes_effective_population",
+        "revoke_identity_revision_preflight_failures_leave_state_unchanged",
+        "population_data_reads_current_scope_count",
+        "population_data_revision_freezes_membership_before_identity_update",
+        "invalid_citizen_code_is_rejected",
+        "expired_passport_cannot_vote_and_is_excluded_from_population",
+        "not_yet_valid_passport_cannot_vote",
+        "first_population_date_must_initialize_before_identity_write",
+        "passport_activates_on_valid_from_and_deactivates_after_valid_until",
+        "population_transition_limit_hides_partial_day_and_blocks_identity_changes",
+        "identity_update_invalidates_old_population_transitions_by_revision",
+        "strict_calendar_validation_handles_months_leap_years_and_year_boundary",
+        "population_faults_closed_when_chain_date_moves_backwards",
+        "candidate_identity_stores_sex_and_public_profile",
+        "current_date_int_matches_fixed_time",
+        "age_from_birth_date_handles_birthday_boundary",
+        "candidate_birth_date_is_immutable_on_update",
+        "candidate_birth_scope_and_sex_are_immutable_on_update",
+        "candidate_illegal_birth_date_rejected",
+        "candidate_future_birth_date_rejected",
+        "candidate_under_sixteen_cannot_register_onchain_identity",
+        "non_citizen_family_code_is_rejected",
+        "occupy_cid_binds_account_and_stays_anonymous",
+        "occupy_cid_accepts_resident_natp_type",
+        "occupy_cid_rejects_replay_after_first_binding",
+        "occupy_cid_rejects_invalid_signature",
+        "occupy_cid_rejects_expired_overlong_and_cross_chain_authorizations",
+        "occupy_cid_rejects_unauthorized_registrar_and_bad_number",
+        "register_without_occupation_is_rejected",
+        "revoke_cid_tombstones_and_revokes_bound_identity",
+        "revoke_cid_revision_preflight_failures_leave_state_unchanged",
+        "revoked_cid_rejects_self_and_admin_rebind_without_state_changes",
+        "permanent_cid_update_keeps_registry_record_active",
+        "cid_count_starts_at_genesis_binding_len",
+        "cid_count_is_zero_without_any_occupied_cid",
+        "cid_count_increments_on_self_occupy",
+        "cid_count_increments_on_registrar_occupy",
+        "cid_count_stays_flat_on_idempotent_reoccupy",
+        "cid_count_decrements_on_revoke_cid_while_tombstone_remains",
+        "cid_count_decrements_on_revoke_identity",
+        "replaying_an_old_voting_payload_is_rejected_by_identity_version",
+        "replaying_an_old_candidate_payload_is_rejected_by_identity_version",
+        "future_identity_version_is_rejected",
+        "expired_identity_authorization_is_rejected",
+        "overlong_identity_authorization_lifetime_is_rejected",
+        "citizen_identity_authorization_scale_contract_is_stable"
+      ]
+    },
+    {
+      "function": "runtime/misc/pow-difficulty/src/tests/mod",
+      "path": "runtime/misc/pow-difficulty/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "pow-difficulty",
+      "cases": [
+        "first_adjustment_happens_at_interval_plus_one_and_window_is_exact",
+        "raises_difficulty_when_blocks_are_too_fast",
+        "lowers_difficulty_when_blocks_are_too_slow",
+        "clamps_to_adjustment_bounds",
+        "saturating_cast_prevents_u128_to_u64_wraparound",
+        "zero_difficulty_storage_is_repaired_without_panic",
+        "runtime_rejects_empty_block_before_difficulty_state_changes",
+        "runtime_accepts_timestamp_plus_transaction",
+        "staged_params_activate_next_block_without_changing_current_difficulty",
+        "params_version_must_match_whether_values_changed",
+        "unsupported_algorithm_version_is_rejected_before_staging"
+      ]
+    },
+    {
+      "function": "runtime/misc/square-post/src/tests/mod",
+      "path": "runtime/misc/square-post/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "square-post",
+      "cases": [
+        "real_calendar_month_keeps_calendar_date_and_time",
+        "real_calendar_handles_leap_year_and_missing_target_date",
+        "post_derives_category_and_storage_until_from_execution_state",
+        "cancelled_platform_membership_keeps_paid_period_publish_rights",
+        "subscribe_charges_immediately_and_schedules_real_calendar_due_time",
+        "runtime_renews_at_due_time_without_external_call_and_uses_latest_price",
+        "subscriber_rebind_keeps_subscription_and_renews_from_current_account",
+        "renewal_without_current_identity_binding_suspends_without_charging_old_account",
+        "runtime_catches_up_every_due_period_after_blocks_resume",
+        "payment_failure_suspends_and_removes_schedule",
+        "cancellation_preserves_paid_rights_and_revokes_future_charges",
+        "change_plan_upgrade_charges_difference_immediately",
+        "change_plan_downgrade_extends_duration",
+        "change_plan_prorates_partial_remaining_credit",
+        "creator_subscription_renews_at_authorized_price_when_unchanged",
+        "creator_rebind_keeps_plans_and_routes_renewal_to_current_account",
+        "creator_cannot_subscribe_to_same_cid_after_account_rebind",
+        "creator_price_change_suspends_renewal_until_reconsent",
+        "creator_price_change_reconsent_before_lapse_keeps_active_without_charge",
+        "creator_loses_membership_pauses_fans_and_resumes",
+        "creator_paused_and_repriced_suspends_for_reconsent_on_return",
+        "only_effective_platform_member_can_publish_creator_plans",
+        "tier_name_is_chain_truth_and_rename_does_not_change_financial_plan",
+        "tier_name_rejects_invalid_utf8_whitespace_controls_and_more_than_twenty_scalars",
+        "tier_name_accepts_exactly_twenty_four_byte_unicode_scalars",
+        "scale_fixture_matches_target_contract",
+        "genesis_build_seeds_default_platform_prices",
+        "propose_platform_price_rejects_zero_price",
+        "propose_platform_price_rejects_non_foundation_institution",
+        "missing_platform_price_pauses_instead_of_terminating",
+        "plan_change_credit_uses_last_charged_price_not_authorized_price"
+      ]
+    },
+    {
+      "function": "runtime/primitives/cid/china/area",
+      "path": "runtime/primitives/cid/china/area.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "area_counts_match_china_sqlite_snapshot",
+        "first_city_parses"
+      ]
+    },
+    {
+      "function": "runtime/primitives/cid/china/china_ch",
+      "path": "runtime/primitives/cid/china/china_ch.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "citizens_sum_matches_genesis_total",
+        "stake_sum_matches_population_basis",
+        "all_china_ch_main_accounts_are_unique",
+        "all_stake_accounts_are_unique_and_separate_from_main_accounts"
+      ]
+    },
+    {
+      "function": "runtime/primitives/cid/china/mod",
+      "path": "runtime/primitives/cid/china/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "china_ch_main_fee_accounts_match_derive_primitive",
+        "china_cb_main_fee_accounts_match_derive_primitive",
+        "china_other_institutions_main_fee_match_derive_primitive",
+        "reserved_account_list_matches_builtin_institution_accounts",
+        "builtin_institution_name_have_runtime_digest",
+        "builtin_institution_name_values_are_present"
+      ]
+    },
+    {
+      "function": "runtime/primitives/cid/code",
+      "path": "runtime/primitives/cid/code.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "country_code_uses_constitution_name",
+        "province_codes_are_two_uppercase_and_unique",
+        "institution_codes_are_three_or_four_uppercase_and_unique",
+        "classification_spot_check",
+        "profit_policy_spot_check",
+        "fixed_governance_thresholds_match_constants",
+        "code_bytes_pads_three_char"
+      ]
+    },
+    {
+      "function": "runtime/primitives/cid/generator",
+      "path": "runtime/primitives/cid/generator.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "all_person_codes_are_country_prefixed_not_province",
+        "person_cid_needs_no_province",
+        "citizen_cid_number_golden",
+        "public_legal_keeps_real_city_code",
+        "three_char_national_layout_shape",
+        "pmul_has_no_number"
+      ]
+    },
+    {
+      "function": "runtime/primitives/cid/number",
+      "path": "runtime/primitives/cid/number.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "roundtrip_three_char_layout",
+        "scope_codes_are_derived_from_validated_r5",
+        "person_cid_parses_but_has_no_scope",
+        "roundtrip_four_char_profit",
+        "roundtrip_four_char_nonprofit",
+        "all_codes_roundtrip_generate_parse",
+        "rejects_bad_segment_count",
+        "rejects_empty",
+        "rejects_lowercase",
+        "rejects_legacy_format",
+        "rejects_tampered_checksum"
+      ]
+    },
+    {
+      "function": "runtime/primitives/cid/official_derive",
+      "path": "runtime/primitives/cid/official_derive.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "derived_count_matches_area_and_templates",
+        "every_derived_number_is_valid_public_and_unique",
+        "genesis_institution_numbers_are_globally_unique"
+      ]
+    },
+    {
+      "function": "runtime/primitives/cid/official_template",
+      "path": "runtime/primitives/cid/official_template.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "template_family_counts",
+        "name_composition_matches_reverse_verified_examples"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/constitution",
+      "path": "runtime/primitives/src/constitution.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "empty_change_is_no_change",
+        "touching_immutable_article_is_violation",
+        "touching_core_chapter_requires_special",
+        "touching_general_chapter_requires_major",
+        "immutable_takes_priority_over_core_and_general",
+        "core_takes_priority_over_general",
+        "referendum_passes_at_seventy_seventy",
+        "referendum_fails_below_threshold",
+        "guard_review_needs_four_approvals"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/count_const",
+      "path": "runtime/primitives/src/count_const.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "joint_vote_total_matches_threshold"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/fee_policy",
+      "path": "runtime/primitives/src/fee_policy.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "onchain_fee_percents_sum_to_100",
+        "vote_flat_fee_equals_one_yuan",
+        "offchain_rate_bounds_consistent",
+        "onchain_rate_positive",
+        "transaction_tip_is_disabled",
+        "onchain_fee_uses_rate_rounding_and_minimum",
+        "onchain_fee_handles_u128_max_without_distortion",
+        "offchain_perbill_to_bp_conversion_stable"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/genesis",
+      "path": "runtime/primitives/src/genesis.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "genesis_issuance_matches_population",
+        "he_fund_issuance_matches_whitepaper",
+        "genesis_law_version_label_is_constitution_genesis"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/governance_skeleton",
+      "path": "runtime/primitives/src/governance_skeleton.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "fixed_institutions_cover_fixed_codes_with_expected_counts",
+        "fixed_identity_requires_code_and_cid_to_match",
+        "legal_representative_has_one_role_and_zero_or_one_assignment",
+        "njd_guard_seats_is_seven",
+        "frg_groups_cover_all_provinces_with_five_seats",
+        "role_literal_is_stable",
+        "fixed_role_seat_lookup_covers_judicial_and_federal_registry_roles"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/institution_asset",
+      "path": "runtime/primitives/src/institution_asset.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "default_asset_allows_all_actions"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/institution_constraints",
+      "path": "runtime/primitives/src/institution_constraints.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "singleton_identities_and_codes_are_unique",
+        "member_composition_ranges_match_institutional_design",
+        "required_protocol_accounts_follow_institution_design",
+        "clearing_account_only_for_joint_stock_and_its_unincorporated_branch"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/lib",
+      "path": "runtime/primitives/src/lib.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "evm_representation_preserves_native_monetary_policy"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/pow_const",
+      "path": "runtime/primitives/src/pow_const.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "fullnode_total_issuance_is_consistent",
+        "pow_target_window_uses_fixed_six_minute_average"
+      ]
+    },
+    {
+      "function": "runtime/primitives/src/sign",
+      "path": "runtime/primitives/src/sign.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "activate_admin_payload_uses_the_shared_32_byte_cid_slot",
+        "decrypt_admin_payload_uses_the_same_cid_limit_and_rejects_invalid_cids"
+      ]
+    },
+    {
+      "function": "runtime/primitives/tests/account_derive_golden",
+      "path": "runtime/primitives/tests/account_derive_golden.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "account_derive_golden_vectors"
+      ]
+    },
+    {
+      "function": "runtime/primitives/tests/scale_codec_golden",
+      "path": "runtime/primitives/tests/scale_codec_golden.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "scale_codec_golden_vectors",
+        "compact_encoding_flags_match_the_two_bit_mode",
+        "scale_string_is_compact_len_then_utf8"
+      ]
+    },
+    {
+      "function": "runtime/primitives/tests/sign_golden",
+      "path": "runtime/primitives/tests/sign_golden.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "primitives",
+      "cases": [
+        "sign_golden_vectors"
+      ]
+    },
+    {
+      "function": "runtime/public/legislation-yuan/src/tests/cases",
+      "path": "runtime/public/legislation-yuan/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "legislation-yuan",
+      "cases": [
+        "enact_writes_law_and_schedules_future_activation",
+        "enact_with_past_effective_is_immediately_effective",
+        "amend_bumps_version_and_resets_pending",
+        "repeal_sets_status_repealed",
+        "propose_enact_by_legislator_reaches_engine_notconfigured",
+        "municipal_education_route_reaches_engine_notconfigured",
+        "routing_rejects_cid_code_mismatch",
+        "propose_enact_by_non_legislator_rejected",
+        "propose_enact_constitution_rejected",
+        "enum_discriminants_match_node_guard",
+        "propose_enact_empty_title_and_articles_rejected",
+        "amend_constitution_immutable_article_rejected",
+        "amend_core_chapter_with_major_rejected",
+        "amend_core_chapter_with_special_passes_gate",
+        "amend_general_chapter_with_special_rejected",
+        "amend_general_chapter_with_major_passes_gate",
+        "amend_constitution_no_change_rejected",
+        "write_core_amend_without_referendum_proof_rejected",
+        "write_amend_without_guard_proof_rejected",
+        "rejects_amend_while_pending",
+        "write_rejects_enact_constitution_directly",
+        "write_rejects_amend_constitution_immutable_article_directly",
+        "write_rejects_amend_while_pending_directly",
+        "write_rejects_repeal_constitution_directly",
+        "amend_constitution_preserving_immutable_reaches_engine",
+        "amend_constitution_with_regular_vote_type_rejected",
+        "repeal_constitution_rejected",
+        "amend_nonexistent_law_rejected",
+        "constitution_rejects_duplicate_chapter_number",
+        "constitution_rejects_duplicate_section_number_in_same_chapter",
+        "constitution_allows_same_section_number_in_different_chapters",
+        "constitution_rejects_duplicate_article_number_across_chapters",
+        "amend_constitution_rejects_duplicate_chapter_before_article_lookup",
+        "write_constitution_rechecks_duplicate_section_before_storage",
+        "constitution_scale_decodes_and_is_well_formed",
+        "genesis_seeds_constitution_as_law_zero",
+        "core_chapter_title_change_requires_special",
+        "core_section_title_change_requires_special",
+        "general_section_title_change_requires_major",
+        "section_title_en_change_counts",
+        "title_change_over_immutable_article_is_not_violation",
+        "no_title_no_article_change_is_no_change",
+        "mixed_change_takes_stricter_scope"
+      ]
+    },
+    {
+      "function": "runtime/src/genesis",
+      "path": "runtime/src/genesis.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "citizenchain",
+      "cases": [
+        "genesis_contains_nrc_and_all_provincialbank_balances",
+        "genesis_issuance_splits_nrc_main_and_six_allocations",
+        "genesis_six_allocations_have_exact_amounts",
+        "genesis_omits_national_institutional_registry_without_runtime_pallet",
+        "china_cb_grandpa_keys_are_valid_unique_ed25519_pubkeys",
+        "governance_admin_keys_unique_and_counts_match_seats",
+        "genesis_json_deserializes_into_runtime_genesis_config",
+        "genesis_account_strings_deserialize_individually",
+        "genesis_top_level_sections_deserialize_individually",
+        "genesis_contains_fixed_admin_citizen_identity_binding"
+      ]
+    },
+    {
+      "function": "runtime/src/tests/cases",
+      "path": "runtime/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "citizenchain",
+      "cases": [
+        "time_and_currency_constants_are_consistent",
+        "fsc_genesis_governance_enables_fcsf_multisig_transfer",
+        "protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_roles",
+        "institution_transfer_route_uses_exact_fee_account",
+        "institution_operation_debits_only_exact_fee_account_without_signer_fallback",
+        "governance_module_tags_are_globally_unique",
+        "runtime_version_and_block_types_are_sane",
+        "joint_vote_benchmark_callback_ignores_execution_without_mutating_issuance",
+        "joint_vote_callback_routes_to_resolution_issuance_and_executes",
+        "resolution_destro_internal_vote_flow_executes_destroy_and_reduces_issuance",
+        "runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths",
+        "runtime_fee_router_treats_proposals_as_operations_not_votes",
+        "multisig_reserved_checker_rejects_stake_and_fee_accounts",
+        "runtime_call_filter_blocks_disabled_and_low_level_calls",
+        "runtime_call_filter_blocks_every_offchain_transaction_call",
+        "runtime_call_filter_has_no_wildcard_arm",
+        "pow_digest_author_finds_pow_engine_author",
+        "joint_vote_callback_missing_proposal_and_runtime_upgrade_route",
+        "runtime_citizen_identity_frg_province_admin_registers_voting_identity",
+        "runtime_citizen_identity_frg_admin_cannot_register_other_province",
+        "runtime_citizen_identity_reader_reads_voting_and_candidate_identity",
+        "runtime_registrar_rebind_preserves_candidate_cid_and_enforces_residence_scope",
+        "runtime_square_post_normal_publish_requires_and_records_active_cid",
+        "runtime_square_post_derives_normal_category_for_voting_only_citizen",
+        "runtime_square_post_campaign_records_chain_cid_for_verified_account_id",
+        "runtime_square_post_fee_kind_uses_onchain_minimum_fee",
+        "ensure_nrc_admin_and_runtime_admin_directory_paths",
+        "onchain_issuance_rejects_admin_without_an_authorized_business_role",
+        "onchain_issuance_rejects_non_admin_and_non_nrc_monitor_actor",
+        "stake_account_is_completely_blocked",
+        "reserved_multisig_only_allows_transfer_and_close",
+        "reserved_fee_account_only_allows_fee_sweep",
+        "ordinary_account_allows_all_actions",
+        "clearing_account_only_allows_debit_and_withdraw",
+        "clearing_account_is_reserved_against_squatting",
+        "genesis_public_institutions_full_mint_counts",
+        "genesis_citizenchain_foundation_is_complete_and_protected",
+        "genesis_national_singletons_exist_and_member_bodies_are_unconstituted",
+        "national_member_body_first_composition_and_permanent_range_are_enforced",
+        "institution_governance_can_clear_legal_representative_atomically",
+        "national_singletons_without_member_ranges_can_be_composed_once",
+        "genesis_fixed_institution_roles_and_assignments_are_complete",
+        "genesis_fixed_role_permissions_match_the_shared_catalog",
+        "runtime_governance_result_router_enforces_fixed_role_seats",
+        "standard_precompiles_execute_with_native_fees_and_read_only_simulation",
+        "invalid_standard_precompile_input_and_unsupported_kzg_preserve_state_in_simulation",
+        "signed_eoa_transfers_keep_existing_amount_fee_payer_and_distribution",
+        "signed_deployment_storage_logs_and_internal_call_charge_outer_transaction_once",
+        "simulation_and_quote_are_read_only_and_ignore_resource_price_for_actual_fee",
+        "wallet_quotes_and_signed_transfers_cover_minimum_rounding_and_percentage_fees",
+        "wallet_price_priority_and_signed_fee_limits_reject_before_charging",
+        "revert_and_out_of_gas_roll_back_value_storage_and_keep_one_original_fee",
+        "wrong_chain_fractional_amount_replay_forged_origin_and_payment_failure_are_rejected",
+        "runtime_integrity_and_actual_space_meter_enforce_finite_limits",
+        "chain_identity_api_returns_actual_hash_without_writing_storage",
+        "chain_identity_api_rejects_missing_genesis_hash",
+        "chain_identity_api_rejects_zero_genesis_hash",
+        "chain_identity_api_rejects_wrong_genesis_hash",
+        "chain_identity_api_rechecks_storage_on_every_query",
+        "chain_identity_api_keeps_genesis_after_actual_block_hash_pruning"
+      ]
+    },
+    {
+      "function": "runtime/src/tests/mod",
+      "path": "runtime/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "citizenchain",
+      "cases": [
+        "citizen_identity_signature_verifiers_reject_nonempty_forgery_in_every_feature"
+      ]
+    },
+    {
+      "function": "runtime/transaction/multisig/src/tests/cases",
+      "path": "runtime/transaction/multisig/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "multisig",
+      "cases": [
+        "nrc_transfer_executes_when_internal_vote_reaches_threshold",
+        "prc_transfer_executes_when_internal_vote_reaches_threshold",
+        "prb_transfer_executes_when_internal_vote_reaches_threshold",
+        "frg_and_njd_can_create_multisig_transfer_internal_proposals",
+        "personal_account_transfer_executes_when_internal_vote_reaches_threshold",
+        "institution_account_transfer_executes_when_internal_vote_reaches_threshold",
+        "institution_account_rejects_mismatched_actor_cid",
+        "unknown_account_cannot_be_used_as_transfer_source",
+        "zero_amount_is_rejected",
+        "self_transfer_is_rejected",
+        "insufficient_balance_is_rejected_on_propose",
+        "institution_fee_account_shortage_never_falls_back_to_admin",
+        "multiple_proposals_allowed_within_limit",
+        "executed_transfer_does_not_block_new_proposal",
+        "rejected_proposal_does_not_block_new_proposal",
+        "existential_deposit_is_preserved",
+        "retry_passed_transfer_succeeds_after_failed_auto_execution",
+        "retry_passed_transfer_rejects_non_passed_proposal",
+        "retry_passed_transfer_rejects_non_admin",
+        "executed_transfer_cannot_be_executed_again",
+        "protected_account_is_rejected",
+        "institution_spend_guard_blocks_transfer_proposal",
+        "fee_respects_minimum_on_small_amount"
+      ]
+    },
+    {
+      "function": "runtime/transaction/offchain/src/bank_check",
+      "path": "runtime/transaction/offchain/src/bank_check.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "offchain",
+      "cases": [
+        "subject_property_s_accepted",
+        "subject_property_f_accepted",
+        "subject_property_g_rejected",
+        "subject_property_too_short_rejected",
+        "noop_impl_returns_none_and_inactive"
+      ]
+    },
+    {
+      "function": "runtime/transaction/offchain/src/batch_item",
+      "path": "runtime/transaction/offchain/src/batch_item.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "offchain",
+      "cases": [
+        "signing_hash_is_deterministic",
+        "signing_hash_changes_with_any_field",
+        "signing_hash_is_separated_from_other_operation_tags",
+        "golden_fixture1_simple_same_bank",
+        "golden_fixture2_cross_bank_big_values",
+        "golden_fixture3_zero_amount_incrementing_tx"
+      ]
+    },
+    {
+      "function": "runtime/transaction/offchain/src/fee_config",
+      "path": "runtime/transaction/offchain/src/fee_config.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "offchain",
+      "cases": [
+        "seven_day_delay_uses_fixed_six_minute_block_calendar"
+      ]
+    },
+    {
+      "function": "runtime/transaction/offchain/src/tests/cases",
+      "path": "runtime/transaction/offchain/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "offchain",
+      "cases": [
+        "bind_deposit_withdraw_full_cycle",
+        "double_bind_rejected",
+        "bind_rejects_unregistered_bank",
+        "switch_requires_zero_balance",
+        "switch_after_withdraw_all_works",
+        "submit_batch_rejects_non_admin",
+        "submit_batch_rejects_invalid_batch_signature",
+        "submit_batch_rejects_wrong_l3_signer_and_tampered_intent",
+        "submit_batch_rejects_wrong_batch_seq",
+        "submit_batch_same_bank_end_to_end",
+        "batch_rejected_when_fee_account_cannot_pay_onchain_fee",
+        "submit_batch_rejects_user_bank_mismatch",
+        "submit_batch_expired_intent_rejected",
+        "submit_batch_cross_bank_end_to_end",
+        "submit_batch_rejected_when_solvency_breached",
+        "submit_batch_solvency_boundary_exact_pass"
+      ]
+    },
+    {
+      "function": "runtime/transaction/onchain/src/tests/cases",
+      "path": "runtime/transaction/onchain/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "onchain",
+      "cases": [
+        "transfer_with_remark_moves_balance_and_emits_bound_remark",
+        "transfer_with_remark_rejects_invalid_transfer_and_caps_remark_bytes",
+        "charge_details_handles_all_fee_routes",
+        "withdraw_and_can_withdraw_use_explicit_signer_payer_and_min_fee",
+        "withdraw_uses_explicit_route_payer",
+        "execution_charger_uses_same_formula_exact_payer_and_ed_rule",
+        "withdraw_no_amount_without_tip_returns_none_and_no_fee_paid_event",
+        "can_withdraw_and_withdraw_fail_when_insufficient_balance",
+        "fee_router_distributes_to_bound_author_reward_account_and_nrc_and_safety_fund",
+        "fee_router_burns_fullnode_share_when_author_not_bound",
+        "fee_router_burns_fullnode_share_when_author_not_found",
+        "fee_router_burns_nrc_share_when_nrc_account_missing",
+        "fee_router_burns_fullnode_share_when_reward_account_id_resolve_fails",
+        "fee_router_burns_nrc_share_when_resolve_fails",
+        "fee_router_burns_safety_fund_share_when_resolve_fails",
+        "correct_and_deposit_does_not_refund_overpayment",
+        "correct_and_deposit_fee_none_is_noop",
+        "nonzero_tip_is_rejected_without_deducting_or_distributing",
+        "charge_transaction_amount_path_routes_fee_to_all_accounts",
+        "exposed_fee_constants_forward_fee_policy_exactly",
+        "charge_details_is_read_only_for_existing_fee_routes",
+        "charge_details_zero_amount_keeps_minimum_fee_and_rejects_tip",
+        "charge_details_matches_actual_payer_and_single_withdrawal",
+        "charge_details_does_not_bypass_existing_balance_validation"
+      ]
+    },
+    {
+      "function": "runtime/votingengine/election-vote/src/tally",
+      "path": "runtime/votingengine/election-vote/src/tally.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "election-vote",
+      "cases": [
+        "selects_top_seats_without_tie",
+        "accepts_tie_that_fits_remaining_seats",
+        "rejects_tie_that_crosses_seat_boundary"
+      ]
+    },
+    {
+      "function": "runtime/votingengine/election-vote/src/tests/mod",
+      "path": "runtime/votingengine/election-vote/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "election-vote",
+      "cases": [
+        "popular_election_uses_population_snapshot_and_generates_result",
+        "mutual_election_uses_role_assignment_snapshot",
+        "creation_rejects_vote_plan_without_mutual_voter_role",
+        "popular_creation_rejects_invalid_candidate_subject_and_bad_shape",
+        "popular_creation_rejects_population_data_that_is_not_ready",
+        "cast_rejects_wrong_voter_candidate_stage_and_duplicate_vote",
+        "same_citizen_cid_cannot_vote_twice_after_account_id_replacement",
+        "candidate_snapshot_rejects_duplicate_permanent_cid",
+        "same_admin_can_vote_once_for_each_frozen_institution_role",
+        "timeout_is_rejected_before_expiry_then_finalizes_no_vote_election",
+        "election_cleanup_removes_all_track_storage",
+        "result_callback_fails_closed_for_incomplete_or_foreign_result"
+      ]
+    },
+    {
+      "function": "runtime/votingengine/internal-vote/src/tests/cases",
+      "path": "runtime/votingengine/internal-vote/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "internal-vote",
+      "cases": [
+        "unix_seconds_to_year_uses_utc_gregorian_boundaries",
+        "leap_year_rules_match_gregorian_calendar",
+        "proposal_id_counter_resets_at_real_utc_year_boundary",
+        "internal_proposal_must_be_created_by_same_institution_admin",
+        "institution_proposal_rejects_personal_code",
+        "governance_internal_proposal_snapshots_fixed_threshold_not_provider",
+        "permanent_singleton_reads_entity_threshold_and_freezes_snapshot",
+        "pending_personal_proposal_uses_supplied_admin_snapshot_and_all_admin_threshold",
+        "institution_proposal_keeps_cid_identity_and_execution_account_separate",
+        "pending_personal_dynamic_threshold_must_be_strict_majority",
+        "pending_personal_snapshot_rejects_duplicate_admins",
+        "personal_close_proposal_requires_all_snapshot_admins",
+        "personal_threshold_must_not_exceed_snapshot_size",
+        "personal_admin_set_mutation_uses_valid_current_snapshot_threshold",
+        "personal_proposal_snapshots_dynamic_threshold",
+        "institution_orgs_snapshot_dynamic_active_threshold_by_cid",
+        "admin_set_mutation_mutex_blocks_same_subject_regular_proposal",
+        "regular_mutex_blocks_same_subject_admin_set_mutation",
+        "regular_internal_proposals_can_coexist_under_same_subject",
+        "admin_set_mutation_passed_status_keeps_mutex_until_terminal_status",
+        "proposal_status_transition_state_machine_is_strict",
+        "internal_vote_must_be_by_same_institution_admin",
+        "nrc_internal_vote_passes_at_13_yes_votes",
+        "internal_vote_is_rejected_after_timeout",
+        "internal_vote_timeout_is_auto_rejected_on_initialize",
+        "joint_proposal_must_be_created_by_nrc_or_prc_admin",
+        "joint_proposal_creates_and_binds_population_snapshot_inline",
+        "joint_proposal_with_empty_population_rolls_back",
+        "joint_vote_requires_current_institution_admin",
+        "joint_vote_rejects_duplicate_admin_vote",
+        "joint_vote_uses_fixed_governance_threshold_not_provider",
+        "national_judicial_yuan_uses_fixed_internal_threshold",
+        "joint_vote_auto_rejects_institution_when_yes_is_no_longer_reachable",
+        "joint_stage_mutex_is_keyed_by_cid_and_released_at_referendum_stage",
+        "joint_referendum_allows_eligible_account",
+        "joint_referendum_same_account_can_only_vote_once_per_proposal",
+        "joint_referendum_same_account_can_vote_on_different_proposals",
+        "joint_referendum_rejects_when_eligible_total_not_set_in_proposal",
+        "joint_referendum_rejects_votes_beyond_population_snapshot_denominator",
+        "joint_referendum_timeout_with_half_or_less_is_rejected",
+        "joint_referendum_timeout_is_auto_rejected_on_initialize",
+        "joint_referendum_timeout_auto_registers_cleanup_and_clears_referendum_votes",
+        "joint_referendum_rejects_ineligible_account",
+        "joint_referendum_rejects_when_not_in_referendum_stage",
+        "joint_referendum_passes_immediately_when_yes_exceeds_half",
+        "delayed_cleanup_cleans_referendum_votes_after_retention",
+        "delayed_cleanup_removes_joint_vote_plan_and_role_snapshots",
+        "joint_referendum_finalize_before_timeout_is_rejected",
+        "joint_referendum_pass_threshold_function_boundaries_are_correct",
+        "joint_referendum_reject_threshold_function_boundaries_are_correct",
+        "joint_vote_all_yes_passes_immediately",
+        "joint_vote_non_unanimous_moves_to_referendum_immediately_after_one_institution_rejects",
+        "joint_vote_timeout_moves_to_referendum_when_not_unanimous",
+        "joint_vote_timeout_auto_moves_to_referendum_on_initialize",
+        "joint_vote_timeout_with_unanimous_tally_passes",
+        "joint_vote_callback_failure_defers_execution_without_reverting_vote_result",
+        "joint_vote_callback_failure_does_not_cleanup_referendum_votes",
+        "proposal_finalized_event_uses_status_after_joint_callback_override",
+        "auto_finalize_drops_failed_joint_callback_from_expiry_bucket",
+        "auto_finalize_errors_back_off_then_enter_dead_letter_without_starving_hooks",
+        "auto_finalize_uses_pending_cursor_when_expiry_bucket_exceeds_per_block_limit",
+        "schedule_proposal_expiry_rejects_bucket_overflow",
+        "scheduled_cleanup_fifo_activates_all_due_items_without_orphaning",
+        "pending_cleanup_fifo_rotates_large_and_small_proposals_fairly",
+        "cleanup_dispatches_only_to_the_proposal_track",
+        "schedule_cleanup_returns_error_when_fifo_sequence_is_exhausted",
+        "terminal_status_rolls_back_when_cleanup_cannot_be_scheduled",
+        "retry_deadline_keeps_retry_state_when_cleanup_scheduling_fails",
+        "retry_deadline_enters_pending_queue_when_reschedule_window_is_full",
+        "delayed_cleanup_chunks_cleanup_across_blocks",
+        "internal_vote_public_call_casts_vote",
+        "internal_vote_counts_same_account_id_once_per_role_ticket",
+        "rebound_wallet_votes_as_canonical_and_old_wallet_loses_power",
+        "internal_vote_rejects_non_admin",
+        "internal_vote_rejects_double_vote",
+        "internal_vote_passes_triggers_callback_approved_true",
+        "internal_vote_early_rejection_triggers_callback_approved_false",
+        "internal_vote_callback_not_called_before_threshold",
+        "internal_vote_callback_err_defers_execution_without_reverting_vote",
+        "asynchronous_callback_errors_dead_letter_after_bounded_retries",
+        "ignored_callback_outcome_dead_letters_after_bounded_retries",
+        "orphan_pending_execution_is_removed_instead_of_retried",
+        "manual_retry_third_failure_marks_execution_failed",
+        "default_cancel_callback_rejects_passed_retry_proposal",
+        "automatic_fatal_failed_runs_execution_failed_terminal_hook",
+        "execution_failed_terminal_cleanup_error_is_queued_and_retried",
+        "joint_retryable_outcome_is_forced_to_execution_failed",
+        "execution_retry_deadline_expires_to_execution_failed",
+        "internal_vote_rejects_wrong_stage_joint_proposal"
+      ]
+    },
+    {
+      "function": "runtime/votingengine/internal-vote/src/tests/dual_id",
+      "path": "runtime/votingengine/internal-vote/src/tests/dual_id.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "internal-vote",
+      "cases": [
+        "proposal_id_is_globally_monotonic_starting_from_zero",
+        "display_meta_seq_in_year_resets_across_year_boundary",
+        "year_proposal_counter_no_longer_capped_at_one_million",
+        "reverse_indexes_populated_after_register_proposal_data",
+        "final_cleanup_removes_indexes_and_display_id"
+      ]
+    },
+    {
+      "function": "runtime/votingengine/joint-vote/src/tests/mod",
+      "path": "runtime/votingengine/joint-vote/src/tests/mod.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "joint-vote",
+      "cases": [
+        "joint_proposal_binds_role_plan_and_never_writes_admin_snapshot",
+        "institution_ticket_count_preserves_same_account_id_in_multiple_roles",
+        "joint_internal_requires_all_105_weight",
+        "joint_referendum_uses_strict_majority",
+        "joint_referendum_fails_closed_without_population",
+        "all_105_weight_via_cast_admin_passes_and_executes",
+        "one_institution_rejection_via_cast_admin_enters_referendum",
+        "joint_internal_timeout_via_public_finalizer_enters_referendum",
+        "cast_referendum_extrinsic_uses_frozen_snapshot_and_strict_majority",
+        "newly_added_voter_cannot_enter_existing_snapshot",
+        "same_citizen_cid_cannot_vote_twice_after_account_id_replacement"
+      ]
+    },
+    {
+      "function": "runtime/votingengine/legislation-vote/src/tests/cases",
+      "path": "runtime/votingengine/legislation-vote/src/tests/cases.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "legislation-vote",
+      "cases": [
+        "representative_final_passed_thresholds",
+        "representative_decided_early",
+        "referendum_threshold",
+        "special_population_scope_is_derived_only_from_actor_cid",
+        "representative_only_finishes_without_law_procedure",
+        "representative_only_rejects_special_rule",
+        "single_house_regular_passes_then_mayor_signs",
+        "single_house_mayor_veto_rejects_without_rescue",
+        "single_house_sign_timeout_passes",
+        "executive_sign_rejected_for_non_representative",
+        "single_house_regular_rejected_when_result_cannot_pass",
+        "double_vote_rejected",
+        "non_member_cannot_vote",
+        "create_requires_actor_cid_admin_even_when_vote_route_is_valid",
+        "two_houses_pass_then_governor_signs",
+        "same_account_id_can_vote_once_in_each_representative_body",
+        "two_houses_exec_veto_then_three_sign_passes",
+        "two_houses_override_one_veto_rejects",
+        "two_houses_sign_timeout_goes_to_override",
+        "two_houses_override_timeout_rejects",
+        "override_sign_rejected_for_non_signer",
+        "special_case_advances_to_referendum_then_passes",
+        "legislation_referendum_rejects_votes_beyond_population_snapshot_denominator",
+        "legislation_referendum_deduplicates_permanent_cid_after_account_id_replacement",
+        "constitution_amend_passes_on_four_guard_approvals",
+        "constitution_amend_rejected_on_four_guard_rejections",
+        "constitution_amend_stays_voting_with_three_guard_approvals",
+        "invalid_guard_member_count_rejected",
+        "duplicate_guard_member_list_rejected",
+        "constitution_amend_guard_timeout_rejects",
+        "non_guard_cannot_guard_vote",
+        "guard_member_cannot_vote_twice",
+        "non_amend_skips_guard"
+      ]
+    },
+    {
+      "function": "runtime/votingengine/src/types",
+      "path": "runtime/votingengine/src/types.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "votingengine",
+      "cases": [
+        "voting_engine_discriminants_are_stable",
+        "vote_plan_field_order_is_stable",
+        "vote_plan_rejects_invalid_subject_combinations",
+        "personal_multisig_plan_requires_the_same_single_account"
+      ]
+    },
+    {
+      "function": "scripts/build-local.test",
+      "path": "scripts/build-local.test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/build.test",
+      "path": "scripts/build.test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/flow.test",
+      "path": "scripts/flow.test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/linux-amd/build-desktop/test",
+      "path": "scripts/node/ci/linux-amd/build-desktop/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/linux-amd/changes/test",
+      "path": "scripts/node/ci/linux-amd/changes/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/linux-amd/verify/test",
+      "path": "scripts/node/ci/linux-amd/verify/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/linux-arm/build-desktop/test",
+      "path": "scripts/node/ci/linux-arm/build-desktop/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/linux-arm/changes/test",
+      "path": "scripts/node/ci/linux-arm/changes/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/linux-arm/verify/test",
+      "path": "scripts/node/ci/linux-arm/verify/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/macos/build-desktop/test",
+      "path": "scripts/node/ci/macos/build-desktop/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/macos/changes/test",
+      "path": "scripts/node/ci/macos/changes/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/macos/verify/test",
+      "path": "scripts/node/ci/macos/verify/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/windows/build-desktop/test",
+      "path": "scripts/node/ci/windows/build-desktop/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/windows/changes/test",
+      "path": "scripts/node/ci/windows/changes/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/ci/windows/verify/test",
+      "path": "scripts/node/ci/windows/verify/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/release/linux-amd/build-desktop/test",
+      "path": "scripts/node/release/linux-amd/build-desktop/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/release/linux-arm/build-desktop/test",
+      "path": "scripts/node/release/linux-arm/build-desktop/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/release/macos/build-desktop/test",
+      "path": "scripts/node/release/macos/build-desktop/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/node/release/windows/build-desktop/test",
+      "path": "scripts/node/release/windows/build-desktop/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/resources.test",
+      "path": "scripts/resources.test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/runtime/ci/build-wasm/test",
+      "path": "scripts/runtime/ci/build-wasm/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/runtime/release/build-wasm/test",
+      "path": "scripts/runtime/release/build-wasm/test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/start.test",
+      "path": "scripts/start.test.mjs",
+      "runner": "node",
+      "target": "node"
+    }
   ]
 }
