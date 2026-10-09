@@ -40,3 +40,15 @@ test('真实工具超时和取消后停止进程组并清场',async()=>{
 test('清场删除断开的链接且不跟随链接删除其它固定根',async()=>{
  await withFixedWork('test',async testWork=>{const keep=join(testWork,'keep');fs.writeFileSync(keep,'protected');await withFixedWork('build',async buildWork=>{fs.symlinkSync(keep,join(buildWork,'external'));fs.symlinkSync(join(buildWork,'missing'),join(buildWork,'broken'));});assert.equal(fs.readFileSync(keep,'utf8'),'protected');assert.deepEqual(fs.readdirSync(fixedWork('build')),[]);});isEmpty();
 });
+
+test('实际任务被强制终止后下一轮在同一固定根恢复并清场',async()=>{
+ const {spawn}=await import('node:child_process');
+ const module=join(import.meta.dirname,'target.mjs');
+ const code='import {withFixedWork} from '+JSON.stringify(module)+';import fs from "node:fs";await withFixedWork("test",async work=>{fs.writeFileSync(work+"/interrupted","partial");process.stdout.write("ready");await new Promise(()=>{});});';
+ const child=spawn(process.execPath,['--input-type=module','-e',code],{env:{PATH:process.env.PATH},stdio:['ignore','pipe','pipe']});
+ const finished=new Promise(resolve=>child.once('close',resolve));
+ try{await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('任务领取超时')),5000);child.once('error',reject);child.stdout.once('data',()=>{clearTimeout(timer);resolve();});});child.kill('SIGKILL');await finished;
+  assert.equal(fs.readFileSync(join(fixedWork('test'),'interrupted'),'utf8'),'partial');
+  await withFixedWork('test',async work=>{assert.equal(fs.existsSync(join(work,'interrupted')),false);fs.writeFileSync(join(work,'next'),'new task');});isEmpty();
+ }finally{child.kill('SIGKILL');await finished;}
+});
