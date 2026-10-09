@@ -14,7 +14,29 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "strict": true
+    "strict": true,
+    "paths": {
+      "*": [
+        "./node_modules/@types/*",
+        "./node_modules/*",
+        "../../target/test/editor/onchina/frontend/node_modules/@types/*",
+        "../../target/test/editor/onchina/frontend/node_modules/*"
+      ],
+      "@gmb/scanner-react": [
+        "../../crates/scanner/src/index.ts"
+      ]
+    },
+    "typeRoots": [
+      "./node_modules/@types",
+      "./node_modules",
+      "../../target/test/editor/onchina/frontend/node_modules/@types",
+      "../../target/test/editor/onchina/frontend/node_modules"
+    ],
+    "types": [
+      "react",
+      "react-dom",
+      "vite/client"
+    ]
   },
   "include": [
     "**/*.ts",

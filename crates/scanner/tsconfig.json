@@ -1,14 +1,44 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "*": [
+        "./node_modules/@types/*",
+        "./node_modules/*",
+        "../../target/test/editor/crates/scanner/node_modules/@types/*",
+        "../../target/test/editor/crates/scanner/node_modules/*"
+      ],
+      "@gmb/scanner-react": [
+        "../../crates/scanner/src/index.ts"
+      ]
+    },
+    "typeRoots": [
+      "./node_modules/@types",
+      "./node_modules",
+      "../../target/test/editor/crates/scanner/node_modules/@types",
+      "../../target/test/editor/crates/scanner/node_modules"
+    ],
+    "types": [
+      "react",
+      "react-dom"
+    ]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/**/*.ts",
+    "test/**/*.tsx"
+  ]
 }

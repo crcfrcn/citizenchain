@@ -3,14 +3,13 @@ const directEntry = process.argv[1] === import.meta.filename && !process.execArg
 const inlineTestEntry = directEntry && Boolean(process.env.NODE_TEST_CONTEXT) && process.argv.length === 2;
 // 本产品独立拥有资源需求、工程准备与编译；公开回执仅提供验真资源，不提供执行命令。
 import {spawn} from 'node:child_process';
-import {checkFixedWork,clearFixedWork,fixedWork,withFixedWork,taskScope,trackWorkProcess,workEnvironment} from './target.mjs';
+import {checkFixedWork,clearFixedWork,finishFixedWork,fixedWork,withFixedWork,taskScope,trackWorkProcess,workEnvironment} from './target.mjs';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {rmSync,chmodSync,closeSync,openSync,readlinkSync,unlinkSync,copyFileSync,existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,realpathSync,symlinkSync,writeFileSync} from 'node:fs';
 import {dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 
-const {fixtureWork,removeFixture,writeFixture,copyFixture}=process.env.NODE_TEST_CONTEXT&&process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)?await import('./target-fixtures.mjs'):{};
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 export const contract=JSON.parse(readFileSync(join(root,'scripts/flows.json'),'utf8'));
 const product=contract.product_id, prefix=product.toUpperCase();
@@ -23,9 +22,11 @@ export function productTarget(platform) {
  platformContract(platform);
  return join(root,'target');
 }
-export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope='test') {
+export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope='test',suppliedInput) {
  if(!['test','tmp','build','ci','release','publish'].includes(scope))fail('临时目录职责无效');
- platformContract(platform);return checkFixedWork(fixedWork(scope==='test'?'test':'build'),{create:true});
+ platformContract(platform);const expected=fixedWork(scope==='test'?'test':'build');
+ if(suppliedInput!=null&&suppliedInput!==expected)fail('临时工作根必须是本产品固定目录');
+ return checkFixedWork(expected,{create:true});
 }
 // 测试继承当前平台现场；独立执行没有任务身份时才选产品首个平台。
 export const testRoot=platform=>{
@@ -308,7 +309,24 @@ async function completeBuild(platform,work,receipt,env) {
 }
 
 // 模块先完成初始化，资源模块才能反向导入本文件的唯一校验；异步CLI在独立Promise中执行。
+async function editorCommand(values){
+ let pid,objects;
+ for(let at=0;at<values.length;at+=2){const[key,value]=values.slice(at,at+2);if(key==='--pid'&&/^[1-9][0-9]*$/.test(value||''))pid=Number(value);else if(key==='--objects'&&value&&isAbsolute(value)&&resolve(value)===value)objects=value;else fail('编辑器会话参数无效');}
+ if(!Number.isSafeInteger(pid)||pid<2||pid===process.pid)fail('编辑器会话必须绑定真实编辑器进程');
+ const alive=()=>{try{process.kill(pid,0);return true;}catch(error){if(error.code==='ESRCH')return false;throw error;}};
+ if(!alive())fail('编辑器进程已退出');
+ const cancellation=new AbortController(),cancel=()=>cancellation.abort(Error('编辑器会话已关闭'));
+ for(const name of ['SIGTERM','SIGINT'])process.once(name,cancel);
+ try{return await withFixedWork('test',async work=>{
+  const {editorResources}=await import('./resources.mjs');await editorResources(work,{objects,signal:cancellation.signal});
+  const {localDocTypeLines}=await import('./docs.mjs');
+  writeFileSync(join(work,'editor/node/frontend/local-docs.generated.d.ts'),[...localDocTypeLines,'export declare const LOCAL_DOCS: readonly LocalDoc[];',''].join('\n'));
+  console.log('公民链编辑器类型已就绪；会话关闭后清空 target/test');
+  while(alive()&&!cancellation.signal.aborted)await new Promise(resolve=>{const timer=setTimeout(done,1000);function done(){clearTimeout(timer);cancellation.signal.removeEventListener('abort',done);resolve();}cancellation.signal.addEventListener('abort',done,{once:true});});
+ });}finally{for(const name of ['SIGTERM','SIGINT'])process.removeListener(name,cancel);}
+}
 async function runCLI(){
+ if(process.argv[2]==='editor')return editorCommand(process.argv.slice(3));
  const [operation,,flag,work]=process.argv.slice(2);
  if(['execute','resources','prepare','build'].includes(operation)&&flag==='--work'){
   checkWork(work);
@@ -372,6 +390,18 @@ if(!inlineTestEntry&&directEntry&&(process.argv[2]==='windows'||Object.hasOwn(BU
 if(!inlineTestEntry&&directEntry&&process.argv[2]!=='shell-source'&&!(process.argv[2]==='windows'||Object.hasOwn(BUILD_SOURCES,process.argv[2]))){
  void runCLI().catch(error=>{console.error(error);process.exitCode=1;});
 }
+
+if(!inlineTestEntry&&directEntry&&process.argv[2]==='shell-source'){if(process.argv.length!==4||process.argv[3]!=='prepare')fail('准备源码选择无效');process.stdout.write(BUILD_SOURCES.prepare);}
+
+import {cpSync as copyPackageTree} from 'node:fs';
+// Windows预打包保留原二进制、前端、行政区数据库与PG组装，只写本轮现场。
+export async function prepackWindows(env){const work=env.PRODUCT_WORK_DIR||env.CITIZENCHAIN_WORK_DIR;checkWork(work);const cargo=env.CARGO,node=env.NODE;if(!cargo||!node)fail('Windows预打包缺少验真工具');const project=env.CITIZENCHAIN_PROJECT_ROOT||env.PRODUCT_SOURCE_DIR;if(!project||!inside(work,project)||realpathSync(project)!==project)fail('预打包工程不属于当前任务');const target=env.CARGO_TARGET_DIR;if(!target||!inside(work,target))fail('预打包Cargo输出越界');const resources=env.CITIZENCHAIN_PACKAGE_RESOURCES_DIR||join(work,'resources');if(!inside(work,resources))fail('预打包资源输出越界');await runBuildProcess(cargo,['build','-p','onchina','--release','--locked','--config',join(root,'config.toml')],env,root);const frontend=join(project,'onchina/frontend');await runBuildProcess(node,[join(dirname(dirname(node)),'lib/node_modules/npm/bin/npm-cli.js'),'run','build'],env,frontend);for(const name of ['onchina-bin','onchina-frontend','postgres'])mkdirSync(join(resources,name),{recursive:true});copyFileSync(join(target,'release/onchina.exe'),join(resources,'onchina-bin/onchina.exe'));const dist=env.ONCHINA_FRONTEND_DIST||join(work,'onchina-frontend/dist');if(!inside(work,dist)||realpathSync(dist)!==dist)fail('预打包前端输出越界');rmSync(join(resources,'onchina-frontend/dist'),{recursive:true,force:true});copyPackageTree(dist,join(resources,'onchina-frontend/dist'),{recursive:true});const pg=env.CITIZENCHAIN_PG_DIST;if(pg&&existsSync(join(pg,'bin'))){const out=join(resources,'postgres/windows');rmSync(out,{recursive:true,force:true});copyPackageTree(pg,out,{recursive:true});}else process.stderr.write('[prepack] 未交付PostgreSQL原件，保持原有可选组装行为\n');rmSync(join(resources,'genesis-state'),{recursive:true,force:true});return {resources};}
+
+// 本文件回归使用固定根；夹具支持随测试正文集中在正式实现之后。
+function fixtureWork(){const work=checkFixedWork(fixedWork('build'),{create:true});finishFixedWork(work);return work;}
+function removeFixture(path,options={}){if(path===fixedWork('build')||path===fixedWork('test')){if(existsSync(path))clearFixedWork(path);return;}rmSync(path,options);}
+function writeFixture(path,data,options){writeFileSync(path,data,options);if(String(path).endsWith('/scripts/build.mjs')&&String(data).includes("from './target.mjs'"))copyFileSync(join(root,'scripts/target.mjs'),join(dirname(path),'target.mjs'));}
+function copyFixture(source,destination,...options){copyFileSync(source,destination,...options);if(String(destination).endsWith('/scripts/build.mjs'))copyFileSync(join(root,'scripts/target.mjs'),join(dirname(destination),'target.mjs'));}
 
 // 内嵌回归只由node --test直接运行本文件时注册，导入和正常执行不运行测试。
 if(inlineTestEntry){
@@ -549,7 +579,7 @@ test('CLI异步资源可反向导入唯一校验，正常参数和离线失败�
   const work=join(source,'target','build');
   mkdirSync(scripts,{recursive:true});mkdirSync(work,{recursive:true});
   writeFixture(file,readFileSync(join(root,'scripts/build.mjs')));
-  for(const name of ['target.mjs','target-fixtures.mjs'])writeFixture(join(scripts,name),readFileSync(join(root,'scripts',name)));
+  for(const name of ['target.mjs'])writeFixture(join(scripts,name),readFileSync(join(root,'scripts',name)));
   writeFixture(join(scripts,'flows.json'),JSON.stringify(contract));
   const provider=[
    "import {writeFileSync} from 'node:fs';",
@@ -631,11 +661,6 @@ test('宿主完整Build在调用方消费前保留成功或失败现场，独立
 })();
 }
 
-if(!inlineTestEntry&&directEntry&&process.argv[2]==='shell-source'){if(process.argv.length!==4||process.argv[3]!=='prepare')fail('准备源码选择无效');process.stdout.write(BUILD_SOURCES.prepare);}
-
-import {cpSync as copyPackageTree} from 'node:fs';
-// Windows预打包保留原二进制、前端、行政区数据库与PG组装，只写本轮现场。
-export async function prepackWindows(env){const work=env.PRODUCT_WORK_DIR||env.CITIZENCHAIN_WORK_DIR;checkWork(work);const cargo=env.CARGO,node=env.NODE;if(!cargo||!node)fail('Windows预打包缺少验真工具');const project=env.CITIZENCHAIN_PROJECT_ROOT||env.PRODUCT_SOURCE_DIR;if(!project||!inside(work,project)||realpathSync(project)!==project)fail('预打包工程不属于当前任务');const target=env.CARGO_TARGET_DIR;if(!target||!inside(work,target))fail('预打包Cargo输出越界');const resources=env.CITIZENCHAIN_PACKAGE_RESOURCES_DIR||join(work,'resources');if(!inside(work,resources))fail('预打包资源输出越界');await runBuildProcess(cargo,['build','-p','onchina','--release','--locked','--config',join(root,'config.toml')],env,root);const frontend=join(project,'onchina/frontend');await runBuildProcess(node,[join(dirname(dirname(node)),'lib/node_modules/npm/bin/npm-cli.js'),'run','build'],env,frontend);for(const name of ['onchina-bin','onchina-frontend','postgres'])mkdirSync(join(resources,name),{recursive:true});copyFileSync(join(target,'release/onchina.exe'),join(resources,'onchina-bin/onchina.exe'));const dist=env.ONCHINA_FRONTEND_DIST||join(work,'onchina-frontend/dist');if(!inside(work,dist)||realpathSync(dist)!==dist)fail('预打包前端输出越界');rmSync(join(resources,'onchina-frontend/dist'),{recursive:true,force:true});copyPackageTree(dist,join(resources,'onchina-frontend/dist'),{recursive:true});const pg=env.CITIZENCHAIN_PG_DIST;if(pg&&existsSync(join(pg,'bin'))){const out=join(resources,'postgres/windows');rmSync(out,{recursive:true,force:true});copyPackageTree(pg,out,{recursive:true});}else process.stderr.write('[prepack] 未交付PostgreSQL原件，保持原有可选组装行为\n');rmSync(join(resources,'genesis-state'),{recursive:true,force:true});return {resources};}
 
 // 原非macOS完整调用、边界与首条失败收口回归归同一正式入口。
 if(inlineTestEntry){void(async()=>{

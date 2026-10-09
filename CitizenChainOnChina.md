@@ -1114,3 +1114,5 @@ scripts保持23件：核心build/resources/flow/start/icons/docs/maintain与flow
 registry与Git的目录源按原锁准确来源隔离，同名同版本不会混合。SDK临时发布视图保留其Git相对依赖身份；上游dev和可选依赖声明均保持原Git提交，只物化消费锁实际需要的包。原锁和上游原件不被改写。
 
 统一扫码SVG以原几何独立资源输出，消费端使用currentColor的CSS遮罩，保留18×18尺寸并在WebKit实际窗口显示；不依赖外部SVG symbol引用。Rust build-std依赖按已验真Rust工具原始Cargo.lock物化，产品Cargo锁和工具版本保持。
+
+本仓scripts测试正文统一位于所属正式实现末尾；固定目录回归执行node --test scripts/target.mjs，构建夹具支持随build.mjs内嵌回归保存。正常导入与正式执行不注册测试，门禁直接登记所属实现文件，不保留独立测试或夹具模块。

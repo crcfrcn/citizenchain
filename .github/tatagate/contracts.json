@@ -32,7 +32,7 @@
     "scripts/release/windows.mjs",
     "scripts/resources.mjs",
     "scripts/start.mjs",
-    "scripts/target.test.mjs"
+    "scripts/target.mjs"
   ],
   "checks": [
     "repository-contracts",

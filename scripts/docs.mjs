@@ -8,6 +8,17 @@ import { fileURLToPath } from 'node:url';
 import { mkdtempSync } from 'node:fs';
 import { temporaryRoot,checkWork } from './build.mjs';
 import { prepareWhitepaperSource } from './resources.mjs';
+export const localDocTypeLines = [
+  'export type LocalDocKey = "whitepaper";',
+  '',
+  'export type LocalDoc = {',
+  '  key: LocalDocKey;',
+  '  title: string;',
+  '  sourcePath: string;',
+  '  sha256: string;',
+  '  markdown: string;',
+  '};',
+];
 export async function generateDocs({work=process.env.CITIZENCHAIN_WORK_DIR,project=process.env.CITIZENCHAIN_PROJECT_ROOT,sourceDirectory}={}){
  checkWork(work);if(typeof project!=="string"||!path.isAbsolute(project)||path.resolve(project)!==project||!project.startsWith(work+path.sep)||fs.realpathSync(project)!==project)throw Error("文档工程必须属于本轮工作根");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url)); // citizenchain/scripts
@@ -97,15 +108,7 @@ fs.writeFileSync(
     ...images.map(e=>'import '+e.variable+' from '+JSON.stringify('../../icons/'+e.name+'?url')+';'),
     '// 本文件只内置白皮书；公民宪法由链上 runtime API 返回。',
     '',
-    'export type LocalDocKey = "whitepaper";',
-    '',
-    'export type LocalDoc = {',
-    '  key: LocalDocKey;',
-    '  title: string;',
-    '  sourcePath: string;',
-    '  sha256: string;',
-    '  markdown: string;',
-    '};',
+    ...localDocTypeLines,
     '',
     'export const LOCAL_DOCS = ['+docs.map(doc=>'{'+Object.entries(doc).map(([key,value])=>JSON.stringify(key)+':'+(key==='markdown'?images.reduce((expr,e)=>expr+'.split('+JSON.stringify(e.marker)+').join('+e.variable+')',JSON.stringify(value)):JSON.stringify(value))).join(',')+'}').join(',')+'] as const satisfies readonly LocalDoc[];',
     '',
@@ -122,8 +125,9 @@ if(!inlineTestEntry&&directEntry){void generateDocs().catch(e=>{console.error(e.
 // 文档入口在取得官网输入前拒绝源码输出，保护资源归属。
 if(inlineTestEntry){void(async()=>{const {test}=await import('node:test');const {default:assert}=await import('node:assert/strict');const {testRoot}=await import('./build.mjs');test('文档输出源根与未声明工作根在获取输入前拒绝',async()=>{await assert.rejects(generateDocs({work:'relative',project:'relative'}),/工作根/);});
 test('文档生成将图片原件放入统一目录，并生成可编译的实际导入，结束清理官网现场',async()=>{
- const work=fs.mkdtempSync(path.join(testRoot(),'docs-')),project=path.join(work,'project'),source=path.join(work,'website'),bytes=fs.readFileSync(new URL('../icons/logo.png',import.meta.url));
- try{fs.mkdirSync(project);fs.mkdirSync(path.join(source,'src'),{recursive:true});fs.writeFileSync(path.join(source,'src','image.png'),bytes);fs.writeFileSync(path.join(source,'src','whitepaper.md'),'# 正文\n![图标](image.png)\n<img src="image.png">');
+ const {withFixedWork}=await import('./target.mjs');await withFixedWork('test',async work=>{const project=path.join(work,'project'),source=path.join(work,'website'),bytes=fs.readFileSync(new URL('../icons/logo.png',import.meta.url));
+ fs.mkdirSync(project);fs.mkdirSync(path.join(source,'src'),{recursive:true});fs.writeFileSync(path.join(source,'src','image.png'),bytes);fs.writeFileSync(path.join(source,'src','whitepaper.md'),'# 正文\n![图标](image.png)\n<img src="image.png">');
  await generateDocs({work,project,sourceDirectory:source});const names=fs.readdirSync(path.join(project,'icons'));assert.equal(names.length,1);assert.deepEqual(fs.readFileSync(path.join(project,'icons',names[0])),bytes);const output=fs.readFileSync(path.join(project,'node/frontend/local-docs.generated.ts'),'utf8');assert.ok(output.includes('import whitepaperImage0 from "../../icons/'+names[0]+'?url";'));assert.ok(output.includes('.split("__WHITEPAPER_IMAGE_0__").join(whitepaperImage0)'));assert.equal(fs.readdirSync(work).filter(name=>name.startsWith('whitepaper-')).length,0);
- }finally{fs.rmSync(work,{recursive:true,force:true});}
+
+});
 });})();}
