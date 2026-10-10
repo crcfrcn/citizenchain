@@ -1529,8 +1529,19 @@ mod finalize_issuance_tests {
     }
 
     fn test_config(tokio_handle: tokio::runtime::Handle) -> Configuration {
-        let base_path = BasePath::new_temp_dir().expect("create node guard bad-block temp base");
-        let root = base_path.path().to_path_buf();
+        // SDK 的 new_temp_dir 在同一进程复用目录；服务测试必须各自持有独立数据库。
+        // 子目录归调用方的本轮临时现场，工具退出且结果消费后由产品生命周期统一清场。
+        static NEXT_BASE: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .expect("resolve node guard test temporary root")
+            .join(format!(
+                "node-guard-bad-block-{}-{}",
+                std::process::id(),
+                NEXT_BASE.fetch_add(1, Ordering::Relaxed),
+            ));
+        std::fs::create_dir(&root).expect("create fresh independent node guard test base");
+        let base_path = BasePath::new(root.clone());
         let network = NetworkConfiguration::new(
             "node-guard-bad-block-test",
             "citizenchain-node-guard-test/0.1",
@@ -2064,6 +2075,10 @@ mod finalize_issuance_tests {
         }
         let runtime = tokio::runtime::Runtime::new().expect("create tokio runtime");
         let config = test_config(runtime.handle().clone());
+        // 回归同进程共用目录造成的 RocksDB 锁冲突；不能以串行化掩盖夹具隔离错误。
+        let another_config = test_config(runtime.handle().clone());
+        assert_ne!(config.base_path.path(), another_config.base_path.path());
+        assert_ne!(config.database.path(), another_config.database.path());
         let sc_service::PartialComponents {
             client,
             backend,

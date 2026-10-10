@@ -7,7 +7,7 @@
     "node": "25.2.1"
   },
   "scripts": {
-    "generate:docs": "node ../../scripts/docs.mjs",
+    "generate:docs": "node docs.mjs",
     "predev": "npm run generate:docs",
     "dev": "vite",
     "prebuild": "npm run generate:docs",

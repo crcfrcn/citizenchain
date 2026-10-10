@@ -1,6 +1,6 @@
 //! 行政区常量表(创世直铸真源,ADR-031 卡3)。
 //!
-//! 数据由 `citizenchain/scripts/gen_area_data.py` 从 china.sqlite(行政区唯一真源 ADR-021)生成,
+//! 数据由 `citizenchain/runtime/primitives/gen_area_data.py` 从 china.sqlite(行政区唯一真源 ADR-021)生成,
 //! 编成紧凑二进制 `area_data.bin`,本模块 no_std 零拷贝解析,供 genesis 直铸
 //! 「行政区 × 机构码模板」全部市行政区/镇行政区公权机构。
 //!
@@ -10,7 +10,7 @@
 //!     每市: [3]市码 u8 名长 名; u16 镇数
 //!       每镇: [3]镇码 u8 名长 名
 
-/// china.sqlite 派生的行政区快照(重生走 `citizenchain/scripts/gen_area_data.py`)。
+/// china.sqlite 派生的行政区快照(重生走 `citizenchain/runtime/primitives/gen_area_data.py`)。
 pub const AREA_DATA: &[u8] = include_bytes!("area_data.bin");
 
 /// 零拷贝游标:按格式顺序读省/市/镇。所有 &str 借用自 `AREA_DATA`。

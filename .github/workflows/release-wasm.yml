@@ -1,0 +1,191 @@
+---
+name: citizenchain.wasm
+run-name: "${{ github.workflow }} · ${{ github.run_number }}"
+'on':
+  workflow_dispatch: {}
+concurrency:
+  group: "${{ github.repository }}-wasm"
+  cancel-in-progress: false
+  queue: max
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: "${{ steps.version.outputs.version }}"
+      tag: "${{ steps.version.outputs.tag }}"
+      source_sha: "${{ steps.version.outputs.source_sha }}"
+      run_id: "${{ steps.version.outputs.run_id }}"
+      run_attempt: "${{ steps.version.outputs.run_attempt }}"
+      run_number: "${{ steps.version.outputs.run_number }}"
+      chain_spec_version: "${{ steps.version.outputs.chain_spec_version }}"
+      genesis_hash: "${{ steps.version.outputs.genesis_hash }}"
+      finalized_head: "${{ steps.version.outputs.finalized_head }}"
+    steps:
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        fetch-depth: 0
+        persist-credentials: false
+    - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      with:
+        node-version: 25.2.1
+    - id: version
+      env:
+        GH_TOKEN: "${{ github.token }}"
+        CHAIN_URL: "${{ vars.CHAIN_URL }}"
+        CHAIN_GENESIS_HASH: "${{ vars.CHAIN_GENESIS_HASH }}"
+        CHAIN_ID: "${{ secrets.CHAIN_ID }}"
+        CHAIN_SECRET: "${{ secrets.CHAIN_SECRET }}"
+      run: node .github/workflows/release-wasm.mjs prepare
+  flow:
+    name: 编译 WASM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CI: 'true'
+      WRANGLER_SEND_METRICS: false
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: '1'
+      CARGO_INCREMENTAL: '0'
+      GH_TOKEN: "${{ github.token }}"
+      GMB_SOURCE_SHA: "${{ github.sha }}"
+      GMB_VERSION_TAG: "${{ needs.prepare.outputs.tag }}"
+      GMB_SOFTWARE_VERSION: "${{ needs.prepare.outputs.version }}"
+      SOURCE_SHA: "${{ github.sha }}"
+      VERSION_TAG: "${{ needs.prepare.outputs.tag }}"
+      SOFTWARE_VERSION: "${{ needs.prepare.outputs.version }}"
+      RELEASE_VERSION: "${{ needs.prepare.outputs.version }}"
+      RELEASE_TAG: "${{ needs.prepare.outputs.tag }}"
+      SPEC_VERSION: "${{ needs.prepare.outputs.version }}"
+      GMB_SPEC_VERSION: "${{ needs.prepare.outputs.version }}"
+      PRODUCER_RUN_ID: "${{ github.run_id }}"
+      CHAIN_SPEC_VERSION: "${{ needs.prepare.outputs.chain_spec_version }}"
+      GENESIS_HASH: "${{ needs.prepare.outputs.genesis_hash }}"
+      FINALIZED_HEAD: "${{ needs.prepare.outputs.finalized_head }}"
+      CITIZENCHAIN_RUST_INSTALLER_SHA: '032958afbdc797a9164d3bc0b56325c1308924a5'
+      CITIZENCHAIN_RUST_VERSION: 1.97.1
+    steps:
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        fetch-depth: 0
+        persist-credentials: false
+    - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      with:
+        node-version: 25.2.1
+    - name: 准备本目标独占现场
+      run: node .github/workflows/release-wasm.mjs job
+    - name: 装载准确Rust
+      uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
+      with:
+        toolchain: 1.97.1
+        targets: wasm32v1-none
+        components: rust-src, clippy
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs" step 1
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs" step 2
+    - working-directory: "."
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs" step 3
+    - working-directory: "."
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs" step 4
+    - working-directory: "."
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs" step 5
+    - working-directory: "."
+      env:
+        WASM_BUILD_FROM_SOURCE: '1'
+        CITIZENCHAIN_PRODUCTION_WASM_BUILD: '1'
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs" step 6
+    - working-directory: "."
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs" step 7
+    - shell: bash
+      run: node "$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs" step 8
+    - working-directory: "."
+      env:
+        WASM_FILE: "${{ env.CARGO_TARGET_DIR }}/release/wbuild/citizenchain/citizenchain.compact.compressed.wasm"
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs" step 9
+    - id: complete
+      name: 逐件收集完整正式产物
+      run: node .github/workflows/release-wasm.mjs collect-produced
+    - name: 交付本次完整产物
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: release-output
+        path: "${{ steps.complete.outputs.assets }}"
+        if-no-files-found: error
+        retention-days: 7
+    needs:
+    - prepare
+  publish:
+    needs:
+    - prepare
+    - flow
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: "${{ needs.prepare.outputs.version }}"
+      RELEASE_TAG: "${{ needs.prepare.outputs.tag }}"
+      GH_TOKEN: "${{ github.token }}"
+      CI: 'true'
+      CARGO_INCREMENTAL: '0'
+      PRODUCER_RUN_ID: "${{ github.run_id }}"
+      CHAIN_SPEC_VERSION: "${{ needs.prepare.outputs.chain_spec_version }}"
+      GENESIS_HASH: "${{ needs.prepare.outputs.genesis_hash }}"
+      FINALIZED_HEAD: "${{ needs.prepare.outputs.finalized_head }}"
+    steps:
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        fetch-depth: 0
+        persist-credentials: false
+    - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      with:
+        node-version: 25.2.1
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: release-output
+        path: "${{ runner.temp }}/release-output"
+    - id: complete
+      name: 正式Release上传并逐件回读
+      run: node .github/workflows/release-wasm.mjs publish "$RUNNER_TEMP/release-output"
+  cleanup:
+    if: "${{ always() }}"
+    needs:
+    - prepare
+    - flow
+    - publish
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: write
+    env:
+      GH_TOKEN: "${{ github.token }}"
+      RELEASE_NEEDS: "${{ toJSON(needs) }}"
+      RELEASE_TAG: "${{ needs.prepare.outputs.tag }}"
+      PRODUCER_RUN_ID: "${{ github.run_id }}"
+    steps:
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        fetch-depth: 0
+        persist-credentials: false
+    - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      with:
+        node-version: 25.2.1
+    - name: 按全部前置结果清理本目标同类历史
+      run: node .github/workflows/release-wasm.mjs finish

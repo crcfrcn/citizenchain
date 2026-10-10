@@ -17,7 +17,6 @@
 // --extrinsic=*
 // --steps=50
 // --repeat=20
-// --template=scripts/benchmark-weight-template.hbs
 // --output=runtime/issuance/citizen-issuance/src/weights.rs
 
 #![cfg_attr(rustfmt, rustfmt_skip)]

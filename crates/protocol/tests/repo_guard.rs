@@ -136,7 +136,7 @@ fn product_sources_do_not_depend_on_the_control_program() -> Result<(), Box<dyn 
     let mut violations = Vec::new();
     for path in files {
         if path.starts_with(&protected_runtime)
-            || path == root.join(".github/tatagate/index.mjs")
+            || path == root.join(".github/tatagate/tatagate.mjs")
             || path == root.join("crates/protocol/tests/repo_guard.rs")
             || !source_file(&path)
         {
@@ -280,7 +280,7 @@ fn only_qr_v1_is_versioned() -> Result<(), Box<dyn Error>> {
     let prefix = ["QR", "_V"].concat();
     let mut violations = Vec::new();
     for path in files {
-        if !source_file(&path) || path == root.join(".github/tatagate/index.mjs") {
+        if !source_file(&path) || path == root.join(".github/tatagate/tatagate.mjs") {
             continue;
         }
         let source = fs::read_to_string(&path)

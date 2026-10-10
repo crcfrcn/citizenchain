@@ -1,7 +1,7 @@
 // 节点 UI 顶级 tab 栏：首页 / 挖矿 / 国家储委会 / 省储委会 / 省储行 / 清算行 / 白皮书 / 公民宪法 / 设置。
 import { useCallback, useEffect, useState } from 'react';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { check, type Update } from '@tauri-apps/plugin-updater';
+import { Update } from '@tauri-apps/plugin-updater';
 import { NrcSection } from '../governance/NrcSection';
 import { PrcSection } from '../governance/PrcSection';
 import { PrbSection } from '../governance/PrbSection';
@@ -40,7 +40,8 @@ export default function App() {
     setDesktopUpdateInfo((prev) => ({ ...prev, status: 'checking', error: null }));
     try {
       // App 打开后只检查 GitHub Release 元数据，不下载、不安装，等待用户在设置页主动点击。
-      const update = await check();
+      const metadata = await settingsApi.checkDesktopUpdate();
+      const update = metadata ? new Update(metadata) : null;
       setDesktopUpdate(update);
       setDesktopUpdateInfo({
         status: update ? 'available' : 'unavailable',

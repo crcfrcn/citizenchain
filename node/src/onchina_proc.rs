@@ -123,7 +123,7 @@ fn apply_onchina_env(app: &AppHandle, cmd: &mut Command) -> Result<(), String> {
 fn apply_data_dir_env(base: &Path, cmd: &mut Command) {
     cmd.env("ONCHINA_PG_DATA_DIR", base.join("pgdata"));
     cmd.env("ONCHINA_TLS_DIR", base.join("onchina-tls"));
-    // 默认本地 WAL 归档;大市部署由运维把 ONCHINA_PG_WAL_ARCHIVE_DIR 指向 NAS(见 citizenchain/scripts/onchina-{backup,restore}.sh)。
+    // 默认归档到节点数据目录；机房部署可由运维将归档目录指向 NAS。
     cmd.env("ONCHINA_PG_WAL_ARCHIVE_DIR", base.join("pg-wal-archive"));
 }
 

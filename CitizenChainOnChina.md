@@ -12,7 +12,7 @@
 
 以上为当前职责规范；本次只更新文档，不代表现有资源协议与运行代码已完成接入或通过真实流程验收。历史记录中的“可选供给”或“产品负责缺件获取”仅描述当时实现，不作为当前职责依据。
 
-本仓现行入口以`scripts/flows.json`及产品公开scripts实现为准；本文按日期保留的历史验收只描述当时结果，不作为当前工具、私有调用者或已撤销Publish实现的运行条件。独立塔塔门禁候选的职责和未验收状态见文末。
+本仓现行入口以`scripts/build.mjs describe`及产品公开scripts实现为准；本文按日期保留的历史验收只描述当时结果，不作为当前工具、私有调用者或已撤销Publish实现的运行条件。独立塔塔门禁候选的职责和未验收状态见文末。
 
 ## 当前工作目录归属
 
@@ -34,8 +34,6 @@ CitizenChainOnChina 涉及聊天时只作为依赖使用方；本条不代表尚
 本文是 CitizenChain OnChina 唯一技术事实文档，统一收录机构工作台、链上交互、前后端边界与部署约束。
 
 OnChina的reqwest跟随受控依赖库唯一固定版本，启用json与rustls，和节点共用由Cargo生成的原始工作区锁。依赖收敛不修改链上Runtime、机构授权、数据库或HTTP业务逻辑，也不能替代实际TLS初始化、请求处理及应用运行验收。
-
-### OnChina 地址库技术文档
 
 #### 1. 功能定位
 
@@ -103,13 +101,10 @@ action = (33 << 8) | call_index
 ```text
 cargo check --manifest-path citizenchain/Cargo.toml -p onchina
 npm --prefix citizenchain/onchina/frontend run build
-node citizenchain/scripts/maintain.mjs codes
 sqlite3 citizenchain/onchina/src/codes/china.sqlite "PRAGMA integrity_check"
 ```
 
 ---
-
-### OnChina 后端技术文档
 
 #### 1. 功能需求
 
@@ -357,8 +352,6 @@ curl -ksS -i https://onchina.local:8964/api/admin/auth/check -H "authorization: 
 
 ---
 
-### OnChina 数据与安全技术文档
-
 #### 1. 功能需求
 
 本文件集中登记 OnChina 的行政区、CID 号、权限、扫码签名、错误码和高并发数据边界。它承接旧 CID 文档中仍然有效的数据安全规则，并删除独立产品部署和旧路径口径。
@@ -522,14 +515,11 @@ OnChina 只签发投票引擎已经定义的资格凭证、人口快照或身份
 #### 8. 验收
 
 ```text
-node citizenchain/scripts/maintain.mjs codes
 sqlite3 citizenchain/onchina/src/codes/china.sqlite "PRAGMA integrity_check"
 rg "旧独立身份系统名|backend/src|frontend/api|frontend/chain" memory AGENTS.md citizenchain/onchina --glob '!tasks/**' --glob '!docs/**' --glob '!**/node_modules/**' --glob '!**/dist/**'
 ```
 
 ---
-
-### OnChina 前端技术文档
 
 #### 1. 功能需求
 
@@ -683,8 +673,6 @@ rg "NotAllowedError.*摄像头" citizenchain/onchina/frontend --glob '!node_modu
 管理员模型现统一为 `account_id + cid_number + family_name + given_name`，登录态、Header、机构治理批量输入、市注册局管理员新增以及联邦/本机构管理员列表必须使用同一字段布局。ADR-039 第 3 步已关闭旧机构首次登记提交路径；当前创建按钮固定禁用，不能把历史验收解读为旧创建流程仍有效。当前 TypeScript 与 Vite 生产构建通过。
 
 ---
-
-### OnChina 技术架构
 
 #### 1. 定位
 
@@ -1029,11 +1017,13 @@ FRG/CREG，只返回同一 finalized 区块中的 CID 状态、当前账户、�
 
 所有者：`citizenchain`，正式源码根 `<本仓根>`；本说明属于该完整产品内的OnChina组件资料。组件不会拆成独立仓库或目录产品。所有执行身份统一为 `产品.平台.流程`；工作目录合同由 `CitizenChainNode.md` 的“本机固定执行目录”唯一承载，不建立平台工作目录层。
 
-OnChina 随 Node 安装包交付，不新增独立 Workflow；CI、Release 的准确入口与单主 `flow` Job 合同统一见 `CitizenChainNode.md` 的“独立 GitHub CI 与 Release 工作流”。
 
 真实平台目标：`macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。
 
-推送门禁唯一源码位于 `<本仓根>/.github/tatagate/`，GitHub入口 `<本仓根>/.github/workflows/tatagate.yml`。控制台先从本仓已保存提交执行这份门禁，通过后推送准确SHA；GitHub main push再执行同一提交的门禁，控制台核对所属仓、Workflow、main、SHA、Run和attempt，只有success并再次回查main一致才完成推送。失败、取消、超时或身份漂移均不得显示成功，不自动重试或派发CI/Release。
+仓库推送仅上传本仓已经保存的main提交。控制台推送的唯一实现为console/tuisong.mjs，每仓一次生物识别，授权成功后建立独立任务，任务栏记录Git进度、准确SHA、取消及成功/失败终态。只执行Git与GitHub main只读回查，不执行源码、依赖、注释、文档、测试、签名或资源门禁；不派发产品Workflow、不运行hooks、不续签或重复认证、不自动重试、合并或强推。
+
+本仓已移除GitHub main推送门禁触发器；main上传后不自动运行产品自动化。自动化由用户单独发起，产品仍拥有自己的Workflow、声明、资源、测试和产物实现；产品不导入控制台源码，不依赖控制台工具库、私有规则或其它仓库工作树。控制台只是可选Git客户端。各仓可独立使用公开Git接口完成仓库操作，公开SDK依赖不构成流程耦合。
+
 
 技术文档由所属完整产品仓根唯一持有；私有规则和任务库由控制台私仓持有，公开产品不读取它们。公开门禁不依赖私仓资料、安装包源码、其它本机产品或个人账号；必要链真源只读本仓明确固定的公开40位SHA，不在门禁中跟随main。本机开发跨产品验收仍比较三仓已保存快照与各端真实镜像。
 
@@ -1058,46 +1048,9 @@ Node和OnChina的本仓file依赖使用npm锁文件原生link条目，并登记.
 本仓扫码链接包与宿主通过Vite resolve.dedupe统一react、react-dom的实际实例；依赖版本仍由原锁固定，不建立React别名或第二套版本。
 
 
-## 独立塔塔门禁与资料回归
+## 只读塔塔门禁与功能验收边界（2026-10-10）
 
-本仓 `.github/tatagate/index.mjs` 是本机与GitHub共用的唯一门禁实现，`contracts.json`只登记本仓准确GitHub身份、已有流程与真实Node入口。GitHub在本仓main推送时自动运行 `tatagate.yml`，检出并核对该push的同一已保存SHA；其它仓库的工作树、门禁、私有规则和人工开发凭证均不是输入。
-
-门禁检查独立Git根、准确HTTPS origin、当前受检提交及提交范围；本机只接受main，远端只接受准确仓库的main push。源码语法、真实代码注释上下文、临时残留、传输来源、所属根技术文档和受控测试登记分别检查。实现变化必须在同一范围同步所属文档与有内容的回归差异；空白调整不构成同步证据。代码与资料的语义、注释是否准确、回归是否覆盖产品功能仍须由本仓开发与最终真实验收逐项复核，非空文件或摘要不能证明业务正确。
-
-Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复、失效和空入口失败；执行时必须有每份登记文件与最终汇总的完整成功回执。零用例、漏文件、失败、跳过、待办、取消及重复汇总均失败。所属产品流程、声明、资源版本与Workflow权限的回归归本仓 `scripts/flow.test.mjs`，不让其它仓库代验本产品。
-
-门禁的工具与依赖需求、固定来源、准备配方、完整验真及同版复用合同统一由本仓 `scripts/resources.mjs` 拥有；门禁只调用公开接口，不维护第二份工具版本或配方。按当前职责规范，独立执行由产品获取和保存资源，经控制台执行由控制台准备和供给；下述既有接口与验收记录不代表控制台供给接入已完成。`prepareGateResources`准备本仓独占资源现场，`verifyGateResourceDelivery`回读准确来源、完整对象、执行器、宿主闭包和工作环境，`gateResourcePlan`从本仓既有声明派生来源。既有tools模块如存在仅转发产品资源接口。Linux门禁新增Ubuntu 24.04 x64宿主交付，macOS门禁复用本仓既有生产资源准备；不改生产流程顺序、工具版本、产品原锁或不可变原件。
-
-固定Git输入只从本仓声明或门禁明确的40位提交取得，不消费其它产品当前main。独立执行的依赖原件归产品独立资源库，经控制台执行的依赖原件由控制台保存供给，任务缓存和编译数据归本轮target；全部平台测试使用本仓target/test，平台只用于任务身份及准确资源选择。`gateLanguageView`使用受检Git快照与产品现有安全解包器物化本轮target工程视图，正式源码、声明和锁只读；Git包仅在任务视图元数据中投影为已验真的固定输入。
-
-`ownedLanguageTests`按本仓已有原锁与公开入口派生适用语言调度，`validateLanguageResult`核对实际非空执行结果。有Cargo锁的工作区执行离线原锁的全部测试目标及文档测试；Flutter项目执行原有正式测试入口或完整analyze/test；已有Vitest业务套件与TypeScript公开回归实际执行。Node依赖先准备独占视图；需要实际编译产物的既有测试先调用所属产品原Build入口。依赖缺失、宿主不适用、工具加载失败或语言结果不完整均失败，不以跳过或零退出码代替通过。
-
-取消、超时及任何非成功结论都是失败，长进程通过本产品 `runResourceProcess` 传播取消并确认整组退出；退出未确认时 `gateCleanupAllowed` 拒绝清理现场。
-
-链的Node前端TypeScript文档回归、OnChina前端Vitest与Rust工作区由链自身执行；QR协议工具的既有格式、Clippy与完整测试仍保留，不能以QR工具通过替代链工作区通过。节点、Runtime与OnChina三个既有根文档分别保持所属模块职责。
-
-本轮只完善门禁实现、资料、注释和回归源码，尚未运行测试、门禁、编译、签名或安装。全部获准步骤实现完成后在最终统一验收中运行，随后按每仓准确保存SHA推送并核对该SHA的GitHub push门禁；未验收不得登记为已完成。
-
-
-## 独立功能门禁
-
-本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：链协议、投票引擎、身份和机构权限、发行与交易、节点和OnChina。已有真实入口为：runtime现有真实用例；crates/protocol/tests；crates/scanner/test；node/frontend和onchina/frontend用例。`contracts.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 196 件既有测试来源（cargo 168 件、node 24 件、node-entry 1 件、vitest 3 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
-
-Node完整报告逐文件核对；Flutter和Vitest从实际机器结果读取本仓具名套件完成数；Rust按准确原锁工作区及所属包运行全目标和文档测试，核对具名用例；Python调用实际unittest套件，拒绝零用例、失败、跳过、预期失败和意外成功。适用的原生门禁回读真实XCTest结果。执行回执绑定本仓、本次工作根和同一HEAD SHA，历史回执、加载事件、总数非空或单独零退出码均不足以证明全部功能检查成功。门禁协议夹具只证明核验器和调用边界，不能替代实际产品功能验收。
-
-门禁资源仍由本仓 `scripts/resources.mjs` 准备和验真，实际用例需要的Cargo/npm原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，不能读取邻仓或跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target/test本轮现场，不改变生产平台、生产工具版本、依赖版本或锁。
-
-main推送自动触发本仓同SHA `tatagate.yml`，不调度其它产品门禁或CI/Release。中文注释、真实接口、所属文档与回归同步检查继续执行。当前只准备实现、注释和用例，未运行测试、语法检查、门禁、下载或编译。浏览器交互、真机、真实API/服务/数据库环境及适用平台不能由登记清单、单元测试或编译替代，须在整项实现后的统一验收逐项核对。
-
-本地调用的既有协调目录参数只用于核对请求身份；实际测试工作根和本次功能回执由门禁自行在本仓target建立，不向快照旁协调目录写入产品状态。独立入口与控制台固定调用共享同一实现与退出结论。
-
-
-本仓门禁回归执行边界：完整门禁包含本仓全部已登记真实测试；需要编译输入的既有用例由所属入口准备，禁止读取其它轮次生成物。嵌套Node回归启动独立运行器时，仅清除父运行器内部NODE_TEST_CONTEXT，产品工具和门禁输入继续保留；实际逐文件及最终结果仍拒绝零用例、遗漏、跳过和失败。回归夹具的Git/Shell来自已验真公开工具输入，禁止回退系统路径；工具转发模块不承担门禁CLI，直接参数拒绝由本仓实际门禁入口负责。 此次修正候选来自统一回归真实失败；整项真实功能验收、已保存提交门禁及同SHA远端结果尚未完成，不能据此登记为全部通过。
-
-功能清单核验回读本仓实际Git跟踪源码，使用明确的本仓上游排除边界；漏登记、重复、不存在的入口或Rust具名用例集合不一致均失败。归档消费者仍属于本仓功能检查，不因上游目录豁免而排除。
-
-本产品源码工具依赖准备仅返回源码外归档存储中的验真输入映射；工具候选不创建旧originals目录，也不清理不存在的目录。原始归档及编译输入仍由既有工具对象和回执完整保存，错误归档、缺前置工具、编译失败、缺输出及越界继续失败。修正后的配方形成自身对象身份，不覆盖历史原件；测试夹具遵守同一目录合同。
-
+`.github/tatagate/tatagate.mjs` 只读核对本仓主检出、HTTPS 来源、目录闭集、流程调用方向、Node 语法与本仓 QR 金标和 Pallet 注册表。门禁不准备资源、不执行产品编译或功能测试，也不调用 `scripts/build.mjs`。功能测试由所属 Build 或各平台自动化执行；旧门禁资源准备函数和配方已从 Build 清除。当前改动只完成静态检查，真实编译和正式门禁尚未验收。
 
 ## 三级目录与单一视觉资源（2026-10-09）
 
@@ -1115,4 +1068,25 @@ registry与Git的目录源按原锁准确来源隔离，同名同版本不会混
 
 统一扫码SVG以原几何独立资源输出，消费端使用currentColor的CSS遮罩，保留18×18尺寸并在WebKit实际窗口显示；不依赖外部SVG symbol引用。Rust build-std依赖按已验真Rust工具原始Cargo.lock物化，产品Cargo锁和工具版本保持。
 
-本仓scripts测试正文统一位于所属正式实现末尾；固定目录回归执行node --test scripts/target.mjs，构建夹具支持随build.mjs内嵌回归保存。正常导入与正式执行不注册测试，门禁直接登记所属实现文件，不保留独立测试或夹具模块。
+本仓scripts测试正文统一位于所属正式实现末尾；固定目录回归执行node --test scripts/build.mjs，构建夹具支持随build.mjs内嵌回归保存。正常导入与正式执行不注册测试，门禁直接登记所属实现文件，不保留独立测试或夹具模块。
+
+## GitHub自动化
+
+本仓自动化只在GitHub的main源码上执行；控制台只调用与展示。各目标独立拥有同名的YAML与Node实现，不调用其他仓或其他目标的Workflow。版本、构建、测试、签名、完整产物核验与正式tag/Release均由本仓负责。
+
+- `.github/workflows/release-linux-amd.yml`及同名`.mjs`。
+- `.github/workflows/release-linux-arm.yml`及同名`.mjs`。
+- `.github/workflows/release-macos.yml`及同名`.mjs`。
+- `.github/workflows/release-wasm.yml`及同名`.mjs`。
+- `.github/workflows/release-windows.yml`及同名`.mjs`。
+
+每个目标的最后任务使用always读取所有前置结果：全部成功清本仓本目标旧成功，否则清旧失败并失败退出。仅保留最新成功、最新失败各一条；保护本次Run和所有活动任务，另一类结果与其他目标不受影响。删除关联正式Release、tag、Actions产物和Run后回查；任何清理错误都按实际失败报告，不自动重试。
+
+所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
+
+调度方按本仓supplyRequirements和prepareToolSupply取得工具候选；调度模式的获取、提交及执行使用供给方交付的能力；产品配方自行清理自己的临时生成物。缓存复用消费实际路径，运行Node版本/字节、Apple资源签名及工具全树复验不作为本机编译门禁；上游锁与正式应用签名、安装回读继续由各自真实流程执行。
+
+
+### 本仓 GitHub 自动化与塔塔门禁目录
+
+`.github/` 仅保留 `workflows/` 与 `tatagate/` 两个目录。`workflows/` 持有本仓自动化；`tatagate/` 仅保留 `tatagate.json` 与 `tatagate.mjs`。前者登记本仓门禁合同，后者保留正式门禁实现与测试报告器，测试代码统一位于正式代码之后。直接运行执行门禁命令，测试运行只执行末尾测试，普通导入不注册测试；本仓测试清单及逐文件成功回执使用同一个门禁文件且仅执行一次。

@@ -32,8 +32,8 @@ op_tag 分配（唯一真源 = account_derive.rs，本脚本运行时从该文�
   - CHINA_RESERVED_MAIN_ACCOUNTS 保留名单（zb.rs 汇总表，365 条）
 
 用法：
-  python3 citizenchain/scripts/rederive_accounts.py               # dry-run，仅打印差异
-  python3 citizenchain/scripts/rederive_accounts.py --apply       # 写回源码
+  python3 citizenchain/runtime/primitives/rederive_accounts.py               # dry-run，仅打印差异
+  python3 citizenchain/runtime/primitives/rederive_accounts.py --apply       # 写回源码
 """
 
 import argparse
@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Optional
 
 
-PRIMITIVES_DIR = Path(__file__).resolve().parent.parent / "runtime" / "primitives"
+PRIMITIVES_DIR = Path(__file__).resolve().parent
 CHINA_DIR = PRIMITIVES_DIR / "cid" / "china"
 CORE_CONST_PATH = PRIMITIVES_DIR / "src" / "core_const.rs"
 ACCOUNT_DERIVE_PATH = PRIMITIVES_DIR / "src" / "account_derive.rs"

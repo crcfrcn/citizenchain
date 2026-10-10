@@ -16,7 +16,8 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
     let output = std::path::PathBuf::from(env::var_os("OUT_DIR").ok_or("缺少 OUT_DIR")?);
     let work = output.join("tauri");
     let repository = source.parent().ok_or("缺少仓库根目录")?.canonicalize()?;
-    // 远端工程副本读取自身源码，编译输出仍只能属于原产品的固定工作根。
+    // 远端工程副本读取自身源码，编译输出仍只能属于原产品的对应平台现场。
+    let platforms = ["macos", "windows", "linux-arm", "linux-amd", "wasm"];
     let target_root = match (
         env::var_os("CITIZENCHAIN_SOURCE_ROOT"),
         env::var_os("CITIZENCHAIN_WORK_DIR"),
@@ -24,7 +25,8 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
         (Some(original), Some(task)) => {
             let original = std::path::PathBuf::from(original).canonicalize()?;
             let task = std::path::PathBuf::from(task).canonicalize()?;
-            if task != original.join("target/build") && task != original.join("target/test") {
+            if !platforms.iter().any(|platform| task == original.join("target/build").join(platform))
+                && task != original.join("target/test") {
                 return Err("Tauri 任务只能使用公民链固定工作根".into());
             }
             if repository != original && repository != task.join("source") {
@@ -35,8 +37,8 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
         (None, None) => {
             let build = repository.join("target/build");
             let test = repository.join("target/test");
-            if output.starts_with(&build) {
-                build
+            if let Some(platform_work) = platforms.iter().map(|platform| build.join(platform)).find(|work| output.starts_with(work)) {
+                platform_work
             } else if output.starts_with(&test) {
                 test
             } else {
@@ -52,6 +54,7 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("Tauri 生成目录必须是公民链 target 内的规范路径".into());
     }
+    build_rpc_assets(&source, &output)?;
     let target = tauri_utils::platform::Target::from_triple(&env::var("TARGET")?);
     let (mut config, paths) = tauri_utils::config::parse::read_from(target, &source)?;
     for path in paths {
@@ -118,6 +121,42 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
         None => env::remove_var("TAURI_CONFIG"),
     }
     result.map_err(Into::into)
+}
+
+// 接入页只从唯一 JS 真源生成到已核对的 OUT_DIR，正式节点不依赖外置静态目录。
+fn build_rpc_assets(source: &Path, output: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let generator = source.join("frontend/metamask.mjs");
+    let icon = source.join("../icons/gmb.png");
+    println!("cargo:rerun-if-changed={}", generator.display());
+    println!("cargo:rerun-if-changed={}", icon.display());
+    println!("cargo:rerun-if-env-changed=NODE");
+    let node = std::path::PathBuf::from(env::var_os("NODE").ok_or("接入页构建缺少已交付的 NODE")?);
+    if !node.is_absolute()
+        || !fs::symlink_metadata(&node)?.is_file()
+        || node.canonicalize()? != node
+    {
+        return Err("接入页生成必须使用已交付的普通 Node 执行器绝对路径".into());
+    }
+    let result = std::process::Command::new(node)
+        .arg(&generator)
+        .env_remove("NODE_TEST_CONTEXT")
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH")
+        .env_remove("CITIZENCHAIN_TEST_PAGE_OUTPUT")
+        .output()?;
+    // 错误只报告固定原因，生成器的环境和诊断不进入构建日志。
+    if !result.status.success() || !result.stderr.is_empty() {
+        return Err("唯一接入页生成入口执行失败".into());
+    }
+    let page = std::str::from_utf8(&result.stdout)?;
+    if page.len() > 128 * 1024
+        || !page.starts_with("<!doctype html>")
+        || !page.ends_with("</html>\n")
+    {
+        return Err("接入页生成结果不是有界的完整 HTML".into());
+    }
+    write_if_changed(&output.join("metamask.html"), page.as_bytes())?;
+    Ok(())
 }
 
 fn absolute_path(value: &mut Value, source: &Path) {

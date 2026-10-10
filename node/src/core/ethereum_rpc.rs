@@ -411,11 +411,30 @@ mod tests {
             .expect("测试 RPC 端口被占用或不能绑定");
         let address = listener.local_addr().unwrap();
         drop(listener);
-        let tls = crate::core::rpc_tls::RpcTls::from_der(
-            vec![credentials.cert.der().clone()],
-            rustls::pki_types::PrivatePkcs8KeyDer::from(credentials.key_pair.serialize_der()),
-        )
-        .unwrap();
+        let server_name = session_server_name().unwrap();
+        let mut tls = if server_name.is_some() {
+            // 服务器会话原位读取部署方的可信证书，不复制、导出或打印私钥。
+            crate::core::rpc_tls::RpcTls::load().unwrap()
+        } else {
+            crate::core::rpc_tls::RpcTls::from_der(
+                vec![credentials.cert.der().clone()],
+                rustls::pki_types::PrivatePkcs8KeyDer::from(credentials.key_pair.serialize_der()),
+            ).unwrap()
+        };
+        let mut rpc_endpoint = endpoint(address);
+        if let Some(path) = std::env::var_os("CITIZENCHAIN_TEST_PAGE_INPUT") {
+            let root = std::path::PathBuf::from(std::env::var_os("CITIZENCHAIN_TEST_SESSION_ROOT")
+                .expect("隔离页面必须属于显式测试会话"));
+            let path = std::path::PathBuf::from(path);
+            assert_eq!(path, root.parent().unwrap().join("install.html"), "隔离页面只能来自本轮固定现场");
+            let metadata = std::fs::symlink_metadata(&path).unwrap();
+            assert!(metadata.is_file() && !metadata.file_type().is_symlink() && metadata.len() <= 128 * 1024);
+            assert_eq!(path.canonicalize().unwrap(), path, "隔离页面路径不能经过链接");
+            let page = std::fs::read(&path).unwrap();
+            // 隔离页面的唯一受信 Origin 来自已核对的完整视图，不能放开任意网页。
+            rpc_endpoint.cors = Some(vec![session_page(&page).unwrap()]);
+            tls = tls.with_test_page(page).unwrap();
+        }
         let task = tokio::spawn(async move {
             tokio::try_join!(
                 async {
@@ -423,11 +442,11 @@ mod tests {
                         .await
                         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
                 },
-                tls.run(vec![endpoint(address)], module)
+                tls.run(vec![rpc_endpoint], module)
             )?;
             Ok(())
         });
-        (format!("https://localhost:{}", address.port()), task)
+        (format!("https://{}:{}", server_name.as_deref().unwrap_or("localhost"), address.port()), task)
     }
 
     async fn response(
@@ -438,7 +457,13 @@ mod tests {
     ) -> serde_json::Value {
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
-                match http.post(url).json(&serde_json::json!({"jsonrpc":"2.0","id":1,"method":method,"params":params})).send().await {
+                let target = reqwest::Url::parse(url).unwrap();
+                let mut request = http.post(url);
+                if target.host_str() != Some("localhost") {
+                    // SNI 保留证书名，HTTP Host 使用既有回环白名单，两者职责独立。
+                    request = request.header("Host", format!("127.0.0.1:{}", target.port().unwrap()));
+                }
+                match request.json(&serde_json::json!({"jsonrpc":"2.0","id":1,"method":method,"params":params})).send().await {
                     Ok(response) => return response.json().await.unwrap(),
                     Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
                 }
@@ -884,6 +909,16 @@ mod tests {
 
     fn session_path(path: &std::path::Path) -> Result<(), &'static str> {
         use std::path::Component;
+        if let Some(work) = std::env::var_os("CITIZENCHAIN_TEST_WORK_ROOT") {
+            let work = std::path::PathBuf::from(work);
+            if !work.is_absolute() || work.file_name().is_none_or(|name| name != "test")
+                || work.parent().and_then(std::path::Path::file_name).is_none_or(|name| name != "target")
+                || work.canonicalize().ok().as_ref() != Some(&work)
+                || path != work.join("metamask/session") {
+                return Err("服务器测试会话必须属于部署方的规范 target/test/metamask/session");
+            }
+            return Ok(());
+        }
         let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         if !path.is_absolute()
             || path.parent().is_none()
@@ -893,6 +928,59 @@ mod tests {
             return Err("测试会话必须使用本产品 target 内的规范绝对目录");
         }
         Ok(())
+    }
+
+    fn session_port(value: &str) -> Result<u16, &'static str> {
+        match value.parse::<u16>() {
+            Ok(port @ 1..=u16::MAX) if value == port.to_string() => Ok(port),
+            _ => Err("显式测试 RPC 端口必须是 1 至 65535 的规范整数"),
+        }
+    }
+
+    /// 消费者核对完整隔离视图，不能仅凭标题接受仍指向正式资产的页面。
+    fn session_page(page: &[u8]) -> Result<String, &'static str> {
+        let page = std::str::from_utf8(page).map_err(|_| "隔离页面不是 UTF-8")?;
+        let original = include_str!(concat!(env!("OUT_DIR"), "/metamask.html"));
+        let address = |html: &str| -> Option<String> {
+            Some(html.split("id=\"rpc\" type=\"url\" inputmode=\"url\" autocomplete=\"off\" spellcheck=\"false\" value=\"")
+                .nth(1)?.split('"').next()?.to_owned())
+        };
+        let formal = address(original).ok_or("正式页面地址标记缺失")?;
+        let isolated = address(page).ok_or("隔离页面地址标记缺失")?;
+        let url = reqwest::Url::parse(&isolated).map_err(|_| "隔离 RPC 地址无效")?;
+        if url.scheme() != "https" || url.host_str().is_none() || !url.username().is_empty()
+            || url.password().is_some() || url.port().is_some() || url.path() != "/"
+            || url.query().is_some() || url.fragment().is_some() || url.as_str() != isolated
+            || isolated == formal {
+            return Err("隔离页面必须使用独立的无参数 HTTPS RPC 根地址");
+        }
+        let formal_origin = formal.strip_suffix('/').ok_or("正式 RPC 根地址无效")?;
+        let isolated_origin = isolated.strip_suffix('/').ok_or("隔离 RPC 根地址无效")?;
+        if original.matches(formal_origin).count() != 3 {
+            return Err("正式页面地址绑定数量漂移");
+        }
+        let expected = original.replace(formal_origin, isolated_origin)
+            .replace("<h1>公民链</h1>", "<h1>公民链 · 隔离测试链</h1>");
+        if page != expected { return Err("隔离页面业务内容或地址绑定漂移"); }
+        Ok(url.origin().ascii_serialization())
+    }
+
+    fn session_server_name() -> Result<Option<String>, &'static str> {
+        let value = match std::env::var("CITIZENCHAIN_TEST_RPC_SERVER_NAME") {
+            Ok(value) => value,
+            Err(std::env::VarError::NotPresent) => return Ok(None),
+            Err(_) => return Err("测试 RPC 证书名不是 UTF-8"),
+        };
+        if value.is_empty() || value.len() > 253 || value.split('.').any(|label|
+            label.is_empty() || label.len() > 63 || label.starts_with('-') || label.ends_with('-')
+                || !label.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')) {
+            return Err("测试 RPC 证书名必须是无端口和路径的 DNS 主机名");
+        }
+        if std::env::var_os("CITIZENCHAIN_TEST_SESSION_ROOT").is_none()
+            || std::env::var_os("CITIZENCHAIN_TEST_RPC_CA").is_none() {
+            return Err("可信服务器 TLS 仅允许显式测试会话并交付验证 CA");
+        }
+        Ok(Some(value))
     }
 
     /// 测试失败、超时或取消时也关闭监听与出块任务，避免占用后续验收资源。
@@ -905,6 +993,19 @@ mod tests {
 
     #[test]
     fn metamask_session_settings_reject_source_paths_and_unbounded_duration() {
+        for value in ["1", "18081", "65535"] { assert!(session_port(value).is_ok()); }
+        for value in ["", "0", "65536", "-1", "1.5", "018081", " 18081"] { assert!(session_port(value).is_err()); }
+        let original = include_str!(concat!(env!("OUT_DIR"), "/metamask.html"));
+        let origin = original.split("value=\"").nth(1).unwrap().split('"').next().unwrap().trim_end_matches('/');
+        let page = original.replace(origin, "https://isolated.example")
+            .replace("<h1>公民链</h1>", "<h1>公民链 · 隔离测试链</h1>");
+        assert_eq!(session_page(page.as_bytes()).unwrap(), "https://isolated.example");
+        for invalid in [original.to_owned(), page.replace("wallet_addEthereumChain", "wallet_requestSnaps"),
+            page.replace("https://isolated.example", "http://isolated.example"),
+            page.replace("url.origin !== 'https://isolated.example'", &format!("url.origin !== '{origin}'")),
+            page.clone() + "<!-- changed -->"] {
+            assert!(session_page(invalid.as_bytes()).is_err());
+        }
         for value in ["1", "5", "1800"] {
             assert!(session_seconds(value).is_ok());
         }
@@ -967,6 +1068,12 @@ mod tests {
             "会话父目录不能经过符号链接");
         let seconds = session_seconds(&std::env::var("CITIZENCHAIN_TEST_SESSION_SECONDS")
             .unwrap_or_else(|_| "1".into())).unwrap();
+        let port = match std::env::var("CITIZENCHAIN_TEST_RPC_PORT") {
+            Ok(value) => { assert!(explicit_root.is_some(), "固定测试端口必须属于显式会话"); session_port(&value).unwrap() },
+            Err(std::env::VarError::NotPresent) if explicit_root.is_none() => 0,
+            Err(_) => panic!("显式测试会话必须交付规范的 CITIZENCHAIN_TEST_RPC_PORT"),
+        };
+        let server_name = session_server_name().unwrap();
         std::fs::create_dir(&root).expect("只创建本轮全新会话，禁止覆盖旧数据库");
         // 这两个固定密钥是公开、可复现的测试向量，永远不能控制正式资产。
         let accounts = [Account::from_secret_key([1; 32]), Account::from_secret_key([2; 32])];
@@ -1002,12 +1109,19 @@ mod tests {
             client.clone(), partial.backend.clone()).unwrap();
         let credentials = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         // 只导出公开测试证书。RPC 私钥始终保留内存，浏览器信任在后续步骤配置。
-        std::fs::write(root.join("rpc-certificate.der"), credentials.cert.der().as_ref()).unwrap();
-        let http = reqwest::Client::builder().https_only(true).no_proxy()
-            .add_root_certificate(reqwest::Certificate::from_der(credentials.cert.der().as_ref()).unwrap())
-            .timeout(Duration::from_secs(15)).build().unwrap();
-        let (url, rpc_task) = serve_on_port(&partial, &credentials,
-            if explicit_root.is_some() { 9944 } else { 0 }).await;
+        let mut builder = reqwest::Client::builder().https_only(true).no_proxy();
+        if let Some(name) = &server_name {
+            let ca_path = std::path::PathBuf::from(std::env::var_os("CITIZENCHAIN_TEST_RPC_CA").unwrap());
+            assert!(ca_path.is_absolute() && ca_path.canonicalize().unwrap() == ca_path);
+            let ca = std::fs::read(ca_path).unwrap();
+            builder = builder.add_root_certificate(reqwest::Certificate::from_pem(&ca).unwrap())
+                .resolve(name, (std::net::Ipv4Addr::LOCALHOST, 0).into());
+        } else {
+            std::fs::write(root.join("rpc-certificate.der"), credentials.cert.der().as_ref()).unwrap();
+            builder = builder.add_root_certificate(reqwest::Certificate::from_der(credentials.cert.der().as_ref()).unwrap());
+        }
+        let http = builder.timeout(Duration::from_secs(15)).build().unwrap();
+        let (url, rpc_task) = serve_on_port(&partial, &credentials, port).await;
         let mut rpc_tasks = vec![AbortSessionTask(rpc_task)];
         let mut primary = start_test_network(&mut configs[0], partial, true);
         let mut peers = Vec::new();

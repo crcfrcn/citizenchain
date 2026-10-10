@@ -4,7 +4,7 @@
 //! 正式安装包同时内置已物化的创世链状态包,首启优先复制本地链数据库;缺包时
 //! 才由节点经 runtime `GenesisBuilder` 本地物化,作为开发/排障兜底。
 //! 当前创世只直铸国家/省/市公权机构;镇级和新增机构运行期注册上链。
-//! `citizenchain-fresh` 仅供 `bake-chainspec.sh` 用最新 CI WASM 重生冻结 JSON 使用。
+//! `citizenchain-fresh` 仅供明确授权的冻结链规生成流程使用。
 //!
 //! 冻结语义(ADR-031 D5):冻结的是 plain JSON(runtime WASM + patch + bootnodes),
 //! 创世哈希由其唯一决定;派生全确定性,全网首启物化结果一致。
@@ -26,7 +26,7 @@ pub fn chain_config() -> Result<ChainSpec, String> {
 
 /// 使用当前编译进 node 的 `WASM_BINARY` 生成 fresh genesis chain spec。
 ///
-/// 该入口只给 `bake-chainspec.sh` 重生冻结 plain spec 使用。默认启动
+/// 该入口只给明确授权的冻结链规生成流程使用。默认启动
 /// 仍走 `chain_config()` 的冻结主网 JSON,避免误改线上 genesis。
 pub fn fresh_genesis_config() -> Result<ChainSpec, String> {
     let wasm = citizenchain::WASM_BINARY.ok_or_else(|| {

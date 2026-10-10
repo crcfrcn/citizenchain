@@ -33,7 +33,62 @@ impl std::error::Error for HttpServiceError {
 }
 
 /// 已装载的 RPC TLS 配置；私钥不进入日志、RPC 或持久化链状态。
-pub(crate) struct RpcTls(TlsAcceptor);
+pub(crate) struct RpcTls {
+    acceptor: TlsAcceptor,
+    page: Arc<[u8]>,
+}
+
+const INSTALL_PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/metamask.html"));
+const GMB_ICON: &[u8] = include_bytes!("../../../icons/gmb.png");
+
+/// 精确路径分流；WebSocket 升级继续交给 RPC，不能被普通页面 GET 截获。
+fn resource_response<B>(
+    request: &jsonrpsee::server::HttpRequest<B>,
+    page: &[u8],
+) -> Option<jsonrpsee::server::HttpResponse> {
+    let method = request.method().as_str();
+    let root = request.uri().path() == "/" && request.uri().query().is_none();
+    let upgrade = request
+        .headers()
+        .get("upgrade")
+        .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"websocket"));
+    if root && (method == "POST" || method == "OPTIONS" || method == "GET" && upgrade) {
+        return None;
+    }
+    let resource = match (request.uri().path(), request.uri().query()) {
+        ("/", None) => Some((page, "text/html; charset=utf-8")),
+        ("/icons/gmb.png", None) => Some((GMB_ICON, "image/png")),
+        _ => None,
+    };
+    let status = if resource.is_none() {
+        404
+    } else if matches!(method, "GET" | "HEAD") {
+        200
+    } else {
+        405
+    };
+    let mut response = jsonrpsee::server::HttpResponse::builder()
+        .status(status)
+        .header("cache-control", "no-store")
+        .header("x-content-type-options", "nosniff");
+    let body = if status == 200 {
+        let (bytes, content_type) = resource.expect("已验证的固定资源");
+        response = response
+            .header("content-type", content_type)
+            .header("content-length", bytes.len());
+        if method == "HEAD" {
+            jsonrpsee::server::HttpBody::empty()
+        } else {
+            jsonrpsee::server::HttpBody::from(bytes.to_vec())
+        }
+    } else {
+        if status == 405 {
+            response = response.header("allow", "GET, HEAD");
+        }
+        jsonrpsee::server::HttpBody::empty()
+    };
+    Some(response.body(body).expect("固定资源响应"))
+}
 
 impl RpcTls {
     /// CLI 与桌面进程共用同一配置入口，禁止自动生成或复用 P2P 自签证书。
@@ -67,7 +122,24 @@ impl RpcTls {
         .with_safe_default_protocol_versions()?
         .with_no_client_auth()
         .with_single_cert(chain, key.into())?;
-        Ok(Self(TlsAcceptor::from(Arc::new(config))))
+        Ok(Self {
+            acceptor: TlsAcceptor::from(Arc::new(config)),
+            page: Arc::from(INSTALL_PAGE),
+        })
+    }
+
+    /// 隔离视图只供测试会话注入，正式进程没有页面替换环境变量或磁盘读取入口。
+    #[cfg(test)]
+    pub(super) fn with_test_page(mut self, page: Vec<u8>) -> Result<Self, RpcError> {
+        let html = std::str::from_utf8(&page)?;
+        if page.len() > 128 * 1024
+            || !html.starts_with("<!doctype html>")
+            || !html.ends_with("</html>\n")
+        {
+            return Err("隔离接入页必须是有界的完整 HTML".into());
+        }
+        self.page = Arc::from(page);
+        Ok(self)
     }
 
     /// 使用既有端点和限额运行 TLS；所有监听、连接和订阅随此 Future 取消而关闭。
@@ -108,7 +180,8 @@ impl RpcTls {
         let mut tasks = Vec::new();
         for (listener, endpoint) in listeners {
             let stop = stop.clone();
-            let acceptor = self.0.clone();
+            let acceptor = self.acceptor.clone();
+            let page = self.page.clone();
             let module = module.clone();
             tasks.push(async move {
                 let cors = match endpoint.cors.clone() {
@@ -136,9 +209,6 @@ impl RpcTls {
                     .set_message_buffer_capacity(endpoint.max_buffer_capacity_per_connection)
                     .set_batch_request_config(endpoint.batch_config)
                     .set_id_provider(sc_rpc_server::RandomStringIdProvider::new(16))
-                    .set_http_middleware(
-                        tower::ServiceBuilder::new().layer(host_filter).layer(cors),
-                    )
                     .to_service_builder();
                 let connections = Arc::new(Semaphore::new(endpoint.max_connections as usize));
                 // 同一端点的额度跨连接共享，不能通过反复握手重置限流计数。
@@ -169,6 +239,10 @@ impl RpcTls {
                         rate_middleware.clone()
                     };
                     let allowed_origins = endpoint.cors.clone();
+                    let http_layers = tower::ServiceBuilder::new()
+                        .layer(host_filter.clone())
+                        .layer(cors.clone());
+                    let page = page.clone();
                     tasks.spawn(async move {
                         let _permit = permit;
                         let Ok(Ok(tls)) =
@@ -183,8 +257,24 @@ impl RpcTls {
                         let service = tower::service_fn(
                             move |mut request: jsonrpsee::server::HttpRequest<_>| {
                                 request.extensions_mut().insert(DenyUnsafe::Yes);
-                                let mut service =
-                                    builder.clone().build(module.clone(), stop.clone());
+                                let mut rpc = builder.clone().build(module.clone(), stop.clone());
+                                let page = page.clone();
+                                // Host/CORS 中间件覆盖静态交付与 RPC，不能因分流绕过校验。
+                                let router = tower::service_fn(move |request| {
+                                    let response = resource_response(&request, &page);
+                                    let pending = if response.is_none() {
+                                        Some(rpc.call(request))
+                                    } else {
+                                        None
+                                    };
+                                    async move {
+                                        match response {
+                                            Some(response) => Ok::<_, RpcError>(response),
+                                            None => pending.expect("RPC 分支").await,
+                                        }
+                                    }
+                                });
+                                let mut service = http_layers.service(router);
                                 let rejected_origin =
                                     match (&allowed_origins, request.headers().get("origin")) {
                                         (Some(origins), Some(origin)) => !origins
@@ -235,6 +325,44 @@ impl Drop for Shutdown {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resource_routes_preserve_rpc_upgrade_and_reject_invalid_test_pages() {
+        for (method, upgrade) in [("POST", false), ("OPTIONS", false), ("GET", true)] {
+            let mut request = jsonrpsee::server::HttpRequest::builder()
+                .method(method)
+                .uri("/");
+            if upgrade {
+                request = request.header("upgrade", "websocket");
+            }
+            assert!(resource_response(&request.body(()).unwrap(), INSTALL_PAGE).is_none());
+        }
+        assert!(INSTALL_PAGE.starts_with(b"<!doctype html>"));
+        assert!(INSTALL_PAGE.ends_with(b"</html>\n"));
+        assert_eq!(&GMB_ICON[..8], b"\x89PNG\r\n\x1a\n");
+        let credentials = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let make = || {
+            RpcTls::from_der(
+                vec![credentials.cert.der().clone()],
+                PrivatePkcs8KeyDer::from(credentials.key_pair.serialize_der()),
+            )
+            .unwrap()
+        };
+        for page in [
+            Vec::new(),
+            vec![0xff],
+            vec![b' '; 128 * 1024 + 1],
+            b"<!doctype html>partial".to_vec(),
+        ] {
+            assert!(make().with_test_page(page).is_err());
+        }
+        let page = b"<!doctype html><html>isolated</html>\n".to_vec();
+        assert_eq!(
+            make().with_test_page(page.clone()).unwrap().page.as_ref(),
+            page
+        );
+        assert_eq!(make().page.as_ref(), INSTALL_PAGE);
+    }
 
     #[test]
     fn missing_relative_invalid_and_mismatched_credentials_are_rejected() {
@@ -325,6 +453,76 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(response["result"], "0x7eb");
+        // 同一真实 TLS 端点交付编译期资源；GET/HEAD 不得改变 POST 与 WSS 合同。
+        for (path, bytes, content_type) in [
+            ("/", INSTALL_PAGE, "text/html; charset=utf-8"),
+            ("/icons/gmb.png", GMB_ICON, "image/png"),
+        ] {
+            let resource = client
+                .get(format!("{url}{path}"))
+                .header("Origin", "https://localhost")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resource.status().as_u16(), 200);
+            assert_eq!(resource.headers()["content-type"], content_type);
+            assert_eq!(
+                resource.headers()["content-length"],
+                bytes.len().to_string()
+            );
+            assert_eq!(resource.headers()["cache-control"], "no-store");
+            assert_eq!(
+                resource.headers()["access-control-allow-origin"],
+                "https://localhost"
+            );
+            assert_eq!(resource.bytes().await.unwrap().as_ref(), bytes);
+            let head = client.head(format!("{url}{path}")).send().await.unwrap();
+            assert_eq!(head.status().as_u16(), 200);
+            assert_eq!(head.headers()["content-length"], bytes.len().to_string());
+            assert!(head.bytes().await.unwrap().is_empty());
+            for (name, value) in [
+                ("Origin", "https://untrusted.invalid"),
+                ("Host", "untrusted.invalid"),
+            ] {
+                let rejected = client
+                    .get(format!("{url}{path}"))
+                    .header(name, value)
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(rejected.status().as_u16(), 403);
+            }
+        }
+        for path in [
+            "/missing",
+            "/icons/",
+            "/icons/gmb.png?source=other",
+            "/?rpc=other",
+            "/frontend/metamask.mjs",
+        ] {
+            for method in [reqwest::Method::GET, reqwest::Method::HEAD] {
+                let response = client
+                    .request(method, format!("{url}{path}"))
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status().as_u16(), 404, "{path}");
+                assert!(response.bytes().await.unwrap().is_empty());
+            }
+        }
+        for (path, method) in [
+            ("/", reqwest::Method::PUT),
+            ("/icons/gmb.png", reqwest::Method::POST),
+        ] {
+            let response = client
+                .request(method, format!("{url}{path}"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), 405);
+            assert_eq!(response.headers()["allow"], "GET, HEAD");
+            assert!(response.bytes().await.unwrap().is_empty());
+        }
         let forbidden = client
             .post(&url)
             .header("Origin", "https://untrusted.invalid")

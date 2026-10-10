@@ -1,7 +1,6 @@
 const directEntry = process.argv[1] === import.meta.filename && !process.execArgv.some(value => /^(?:-e|-p|--eval|--print)(?:=|$)/u.test(value));
 const inlineTestEntry = directEntry && Boolean(process.env.NODE_TEST_CONTEXT) && process.argv.length === 2;
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, writeFile, lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
@@ -14,25 +13,15 @@ export async function generateIcons(args=process.argv.slice(2)){
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const masterPath = path.join(repoRoot, 'icons/logo.png');
 const productRoots = new Map([['citizenchain', repoRoot]]);
-for (const product of ['citizenapp', 'citizenwallet']) {
-  const key = '--' + product + '-root';
-  const occurrences = ['node','icons',...args].filter(value => value === key).length;
-  if (occurrences > 1) throw Error('Logo产品根参数重复');
-  if (occurrences) {
-    const index = ['node','icons',...args].indexOf(key), value = ['node','icons',...args][index + 1];
-    if (!value || !path.isAbsolute(value) || path.resolve(value) !== value || value === repoRoot
-      || value.startsWith(repoRoot + path.sep) || repoRoot.startsWith(value + path.sep)) throw Error('Logo产品根须为明确独立的绝对路径');
-    productRoots.set(product, value);
-  }
-}
 const outputPath = relativePath => {
   const [product, ...parts] = relativePath.split('/');
   if (!parts.length || parts.some(value => !value || value === '.' || value === '..')) return null;
   const base = productRoots.get(product);
   return base ? path.join(base, ...parts) : null;
 };
-const checkOnly = ['node','icons',...args].includes('--check');
-const sanitizeMaster = ['node','icons',...args].includes('--sanitize-master');
+if(args.some(value=>!['--check','--sanitize-master'].includes(value)))throw Error('图标命令参数无效');
+const checkOnly = args.includes('--check');
+const sanitizeMaster = args.includes('--sanitize-master');
 const teal = [24, 120, 125, 255];
 
 const crcTable = Array.from({ length: 256 }, (_, initial) => {
@@ -419,61 +408,6 @@ async function buildOutputs() {
   }
   assert.equal(invalidOuterEdgeCount(master), 0, 'Logo 母版外轮廓颜色或透明像素 RGB 不干净');
 
-  const iosIconNames = new Map([
-    ['Icon-App-20x20@1x.png', 20], ['Icon-App-20x20@2x.png', 40],
-    ['Icon-App-20x20@3x.png', 60], ['Icon-App-29x29@1x.png', 29],
-    ['Icon-App-29x29@2x.png', 58], ['Icon-App-29x29@3x.png', 87],
-    ['Icon-App-40x40@1x.png', 40], ['Icon-App-40x40@2x.png', 80],
-    ['Icon-App-40x40@3x.png', 120], ['Icon-App-60x60@2x.png', 120],
-    ['Icon-App-60x60@3x.png', 180], ['Icon-App-76x76@1x.png', 76],
-    ['Icon-App-76x76@2x.png', 152], ['Icon-App-83.5x83.5@2x.png', 167],
-    ['Icon-App-1024x1024@1x.png', 1024],
-  ]);
-  const android = [
-    ['mdpi', 1], ['hdpi', 1.5], ['xhdpi', 2], ['xxhdpi', 3], ['xxxhdpi', 4],
-  ];
-  for (const product of ['citizenapp', 'citizenwallet']) {
-    const androidResources = product === 'citizenwallet' ? `${product}/resources/android` : `${product}/android/app/src/main/res`;
-    const iosResources = product === 'citizenwallet' ? `${product}/resources/ios` : `${product}/ios/Runner`;
-    outputs.set(`${androidResources}/values/colors.xml`, Buffer.from(
-      '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
-        + '    <color name="ic_launcher_background">#18787D</color>\n</resources>\n',
-    ));
-    for (const [name, size] of iosIconNames) {
-      // iOS AppIcon 禁止透明。青色背景铺满整个方形画布，米白图案从母版提取；
-      // 禁止把透明圆角用纯色补洞，否则会在原图与补色之间形成异色环。
-      addPng(`${iosResources}/Assets.xcassets/AppIcon.appiconset/${name}`,
-        platformIcon(master, size), false);
-    }
-    for (const [name, size] of [['CitizenLaunchLogo.png', 160], ['CitizenLaunchLogo@2x.png', 320], ['CitizenLaunchLogo@3x.png', 480]]) {
-      addPng(`${iosResources}/Assets.xcassets/CitizenLaunchLogo.imageset/${name}`,
-        placeOnCanvas(master, size, Math.round(size * 0.8)));
-    }
-    const launchContents = `${JSON.stringify({
-      images: [
-        { idiom: 'universal', filename: 'CitizenLaunchLogo.png', scale: '1x' },
-        { idiom: 'universal', filename: 'CitizenLaunchLogo@2x.png', scale: '2x' },
-        { idiom: 'universal', filename: 'CitizenLaunchLogo@3x.png', scale: '3x' },
-      ],
-      info: { version: 1, author: 'xcode' },
-    }, null, 2)}\n`;
-    outputs.set(`${iosResources}/Assets.xcassets/CitizenLaunchLogo.imageset/Contents.json`, Buffer.from(launchContents));
-
-    for (const [density, scale] of android) {
-      const resourceRoot = `${androidResources}/mipmap-${density}`;
-      const launchSize = Math.round(120 * scale);
-      const legacySize = Math.round(48 * scale);
-      const foregroundSize = Math.round(108 * scale);
-      addPng(`${resourceRoot}/launch_image.png`, placeOnCanvas(master, launchSize, Math.round(launchSize * 0.8)));
-      const legacy = platformIcon(master, legacySize);
-      addPng(`${resourceRoot}/ic_launcher.png`, legacy, false);
-      addPng(`${resourceRoot}/ic_launcher_round.png`, legacy, false);
-      addPng(`${resourceRoot}/ic_launcher_foreground.png`, adaptiveForeground(master, foregroundSize));
-    }
-  }
-
-  addPng('citizenwallet/resources/icons/citizen-logo.png', resizePremultiplied(master, 256));
-
   const desktopSizes = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
   // Tauri 的 generate_context! 会在编译期拒绝 RGB PNG，即使图像视觉上完全不透明，
   // 桌面 PNG 也必须保留 RGBA 色彩类型。ICNS/ICO 继续复用同一组 RGBA PNG，禁止
@@ -510,19 +444,6 @@ async function writeOrCheck() {
       await writeFile(absolutePath, expected);
     }
   }
-  if (productRoots.has('citizenapp')) {
-    const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-    const files = Object.fromEntries([...outputs].filter(([name]) => name.startsWith('citizenapp/'))
-      .map(([name, bytes]) => [name.slice('citizenapp/'.length), hash(bytes)]).sort(([a], [b]) => a.localeCompare(b)));
-    const manifest = JSON.stringify({ schema: 1, product: 'citizenapp',
-      source: { repository: 'crcfrcn/citizenchain', path: 'icons/logo.png',
-        sha256: hash(await readFile(masterPath)) }, files }, null, 2) + '\n';
-    const target = path.join(productRoots.get('citizenapp'), 'scripts/logo-assets.json');
-    if (checkOnly) {
-      const actual = JSON.parse(await readFile(target, 'utf8')), expected = JSON.parse(manifest);
-      assert.deepEqual(actual, expected, '公民Logo受控清单未与唯一派生器同步');
-    } else await writeFile(target, manifest);
-  }
   if (mismatches.length > 0) {
     throw new Error(`以下 Logo 派生物未由 citizenchain/icons/logo.png 生成：\n${mismatches.map((item) => `- ${item}`).join('\n')}`);
   }
@@ -533,13 +454,6 @@ async function writeOrCheck() {
       'citizenchain/resources',
       'docs/logo.svg',
       'docs/logo256.png',
-      'citizenapp/ios/Runner/Base.lproj/LaunchScreen.storyboard',
-      'citizenapp/ios/Runner/Assets.xcassets/LaunchImage.imageset',
-      'citizenwallet/resources/ios/Base.lproj/LaunchScreen.storyboard',
-      'citizenwallet/assets',
-      'citizenwallet/android/app/src/main/res',
-      'citizenwallet/ios/Runner/Assets.xcassets',
-      'citizenwallet/resources/ios/Assets.xcassets/LaunchImage.imageset',
     ];
     const legacyAssets = [];
     for (const relativePath of forbiddenLegacyAssets) {
@@ -577,4 +491,4 @@ await writeOrCheck();
 if(!inlineTestEntry&&directEntry){void generateIcons().catch(e=>{console.error(e.message);process.exitCode=1;});}
 
 // 原图派生与参数拒绝使用同一正式生成器，测试不会写源码资源。
-if(inlineTestEntry){void(async()=>{const {test}=await import('node:test');const {default:assert}=await import('node:assert/strict');test('唯一原图与保留尺寸、ICNS及ICO实际检查通过',async()=>{await generateIcons(['--check']);});test('图标根参数相对路径与重复输入拒绝',async()=>{await assert.rejects(generateIcons(['--check','--citizenapp-root','relative']),/绝对路径/);await assert.rejects(generateIcons(['--check','--citizenapp-root','/one','--citizenapp-root','/two']),/参数重复/);});})();}
+if(inlineTestEntry){void(async()=>{const {test}=await import('node:test');const {default:assert}=await import('node:assert/strict');test('唯一原图与保留尺寸、ICNS及ICO实际检查通过',async()=>{await generateIcons(['--check']);});test('跨产品根参数不能进入公民链图标入口',async()=>{await assert.rejects(generateIcons(['--check','--citizenapp-root','/other']),/参数无效/);});})();}

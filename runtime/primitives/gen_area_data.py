@@ -16,8 +16,8 @@ import sqlite3
 import struct
 
 # china.sqlite 不复制进 primitives(73MB);直接读 onchina 侧真源。
-DB = pathlib.Path(__file__).resolve().parent.parent / "onchina/src/codes/china.sqlite"
-OUT = pathlib.Path(__file__).resolve().parent.parent / "runtime/primitives/cid/china/area_data.bin"
+DB = pathlib.Path(__file__).resolve().parent.parent.parent / "onchina/src/codes/china.sqlite"
+OUT = pathlib.Path(__file__).resolve().parent / "cid/china/area_data.bin"
 
 
 def s(text: str) -> bytes:

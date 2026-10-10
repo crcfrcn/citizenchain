@@ -35,6 +35,7 @@ pub fn run_desktop() {
             home::process::stop_node,
             home::sync_guard::get_sync_guard_status,
             settings::desktop_update::prepare_desktop_update,
+            settings::desktop_update::check_desktop_update,
             settings::node_mode::get_node_mode,
             settings::node_mode::set_node_mode,
             settings::onchina_platform::get_onchina_platform,

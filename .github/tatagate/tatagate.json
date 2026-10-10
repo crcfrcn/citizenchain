@@ -2,48 +2,30 @@
   "schema": 1,
   "repository": "citizenchain",
   "workflows": [
-    "citizenchain.linux-amd.ci",
-    "citizenchain.linux-amd.release",
-    "citizenchain.linux-arm.ci",
-    "citizenchain.linux-arm.release",
-    "citizenchain.macos.ci",
-    "citizenchain.macos.release",
-    "citizenchain.wasm.ci",
-    "citizenchain.wasm.release",
-    "citizenchain.windows.ci",
-    "citizenchain.windows.release"
+    "release-macos.yml",
+    "release-windows.yml",
+    "release-linux-arm.yml",
+    "release-linux-amd.yml",
+    "release-wasm.yml"
   ],
   "node_tests": [
-    "node/snap/index.test.mjs",
+    "node/frontend/metamask.mjs",
     "scripts/build.mjs",
-    "scripts/ci/linux-amd.mjs",
-    "scripts/ci/linux-arm.mjs",
-    "scripts/ci/macos.mjs",
-    "scripts/ci/wasm.mjs",
-    "scripts/ci/windows.mjs",
-    "scripts/docs.mjs",
-    "scripts/flow.mjs",
-    "scripts/icons.mjs",
-    "scripts/maintain.mjs",
-    "scripts/release/linux-amd.mjs",
-    "scripts/release/linux-arm.mjs",
-    "scripts/release/macos.mjs",
-    "scripts/release/wasm.mjs",
-    "scripts/release/windows.mjs",
-    "scripts/resources.mjs",
-    "scripts/start.mjs",
-    "scripts/target.mjs"
+    "node/frontend/docs.mjs",
+    "icons/generate.mjs",
+    ".github/workflows/release-macos.mjs",
+    ".github/workflows/release-windows.mjs",
+    ".github/workflows/release-linux-arm.mjs",
+    ".github/workflows/release-linux-amd.mjs",
+    ".github/workflows/release-wasm.mjs",
+    "scripts/publish.mjs"
   ],
   "checks": [
     "repository-contracts",
     "cross-platform-contracts",
-    "shared-contracts"
+    "flow-isolation",
+    "syntax"
   ],
-  "tools": {
-    "node": "25.2.1",
-    "actionlint": "1.7.12",
-    "rust": "1.97.1"
-  },
   "platform_forbidden_values": [
     "macOS ARM64",
     "macos-arm64",
@@ -162,14 +144,14 @@
       "target": "crates/scanner"
     },
     {
-      "function": "node.frontend.other.LocalDocViewer.test",
+      "function": "node/frontend/other/LocalDocViewer.test.tsx",
       "path": "node/frontend/other/LocalDocViewer.test.tsx",
       "runner": "node-entry",
       "target": "node/frontend"
     },
     {
-      "function": "node.snap.index.test",
-      "path": "node/snap/index.test.mjs",
+      "function": "node/frontend/metamask",
+      "path": "node/frontend/metamask.mjs",
       "runner": "node",
       "target": "node"
     },
@@ -478,6 +460,7 @@
       "target": "Cargo.toml",
       "package": "node",
       "cases": [
+        "resource_routes_preserve_rpc_upgrade_and_reject_invalid_test_pages",
         "missing_relative_invalid_and_mismatched_credentials_are_rejected",
         "https_wss_certificate_validation_safe_methods_and_plaintext_rejection"
       ]
@@ -2911,86 +2894,8 @@
       ]
     },
     {
-      "function": "scripts.build",
+      "function": "scripts/build",
       "path": "scripts/build.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.flow",
-      "path": "scripts/flow.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.ci.linux-amd",
-      "path": "scripts/ci/linux-amd.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.ci.linux-arm",
-      "path": "scripts/ci/linux-arm.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.ci.macos",
-      "path": "scripts/ci/macos.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.ci.windows",
-      "path": "scripts/ci/windows.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.release.linux-amd",
-      "path": "scripts/release/linux-amd.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.release.linux-arm",
-      "path": "scripts/release/linux-arm.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.release.macos",
-      "path": "scripts/release/macos.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.release.windows",
-      "path": "scripts/release/windows.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.resources",
-      "path": "scripts/resources.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.ci.wasm",
-      "path": "scripts/ci/wasm.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.release.wasm",
-      "path": "scripts/release/wasm.mjs",
-      "runner": "node",
-      "target": "node"
-    },
-    {
-      "function": "scripts.start",
-      "path": "scripts/start.mjs",
       "runner": "node",
       "target": "node"
     },
@@ -3020,26 +2925,60 @@
       ]
     },
     {
-      "function": "scripts.icons",
-      "path": "scripts/icons.mjs",
+      "function": "icons/generate",
+      "path": "icons/generate.mjs",
       "runner": "node",
       "target": "."
     },
     {
-      "function": "scripts.docs",
-      "path": "scripts/docs.mjs",
+      "function": "node/frontend/docs",
+      "path": "node/frontend/docs.mjs",
       "runner": "node",
       "target": "."
     },
     {
-      "function": "scripts.maintain",
-      "path": "scripts/maintain.mjs",
+      "function": ".github/workflows/release-macos",
+      "path": ".github/workflows/release-macos.mjs",
       "runner": "node",
-      "target": "."
+      "target": "node"
     },
     {
-      "function": "scripts-target",
-      "path": "scripts/target.mjs",
+      "function": ".github/workflows/release-windows",
+      "path": ".github/workflows/release-windows.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": ".github/workflows/release-linux-arm",
+      "path": ".github/workflows/release-linux-arm.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": ".github/workflows/release-linux-amd",
+      "path": ".github/workflows/release-linux-amd.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": ".github/workflows/release-wasm",
+      "path": ".github/workflows/release-wasm.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "node.src.settings.desktop_update",
+      "path": "node/src/settings/desktop_update.rs",
+      "runner": "cargo",
+      "target": "Cargo.toml",
+      "package": "node",
+      "cases": [
+        "release_selection_is_platform_run_and_attempt_specific"
+      ]
+    },
+    {
+      "function": "scripts/publish",
+      "path": "scripts/publish.mjs",
       "runner": "node",
       "target": "node"
     }

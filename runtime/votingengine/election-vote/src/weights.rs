@@ -17,7 +17,6 @@
 // --extrinsic=*
 // --steps=50
 // --repeat=20
-// --template=/Users/rhett/citizenchain/scripts/benchmark-weight-template.hbs
 // --output=runtime/votingengine/election-vote/src/weights.rs
 
 #![cfg_attr(rustfmt, rustfmt_skip)]

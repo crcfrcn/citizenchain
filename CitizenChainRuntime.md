@@ -1,5 +1,3 @@
-## 聊天功能的唯一产品归属
-
 ## 工具与依赖的声明和供给职责（2026-10-08）
 
 本产品完全独立管理全部流程所需的工具、依赖及其它资源需求。需求唯一依据为本仓源码、公开声明、锁文件及本产品拥有的准备配方，包括准确版本、平台、官方来源、摘要或固定提交、闭包、验真方式和失败条件；塔塔控制台按当前产品声明提供资源，不维护另一份产品需求或替产品决定版本、来源与流程步骤。
@@ -12,7 +10,7 @@
 
 以上为当前职责规范；本次只更新文档，不代表现有资源协议与运行代码已完成接入或通过真实流程验收。历史记录中的“可选供给”或“产品负责缺件获取”仅描述当时实现，不作为当前职责依据。
 
-本仓现行入口以`scripts/flows.json`及产品公开scripts实现为准；本文按日期保留的历史验收只描述当时结果，不作为当前工具、私有调用者或已撤销Publish实现的运行条件。独立塔塔门禁候选的职责和未验收状态见文末。
+本仓现行入口以`scripts/build.mjs describe`及产品公开scripts实现为准；本文按日期保留的历史验收只描述当时结果，不作为当前工具、私有调用者或已撤销Publish实现的运行条件。独立塔塔门禁候选的职责和未验收状态见文末。
 
 ## 当前工作目录归属
 
@@ -545,8 +543,6 @@ pending 处理。
 - `MODULE_TAG = b"pub-mgmt"`
 - 不保留旧 storage、旧 call payload 或旧解码兼容；开发期重新创世。
 
-### GenesisPallet 技术文档
-
 #### 1. 模块职责
 
 `genesis-pallet` 只负责：
@@ -683,8 +679,6 @@ pub trait DeveloperUpgradeCheck {
 - `citizenchain/runtime/primitives/src/genesis.rs`：三个创世事实的固定真源；
 - `citizenchain/runtime/src/genesis.rs`：真实 runtime genesis patch；
 - `citizenchain/node/src/guard/genesis_pallet.rs`：节点独立永久规则。
-
-### GRANDPA 验证密钥更换模块技术文档
 
 #### 1. 模块职责
 
@@ -890,8 +884,6 @@ Runtime 测试至少覆盖：
 - 未提交且证明过期的新候选私钥可安全清理；
 - 两条 call 均能被节点和离线钱包按同一二维码注册表解析。
 
-### resolution-destro 技术说明
-
 #### 0. 功能需求
 `resolution-destro` 的功能需求是：为国家储委会、各省储委会、各省储行提供“机构自有资金销毁”治理流程，由拥有该业务权限的岗位有效任职人发起、岗位快照选民投票，在提案通过后自动或手动执行链上销毁。
 
@@ -948,7 +940,6 @@ Runtime 接线：
 
 ---
 
-#### 3. 数据结构与存储模型
 ##### 动作结构
 ```rust
 pub struct DestroyAction<AccountId, Balance> {
@@ -973,7 +964,6 @@ pub struct DestroyAction<AccountId, Balance> {
 
 ---
 
-#### 4. 外部接口（Calls）
 ##### 4.1 `propose_destroy`（call index = 0）
 入参：`actor_cid_number`, `proposer_role_code`, `institution_account`, `amount`
 
@@ -1101,9 +1091,6 @@ cargo test --offline --manifest-path citizenchain/runtime/governance/resolution-
 2. 若 3 次手动执行仍失败，或超过 `ExecutionRetryGraceBlocks` 无人处理，提案会由投票引擎统一转 `STATUS_EXECUTION_FAILED`。
 3. 业务或岗位快照读写变化后必须重新运行 benchmark；不得复用本次权重掩盖后续存储变化。
 
-### runtime-upgrade 技术文档
-
-#### 0. 功能需求
 ##### 0.1 模块职责
 `runtime-upgrade` 负责把"Runtime wasm 升级"包装成一个受治理约束的链上流程，核心要求是：
 - 仅允许 NRC 和 43 个 PRC 的 `COMMITTEE_MEMBER / 委员` 岗位有效任职账户发起升级提案，仅属于 admins 不构成授权。
@@ -1190,7 +1177,6 @@ Runtime 配置位置：
 - `finalize_joint_vote` 手工 extrinsic 已删除，call index `1` 保持空缺。
 - 正常生产路径只能由投票引擎通过 `JointVoteResultCallback` 自动回调本模块，避免 Root 手工回放形成第二条执行入口。
 
-#### 3. 核心数据结构
 ##### 3.1 Proposal（摘要，序列化存入 votingengine ProposalData）
 - `proposer: AccountId`：提案发起人（NRC 或 PRC 委员岗位的有效任职账户）
 - `reason: BoundedVec<u8, MaxReasonLen>`：升级理由
@@ -1221,7 +1207,6 @@ Runtime 配置位置：
 - `ProposalVotePlans`：一次性绑定协议升级动作、提案主体、87 个投票岗位主体、联合引擎和 runtime WASM 对象哈希
 - `VoterSnapshot` / `InstitutionTicketCountSnapshot`：分别保存岗位有效任职快照和按 CID 冻结的岗位席位票据总数
 
-#### 5. 外部接口
 ##### 5.1 `propose_runtime_upgrade`（call index = 0）
 流程：
 1. 载荷显式接收 `actor_cid_number + actor_role_code`；校验 `ProposeOrigin`（`EnsureJointProposer`），再用 `InstitutionRoleAuthorization` 校验签名账户对该完整 `RoleSubject` 拥有协议升级 `Propose` 权限。当前顶层能力只允许 NRC/PRC `COMMITTEE_MEMBER`。
@@ -1273,24 +1258,6 @@ Runtime 配置位置：
 
 权重：使用 `frame_system::set_code()` 的系统权重。
 
-版本要求：
-- `developer_direct_upgrade` 最终通过 `System.set_code` 写入新 runtime code，系统会拒绝 `spec_version` 小于或等于链上当前版本的 WASM，错误表现为 `System::SpecVersionNeedsToIncrease`
-- 正式创世前项目自身 Runtime 版本固定为 `0`。塔塔控制台协议行「运行 CI」只按源码当前
-  `spec_version` 验证，不读取正式链，也不修改版本。
-- 正式创世后，只有塔塔控制台协议行「Release」负责读取明确配置的目标链；
-  该入口与「开发升级」都归属 CitizenChain，不再存在独立 CitizenChain WASM 卡片。RPC 实际
-  genesis hash 必须先与本机保存的 `CHAIN_GENESIS_HASH` 完全相等。随后比较链上与 GitHub
-  远端 `main` 的 `spec_version`：仓库与链同版时以 `链上版本 + 1` 作为候选；仓库已经比链高一版时复用候选；其他差值必须停止。
-- 塔塔控制台在同一次 Touch ID 中取得正式链目标和全产品共用的最小权限
-  `GH_TOKEN`；不提供独立 GitHub 卡片，也不依赖 `~/.config/gh` 登录态。校验通过后锁定
-  GitHub 远端 main SHA，显式 `workflow_dispatch` 独立的
-  `citizenchain.wasm.release`；不提交、不推送、不修改本机 runtime。
-- 塔塔控制台按准确 workflow、`run-name=Release`、40 位 `head_sha` 和 `event=workflow_dispatch`
-  等待最终结果。Release 失败重试同一候选与同一 `spec_version`，不再提高版本；Runtime CI
-  只按已提交源码原样编译，不查询服务器、不读取 RPC Secret、不临时改写或回写版本。
-- `impl_version`、`authoring_version`、`transaction_version`、`system_version` 不随协议行
-  「运行 CI」机械增加。
-
 ##### 5.4 投票引擎状态协同
 
 当前实现与 `votingengine` 的协作关系如下：
@@ -1322,7 +1289,6 @@ Runtime 配置位置：
 
 Runtime 层的 `RuntimeJointVoteResultCallback` 负责路由：先尝试 `resolution-issuance`，再尝试 `runtime-upgrade`。
 
-#### 7. 安全审查结论
 ##### 7.1 已修复风险：执行失败误记为 Passed
 旧实现中，联合投票通过后会先把提案写成 `Passed` 并清空 `code`，再尝试执行 `set_code`。如果执行失败：
 - 链上状态仍显示 `Passed`
@@ -1408,8 +1374,6 @@ Runtime 集成测试：
 - 权重：`src/weights.rs`
 - 技术文档：`RUNTIMEUPGRADE_TECHNICAL.md`
 
-### MODULE_TAG 注册表
-
 #### 用途
 
 MODULE_TAG 是各业务模块在 `votingengine` 的 `ProposalData` / `ProposalOwner` 中写入的字节标识。投票引擎本身不解析提案数据内容，但会用 `ProposalOwner` 做 owner 校验，禁止跨模块覆写。各模块在读取时仍需校验前缀或独立存储键，防止误解码。
@@ -1476,8 +1440,6 @@ let action = Action::decode(&mut &raw[tag.len()..]);
 
 本目录用于承载 CitizenChain runtime 下的治理相关 pallet 与文档。
 当前治理相关 crate 已统一放在本目录下，后续新增治理 pallet 也必须直接落在这里。
-
-### citizen-issuance 技术说明
 
 #### 1. 定位
 
@@ -1585,8 +1547,6 @@ finalize，`src/weights.rs` 由 Substrate benchmark CLI 重新生成；当前测
 - 单元测试 16/16、身份集成测试 7/7、NodeGuard 发行专项 9/9 通过；
 - 生产 release Node 与当前源码 WASM 构建成功；隔离 fresh 节点通过 NodeGuard 自检。
 
-### FULLNODE Issuance Technical Notes
-
 #### 0. 功能需求
 `fullnode-issuance` 的功能需求是：在固定的 PoW 奖励区块高度区间内，按照制度常量为成功出块的全节点作者发放固定金额奖励，并允许矿工自行管理奖励接收账户。
 
@@ -1663,7 +1623,6 @@ Runtime 注入配置：
 
 ---
 
-#### 5. 对外调用（Extrinsics）
 ##### 5.1 `bind_reward_account(reward_account_id)`（call index = 0）
 - 权限：`Signed`
 - 逻辑：
@@ -1694,7 +1653,6 @@ Runtime 注入配置：
 
 ---
 
-#### 6. 生命周期逻辑（Hooks）
 ##### 6.1 `on_initialize(n)`: finalize 预算预申报
 - 行为：
   - 将 `n` 饱和转换为 `u64` 后判断奖励区间，避免 pallet 对 runtime `BlockNumber` 形成 `Into<u32>` 编译期耦合。
@@ -2043,8 +2001,6 @@ L2FeeCollect     # Step 2:扫码清算时向 fee_account 收费
 ```
 $ cargo check -p offchain-transaction
 $ cargo check -p institution-asset
-### 两者皆通过。runtime 层(citizenchain)的 build.rs 硬性要求 WASM_FILE
-### 环境变量,本地 cargo check 受 CI 门禁限制,本轮改动是纯 Rust 代码
 ### (新增 struct/trait impl/match arm),无结构性风险,留 CI 把关。
 ```
 
@@ -2574,8 +2530,6 @@ $ cargo check -p offchain-transaction
   Call 改走 `T::WeightInfo`,不再使用空 `WeightInfo` 占位;`cargo test -p
   offchain-transaction --lib` 23 个测试通过。
 
-### onchain 交易与统一手续费技术文档
-
 #### 1. 模块定位
 
 代码目录：`citizenchain/runtime/transaction/onchain/`。
@@ -2714,8 +2668,6 @@ FeePaid { who: 实际付款账户, fee: 完整手续费 }
 补充：
 
 - `institution-asset` 虽然不是 pallet，但属于交易资金边界的公共 crate，也统一放在本目录。
-
-### votingengine 技术说明
 
 #### 定位
 
@@ -2940,7 +2892,7 @@ legislation-vote/
 - 手动重试和取消同样按提案主体分流：机构读取有效岗位选民快照，个人多签读取个人管理员快照。
 - 已接入业务为 public/private 本机构治理与关闭、决议销毁、GRANDPA 密钥紧急恢复、机构普通转账、NRC 安全基金转账、费用账户划转主账户和公民链基金会平台调价。每个业务自己校验 `RoleSubject + BusinessActionId + Propose`、枚举拥有 `Vote` 权限的岗位并固定使用内部投票引擎。GRANDPA 正常更换由目标机构单个委员完成旧、新私钥双签后直接延迟调度，不进入投票引擎。
 - 正式 FRAME benchmark 使用当前源码导出的临时 `citizenchain-fresh` spec、50 steps / 20 repeats。`resolution-destroy` 为 25 reads / 23 writes，`grandpakey-change` 为 25/23，`multisig::propose_transfer` 为 31/23；`internal-vote` 与核心 `votingengine` 已按机构有效岗位快照路径重算。public/private 完整凭证治理与 square 调价尚无可执行全调用夹具，生产权重使用 400 ms、700 KB proof、35 reads / 30 writes 的显式保守上界。
-- `scripts/benchmark.sh` 每次从当前 benchmark 二进制导出一次性 fresh spec，退出即删除；不再用与当前 storage 布局不一致的冻结 spec 或裸 WASM 空创世态。
+- 旧权重benchmark脚本及模板已删除；既有 `weights.rs` 数值和算法未因目录整理变更。后续重新生成权重须单独确定并验收所属Runtime入口。
 
 #### 验收
 
@@ -3270,10 +3222,6 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 
 ---
 
-## CI 增量缓存
-
-Runtime WASM CI 已接入统一 CI 缓存，Rust target 使用受控生成目录；WASM 与节点最终候选产物不写入缓存。
-
 ## Release 全量构建（第 7.4 步）
 
 正式 Release 固定从干净源码执行全量构建，显式关闭 Rust 增量编译及工具链内置缓存，不读取CI作业缓存且不复用本机编译中间物。版本、签名、校验、产物和发布流程保持原有产品合同。
@@ -3281,41 +3229,24 @@ Runtime WASM CI 已接入统一 CI 缓存，Rust target 使用受控生成目录
 ## 双仓统一流程最终收口（第 7.5 步）
 
 本产品执行统一流程规则：本机编译中间物只进入本轮塔塔缓存库的build目录并按终态规则清理；GitHub CI 的作业过程数据只进入该次Runner任务空间；正式Release从干净编译状态执行。源码不进入塔塔缓存库、塔塔依赖库或塔塔产物库。
-### 产品流程物理归属
-
-本仓`scripts/flows.json`声明现有产品、平台与流程身份，完整调用入口由本仓scripts拥有。Build使用产品完整execute入口；CI与Release使用本仓`scripts/flow.mjs`。已接入Start由产品声明与产品实现负责，未接入动作不由文档新增；Publish等待后续逐产品重建。外部调用者读取当前声明、创建与跟踪独立任务，不维护产品流程的第二实现。
-
-## CI与Release入口归属
-
-本产品CI与Release由所属仓当前`scripts/flows.json`的remote_routes及各平台Workflow声明定位，完整执行入口为本仓`scripts/flow.mjs`。控制台读取当前声明、创建原有真实任务、获取准确仓权限并跟踪原Run；旧控制台CI/Release Shell与Swift执行文件已删除，不作为入口。
-
-## 独立 GitHub CI 与 Release 工作流
-
-WASM 的 CI、Release 各只有下列一个本仓顶层 Workflow，均有且仅有一个主 `flow` Job；必要辅助 Job 只服务该身份。Workflow 只调用本仓 `scripts`，不执行保存、拉取、推送、Start 或 Publish，不读取 TataConsole 私有源码和资料。CI 验证源码，Release 生成正式产物；Publish 是否已接入以本仓当前声明及实际入口为准，不由本文新增。
-
-- `.github/workflows/citizenchain-wasm-ci.yml`
-- `.github/workflows/citizenchain-wasm-release.yml`
-
 ### 完整产品仓组织重构的Runtime边界
 
 Node、Runtime、OnChina同属完整citizenchain仓。原聚合Cargo工作空间及其锁完整保留到QR协议工具工作空间，公民链主体工作空间仍包含原有全部Runtime成员；Polkadot SDK准确提交保持1aa4447575d446ab393e89b86cd8ec0a8fca100d。
 
 本轮Runtime目录共16个文件：primitives/src/sign.rs的两条说明、primitives/tests/fixtures/signing_domain_vectors.json的_comment，以及14份既有weights.rs注释中的模板绝对路径。权重文件只删除已退役聚合仓包装层，所有生成命令参数、权重数值及运行代码不变。签名说明中生产发布授权使用“本机生产发布授权”，不在公开源码记载控制台名称。OP_SIGN_PUBLISH=0x24、GMB签名域、所有签名金标数据与运行代码保持逐字相同。EVM仍为独立暂停任务，不随组织重构实施。执行前必须对这16个完整路径及Cargo间接影响取得二次确认；验收只运行锁定依赖和既有测试，不更新金标或格式化Runtime源码。
 
-本产品正式Release主flow Job实际创建GitHub版本，contents权限准确为当前仓write；辅助Job与其它权限保持原登记。源提交、成功CI、版本及资产验真不放宽，不派发发布。
 ## 完整产品组织与执行合同
 
 所有者：`citizenchain`，正式源码根 `<本仓根>`；本说明属于该完整产品内的Runtime组件资料。组件不会拆成独立仓库或目录产品。所有执行身份统一为 `产品.平台.流程`；工作目录合同由 `CitizenChainNode.md` 的“本机固定执行目录”唯一承载，不建立平台工作目录层。
 
 真实平台目标：`macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。
 
-推送门禁唯一源码位于 `<本仓根>/.github/tatagate/`，GitHub入口 `<本仓根>/.github/workflows/tatagate.yml`。控制台先从本仓已保存提交执行这份门禁，通过后推送准确SHA；GitHub main push再执行同一提交的门禁，控制台核对所属仓、Workflow、main、SHA、Run和attempt，只有success并再次回查main一致才完成推送。失败、取消、超时或身份漂移均不得显示成功，不自动重试或派发CI/Release。
+仓库推送仅上传本仓已经保存的main提交。控制台推送的唯一实现为console/tuisong.mjs，每仓一次生物识别，授权成功后建立独立任务，任务栏记录Git进度、准确SHA、取消及成功/失败终态。只执行Git与GitHub main只读回查，不执行源码、依赖、注释、文档、测试、签名或资源门禁；不派发产品Workflow、不运行hooks、不续签或重复认证、不自动重试、合并或强推。
+
+本仓已移除GitHub main推送门禁触发器；main上传后不自动运行产品自动化。自动化由用户单独发起，产品仍拥有自己的Workflow、声明、资源、测试和产物实现；产品不导入控制台源码，不依赖控制台工具库、私有规则或其它仓库工作树。控制台只是可选Git客户端。各仓可独立使用公开Git接口完成仓库操作，公开SDK依赖不构成流程耦合。
+
 
 技术文档由所属完整产品仓根唯一持有；私有规则和任务库由控制台私仓持有，公开产品不读取它们。公开门禁不依赖私仓资料、安装包源码、其它本机产品或个人账号；必要链真源只读本仓明确固定的公开40位SHA，不在门禁中跟随main。本机开发跨产品验收仍比较三仓已保存快照与各端真实镜像。
-
-## 组织重构验收边界修正
-
-公民链版本验真产品参数统一citizenchain；wasm仍按spec-version和链上版本规则验真，CI/Release回执展示标题使用完整公民链；节点软件版本保持原节点真源，不合并版本语义。
 
 ### 门禁与开发审查职责
 
@@ -3345,74 +3276,48 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 签名金标闭集为16个当前哈希域；删除的编号不重用、不提供别名或兼容常量。链上交易、二进制前缀签名与其他现行授权域保持其既有语义。共享 QR 注册表以动作13承载 MLS 登记，正式导出到钱包和链内消费者；生成文件禁止手改。
 
 
-### 完整产品自有编译入口
-
-完整CitizenChain的`scripts/flows.json`声明wasm平台及本仓Cargo锁，`scripts/build.mjs`按公开资源回执独立准备源码外工程，再调用本仓Runtime编译入口。协议编译、候选验真与失败条件归产品scripts；本次不修改runtime源码。锁、工具、输出目录及候选不符必须失败；CI/Release沿既有独立Workflow消费本仓同提交。
-
-
 ### 第4步实施中：远端路由当前声明
 
-CI/Release的规范身份、标题、版本前缀和正式版本记录标志已迁入所属仓现有scripts/flows.json的remote_routes。调用方按固定已接入动作重读当前声明；原生授权与流程查询不再使用编译期产品路由常量。产品声明只提供数据，不授予凭据、扩大平台矩阵或新增按钮。损坏、重复、越仓、字段越界及超限拒绝。
 
 本次同步路线读取、热更新和失败边界用例，未运行测试、语法检查、编译、签名、安装或下载。第4步仍在开发中：Publish执行器、聊天安装器、Start、固定菜单声明与完整程序摘要的其余实际耦合尚未解除，不能报告该步或整项任务完成。
 
 ### WASM Release公开入口
 
-WASM Release由公民链`scripts/flow.mjs`执行。它使用本次获准的正式链HTTPS地址、Access服务编号/密钥和创世指纹，只调用`chain_getFinalizedHead`、`chain_getBlockHash`和`state_getRuntimeVersion`；匹配指纹后把finalized规格版本加一，再核对成功CI中唯一的规格版本及差值，保持原有Release输入。控制台仅交付获准材料及跟踪当前任务，不执行正式链版本查询；本次未修改Runtime源码、未执行RPC或测试。
 
 
-本产品scripts/build.mjs的模块初始化与CLI执行分离：私有异步runCLI承载原命令主体，仅在直接执行文件时启动，拒绝时输出错误并以退出码1失败。模块求值先完成，scripts/resources.mjs可反向导入同一checkWork、requirements和平台校验，不复制实现或增加启动入口；普通import不启动CLI。现有公开参数、JSON请求、--offline、锁定Node验真和必要重入、资源/准备/编译/适用签名安装回读步骤以及取消与结果合同保持。离线缺件和非法输入必须真实失败，禁止以未完成顶层await退出替代完整结果。对应真实CLI回归只在自有target测试现场替换资源供给边界，验证反向导入、参数与错误传播，不据此声称实际产品编译通过。
+本产品scripts/build.mjs的模块初始化与CLI执行分离：私有异步runCLI承载原命令主体，仅在直接执行文件时启动，拒绝时输出错误并以退出码1失败。模块求值先完成，scripts/build.mjs可反向导入同一checkWork、requirements和平台校验，不复制实现或增加启动入口；普通import不启动CLI。现有公开参数、JSON请求、--offline、必要重入、资源/准备/编译/适用签名安装回读步骤以及取消与结果合同保持。离线缺件和非法输入必须真实失败，禁止以未完成顶层await退出替代完整结果。对应真实CLI回归只在自有target测试现场替换资源供给边界，验证反向导入、参数与错误传播，不据此声称实际产品编译通过。
 
 
-本产品scripts/resources.mjs的普通inventory清单保持独占文件要求；工具原件toolInventory复用同一扫描实现，只允许全部真实名称均位于同一规范payload内的硬链接组。扫描按dev/ino分组，实际名称数量必须与nlink闭合；工具普通文件以O_NOFOLLOW打开，打开及读取后复验身份、计数、权限和字节相关元数据，扫描结束再回读全部目录、文件及链接身份与规范目标。原件外额外名称、目录或链接越界、特殊项、读取期间替换/权限/内容变化均失败。清单仍逐路径保留原有path/sha256/executable或directory/target格式，继续由既有回执、准确官方归档/版本、配方和编译输入证明验真；regular与其它资源默认独占校验不放宽。不新增公开命令、参数、声明字段或原件登记，不改版本、锁、配方和工具原件，不以拆分内部链接、重新安装或下载解决验真。回归复制本仓完整实现到所属target测试现场，仅替换文件IO边界以确定性制造读取变化，并在夹具内暴露已有私有验真函数；纯合成对象覆盖正常、拒绝与回执漂移，不据此宣称真实工具或产品编译通过。
-
-
-本产品资源验真将下载运输元数据与源码工具编译身份分开：仅在源码工具证明和本产品声明的比较副本中，验证并移除archive.mirrors与upstream_patches各项mirrors。镜像须为非空、无重复、无控制字符/空白、无账号/口令/片段的准确规范HTTPS地址数组；错误格式直接失败。官方来源URL、版本、归档字节摘要、kind/root/executable、补丁来源/摘要/顺序、前置与依赖闭包、其它位置同名字段及未知字段继续严格比较。Xcode/POSIX输入、recipe.source和source.archive/source.gem摘要、原回执清单及入口独占规则不变；比较不改写原证明、声明或回执，不改变原件/登记/配方/版本/锁和实际下载策略，不读取控制台登记作为产品版本或策略来源。既有回归使用完整本仓资源实现及纯合成物理证明，逐次重算清单，验证运输差异可复用与真正输入漂移必须失败；测试不启动工具或冒充真实编译交付。
-
-
-本仓平台命名门禁仍扫描完整Git跟踪路径和正文，仅在内存副本识别scripts/resources.mjs中唯一规范的toolDefinitions与flutterPatch声明。规范JSON回读及唯一工具身份阻断重复键、转义、歧义和重复声明；使用Flutter时核验准确官方来源、版本对应归档和本仓补丁来源与全文摘要，未使用Flutter时只接受已核实固定来源与全文SHA-256的共同原补丁。仅处理官方native_assets_host.dart中与准确文件头、行号、lipoDylibs签名及紧邻调用同时闭合的一行原上下文注释，其它新增、删除、上下文、源码和路径的旧平台名称继续拒绝；实际资源源码、补丁、版本、锁和原件不变。目录边界回归以unlinkSync删除自身合成目录符号链接，继续完整验证根target普通目录可用、嵌套target/目录链接/普通文件拒绝；生产目录边界规则不变。回归使用本仓真实门禁与完整Git跟踪合成文件，只在本产品准确target测试现场运行，不将扫描夹具作为真实产品编译或发布证据。
+本仓平台命名门禁仍扫描完整Git跟踪路径和正文，仅在内存副本识别scripts/build.mjs中唯一规范的toolDefinitions与flutterPatch声明。规范JSON回读及唯一工具身份阻断重复键、转义、歧义和重复声明；使用Flutter时核验准确官方来源、版本对应归档和本仓补丁来源与全文摘要，未使用Flutter时只接受已核实固定来源与全文SHA-256的共同原补丁。仅处理官方native_assets_host.dart中与准确文件头、行号、lipoDylibs签名及紧邻调用同时闭合的一行原上下文注释，其它新增、删除、上下文、源码和路径的旧平台名称继续拒绝；实际资源源码、补丁、版本、锁和原件不变。目录边界回归以unlinkSync删除自身合成目录符号链接，继续完整验证根target普通目录可用、嵌套target/目录链接/普通文件拒绝；生产目录边界规则不变。回归使用本仓真实门禁与完整Git跟踪合成文件，只在本产品准确target测试现场运行，不将扫描夹具作为真实产品编译或发布证据。
 
 本仓门禁的测试子进程白名单仅保留已有PRODUCT_GIT_BIN准确执行器路径，供完整Git索引夹具使用；缺少该准确入口时回归失败，不查询PATH、不回退系统Git、不传凭据或其它产品材料。不新增工具版本、声明字段、公开参数或生产资源获取步骤。
 
 
-## 独立塔塔门禁与资料回归
+## 只读塔塔门禁与功能验收边界（2026-10-10）
 
-本仓 `.github/tatagate/index.mjs` 是本机与GitHub共用的唯一门禁实现，`contracts.json`只登记本仓准确GitHub身份、已有流程与真实Node入口。GitHub在本仓main推送时自动运行 `tatagate.yml`，检出并核对该push的同一已保存SHA；其它仓库的工作树、门禁、私有规则和人工开发凭证均不是输入。
+`.github/tatagate/tatagate.mjs` 只读核对本仓主检出、HTTPS 来源、目录闭集、流程调用方向、Node 语法与本仓 QR 金标和 Pallet 注册表。门禁不准备资源、不执行产品编译或功能测试，也不调用 `scripts/build.mjs`。功能测试由所属 Build 或各平台自动化执行；旧门禁资源准备函数和配方已从 Build 清除。当前改动只完成静态检查，真实编译和正式门禁尚未验收。
 
-门禁检查独立Git根、准确HTTPS origin、当前受检提交及提交范围；本机只接受main，远端只接受准确仓库的main push。源码语法、真实代码注释上下文、临时残留、传输来源、所属根技术文档和受控测试登记分别检查。实现变化必须在同一范围同步所属文档与有内容的回归差异；空白调整不构成同步证据。代码与资料的语义、注释是否准确、回归是否覆盖产品功能仍须由本仓开发与最终真实验收逐项复核，非空文件或摘要不能证明业务正确。
+## GitHub自动化
 
-Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复、失效和空入口失败；执行时必须有每份登记文件与最终汇总的完整成功回执。零用例、漏文件、失败、跳过、待办、取消及重复汇总均失败。所属产品流程、声明、资源版本与Workflow权限的回归归本仓 `scripts/flow.test.mjs`，不让其它仓库代验本产品。
+本仓自动化只在GitHub的main源码上执行；控制台只调用与展示。各目标独立拥有同名的YAML与Node实现，不调用其他仓或其他目标的Workflow。版本、构建、测试、签名、完整产物核验与正式tag/Release均由本仓负责。
 
-门禁的工具与依赖需求、固定来源、准备配方、完整验真及同版复用合同统一由本仓 `scripts/resources.mjs` 拥有；门禁只调用公开接口，不维护第二份工具版本或配方。按当前职责规范，独立执行由产品获取和保存资源，经控制台执行由控制台准备和供给；下述既有接口与验收记录不代表控制台供给接入已完成。`prepareGateResources`准备本仓独占资源现场，`verifyGateResourceDelivery`回读准确来源、完整对象、执行器、宿主闭包和工作环境，`gateResourcePlan`从本仓既有声明派生来源。既有tools模块如存在仅转发产品资源接口。Linux门禁新增Ubuntu 24.04 x64宿主交付，macOS门禁复用本仓既有生产资源准备；不改生产流程顺序、工具版本、产品原锁或不可变原件。
+- `.github/workflows/release-linux-amd.yml`及同名`.mjs`。
+- `.github/workflows/release-linux-arm.yml`及同名`.mjs`。
+- `.github/workflows/release-macos.yml`及同名`.mjs`。
+- `.github/workflows/release-wasm.yml`及同名`.mjs`。
+- `.github/workflows/release-windows.yml`及同名`.mjs`。
 
-固定Git输入只从本仓声明或门禁明确的40位提交取得，不消费其它产品当前main。独立执行的依赖原件归产品独立资源库，经控制台执行的依赖原件由控制台保存供给，任务缓存和编译数据归本轮target；全部平台测试使用本仓target/test，平台只用于任务身份及准确资源选择。`gateLanguageView`使用受检Git快照与产品现有安全解包器物化本轮target工程视图，正式源码、声明和锁只读；Git包仅在任务视图元数据中投影为已验真的固定输入。
+每个目标的最后任务使用always读取所有前置结果：全部成功清本仓本目标旧成功，否则清旧失败并失败退出。仅保留最新成功、最新失败各一条；保护本次Run和所有活动任务，另一类结果与其他目标不受影响。删除关联正式Release、tag、Actions产物和Run后回查；任何清理错误都按实际失败报告，不自动重试。
 
-`ownedLanguageTests`按本仓已有原锁与公开入口派生适用语言调度，`validateLanguageResult`核对实际非空执行结果。有Cargo锁的工作区执行离线原锁的全部测试目标及文档测试；Flutter项目执行原有正式测试入口或完整analyze/test；已有Vitest业务套件与TypeScript公开回归实际执行。Node依赖先准备独占视图；需要实际编译产物的既有测试先调用所属产品原Build入口。依赖缺失、宿主不适用、工具加载失败或语言结果不完整均失败，不以跳过或零退出码代替通过。
+所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
 
-取消、超时及任何非成功结论都是失败，长进程通过本产品 `runResourceProcess` 传播取消并确认整组退出；退出未确认时 `gateCleanupAllowed` 拒绝清理现场。
+## WASM自动化与专属开发升级
 
-链的Node前端TypeScript文档回归、OnChina前端Vitest与Rust工作区由链自身执行；QR协议工具的既有格式、Clippy与完整测试仍保留，不能以QR工具通过替代链工作区通过。节点、Runtime与OnChina三个既有根文档分别保持所属模块职责。
+WASM只由本仓.github/workflows/release-wasm.yml和同名mjs执行。GitHub读取本仓CHAIN_URL、CHAIN_GENESIS_HASH变量，以及CHAIN_ID、CHAIN_SECRET机密，按固定只读RPC方法取得同一finalized锚点的版本与创世身份；缺件、错链或请求失败立即失败，不重试。生成的spec_version取本仓源码版本、已成功产物版本和链上版本加一的最大值，写入本次临时构建源码，不回写main。链上未升级时可复用同一协议版本，正式tag包含本次Run和attempt，准确指向本仓源码提交。
 
-本轮只完善门禁实现、资料、注释和回归源码，尚未运行测试、门禁、编译、签名或安装。全部获准步骤实现完成后在最终统一验收中运行，随后按每仓准确保存SHA推送并核对该SHA的GitHub push门禁；未验收不得登记为已完成。
-
-
-## 独立功能门禁
-
-本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：链协议、投票引擎、身份和机构权限、发行与交易、节点和OnChina。已有真实入口为：runtime现有真实用例；crates/protocol/tests；crates/scanner/test；node/frontend和onchina/frontend用例。`contracts.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 196 件既有测试来源（cargo 168 件、node 24 件、node-entry 1 件、vitest 3 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
-
-Node完整报告逐文件核对；Flutter和Vitest从实际机器结果读取本仓具名套件完成数；Rust按准确原锁工作区及所属包运行全目标和文档测试，核对具名用例；Python调用实际unittest套件，拒绝零用例、失败、跳过、预期失败和意外成功。适用的原生门禁回读真实XCTest结果。执行回执绑定本仓、本次工作根和同一HEAD SHA，历史回执、加载事件、总数非空或单独零退出码均不足以证明全部功能检查成功。门禁协议夹具只证明核验器和调用边界，不能替代实际产品功能验收。
-
-门禁资源仍由本仓 `scripts/resources.mjs` 准备和验真，实际用例需要的Cargo/npm原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，不能读取邻仓或跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target/test本轮现场，不改变生产平台、生产工具版本、依赖版本或锁。
-
-main推送自动触发本仓同SHA `tatagate.yml`，不调度其它产品门禁或CI/Release。中文注释、真实接口、所属文档与回归同步检查继续执行。当前只准备实现、注释和用例，未运行测试、语法检查、门禁、下载或编译。浏览器交互、真机、真实API/服务/数据库环境及适用平台不能由登记清单、单元测试或编译替代，须在整项实现后的统一验收逐项核对。
-
-本地调用的既有协调目录参数只用于核对请求身份；实际测试工作根和本次功能回执由门禁自行在本仓target建立，不向快照旁协调目录写入产品状态。独立入口与控制台固定调用共享同一实现与退出结论。
+实际编译、Clippy、完整WASM集合与节点候选Runtime政策探针均在CitizenChain内执行；三件WASM逐件上传和回读，来源正文保留链目标证明。本仓负责自己的正式Release及同目标同结果历史清理。控制台只调用、跟踪和展示此自动化；其专属开发升级从成功wasm产物消费三件已证明资产，再执行冷签和提交，不生成自动化版本，也不替本仓读取链来阻止派发。配置原件归所属GitHub仓，本次源码修改没有向GitHub写入机密或部署配置。
 
 
-本仓门禁回归执行边界：完整门禁包含本仓全部已登记真实测试；需要编译输入的既有用例由所属入口准备，禁止读取其它轮次生成物。嵌套Node回归启动独立运行器时，仅清除父运行器内部NODE_TEST_CONTEXT，产品工具和门禁输入继续保留；实际逐文件及最终结果仍拒绝零用例、遗漏、跳过和失败。回归夹具的Git/Shell来自已验真公开工具输入，禁止回退系统路径；工具转发模块不承担门禁CLI，直接参数拒绝由本仓实际门禁入口负责。 此次修正候选来自统一回归真实失败；整项真实功能验收、已保存提交门禁及同SHA远端结果尚未完成，不能据此登记为全部通过。
+### 本仓 GitHub 自动化与塔塔门禁目录
 
-功能清单核验回读本仓实际Git跟踪源码，使用明确的本仓上游排除边界；漏登记、重复、不存在的入口或Rust具名用例集合不一致均失败。归档消费者仍属于本仓功能检查，不因上游目录豁免而排除。
-
-本产品源码工具依赖准备仅返回源码外归档存储中的验真输入映射；工具候选不创建旧originals目录，也不清理不存在的目录。原始归档及编译输入仍由既有工具对象和回执完整保存，错误归档、缺前置工具、编译失败、缺输出及越界继续失败。修正后的配方形成自身对象身份，不覆盖历史原件；测试夹具遵守同一目录合同。
-
-本仓scripts测试正文统一位于所属正式实现末尾；固定目录回归执行node --test scripts/target.mjs，构建夹具支持随build.mjs内嵌回归保存。正常导入与正式执行不注册测试，门禁直接登记所属实现文件，不保留独立测试或夹具模块。
+`.github/` 仅保留 `workflows/` 与 `tatagate/` 两个目录。`workflows/` 持有本仓自动化；`tatagate/` 仅保留 `tatagate.json` 与 `tatagate.mjs`。前者登记本仓门禁合同，后者保留正式门禁实现与测试报告器，测试代码统一位于正式代码之后。直接运行执行门禁命令，测试运行只执行末尾测试，普通导入不注册测试；本仓测试清单及逐文件成功回执使用同一个门禁文件且仅执行一次。

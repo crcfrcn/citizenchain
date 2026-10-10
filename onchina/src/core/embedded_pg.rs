@@ -211,7 +211,7 @@ fn configure_postgresql_conf(data_dir: &Path) -> Result<(), String> {
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
     {
-        // 每日 pg_basebackup + 持续 WAL 归档到 NAS = PITR(见 citizenchain/scripts/onchina-{backup,restore}.sh)。
+        // 配置归档目录后持续保存 WAL；全量备份与恢复由独立数据库运维流程负责。
         std::fs::create_dir_all(&archive_dir)
             .map_err(|e| format!("create wal archive dir failed: {e}"))?;
         let cmd = if cfg!(windows) {
