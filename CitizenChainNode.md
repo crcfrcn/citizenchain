@@ -2911,6 +2911,10 @@ scripts/build.mjs是本产品唯一完整本机编译实现。独立执行由本
 
 每个目标的最后任务使用always读取所有前置结果：全部成功清本仓本目标旧成功，否则清旧失败并失败退出。仅保留最新成功、最新失败各一条；保护本次Run和所有活动任务，另一类结果与其他目标不受影响。删除关联正式Release、tag、Actions产物和Run后回查；任何清理错误都按实际失败报告，不自动重试。
 
+四个节点Release目标的`node-version`动作由各自同名`.mjs`经`action node-version apply`和`action node-version lock`调用；内嵌版本脚本只接受`apply`或`lock`作为首个参数。目标各自验证并同步本次软件版本，调用方不得重复传入动作名称。
+
+WASM Release的`prepare`由`.github/workflows/release-wasm.yml`从GitHub Actions Variables交付`CHAIN_URL`、`CHAIN_GENESIS_HASH`，从Secrets交付`CHAIN_ID`、`CHAIN_SECRET`。`.github/workflows/release-wasm.mjs`只通过受保护的`https://chain.crcfrcn.com`地址与Access服务令牌调用`chain_getFinalizedHead`、`chain_getBlockHash(0)`和finalized块的`state_getRuntimeVersion`；回读块0哈希须等于独立配置的创世哈希，版本至少高于当前finalized的`spec_version`。四项配置不写入Git源码、任务卡或日志；缺失时Release准备直接失败。
+
 所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
 
 本机编译现场由本产品领取和收尾。调度任务编号随本产品领取记录保存；本轮结果消费后，只允许匹配该编号的收尾请求。产品确认自身进程及资源供给后代全部退出后才清场；异常、编号不符或退出未确认时保留现场。控制台只持有调度锁、调用本产品入口并供给资源，不实现产品清理。

@@ -11,7 +11,7 @@ export const owner = Object.freeze({"product": "citizenchain", "platform": "linu
 const commands = Object.freeze({
   "1": {
     "shell": "bash",
-    "source": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"$SOURCE_SHA\"\nnode \"$GITHUB_WORKSPACE/.github/workflows/release-linux-amd.mjs\" action node-version node-version apply \"$SOFTWARE_VERSION\""
+    "source": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"$SOURCE_SHA\"\nnode \"$GITHUB_WORKSPACE/.github/workflows/release-linux-amd.mjs\" action node-version apply \"$SOFTWARE_VERSION\""
   },
   "2": {
     "shell": "bash",
@@ -31,7 +31,7 @@ const commands = Object.freeze({
   },
   "6": {
     "shell": "bash",
-    "source": "node \"$GITHUB_WORKSPACE/.github/workflows/release-linux-amd.mjs\" action node-version node-version lock \"$SOFTWARE_VERSION\""
+    "source": "node \"$GITHUB_WORKSPACE/.github/workflows/release-linux-amd.mjs\" action node-version lock \"$SOFTWARE_VERSION\""
   },
   "7": {
     "shell": "bash",
@@ -405,6 +405,14 @@ if(direct&&!testing){
 if(testing){
   const {default:assert}=await import('node:assert/strict');const {default:test}=await import('node:test');
 
+  test('节点版本动作只交付内嵌脚本接受的apply与lock参数',()=>{
+    const sources=Object.values(commands).map(command=>command.source);
+    for(const verb of ['apply','lock']){
+      const matched=sources.filter(source=>source.includes(' action node-version '+verb+' "$SOFTWARE_VERSION"'));
+      assert.equal(matched.length,1,verb+'动作入口必须唯一且参数准确');
+    }
+    assert.equal(sources.some(source=>source.includes('action node-version node-version')),false);
+  });
   test('旧入口不能成为任一现行平台的清理归属证明',()=>{
     const current={id:9,path:workflowPath,head_branch:'main',event:'workflow_dispatch',created_at:'2026-01-02T00:00:00Z'};
     const old={...current,id:1,status:'completed',conclusion:'success',created_at:'2026-01-01T00:00:00Z'};
