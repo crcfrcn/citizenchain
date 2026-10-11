@@ -37,9 +37,6 @@ jobs:
     - id: version
       env:
         GH_TOKEN: "${{ github.token }}"
-        CHAIN_URL: "${{ secrets.CHAIN_URL }}"
-        CHAIN_ID: "${{ secrets.CHAIN_ID }}"
-        CHAIN_SECRET: "${{ secrets.CHAIN_SECRET }}"
       run: node .github/workflows/release-wasm.mjs prepare
   flow:
     name: 编译 WASM

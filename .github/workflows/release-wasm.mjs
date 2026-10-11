@@ -121,30 +121,9 @@ export async function pages(path, field = null, api = request) {
 }
 
 const CHAIN_HASH_PATTERN = /^0x[0-9a-f]{64}$/;
-const CHAIN_RPC_METHODS = new Set([
-  'chain_getFinalizedHead',
-  'chain_getBlockHash',
-  'state_getRuntimeVersion',
-]);
 const CHAIN_RPC_TIMEOUT_MS = 8000;
 const CHAIN_RPC_MAX_RESPONSE_BYTES = 128 * 1024;
-
-function requireProtectedChainRpcConfig({ chainUrl, accessClientId, accessClientSecret }) {
-  let parsedUrl;
-  try {
-    parsedUrl = new URL(String(chainUrl || '').trim());
-  } catch {
-    throw new Error('国储会正式链 RPC 地址无效');
-  }
-  if (parsedUrl.origin !== 'https://chain.crcfrcn.com'
-    || parsedUrl.username || parsedUrl.password || parsedUrl.hash) {
-    throw new Error('国储会正式链 RPC 必须使用 chain.crcfrcn.com 受保护的 HTTPS 地址');
-  }
-  const clientId = String(accessClientId || '').trim();
-  const clientSecret = String(accessClientSecret || '').trim();
-  if (!clientId || !clientSecret) throw new Error('国储会正式链 Access 服务令牌未配置');
-  return { url: parsedUrl.toString(), clientId, clientSecret };
-}
+const RUNTIME_TARGET_URL = 'https://www.crcfrcn.com/api/chain/runtime-target';
 
 async function readBoundedJson(response) {
   const declaredLength = Number.parseInt(response.headers.get('content-length') || '', 10);
@@ -174,55 +153,19 @@ async function readBoundedJson(response) {
   }
 }
 
-async function callProtectedChainRpc(config, method, params, id, options) {
-  if (!CHAIN_RPC_METHODS.has(method)) fail('正式链RPC方法无效');
+// 公民服务端固定公开只读接口代访问Access/Tunnel；本仓仍独立核对冻结创世身份。
+export async function readRuntimeBuildTarget(options = {}) {
   const fetchImpl=options.fetchImpl||globalThis.fetch;
   let response;
-  try {response=await fetchImpl(config.url,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(options.timeoutMs??CHAIN_RPC_TIMEOUT_MS),
-    headers:{accept:'application/json','content-type':'application/json','CF-Access-Client-Id':config.clientId,'CF-Access-Client-Secret':config.clientSecret},
-    body:JSON.stringify({jsonrpc:'2.0',id,method,params})});} catch {fail('正式链RPC连接失败');}
-  if(response.status>=300&&response.status<400){await response.body?.cancel();fail('正式链拒绝重定向');}
-  if(!response.ok){await response.body?.cancel();fail('正式链RPC请求失败');}
+  try {response=await fetchImpl(RUNTIME_TARGET_URL,{method:'GET',redirect:'manual',credentials:'omit',signal:AbortSignal.timeout(options.timeoutMs??CHAIN_RPC_TIMEOUT_MS),headers:{accept:'application/json'}});} catch {fail('正式链目标读取失败');}
+  if(response.status>=300&&response.status<400){await response.body?.cancel();fail('正式链目标拒绝重定向');}
+  if(!response.ok){await response.body?.cancel();fail('正式链目标请求失败');}
+  if(response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json'){await response.body?.cancel();fail('正式链目标媒体类型无效');}
   const payload=await readBoundedJson(response);
-  if(!payload||Array.isArray(payload)||payload.jsonrpc!=='2.0'||payload.id!==id)fail('正式链RPC返回无效响应');
-  if(payload.error!=null||!Object.hasOwn(payload,'result'))fail('正式链RPC没有成功结果');
-  return payload.result;
-}
-
-// WASM Release 通过国储会 Access + Tunnel 私有 RPC 读取 finalized Runtime 版本；P2P 30333
-// 不承载 JSON-RPC，本机 9944 是否运行也不影响 Release。三个请求均为固定只读方法。
-export async function readRuntimeBuildTarget(chainConfig, options = {}) {
-  const config = requireProtectedChainRpcConfig(chainConfig);
-  const finalizedHead = await callProtectedChainRpc(
-    config, 'chain_getFinalizedHead', [], 1, options,
-  );
-  if (typeof finalizedHead !== 'string' || !CHAIN_HASH_PATTERN.test(finalizedHead)) {
-    throw new Error('国储会正式链 finalized hash 无效');
-  }
-  const genesisHash = await callProtectedChainRpc(
-    config, 'chain_getBlockHash', [0], 2, options,
-  );
-  if (typeof genesisHash !== 'string' || !CHAIN_HASH_PATTERN.test(genesisHash)) {
-    throw new Error('国储会正式链 genesis hash 无效');
-  }
-  const runtimeVersion = await callProtectedChainRpc(
-    config, 'state_getRuntimeVersion', [finalizedHead], 3, options,
-  );
-  if (!runtimeVersion || typeof runtimeVersion !== 'object' || Array.isArray(runtimeVersion)) {
-    throw new Error('国储会正式链 RuntimeVersion 无效');
-  }
-  const specVersion = runtimeVersion.specVersion;
-  if (!Number.isSafeInteger(specVersion) || specVersion < 0 || specVersion > 0xffffffff) {
-    throw new Error('国储会正式链 spec_version 无效');
-  }
-  const specName=runtimeVersion.specName;
-  if(specName!=='citizenchain')fail('正式链Runtime名称无效');
-  return {
-    specVersion,
-    genesisHash,
-    chainName: specName,
-    finalizedHead,
-  };
+  if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).sort().join(',')!=='finalized_head,genesis_hash,spec_name,spec_version')fail('正式链目标响应字段无效');
+  const {finalized_head:finalizedHead,genesis_hash:genesisHash,spec_name:chainName,spec_version:specVersion}=payload;
+  if(!CHAIN_HASH_PATTERN.test(finalizedHead)||!CHAIN_HASH_PATTERN.test(genesisHash)||!Number.isSafeInteger(specVersion)||specVersion<0||specVersion>0xffffffff||chainName!=='citizenchain')fail('正式链目标响应身份无效');
+  return {specVersion,genesisHash,chainName,finalizedHead};
 }
 
 // 正式链目标和版本由本仓GitHub运行读取并计算，不接受控制台交付的版本。
@@ -304,7 +247,7 @@ export async function prepare() {
     const run = await request(`actions/runs/${notes.run_id}`);
     if (run?.status === 'completed' && run.conclusion === 'success' && run.path === workflowPath) versions.push(notes.version);
   }
-  const chain=await readRuntimeBuildTarget({chainUrl:process.env.CHAIN_URL,accessClientId:process.env.CHAIN_ID,accessClientSecret:process.env.CHAIN_SECRET});
+  const chain=await readRuntimeBuildTarget();
   verifiedGenesisHash(chain.genesisHash);
   const version = runtimeVersion(seedVersion(), versions, chain.specVersion);
   output('chain_spec_version',chain.specVersion);output('genesis_hash',chain.genesisHash);output('finalized_head',chain.finalizedHead);
@@ -579,7 +522,6 @@ if(direct&&!testing){
 if(testing){
   const {default:assert}=await import('node:assert/strict');const {default:test}=await import('node:test');
  const hash = '0x' + '1'.repeat(64);
- const config = {chainUrl:'https://chain.crcfrcn.com',accessClientId:'fixture',accessClientSecret:'fixture'};
  test('WASM创世预期只读取Runtime唯一冻结常量',()=>{
   const declaration='pub const GENESIS_HASH: [u8; 32] = hex_literal::hex!("'+'1'.repeat(64)+'");';
   assert.equal(frozenGenesisHash(declaration),hash);
@@ -589,23 +531,22 @@ if(testing){
   for(const source of ['',declaration+'\n'+declaration,'pub const GENESIS_HASH: [u8; 32] = hex_literal::hex!("'+'0'.repeat(64)+'");'])
     assert.throws(()=>frozenGenesisHash(source),/Runtime冻结创世哈希真源无效/);
  });
- test('WASM自动化读取同一finalized锚点的版本和真实创世身份',async()=>{
-  const requests=[];
-  const result=await readRuntimeBuildTarget(config,{fetchImpl:async(url,options)=>{
-   assert.equal(url,config.chainUrl+'/');assert.equal(options.redirect,'manual');
-   const request=JSON.parse(options.body);requests.push(request);
-   const result=request.id===1?hash:request.id===2?'0x'+'2'.repeat(64):{specVersion:7,specName:'citizenchain'};
-   return Response.json({jsonrpc:'2.0',id:request.id,result});
+ test('WASM自动化只从公民服务端固定只读入口读取目标身份',async()=>{
+  const result=await readRuntimeBuildTarget({fetchImpl:async(url,options)=>{
+   assert.equal(url,RUNTIME_TARGET_URL);assert.equal(options.method,'GET');assert.equal(options.redirect,'manual');assert.equal(options.credentials,'omit');
+   assert.deepEqual(options.headers,{accept:'application/json'});assert.equal(options.body,undefined);
+   return Response.json({genesis_hash:hash,finalized_head:'0x'+'2'.repeat(64),spec_version:7,spec_name:'citizenchain'});
   }});
-  assert.deepEqual(result,{specVersion:7,genesisHash:'0x'+'2'.repeat(64),chainName:'citizenchain',finalizedHead:hash});
-  assert.deepEqual(requests.map(x=>[x.method,x.params]),[['chain_getFinalizedHead',[]],['chain_getBlockHash',[0]],['state_getRuntimeVersion',[hash]]]);
+  assert.deepEqual(result,{specVersion:7,genesisHash:hash,chainName:'citizenchain',finalizedHead:'0x'+'2'.repeat(64)});
  });
- test('WASM自动化拒绝错误链入口、响应身份和溢出版本',async()=>{
-  await assert.rejects(readRuntimeBuildTarget({...config,chainUrl:'https://example.com'}),/受保护/);
-  await assert.rejects(readRuntimeBuildTarget(config,{fetchImpl:async()=>Response.json({jsonrpc:'2.0',id:99,result:hash})}),/无效响应/);
-  await assert.rejects(readRuntimeBuildTarget(config,{fetchImpl:async(_,options)=>{
-   const {id}=JSON.parse(options.body);return Response.json({jsonrpc:'2.0',id,result:id<3?hash:{specVersion:2**32}});
-  }}),/spec_version/);
+ test('WASM自动化拒绝错误目标字段、版本、媒体类型、重定向和上游失败',async()=>{
+  const valid={genesis_hash:hash,finalized_head:'0x'+'2'.repeat(64),spec_version:7,spec_name:'citizenchain'};
+  for(const payload of [{...valid,extra:true},{...valid,spec_version:2**32},{...valid,spec_name:'other'},{...valid,genesis_hash:'0x0'}])
+   await assert.rejects(readRuntimeBuildTarget({fetchImpl:async()=>Response.json(payload)}),/响应字段无效|响应身份无效/);
+  await assert.rejects(readRuntimeBuildTarget({fetchImpl:async()=>new Response('{}',{headers:{'content-type':'text/plain'}})}),/媒体类型/);
+  await assert.rejects(readRuntimeBuildTarget({fetchImpl:async()=>new Response(null,{status:302,headers:{location:'https://other.example/'}})}),/重定向/);
+  await assert.rejects(readRuntimeBuildTarget({fetchImpl:async()=>new Response('{}',{status:503})}),/请求失败/);
+  await assert.rejects(readRuntimeBuildTarget({fetchImpl:async()=>{throw Error('synthetic connection');}}),/读取失败/);
  });
   test('协议版本由链上及本仓成功事实生成，溢出失败',()=>{
     assert.equal(runtimeVersion('0',[],0),'1');assert.equal(runtimeVersion('0',['3'],2),'3');
