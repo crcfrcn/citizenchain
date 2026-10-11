@@ -28,7 +28,7 @@ const commands = Object.freeze({
   },
   "5": {
     "shell": "bash",
-    "source": "choco install llvm -y\necho \"LIBCLANG_PATH=C:\\Program Files\\LLVM\\lib\" >> \"$env:GITHUB_ENV\""
+    "source": "choco install llvm -y\necho \"LIBCLANG_PATH=C:\\Program Files\\LLVM\\lib\" >> \"$GITHUB_ENV\""
   },
   "6": {
     "shell": "bash",
@@ -419,8 +419,21 @@ if(testing){
     assert.match(commands[String(firstProjectStep)].source,/npm --prefix node\/frontend run build/);
     assert.match(commands['4'].source,/protoc "\$platform"\)/);
     const workflow=readFileSync(join(root,workflowPath),'utf8');
-    assert.ok(workflow.includes('    - name: 清理本轮节点工程视图\n      if: always()\n      run: node scripts/build.mjs finish '+owner.platform+' "$GITHUB_RUN_ID"'));
+    assert.ok(workflow.includes('    - name: 清理本轮节点工程视图\n      if: always()\n      shell: bash\n      run: node scripts/build.mjs finish '+owner.platform+' "$GITHUB_RUN_ID"'));
   });
+  test('Windows依照Bash语法写入GitHub环境文件',()=>{
+    assert.ok(commands['5'].source.includes('>> "$GITHUB_ENV"'));
+    assert.equal(commands['5'].source.includes('$env:GITHUB_ENV'),false);
+  });
+  test('Windows LLVM准备实际写入Bash环境文件且缺少目标时失败',()=>withFixedWorkSync('test',work=>{
+    const file=join(work,'github-env');
+    const script='set -euo pipefail\nchoco(){ test "$*" = "install llvm -y"; }\n'+commands['5'].source;
+    const run=environment=>spawnSync('bash',['-c',script],{cwd:work,env:{PATH:process.env.PATH,...environment},encoding:'utf8'});
+    const success=run({GITHUB_ENV:file});assert.equal(success.status,0,success.stderr);
+    assert.ok(readFileSync(file,'utf8').includes('LIBCLANG_PATH=C:\\Program Files\\LLVM\\lib'));
+    const missing=run({});assert.notEqual(missing.status,0);
+    assert.match(missing.stderr,/GITHUB_ENV/);
+  }));
   test('Windows安装包按版本命名且签名读取原绝对路径',()=>{
     assert.ok(commands['10'].source.includes("$versionedName = $installerName -replace '\\.exe$', ('-v' + $env:SOFTWARE_VERSION + '.exe')"));
     assert.ok(commands['11'].source.includes('sign "$updater"'));

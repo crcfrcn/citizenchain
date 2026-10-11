@@ -11,7 +11,6 @@
   "node_tests": [
     "node/frontend/metamask.mjs",
     "scripts/build.mjs",
-    "node/frontend/docs.mjs",
     "icons/generate.mjs",
     ".github/workflows/release-macos.mjs",
     ".github/workflows/release-windows.mjs",
@@ -2927,12 +2926,6 @@
     {
       "function": "icons/generate",
       "path": "icons/generate.mjs",
-      "runner": "node",
-      "target": "."
-    },
-    {
-      "function": "node/frontend/docs",
-      "path": "node/frontend/docs.mjs",
       "runner": "node",
       "target": "."
     },

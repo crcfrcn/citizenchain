@@ -1,9 +1,12 @@
 // 其他 tab 内容类型，对齐后端 src/other/other_tabs。
 
-type OtherDocumentTabItem = {
+export type LocalDoc = {
   key: 'whitepaper';
-  title: string;
-  contentType: 'document';
+  markdown: string;
+};
+
+export type WhitepaperDocument = {
+  markdown: string;
 };
 
 type OtherRuntimeConstitutionTabItem = {
@@ -19,7 +22,7 @@ type OtherTextTabItem = {
   text: string;
 };
 
-export type OtherTabItem = OtherDocumentTabItem | OtherRuntimeConstitutionTabItem | OtherTextTabItem;
+export type OtherTabItem = OtherRuntimeConstitutionTabItem | OtherTextTabItem;
 
 export type RuntimeConstitutionDocument = {
   html: string;

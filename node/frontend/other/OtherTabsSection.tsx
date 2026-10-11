@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { sanitizeError } from '../tauri';
-import { LOCAL_DOCS } from '../local-docs.generated';
 import { otherTabsApi as api } from './api';
 import { LocalDocViewer } from './LocalDocViewer';
 import { RuntimeConstitutionViewer } from './RuntimeConstitutionViewer';
-import type { OtherTabsPayload } from './types';
+import type { LocalDoc, OtherTabsPayload } from './types';
 
 type Props = {
   activeKey: 'whitepaper' | 'party' | 'constitution';
@@ -13,10 +12,27 @@ type Props = {
 export function OtherTabsSection({ activeKey }: Props) {
   const [payload, setPayload] = useState<OtherTabsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const whitepaperDoc = activeKey === 'whitepaper' ? LOCAL_DOCS.find((doc) => doc.key === 'whitepaper') : null;
+  const [whitepaperDoc, setWhitepaperDoc] = useState<LocalDoc | null>(null);
+  const [whitepaperError, setWhitepaperError] = useState<string | null>(null);
+  const [whitepaperAttempt, setWhitepaperAttempt] = useState(0);
 
   useEffect(() => {
-    if (whitepaperDoc) {
+    if (activeKey !== 'whitepaper') return undefined;
+    let cancelled = false;
+    setWhitepaperDoc(null);
+    setWhitepaperError(null);
+    void api.getWhitepaperDocument()
+      .then((data) => {
+        if (!cancelled) setWhitepaperDoc({ key: 'whitepaper', markdown: data.markdown });
+      })
+      .catch((e) => {
+        if (!cancelled) setWhitepaperError(sanitizeError(e));
+      });
+    return () => { cancelled = true; };
+  }, [activeKey, whitepaperAttempt]);
+
+  useEffect(() => {
+    if (activeKey === 'whitepaper') {
       return undefined;
     }
 
@@ -35,13 +51,22 @@ export function OtherTabsSection({ activeKey }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [whitepaperDoc]);
+  }, [activeKey]);
 
-  // 白皮书是本地内置文档，不能被 Tauri/RPC 状态阻塞；公民宪法仍由 runtime API 读取。
-  if (whitepaperDoc) {
+  // 白皮书正文来自官网；目录和正文仍使用节点原有本地渲染器。
+  if (activeKey === 'whitepaper') {
     return (
-      <section className="section other-tab-section" key={whitepaperDoc.key}>
-        <LocalDocViewer doc={whitepaperDoc} />
+      <section className="section other-tab-section" key="whitepaper">
+        {whitepaperError ? (
+          <div className="runtime-constitution-message">
+            <pre className="error">{whitepaperError}</pre>
+            <button type="button" onClick={() => setWhitepaperAttempt((value) => value + 1)}>重试</button>
+          </div>
+        ) : whitepaperDoc ? (
+          <LocalDocViewer doc={whitepaperDoc} />
+        ) : (
+          <p>白皮书加载中...</p>
+        )}
       </section>
     );
   }
@@ -67,21 +92,9 @@ export function OtherTabsSection({ activeKey }: Props) {
     );
   }
 
-  // 本地文档以当前 tab 为绑定源，避免字段缺失时误回退到白皮书。
-  const localDoc =
-    tab.contentType === 'document'
-      ? LOCAL_DOCS.find((doc) => doc.key === tab.key)
-      : null;
-
   return (
     <section className="section other-tab-section" key={tab.key}>
-      {tab.contentType === 'document' ? (
-        localDoc ? (
-          <LocalDocViewer doc={localDoc} />
-        ) : (
-          <pre className="error">文档配置错误：{activeKey}</pre>
-        )
-      ) : tab.contentType === 'runtimeConstitution' ? (
+      {tab.contentType === 'runtimeConstitution' ? (
         <RuntimeConstitutionViewer />
       ) : (
         <p>{tab.text}</p>

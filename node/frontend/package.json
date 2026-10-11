@@ -7,12 +7,9 @@
     "node": "25.2.1"
   },
   "scripts": {
-    "generate:docs": "node docs.mjs",
-    "predev": "npm run generate:docs",
     "dev": "vite",
-    "prebuild": "npm run generate:docs",
     "build": "tsc --noEmit && vite build",
-    "test:local-doc": "node -e \"const fs=require('node:fs');const ts=require('typescript');const Module=require('node:module');const path=require('node:path');const file=path.resolve('other-tabs/LocalDocViewer.test.tsx');const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;const testModule=new Module(file,module);testModule.filename=file;testModule.paths=Module._nodeModulePaths(path.dirname(file));testModule._compile(code,file);\"",
+    "test:local-doc": "node -e \"const fs=require('node:fs');const ts=require('typescript');const Module=require('node:module');const path=require('node:path');const file=path.resolve('other/LocalDocViewer.test.tsx');const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;const testModule=new Module(file,module);testModule.filename=file;testModule.paths=Module._nodeModulePaths(path.dirname(file));testModule._compile(code,file);\"",
     "preview": "vite preview"
   },
   "dependencies": {

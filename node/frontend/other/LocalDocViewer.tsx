@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
-import type { LocalDoc } from '../local-docs.generated';
+import type { LocalDoc } from './types';
 
 type TocItem = {
   id: string;

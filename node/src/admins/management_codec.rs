@@ -89,7 +89,7 @@ mod tests {
     fn fixture_case(name: &str) -> Vec<u8> {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../citizenchain/runtime/primitives/tests/fixtures/role_permission.json"
+            "/../runtime/primitives/tests/fixtures/role_permission.json"
         )))
         .expect("岗位权限 fixture 必须是合法 JSON");
         let encoded = fixture["cases"]

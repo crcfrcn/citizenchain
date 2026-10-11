@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
 
-const sourcePath = `${process.cwd()}/other-tabs/LocalDocViewer.tsx`;
+const sourcePath = `${process.cwd()}/other/LocalDocViewer.tsx`;
 const sourceText = readFileSync(sourcePath, 'utf8');
 const sourceFile = ts.createSourceFile(
   sourcePath,

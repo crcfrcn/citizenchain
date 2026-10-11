@@ -2671,7 +2671,7 @@ Node 的每个实际平台×CI或Release只有下列一个本仓顶层 Workflow�
 Runtime 与上游/派生目录冻结。自有 `crates/signing/lib.rs` 由 Cargo `[lib] path` 显式登记；`blockchain-harness/src/harness.rs`、`qr-protocol/src/export_registry.rs` 由原名称的 `[[bin]]` 登记。Node 二维码生成目标为 `node/frontend/protocol/qrBodies.g.ts`；P2P 坏块测试位于 `node/src/core/p2p_bad_block_tests.rs`，仍由 service 原测试模块引入。移除空的 postgres `.gitkeep`，不清理实际数据库。
 
 ### 完整链根与白皮书来源
-节点、Runtime、OnChina和scanner保持同一完整CitizenChain仓。节点run/clean-run/prepare-toolchain不再使用旧聚合父根。内置白皮书仍由官网src/whitepaper.md及原图片生成；产品dependencies.json只声明crcfrcn/citizenweb的main，准备器每轮先捕获main真实SHA，再取得该不可变提交并验真detached、origin及干净状态。生成器退出时清理自己创建的输入目录；正文、图片嵌入、摘要和节点功能合同保持不变。首轮门禁须在官网真实main推送后执行相关链编译。
+节点、Runtime、OnChina和scanner保持同一完整CitizenChain仓。节点run/clean-run/prepare-toolchain不再使用旧聚合父根。白皮书唯一正文真源仍由官网`src/whitepaper.md`持有；官网构建把正文和两张图片生成静态`/whitepaper/content.json`。节点打开白皮书时固定GET`https://www.crcfrcn.com/whitepaper/content.json`，由已有`LocalDocViewer`继续渲染原有目录和正文布局。节点构建、Release和编辑器不再克隆官网仓库或生成本地白皮书模块。官网内容可独立更新，节点离线或官网静态接口不可用时显示错误与重试。
 ## 完整产品组织与执行合同
 
 所有者：`citizenchain`，正式源码根 `<本仓根>`；本说明属于该完整产品内的Node组件资料。组件不会拆成独立仓库或目录产品。所有执行身份统一为 `产品.平台.流程`；工作目录合同由本文“本机固定执行目录”唯一承载，不建立平台工作目录层。
@@ -2701,7 +2701,7 @@ Runtime 与上游/派生目录冻结。自有 `crates/signing/lib.rs` 由 Cargo 
 公开仓门禁保留 Apache、MIT、Unlicense 三种准确官方行注释引用；字符串、额外路径及其它网址继续拒绝。Runtime 未修改。
 
 
-公民链门禁准确辨认既有 rustls API、GRANDPA 数据库键、官方 protoc 35.0 来源、QR 守卫测试名和 WASM 旧标签拒绝夹具；未知版本继续拒绝。本机白皮书生成文件仅 JSON Markdown 正文属于文献，其它代码及网络安全检查完整执行。
+公民链门禁准确辨认既有 rustls API、GRANDPA 数据库键、官方 protoc 35.0 来源、QR 守卫测试名和 WASM 旧标签拒绝夹具；未知版本继续拒绝。白皮书正文仅由官网静态接口交付，节点构建不生成白皮书文件；其它代码及网络安全检查完整执行。
 
 八个原准确字面量以原顺序通过 Node stdin 批量去除，减少长生成正文的 Bash 复制成本；新增超过 320 KiB 重复标识的真实门禁性能回归，未知版本和网络安全检查不变。
 
@@ -2753,7 +2753,7 @@ SDK维护源码唯一入口为`/Users/rhett/polkadot-sdk`，远端为`crcfrcn/po
 
 ## 2026-10-06 产品自主资源阶段（第2步）
 
-本仓`scripts/build.mjs`拥有工具准确来源/版本/配方、递归锁解析、缺失获取、验真、复用和本轮依赖准备；`scripts/build.mjs resources <platform> --work <绝对外部工作根>`调用同一实现，独立入口为`resources.mjs <platform> --work <工作根> [--offline]`。前者从stdin读取公开身份回执；后者允许空请求。最小宿主必须使用本仓声明的官方Node25.2.1绝对入口，本机配方限定macOS ARM；资源阶段使用本仓声明的Node入口，不能从PATH取同名程序。工作根预先存在、位于源码外且不经过链接。
+本仓`scripts/build.mjs`拥有工具准确来源/版本/配方、递归锁解析、缺失获取、验真、复用和本轮依赖准备；`scripts/build.mjs resources <platform> --work <本产品target/build/平台绝对工作根> [--offline]`直接调用本仓资源实现，stdin允许空的公开请求，错误身份在获取前失败。最小宿主必须使用本仓声明的官方Node25.2.1绝对入口，本机配方限定macOS ARM；资源阶段使用本仓声明的Node入口，不能从PATH取同名程序。工作根预先存在、位于本产品target且不经过链接。
 
 现存`PRODUCT_TOOL_ROOT`与`PRODUCT_DEPENDENCY_ROOT`是工具和依赖的只读路径输入，本身不能完成控制台缺件准备与交付。当前供给职责按本文“工具与依赖的声明和供给职责”执行：经控制台运行由控制台准备、保存与供给，独立运行由产品自行处理；源码外`~/.local/share/product-resources`仅描述现存独立资源存储，本轮可写状态仅在work。GNU Bash/grep/sed纳入自身需求；发行件旧Shell仅用于声明中的首次GNU构建，不进入正式PATH。下载/源码工具编译不持全局锁，最终不可变对象提交使用短锁，取消传递到工具进程组。错误摘要、损坏、未锁来源、路径越界和显式离线缺失失败并保留可疑原件。
 
@@ -2877,7 +2877,7 @@ Start只接受当前产品声明所对应平台target内的真实App目录；拒
 
 Runtime、node/vendor与node/libp2p保持原件。其它源码最深三级，第三层只有文件，每个目录至少两个真实直接子项；Rust公开包名、逻辑模块与业务接口保持，只以编译器文件定位调整物理结构。共享库归crates/harness、signing、protocol、scanner；QR金标直接归protocol/fixtures。节点与OnChina业务模块提升到各自src和frontend直属，目录使用完整单词；导入、Cargo本地路径及npm锁定本地来源同步。
 
-根icons是本产品唯一持久静态视觉资源目录。Logo与公民币母版字节保持，重复PNG仅留一份，ICO/ICNS格式保留；六处扫码按钮共用原SVG几何并保持currentColor和尺寸，宪法背景从唯一PNG编码进离线HTML。官网白皮书图片按本轮Git输入读取，只进入该任务工程的icons视图并由Vite导入打包；生成模块不进入源码。
+根icons是本产品唯一持久静态视觉资源目录。Logo与公民币母版字节保持，重复PNG仅留一份，ICO/ICNS格式保留；六处扫码按钮共用原SVG几何并保持currentColor和尺寸，宪法背景从唯一PNG编码进离线HTML。官网白皮书图片由官网静态正文接口内嵌，节点不再复制图片或正文进入安装包。
 
 scripts仅保留build.mjs与publish.mjs；GitHub自动化归.github/workflows，门禁归.github/tatagate，文档、图标、维护和Runtime数据工具各归所属功能目录。内嵌测试位于对应正式实现之后，仅直接node --test时注册；导入无执行副作用。原Job阶段、独立产品平台流程身份、候选校验、缓存隔离与失败条件保持；同一平台同一流程共享其本文件实现，阶段号仍由既有Workflow固定。
 
@@ -2911,7 +2911,9 @@ scripts/build.mjs是本产品唯一完整本机编译实现。独立执行由本
 
 四个节点Release目标的`node-version`动作由各自同名`.mjs`经`action node-version apply`和`action node-version lock`调用；内嵌版本脚本只接受`apply`或`lock`作为首个参数。目标各自验证并同步本次软件版本，调用方不得重复传入动作名称。
 
-GitHub Release的官方protoc入口只接受平台名称，按本仓固定目录准备并逐次验真，不再接收调用方拼接的工作路径。四个平台完成软件版本和锁文件同步后，从前端构建步骤起使用`scripts/build.mjs`的本产品工程视图；在`node`目录启动的Tauri步骤保持该相对工作目录，工作环境显式交付白皮书生成所需的当前工程和固定临时目录。`node/frontend/docs.mjs`负责白皮书正文、图片及类型模块生成，不再重复校验前端工作根；产品临时目录仍由现有物化入口管理。各平台Workflow在产物上传后以`always()`调用本产品固定目录收尾，失败时也清理本轮工程视图；收尾不修改正式源码或产物。
+GitHub Release的官方protoc入口只接受平台名称，按本仓固定目录准备并逐次验真，不再接收调用方拼接的工作路径。四个平台完成软件版本和锁文件同步后，从前端构建步骤起使用`scripts/build.mjs`的本产品工程视图；在`node`目录启动的Tauri步骤保持该相对工作目录。各平台Workflow在产物上传后以`always()`调用本产品固定目录收尾，失败时也清理本轮工程视图；收尾不修改正式源码或产物。白皮书运行时才经官网HTTPS读取，不是节点Release构建输入。
+
+Windows LLVM准备步骤用Bash的`GITHUB_ENV`语法交付库路径；Windows工程视图收尾也显式使用Bash解释`GITHUB_RUN_ID`，在视图尚未创建的失败路径安全结束。
 
 Windows Release在PowerShell组包步骤把固定安装包名称的`.exe`结尾替换为本轮软件版本后缀，再从Cargo输出复制安装包；下一步使用该包在`RUNNER_TEMP`下的绝对路径直接调用Tauri签名器，不把绝对路径接到GitHub检出根。
 
@@ -2947,7 +2949,7 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 
 ### 编译启动、GitHub自动化与独立分发准备
 
-`scripts/` 只保留 `build.mjs` 和 `publish.mjs`。`build.mjs describe` 只读交付本仓唯一编译声明；同文件独占编译、启动、资源需求与固定工作根，控制台只调用公开入口。文档生成位于 `node/frontend/docs.mjs`，图标派生位于 `icons/generate.mjs` 且只处理本仓图标；行政区及账户派生脚本归 `runtime/primitives/`。节点与OnChina维护脚本及外部 PostgreSQL 调优样例已删除。旧权重benchmark脚本与模板已删除，已有权重实现保持。内嵌旧链规脚本及创世检查已删除，不再由Build直接修改邻仓资源；重新生成冻结链规须另行确定所属流程。
+`scripts/` 只保留 `build.mjs` 和 `publish.mjs`。`build.mjs describe` 只读交付本仓唯一编译声明；同文件独占编译、启动、资源需求与固定工作根，控制台只调用公开入口。白皮书正文由官网静态接口运行时提供，不再有构建期文档生成脚本；图标派生位于 `icons/generate.mjs` 且只处理本仓图标；行政区及账户派生脚本归 `runtime/primitives/`。节点与OnChina维护脚本及外部 PostgreSQL 调优样例已删除。旧权重benchmark脚本与模板已删除，已有权重实现保持。内嵌旧链规脚本及创世检查已删除，不再由Build直接修改邻仓资源；重新生成冻结链规须另行确定所属流程。
 
 五组 `release-<平台>.yml` 和同名mjs仍由 `.github/workflows/` 独立拥有，继续产生版本、构建并逐件验收资产、创建GitHub Release和执行本目标历史清理。自动化不调用 `scripts/publish.mjs`。`publish.mjs inspect <平台> <准确Tag>` 是独立只读入口：通过公开GitHub Release、Tag和成功Run读取已完成产物的身份、来源、大小及公开摘要，输出待分发清单；它不派发或重跑自动化，也不修改Release。商店等分发目标未声明时，该入口不执行任何外部渠道上传。
 
@@ -2957,5 +2959,7 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 本仓保留自己的.github/tatagate门禁实现和合同。main的push只触发本仓.github/workflows/tatagate.yml，gate与cleanup在这一个文件内执行；检出准确GITHUB_SHA并验证本仓GitHub事件、main引用和HTTPS origin，门禁继续执行本仓现有检查。gate成功时删除本仓该门禁旧成功Run；gate失败时删除旧失败Run；另一类最近记录和活动Run保留。清理前重新验真Run、Attempt和结论，删除后回查；清理错误如实记录并由后续运行补清，不影响gate检查结论。塔塔控制台通过塔塔鹿鹿的一次生物识别保存、推送本仓，并按准确SHA与Run ID追踪独立门禁任务；门禁结果不影响已确认的推送。
 
 本仓 GitHub 门禁接受 actions/checkout 的准确 HTTPS origin（同一仓库地址有或没有 `.git` 后缀），仓库、事件、提交和工作流身份仍逐项校验。
+
+节点岗位权限测试的 JSON 夹具由 `node` 包相对本仓 `runtime/primitives/tests/fixtures/role_permission.json` 读取；该路径在正式源码和产品 `target/build` 工程视图中一致。此变更仅涉及 `cfg(test)` 的夹具定位，不改变节点或 Runtime 的生产逻辑。
 
 门禁清理接口只对 URL 的路径部分拒绝越界，允许 created 查询中的时间范围分隔符；同文件回归直接执行正式 HTTP 参数校验，覆盖时间范围和越界拒绝。
