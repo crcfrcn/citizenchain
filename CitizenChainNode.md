@@ -2915,6 +2915,16 @@ scripts/build.mjs是本产品唯一完整本机编译实现。独立执行由本
 
 本机编译现场由本产品领取和收尾。调度任务编号随本产品领取记录保存；本轮结果消费后，只允许匹配该编号的收尾请求。产品确认自身进程及资源供给后代全部退出后才清场；异常、编号不符或退出未确认时保留现场。控制台只持有调度锁、调用本产品入口并供给资源，不实现产品清理。
 
+本机节点编译目标macOS、Windows、LinuxARM、LinuxAMD都由本仓资源声明交付官方protoc35.0；入口逐次核对`libprotoc 35.0`后才启动Cargo，缺件或错版直接失败。WASM目标单独按其现有源码构建合同执行。Apple工具由所选Xcode给出；包内符号链接的入口和最终普通文件均须留在同一Xcode内，运行时保留`clang++`等原工具名称。控制台调度的资源通道由同一`scripts/build.mjs`接收，不另建产品编译实现。
+
+本机节点Cargo子进程的`LIBCLANG_PATH`和`DYLD_LIBRARY_PATH`仅从本轮已交付、已校验的Xcode Clang入口推导到同一工具链`usr/lib`；该目录和`libclang.dylib`均须为规范真实路径，库文件须为独占普通文件。两个变量只交给当前节点编译子进程，不作为工具来源、全局环境配置或生产节点运行参数。
+
+当前锁定Rust1.97.1在macOS27加载被裁剪的宿主过程宏时可能生成dyld拒绝的LINKEDIT字符串池；本机节点Build只对Cargo的release构建脚本和过程宏设置`CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none`。节点自身仍使用原有release优化、源码和锁；此设置不进入WASM构建、远端Workflow或生产节点运行环境。
+
+macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina/frontend`三份原始npm锁，再逐个离线安装其工程副本；内嵌Shell只调用资源回执交付的绝对`PYTHON`，复制函数在Bash严格变量模式下先赋参数再计算目标路径。Tauri封装所需`xattr`固定为已验真的`/usr/bin/xattr`，由本轮Apple工具投影交付到受控PATH；App二进制构建、封装、描述文件与签名回读均属于同一完整Build结果。
+
+独立Build在可选依赖供给缺少原锁固定Git提交且允许联网时，只对该提交的GitHub HTTPS `fetch`设置30分钟上限；本地bundle导入、身份复验及其它Git命令仍为10分钟。取得后必须核对`FETCH_HEAD`为原锁提交，再物化本任务bundle；离线缺件继续直接失败。
+
 软件版本计算使用本目标GitHub运行序号作为单调下界，并与本仓已成功版本比较；失败或历史清理不使版本返回源码初值。版本只在GitHub本次运行内产生，同一Run重试保持运行序号，Tag另绑定准确attempt。
 
 
@@ -2934,3 +2944,8 @@ scripts/build.mjs是本产品唯一完整本机编译实现。独立执行由本
 `scripts/` 只保留 `build.mjs` 和 `publish.mjs`。`build.mjs describe` 只读交付本仓唯一编译声明；同文件独占编译、启动、资源需求与固定工作根，控制台只调用公开入口。文档生成位于 `node/frontend/docs.mjs`，图标派生位于 `icons/generate.mjs` 且只处理本仓图标；行政区及账户派生脚本归 `runtime/primitives/`。节点与OnChina维护脚本及外部 PostgreSQL 调优样例已删除。旧权重benchmark脚本与模板已删除，已有权重实现保持。内嵌旧链规脚本及创世检查已删除，不再由Build直接修改邻仓资源；重新生成冻结链规须另行确定所属流程。
 
 五组 `release-<平台>.yml` 和同名mjs仍由 `.github/workflows/` 独立拥有，继续产生版本、构建并逐件验收资产、创建GitHub Release和执行本目标历史清理。自动化不调用 `scripts/publish.mjs`。`publish.mjs inspect <平台> <准确Tag>` 是独立只读入口：通过公开GitHub Release、Tag和成功Run读取已完成产物的身份、来源、大小及公开摘要，输出待分发清单；它不派发或重跑自动化，也不修改Release。商店等分发目标未声明时，该入口不执行任何外部渠道上传。
+
+
+## GitHub塔塔门禁与同类记录清理
+
+本仓保留自己的.github/tatagate门禁实现和合同。main的push只触发本仓.github/workflows/tatagate.yml，gate与cleanup在这一个文件内执行；检出准确GITHUB_SHA并验证本仓GitHub事件、main引用和HTTPS origin，门禁继续执行本仓现有检查。gate成功时删除本仓该门禁旧成功Run；gate失败时删除旧失败Run；另一类最近记录和活动Run保留。清理前重新验真Run、Attempt和结论，删除后回查；清理错误如实记录并由后续运行补清，不影响gate检查结论。塔塔控制台通过塔塔鹿鹿的一次生物识别保存、推送本仓，并按准确SHA与Run ID追踪独立门禁任务；门禁结果不影响已确认的推送。
