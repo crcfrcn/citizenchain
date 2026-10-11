@@ -234,6 +234,17 @@ export function runtimeVersion(seed, versions, chainVersion) {
   return String(version);
 }
 
+// 创世身份只读取本仓Runtime唯一冻结常量，不再维护GitHub配置副本。
+function frozenGenesisHash(source=readFileSync(join(root,'runtime/primitives/src/genesis.rs'),'utf8')) {
+  const matches=[...source.matchAll(/\bpub const GENESIS_HASH:\s*\[u8;\s*32\]\s*=\s*hex_literal::hex!\("([0-9a-f]{64})"\);/gu)];
+  if(matches.length!==1||/^0{64}$/u.test(matches[0][1]))fail('Runtime冻结创世哈希真源无效');
+  return '0x'+matches[0][1];
+}
+function verifiedGenesisHash(actual,source) {
+  if(actual!==frozenGenesisHash(source))fail('本仓正式链创世身份不一致');
+  return actual;
+}
+
 function seedVersion() {
   const source = owner.version_source;
   if (source.kind === 'sequence') return '0.0.0';
@@ -294,7 +305,7 @@ export async function prepare() {
     if (run?.status === 'completed' && run.conclusion === 'success' && run.path === workflowPath) versions.push(notes.version);
   }
   const chain=await readRuntimeBuildTarget({chainUrl:process.env.CHAIN_URL,accessClientId:process.env.CHAIN_ID,accessClientSecret:process.env.CHAIN_SECRET});
-  if(chain.genesisHash!==process.env.CHAIN_GENESIS_HASH)fail('本仓正式链创世身份不一致');
+  verifiedGenesisHash(chain.genesisHash);
   const version = runtimeVersion(seedVersion(), versions, chain.specVersion);
   output('chain_spec_version',chain.specVersion);output('genesis_hash',chain.genesisHash);output('finalized_head',chain.finalizedHead);
   const tag = `${prefix}${version}-r${identity.run_id}-a${identity.run_attempt}`;
@@ -569,6 +580,15 @@ if(testing){
   const {default:assert}=await import('node:assert/strict');const {default:test}=await import('node:test');
  const hash = '0x' + '1'.repeat(64);
  const config = {chainUrl:'https://chain.crcfrcn.com',accessClientId:'fixture',accessClientSecret:'fixture'};
+ test('WASM创世预期只读取Runtime唯一冻结常量',()=>{
+  const declaration='pub const GENESIS_HASH: [u8; 32] = hex_literal::hex!("'+'1'.repeat(64)+'");';
+  assert.equal(frozenGenesisHash(declaration),hash);
+  assert.equal(verifiedGenesisHash(hash,declaration),hash);
+  assert.throws(()=>verifiedGenesisHash('0x'+'2'.repeat(64),declaration),/本仓正式链创世身份不一致/);
+  assert.match(frozenGenesisHash(),/^0x[0-9a-f]{64}$/u);
+  for(const source of ['',declaration+'\n'+declaration,'pub const GENESIS_HASH: [u8; 32] = hex_literal::hex!("'+'0'.repeat(64)+'");'])
+    assert.throws(()=>frozenGenesisHash(source),/Runtime冻结创世哈希真源无效/);
+ });
  test('WASM自动化读取同一finalized锚点的版本和真实创世身份',async()=>{
   const requests=[];
   const result=await readRuntimeBuildTarget(config,{fetchImpl:async(url,options)=>{

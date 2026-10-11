@@ -3313,7 +3313,7 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 
 ## WASM自动化与专属开发升级
 
-WASM只由本仓.github/workflows/release-wasm.yml和同名mjs执行。GitHub读取本仓CHAIN_URL、CHAIN_GENESIS_HASH变量，以及CHAIN_ID、CHAIN_SECRET机密，按固定只读RPC方法取得同一finalized锚点的版本与创世身份；缺件、错链或请求失败立即失败，不重试。生成的spec_version取本仓源码版本、已成功产物版本和链上版本加一的最大值，写入本次临时构建源码，不回写main。链上未升级时可复用同一协议版本，正式tag包含本次Run和attempt，准确指向本仓源码提交。
+WASM只由本仓.github/workflows/release-wasm.yml和同名mjs执行。GitHub准备阶段读取本仓Actions Secrets中的受保护链入口`CHAIN_URL`及Access服务身份`CHAIN_ID`、`CHAIN_SECRET`，按固定只读RPC方法取得同一finalized锚点的版本与真实块0哈希；预期创世哈希只从`runtime/primitives/src/genesis.rs`唯一冻结常量读取，不另设GitHub变量。缺件、错链或请求失败立即失败，不重试。生成的spec_version取本仓源码版本、已成功产物版本和链上版本加一的最大值，写入本次临时构建源码，不回写main。链上未升级时可复用同一协议版本，正式tag包含本次Run和attempt，准确指向本仓源码提交。
 
 实际编译、Clippy、完整WASM集合与节点候选Runtime政策探针均在CitizenChain内执行；三件WASM逐件上传和回读，来源正文保留链目标证明。本仓负责自己的正式Release及同目标同结果历史清理。控制台只调用、跟踪和展示此自动化；其专属开发升级从成功wasm产物消费三件已证明资产，再执行冷签和提交，不生成自动化版本，也不替本仓读取链来阻止派发。配置原件归所属GitHub仓，本次源码修改没有向GitHub写入机密或部署配置。
 

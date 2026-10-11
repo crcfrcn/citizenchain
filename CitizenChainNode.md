@@ -1117,9 +1117,9 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 - 远程管理 Tunnel `nrcgch-rpc` 健康，运行 1 个 connector。
 - 唯一链入口为 `chain.crcfrcn.com` 的 Access 保护路径，Tunnel 转发到 `127.0.0.1:18080` 固定方法网关，网关再连接本机 `127.0.0.1:9944`。
 - Access 使用 `chain` 自托管应用、`CitizenChain` Service Auth 策略和唯一链服务令牌；Worker 的 `CHAIN_URL`、`CHAIN_ID`、`CHAIN_SECRET` 只保存在远端 Secret。
-- 外部调用方 协议行的「Release」复用本机 Keychain 中同名三项生产配置，经固定方法网关
-  读取 `chain_getFinalizedHead`、`chain_getBlockHash(0)` 和 finalized 头对应的
-  `state_getRuntimeVersion`；不再依赖本机 `NODE_WS`，也不把 P2P `30333` 当作 RPC。
+- 本仓 GitHub WASM Release 经同一 Access 保护路径和固定方法网关，只读
+  `chain_getFinalizedHead`、`chain_getBlockHash(0)` 和 finalized 头对应的
+  `state_getRuntimeVersion`；凭据由本仓 GitHub Actions Secrets 交付，不依赖本机 Keychain、浏览器会话或 P2P `30333`。
 - 不增加 `Everyone`、交互式 `Allow` 或 `Bypass`，也不把令牌、Tunnel token 或完整私有 URL 写入仓库、安装包、日志或命令文档。
 
 服务器部署顺序：
@@ -2913,7 +2913,7 @@ scripts/build.mjs是本产品唯一完整本机编译实现。独立执行由本
 
 四个节点Release目标的`node-version`动作由各自同名`.mjs`经`action node-version apply`和`action node-version lock`调用；内嵌版本脚本只接受`apply`或`lock`作为首个参数。目标各自验证并同步本次软件版本，调用方不得重复传入动作名称。
 
-WASM Release的`prepare`由`.github/workflows/release-wasm.yml`从GitHub Actions Variables交付`CHAIN_URL`、`CHAIN_GENESIS_HASH`，从Secrets交付`CHAIN_ID`、`CHAIN_SECRET`。`.github/workflows/release-wasm.mjs`只通过受保护的`https://chain.crcfrcn.com`地址与Access服务令牌调用`chain_getFinalizedHead`、`chain_getBlockHash(0)`和finalized块的`state_getRuntimeVersion`；回读块0哈希须等于独立配置的创世哈希，版本至少高于当前finalized的`spec_version`。四项配置不写入Git源码、任务卡或日志；缺失时Release准备直接失败。
+WASM Release的`prepare`由`.github/workflows/release-wasm.yml`从GitHub Actions Secrets交付`CHAIN_URL`、`CHAIN_ID`、`CHAIN_SECRET`。`.github/workflows/release-wasm.mjs`只通过受保护的`https://chain.crcfrcn.com`地址与Access服务令牌调用`chain_getFinalizedHead`、`chain_getBlockHash(0)`和finalized块的`state_getRuntimeVersion`；回读块0哈希须等于`runtime/primitives/src/genesis.rs`唯一冻结常量，版本至少高于当前finalized的`spec_version`。完整私有URL和令牌内容不进入Git源码、任务卡或日志；缺失时Release准备直接失败。
 
 所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
 
@@ -2953,3 +2953,5 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 ## GitHub塔塔门禁与同类记录清理
 
 本仓保留自己的.github/tatagate门禁实现和合同。main的push只触发本仓.github/workflows/tatagate.yml，gate与cleanup在这一个文件内执行；检出准确GITHUB_SHA并验证本仓GitHub事件、main引用和HTTPS origin，门禁继续执行本仓现有检查。gate成功时删除本仓该门禁旧成功Run；gate失败时删除旧失败Run；另一类最近记录和活动Run保留。清理前重新验真Run、Attempt和结论，删除后回查；清理错误如实记录并由后续运行补清，不影响gate检查结论。塔塔控制台通过塔塔鹿鹿的一次生物识别保存、推送本仓，并按准确SHA与Run ID追踪独立门禁任务；门禁结果不影响已确认的推送。
+
+本仓 GitHub 门禁接受 actions/checkout 的准确 HTTPS origin（同一仓库地址有或没有 `.git` 后缀），仓库、事件、提交和工作流身份仍逐项校验。

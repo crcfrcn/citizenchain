@@ -37,8 +37,7 @@ jobs:
     - id: version
       env:
         GH_TOKEN: "${{ github.token }}"
-        CHAIN_URL: "${{ vars.CHAIN_URL }}"
-        CHAIN_GENESIS_HASH: "${{ vars.CHAIN_GENESIS_HASH }}"
+        CHAIN_URL: "${{ secrets.CHAIN_URL }}"
         CHAIN_ID: "${{ secrets.CHAIN_ID }}"
         CHAIN_SECRET: "${{ secrets.CHAIN_SECRET }}"
       run: node .github/workflows/release-wasm.mjs prepare
