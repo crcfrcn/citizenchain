@@ -18,7 +18,7 @@ export async function citizenChainRelease(release,platform,readTag){
 import { createHash } from 'node:crypto';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { appendFileSync, copyFileSync, createReadStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const owner = Object.freeze({"product": "citizenchain", "platform": "wasm", "repository": "crcfrcn/citizenchain", "version_source": {"kind": "spec", "path": "runtime/src/lib.rs"}, "required_assets": ["citizenchain.wasm", "citizenchain.compact.wasm", "citizenchain.compact.compressed.wasm"], "asset_locations": ["$CARGO_TARGET_DIR/release/wbuild/citizenchain"], "asset_patterns": ["citizenchain.wasm", "citizenchain.compact.wasm", "citizenchain.compact.compressed.wasm"], "required_patterns": ["citizenchain.wasm", "citizenchain.compact.wasm", "citizenchain.compact.compressed.wasm"]});
@@ -29,7 +29,7 @@ const commands = Object.freeze({
   },
   "2": {
     "shell": "bash",
-    "source": "node \"$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs\" action linux-deps linux-deps\ncase \"$RUNNER_OS/$RUNNER_ARCH\" in\n  Linux/ARM64) platform=linux-arm ;;\n  Linux/X64) platform=linux-amd ;;\n  *) echo 'CitizenChain Runtime protoc宿主不受支持' >&2; exit 1 ;;\nesac\nprotoc_executable=\"$(node .github/workflows/release-wasm.mjs protoc \"$platform\" \"$GITHUB_WORKSPACE/target/build/protoc/$platform\")\"\nprintf 'PROTOC=%s\\n' \"$protoc_executable\" >> \"$GITHUB_ENV\""
+    "source": "node \"$GITHUB_WORKSPACE/.github/workflows/release-wasm.mjs\" action linux-deps linux-deps\ncase \"$RUNNER_OS/$RUNNER_ARCH\" in\n  Linux/ARM64) platform=linux-arm ;;\n  Linux/X64) platform=linux-amd ;;\n  *) echo 'CitizenChain Runtime protoc宿主不受支持' >&2; exit 1 ;;\nesac\nprotoc_executable=\"$(node .github/workflows/release-wasm.mjs protoc \"$platform\")\"\nprintf 'PROTOC=%s\\n' \"$protoc_executable\" >> \"$GITHUB_ENV\""
   },
   "3": {
     "shell": "bash",
@@ -472,11 +472,10 @@ async function productCommand() { return false; }
 
 // 官方protoc原件和安装只归本仓自动化；Build不准备Runner工具。
 const protocLock=Object.freeze({"version":"35.0","source":"https://github.com/protocolbuffers/protobuf/releases/tag/v35.0","archives":{"macos":{"url":"https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-aarch_64.zip","sha256":"45444963204757fd3e2fbe304bc1fdadfb488d8556ff099c4cc06575eab88976","executable":"bin/protoc"},"linux-arm":{"url":"https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-aarch_64.zip","sha256":"36b518ac14d90351cc6598228ed2bbe5afe4e357b1af470b07e0ec1609875de2","executable":"bin/protoc"},"linux-amd":{"url":"https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip","sha256":"a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc","executable":"bin/protoc"},"windows":{"url":"https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-win64.zip","sha256":"d1cede9e308cc3eb072392af1c02ccae4bdd3d2f374ec2970dbd8cdfdaa91363","executable":"bin/protoc.exe"}}});
-export async function prepareProtoc(platform,work){
+export async function prepareProtoc(platform){
  const expected=protocLock.archives[platform];
  if(!expected||!['macos','windows','linux-arm','linux-amd'].includes(platform))fail('自动化protoc平台未登记');
- if(typeof work!=='string'||!isAbsolute(work)||resolve(work)!==work
-  ||!work.startsWith(join(root,'target/build/protoc')+sep)||work!==join(root,'target/build/protoc',platform))fail('自动化protoc工作根越界');
+ const work=join(root,'target/build/protoc',platform);
  const fs=await import('node:fs');
  const candidate=fs.lstatSync(work,{throwIfNoEntry:false});
  if(candidate&&(!candidate.isDirectory()||candidate.isSymbolicLink()))fail('自动化protoc工作根无效');
@@ -512,7 +511,7 @@ const direct=process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.me
 const testing=direct&&Boolean(process.env.NODE_TEST_CONTEXT)&&process.argv.length===2;
 if(direct&&!testing){
   try{const [command,...args]=process.argv.slice(2);
-    if(command==='protoc'){if(args.length!==2)fail('自动化protoc参数无效');process.stdout.write(await prepareProtoc(args[0],args[1]));}else if(command==='prepare')await prepare();else if(command==='job')job();else if(command==='step')step(args[0]);
+    if(command==='protoc'){if(args.length!==1)fail('自动化protoc参数无效');process.stdout.write(await prepareProtoc(args[0]));}else if(command==='prepare')await prepare();else if(command==='job')job();else if(command==='step')step(args[0]);
     else if(command==='action')action(args[0],args.slice(1));else if(command==='collect')await collect(args);
     else if(command==='collect-produced')await collectProduced();else if(command==='publish')await publish(args[0]);else if(command==='finish')await finish();
     else if(!await productCommand(command,args))fail('自动化命令无效');
@@ -521,6 +520,12 @@ if(direct&&!testing){
 
 if(testing){
   const {default:assert}=await import('node:assert/strict');const {default:test}=await import('node:test');
+ test('protoc只接受平台参数，不再接受调用方工作路径',async()=>{
+   await assert.rejects(prepareProtoc('unknown'),/平台未登记/);
+   const result=spawnSync(process.execPath,[fileURLToPath(import.meta.url),'protoc','windows','foreign-work'],{encoding:'utf8'});
+   assert.equal(result.status,1);assert.match(result.stderr,/自动化protoc参数无效/);
+   assert.match(commands['2'].source,/protoc "\$platform"\)/);
+ });
  const hash = '0x' + '1'.repeat(64);
  test('WASM创世预期只读取Runtime唯一冻结常量',()=>{
   const declaration='pub const GENESIS_HASH: [u8; 32] = hex_literal::hex!("'+'1'.repeat(64)+'");';

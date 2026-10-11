@@ -2911,6 +2911,10 @@ scripts/build.mjs是本产品唯一完整本机编译实现。独立执行由本
 
 四个节点Release目标的`node-version`动作由各自同名`.mjs`经`action node-version apply`和`action node-version lock`调用；内嵌版本脚本只接受`apply`或`lock`作为首个参数。目标各自验证并同步本次软件版本，调用方不得重复传入动作名称。
 
+GitHub Release的官方protoc入口只接受平台名称，按本仓固定目录准备并逐次验真，不再接收调用方拼接的工作路径。四个平台完成软件版本和锁文件同步后，从前端构建步骤起使用`scripts/build.mjs`的本产品工程视图；在`node`目录启动的Tauri步骤保持该相对工作目录，工作环境显式交付白皮书生成所需的当前工程和固定临时目录。`node/frontend/docs.mjs`负责白皮书正文、图片及类型模块生成，不再重复校验前端工作根；产品临时目录仍由现有物化入口管理。各平台Workflow在产物上传后以`always()`调用本产品固定目录收尾，失败时也清理本轮工程视图；收尾不修改正式源码或产物。
+
+Windows Release在PowerShell组包步骤把固定安装包名称的`.exe`结尾替换为本轮软件版本后缀，再从Cargo输出复制安装包；下一步使用该包在`RUNNER_TEMP`下的绝对路径直接调用Tauri签名器，不把绝对路径接到GitHub检出根。
+
 WASM Release的`prepare`由`.github/workflows/release-wasm.mjs`固定GET`https://www.crcfrcn.com/api/chain/runtime-target`，只接受公民服务端返回的块0哈希、finalized头、`spec_version`与`spec_name`四个准确字段；回读块0哈希须等于`runtime/primitives/src/genesis.rs`唯一冻结常量，候选版本至少高于当前finalized的`spec_version`。公民服务端自身经Access/Tunnel只读查询正式链，GitHub不配置Cloudflare URL、ID或Secret，不能选择任意RPC方法。读取失败、错链或错误版本直接使Release准备失败。
 
 所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。

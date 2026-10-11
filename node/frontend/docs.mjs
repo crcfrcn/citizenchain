@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync } from 'node:fs';
-import { temporaryRoot,checkWork } from '../../scripts/build.mjs';
+import { temporaryRoot } from '../../scripts/build.mjs';
 import { prepareWhitepaperSource } from '../../scripts/build.mjs';
 export const localDocTypeLines = [
   'export type LocalDocKey = "whitepaper";',
@@ -20,7 +20,6 @@ export const localDocTypeLines = [
   '};',
 ];
 export async function generateDocs({work=process.env.CITIZENCHAIN_WORK_DIR,project=process.env.CITIZENCHAIN_PROJECT_ROOT,sourceDirectory}={}){
- checkWork(work);if(typeof project!=="string"||!path.isAbsolute(project)||path.resolve(project)!==project||!project.startsWith(work+path.sep)||fs.realpathSync(project)!==project)throw Error("文档工程必须属于本轮工作根");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url)); // citizenchain/scripts
 const chainRoot = path.resolve(scriptDir, '../..');                // citizenchain
 const frontendRoot = path.resolve(project, 'node/frontend');  // citizenchain/node/frontend
@@ -122,8 +121,8 @@ console.log(`generated ${path.relative(project, outputPath)}`);
 }
 if(!inlineTestEntry&&directEntry){void generateDocs().catch(e=>{console.error(e.message);process.exitCode=1;});}
 
-// 文档入口在取得官网输入前拒绝源码输出，保护资源归属。
-if(inlineTestEntry){void(async()=>{const {test}=await import('node:test');const {default:assert}=await import('node:assert/strict');const {testRoot}=await import('../../scripts/build.mjs');test('文档输出源根与未声明工作根在获取输入前拒绝',async()=>{await assert.rejects(generateDocs({work:'relative',project:'relative'}),/工作根/);});
+// 文档沿用产品固定临时目录；无额外的前端工作根校验。
+if(inlineTestEntry){void(async()=>{const {test}=await import('node:test');const {default:assert}=await import('node:assert/strict');const {testRoot}=await import('../../scripts/build.mjs');test('未交付产品临时目录时不获取白皮书输入',async()=>{await assert.rejects(generateDocs({work:'relative',project:'relative'}),/固定工作根/);});
 test('文档生成将图片原件放入统一目录，并生成可编译的实际导入，结束清理官网现场',async()=>{
  const {withFixedWork}=await import('../../scripts/build.mjs');await withFixedWork('test',async work=>{const project=path.join(work,'project'),source=path.join(work,'website'),bytes=fs.readFileSync(new URL('../../icons/logo.png',import.meta.url));
  fs.mkdirSync(project);fs.mkdirSync(path.join(source,'src'),{recursive:true});fs.writeFileSync(path.join(source,'src','image.png'),bytes);fs.writeFileSync(path.join(source,'src','whitepaper.md'),'# 正文\n![图标](image.png)\n<img src="image.png">');

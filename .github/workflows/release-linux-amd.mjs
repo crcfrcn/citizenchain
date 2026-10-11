@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {citizenChainRelease} from './release-wasm.mjs';
+import {remoteStep,withFixedWorkSync} from '../../scripts/build.mjs';
 // 本仓本目标的完整自动化只由同名Workflow调用；版本与产物均在GitHub生成。
 import { createHash } from 'node:crypto';
 import { spawnSync, execFileSync } from 'node:child_process';
@@ -27,7 +28,7 @@ const commands = Object.freeze({
   },
   "5": {
     "shell": "bash",
-    "source": "case \"$RUNNER_OS/$RUNNER_ARCH\" in\n  Linux/ARM64) platform=linux-arm ;;\n  Linux/X64) platform=linux-amd ;;\n  *) echo 'CitizenChain Linux protoc宿主不受支持' >&2; exit 1 ;;\nesac\nprotoc_executable=\"$(node .github/workflows/release-wasm.mjs protoc \"$platform\" \"$GITHUB_WORKSPACE/target/build/protoc/$platform\")\"\n{\n  echo \"LLVM_CONFIG_PATH=$(command -v llvm-config)\"\n  echo \"LIBCLANG_PATH=$(llvm-config --libdir)\"\n  echo \"PROTOC=$protoc_executable\"\n} >> \"$GITHUB_ENV\""
+    "source": "case \"$RUNNER_OS/$RUNNER_ARCH\" in\n  Linux/ARM64) platform=linux-arm ;;\n  Linux/X64) platform=linux-amd ;;\n  *) echo 'CitizenChain Linux protoc宿主不受支持' >&2; exit 1 ;;\nesac\nprotoc_executable=\"$(node .github/workflows/release-wasm.mjs protoc \"$platform\")\"\n{\n  echo \"LLVM_CONFIG_PATH=$(command -v llvm-config)\"\n  echo \"LIBCLANG_PATH=$(llvm-config --libdir)\"\n  echo \"PROTOC=$protoc_executable\"\n} >> \"$GITHUB_ENV\""
   },
   "6": {
     "shell": "bash",
@@ -63,6 +64,7 @@ const actions = Object.freeze({
 const shaPattern = /^[0-9a-f]{40}$/u;
 const fail = message => { throw new Error(message); };
 const root = fileURLToPath(new URL('../../', import.meta.url));
+const firstProjectStep = 7;
 const workflowPath = `.github/workflows/release-${owner.platform}.yml`;
 const prefix = `${owner.product}-${owner.platform}-v`;
 
@@ -206,13 +208,22 @@ export function step(key) {
   runVersion();
   const value = commands[key];
   if (!value || !['bash','pwsh'].includes(value.shell)) fail('本目标构建步骤无效');
-  const directory = join(process.env.RELEASE_WORK,'commands');mkdirSync(directory,{recursive:true});
-  const file = join(directory, value.shell === 'pwsh' ? 'step.ps1' : 'step.sh');
-  writeFileSync(file, value.shell === 'bash' ? 'set -euo pipefail\n'+value.source : "$ErrorActionPreference = 'Stop'\n"+value.source,{mode:0o700});
-  const result = spawnSync(value.shell === 'pwsh' ? 'pwsh' : 'bash', value.shell === 'pwsh' ? ['-NoProfile','-File',file] : [file],
-    {cwd:process.cwd(),env:process.env,stdio:'inherit'});
-  rmSync(file,{force:true});
-  if (result.error || result.status !== 0) fail(`本仓构建步骤失败：${key}`);
+  const run = bound => {
+    const directory = join(process.env.RELEASE_WORK,'commands');mkdirSync(directory,{recursive:true});
+    const file = join(directory, value.shell === 'pwsh' ? 'step.ps1' : 'step.sh');
+    writeFileSync(file, value.shell === 'bash' ? 'set -euo pipefail\n'+bound.source : "$ErrorActionPreference = 'Stop'\n"+bound.source,{mode:0o700});
+    const result = spawnSync(value.shell === 'pwsh' ? 'pwsh' : 'bash', value.shell === 'pwsh' ? ['-NoProfile','-File',file] : [file],
+      {cwd:bound.cwd,env:bound.env,stdio:'inherit'});
+    rmSync(file,{force:true});
+    if (result.error || result.status !== 0) fail(`本仓构建步骤失败：${key}`);
+  };
+  if(Number(key)<firstProjectStep)return run({source:value.source,cwd:process.cwd(),env:process.env});
+  return withFixedWorkSync('build/'+owner.platform,()=>{
+    const bound=remoteStep(value.source,process.env,value.shell);
+    // Workflow 的 Tauri 阶段从 node 目录启动；工程视图保持相同相对目录。
+    if(process.cwd()===join(root,'node'))bound.cwd=join(bound.cwd,'node');
+    run(bound);
+  },{retain:true});
 }
 
 export function action(name, args) {
@@ -404,6 +415,12 @@ if(direct&&!testing){
 
 if(testing){
   const {default:assert}=await import('node:assert/strict');const {default:test}=await import('node:test');
+  test('前端构建进入本产品工程视图且成功失败均收尾',()=>{
+    assert.match(commands[String(firstProjectStep)].source,/npm --prefix node\/frontend run build/);
+    assert.match(commands['5'].source,/protoc "\$platform"\)/);
+    const workflow=readFileSync(join(root,workflowPath),'utf8');
+    assert.ok(workflow.includes('    - name: 清理本轮节点工程视图\n      if: always()\n      run: node scripts/build.mjs finish '+owner.platform+' "$GITHUB_RUN_ID"'));
+  });
 
   test('节点版本动作只交付内嵌脚本接受的apply与lock参数',()=>{
     const sources=Object.values(commands).map(command=>command.source);

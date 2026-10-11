@@ -126,6 +126,9 @@ jobs:
         path: "${{ steps.complete.outputs.assets }}"
         if-no-files-found: error
         retention-days: 7
+    - name: 清理本轮节点工程视图
+      if: always()
+      run: node scripts/build.mjs finish windows "$GITHUB_RUN_ID"
     needs:
     - prepare
   publish:
