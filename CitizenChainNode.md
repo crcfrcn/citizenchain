@@ -886,7 +886,7 @@ prepare 与 complete 前各需一次 WebAuthn passkey 断言 + 管理员冷钱�
 - 本机入口：RPC `9944` 只监听 `127.0.0.1`；Prometheus 默认关闭；OnChina、数据库和管理端口不向公网开放。
 - Cloudflare 链连接：首期 Worker 和 外部调用方 协议行「Release」只通过 Access + 独立
   Tunnel 访问国储会节点的本机 RPC，不需要另建独立 RPC 节点。两者复用 外部调用方
-  管理的 `CHAIN_URL / CHAIN_ID / CHAIN_SECRET` 单一生产配置；缺失任一项时关闭链读取。
+  管理的 `CHAIN_URL / CF_ACCESS_CLIENT_ID / CHAIN_SECRET` 单一生产配置；缺失任一项时关闭链读取。
   当前代码不接受公网 HTTP、回环 HTTP、非 `chain.crcfrcn.com` 上游或无 Access 凭据的请求。
 - 后续容灾：最多选择少量不同地区的权威引导节点作为 Worker 私有 RPC 备用，每个节点使用独立 Tunnel 和凭证，不连接全部 44 个节点。
 
@@ -1116,9 +1116,11 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 
 - 远程管理 Tunnel `nrcgch-rpc` 健康，运行 1 个 connector。
 - 唯一链入口为 `chain.crcfrcn.com` 的 Access 保护路径，Tunnel 转发到 `127.0.0.1:18080` 的现有Nginx，再代理本机`127.0.0.1:9944`。2026年10月10日SSH只读核对现网Nginx仅限制HTTP POST，没有JSON-RPC方法白名单；公民服务端新增的固定只读响应才构成WASM Release对外方法边界。
-- Access 使用 `chain` 自托管应用、`CitizenChain` Service Auth 策略和唯一链服务令牌；Worker 的 `CHAIN_URL`、`CHAIN_ID`、`CHAIN_SECRET` 只保存在远端 Secret。
+- Access 使用 `chain` 自托管应用、`CitizenChain` Service Auth 策略和唯一链服务令牌；Worker 的 `CHAIN_URL`、`CF_ACCESS_CLIENT_ID` 是公民服务端公开运行变量，`CHAIN_SECRET` 是公民服务端 Worker Secret。这三项需求归 CitizenServe 声明和保管授权，不由本链仓重复登记；现有国储会 Tunnel 不变。
 - 本仓 GitHub WASM Release 只读取公民服务端既有公共域下固定的链身份GET响应；公民服务端Worker使用自身Access服务身份经同一Tunnel调用块0、finalized头与该头的RuntimeVersion，并只返回固定字段。GitHub不持有Access凭据，也不依赖本机Keychain、浏览器会话或P2P `30333`。
 - 不增加 `Everyone`、交互式 `Allow` 或 `Bypass`，也不把令牌、Tunnel token 或完整私有 URL 写入仓库、安装包、日志或命令文档。
+
+本仓 `scripts/config.mjs` 只声明软件产品需求：协议升级的冷签公钥和创世块哈希由 `rtupg` 范围声明。权威与权益节点是使用本产品的部署实例，不作为产品配置需求；控制台节点管理从本仓既有机构目录读取节点身份，按准确节点ID管理服务器地址、节点身份、验证和SSH运维输入，值由控制台安全层保管与授权。本仓Build不声明节点配置字段。控制台“测试 · macOS”按本仓 `scripts/publish.mjs` 公开清单执行既有Build与发布Node回归，不启动产品编译。
 
 服务器部署顺序：
 
@@ -2918,6 +2920,7 @@ Windows LLVM准备步骤用Bash的`GITHUB_ENV`语法交付库路径；Windows工
 Windows Release在PowerShell组包步骤把固定安装包名称的`.exe`结尾替换为本轮软件版本后缀，再从Cargo输出复制安装包；下一步使用该包在`RUNNER_TEMP`下的绝对路径直接调用Tauri签名器，不把绝对路径接到GitHub检出根。
 
 WASM Release的`prepare`由`.github/workflows/release-wasm.mjs`固定GET`https://www.crcfrcn.com/api/chain/runtime-target`，只接受公民服务端返回的块0哈希、finalized头、`spec_version`与`spec_name`四个准确字段；回读块0哈希须等于`runtime/primitives/src/genesis.rs`唯一冻结常量，候选版本至少高于当前finalized的`spec_version`。公民服务端自身经Access/Tunnel只读查询正式链，GitHub不配置Cloudflare URL、ID或Secret，不能选择任意RPC方法。读取失败、错链或错误版本直接使Release准备失败。
+候选版本同时计入本平台已有成功Release的版本：`citizenChainRelease`已按WASM Tag识别平台并核对Tag提交，历史收集仅继续核对对应Run成功及工作流身份，不读取其返回对象中不存在的`platform`字段；草稿、预发布、其他平台和失败Run不进入版本集合。
 
 所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
 

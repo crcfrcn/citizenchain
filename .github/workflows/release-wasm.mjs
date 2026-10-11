@@ -236,17 +236,21 @@ function output(name, value, file = process.env.GITHUB_OUTPUT) {
   appendFileSync(file, `${name}=${value}\n`);
 }
 
-export async function prepare() {
-  const identity = context();
-  const releases = await pages('releases');
+async function successfulReleaseVersions(releases, { readTag = tag => request('git/ref/tags/'+encodeURIComponent(tag)), readRun = runId => request(`actions/runs/${runId}`) } = {}) {
   const versions = [];
   for (const release of releases) {
     if (release.draft || release.prerelease || !String(release.tag_name).startsWith(prefix)) continue;
-    const notes = (await citizenChainRelease(release,owner.platform,tag=>request('git/ref/tags/'+encodeURIComponent(tag))));
-    if (!notes || notes.platform !== owner.platform) continue;
-    const run = await request(`actions/runs/${notes.run_id}`);
+    const notes = await citizenChainRelease(release,owner.platform,readTag);
+    if (!notes) continue;
+    const run = await readRun(notes.run_id);
     if (run?.status === 'completed' && run.conclusion === 'success' && run.path === workflowPath) versions.push(notes.version);
   }
+  return versions;
+}
+
+export async function prepare() {
+  const identity = context();
+  const versions = await successfulReleaseVersions(await pages('releases'));
   const chain=await readRuntimeBuildTarget();
   verifiedGenesisHash(chain.genesisHash);
   const version = runtimeVersion(seedVersion(), versions, chain.specVersion);
@@ -556,6 +560,18 @@ if(testing){
   test('协议版本由链上及本仓成功事实生成，溢出失败',()=>{
     assert.equal(runtimeVersion('0',[],0),'1');assert.equal(runtimeVersion('0',['3'],2),'3');
     assert.equal(runtimeVersion('0',['3'],3),'4');assert.throws(()=>runtimeVersion('0',[],0xffffffff));
+  });
+  test('WASM候选版本保留本平台已成功Release历史',async()=>{
+    const validTag=`${prefix}8-r11-a1`,failedTag=`${prefix}9-r12-a1`;
+    const releases=[{tag_name:validTag,draft:false,prerelease:false},{tag_name:failedTag,draft:false,prerelease:false},
+      {tag_name:`${prefix}10-r13-a1`,draft:true,prerelease:false},{tag_name:'citizenchain-macos-v1.0.0-r14-a1',draft:false,prerelease:false}];
+    const seen=[];
+    const versions=await successfulReleaseVersions(releases,{
+      readTag:async tag=>({ref:'refs/tags/'+tag,object:{type:'commit',sha:'1'.repeat(40)}}),
+      readRun:async runId=>{seen.push(runId);return {status:'completed',conclusion:runId===11?'success':'failure',path:workflowPath};},
+    });
+    assert.deepEqual(seen,[11,12]);assert.deepEqual(versions,['8']);
+    assert.equal(runtimeVersion('0',versions,7),'8');assert.equal(runtimeVersion('0',versions,8),'9');
   });
 
   test('旧入口不能成为任一现行平台的清理归属证明',()=>{

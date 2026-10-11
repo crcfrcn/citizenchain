@@ -5,6 +5,9 @@ import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 
 const repository='crcfrcn/citizenchain';
+// 控制台调度仍执行本仓原有Build与发布入口内联测试，产品自行给出准确清单。
+export function testFiles(){return ['scripts/build.mjs','scripts/publish.mjs'];}
+export function testTools(){return [];}
 const platforms=Object.freeze({
  macos:['*.dmg'],
  windows:['*.exe'],
@@ -104,7 +107,7 @@ if(testing){
  const reference={ref:'refs/tags/'+tag,object:{type:'commit',sha:shaValue}};
  const run={id:12,run_attempt:1,status:'completed',conclusion:'success',event:'workflow_dispatch',head_branch:'main',head_sha:shaValue,
   repository:{full_name:repository},path:'.github/workflows/release-macos.yml@main'};
- test('已完成的准确Release形成独立待分发清单',()=>{const result=publicationPlan('macos',release,reference,run);assert.equal(result.assets[0].sha256,'b'.repeat(64));assert.equal(result.source_sha,shaValue);});
+ test('已完成的准确Release形成独立待分发清单',()=>{assert.deepEqual(testFiles(),['scripts/build.mjs','scripts/publish.mjs']);assert.deepEqual(testTools(),[]);const result=publicationPlan('macos',release,reference,run);assert.equal(result.assets[0].sha256,'b'.repeat(64));assert.equal(result.source_sha,shaValue);});
  test('错误运行、草稿、缺件和重复产物均拒绝',()=>{
   assert.throws(()=>publicationPlan('macos',release,reference,{...run,conclusion:'failure'}),/成功证明/);
   assert.throws(()=>publicationPlan('macos',{...release,draft:true},reference,run),/未正式发布/);
