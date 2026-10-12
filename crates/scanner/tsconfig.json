@@ -17,8 +17,8 @@
       "*": [
         "./node_modules/@types/*",
         "./node_modules/*",
-        "../../target/test/editor/crates/scanner/node_modules/@types/*",
-        "../../target/test/editor/crates/scanner/node_modules/*"
+        "../../target/node_modules/@types/*",
+        "../../target/node_modules/*"
       ],
       "@gmb/scanner-react": [
         "../../crates/scanner/src/index.ts"
@@ -27,8 +27,8 @@
     "typeRoots": [
       "./node_modules/@types",
       "./node_modules",
-      "../../target/test/editor/crates/scanner/node_modules/@types",
-      "../../target/test/editor/crates/scanner/node_modules"
+      "../../target/node_modules/@types",
+      "../../target/node_modules"
     ],
     "types": [
       "react",

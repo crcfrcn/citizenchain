@@ -58,7 +58,7 @@ function fixedScratch(prefix){
 function assertTargetTopology(){
  const target=join(root,'target');if(!fs.existsSync(target))return;
  directory(target);
- for(const name of fs.readdirSync(target))if(!scopes.has(name))fail('target含非固定目录或根部生成文件：'+name);
+ for(const name of fs.readdirSync(target))if(!scopes.has(name)&&name!=='node_modules')fail('target含非固定目录或根部生成文件：'+name);
  for(const name of fs.readdirSync(target))directory(join(target,name));
 }
 function regular(path){const value=fs.lstatSync(path);if(!value.isFile()||value.isSymbolicLink()||value.nlink!==1||value.size>65536)fail('任务标记不是准确普通文件');return value;}
@@ -561,6 +561,10 @@ const NODE_RELEASE_CANDIDATE_SOURCE="def candidate(value):\n    coordinate(value
 export function nodeDeploymentVerifier(){return NODE_RELEASE_CANDIDATE_SOURCE;}
 
 // 宿主完整Build先由调用方消费回执、安装并收尾；独立执行由本产品清空现场。
+// 编译任务先执行本仓现有回归；测试清单只归所属产品Build接口。
+export function testFiles(){return ['scripts/build.mjs','scripts/publish.mjs','.github/workflows/release-macos.mjs','.github/workflows/release-windows.mjs','.github/workflows/release-linux-arm.mjs','.github/workflows/release-linux-amd.mjs'];}
+export async function testTools(){return [];}
+
 export async function execute(platform,work,request={},options={}) {
  checkFixedWork(work,{create:true});
  return withFixedWork(taskScope(work),()=>executeTask(platform,work,request,options),{run_id:request.run_id,environment:options.environment||process.env,retain:(options.environment||process.env).PRODUCT_RESOURCE_FD==='4'||(options.environment||process.env).PRODUCT_HOST_FD==='3'});
@@ -633,8 +637,7 @@ async function editorCommand(values){
  for(const name of ['SIGTERM','SIGINT'])process.once(name,cancel);
  try{return await withFixedWork('test',async work=>{
   const {editorResources}=resourceInternals;await editorResources(work,{objects,signal:cancellation.signal});
-  console.log('公民链编辑器依赖已就绪；会话关闭后清空 target/test');
-  while(alive()&&!cancellation.signal.aborted)await new Promise(resolve=>{const timer=setTimeout(done,1000);function done(){clearTimeout(timer);cancellation.signal.removeEventListener('abort',done);resolve();}cancellation.signal.addEventListener('abort',done,{once:true});});
+  console.log('公民链编辑器依赖已就绪：target/node_modules；本轮 target/test 随即清理');
  });}finally{for(const name of ['SIGTERM','SIGINT'])process.removeListener(name,cancel);}
 }
 
@@ -876,9 +879,16 @@ async function acquireArchive(entry,{store,work,optional,offline=false,fetcher=f
 }
 async function downloadTool(entry,target,options){const archive=await acquireArchive(entry,{...options,store:options.store||dirname(target)});await copyFile(archive,target,constants.COPYFILE_EXCL);}
 // 解包先解析全部成员并验证闭包，之后才写入；链接不得指向归档外部或成为文件父目录。
-async function extractArchive(input,destination,{prefix='',signal,tar,maxBytes=8*1024**3}={}){
+async function extractArchive(input,destination,{prefix='',stripRoot=false,signal,tar,maxBytes=8*1024**3}={}){
  await regular(input);if(await stat(destination))fail('解包目标已存在');let bytes=await readFile(input),entries=[];
- const add=(path,type,data,mode=0o644,target)=>{path=path.replace(/\/$/u,'').replace(/^\.\//u,'');if(path==='.'||!path)return;if(!safePath(path))fail('归档成员越界');if(entries.length>=400000||entries.some(x=>x.path===path))fail('归档成员重复或超限');entries.push({path,type,data,mode,target});};
+ const add=(path,type,data,mode=0o644,target)=>{
+  path=path.replace(/\/$/u,'').replace(/^\.\//u,'');if(path==='.'||!path)return;const original=path;
+  // npm上游存在package/./file与package/file的同字节重复项；只接受普通文件的准确别名。
+  if(stripRoot)path=path.split('/').filter(x=>x!=='.').join('/');
+  if(!safePath(path))fail('归档成员越界');const previous=entries.find(x=>x.path===path);
+  if(previous){if(stripRoot&&type==='file'&&previous.type==='file'&&previous.original!==original&&(original.includes('/./')||previous.original.includes('/./'))&&mode===previous.mode&&data.equals(previous.data))return;fail('归档成员重复或超限');}
+  if(entries.length>=400000)fail('归档成员重复或超限');entries.push({path,type,data,mode,target,original});
+ };
  if(bytes[0]===0x50&&bytes[1]===0x4b){let end=-1;for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--)if(bytes.readUInt32LE(i)===0x06054b50){end=i;break;}if(end<0)fail('ZIP目录缺失');const count=bytes.readUInt16LE(end+10);let cursor=bytes.readUInt32LE(end+16),total=0;for(let n=0;n<count;n++){signal?.throwIfAborted();if(bytes.readUInt32LE(cursor)!==0x02014b50)fail('ZIP成员无效');const method=bytes.readUInt16LE(cursor+10),size=bytes.readUInt32LE(cursor+24),compressed=bytes.readUInt32LE(cursor+20),nameLength=bytes.readUInt16LE(cursor+28),extra=bytes.readUInt16LE(cursor+30),comment=bytes.readUInt16LE(cursor+32),mode=bytes.readUInt32LE(cursor+38)>>>16,offset=bytes.readUInt32LE(cursor+42),name=bytes.subarray(cursor+46,cursor+46+nameLength).toString('utf8');if(bytes.readUInt16LE(cursor+8)&1||size===0xffffffff||offset===0xffffffff)fail('ZIP加密或Zip64未声明');total+=size;if(total>maxBytes)fail('ZIP解压超限');if(bytes.readUInt32LE(offset)!==0x04034b50)fail('ZIP本地记录无效');const start=offset+30+bytes.readUInt16LE(offset+26)+bytes.readUInt16LE(offset+28),data=bytes.subarray(start,start+compressed),output=method===0?data:method===8?inflateRawSync(data,{maxOutputLength:Math.max(1,size)}):fail('ZIP压缩方式未声明');if(output.length!==size)fail('ZIP长度不符');add(name,name.endsWith('/')?'directory':(mode&0o170000)===0o120000?'symlink':'file',output,mode||0o644,output.toString());cursor+=46+nameLength+extra+comment;}}
  else{if(bytes[0]===0x1f&&bytes[1]===0x8b)bytes=gunzipSync(bytes,{maxOutputLength:maxBytes});else if(bytes[0]===0xfd&&bytes[1]===0x37){if(!tar)fail('XZ需要已验真基础归档工具');fail('XZ应通过受控tar清单提取');}
   const number=b=>{const v=b.toString().replace(/\0.*$/su,'').trim();if(!/^[0-7]*$/u.test(v))fail('TAR数字无效');return parseInt(v||'0',8);};let pax={},global={};
@@ -888,6 +898,8 @@ async function extractArchive(input,destination,{prefix='',signal,tar,maxBytes=8
    const attrs={...global,...pax};pax={};if(Object.keys(attrs).some(x=>x.startsWith('GNU.sparse')))fail('TAR稀疏文件未声明');const name=attrs.path||[str(345,500),str(0,100)].filter(Boolean).join('/'),target=attrs.linkpath||str(157,257);if(!['0','5','2','1'].includes(type))fail('TAR特殊成员未声明');add(name,{'0':'file','5':'directory','2':'symlink','1':'hardlink'}[type],data,number(block.subarray(100,108)),target);
   }
  }
+ // npm发行件的顶层名称由上游决定；只接受唯一真实顶层，不能静默丢弃其它成员。
+ if(stripRoot){if(prefix)fail('归档根参数冲突');const roots=new Set(entries.map(e=>e.path.split('/')[0]));if(roots.size!==1)fail('归档不是唯一顶层');prefix=[...roots][0];}
  const selected=entries.filter(e=>!prefix||e.path===prefix||e.path.startsWith(prefix+'/')).map(e=>({...e,path:prefix?e.path.slice(prefix.length).replace(/^\//u,''):e.path})).filter(e=>e.path);if(!selected.length)fail('归档根缺失');const table=new Map(selected.map(e=>[e.path,e]));
  for(const entry of selected){let parent=dirname(entry.path);while(parent!=='.'){if(table.has(parent)&&table.get(parent).type!=='directory')fail('归档父目录不是目录');parent=dirname(parent);}if(['symlink','hardlink'].includes(entry.type)){const target=entry.type==='symlink'?posix.normalize(posix.join(posix.dirname(entry.path),entry.target)):prefix?entry.target.replace(new RegExp('^'+prefix+'/'),''):entry.target;if(!safePath(target)||!table.has(target))fail('归档链接越界或缺失');entry.resolved=target;}}
  await mkdir(destination,{mode:0o700});try{for(const entry of selected.filter(x=>['file','directory'].includes(x.type))){signal?.throwIfAborted();const file=join(destination,entry.path);await mkdir(dirname(file),{recursive:true,mode:0o700});if(entry.type==='directory')await mkdir(file,{recursive:true,mode:0o700});else await writeFile(file,entry.data,{flag:'wx',mode:entry.mode&0o111?0o755:0o644});}
@@ -2060,38 +2072,85 @@ async function processResources(work,options={}) {
   plutil:foundation.tools.plutil,environment:{...cleanEnvironment(environment),PATH:foundation.path,DEVELOPER_DIR:apple.developerDirectory}};
 }
 
-// 编辑器只准备本产品前端的锁定包；不准备Rust、签名或发布资源。
-async function editorResources(work,{objects,signal,fetcher=fetch}={}){
- const owner=await import('./build.mjs');owner.checkWork(work);
- const store=join(work,'editor-archives');await directory(store,true);
- const project=join(work,'editor');await directory(project,true);
- let originals=[];
- if(objects){await directory(objects);const index=join(dirname(objects),'index.json');if(await stat(index)){await regular(index);originals=JSON.parse(await readFile(index,'utf8')).packages||[];}}
- if(process.versions.node!==toolDefinitions.find(tool=>tool.id==='node').version)fail('编辑器入口Node版本不符');
- const require=createRequire(join(dirname(process.execPath),'../lib/node_modules/npm/bin/npm-cli.js')),tar=require('tar');
- const archives=new Map();
- for(const relative of ['crates/scanner','node/frontend','onchina/frontend']){
-  const input=join(root,relative),destination=join(project,relative);await directory(destination,true);
-  const lockfile=join(input,'package-lock.json');await regular(lockfile);const lock=JSON.parse(await readFile(lockfile,'utf8'));
-  for(const[key,entry]of Object.entries(lock.packages||{})){
-   signal?.throwIfAborted();if(!key.startsWith('node_modules/')||entry.link||entry.resolved?.startsWith('file:'))continue;
-   if(!safePath(key)||!entry.resolved||!entry.integrity)fail('编辑器依赖没有锁定原件');
-   let archive=archives.get(entry.integrity);
-   if(!archive){
-    const declared={url:entry.resolved,integrity:entry.integrity};
-    const original=originals.flatMap(item=>item.archives||[]).find(item=>item.url===entry.resolved&&item.integrity===entry.integrity);
-    if(original){await regular(join(objects,original.sha256+'.blob'));declared.sha256=original.sha256;}
-    archive=await acquireArchive(declared,{store,work,optional:objects,signal,fetcher});
-    // 锁文件的完整性独立核对，原件库索引不能替换产品自己的锁。
-    const[algorithm,digest]=digestSpec(entry);if(!createHash(algorithm).update(await readFile(archive)).digest().equals(digest))fail('编辑器依赖完整性不符');
-    archives.set(entry.integrity,archive);
-   }
-   const output=join(destination,key);await directory(dirname(output),true);
-   await directory(output,true);
-   await tar.x({file:archive,cwd:output,strip:1,strict:true,preservePaths:false});
+// 直接依赖共用唯一安装树；上游内部不同版本按原锁保留标准嵌套，不改写原锁。
+function editorDependencyPlan(documents){
+ const result=new Map(),validName=name=>typeof name==='string'&&/^(?:@[a-z0-9_.-]+\/)?[a-z0-9_.-]+$/iu.test(name);
+ const remote=entry=>entry&&!entry.link&&!entry.resolved?.startsWith('file:')&&entry.integrity&&entry.resolved;
+ const original=(doc,key,name)=>{
+  if(!validName(name))fail('编辑器包名无效');
+  for(let at=key;;at=posix.dirname(at)){
+   const path=posix.join(at==='.'?'':at,'node_modules',name),entry=doc.lock.packages[path];
+   if(entry)return {doc,key:path,entry};if(at==='.'||!at)break;
+  }
+  return null;
+ };
+ const edges=item=>Object.keys({...item.entry.dependencies,...item.entry.optionalDependencies,...item.entry.peerDependencies}).sort();
+ const identity=item=>JSON.stringify([item.entry.resolved,item.entry.integrity,edges(item).map(name=>{const dep=original(item.doc,item.key,name);return [name,dep?.entry.resolved,dep?.entry.integrity];})]);
+ const put=(path,item)=>{if(!safePath(path)||!remote(item.entry))fail('编辑器依赖没有锁定原件');result.set(path,{...item,path});};
+ // 根直接依赖必须相同；不能靠覆盖选取另一项目的版本。
+ for(const doc of documents){
+  if(![2,3].includes(doc.lock.lockfileVersion)||!doc.lock.packages?.[''])fail('编辑器原锁无效');
+  for(const name of Object.keys({...doc.package.dependencies,...doc.package.devDependencies}).sort()){
+   const item=original(doc,'',name);if(!item)fail('编辑器直接依赖缺少锁：'+name);
+   if(!remote(item.entry)){if(!item.entry.link&&!item.entry.resolved?.startsWith('file:'))fail('编辑器本地依赖无效');continue;}
+   const path='node_modules/'+name,previous=result.get(path);
+   if(previous&&(previous.entry.integrity!==item.entry.integrity||previous.entry.resolved!==item.entry.resolved))fail('编辑器直接依赖版本冲突：'+name);
+   if(!previous)put(path,item);
   }
  }
- return project;
+ const queue=[...result.values()];
+ for(let index=0;index<queue.length;index++){
+  if(queue.length>10000)fail('编辑器依赖闭包超限');
+  const item=queue[index];
+  for(const name of edges(item)){
+   const expected=original(item.doc,item.key,name);
+   if(!expected){if(Object.hasOwn(item.entry.dependencies||{},name)&&!Object.hasOwn(item.entry.optionalDependencies||{},name))fail('编辑器内部依赖缺少原锁：'+name);continue;}
+   if(!remote(expected.entry))continue;
+   let found;
+   for(let at=item.path;;at=posix.dirname(at)){
+    const candidate=result.get(posix.join(at==='.'?'':at,'node_modules',name));
+    if(candidate){found=candidate;break;}if(at==='.'||!at)break;
+   }
+   if(found&&identity(found)===identity(expected))continue;
+   const path=item.path+'/node_modules/'+name;
+   if(result.has(path))fail('编辑器嵌套依赖冲突');put(path,expected);queue.push(result.get(path));
+  }
+ }
+ return [...result.values()];
+}
+// 编辑器安装树保留于target/node_modules；归档和候选只使用本轮已有build/test现场。
+async function editorResources(work,{objects,signal,fetcher=fetch,offline=false}={}){
+ const owner=await import('./build.mjs');owner.checkWork(work);
+ if(process.versions.node!==toolDefinitions.find(tool=>tool.id==='node').version)fail('编辑器入口Node版本不符');
+ await directory(join(root,'target/build'),true);
+ const marker=join(root,'target/build/.node_modules.lock'),handle=await open(marker,'wx',0o600);
+ const documents=[],project=join(root,'target/node_modules'),candidate=join(work,'node_modules'),previous=join(work,'previous-node_modules');let moved=false,published=false;
+ try{
+  await handle.writeFile(JSON.stringify({pid:process.pid,work})+'\n');
+  for(const relative of ['node/frontend','onchina/frontend','crates/scanner']){
+   const input=join(root,relative),lockfile=join(input,'package-lock.json');await regular(lockfile);
+   const bytes=await readFile(lockfile);documents.push({relative,lockfile,bytes,lock:JSON.parse(bytes),package:JSON.parse(await readFile(join(input,'package.json'),'utf8'))});
+  }
+  const plan=editorDependencyPlan(documents),store=join(work,'dependencies/npm');await directory(store,true);
+  if(await stat(candidate)||await stat(previous))fail('编辑器候选现场已占用');await directory(candidate,true);
+  const archives=new Map();
+  for(const item of plan){
+   signal?.throwIfAborted();let archive=archives.get(item.entry.integrity);
+   if(!archive){archive=await acquireArchive({url:item.entry.resolved,integrity:item.entry.integrity},{store,work,optional:objects,offline,signal,fetcher});archives.set(item.entry.integrity,archive);}
+   const output=join(work,item.path);await directory(dirname(output),true);
+   // 复用安全解包及链接闭包校验，拒绝越界、特殊项与不同内容的重复成员。
+   try{await extractArchive(archive,output,{stripRoot:true,signal});}catch(error){throw Error('编辑器依赖解包失败：'+item.path+'；'+error.message,{cause:error});}
+  }
+  for(const doc of documents)if(!doc.bytes.equals(await readFile(doc.lockfile)))fail('编辑器准备期间原锁变化');
+  signal?.throwIfAborted();
+  if(await stat(project)){await directory(project);await rename(project,previous);moved=true;}
+  await rename(candidate,project);published=true;
+  return project;
+ }catch(error){if(moved&&!published)await rename(previous,project);throw error;}
+ finally{
+  await handle.close();await removeResourcePath(marker,{force:true});
+  if(published&&moved){await permissions(previous,true);await removeResourcePath(previous,{recursive:true});}
+ }
 }
 
 async function resources(platform,work,previous={},options={}){
@@ -2124,7 +2183,8 @@ async function materializeResources(platform,work,previous={},options={}){
  }
  for(const item of requirement.archives){if(!safePath(item.group))fail('归档分组无效');const file=await packageOriginal(item,options),directory=join(work,'dependencies/archives',item.group);await directoryCheck(directory).catch(async e=>{if(e.code!=='ENOENT')throw e;await directoryCheck(work);await mkdir(directory,{recursive:true});});const path=join(directory,item.sha256+'.blob');if(!await stat(path))await copyFile(file,path,constants.COPYFILE_EXCL);await regular(path);if(hash(await readFile(path))!==item.sha256)fail('任务归档篡改');(receipt.archives[item.group]??=[]).push({...item,path});}
  const flutter=library.installed.get('flutter');if(flutter){const sdk=dirname(dirname(flutter.path));receipt.environment.DART_EXECUTABLE=join(sdk,'bin/cache/dart-sdk/bin/dart');const os=platform.endsWith('ios')?'ios':platform.endsWith('macos')?'macos':null;if(os&&!await stat(join(work,'flutter-tools'))){const delivery=await flutterRecipe.prepareFlutterTaskTools(sdk,work,os,{signal:options.signal,environment:{PRODUCT_BASH_BIN:library.installed.get('bash').path,PRODUCT_RSYNC_BIN:foundation.tools.rsync}});if(delivery.PATH)receipt.environment.PATH=delivery.PATH+':'+receipt.environment.PATH;}if(os)receipt.environment.PATH=join(work,'flutter-tools')+':'+receipt.environment.PATH;receipt.environment.PRODUCT_RSYNC_BIN=foundation.tools.rsync;receipt.environment.PRODUCT_BASH_BIN=library.installed.get('bash').path;}
- await prepareGradleResources(work,options,receipt.environment);options.signal?.throwIfAborted();if(JSON.stringify(request())!==JSON.stringify(requirement)){if((options.depth||0)>=8)fail('资源递归闭包超限');return materializeResources(platform,work,receipt,{...options,depth:(options.depth||0)+1});}owner.resourceEnvironment(platform,work,receipt,cleanEnvironment(environment));return receipt;
+ await prepareGradleResources(work,options,receipt.environment);options.signal?.throwIfAborted();if(JSON.stringify(request())!==JSON.stringify(requirement)){if((options.depth||0)>=8)fail('资源递归闭包超限');return materializeResources(platform,work,receipt,{...options,depth:(options.depth||0)+1});}
+ owner.resourceEnvironment(platform,work,receipt,cleanEnvironment(environment));return receipt;
 }
 
 // 公开声明与候选配方；供给对象的领取、提交及删除只由调度方实现。
@@ -2211,6 +2271,19 @@ test('取消下载清理本次候选；短锁只在提交阶段取得',async t=>
 test('同对象并发提交只保留一份验真原件，不留全局下载锁',async t=>{
  const root=await sandbox(t),body=Buffer.from('concurrent'),entry=archive(body);let calls=0;const options={store:root,fetcher:async()=>{calls++;await new Promise(r=>setTimeout(r,10));return new Response(body);}};
  const paths=await Promise.all(Array.from({length:8},()=>acquireArchive(entry,options)));assert.equal(new Set(paths).size,1);assert.equal(await readFile(paths[0],'utf8'),'concurrent');assert.equal(calls,8);assert.deepEqual(await readdir(root),[paths[0].slice(root.length+1)]);
+});
+test('npm唯一顶层与同字节点路径别名，冲突及越界均拒绝',async t=>{
+ const root=await sandbox(t),input=join(root,'npm.tgz');
+ await writeFile(input,tar([{name:'react/./index.d.ts',body:'types'},{name:'react/index.d.ts',body:'types'}]));
+ await extractArchive(input,join(root,'valid'),{stripRoot:true});assert.equal(await readFile(join(root,'valid/index.d.ts'),'utf8'),'types');
+ for(const [name,entries]of [
+  ['different',[{name:'package/./a',body:'x'},{name:'package/a',body:'y'}]],
+  ['duplicate',[{name:'package/a',body:'x'},{name:'package/a',body:'x'}]],
+  ['roots',[{name:'package/a',body:'x'},{name:'other/a',body:'x'}]],
+  ['escape',[{name:'package/../a',body:'x'}]],
+  ['absolute',[{name:'/package/./a',body:'x'}]]
+ ]){await writeFile(input,tar(entries));await assert.rejects(extractArchive(input,join(root,name),{stripRoot:true}));assert.equal(await stat(join(root,name)),null);}
+ await writeFile(input,tar([{name:'package/./a',body:'x'}]));await assert.rejects(extractArchive(input,join(root,'strict'),{prefix:'package'}),/越界/);
 });
 test('归档安全解包并隔离不同任务，拒绝路径和链接越界',async t=>{
  const root=await sandbox(t),source=join(root,'source.tgz'),data=tar([{name:'package/a',body:'source'},{name:'package/b',type:'2',target:'a'}]);await writeFile(source,data);
@@ -2545,6 +2618,32 @@ async function runResourceCLI(command,args){
  throw Error('资源命令无效');
 }
 
+if(inlineTestEntry){
+ const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
+ const packageEntry=(version,dependencies={})=>({version,resolved:'https://registry.npmjs.org/example/-/example-'+version+'.tgz',integrity:'sha512-'+Buffer.from(version).toString('base64'),dependencies});
+ const document=(dependencies,packages)=>({package:{dependencies},lock:{lockfileVersion:3,packages:{'':{dependencies},...packages}}});
+ test('共享编辑器依赖按原锁嵌套差异版本，直接版本冲突和缺件失败',()=>{
+  const a=document({a:'1'}, {'node_modules/a':packageEntry('1',{x:'1'}),'node_modules/x':packageEntry('1')});
+  const b=document({b:'1'}, {'node_modules/b':packageEntry('1',{x:'2'}),'node_modules/x':packageEntry('2')});
+  const plan=editorDependencyPlan([a,b]),paths=new Map(plan.map(x=>[x.path,x.entry.version]));
+  assert.equal(paths.get('node_modules/a/node_modules/x'),'1');assert.equal(paths.get('node_modules/b/node_modules/x'),'2');
+  assert.throws(()=>editorDependencyPlan([a,document({a:'2'},{'node_modules/a':packageEntry('2')})]),/直接依赖版本冲突/);
+  assert.throws(()=>editorDependencyPlan([document({a:'1'},{'node_modules/a':packageEntry('1',{missing:'1'})})]),/内部依赖缺少原锁/);
+  assert.throws(()=>editorDependencyPlan([document({'../bad':'1'},{})]),/包名无效/);
+ });
+ test('真实三锁编辑器闭包保持全部直接包和固定共享路径',async()=>{
+  const documents=[];
+  for(const relative of ['node/frontend','onchina/frontend','crates/scanner'])documents.push({package:JSON.parse(await readFile(join(root,relative,'package.json'),'utf8')),lock:JSON.parse(await readFile(join(root,relative,'package-lock.json'),'utf8'))});
+  const plan=editorDependencyPlan(documents),paths=new Set(plan.map(x=>x.path));assert.equal(paths.size,plan.length);
+  for(const name of ['@types/node','@types/react','@types/react-dom','typescript','vite','@vitejs/plugin-react','antd','jsqr','vitest'])assert.ok(paths.has('node_modules/'+name),name);
+  assert.ok(plan.some(x=>x.path.includes('/node_modules/vite')&&x.entry.version==='7.3.6'));
+  for(const relative of ['node/frontend','onchina/frontend','crates/scanner']){
+   const config=JSON.parse(await readFile(join(root,relative,'tsconfig.json'),'utf8'));
+   assert.ok(config.compilerOptions.typeRoots.includes('../../target/node_modules/@types'));
+   assert.doesNotMatch(JSON.stringify(config),/target\/test\/editor/);
+  }
+ });
+}
 return {runResourceProcess,inventory,acquireArchive,extractArchive,validateNpmLocal,normalizeCargoManifest,podSourceCoordinate,readDependencySupply,materializePodSupply,materializeMavenCache,mavenSupplyInit,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,processResources,editorResources,resources,prepareResourceSupply,supplyRequirements,assertWorkQuiescent,prepareToolSupply,runResourceCLI};
 })();
 export const {runResourceProcess,inventory,acquireArchive,extractArchive,validateNpmLocal,normalizeCargoManifest,podSourceCoordinate,readDependencySupply,materializePodSupply,materializeMavenCache,mavenSupplyInit,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,processResources,editorResources,resources,prepareResourceSupply,supplyRequirements,assertWorkQuiescent,prepareToolSupply}=resourceInternals;

@@ -1,5 +1,7 @@
 ## 平台编译现场
 
+> 当前塔塔鹿鹿：每仓 `.github/tatalulu.yml` 只登记仓库身份；控制台 `.github/tatalulu.mjs` 保存并推送后，以 GitHub `main` 回查结果收口。本文早期推送触发检查记录仅供历史追溯。
+
 本产品编译任务使用本仓 `target/build/<平台>` 独立临时目录，平台键为 `macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。不同平台同时领取并执行；同平台已有活跃任务时立即拒绝再次领取。资源准备、工程副本、缓存和编译输出只写本平台现场；确认进程及后代退出、结果被调用方消费后，删除整个平台目录。`target/build` 仅是父目录，`target/test` 仍用于独立测试。独立执行和控制台调度调用同一本仓编译入口与清理接口。
 
 ## 工具与依赖的声明和供给职责（2026-10-08）
@@ -179,7 +181,7 @@ CLI采用2 steps / 1 repeat验证执行路径，生成文件只写任务缓存�
 
 受控缓存固定为 `citizenchain/target/<platform>/<build|ci|release|publish>/`；四个流程目录永久独立，启动不建目录。macOS Build 的三个 Node 工程均在 `build/source-view/` 只读引用源码并把各自 `node_modules` 安装在该视图，Cargo、Tauri、前端输出、日志和候选也只写 `build/`。
 
-远端自动化的官方 protoc 35.0 来源、SHA-256、解包和执行器核验只归 `.github/workflows/release-wasm.mjs`；各平台 Workflow 在自己的任务现场调用该自动化入口。Build 不准备自动化 protoc，也不读取门禁配置。本机开发必须显式提供已经验真的 `PROTOC` 路径，缺件直接失败。
+WASM 远端自动化的官方 protoc 35.0 来源、SHA-256、解包和执行器核验归 `.github/workflows/wasm.yml`。Build 不准备自动化 protoc，也不读取门禁配置。本机开发必须显式提供已经验真的 `PROTOC` 路径，缺件直接失败。
 
 本文是 CitizenChain 节点唯一技术事实文档，统一收录区块链总览、桌面节点、网络、挖矿、设置与节点安全边界。
 
@@ -943,7 +945,7 @@ sudo apt install -y build-essential clang cmake pkg-config libssl-dev git curl
 - `build-essential`、`clang`、`cmake`、`pkg-config` 用于编译 Rust 和 Substrate 相关依赖。
 - `libssl-dev` 用于 TLS/加密相关编译依赖。
 - `protoc` 不从 APT 或系统 PATH 取得；克隆产品源码后必须通过
-  `.github/workflows/release-wasm.mjs` 在正式自动化中按唯一锁定声明准备官方 35.0；本机编译须显式供给已验真的入口。
+  `.github/workflows/wasm.yml` 在正式自动化中按唯一锁定声明准备官方 35.0；本机编译须显式供给已验真的入口。
 
 ##### 6.3 安装 Rust
 
@@ -1120,7 +1122,7 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 - 本仓 GitHub WASM Release 只读取公民服务端既有公共域下固定的链身份GET响应；公民服务端Worker使用自身Access服务身份经同一Tunnel调用块0、finalized头与该头的RuntimeVersion，并只返回固定字段。GitHub不持有Access凭据，也不依赖本机Keychain、浏览器会话或P2P `30333`。
 - 不增加 `Everyone`、交互式 `Allow` 或 `Bypass`，也不把令牌、Tunnel token 或完整私有 URL 写入仓库、安装包、日志或命令文档。
 
-本仓 `scripts/config.mjs` 只声明软件产品需求：协议升级的冷签公钥和创世块哈希由 `rtupg` 范围声明。权威与权益节点是使用本产品的部署实例，不作为产品配置需求；控制台节点管理从本仓既有机构目录读取节点身份，按准确节点ID管理服务器地址、节点身份、验证和SSH运维输入，值由控制台安全层保管与授权。本仓Build不声明节点配置字段。控制台“测试 · macOS”按本仓 `scripts/publish.mjs` 公开清单执行既有Build与发布Node回归，不启动产品编译。
+本仓 `scripts/config.mjs` 只声明软件产品需求：协议升级的冷签公钥和创世块哈希由 `rtupg` 范围声明。权威与权益节点是使用本产品的部署实例，不作为产品配置需求；控制台节点管理从本仓既有机构目录读取节点身份，按准确节点ID管理服务器地址、节点身份、验证和SSH运维输入，值由控制台安全层保管与授权。本仓Build不声明节点配置字段。控制台编译任务先按本仓 `scripts/build.mjs` 公开清单执行既有Build与发布Node回归，通过后才进入产品构建。
 
 服务器部署顺序：
 
@@ -2733,7 +2735,7 @@ Node开发页和HMR仅允许HTTPS/WSS；开发及预览必须提供完整匹配�
 
 ## 本机编辑器依赖解析
 
-源码工程直接读取各自package.json及原始package-lock.json。OnChina直接使用的图标包与dayjs分别固定5.6.1与1.11.19，不依赖其它包的间接声明。依赖归档仍按锁定完整性进入唯一依赖库，安装树归源码外工作目录；正式源码的node_modules只保留Git忽略的本机解析链接，TypeScript从正式源码检查实际业务类型。源码与Runtime不复制、不移动，依赖解析恢复不启动应用、TLS服务或链编译。
+源码工程直接读取各自package.json及原始package-lock.json。OnChina直接使用的图标包与dayjs分别固定5.6.1与1.11.19，不依赖其它包的间接声明。依赖归档仍按锁定完整性进入唯一依赖库，安装树归源码外工作目录；正式源码不设置node_modules解析链接；TypeScript从正式源码检查业务类型，并由配置读取本仓target/node_modules共享编辑器依赖。源码与Runtime不复制、不移动，依赖解析恢复不启动应用、TLS服务或链编译。
 
 Node和OnChina的本仓file依赖使用npm锁文件原生link条目，并登记../../crates/scanner的准确包元数据；禁止用缺少本仓目标条目的打包归档条目代替本仓链接，默认npm ci按原锁离线安装成功。
 
@@ -2866,7 +2868,7 @@ Start只接受当前产品声明所对应平台target内的真实App目录；拒
 
 ## 本机固定执行目录
 
-生成工作边界仅为 `<本仓根>/target`，直属只允许build、test两个固定目录；build用于本机编译，test用于测试，不建立平台、ci、release、publish或tmp固定目录。整个target必须忽略，并从源码复制、快照、摘要、资料门禁及打包输入中排除；源码中不得保留其它编译目录、工具缓存或生成视图。永久工具与依赖原件保留在源码外既有资源边界。
+生成工作边界仅为 `<本仓根>/target`，直属允许build、test两个固定任务目录与node_modules共享编辑器依赖目录；build用于本机编译，test用于测试，不建立平台、ci、release、publish或tmp固定目录。整个target必须忽略，并从源码复制、快照、摘要、资料门禁及打包输入中排除；源码中不得保留其它编译目录、工具缓存或生成视图。永久工具与依赖原件保留在源码外既有资源边界。
 
 每个任务仍绑定完整 `citizenchain.<platform>.<flow>` 身份。使用同一固定现场的任务必须串行领取；首个文件步骤先核对身份、规范真实路径、无链接父路径和活跃任务保护，取得准确现场短锁，清空旧现场并回读为空，失败立即终止。不同任务不得互清；Start和仓库操作不得借用编译或测试现场。
 
@@ -2906,7 +2908,7 @@ scripts/build.mjs是本产品唯一完整本机编译实现。独立执行由本
 - `.github/workflows/release-linux-amd.yml`及同名`.mjs`。
 - `.github/workflows/release-linux-arm.yml`及同名`.mjs`。
 - `.github/workflows/release-macos.yml`及同名`.mjs`。
-- `.github/workflows/release-wasm.yml`及同名`.mjs`。
+- `.github/workflows/wasm.yml`，WASM 自动化逻辑只在此文件内。
 - `.github/workflows/release-windows.yml`及同名`.mjs`。
 
 每个目标的最后任务使用always读取所有前置结果：全部成功清本仓本目标旧成功，否则清旧失败并失败退出。仅保留最新成功、最新失败各一条；保护本次Run和所有活动任务，另一类结果与其他目标不受影响。删除关联正式Release、tag、Actions产物和Run后回查；任何清理错误都按实际失败报告，不自动重试。
@@ -2919,7 +2921,7 @@ Windows LLVM准备步骤用Bash的`GITHUB_ENV`语法交付库路径；Windows工
 
 Windows Release在PowerShell组包步骤把固定安装包名称的`.exe`结尾替换为本轮软件版本后缀，再从Cargo输出复制安装包；下一步使用该包在`RUNNER_TEMP`下的绝对路径直接调用Tauri签名器，不把绝对路径接到GitHub检出根。
 
-WASM Release的`prepare`由`.github/workflows/release-wasm.mjs`固定GET`https://www.crcfrcn.com/api/chain/runtime-target`，只接受公民服务端返回的块0哈希、finalized头、`spec_version`与`spec_name`四个准确字段；回读块0哈希须等于`runtime/primitives/src/genesis.rs`唯一冻结常量，候选版本至少高于当前finalized的`spec_version`。公民服务端自身经Access/Tunnel只读查询正式链，GitHub不配置Cloudflare URL、ID或Secret，不能选择任意RPC方法。读取失败、错链或错误版本直接使Release准备失败。
+WASM Release的版本准备由`.github/workflows/wasm.yml`固定GET`https://www.crcfrcn.com/api/chain/runtime-target`，只接受公民服务端返回的块0哈希、finalized头、`spec_version`与`spec_name`四个准确字段；回读块0哈希须等于`runtime/primitives/src/genesis.rs`唯一冻结常量，候选版本至少高于当前finalized的`spec_version`。公民服务端自身经Access/Tunnel只读查询正式链，GitHub不配置Cloudflare URL、ID或Secret，不能选择任意RPC方法。读取失败、错链或错误版本直接使Release准备失败。
 候选版本同时计入本平台已有成功Release的版本：`citizenChainRelease`已按WASM Tag识别平台并核对Tag提交，历史收集仅继续核对对应Run成功及工作流身份，不读取其返回对象中不存在的`platform`字段；草稿、预发布、其他平台和失败Run不进入版本集合。
 
 所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
@@ -2966,3 +2968,7 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 节点岗位权限测试的 JSON 夹具由 `node` 包相对本仓 `runtime/primitives/tests/fixtures/role_permission.json` 读取；该路径在正式源码和产品 `target/build` 工程视图中一致。此变更仅涉及 `cfg(test)` 的夹具定位，不改变节点或 Runtime 的生产逻辑。
 
 门禁清理接口只对 URL 的路径部分拒绝越界，允许 created 查询中的时间范围分隔符；同文件回归直接执行正式 HTTP 参数校验，覆盖时间范围和越界拒绝。
+
+## 编辑器固定依赖目录
+
+编辑器依赖统一使用本仓target/node_modules。三个前端工程的TypeScript配置读取该目录；直接依赖按各自package.json和原始package-lock.json核对，相同包共用，内部不同版本保留标准嵌套依赖。准备复用scripts/build.mjs的editorResources，在准确build/test现场下载与安全解包，原锁不改写；候选完整后替换共享安装树，失败保留上一完整安装树。共享准备串行，活动领取锁不得强行删除。build/test的领取、结果消费和收尾只清理本任务，保留共享安装树；编辑器入口准备完成后释放test，不随编辑器退出清除共享依赖。编译和测试仍按各自原锁使用独立现场，未以共享编辑器依赖替换执行闭包。target继续整体Git忽略并排除出源码视图和安装包输入。验证状态见唯一任务卡。

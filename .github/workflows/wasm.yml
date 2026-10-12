@@ -1,0 +1,196 @@
+name: citizenchain.wasm
+run-name: "${{ github.workflow }} · ${{ github.run_number }}"
+on:
+  workflow_dispatch:
+concurrency:
+  group: "${{ github.repository }}-wasm"
+  cancel-in-progress: false
+permissions:
+  contents: write
+  actions: read
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: "${{ github.token }}"
+      CARGO_INCREMENTAL: '0'
+      WASM_BUILD_FROM_SOURCE: '1'
+      CITIZENCHAIN_PRODUCTION_WASM_BUILD: '1'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: "${{ github.sha }}"
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 25.2.1
+      - name: 准备本次 Runner 独占现场
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/citizenchain-wasm-target" >> "$GITHUB_ENV"
+          echo "CARGO_HOME=$RUNNER_TEMP/citizenchain-wasm-cargo" >> "$GITHUB_ENV"
+          echo "RELEASE_ASSETS_DIR=$RUNNER_TEMP/citizenchain-wasm-target/release/wbuild/citizenchain" >> "$GITHUB_ENV"
+      - id: version
+        name: 核对正式链并确定版本
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = crcfrcn/citizenchain
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          from pathlib import Path
+
+          def read_json(url, token=None):
+              headers = {'Accept': 'application/vnd.github+json' if token else 'application/json'}
+              if token:
+                  headers['Authorization'] = 'Bearer ' + token
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  if response.url != url or response.status != 200:
+                      raise SystemExit('正式目标发生重定向或读取失败')
+                  body = response.read(131073)
+                  if len(body) > 131072:
+                      raise SystemExit('正式目标响应超限')
+                  return json.loads(body)
+
+          chain = read_json('https://www.crcfrcn.com/api/chain/runtime-target')
+          if set(chain) != {'finalized_head', 'genesis_hash', 'spec_name', 'spec_version'}:
+              raise SystemExit('正式链目标字段无效')
+          if chain['spec_name'] != 'citizenchain' or type(chain['spec_version']) is not int or not 0 <= chain['spec_version'] < 2**32:
+              raise SystemExit('正式链目标版本无效')
+          if not all(re.fullmatch(r'0x[0-9a-f]{64}', chain[key]) for key in ('genesis_hash', 'finalized_head')):
+              raise SystemExit('正式链目标哈希无效')
+          genesis = Path('runtime/primitives/src/genesis.rs').read_text()
+          frozen = re.findall(r'pub const GENESIS_HASH:\s*\[u8;\s*32\]\s*=\s*hex_literal::hex!\("([0-9a-f]{64})"\);', genesis)
+          if len(frozen) != 1 or chain['genesis_hash'] != '0x' + frozen[0]:
+              raise SystemExit('正式链创世身份不符')
+          source = Path('runtime/src/lib.rs').read_text()
+          seed = re.findall(r'(?m)^\s*spec_version:\s*(\d+)\s*,\s*$', source)
+          if len(seed) != 1:
+              raise SystemExit('Runtime 版本真源不唯一')
+          versions = [int(seed[0]), chain['spec_version'] + 1, 1]
+          token = os.environ['GH_TOKEN']
+          for page in range(1, 1000):
+              releases = read_json(f'https://api.github.com/repos/crcfrcn/citizenchain/releases?per_page=100&page={page}', token)
+              if not isinstance(releases, list):
+                  raise SystemExit('GitHub Release 列表无效')
+              for release in releases:
+                  if release.get('draft') or release.get('prerelease'):
+                      continue
+                  match = re.fullmatch(r'citizenchain-wasm-v([1-9][0-9]*)-r[1-9][0-9]*-a[1-9][0-9]*', release.get('tag_name', ''))
+                  if match:
+                      versions.append(int(match[1]) + 1)
+              if len(releases) < 100:
+                  break
+          else:
+              raise SystemExit('正式版本分页超限')
+          version = max(versions)
+          if version >= 2**32:
+              raise SystemExit('Runtime 版本越界')
+          tag = f"citizenchain-wasm-v{version}-r{os.environ['GITHUB_RUN_ID']}-a{os.environ['GITHUB_RUN_ATTEMPT']}"
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\ntag={tag}\n')
+          PY
+      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
+        with:
+          toolchain: 1.97.1
+          targets: wasm32v1-none
+          components: rust-src, clippy
+      - name: 安装编译依赖与固定 protoc
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang llvm llvm-dev libclang-dev libpam0g-dev libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev pkg-config patchelf file unzip
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip
+          echo 'a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc  '"$RUNNER_TEMP/protoc.zip" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/protoc"
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc" >> "$GITHUB_ENV"
+      - name: 将本次版本写入独立 Runner 源码视图
+        env:
+          RELEASE_VERSION: "${{ steps.version.outputs.version }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          version = int(os.environ['RELEASE_VERSION'])
+          if not 0 < version < 2**32:
+              raise SystemExit('Runtime 版本无效')
+          for filename, pattern, replacement in (
+              ('runtime/src/lib.rs', r'(?m)^(\s*spec_version:\s*)\d+(\s*,\s*)$', lambda m: m[1] + str(version) + m[2]),
+              ('runtime/src/tests/cases.rs', r'assert_eq!\(VERSION\.spec_version,\s*\d+\);', lambda m: f'assert_eq!(VERSION.spec_version, {version});'),
+          ):
+              path = Path(filename)
+              source = path.read_text()
+              changed, count = re.subn(pattern, replacement, source)
+              if count != 1:
+                  raise SystemExit(f'{filename} 版本位置不唯一')
+              path.write_text(changed)
+          PY
+      - name: 校验与编译正式 WASM
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo --config "$GITHUB_WORKSPACE/config.toml" metadata --locked --no-deps --format-version 1 >/dev/null
+          cargo --config "$GITHUB_WORKSPACE/config.toml" clippy --locked -p citizenchain --no-default-features --features std -- -D warnings
+          cargo --config "$GITHUB_WORKSPACE/config.toml" build --locked --release -p citizenchain --no-default-features --features std
+          cargo --config "$GITHUB_WORKSPACE/config.toml" test --locked -p node current_wasm_passes_candidate_runtime_policy_behavior_probes -- --nocapture
+      - name: 创建并回读正式版
+        env:
+          RELEASE_VERSION: "${{ steps.version.outputs.version }}"
+          RELEASE_TAG: "${{ steps.version.outputs.tag }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RELEASE_TAG" = "citizenchain-wasm-v${RELEASE_VERSION}-r${GITHUB_RUN_ID}-a${GITHUB_RUN_ATTEMPT}"
+          for name in citizenchain.wasm citizenchain.compact.wasm citizenchain.compact.compressed.wasm; do
+            test -s "$RELEASE_ASSETS_DIR/$name"
+          done
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          file = Path(os.environ['RELEASE_ASSETS_DIR']) / 'citizenchain.compact.compressed.wasm'
+          if file.stat().st_size > 5 * 1024 * 1024:
+              raise SystemExit('开发升级 WASM 超过 5 MiB')
+          PY
+          gh release create "$RELEASE_TAG" \
+            "$RELEASE_ASSETS_DIR/citizenchain.wasm" \
+            "$RELEASE_ASSETS_DIR/citizenchain.compact.wasm" \
+            "$RELEASE_ASSETS_DIR/citizenchain.compact.compressed.wasm" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "citizenchain · wasm · $RELEASE_VERSION" \
+            --notes "GitHub 自动化正式 WASM；源码 $GITHUB_SHA；Run $GITHUB_RUN_ID。" \
+            --latest=false
+          python3 - <<'PY'
+          import hashlib, json, os, urllib.request
+          from pathlib import Path
+          tag = os.environ['RELEASE_TAG']
+          url = f'https://api.github.com/repos/crcfrcn/citizenchain/releases/tags/{tag}'
+          request = urllib.request.Request(url, headers={
+              'Accept': 'application/vnd.github+json',
+              'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+          })
+          with urllib.request.urlopen(request, timeout=15) as response:
+              release = json.load(response)
+          names = {'citizenchain.wasm', 'citizenchain.compact.wasm', 'citizenchain.compact.compressed.wasm'}
+          if release.get('draft') or release.get('prerelease') or release.get('target_commitish') != os.environ['GITHUB_SHA']:
+              raise SystemExit('正式 Release 身份回读失败')
+          assets = release.get('assets', [])
+          if {asset.get('name') for asset in assets} != names or len(assets) != 3:
+              raise SystemExit('正式 WASM 资产集合无效')
+          for asset in assets:
+              path = Path(os.environ['RELEASE_ASSETS_DIR']) / asset['name']
+              digest = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
+              if asset.get('state') != 'uploaded' or asset.get('size') != path.stat().st_size or asset.get('digest') != digest:
+                  raise SystemExit(f"正式 WASM 资产回读失败：{asset['name']}")
+          PY

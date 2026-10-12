@@ -90,7 +90,7 @@ fn github_entry_only_runs_product_ci_and_release() -> Result<(), Box<dyn Error>>
         .filter(|entry| entry.path().is_file())
         .map(|entry| entry.file_name().to_string_lossy().to_string())
         .collect::<Vec<_>>();
-    assert_eq!(entries.len(), 11);
+    assert_eq!(entries.len(), 5);
     let forbidden = [
         ["TATA", "_CONSOLE"].concat(),
         ["Tata", "Console"].concat(),
@@ -108,15 +108,8 @@ fn github_entry_only_runs_product_ci_and_release() -> Result<(), Box<dyn Error>>
                 "Workflow包含禁止边界：{value}"
             );
         }
-        if entry == "tatagate.yml" {
-            assert!(workflow.contains("  gate:"));
-            assert!(workflow.contains("  push:"));
-            assert!(workflow.contains("branches: [main]"));
-            assert!(!workflow.contains("workflow_dispatch:"));
-        } else {
-            assert!(workflow.contains("  flow:"));
-            assert!(workflow.contains("workflow_dispatch:"));
-        }
+        assert!(workflow.contains("  flow:"));
+        assert!(workflow.contains("workflow_dispatch:"));
     }
     Ok(())
 }
@@ -136,7 +129,6 @@ fn product_sources_do_not_depend_on_the_control_program() -> Result<(), Box<dyn 
     let mut violations = Vec::new();
     for path in files {
         if path.starts_with(&protected_runtime)
-            || path == root.join(".github/tatagate/tatagate.mjs")
             || path == root.join("crates/protocol/tests/repo_guard.rs")
             || !source_file(&path)
         {
@@ -280,7 +272,7 @@ fn only_qr_v1_is_versioned() -> Result<(), Box<dyn Error>> {
     let prefix = ["QR", "_V"].concat();
     let mut violations = Vec::new();
     for path in files {
-        if !source_file(&path) || path == root.join(".github/tatagate/tatagate.mjs") {
+        if !source_file(&path) {
             continue;
         }
         let source = fs::read_to_string(&path)

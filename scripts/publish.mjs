@@ -6,8 +6,6 @@ import {resolve} from 'node:path';
 
 const repository='crcfrcn/citizenchain';
 // 控制台调度仍执行本仓原有Build与发布入口内联测试，产品自行给出准确清单。
-export function testFiles(){return ['scripts/build.mjs','scripts/publish.mjs'];}
-export function testTools(){return [];}
 const platforms=Object.freeze({
  macos:['*.dmg'],
  windows:['*.exe'],
@@ -39,7 +37,7 @@ export function publicationPlan(platform,release,reference,run){
  const identity=publicationIdentity(platform,release?.tag_name);
  if(!positive(release?.id)||release.draft!==false||release.prerelease!==false||!release.published_at)fail('Release未正式发布');
  if(reference?.ref!=='refs/tags/'+identity.tag||reference.object?.type!=='commit'||!sha.test(reference.object.sha||''))fail('正式Tag提交无效');
- const workflow='.github/workflows/release-'+platform+'.yml';
+ const workflow=platform==='wasm'?'.github/workflows/wasm.yml':'.github/workflows/release-'+platform+'.yml';
  if(run?.id!==identity.run_id||run.run_attempt!==identity.run_attempt||run.status!=='completed'||run.conclusion!=='success'
   ||run.event!=='workflow_dispatch'||run.head_branch!=='main'||run.head_sha!==reference.object.sha
   ||run.repository?.full_name!==repository||![workflow,workflow+'@main'].includes(run.path))fail('自动化成功证明不属于本次Release');
@@ -107,7 +105,7 @@ if(testing){
  const reference={ref:'refs/tags/'+tag,object:{type:'commit',sha:shaValue}};
  const run={id:12,run_attempt:1,status:'completed',conclusion:'success',event:'workflow_dispatch',head_branch:'main',head_sha:shaValue,
   repository:{full_name:repository},path:'.github/workflows/release-macos.yml@main'};
- test('已完成的准确Release形成独立待分发清单',()=>{assert.deepEqual(testFiles(),['scripts/build.mjs','scripts/publish.mjs']);assert.deepEqual(testTools(),[]);const result=publicationPlan('macos',release,reference,run);assert.equal(result.assets[0].sha256,'b'.repeat(64));assert.equal(result.source_sha,shaValue);});
+ test('已完成的准确Release形成独立待分发清单',()=>{const result=publicationPlan('macos',release,reference,run);assert.equal(result.assets[0].sha256,'b'.repeat(64));assert.equal(result.source_sha,shaValue);});
  test('错误运行、草稿、缺件和重复产物均拒绝',()=>{
   assert.throws(()=>publicationPlan('macos',release,reference,{...run,conclusion:'failure'}),/成功证明/);
   assert.throws(()=>publicationPlan('macos',{...release,draft:true},reference,run),/未正式发布/);
