@@ -31,9 +31,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/citizenchain-wasm-target" >> "$GITHUB_ENV"
           echo "CARGO_HOME=$RUNNER_TEMP/citizenchain-wasm-cargo" >> "$GITHUB_ENV"
-          echo "RELEASE_ASSETS_DIR=$RUNNER_TEMP/citizenchain-wasm-target/release/wbuild/citizenchain" >> "$GITHUB_ENV"
+          echo "RELEASE_ASSETS_DIR=$GITHUB_WORKSPACE/target/build/wasm" >> "$GITHUB_ENV"
       - id: version
         name: 核对正式链并确定版本
         shell: bash
@@ -143,54 +142,28 @@ jobs:
           set -euo pipefail
           cargo --config "$GITHUB_WORKSPACE/config.toml" metadata --locked --no-deps --format-version 1 >/dev/null
           cargo --config "$GITHUB_WORKSPACE/config.toml" clippy --locked -p citizenchain --no-default-features --features std -- -D warnings
-          cargo --config "$GITHUB_WORKSPACE/config.toml" build --locked --release -p citizenchain --no-default-features --features std
+          node scripts/build.mjs ci-build wasm > "$RUNNER_TEMP/citizenchain-wasm-build-result.json"
           cargo --config "$GITHUB_WORKSPACE/config.toml" test --locked -p node current_wasm_passes_candidate_runtime_policy_behavior_probes -- --nocapture
-      - name: 创建并回读正式版
+      - name: 创建并回读正式 WASM GitHub Release
         env:
           RELEASE_VERSION: "${{ steps.version.outputs.version }}"
           RELEASE_TAG: "${{ steps.version.outputs.tag }}"
         shell: bash
         run: |
           set -euo pipefail
-          test "$RELEASE_TAG" = "citizenchain-wasm-v${RELEASE_VERSION}-r${GITHUB_RUN_ID}-a${GITHUB_RUN_ATTEMPT}"
-          for name in citizenchain.wasm citizenchain.compact.wasm citizenchain.compact.compressed.wasm; do
-            test -s "$RELEASE_ASSETS_DIR/$name"
-          done
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          file = Path(os.environ['RELEASE_ASSETS_DIR']) / 'citizenchain.compact.compressed.wasm'
-          if file.stat().st_size > 5 * 1024 * 1024:
-              raise SystemExit('开发升级 WASM 超过 5 MiB')
-          PY
-          gh release create "$RELEASE_TAG" \
-            "$RELEASE_ASSETS_DIR/citizenchain.wasm" \
-            "$RELEASE_ASSETS_DIR/citizenchain.compact.wasm" \
-            "$RELEASE_ASSETS_DIR/citizenchain.compact.compressed.wasm" \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "citizenchain · wasm · $RELEASE_VERSION" \
-            --notes "GitHub 自动化正式 WASM；源码 $GITHUB_SHA；Run $GITHUB_RUN_ID。" \
-            --latest=false
-          python3 - <<'PY'
-          import hashlib, json, os, urllib.request
-          from pathlib import Path
-          tag = os.environ['RELEASE_TAG']
-          url = f'https://api.github.com/repos/crcfrcn/citizenchain/releases/tags/{tag}'
-          request = urllib.request.Request(url, headers={
-              'Accept': 'application/vnd.github+json',
-              'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
-          })
-          with urllib.request.urlopen(request, timeout=15) as response:
-              release = json.load(response)
-          names = {'citizenchain.wasm', 'citizenchain.compact.wasm', 'citizenchain.compact.compressed.wasm'}
-          if release.get('draft') or release.get('prerelease') or release.get('target_commitish') != os.environ['GITHUB_SHA']:
-              raise SystemExit('正式 Release 身份回读失败')
-          assets = release.get('assets', [])
-          if {asset.get('name') for asset in assets} != names or len(assets) != 3:
-              raise SystemExit('正式 WASM 资产集合无效')
-          for asset in assets:
-              path = Path(os.environ['RELEASE_ASSETS_DIR']) / asset['name']
-              digest = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
-              if asset.get('state') != 'uploaded' or asset.get('size') != path.stat().st_size or asset.get('digest') != digest:
-                  raise SystemExit(f"正式 WASM 资产回读失败：{asset['name']}")
-          PY
+          plan="$GITHUB_WORKSPACE/target/build/wasm/release-plan.json"
+          tag="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.tag)' "$plan")"
+          notes="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.notes)' "$plan")"
+          test "$tag" = "$RELEASE_TAG"
+          test "$tag" = "citizenchain-wasm-v${RELEASE_VERSION}-r${GITHUB_RUN_ID}-a${GITHUB_RUN_ATTEMPT}"
+          file="$GITHUB_WORKSPACE/target/build/wasm/citizenchain.compact.compressed.wasm"
+          test -s "$file" && test "$(wc -c < "$file")" -le 5242880
+          assets="$GITHUB_WORKSPACE/target/build/wasm/release-assets"
+          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "citizenchain · wasm · $RELEASE_VERSION" --notes-file "$notes" --draft --latest=false
+          node scripts/build.mjs ci-verify-release wasm draft
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
+          node scripts/build.mjs ci-verify-release wasm published
+      - name: 清理本平台编译现场
+        if: always()
+        shell: bash
+        run: node scripts/build.mjs finish wasm

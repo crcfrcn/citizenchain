@@ -1,0 +1,68 @@
+name: citizenchain.windows
+run-name: "${{ github.workflow }} · ${{ github.run_number }}"
+on:
+  workflow_dispatch:
+concurrency:
+  group: "${{ github.repository }}-windows"
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2025
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: "${{ github.token }}"
+      TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: "${{ github.sha }}"
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 25.2.1
+      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
+        with:
+          toolchain: 1.97.1
+          targets: x86_64-pc-windows-msvc
+          components: rust-src, clippy
+      - name: 准备 Windows 节点依赖和官方 protoc
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'protoc.zip'
+          Invoke-WebRequest 'https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-win64.zip' -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd1cede9e308cc3eb072392af1c02ccae4bdd3d2f374ec2970dbd8cdfdaa91363') { throw 'protoc 摘要不符' }
+          $dir = Join-Path $env:RUNNER_TEMP 'protoc'
+          Expand-Archive $zip -DestinationPath $dir
+          if (-not (Test-Path (Join-Path $env:PGROOT 'bin\initdb.exe'))) { throw 'Runner 缺少 PostgreSQL 17 原件' }
+          "PROTOC=$(Join-Path $dir 'bin\protoc.exe')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CITIZENCHAIN_PG_DIST=$env:PGROOT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LIBCLANG_PATH=$env:PROGRAMFILES\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: 编译并验收 Windows 安装包
+        shell: pwsh
+        run: |
+          node scripts/build.mjs ci-build windows | Out-File -FilePath (Join-Path $env:RUNNER_TEMP 'citizenchain-build-result.json') -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 创建并回读 Windows GitHub Release
+        shell: pwsh
+        run: |
+          $plan = Get-Content 'target/build/windows/release-plan.json' -Raw | ConvertFrom-Json
+          $assets = @(Get-ChildItem $plan.directory -File | ForEach-Object { $_.FullName })
+          gh release create $plan.tag @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "citizenchain · windows · $($plan.tag)" --notes-file $plan.notes --draft --latest=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/build.mjs ci-verify-release windows draft
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release edit $plan.tag --repo $env:GITHUB_REPOSITORY --draft=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/build.mjs ci-verify-release windows published
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 清理本平台编译现场
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path 'target/build/windows') { node scripts/build.mjs finish windows; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }

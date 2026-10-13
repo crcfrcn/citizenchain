@@ -21,6 +21,34 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// 节点部署为独立链下批准，固定身份与签名域不会误入发布或链交易。
+#[test]
+fn node_deploy_intent_round_trip_and_rejects_cross_target_or_suffix() {
+    use qr_protocol::{decode_node_deploy_intent, encode_node_deploy_intent,
+        node_deploy_signing_preimage, NodeDeployIntent, NodeDeployKind, NODE_DEPLOY_SIGNING_DOMAIN};
+    let intent = NodeDeployIntent {
+        kind: NodeDeployKind::Authority,
+        node_id: "prczss".into(), server_ip: "192.0.2.10".into(),
+        version_tag: "citizenchain-v1".into(), source_sha: [0x11; 20],
+        artifact_sha256: [0x22; 32], task_id: "123456789".into(),
+        expires_at: 1_800_000_000, nonce: [0x33; 32],
+    };
+    let encoded = encode_node_deploy_intent(&intent).expect("准确节点批准可编码");
+    assert_eq!(encoded.len(), 149);
+    assert_eq!(decode_node_deploy_intent(&encoded).expect("可回读"), intent);
+    let preimage = node_deploy_signing_preimage(&encoded).expect("可构造独立签名域");
+    assert!(preimage.starts_with(NODE_DEPLOY_SIGNING_DOMAIN));
+    assert_eq!(&preimage[NODE_DEPLOY_SIGNING_DOMAIN.len()..], encoded.as_slice());
+    let mut suffix = encoded.clone(); suffix.push(0);
+    assert!(decode_node_deploy_intent(&suffix).is_err());
+    let mut wrong_kind = encoded.clone(); wrong_kind[1 + b"citizenchain".len()] = 3;
+    assert!(decode_node_deploy_intent(&wrong_kind).is_err());
+    let mut wrong_product = encoded.clone(); wrong_product[1] = b'x';
+    assert!(decode_node_deploy_intent(&wrong_product).is_err());
+    let mut wrong_ip = intent.clone(); wrong_ip.server_ip = "192.0.2.11".into();
+    assert_ne!(encode_node_deploy_intent(&wrong_ip).expect("另一目标也可编码"), encoded);
+}
+
 fn fixtures_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }

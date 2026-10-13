@@ -77,6 +77,14 @@
   field_label_zh: 上一部署编号
 - field_key: nonce
   field_label_zh: 一次性随机数
+- field_key: deployment_kind
+  field_label_zh: 节点类别
+- field_key: node_id
+  field_label_zh: 节点编号
+- field_key: server_ip
+  field_label_zh: 目标服务器 IP
+- field_key: task_id
+  field_label_zh: 控制台任务编号
 - field_key: expected_binding_revision
   field_label_zh: 预期绑定版本
 - field_key: expected_price_fen

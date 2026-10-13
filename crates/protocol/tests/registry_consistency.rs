@@ -85,6 +85,19 @@ fn actions_have_unique_keys_codes_and_chinese_labels() {
     }
 }
 
+#[test]
+fn node_deploy_is_offchain_and_has_distinct_review_fields() {
+    let action = actions().expect("动作登记可解析").into_iter()
+        .find(|row| row.action_key == "node_deploy").expect("节点部署动作存在");
+    assert_eq!(action.action_code, 16);
+    assert_eq!(action.kind, qr_protocol::registry::ActionKind::OffchainSign);
+    assert_eq!(action.signing_category, SigningCategory::NodeDeploy);
+    assert!(!action.hash_only_allowed);
+    for field in ["deployment_kind", "node_id", "server_ip", "task_id", "artifact_sha256"] {
+        assert!(action.required_fields.contains(&field.to_string()));
+    }
+}
+
 /// 自助占号必须是完整链交易，并与现有Runtime call5保持唯一动作登记。
 #[test]
 fn self_occupy_cid_is_a_full_chain_transaction() {
@@ -253,7 +266,7 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "c7ce2f501a02a52739438b39668c1d06a07772ef1c9b3f82a173482e360122e6",
+        "f8e85759db9cf402a1153e1e41922156716b08edb7a1b224ed23cb7a05efc1d4",
         "Dart registry 与保留的原消费者完整字节不一致"
     );
 }

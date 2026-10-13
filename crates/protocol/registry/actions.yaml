@@ -130,6 +130,29 @@
     - expires_at
     - nonce
 
+# 节点部署是链下批准，不是 Runtime 交易；冷钱包须独立展示节点与服务器目标。
+- action_key: node_deploy
+  action_code: 16
+  action_label_zh: 节点部署批准
+  kind: offchain_sign
+  qr_kind: sign_request
+  pallet:
+  call:
+  decoder: node_deploy
+  hash_only_allowed: false
+  signing_category: node_deploy
+  required_fields:
+    - product_id
+    - deployment_kind
+    - node_id
+    - server_ip
+    - version_tag
+    - source_sha
+    - artifact_sha256
+    - task_id
+    - expires_at
+    - nonce
+
 - action_key: onchina_admin_action
   action_code: 3
   action_label_zh: 链上中国管理员确认

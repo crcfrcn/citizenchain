@@ -1,0 +1,70 @@
+name: citizenchain.linux-amd
+run-name: "${{ github.workflow }} · ${{ github.run_number }}"
+on:
+  workflow_dispatch:
+concurrency:
+  group: "${{ github.repository }}-linux-amd"
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: "${{ github.token }}"
+      TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: "${{ github.sha }}"
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 25.2.1
+      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
+        with:
+          toolchain: 1.97.1
+          targets: x86_64-unknown-linux-gnu
+          components: rust-src, clippy
+      - name: 准备 Linux 节点依赖和官方 protoc
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang llvm-dev libclang-dev libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev pkg-config patchelf file unzip postgresql-16 postgresql-server-dev-16
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/protoc.zip" "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip"
+          echo 'a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc  '"$RUNNER_TEMP/protoc.zip" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/protoc" "$RUNNER_TEMP/pg-dist/bin" "$RUNNER_TEMP/pg-dist/lib" "$RUNNER_TEMP/pg-dist/share"
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          cp -a "$(pg_config --bindir)/." "$RUNNER_TEMP/pg-dist/bin/"
+          cp -a "$(pg_config --pkglibdir)/." "$RUNNER_TEMP/pg-dist/lib/"
+          cp -a "$(pg_config --sharedir)/." "$RUNNER_TEMP/pg-dist/share/"
+          echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc" >> "$GITHUB_ENV"
+          echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-dist" >> "$GITHUB_ENV"
+      - name: 编译并验收本平台安装包
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build.mjs ci-build linux-amd > "$RUNNER_TEMP/citizenchain-build-result.json"
+      - name: 创建并回读本平台 GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          plan="$GITHUB_WORKSPACE/target/build/linux-amd/release-plan.json"
+          tag="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.tag)' "$plan")"
+          notes="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.notes)' "$plan")"
+          assets="$GITHUB_WORKSPACE/target/build/linux-amd/release-assets"
+          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "citizenchain · linux-amd · $tag" --notes-file "$notes" --draft --latest=false
+          node scripts/build.mjs ci-verify-release linux-amd draft
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
+          node scripts/build.mjs ci-verify-release linux-amd published
+      - name: 清理本平台编译现场
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "target/build/linux-amd" ]; then node scripts/build.mjs finish linux-amd; fi

@@ -7,8 +7,8 @@ import {resolve} from 'node:path';
 const repository='crcfrcn/citizenchain';
 // 控制台调度仍执行本仓原有Build与发布入口内联测试，产品自行给出准确清单。
 const platforms=Object.freeze({
- macos:['*.dmg'],
- windows:['*.exe'],
+ macos:['*.dmg','*.app.tar.gz','*.app.tar.gz.sig','citizenchain-node-latest-macOS.json'],
+ windows:['*.exe','*.exe.sig','citizenchain-node-latest-Windows.json'],
  'linux-arm':['*.deb','*.AppImage','*.AppImage.sig','citizenchain-node-latest-LinuxARM.json'],
  'linux-amd':['*.deb','*.AppImage','*.AppImage.sig','citizenchain-node-latest-LinuxAMD.json'],
  wasm:['citizenchain.wasm','citizenchain.compact.wasm','citizenchain.compact.compressed.wasm'],
@@ -37,7 +37,7 @@ export function publicationPlan(platform,release,reference,run){
  const identity=publicationIdentity(platform,release?.tag_name);
  if(!positive(release?.id)||release.draft!==false||release.prerelease!==false||!release.published_at)fail('Release未正式发布');
  if(reference?.ref!=='refs/tags/'+identity.tag||reference.object?.type!=='commit'||!sha.test(reference.object.sha||''))fail('正式Tag提交无效');
- const workflow=platform==='wasm'?'.github/workflows/wasm.yml':'.github/workflows/release-'+platform+'.yml';
+ const workflow='.github/workflows/'+({macos:'macos.yml',windows:'windows.yml','linux-arm':'linuxarm.yml','linux-amd':'linuxamd.yml',wasm:'wasm.yml'})[platform];
  if(run?.id!==identity.run_id||run.run_attempt!==identity.run_attempt||run.status!=='completed'||run.conclusion!=='success'
   ||run.event!=='workflow_dispatch'||run.head_branch!=='main'||run.head_sha!==reference.object.sha
   ||run.repository?.full_name!==repository||![workflow,workflow+'@main'].includes(run.path))fail('自动化成功证明不属于本次Release');
@@ -54,6 +54,15 @@ export function publicationPlan(platform,release,reference,run){
  for(const pattern of platforms[identity.platform]){
   if(assets.filter(asset=>matches(asset.name,pattern)).length!==1)fail('正式产物集合缺少唯一文件：'+pattern);
  }
+ const comments=typeof release.body==='string'?[...release.body.matchAll(/<!-- automation:(\{[^\n]*\}) -->/gu)]:[];
+ if(comments.length!==1)fail('正式Release缺少唯一自动化证明');
+ let proof;try{proof=JSON.parse(comments[0][1]);}catch{fail('正式Release自动化证明无效');}
+ if(proof.schema!==1||proof.repository!==repository||proof.product_id!=='citizenchain'||proof.platform!==platform
+  ||proof.workflow!==workflow||proof.run_id!==identity.run_id||proof.run_attempt!==identity.run_attempt
+  ||proof.source_sha!==reference.object.sha||proof.tag!==identity.tag||String(proof.version)!==identity.version
+  ||!Array.isArray(proof.assets)||proof.assets.length!==assets.length)fail('正式Release自动化证明身份不符');
+ for(const asset of assets){const candidates=proof.assets.filter(value=>value?.name===asset.name);
+  if(candidates.length!==1||candidates[0].size!==asset.size||candidates[0].sha256!==asset.sha256)fail('正式Release自动化证明资产不符');}
  return Object.freeze({schema:1,product_id:'citizenchain',repository,...identity,source_sha:reference.object.sha,
   release_id:release.id,assets:assets.sort((a,b)=>a.name.localeCompare(b.name))});
 }
@@ -100,17 +109,22 @@ if(direct&&!testing){
 if(testing){
  const {default:test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
  const tag='citizenchain-macos-v1.2.3-r12-a1',shaValue='a'.repeat(40),assetDigest='sha256:'+'b'.repeat(64);
- const release={id:3,tag_name:tag,draft:false,prerelease:false,published_at:'2026-10-10T00:00:00Z',assets:[{id:4,name:'citizenchain.dmg',state:'uploaded',size:8,digest:assetDigest,
-  browser_download_url:'https://github.com/'+repository+'/releases/download/'+tag+'/citizenchain.dmg'}]};
+ const asset=(name,id)=>({id,name,state:'uploaded',size:8,digest:assetDigest,
+  browser_download_url:'https://github.com/'+repository+'/releases/download/'+tag+'/'+name});
+ const release={id:3,tag_name:tag,draft:false,prerelease:false,published_at:'2026-10-10T00:00:00Z',assets:[
+  asset('citizenchain.dmg',4),asset('citizenchain.app.tar.gz',5),asset('citizenchain.app.tar.gz.sig',6),asset('citizenchain-node-latest-macOS.json',7)]};
  const reference={ref:'refs/tags/'+tag,object:{type:'commit',sha:shaValue}};
  const run={id:12,run_attempt:1,status:'completed',conclusion:'success',event:'workflow_dispatch',head_branch:'main',head_sha:shaValue,
-  repository:{full_name:repository},path:'.github/workflows/release-macos.yml@main'};
+  repository:{full_name:repository},path:'.github/workflows/macos.yml@main'};
+ release.body='<!-- automation:'+JSON.stringify({schema:1,repository,product_id:'citizenchain',platform:'macos',workflow:'.github/workflows/macos.yml',
+  run_id:12,run_attempt:1,source_sha:shaValue,tag,version:'1.2.3',assets:release.assets.map(value=>({name:value.name,size:value.size,sha256:assetDigest.slice(7)}))})+' -->';
  test('已完成的准确Release形成独立待分发清单',()=>{const result=publicationPlan('macos',release,reference,run);assert.equal(result.assets[0].sha256,'b'.repeat(64));assert.equal(result.source_sha,shaValue);});
  test('错误运行、草稿、缺件和重复产物均拒绝',()=>{
   assert.throws(()=>publicationPlan('macos',release,reference,{...run,conclusion:'failure'}),/成功证明/);
   assert.throws(()=>publicationPlan('macos',{...release,draft:true},reference,run),/未正式发布/);
   assert.throws(()=>publicationPlan('macos',{...release,assets:[]},reference,run),/产物缺失/);
   assert.throws(()=>publicationPlan('macos',{...release,assets:[...release.assets,...release.assets]},reference,run),/重复|身份/);
+  assert.throws(()=>publicationPlan('macos',{...release,body:'<!-- automation:{} -->'},reference,run),/证明身份/);
  });
  test('平台版本边界和只读API路径拒绝',async()=>{
   assert.throws(()=>publicationIdentity('wasm','citizenchain-wasm-v0-r1-a1'),/版本/);

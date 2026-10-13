@@ -9,11 +9,139 @@
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde_json::{Map, Value};
+use std::net::IpAddr;
 
 use crate::registry::{action_by_key, kind_by_code, QrFieldConstraint, QrKindEntry};
 
 /// 全仓唯一二维码协议标识。
 pub const QR_V1: &str = "QR_V1";
+
+/// 节点部署批准只在链下验签；前缀与现有 GMB 单字节 op_tag 域绝不重叠。
+pub const NODE_DEPLOY_SIGNING_DOMAIN: &[u8] = b"GMB\0TATA_NODE_DEPLOY_V1\0";
+const NODE_DEPLOY_PRODUCT: &[u8] = b"citizenchain";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeDeployKind {
+    Authority,
+    Stake,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeDeployIntent {
+    pub kind: NodeDeployKind,
+    pub node_id: String,
+    pub server_ip: String,
+    pub version_tag: String,
+    pub source_sha: [u8; 20],
+    pub artifact_sha256: [u8; 32],
+    pub task_id: String,
+    pub expires_at: u64,
+    pub nonce: [u8; 32],
+}
+
+fn node_deploy_error() -> CodecError {
+    CodecError::Schema("节点部署批准载荷无效".to_string())
+}
+
+fn node_deploy_text(value: &str, limit: usize, first_alnum: bool) -> Result<(), CodecError> {
+    let bytes = value.as_bytes();
+    if bytes.is_empty()
+        || bytes.len() > limit
+        || (first_alnum && !bytes[0].is_ascii_alphanumeric())
+        || !bytes.iter().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    {
+        return Err(node_deploy_error());
+    }
+    Ok(())
+}
+
+fn push_node_deploy_text(out: &mut Vec<u8>, value: &str, limit: usize) -> Result<(), CodecError> {
+    node_deploy_text(value, limit, true)?;
+    out.push(u8::try_from(value.len()).map_err(|_| node_deploy_error())?);
+    out.extend_from_slice(value.as_bytes());
+    Ok(())
+}
+
+/// 固定版本与长度前缀编码；身份、目标、版本、资产和一次性任务共同进入签名字节。
+pub fn encode_node_deploy_intent(intent: &NodeDeployIntent) -> Result<Vec<u8>, CodecError> {
+    node_deploy_text(&intent.node_id, 64, true)?;
+    node_deploy_text(&intent.version_tag, 64, true)?;
+    let ip: IpAddr = intent.server_ip.parse().map_err(|_| node_deploy_error())?;
+    if ip.to_string() != intent.server_ip
+        || intent.task_id.len() != 9
+        || intent.task_id.as_bytes()[0] == b'0'
+        || !intent.task_id.bytes().all(|b| b.is_ascii_digit())
+        || intent.expires_at == 0
+        || intent.source_sha.iter().all(|b| *b == 0)
+        || intent.artifact_sha256.iter().all(|b| *b == 0)
+        || intent.nonce.iter().all(|b| *b == 0)
+    {
+        return Err(node_deploy_error());
+    }
+    let mut out = Vec::with_capacity(256);
+    out.push(1);
+    out.extend_from_slice(NODE_DEPLOY_PRODUCT);
+    out.push(match intent.kind { NodeDeployKind::Authority => 1, NodeDeployKind::Stake => 2 });
+    push_node_deploy_text(&mut out, &intent.node_id, 64)?;
+    out.push(u8::try_from(intent.server_ip.len()).map_err(|_| node_deploy_error())?);
+    out.extend_from_slice(intent.server_ip.as_bytes());
+    push_node_deploy_text(&mut out, &intent.version_tag, 64)?;
+    out.extend_from_slice(&intent.source_sha);
+    out.extend_from_slice(&intent.artifact_sha256);
+    out.extend_from_slice(intent.task_id.as_bytes());
+    out.extend_from_slice(&intent.expires_at.to_le_bytes());
+    out.extend_from_slice(&intent.nonce);
+    Ok(out)
+}
+
+fn take_node_deploy<'a>(bytes: &'a [u8], pos: &mut usize, len: usize) -> Result<&'a [u8], CodecError> {
+    let end = pos.checked_add(len).ok_or_else(node_deploy_error)?;
+    let part = bytes.get(*pos..end).ok_or_else(node_deploy_error)?;
+    *pos = end;
+    Ok(part)
+}
+
+fn read_node_deploy_text(bytes: &[u8], pos: &mut usize, limit: usize) -> Result<String, CodecError> {
+    let len = usize::from(take_node_deploy(bytes, pos, 1)?[0]);
+    if len == 0 || len > limit { return Err(node_deploy_error()); }
+    let text = std::str::from_utf8(take_node_deploy(bytes, pos, len)?).map_err(|_| node_deploy_error())?;
+    Ok(text.to_string())
+}
+
+/// 离线审阅端必须消费全部字节，拒绝尾随数据与非规范 IP 文本。
+pub fn decode_node_deploy_intent(bytes: &[u8]) -> Result<NodeDeployIntent, CodecError> {
+    let mut pos = 0;
+    if take_node_deploy(bytes, &mut pos, 1)? != [1]
+        || take_node_deploy(bytes, &mut pos, NODE_DEPLOY_PRODUCT.len())? != NODE_DEPLOY_PRODUCT {
+        return Err(node_deploy_error());
+    }
+    let kind = match take_node_deploy(bytes, &mut pos, 1)?[0] {
+        1 => NodeDeployKind::Authority,
+        2 => NodeDeployKind::Stake,
+        _ => return Err(node_deploy_error()),
+    };
+    let node_id = read_node_deploy_text(bytes, &mut pos, 64)?;
+    let server_ip = read_node_deploy_text(bytes, &mut pos, 45)?;
+    let version_tag = read_node_deploy_text(bytes, &mut pos, 64)?;
+    let source_sha: [u8; 20] = take_node_deploy(bytes, &mut pos, 20)?.try_into().map_err(|_| node_deploy_error())?;
+    let artifact_sha256: [u8; 32] = take_node_deploy(bytes, &mut pos, 32)?.try_into().map_err(|_| node_deploy_error())?;
+    let task_id = std::str::from_utf8(take_node_deploy(bytes, &mut pos, 9)?).map_err(|_| node_deploy_error())?.to_string();
+    let expires_at = u64::from_le_bytes(take_node_deploy(bytes, &mut pos, 8)?.try_into().map_err(|_| node_deploy_error())?);
+    let nonce: [u8; 32] = take_node_deploy(bytes, &mut pos, 32)?.try_into().map_err(|_| node_deploy_error())?;
+    if pos != bytes.len() { return Err(node_deploy_error()); }
+    let result = NodeDeployIntent { kind, node_id, server_ip, version_tag, source_sha,
+        artifact_sha256, task_id, expires_at, nonce };
+    if encode_node_deploy_intent(&result)? != bytes { return Err(node_deploy_error()); }
+    Ok(result)
+}
+
+pub fn node_deploy_signing_preimage(payload: &[u8]) -> Result<Vec<u8>, CodecError> {
+    decode_node_deploy_intent(payload)?;
+    let mut value = Vec::with_capacity(NODE_DEPLOY_SIGNING_DOMAIN.len() + payload.len());
+    value.extend_from_slice(NODE_DEPLOY_SIGNING_DOMAIN);
+    value.extend_from_slice(payload);
+    Ok(value)
+}
 
 /// base64url 定长字段的解码失败原因。
 ///

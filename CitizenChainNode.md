@@ -2,11 +2,14 @@
 
 > 当前塔塔鹿鹿：每仓 `.github/tatalulu.yml` 只登记仓库身份；控制台 `.github/tatalulu.mjs` 保存并推送后，以 GitHub `main` 回查结果收口。本文早期推送触发检查记录仅供历史追溯。
 
-本产品编译任务使用本仓 `target/build/<平台>` 独立临时目录，平台键为 `macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。不同平台同时领取并执行；同平台已有活跃任务时立即拒绝再次领取。资源准备、工程副本、缓存和编译输出只写本平台现场；确认进程及后代退出、结果被调用方消费后，删除整个平台目录。`target/build` 仅是父目录，`target/test` 仍用于独立测试。独立执行和控制台调度调用同一本仓编译入口与清理接口。
+本产品编译任务使用本仓 `target/build/<平台>` 独立临时目录，平台键为 `macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。不同平台同时领取并执行；同平台已有活跃任务时立即拒绝再次领取。资源准备、工程副本、缓存和编译输出只写本平台现场；确认进程及后代退出、结果被调用方消费后，删除整个平台目录。`target/build` 仅是父目录，`target/test` 仍用于独立测试。直接运行 `scripts/build.mjs` 的 Node 回归时，本进程为测试夹具生成唯一 `target/test/sessions/<随机会话>/`，平台夹具位于其 `build/<平台>/`；测试子进程继承同一会话，退出时只按本产品守卫核验并清理该会话。正式编译与普通导入仍使用原固定根，测试不领取或清理其它编译任务。独立执行和控制台调度调用同一本仓编译入口与清理接口。
+
+完整 Build 在本产品资源回执之后由本仓运行 Node 回归，再进入工程准备；独立 QR Rust 回归在平台正式编译前执行。WASM 原编译工具集不含 Node，本仓为其测试阶段声明同一登记 Node 版本。控制台只调用本产品完整 Build 并按本仓需求供给资源，不选择测试文件或测试工具。
+合成阶段注入只在本仓测试上下文有效，正式完整 Build 必须执行上述测试。
 
 ## 工具与依赖的声明和供给职责（2026-10-08）
 
-本仓Build结果按节点能力确认：macOS交付与自身启动声明对应的唯一节点App；Windows、Linux和WASM本机目标只确认编译，不宣布正式节点安装包或Runtime发布完成。桌面启动在准备数据库前确认本仓macOS App和真实节点可执行文件，拒绝借用其它产品声明。
+本仓Build结果按节点能力确认：macOS交付唯一已验签节点App；仅控制台本机macOS编译任务在同一任务中安装、回读 `/Applications/CitizenChain.app`，GitHub自动化和其它平台不安装；Windows、Linux和WASM本机目标只确认编译，不宣布正式节点安装包或Runtime发布完成。macOS编译不启动节点，控制台不再提供独立启动动作。
 
 本产品完全独立管理全部流程所需的工具、依赖及其它资源需求。需求唯一依据为本仓源码、公开声明、锁文件及本产品拥有的准备配方，包括准确版本、平台、官方来源、摘要或固定提交、闭包、验真方式和失败条件；塔塔控制台按当前产品声明提供资源，不维护另一份产品需求或替产品决定版本、来源与流程步骤。
 
@@ -1122,7 +1125,7 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 - 本仓 GitHub WASM Release 只读取公民服务端既有公共域下固定的链身份GET响应；公民服务端Worker使用自身Access服务身份经同一Tunnel调用块0、finalized头与该头的RuntimeVersion，并只返回固定字段。GitHub不持有Access凭据，也不依赖本机Keychain、浏览器会话或P2P `30333`。
 - 不增加 `Everyone`、交互式 `Allow` 或 `Bypass`，也不把令牌、Tunnel token 或完整私有 URL 写入仓库、安装包、日志或命令文档。
 
-本仓 `scripts/config.mjs` 只声明软件产品需求：协议升级的冷签公钥和创世块哈希由 `rtupg` 范围声明。权威与权益节点是使用本产品的部署实例，不作为产品配置需求；控制台节点管理从本仓既有机构目录读取节点身份，按准确节点ID管理服务器地址、节点身份、验证和SSH运维输入，值由控制台安全层保管与授权。本仓Build不声明节点配置字段。控制台编译任务先按本仓 `scripts/build.mjs` 公开清单执行既有Build与发布Node回归，通过后才进入产品构建。
+本仓 `scripts/config.mjs` 只声明软件产品需求：`rtupg:NRC_PUBLIC_KEY` 是国储会现任管理员公钥，作为开发升级和节点实例部署批准的同一受保护信任锚，只存控制台 Touch ID Keychain；创世块哈希仍为公开配置。权威与权益节点是使用本产品的部署实例，不作为产品配置需求；控制台节点管理从本仓既有机构目录读取节点身份，按准确节点ID管理服务器地址、节点身份、验证和SSH运维输入，值由控制台安全层保管与授权。本仓Build不声明节点配置字段。控制台编译任务先按本仓 `scripts/build.mjs` 公开清单执行既有Build与发布Node回归，通过后才进入产品构建。
 
 服务器部署顺序：
 
@@ -2236,7 +2239,7 @@ CidByAccountId[account_id] -> cid_number
 - 第 8 步已完成 Cloudflare Worker、D1、KV、R2、Queues 和边缘协议统一，staging/production 旧业务数据按用户确认删除重建，并以真实 HTTP 和运行状态验收。
 - 第 9 步已完成当时的 外部调用方 协议升级公钥命名、严格校验、WASM 版本职责隔离和验收；
   只有本机状态、依赖、日志、产物和机密继续忽略。旧 Keychain target 已经单独确认后删除，
-  新 `NRC_SIGNER_PUBLIC_KEY` 由用户另行配置。
+  当前统一的 `NRC_PUBLIC_KEY` 由用户在受保护配置中另行录入。
 - 第 10 步已完成正式创世运行态总验收：节点、CitizenApp、Cloudflare 使用同一创世哈希
   和状态根，账户标识继续按本 ADR 执行；本次无资金回归没有产生交易或业务数据。
 
@@ -2772,11 +2775,11 @@ Pub/npm/Cargo按原始锁准备；Git按固定HTTPS提交检出，Git Cargo目�
 
 ### 第3步：产品完整Build入口（2026-10-06）
 
-本产品的正式完整入口为已锁定Node的绝对路径调用`<本仓根>/scripts/build.mjs execute <platform> --work <已存在绝对工作根>`，可选`--offline`。输入stdin可为空；调用方可传schema/product_id/platform/work及真实run_id/program_digest，禁止私有变量或执行命令。入口内部完成需求→资源→准备→再次需求/资源闭包→编译→适用签名/安装/回读；独立与控制台调用同一实现。最小引导Node只启动本产品的资源引导器，产品按自己的官方Node声明准备并重入，控制台运行Node不决定产品Node版本。
+本产品的正式完整入口为已锁定Node的绝对路径调用`<本仓根>/scripts/build.mjs execute <platform> --work <已存在绝对工作根>`，可选`--offline`。输入stdin可为空；调用方可传schema/product_id/platform/work及真实run_id/program_digest；控制台macOS编译任务另以准确 `local_install: true` 请求本机安装，GitHub自动化和其它平台不接受该值。禁止私有变量或执行命令。入口内部完成需求→资源→准备→再次需求/资源闭包→编译→适用签名/安装/回读；独立与控制台调用同一实现。最小引导Node只启动本产品的资源引导器，产品按自己的官方Node声明准备并重入，控制台运行Node不决定产品Node版本。
 
 标准输出只有唯一有界JSON：schema、product_id、platform、work、completion、files及可选真实run_id。completion沿用固定平台的device-install/macos-artifact/compile-only；files按本产品flows.json登记路径和SHA256。编译日志使用stderr进入现有任务日志，不新增资源任务或任务状态。完整结果只在各阶段成功、源码/锁不漂移、工具进程确认退出后落入本轮build-result.json；同根并发或复用旧结果拒绝，取消/失联/错误身份/损坏候选不得成功。
 
-控制台每次Build直接读取本产品当前flows.json入口，调用一次execute；控制台只跟踪真实任务、核验公开结果和保存产物，不解释产品工具、依赖、编译参数或设备规则。当前控制台静态菜单、其它产品流程/安装器与程序摘要的历史耦合仍归第4步解除，本步不能当作整项解耦已完成。
+控制台每次Build直接读取本产品 `scripts/build.mjs describe` 声明，调用一次execute；macOS安装事务和回读由产品同一入口完成，控制台只跟踪真实任务并核验公开结果，不解释产品工具、依赖、编译参数或安装细节。当前控制台静态菜单、其它产品流程/安装器与程序摘要的历史耦合仍归第4步解除，本步不能当作整项解耦已完成。
 
 本步同步完整入口、失败/取消/并发、结果/路径/摘要及适用移动端用例，但未运行测试、语法检查、编译、签名、安装或工具下载/替换；全部实现步骤完成后统一验收。源码交付与用例存在不代表真实Build已经通过。
 
@@ -2790,7 +2793,7 @@ Pub/npm/Cargo按原始锁准备；Git按固定HTTPS提交检出，Git Cargo目�
 节点前端本仓扫码包按既有install-links=true复制安装：node/frontend/package-lock.json直接登记@gmb/scanner-react的file来源、1.0.0版本、jsqr1.4.0依赖、React19.2.4 peer及Node25.2.1引擎，不保留外部目标的link条目及扫码包开发依赖副本。根声明、registry版本/来源/SRI及默认std+custom-protocol不变；原build-local.test.mjs校验复制模型、peer和声明/锁一致性。本次验收须在源码外完成离线安装、TypeScript/Vite资产及默认Node真实回归，通过结果另行回读；编译验收不等于签名封装、UI运行、移动端、MetaMask或正式升级完成。
 
 
-公民链桌面启动由本仓`scripts/build.mjs`实现，读取本仓macos平台的启动声明，检查节点App和可执行入口，保留先验签、读取入口、检查已有节点的顺序。已有节点只激活窗口；首次启动由公民链准备PostgreSQL后传入原有节点参数。CLI领取本仓target/test作为临时现场，完成后自行收尾。`confirmNodeStartup`独立确认本次节点的产品、平台、产物路径及started终态；确认后才通过PRODUCT_RESULT_FD=3输出回执，失败退出不输出成功结果。该确认不导入控制台、商家或厂家的校验。
+公民链不再提供独立桌面Start命令或控制台启动按钮。只有控制台macOS任务传入 `local_install: true` 时，本仓`scripts/build.mjs`在完成签名与候选摘要核验后，将唯一App复制到同卷待安装路径，回读签名、Team ID、Bundle ID和摘要，再原子换入 `/Applications/CitizenChain.app`；旧安装仅在新安装确认后清理，换入失败恢复旧安装。安装不启动节点，不修改链数据。
 
 ### 产品远端完整入口
 
@@ -2870,9 +2873,9 @@ Start只接受当前产品声明所对应平台target内的真实App目录；拒
 
 生成工作边界仅为 `<本仓根>/target`，直属允许build、test两个固定任务目录与node_modules共享编辑器依赖目录；build用于本机编译，test用于测试，不建立平台、ci、release、publish或tmp固定目录。整个target必须忽略，并从源码复制、快照、摘要、资料门禁及打包输入中排除；源码中不得保留其它编译目录、工具缓存或生成视图。永久工具与依赖原件保留在源码外既有资源边界。
 
-每个任务仍绑定完整 `citizenchain.<platform>.<flow>` 身份。使用同一固定现场的任务必须串行领取；首个文件步骤先核对身份、规范真实路径、无链接父路径和活跃任务保护，取得准确现场短锁，清空旧现场并回读为空，失败立即终止。不同任务不得互清；Start和仓库操作不得借用编译或测试现场。
+每个任务仍绑定完整 `citizenchain.<platform>.<flow>` 身份。使用同一固定现场的任务必须串行领取；首个文件步骤先核对身份、规范真实路径、无链接父路径和活跃任务保护，取得准确现场短锁，清空旧现场并回读为空，失败立即终止。不同任务不得互清；仓库操作不得借用编译或测试现场，macOS安装只使用本次Build的准确候选。
 
-本机Build由本仓完整execute入口完成：macOS只编译并验真产物，禁止自动安装；windows、linux-arm、linux-amd和wasm只编译。Build不得启动节点、执行链上升级或部署；任一步失败即任务失败。Runtime源码修改授权见 `CitizenChainRuntime.md`，节点部署和Runtime开发升级的控制台协调合同归 `TataConsole.md`，不得并入普通CI或Release。
+本机Build由本仓完整execute入口完成：macOS编译并验签唯一App，只有控制台明确请求本机安装时才安装并回读；GitHub自动化、windows、linux-arm、linux-amd和wasm不执行本机安装。Build不得启动节点、执行链上升级或部署；安装失败恢复旧包，任一步失败即任务失败。Runtime源码修改授权见 `CitizenChainRuntime.md`，节点部署和Runtime开发升级的控制台协调合同归 `TataConsole.md`，不得并入普通CI或Release。
 
 历史验收路径保留原记录；本节为当前职责规范，不证明既有实现或真实流程已经通过本次验收。
 
@@ -2954,7 +2957,7 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 
 ### 编译启动、GitHub自动化与独立分发准备
 
-`scripts/` 只保留 `build.mjs` 和 `publish.mjs`。`build.mjs describe` 只读交付本仓唯一编译声明；同文件独占编译、启动、资源需求与固定工作根，控制台只调用公开入口。白皮书正文由官网静态接口运行时提供，不再有构建期文档生成脚本；图标派生位于 `icons/generate.mjs` 且只处理本仓图标；行政区及账户派生脚本归 `runtime/primitives/`。节点与OnChina维护脚本及外部 PostgreSQL 调优样例已删除。旧权重benchmark脚本与模板已删除，已有权重实现保持。内嵌旧链规脚本及创世检查已删除，不再由Build直接修改邻仓资源；重新生成冻结链规须另行确定所属流程。
+`scripts/` 只保留 `build.mjs` 和 `publish.mjs`。`build.mjs describe` 只读交付本仓唯一编译声明；同文件独占编译、macOS安装、资源需求与固定工作根，控制台只调用公开入口。白皮书正文由官网静态接口运行时提供，不再有构建期文档生成脚本；图标派生位于 `icons/generate.mjs` 且只处理本仓图标；行政区及账户派生脚本归 `runtime/primitives/`。节点与OnChina维护脚本及外部 PostgreSQL 调优样例已删除。旧权重benchmark脚本与模板已删除，已有权重实现保持。内嵌旧链规脚本及创世检查已删除，不再由Build直接修改邻仓资源；重新生成冻结链规须另行确定所属流程。
 
 五组 `release-<平台>.yml` 和同名mjs仍由 `.github/workflows/` 独立拥有，继续产生版本、构建并逐件验收资产、创建GitHub Release和执行本目标历史清理。自动化不调用 `scripts/publish.mjs`。`publish.mjs inspect <平台> <准确Tag>` 是独立只读入口：通过公开GitHub Release、Tag和成功Run读取已完成产物的身份、来源、大小及公开摘要，输出待分发清单；它不派发或重跑自动化，也不修改Release。商店等分发目标未声明时，该入口不执行任何外部渠道上传。
 
@@ -2968,6 +2971,10 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 节点岗位权限测试的 JSON 夹具由 `node` 包相对本仓 `runtime/primitives/tests/fixtures/role_permission.json` 读取；该路径在正式源码和产品 `target/build` 工程视图中一致。此变更仅涉及 `cfg(test)` 的夹具定位，不改变节点或 Runtime 的生产逻辑。
 
 门禁清理接口只对 URL 的路径部分拒绝越界，允许 created 查询中的时间范围分隔符；同文件回归直接执行正式 HTTP 参数校验，覆盖时间范围和越界拒绝。
+
+## 节点部署离线批准
+
+权威和权益节点实例的部署批准使用本仓独立 `crates/protocol` 的 QR_V1 `node_deploy=16` 链下动作；它不进入 Runtime WASM，不借用软件发布动作或链交易签名。载荷固定包含公民链产品、节点类别与编号、目标服务器 IP、版本、源码提交、产物摘要、控制台任务编号、期限和随机挑战，钱包必须完整解码并显示目标。签名消息使用独立 `GMB\0TATA_NODE_DEPLOY_V1\0` 前缀，控制台只接受受保护的 `rtupg:NRC_PUBLIC_KEY`；同一个国储会管理员公钥也是开发升级签名者，且只存 Touch ID Keychain，离线私钥不进入产品或控制台。节点部署是使用公民链的实例操作，由控制台节点管理维护，不等同于发布公民链软件。`scripts/build.mjs` 将独立 QR Cargo 锁纳入本轮受控资源供给，并在所有平台编译前运行其离线 Rust 测试；失败即不编译。此协议准备阶段不执行节点部署，正式接线仍归控制台三级权限第④步。
 
 ## 编辑器固定依赖目录
 

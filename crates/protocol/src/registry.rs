@@ -51,6 +51,7 @@ pub enum SigningCategory {
     SwitchDefaultAccount,
     MlsDeviceBind,
     Publish,
+    NodeDeploy,
 }
 
 /// 单个 QR action 登记项。

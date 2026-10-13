@@ -9,11 +9,13 @@ export const manifest=Object.freeze({
     "items": [
       {
         "environment": "rtupg",
-        "name": "NRC_SIGNER_PUBLIC_KEY",
-        "title": "NRC_SIGNER_PUBLIC_KEY",
-        "description": "公民协议开发升级冷签公钥",
+        "name": "NRC_PUBLIC_KEY",
+        "title": "NRC_PUBLIC_KEY",
+        "description": "国储会现任管理员公钥；开发升级与节点实例部署共用的冷签信任锚",
         "revealable": true,
-        "accessLevel": "public"
+        "accessLevel": "protected",
+        "kind": "authorization",
+        "format": "hex32"
       },
       {
         "environment": "rtupg",

@@ -9,8 +9,10 @@ pub mod export;
 pub mod registry;
 
 pub use codec::{
-    b64_to_prefixed_hex, bytes_to_b64, public_key_b64, validate_qr_value, CodecError,
-    PUBLIC_KEY_BYTES, QR_V1, SIGNATURE_BYTES,
+    b64_to_prefixed_hex, bytes_to_b64, decode_node_deploy_intent, encode_node_deploy_intent,
+    node_deploy_signing_preimage, public_key_b64, validate_qr_value, CodecError,
+    NodeDeployIntent, NodeDeployKind, NODE_DEPLOY_SIGNING_DOMAIN, PUBLIC_KEY_BYTES, QR_V1,
+    SIGNATURE_BYTES,
 };
 pub use decision::{SignDecision, SignNormal, SignReject};
 pub use registry::{

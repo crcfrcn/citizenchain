@@ -25,11 +25,22 @@ fn update_target() -> Result<(&'static str, &'static str), String> {
     }
 }
 
+fn workflow_file(platform: &str) -> Result<&'static str, String> {
+    match platform {
+        "macos" => Ok("macos.yml"),
+        "windows" => Ok("windows.yml"),
+        "linux-arm" => Ok("linuxarm.yml"),
+        "linux-amd" => Ok("linuxamd.yml"),
+        _ => Err("当前平台没有桌面更新自动化".into()),
+    }
+}
+
 fn release_proof(
     release: &serde_json::Value,
     run: &serde_json::Value,
     platform: &str,
 ) -> Option<serde_json::Value> {
+    let workflow = format!(".github/workflows/{}", workflow_file(platform).ok()?);
     if release["draft"] != false || release["prerelease"] != false {
         return None;
     }
@@ -46,7 +57,7 @@ fn release_proof(
         || proof["repository"] != "crcfrcn/citizenchain"
         || proof["product_id"] != "citizenchain"
         || proof["platform"] != platform
-        || proof["workflow"] != format!(".github/workflows/release-{platform}.yml")
+        || proof["workflow"] != workflow
         || proof["run_id"] != run["id"]
         || proof["run_attempt"] != run["run_attempt"]
         || proof["source_sha"] != run["head_sha"]
@@ -87,6 +98,7 @@ pub async fn check_desktop_update(
     use tauri::Manager;
     use tauri_plugin_updater::UpdaterExt;
     let (platform, manifest_platform) = update_target()?;
+    let workflow = workflow_file(platform)?;
     let client = reqwest::Client::builder()
         .user_agent("CitizenChain")
         .timeout(std::time::Duration::from_secs(30))
@@ -95,7 +107,7 @@ pub async fn check_desktop_update(
         .map_err(|_| "更新客户端初始化失败")?;
     let mut runs = Vec::new();
     for page in 1.. {
-        let value = github_json(&client, &format!("actions/workflows/release-{platform}.yml/runs?status=success&branch=main&event=workflow_dispatch&per_page=100&page={page}")).await?;
+        let value = github_json(&client, &format!("actions/workflows/{workflow}/runs?status=success&branch=main&event=workflow_dispatch&per_page=100&page={page}")).await?;
         let rows = value["workflow_runs"]
             .as_array()
             .ok_or("更新任务列表无效")?;
@@ -111,11 +123,11 @@ pub async fn check_desktop_update(
     if runs.is_empty() {
         return Ok(None);
     }
-    if runs.len() != 1 {
-        return Err("当前平台成功版本不唯一".into());
-    }
-    let run = &runs[0];
-    if run["path"] != format!(".github/workflows/release-{platform}.yml")
+    let run = runs
+        .iter()
+        .max_by_key(|value| value["id"].as_u64().unwrap_or(0))
+        .ok_or("当前平台成功运行记录无效")?;
+    if run["path"] != format!(".github/workflows/{workflow}")
         || run["head_branch"] != "main"
         || run["event"] != "workflow_dispatch"
         || run["repository"]["full_name"] != "crcfrcn/citizenchain"
@@ -217,7 +229,7 @@ mod update_tests {
     #[test]
     fn release_selection_is_platform_run_and_attempt_specific() {
         let run = serde_json::json!({"id":7,"run_attempt":2,"head_sha":"source"});
-        let proof = serde_json::json!({"schema":1,"repository":"crcfrcn/citizenchain","product_id":"citizenchain","platform":"macos","workflow":".github/workflows/release-macos.yml","run_id":7,"run_attempt":2,"source_sha":"source","tag":"tag"});
+        let proof = serde_json::json!({"schema":1,"repository":"crcfrcn/citizenchain","product_id":"citizenchain","platform":"macos","workflow":".github/workflows/macos.yml","run_id":7,"run_attempt":2,"source_sha":"source","tag":"tag"});
         let mut release = serde_json::json!({"draft":false,"prerelease":false,"tag_name":"tag","body":format!("<!-- automation:{proof} -->")});
         assert!(release_proof(&release, &run, "macos").is_some());
         assert!(release_proof(&release, &run, "windows").is_none());
