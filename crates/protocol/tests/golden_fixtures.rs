@@ -50,7 +50,7 @@ fn node_deploy_intent_round_trip_and_rejects_cross_target_or_suffix() {
 }
 
 fn fixtures_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")
 }
 
 fn load(name: &str) -> Value {

@@ -107,9 +107,10 @@
 # 产品正式发布授权——冷钱包审阅并签署精确产品、平台、Release、产物摘要、
 # 回滚锚点和短时随机挑战。该签名只授权一次本机发布，不向平台发送钱包信息。
 # 产品端是产品语义，不是供应商名。闭集固定为 citizenapp/ios|android、
-# citizenwallet/ios|android、citizenserve/cloudflare、citizenweb/web、
+# citizenwallet/ios|android、citizenweb/web、
 # tuyulove/ios|android、tuyuserve/cloudflare、tuyuweb/web、
-# tuyubooking/macos|linux|windows；钱包必须拒绝其它交叉组合。
+# tuyubooking/macos|linux|windows；公民服务端Cloudflare专用动作17，
+# 钱包必须拒绝其它交叉组合。
 - action_key: publish
   action_code: 15
   action_label_zh: 生产发布授权
@@ -150,6 +151,28 @@
     - source_sha
     - artifact_sha256
     - task_id
+    - expires_at
+    - nonce
+
+# 公民服务端 Cloudflare 正式发布：最终 Wrangler 配置与正式产物一起冷签。
+- action_key: citizenserve_cloudflare_publish
+  action_code: 17
+  action_label_zh: 公民服务端 Cloudflare 发布授权
+  kind: offchain_sign
+  qr_kind: sign_request
+  pallet:
+  call:
+  decoder: citizenserve_cloudflare_publish
+  hash_only_allowed: false
+  signing_category: publish
+  required_fields:
+    - product_id
+    - platform
+    - version_tag
+    - source_sha
+    - artifact_sha256
+    - config_sha256
+    - previous_deployment_id
     - expires_at
     - nonce
 

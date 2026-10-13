@@ -231,6 +231,13 @@ Clippy 和测试，禁止只跑 `citizenchain --workspace` 后误报共享模块
 改动 QR 协议字段序时，它们与四端（onchina、citizenapp、citizenwallet、node）必须同改，
 另有 `.github/scripts/repository/ci-repository.mjs golden-vectors` 在 CI 侧校验真源与各端镜像一致。
 
+公民服务端 Cloudflare 发布使用独立 QR_V1 动作 `citizenserve_cloudflare_publish=17`。
+`config_sha256` 是注入九项公开运行值后的最终 Wrangler 配置 UTF-8 字节摘要，
+位于产物摘要之后并由冷钱包展示；共用的 `publish=15` 字段和编码不变。
+协议金标从 `crates/protocol/fixtures/` 读取五份 QR_V1 夹具；目录重构后的测试不得再读取旧的 `tests/fixtures/` 路径。
+协议 Dart 导出金标按当前登记与 `crates/protocol` 生成器的完整字节同步；钱包两份既有生成产物首行使用当前目录名，动作表字段顺序由生成器决定。
+协议仓库守卫核对五份平台 Workflow 的唯一 `release` Job；产品 Build 自己声明和验真 protoc 35.0，旧独立依赖脚本和 Job 计数不再作为协议测试输入。源码依赖扫描针对可执行代码，技术文档对控制台调度的说明不构成产品代码依赖。
+
 #### 仓库守卫的错误处理与 Clippy
 
 CI 用 `cargo clippy --workspace --all-targets --locked -- -D warnings`，`expect_used` /

@@ -98,6 +98,20 @@ fn node_deploy_is_offchain_and_has_distinct_review_fields() {
     }
 }
 
+/// 公民服务端配置摘要只属于专用冷签动作，共用发布动作保持原字段集。
+#[test]
+fn citizenserve_cloudflare_publish_requires_final_configuration_digest() {
+    let entries = actions().expect("动作登记可解析");
+    let dedicated = entries.iter().find(|row| row.action_key == "citizenserve_cloudflare_publish")
+        .expect("公民服务端发布动作已登记");
+    let shared = entries.iter().find(|row| row.action_key == "publish")
+        .expect("共用发布动作已登记");
+    assert_eq!(dedicated.action_code, 17);
+    assert_eq!(dedicated.signing_category, SigningCategory::Publish);
+    assert!(dedicated.required_fields.contains(&"config_sha256".to_string()));
+    assert!(!shared.required_fields.contains(&"config_sha256".to_string()));
+}
+
 /// 自助占号必须是完整链交易，并与现有Runtime call5保持唯一动作登记。
 #[test]
 fn self_occupy_cid_is_a_full_chain_transaction() {
@@ -266,7 +280,7 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "f8e85759db9cf402a1153e1e41922156716b08edb7a1b224ed23cb7a05efc1d4",
+        "7ff954e2eaef11c44240f3e01da8bcc88ffd6fcbf97d221325e9bdc61ecf9017",
         "Dart registry 与保留的原消费者完整字节不一致"
     );
 }
@@ -345,7 +359,7 @@ fn generated_qr_body_validators_are_current() {
     assert_eq!(
         generated_sha256(&export_qr_bodies_dart().expect("Dart body schema 必须可生成"))
             .expect("Dart body 原消费者金标摘要"),
-        "b8e228e48f8f1a49171c138148aae7b8a8a98f53253d1a1b937a9ea65c4dfec8",
+        "e8b52f1ccd5676ff8b45a5de46aa3a79a1c3cec4a4518477c0944af44ee5ce74",
         "Dart body 与原消费者完整字节不一致"
     );
     let cases = [

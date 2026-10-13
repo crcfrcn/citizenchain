@@ -73,6 +73,8 @@
   field_label_zh: 源码提交
 - field_key: artifact_sha256
   field_label_zh: 产物 SHA-256
+- field_key: config_sha256
+  field_label_zh: 最终部署配置 SHA-256
 - field_key: previous_deployment_id
   field_label_zh: 上一部署编号
 - field_key: nonce
