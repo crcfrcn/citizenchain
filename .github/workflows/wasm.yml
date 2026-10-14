@@ -47,7 +47,9 @@ jobs:
           from pathlib import Path
 
           def read_json(url, token=None):
-              headers = {'Accept': 'application/vnd.github+json' if token else 'application/json'}
+              # 固定本产品读取身份；公开链边缘拒绝 Python-urllib 默认 User-Agent。
+              headers = {'Accept': 'application/vnd.github+json' if token else 'application/json',
+                         'User-Agent': 'CitizenChain-Wasm-Release/1'}
               if token:
                   headers['Authorization'] = 'Bearer ' + token
               request = urllib.request.Request(url, headers=headers)

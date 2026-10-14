@@ -143,6 +143,10 @@ Windows和Linux平台由各自原生Runner执行，不在macOS交叉编译。
 没有保存原因的异常断开仍使用原通道错误提示。Ethereum RPC/TLS必要任务失败时，
 首页优先显示该任务已保存的具体错误；其它必要任务仍保留框架错误。该诊断不改变
 RPC证书、创世守卫或节点业务。
+当前冻结Runtime元数据若没有`Revive` pallet，官方Ethereum RPC初始化会使必要后台任务退出；
+2026-10-13本机新创世数据实际遇到此错误。按照既定正式顺序，旧节点先承载Runtime
+升级并验收finalized版本、Revive元数据、持续出块与最终性，然后才更新新节点。
+不得为让新节点在旧Runtime上启动而跳过Ethereum RPC或放宽创世守卫。
 
 既有回环端点、请求/响应大小、连接数、订阅数、消息缓冲、batch、CORS与限流配置
 继续生效。TLS握手最多10秒，握手连接也计入连接上限；仅信任真实连接IP进行限流，
@@ -2883,7 +2887,7 @@ Windows LLVM准备步骤用Bash的`GITHUB_ENV`语法交付库路径；Windows工
 
 Windows Release在PowerShell组包步骤把固定安装包名称的`.exe`结尾替换为本轮软件版本后缀，再从Cargo输出复制安装包；下一步使用该包在`RUNNER_TEMP`下的绝对路径直接调用Tauri签名器，不把绝对路径接到GitHub检出根。
 
-WASM Release的版本准备由`.github/workflows/wasm.yml`固定GET`https://www.crcfrcn.com/api/chain/runtime-target`，只接受公民服务端返回的块0哈希、finalized头、`spec_version`与`spec_name`四个准确字段；回读块0哈希须等于`runtime/primitives/src/genesis.rs`唯一冻结常量，候选版本至少高于当前finalized的`spec_version`。公民服务端自身经Access/Tunnel只读查询正式链，GitHub不配置Cloudflare URL、ID或Secret，不能选择任意RPC方法。读取失败、错链或错误版本直接使Release准备失败。
+WASM Release的版本准备由`.github/workflows/wasm.yml`以固定产品User-Agent GET`https://www.crcfrcn.com/api/chain/runtime-target`，只接受公民服务端返回的块0哈希、finalized头、`spec_version`与`spec_name`四个准确字段；回读块0哈希须等于`runtime/primitives/src/genesis.rs`唯一冻结常量，候选版本至少高于当前finalized的`spec_version`。公民服务端自身经Access/Tunnel只读查询正式链，GitHub不配置Cloudflare URL、ID或Secret，不能选择任意RPC方法。读取失败、错链或错误版本直接使Release准备失败。版本预检尚未创建固定`target`时，本产品`finish`对确实缺失的现场安全完成；已有现场、断链与目录链接继续逐层验真并按原所有权规则收尾。
 候选版本同时计入本平台已有成功Release的版本：`citizenChainRelease`已按WASM Tag识别平台并核对Tag提交，历史收集仅继续核对对应Run成功及工作流身份，不读取其返回对象中不存在的`platform`字段；草稿、预发布、其他平台和失败Run不进入版本集合。
 
 所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。

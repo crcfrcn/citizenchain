@@ -40,12 +40,13 @@ function fixedWork(scope){
 }
 function isBuildWork(work){return typeof work==='string'&&Object.keys(contract.platforms).some(platform=>work===fixedWork('build/'+platform));}
 function validWork(work){return work===fixedWork('test')||isBuildWork(work);}
-function directory(path,create=false){
+function directory(path,create=false,allowMissing=false){
  let at=parse(path).root;
  for(const part of relative(at,path).split(sep)){
   at=join(at,part);
   if(create&&!fs.existsSync(at))try{fs.mkdirSync(at,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;}
-  const value=fs.lstatSync(at);if(!value.isDirectory()||value.isSymbolicLink()||fs.realpathSync(at)!==at)fail('工作目录经过链接或非目录');
+  let value;try{value=fs.lstatSync(at);}catch(error){if(allowMissing&&error.code==='ENOENT')return null;throw error;}
+  if(!value.isDirectory()||value.isSymbolicLink()||fs.realpathSync(at)!==at)fail('工作目录经过链接或非目录');
  }
  return fs.lstatSync(path);
 }
@@ -207,8 +208,9 @@ async function withFixedWork(scope,action,options={}){
 }
 // 调用方在消费结果且产品进程退出后，只能收尾这个产品的准确固定目录。
 function finishFixedWork(work,{run_id,forceRemote=false}={}){
- if(run_id&&validWork(work)&&!fs.existsSync(work))return;
- checkFixedWork(work);
+ if(!validWork(work))fail('工作根只允许本产品target/build或target/test固定目录');
+ // 远端在正式链预检失败时尚未创建target；只把真正缺失的现场视为空，链接仍拒绝。
+ if(!directory(work,false,true))return;
  const value=short(work,()=>{
   const owner=readOwner(work);if(run_id&&!owner)return;if(run_id&&!owner.remote&&owner.run_id!==run_id)fail('编译收尾任务编号不一致');if(owner){
    if((alive(owner.pid)&&!(owner.pid===process.pid&&owner.state==='retained'))||owner.groups.some(pid=>alive(pid,true)))fail('产品进程退出未确认');
@@ -238,6 +240,21 @@ test('回归夹具使用本轮唯一现场且正式编译路径不变',()=>{
  const code='import {fixedWork} from '+JSON.stringify(module)+';process.stdout.write(JSON.stringify([fixedWork("test"),fixedWork("build/macos")]));';
  const formal=JSON.parse(execFileSync(process.execPath,['--input-type=module','-e',code],{env:{PATH:process.env.PATH},encoding:'utf8'}));
  assert.deepEqual(formal,[join(root,'target/test'),join(root,'target/build/macos')]);
+});
+test('远端预检前固定现场缺失可收尾，链接与越界仍拒绝',()=>{
+ const work=fixedWork('build/wasm');
+ assert.equal(fs.existsSync(work),false);
+ finishFixedWork(work);
+ assert.equal(fs.existsSync(work),false);
+ fs.mkdirSync(dirname(work),{recursive:true});
+ try{
+  fs.symlinkSync(join(dirname(work),'missing'),work);
+  assert.throws(()=>finishFixedWork(work),/工作目录经过链接或非目录/);
+  fs.unlinkSync(work);
+  fs.symlinkSync(fixedWork('test'),work);
+  assert.throws(()=>finishFixedWork(work),/工作目录经过链接或非目录/);
+ }finally{try{fs.unlinkSync(work);}catch(error){if(error.code!=='ENOENT')throw error;}}
+ assert.throws(()=>finishFixedWork(join(dirname(work),'unexpected')),/工作根只允许/);
 });
 test('正式入口在领取工作根前拒绝合成阶段',()=>{
  const module=JSON.stringify(fileURLToPath(import.meta.url));
