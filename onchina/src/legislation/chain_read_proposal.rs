@@ -7,7 +7,7 @@ use super::law::model::{house_ref, HouseRef};
 use crate::core::chain_url;
 use codec::Decode;
 use serde::Serialize;
-use subxt::{dynamic, OnlineClient, PolkadotConfig};
+use subxt::dynamic;
 
 /// votingengine `Proposal<BlockNumber, AccountId>` 解码镜像(BlockNumber=u32 / AccountId=[u8;32])。
 #[derive(Debug, Decode)]
@@ -190,7 +190,7 @@ async fn fetch_value<V: Decode>(
     keys: Vec<dynamic::Value>,
 ) -> Result<Option<V>, String> {
     let ws_url = chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for {pallet}::{item} failed: {e}"))?;
     let storage = client

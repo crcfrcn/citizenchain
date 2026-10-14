@@ -88,6 +88,10 @@ fn apply_onchina_env(app: &AppHandle, cmd: &mut Command) -> Result<(), String> {
         .set_scheme("wss")
         .map_err(|_| "链 RPC WSS 转换失败".to_string())?;
     cmd.env("ONCHAIN_WS_URL", ws_url.as_str());
+    // 子进程只收到本次桌面会话证书的公开DER；私钥始终留在节点进程内。
+    let certificate = crate::core::rpc_tls::desktop_rpc_certificate()
+        .ok_or_else(|| "桌面 RPC 证书尚未准备".to_string())?;
+    cmd.env("ONCHAIN_LOCAL_RPC_CERTIFICATE", hex::encode(certificate));
 
     // 只有**打包形态**(随包 PostgreSQL 官方二进制存在)才用随包资源路径覆盖
     // china.sqlite / 前端产物 / 内嵌 PG / TLS;开发期(cargo tauri dev,无随包 PG)这些全

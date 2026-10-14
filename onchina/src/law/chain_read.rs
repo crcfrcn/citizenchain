@@ -15,7 +15,7 @@ use super::model::{house_ref, to_law_chapters, LawView};
 use crate::core::chain_url;
 use crate::core::db::Db;
 use codec::Decode;
-use subxt::{dynamic, OnlineClient, PolkadotConfig};
+use subxt::dynamic;
 
 const TIER_CONSTITUTION: u8 = 0;
 
@@ -184,7 +184,7 @@ pub(crate) fn resolve_institution_cid_number(
 /// 无需 storage key 反解)。真实运行态验收随本函数接入 handler(Phase 1B-5)时进行。
 async fn fetch_all_laws() -> Result<Vec<OnChainLaw>, String> {
     let ws_url = chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for laws failed: {e}"))?;
     let storage = client
@@ -208,7 +208,7 @@ async fn fetch_all_laws() -> Result<Vec<OnChainLaw>, String> {
 /// 读取链上全部 `LawVersion`(iterate + 镜像 decode)。
 async fn fetch_all_law_versions() -> Result<Vec<OnChainLawVersion>, String> {
     let ws_url = chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for law versions failed: {e}"))?;
     let storage = client
@@ -236,7 +236,7 @@ async fn fetch_all_law_versions() -> Result<Vec<OnChainLawVersion>, String> {
 /// 读取宪法不可修改条款号清单。缺失时返回空,由展示层降级为不显示徽章。
 pub async fn fetch_immutable_article_numbers() -> Result<Vec<u32>, String> {
     let ws_url = chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for immutable manifest failed: {e}"))?;
     let storage = client
@@ -296,7 +296,7 @@ pub async fn fetch_law_version_label(
     version: u32,
 ) -> Result<Option<OnChainLawVersionLabel>, String> {
     let ws_url = chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for law version label failed: {e}"))?;
     let storage = client

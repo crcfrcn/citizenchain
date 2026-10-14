@@ -6,7 +6,6 @@
 
 use codec::Decode;
 use subxt::backend::legacy::LegacyRpcMethods;
-use subxt::backend::rpc::RpcClient;
 use subxt::dynamic;
 use subxt::{OnlineClient, PolkadotConfig};
 
@@ -253,7 +252,7 @@ pub(crate) async fn read_citizen_identity_at(
     block_hash: Option<[u8; 32]>,
 ) -> Result<FinalizedCitizenIdentity, String> {
     let ws_url = super::chain_url::chain_ws_url()?;
-    let rpc_client = RpcClient::from_insecure_url(ws_url.as_str())
+    let rpc_client = super::chain_url::rpc_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain rpc for CID identity failed: {e}"))?;
     let rpc = LegacyRpcMethods::<PolkadotConfig>::new(rpc_client.clone());

@@ -1,4 +1,4 @@
-//! 原生与 Ethereum RPC 的唯一 TLS 监听器。证书缺失或无效时拒绝启动。
+//! 原生与 Ethereum RPC 的唯一 TLS 监听器。桌面会话生成证书，CLI材料缺失或无效时拒绝启动。
 
 use futures::future::try_join_all;
 use jsonrpsee::{
@@ -8,7 +8,11 @@ use jsonrpsee::{
 use rustls::pki_types::{pem::PemObject, CertificateDer, PrivatePkcs8KeyDer};
 use sc_rpc_api::DenyUnsafe;
 use sc_rpc_server::{MiddlewareLayer, RpcEndpoint, RpcServiceBuilder};
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    path::Path,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 use tokio::{net::TcpListener, sync::Semaphore, task::JoinSet};
 use tokio_rustls::TlsAcceptor;
 use tower::Service;
@@ -33,6 +37,7 @@ impl std::error::Error for HttpServiceError {
 }
 
 /// 已装载的 RPC TLS 配置；私钥不进入日志、RPC 或持久化链状态。
+#[derive(Clone)]
 pub(crate) struct RpcTls {
     acceptor: TlsAcceptor,
     page: Arc<[u8]>,
@@ -40,6 +45,52 @@ pub(crate) struct RpcTls {
 
 const INSTALL_PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/metamask.html"));
 const GMB_ICON: &[u8] = include_bytes!("../../../icons/gmb.png");
+
+/// 桌面三个平台在一次 App 会话中共用同一份本机证书；节点手动重启不轮换信任锚。
+static DESKTOP_RPC_TLS: OnceLock<DesktopRpcTls> = OnceLock::new();
+
+struct DesktopRpcTls {
+    server: RpcTls,
+    certificate: Vec<u8>,
+}
+
+/// 只在桌面启动路径调用，生成材料始终留在内存，不复用 P2P 或生产回源证书。
+pub(crate) fn prepare_desktop_rpc_tls() -> Result<(), String> {
+    if DESKTOP_RPC_TLS.get().is_some() {
+        return Ok(());
+    }
+    let mut params = rcgen::CertificateParams::new(vec!["localhost".into()])
+        .map_err(|error| format!("生成本机 RPC 证书参数失败: {error}"))?;
+    params.subject_alt_names.push(rcgen::SanType::IpAddress(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+    ));
+    let key = rcgen::KeyPair::generate()
+        .map_err(|error| format!("生成本机 RPC 密钥失败: {error}"))?;
+    let cert = params.self_signed(&key)
+        .map_err(|error| format!("生成本机 RPC 证书失败: {error}"))?;
+    let certificate = cert.der().to_vec();
+    let server = RpcTls::from_der(
+        vec![cert.der().clone()],
+        PrivatePkcs8KeyDer::from(key.serialize_der()),
+    )
+    .map_err(|error| format!("装载本机 RPC 证书失败: {error}"))?;
+    let _ = DESKTOP_RPC_TLS.set(DesktopRpcTls { server, certificate });
+    Ok(())
+}
+
+/// 桌面节点服务与本机客户端使用同一会话身份；未准备时拒绝启动。
+pub(crate) fn desktop_rpc_tls() -> Result<RpcTls, String> {
+    DESKTOP_RPC_TLS
+        .get()
+        .map(|identity| identity.server.clone())
+        .ok_or_else(|| "桌面 RPC 证书尚未准备".into())
+}
+
+pub(crate) fn desktop_rpc_certificate() -> Option<&'static [u8]> {
+    DESKTOP_RPC_TLS
+        .get()
+        .map(|identity| identity.certificate.as_slice())
+}
 
 /// 精确路径分流；WebSocket 升级继续交给 RPC，不能被普通页面 GET 截获。
 fn resource_response<B>(
@@ -91,7 +142,7 @@ fn resource_response<B>(
 }
 
 impl RpcTls {
-    /// CLI 与桌面进程共用同一配置入口，禁止自动生成或复用 P2P 自签证书。
+    /// 无界面 CLI 只读取部署方的证书路径，缺失时拒绝启动。
     pub(crate) fn load() -> Result<Self, RpcError> {
         let certificate = std::env::var_os("CITIZENCHAIN_RPC_TLS_CERTIFICATE")
             .ok_or("缺少 CITIZENCHAIN_RPC_TLS_CERTIFICATE")?;
@@ -391,14 +442,12 @@ mod tests {
     #[tokio::test]
     async fn https_wss_certificate_validation_safe_methods_and_plaintext_rejection() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        // 测试客户端显式信任隔离证书，仍执行完整 TLS 与 localhost 主机名验证。
-        let credentials = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let certificate = credentials.cert.der().clone();
-        let tls = RpcTls::from_der(
-            vec![certificate.clone()],
-            PrivatePkcs8KeyDer::from(credentials.key_pair.serialize_der()),
-        )
-        .unwrap();
+        // 三平台桌面实际会话证书不依赖运行环境文件；重启节点继续信任同一证书。
+        prepare_desktop_rpc_tls().unwrap();
+        let certificate = desktop_rpc_certificate().unwrap().to_vec();
+        prepare_desktop_rpc_tls().unwrap();
+        assert_eq!(desktop_rpc_certificate().unwrap(), certificate.as_slice());
+        let tls = desktop_rpc_tls().unwrap();
         let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = reserved.local_addr().unwrap();
         drop(reserved);
@@ -432,11 +481,11 @@ mod tests {
         let client = reqwest::Client::builder()
             .https_only(true)
             .no_proxy()
-            .add_root_certificate(reqwest::Certificate::from_der(certificate.as_ref()).unwrap())
+            .add_root_certificate(reqwest::Certificate::from_der(&certificate).unwrap())
             .timeout(Duration::from_secs(2))
             .build()
             .unwrap();
-        let url = format!("https://localhost:{}", address.port());
+        let url = format!("https://127.0.0.1:{}", address.port());
         let request =
             serde_json::json!({"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]});
         let response = tokio::time::timeout(Duration::from_secs(5), async {
@@ -453,6 +502,22 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(response["result"], "0x7eb");
+        // 桌面正式使用的阻塞客户端也须验证自动生成证书与回环IP。
+        let blocking_client = crate::shared::rpc::build_local_rpc_client(&certificate).unwrap();
+        let blocking_request = request.clone();
+        let blocking_url = format!("https://127.0.0.1:{}", address.port());
+        let blocking_response = tokio::task::spawn_blocking(move || {
+            blocking_client
+                .post(blocking_url)
+                .json(&blocking_request)
+                .send()
+                .unwrap()
+                .json::<serde_json::Value>()
+                .unwrap()
+        })
+        .await
+        .unwrap();
+        assert_eq!(blocking_response["result"], "0x7eb");
         // 同一真实 TLS 端点交付编译期资源；GET/HEAD 不得改变 POST 与 WSS 合同。
         for (path, bytes, content_type) in [
             ("/", INSTALL_PAGE, "text/html; charset=utf-8"),
@@ -558,8 +623,22 @@ mod tests {
             .await
             .unwrap();
         assert!(denied.get("error").is_some());
-        assert!(client
-            .post(format!("https://127.0.0.1:{}", address.port()))
+        let localhost_response = client
+            .post(format!("https://localhost:{}", address.port()))
+            .json(&request)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(localhost_response.status().as_u16(), 200);
+        let wrong_host = reqwest::Client::builder()
+            .https_only(true)
+            .no_proxy()
+            .add_root_certificate(reqwest::Certificate::from_der(&certificate).unwrap())
+            .resolve("wrong-localhost.invalid", address)
+            .build()
+            .unwrap();
+        assert!(wrong_host
+            .post(format!("https://wrong-localhost.invalid:{}", address.port()))
             .json(&request)
             .send()
             .await
@@ -598,7 +677,7 @@ mod tests {
         }
 
         let mut roots = rustls::RootCertStore::empty();
-        roots.add(certificate).unwrap();
+        roots.add(CertificateDer::from(certificate)).unwrap();
         let config = rustls::ClientConfig::builder_with_provider(Arc::new(
             rustls::crypto::ring::default_provider(),
         ))

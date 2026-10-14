@@ -670,6 +670,7 @@ export async function build(platform,work,receipt,base) {
   fail('QR协议测试缺少受控 Cargo 入口');
  await runBuildProcess(env.CARGO,['test','--manifest-path',join(root,'crates/protocol/Cargo.toml'),'--locked','--offline'],
   {...env,CARGO_TARGET_DIR:join(work,'work/qr-test-target')},root,{timeout:600000});
+ await runDesktopRpcTests(platform,work,env);
  const shell=receipt.tools.bash?.path;
  if(platform==='macos'&&!shell)fail('缺少显式Shell资源');
  const project=env[prefix+'_PROJECT_ROOT'];
@@ -944,10 +945,37 @@ async function assertFreshGithubVersion(platform,environment,{fetchImpl=fetch}={
  fail('正式版本历史分页超限');
 }
 
+// 节点四平台在本产品原有Cargo现场先验收桌面证书与链上中国连接，失败不进入编译。
+async function runDesktopRpcTests(platform,work,environment){
+ if(platform==='wasm')return;
+ if(!['macos','windows','linux-arm','linux-amd'].includes(platform))fail('桌面RPC测试平台无效');
+ const cargo=environment.CARGO||'cargo';
+ const testTarget=join(work,'work/cargo-target');
+ mkdirSync(testTarget,{recursive:true});
+ let env={...environment,CARGO_TARGET_DIR:testTarget,CITIZENCHAIN_SOURCE_ROOT:root,CITIZENCHAIN_WORK_DIR:work,
+  WASM_BUILD_FROM_SOURCE:'1',CITIZENCHAIN_PRODUCTION_WASM_BUILD:'1',
+  TAURI_CONFIG:JSON.stringify({build:{frontendDist:join(root,'node/frontend')}})};
+ if(platform==='macos'&&env.CC&&env.DEVELOPER_DIR)env=nodeCargoEnvironment(env);
+ const offline=env.CITIZENCHAIN_OFFLINE==='true'?['--offline']:[];
+ for(const [name,filter] of [
+  ['onchina','core::chain_url::tests::desktop_chain_certificate_is_bound_to_loopback_and_valid_hex'],
+  ['node','desktop::node_runner::tests::startup_disconnect_reports_saved_thread_failure'],
+  ['node','desktop::node_runner::tests::essential_task_failure_reports_rpc_reason_when_available'],
+  ['node','core::rpc_tls::tests::missing_relative_invalid_and_mismatched_credentials_are_rejected'],
+  ['node','core::rpc_tls::tests::https_wss_certificate_validation_safe_methods_and_plaintext_rejection'],
+  ['node','shared::rpc::tests::desktop_rpc_url_uses_own_loopback_identity'],
+ ]){
+  const result=await runBuildProcess(cargo,['--config',join(root,'config.toml'),'test','--locked','--release','--quiet',...offline,'-p',name,filter,'--','--exact'],env,root,{capture:true,streamError:true});
+  if(!/test result: ok\. 1 passed; 0 failed; 0 ignored;/u.test(result.stdout))fail('桌面RPC定向测试未准确运行：'+filter);
+  process.stderr.write('桌面RPC定向测试通过：'+filter+'\n');
+ }
+}
+
 async function runNativePlatform(platform,work,environment){
  const env={...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',
   CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_WORK_DIR:work,PRODUCT_WORK_DIR:work};
  mkdirSync(env.CARGO_TARGET_DIR,{recursive:true});
+ await runDesktopRpcTests(platform,work,env);
  if(platform==='wasm')await buildWasmArtifacts(work,env);
  else if(platform==='macos')await runEmbeddedBuild('run',[],{...env,PRODUCT_BASH_BIN:environment.PRODUCT_BASH_BIN||'/bin/bash'});
  else await buildNodePackage(platform,work,env);

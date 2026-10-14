@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use codec::{Decode, Encode};
-use subxt::{dynamic, OnlineClient, PolkadotConfig};
+use subxt::dynamic;
 
 use crate::core::chain_url;
 
@@ -47,7 +47,7 @@ fn decode_representative_ticket_storage_key(
 pub(crate) async fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u64>, String> {
     let subject_key = proposal_subject_institution_cid_key(cid_number)?;
     let ws_url = chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for active proposals failed: {e}"))?;
     let storage = client
@@ -93,7 +93,7 @@ pub(crate) async fn fetch_representative_ballots(
     current_body: u32,
 ) -> Result<HashMap<String, bool>, String> {
     let ws_url = chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for representative ballots failed: {e}"))?;
     let storage = client

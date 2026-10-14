@@ -3,7 +3,6 @@
 use std::time::Duration;
 
 use subxt::backend::legacy::LegacyRpcMethods;
-use subxt::backend::rpc::RpcClient;
 use subxt::ext::scale_value::At;
 use subxt::{OnlineClient, PolkadotConfig};
 use tracing::{error, info, warn};
@@ -56,7 +55,7 @@ pub(crate) async fn indexer_worker(db_pool: Db) {
 
 /// 主索引循环：连接链，追赶历史区块，然后订阅新区块。
 async fn run_indexer_loop(ws_url: &str, db_pool: &Db) -> Result<(), String> {
-    let rpc_client = RpcClient::from_insecure_url(ws_url)
+    let rpc_client = crate::core::chain_url::rpc_client(ws_url)
         .await
         .map_err(|e| format!("connect rpc: {e}"))?;
     let rpc = LegacyRpcMethods::<PolkadotConfig>::new(rpc_client.clone());

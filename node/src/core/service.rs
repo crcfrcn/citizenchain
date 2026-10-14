@@ -434,10 +434,12 @@ fn new_partial_inner(
 type NetworkBackend = sc_network::NetworkWorker<Block, <Block as sp_runtime::traits::Block>::Hash>;
 
 /// Builds a new service for a full client.
-pub fn new_full(
+pub(crate) fn new_full(
     mut config: Configuration,
     mining_threads: usize,
     gpu_device: Option<usize>,
+    desktop_rpc_tls: Option<crate::core::rpc_tls::RpcTls>,
+    desktop_rpc_failure: Option<Arc<Mutex<Option<String>>>>,
     // 清算行机构 CID(None=本节点不做清算行角色)
     clearing_bank_cid_number: Option<String>,
     // 清算批次提交岗位码；必须与 CID 和签名钱包任职同时匹配
@@ -453,8 +455,8 @@ pub fn new_full(
     let rpc_tls = if rpc_endpoints.is_empty() {
         None
     } else {
-        Some(crate::core::rpc_tls::RpcTls::load()
-            .map_err(|error| ServiceError::Other(format!("装载 RPC TLS 失败: {error}")))?)
+        let tls = desktop_rpc_tls.map_or_else(crate::core::rpc_tls::RpcTls::load, Ok);
+        Some(tls.map_err(|error| ServiceError::Other(format!("装载 RPC TLS 失败: {error}")))?)
     };
     // 生成或加载 TLS 自签证书，注入到网络配置中。
     let tls_cert = crate::core::tls_cert::load_or_generate_tls_cert(config.base_path.path())
@@ -633,6 +635,10 @@ pub fn new_full(
                 Ok(())
             }.await;
             if let Err(error) = result {
+                if let Some(failure) = desktop_rpc_failure {
+                    *failure.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                        Some(format!("Ethereum RPC/TLS 必要任务失败: {error}"));
+                }
                 log::error!("Ethereum RPC/TLS 必要任务失败: {error}");
             }
             // 必要任务退出由 TaskManager 终止节点，禁止继续报告 RPC 可用。

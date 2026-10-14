@@ -382,6 +382,9 @@ fn start_node_with_policy(app: AppHandle, restart_existing: bool) -> Result<Node
             }
         }
 
+        // 三平台桌面节点在创建服务前准备一次会话证书；失败保留首页错误状态。
+        crate::core::rpc_tls::prepare_desktop_rpc_tls()?;
+
         // 停止已有节点（如果在运行）。
         // 取出后立即释放 state 锁再 drop，避免 drop（join 线程）期间阻塞 get_node_status 等查询。
         let old_handle = {

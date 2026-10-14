@@ -2,7 +2,6 @@ use codec::Decode;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, hash::Hasher, sync::OnceLock};
 use subxt::backend::legacy::LegacyRpcMethods;
-use subxt::backend::rpc::RpcClient;
 use subxt::{dynamic, OnlineClient, PolkadotConfig};
 use twox_hash::XxHash64;
 
@@ -128,7 +127,7 @@ async fn fetch_chain_genesis_hash_via_http(http_url: &str) -> Result<[u8; 32], S
 }
 
 async fn fetch_chain_genesis_hash_via_ws(ws_url: &str) -> Result<[u8; 32], String> {
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url)
+    let client = super::chain_url::online_client(ws_url)
         .await
         .map_err(|e| format!("connect chain websocket for genesis hash failed: {e}"))?;
     Ok(client.genesis_hash().0)
@@ -666,7 +665,7 @@ pub(crate) struct FinalizedChainView {
 impl FinalizedChainView {
     pub(crate) async fn connect() -> Result<Self, String> {
         let ws_url = super::chain_url::chain_ws_url()?;
-        let rpc_client = RpcClient::from_insecure_url(ws_url.as_str())
+        let rpc_client = super::chain_url::rpc_client(ws_url.as_str())
             .await
             .map_err(|e| format!("connect chain rpc for finalized admin view failed: {e}"))?;
         let rpc = LegacyRpcMethods::<PolkadotConfig>::new(rpc_client.clone());
@@ -1248,7 +1247,7 @@ pub(crate) async fn institution_lookup(
     cid_number: &str,
 ) -> Result<Option<OnChainInstitution>, String> {
     let ws_url = super::chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = super::chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for institutions failed: {e}"))?;
     let storage = client
@@ -1289,7 +1288,7 @@ pub(crate) async fn for_each_chain_institution(
     mut f: impl FnMut(Vec<u8>, OnChainInstitution),
 ) -> Result<usize, String> {
     let ws_url = super::chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = super::chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for institutions failed: {e}"))?;
     let storage = client
@@ -1335,7 +1334,7 @@ pub(crate) async fn for_each_chain_institution_account(
     mut f: impl FnMut(OnChainInstitutionAccount),
 ) -> Result<usize, String> {
     let ws_url = super::chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = super::chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for institution accounts failed: {e}"))?;
     let storage = client
@@ -1394,7 +1393,7 @@ pub(crate) async fn institution_accounts_lookup(
         "PublicManage"
     };
     let ws_url = super::chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = super::chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for institution accounts failed: {e}"))?;
     let storage = client
@@ -1561,7 +1560,7 @@ pub(crate) async fn for_each_chain_citizen_cid_in_scope(
         _revoked_at: Option<u32>,
     }
     let ws_url = super::chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = super::chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for citizen scan failed: {e}"))?;
     let storage = client
@@ -1606,7 +1605,7 @@ pub(crate) async fn for_each_chain_private_institution_cid(
     mut f: impl FnMut(String),
 ) -> Result<usize, String> {
     let ws_url = super::chain_url::chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = super::chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for private institutions failed: {e}"))?;
     let storage = client

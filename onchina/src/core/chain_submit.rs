@@ -8,9 +8,9 @@
 use codec::Encode;
 use serde_json::{json, Value};
 use sp_core::crypto::Ss58Codec;
-use subxt::{tx::SubmittableTransaction, OnlineClient, PolkadotConfig};
+use subxt::tx::SubmittableTransaction;
 
-use super::chain_url::{chain_http_url, chain_ws_url};
+use super::chain_url::{chain_http_url, chain_ws_url, online_client};
 
 const RPC_TIMEOUT_SECS: u64 = 10;
 /// 客户端等待确认的观察窗口，不是 PoW 最晚出块期限；窗口结束后交易仍可能继续等待进块。
@@ -246,7 +246,7 @@ where
     }
 
     let ws_url = chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for finalized submit failed: {e}"))?;
     let transaction = SubmittableTransaction::from_bytes(client.clone(), extrinsic_bytes);
@@ -334,7 +334,7 @@ pub(crate) async fn find_finalized_success(
             .map_err(|_| "submitted tx hash must be 32 bytes".to_string())?,
     );
     let ws_url = chain_ws_url()?;
-    let client = OnlineClient::<PolkadotConfig>::from_insecure_url(ws_url.as_str())
+    let client = online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for finalized recovery failed: {e}"))?;
     let mut block = match (recovery_cursor_block_number, recovery_cursor_block_hash) {

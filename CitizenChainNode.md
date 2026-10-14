@@ -34,7 +34,7 @@ Node、Runtime、OnChina 的全部测试、编译临时数据和产物使用完�
 
 公共钱包域名 https://nrcrpc.crcfrcn.com/ 由 CitizenServe Worker 承接，Cloudflare自动管理公网DNS和边缘证书；Worker内部继续调用现有受Access Service Auth保护的Tunnel。节点RPC仅监听回环，现有cloudflared直接连接节点HTTPS端点；旧18080网关属于当前旧部署的历史状态，不能作为新节点静态交付方案。源节点保留Safe、DenyUnsafe及全局预算。客户端限流在Worker边缘按真实IP执行，节点仍承担回环来源的总预算，不依赖可伪造的转发头。
 
-回源目标证书使用Cloudflare Origin CA，SAN为chain.crcfrcn.com。私钥只在生产服务器生成和保存；只上传CSR，证书公开部分与Origin CA根用于验证。节点实际读取CITIZENCHAIN_RPC_TLS_CERTIFICATE的PEM证书链及CITIZENCHAIN_RPC_TLS_PRIVATE_KEY的PKCS#8 DER私钥。cloudflared直接连接节点HTTPS，originServerName为证书域名chain.crcfrcn.com，httpHostHeader为对应节点127.0.0.1:端口以满足既有HostFilter，caPool明确指定现有Origin CA根文件；禁止noTLSVerify和明文降级。
+回源目标证书使用Cloudflare Origin CA，SAN为chain.crcfrcn.com。私钥只在生产服务器生成和保存；只上传CSR，证书公开部分与Origin CA根用于验证。生产CLI节点读取CITIZENCHAIN_RPC_TLS_CERTIFICATE的PEM证书链及CITIZENCHAIN_RPC_TLS_PRIVATE_KEY的PKCS#8 DER私钥；用户桌面节点改用本次App会话生成的回环证书。cloudflared直接连接生产节点HTTPS，originServerName为证书域名chain.crcfrcn.com，httpHostHeader为对应节点127.0.0.1:端口以满足既有HostFilter，caPool明确指定现有Origin CA根文件；禁止noTLSVerify和明文降级。
 
 本轮实际SSH只读确认国储会节点、Nginx、cloudflared运行正常；运行二进制为citizenchain 1.0.1-babef11d9a7，现有网关/etc/nginx/sites-available/guo-rpc转发至HTTP回环9944，真实TLS握手失败。该部署二进制未检出Ethereum RPC及新TLS配置标识，实际链上Ethereum接口与链ID尚未验收。不能仅添加Cloudflare域名或证书后把旧节点视为当前以太坊兼容实现；具备已验收接口的准确Node/Runtime部署须先单独落实，禁止用临时测试链冒充正式公民链。
 
@@ -121,12 +121,28 @@ Ethereum RPC通过进程内RpcModule调用既有RpcHandlers，不连接内部网
 独立eth-rpc进程或8545端口。Ethereum方法与原生方法合并到原9944端点，只接受
 HTTPS/WSS。公开模块和每个请求均显式使用DenyUnsafe::Yes；原生内部模块不对外开放。
 
-CLI和桌面均由service::new_full读取两项运行环境配置：
+无界面 CLI 由service::new_full读取两项运行环境配置：
 `CITIZENCHAIN_RPC_TLS_CERTIFICATE`为可信证书链PEM绝对路径，
 `CITIZENCHAIN_RPC_TLS_PRIVATE_KEY`为对应PKCS8私钥DER绝对路径。材料须由获准的
 密钥系统提供，不进入Git、文档、日志或链状态。缺失、无效、不匹配或相对路径配置
-拒绝启动，不生成RPC自签证书、不复用P2P证书、不开放明文监听。HTTPS/WSS客户端
-仍必须信任签发CA并校验主机名；生产证书部署和正式发布归后续升级步骤。
+拒绝启动，不复用P2P证书、不开放明文监听。桌面macOS、Windows、Linux共用同一
+Rust启动路径：每次App运行在内存中生成仅含localhost和127.0.0.1身份的本机RPC
+自签证书，节点在该次App运行中手动重启时复用同一材料；私钥不写磁盘、不进入
+系统信任库或子进程。桌面HTTPS客户端只信任本次证书并核对IP主机名，固定连接
+127.0.0.1的当前RPC端口；远端RPC客户端继续使用系统信任根和原HTTPS限制。
+Cloudflare Origin CA仅用于生产服务器回源，不交付给桌面用户。生产证书部署和正式
+发布归后续升级步骤。
+
+本产品既有`scripts/build.mjs`在四个桌面节点平台的原生编译前，使用同一轮Cargo
+工作现场运行Node RPC TLS与OnChina链连接的定向Rust测试；失败即停止该平台编译。
+测试二进制的Tauri资源入口临时指向仓库现有`node/frontend`，以避免前端尚未正式
+编译时缺少`frontend/dist`；正式App仍使用原构建后的前端产物。
+控制台仍只提供一个macOS编译按钮，该动作随后按原流程签名并安装本机App；
+Windows和Linux平台由各自原生Runner执行，不在macOS交叉编译。
+桌面节点服务后台线程如在启动回执前panic，首页显示已保存的具体线程错误；
+没有保存原因的异常断开仍使用原通道错误提示。Ethereum RPC/TLS必要任务失败时，
+首页优先显示该任务已保存的具体错误；其它必要任务仍保留框架错误。该诊断不改变
+RPC证书、创世守卫或节点业务。
 
 既有回环端点、请求/响应大小、连接数、订阅数、消息缓冲、batch、CORS与限流配置
 继续生效。TLS握手最多10秒，握手连接也计入连接上限；仅信任真实连接IP进行限流，
@@ -271,7 +287,7 @@ PG 官方二进制来源:https://www.postgresql.org/download/(解压后含 bin/l
 #### 进程编排(设置页手动拉起,OnChina 自管 PG/TLS)
 
 - 节点 `desktop` setup 不启动 OnChina；用户在设置页“链上中国平台”行点击“启动”并二次确认后，`start_onchina_platform` 调用 `onchina_proc::start_onchina(app)`。
-- `onchina_proc` 用 env 把资源/数据路径告诉 OnChina(`ONCHINA_PG_BIN_DIR`/`ONCHINA_PG_DATA_DIR`/`ONCHINA_PG_PORT`/`ONCHINA_TLS_DIR`/`ONCHINA_PG_WAL_ARCHIVE_DIR`/`ONCHINA_FRONTEND_DIST`/`ONCHINA_CHINA_DB`/`ONCHAIN_WS_URL`/`ONCHINA_EMBEDDED_PG=1`/`ONCHINA_ENABLE_TLS=1`)。
+- `onchina_proc` 用 env 把资源/数据路径告诉 OnChina(`ONCHINA_PG_BIN_DIR`/`ONCHINA_PG_DATA_DIR`/`ONCHINA_PG_PORT`/`ONCHINA_TLS_DIR`/`ONCHINA_PG_WAL_ARCHIVE_DIR`/`ONCHINA_FRONTEND_DIST`/`ONCHINA_CHINA_DB`/`ONCHAIN_WS_URL`/`ONCHAIN_LOCAL_RPC_CERTIFICATE`/`ONCHINA_EMBEDDED_PG=1`/`ONCHINA_ENABLE_TLS=1`)。桌面父进程只通过后者交付本次RPC证书的公开DER十六进制，不交付私钥。
 - OnChina 启动:`embedded_pg::ensure_started()`(首启 initdb→起 postgres@127.0.0.1:私有端口→建 onchina 库→自拼 DATABASE_URL)→ schema 幂等建 → `tls`(机构私有 CA 签发 HTTPS,主机 `onchina.local`)→ 服务。
 - 退出:node 停子进程信号 → OnChina 收 SIGTERM/Ctrl-C → `embedded_pg::stop()` → 退出。node **不碰 PG**。
 - 开发期(无随包 PG)继承 `run.sh` / `clean-run.sh` 注入的外部 PostgreSQL 二进制、数据目录、前端产物和 HTTPS 配置。
@@ -699,9 +715,9 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
 
 - 第8.3B步已经完成本机旧链数据切换；CitizenChain CI run `30211805231` 四个平台任务
   成功，本机安装 CI macOS 应用后从内嵌冻结 plain chainspec 物化正式链数据。
-- 当前唯一正式创世哈希为
+- 2026-08-01 当时的正式创世哈希为
   `0x157558224b682de0384fd50dea0735aff55795f6d145993233c901cf1258671d`，
-  状态根为
+  当时的状态根为
   `0x363d9c4836875a1a8270940caef743524350a6341199ec75966c3b25065bbe80`；
   runtime 源提交为 `9c2ec97b91b3236c6268ddd3057a4700a4591cd2`，冻结资产提交为
   `7cea3885783064b5c02850e23d48e41e1fce7065`。
@@ -710,10 +726,16 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
   与 2026-07-31 的
   `0x278e68bced2dabf9690701188272da22d216fdaa2c617e7dcbe100df3e8bcbfa`
   只保留为历史冻结记录。
-- 本机正式链、固定远端 RPC、CitizenApp 轻节点资产和 Cloudflare 链身份使用同一创世锚点。
+- 上述本机正式链、固定远端 RPC、CitizenApp 轻节点资产和 Cloudflare 链身份在该历史阶段使用同一创世锚点。
   第8.3D步只读审计时本机 best/finalized 均为 block #6、`isSyncing=false`。
 - 正式创世已经完成。第 14、15 节中的 fresh/创世前证据只作为历史验收记录；后续 runtime
   升级只能走正式链交易，不得重新运行正式 `--finalize` 或替换创世数据。
+- 2026-10-13 实际运行身份已更新：`/api/chain/runtime-target`、CitizenSDK清单与当前
+  Runtime/Node冻结常量一致，创世哈希为
+  `0x18847a5dfd263272f2e7727836fe6582f8c4463ff48609df7b96d5e4d9dd24dd`，
+  状态根为`0x1f74a2ca094fc3ebb2143f504d807a6b4f4f9b0a3d13ac808ae84efc7cb12111`。
+  本机旧`0x15755822…58671d`数据库已按用户准确双重确认原位归档，保留原字节；
+  新数据库由安装版冻结链规另行初始化，不把旧数据当作 Runtime 升级输入。
 
 ---
 
@@ -1612,7 +1634,7 @@ runtime/
 - 旧全量镇级创世资产已废弃。2026-07-16 的
   `genesis_hash=0x840d5b12c541a010783e54069c9168a13d102ba63cd8f3a00263440c1803aad9`
   只保留为历史冻结记录，已被 2026-07-26 正式创世替代。
-- 当前 49,593 个公权机构的唯一正式创世基线由 runtime 源提交
+- 2026-08-01 历史 49,593 个公权机构的正式创世基线由 runtime 源提交
   `9c2ec97b91b3236c6268ddd3057a4700a4591cd2`、GitHub `CitizenChain WASM` run
   `30721127038` 和冻结资产提交 `7cea3885783064b5c02850e23d48e41e1fce7065` 生成：
   `genesis_hash=0x157558224b682de0384fd50dea0735aff55795f6d145993233c901cf1258671d`、
@@ -2640,7 +2662,7 @@ Runtime 与上游/派生目录冻结。自有 `crates/signing/lib.rs` 由 Cargo 
 ### 固定产物产品目录
 
 
-节点客户端 RPC 必须显式配置 CITIZENCHAIN_RPC_URL 可信 HTTPS 地址；公网统一 Cloudflare Edge，局域网仅可信 TLS，缺失配置失败，不伪造本机 HTTPS 服务。远端查询均 HTTPS 且禁止重定向。链上中国健康检查只信任本机构现有 CA，以 onchina.local 校验主机名并固定连接本机，移除证书跳过与明文回退。烘焙/审计/历史导出脚本保留功能但要求显式可信 HTTPS，禁止重定向；上游 Apache 法律注释原件保持，Runtime 无任何修改。
+桌面节点客户端的本机RPC地址来自本次节点会话，不要求用户设置CITIZENCHAIN_RPC_URL；远端查询仍只接受可信HTTPS且禁止重定向。链上中国健康检查只信任本机构现有CA，以onchina.local校验主机名并固定连接本机；它向桌面链RPC发起的HTTPS/WSS连接单独验证父进程交付的本次公开证书及回环IP。局域网浏览器访问链上中国的8964端口、机构CA、网页和登录流程不因链RPC证书改变。烘焙/审计/历史导出脚本保留功能但要求显式可信HTTPS，禁止重定向；上游Apache法律注释原件保持，Runtime无任何修改。
 
 公开仓门禁保留 Apache、MIT、Unlicense 三种准确官方行注释引用；字符串、额外路径及其它网址继续拒绝。Runtime 未修改。
 

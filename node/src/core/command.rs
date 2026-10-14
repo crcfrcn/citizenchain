@@ -239,6 +239,8 @@ pub fn run() -> sc_cli::Result<()> {
                     config,
                     mining_threads,
                     gpu_device,
+                    None,
+                    None,
                     clearing_bank_cid_number,
                     clearing_bank_role_code,
                     clearing_bank_password,

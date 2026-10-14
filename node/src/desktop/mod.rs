@@ -19,6 +19,7 @@ use crate::{
     mining, other, settings,
 };
 use std::sync::Mutex;
+use tauri::Manager;
 
 /// 启动 Tauri 桌面应用。
 ///
@@ -123,9 +124,22 @@ pub fn run_desktop() {
         ])
         .setup(|app| {
             cleanup_on_startup(app.handle());
+            // 先生成本机证书，再让同步守护或节点线程访问 RPC；失败显示在首页。
+            let tls_error = crate::core::rpc_tls::prepare_desktop_rpc_tls().err();
             // 同步守护只读本机 RPC，等待节点启动后再按本机状态自检。
             home::sync_guard::start_sync_guard(app.handle().clone());
             crate::core::grandpa_rotation::start_monitor(app.handle().clone());
+
+            if let Some(error) = tls_error {
+                let app_state = app.state::<AppState>();
+                let mut state = app_state
+                    .0
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                state.node_state = home::process::NodeLifecycleState::Failed;
+                state.last_error = Some(error);
+                return Ok(());
+            }
 
             // 自动启动节点。在后台线程跑，避免阻塞 setup 让窗口慢出现。
             // start_node_blocking 内部带 5s + 2s 等待，前端通过 get_node_status 轮询自然刷新。

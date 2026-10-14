@@ -21,6 +21,25 @@ const NODE_SERVICE_START_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 struct NodeThreadAliveGuard(Arc<AtomicBool>);
 
+fn startup_disconnect_error(exit_error: &Arc<Mutex<Option<String>>>) -> String {
+    exit_error
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+        .unwrap_or_else(|| "节点服务构建线程提前断开，且未返回结果".to_string())
+}
+
+fn essential_failure_message(
+    failure: &Arc<Mutex<Option<String>>>,
+    fallback: &str,
+) -> String {
+    failure
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 impl Drop for NodeThreadAliveGuard {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
@@ -77,6 +96,7 @@ pub fn start_node_in_process(
     mining_threads: usize,
     gpu_device: Option<usize>,
 ) -> Result<NodeHandle, String> {
+    let rpc_tls = crate::core::rpc_tls::desktop_rpc_tls()?;
     let mut args: Vec<String> = vec![
         "node".into(),
         "--base-path".into(),
@@ -115,6 +135,7 @@ pub fn start_node_in_process(
     let exit_error = Arc::new(Mutex::new(None));
     let thread_exit_error = Arc::clone(&exit_error);
     let task_exit_error = Arc::clone(&exit_error);
+    let thread_rpc_task_failure = Arc::new(Mutex::new(None));
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let alive = Arc::new(AtomicBool::new(true));
     let thread_alive = Arc::clone(&alive);
@@ -178,6 +199,8 @@ pub fn start_node_in_process(
                         config,
                         mining_threads,
                         gpu_device,
+                        Some(rpc_tls),
+                        Some(Arc::clone(&thread_rpc_task_failure)),
                         None,
                         None,
                         None,
@@ -189,10 +212,14 @@ pub fn start_node_in_process(
                             // 退出条件二选一：essential task 失败 / 收到外部 shutdown 信号。
                             tokio::select! {
                             result = task_manager.future() => {
+                                let reason = essential_failure_message(
+                                    &thread_rpc_task_failure,
+                                    &format!("{result:?}"),
+                                );
                                 *task_exit_error
                                     .lock()
                                     .unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                                    Some(format!("节点必要后台任务退出: {result:?}"));
+                                    Some(format!("节点必要后台任务退出: {reason}"));
                                 },
                             result = shutdown_rx => {
                                 *task_exit_error
@@ -254,7 +281,27 @@ pub fn start_node_in_process(
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
             let _ = thread.join();
-            Err("节点服务构建线程提前断开，且未返回结果".to_string())
+            // 线程已保存panic详情；先join再取原因，避免首页只能看到断开通道的包装错误。
+            Err(startup_disconnect_error(&exit_error))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_disconnect_reports_saved_thread_failure() {
+        let reason = Arc::new(Mutex::new(Some("节点后台线程 panic: 测试故障".to_string())));
+        assert_eq!(startup_disconnect_error(&reason), "节点后台线程 panic: 测试故障");
+        assert_eq!(startup_disconnect_error(&reason), "节点服务构建线程提前断开，且未返回结果");
+    }
+
+    #[test]
+    fn essential_task_failure_reports_rpc_reason_when_available() {
+        let reason = Arc::new(Mutex::new(Some("TLS 监听失败".to_string())));
+        assert_eq!(essential_failure_message(&reason, "Essential task failed"), "TLS 监听失败");
+        assert_eq!(essential_failure_message(&reason, "Essential task failed"), "Essential task failed");
     }
 }

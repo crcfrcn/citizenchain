@@ -1,4 +1,4 @@
-// 共享 RPC 请求封装，供 home/settings/mining/network 复用同一套连接池与安全限制。
+// 共享 RPC 请求封装，本机回环与远端各用独立受信连接池。
 use serde_json::Value;
 use std::{
     env,
@@ -17,7 +17,8 @@ const GENESIS_HASH_TIMEOUT: Duration = Duration::from_secs(3);
 const GENESIS_HASH_MAX_BYTES: u64 = 1024;
 const RPC_READY_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
-static RPC_HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static LOCAL_RPC_HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static REMOTE_RPC_HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 static RPC_HTTP_CLIENT_INIT_LOCK: Mutex<()> = Mutex::new(());
 static CACHED_GENESIS_HASH: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 static LOCAL_RPC_PORT: OnceLock<Mutex<u16>> = OnceLock::new();
@@ -47,11 +48,11 @@ pub(crate) fn current_rpc_port() -> u16 {
     }
 }
 
-// 中文注释：公网使用 Cloudflare Edge，局域网使用受信任 TLS；缺失配置不回退本机明文。
+// 中文注释：桌面端只连接自己启动的回环 HTTPS RPC，端口与服务端共用同一状态。
 pub(crate) fn local_rpc_http_url() -> Result<String, String> {
-    let value = env::var("CITIZENCHAIN_RPC_URL")
-        .map_err(|_| "CITIZENCHAIN_RPC_URL HTTPS 入口未配置".to_string())?;
-    Ok(secure_rpc_url(&value)?.to_string())
+    crate::core::rpc_tls::desktop_rpc_certificate()
+        .ok_or_else(|| "桌面 RPC 证书尚未准备".to_string())?;
+    Ok(format!("https://127.0.0.1:{}", current_rpc_port()))
 }
 
 fn secure_rpc_url(value: &str) -> Result<reqwest::Url, String> {
@@ -79,14 +80,44 @@ fn normalize_genesis_hash(raw: &str) -> Result<String, String> {
 }
 
 fn rpc_http_client() -> Result<&'static reqwest::blocking::Client, String> {
-    if let Some(client) = RPC_HTTP_CLIENT.get() {
+    if let Some(client) = LOCAL_RPC_HTTP_CLIENT.get() {
         return Ok(client);
     }
     let _guard = RPC_HTTP_CLIENT_INIT_LOCK.lock().unwrap_or_else(|err| {
         eprintln!("RPC_HTTP_CLIENT_INIT_LOCK poisoned; continuing with recovered lock");
         err.into_inner()
     });
-    if let Some(client) = RPC_HTTP_CLIENT.get() {
+    if let Some(client) = LOCAL_RPC_HTTP_CLIENT.get() {
+        return Ok(client);
+    }
+    let certificate = crate::core::rpc_tls::desktop_rpc_certificate()
+        .ok_or_else(|| "桌面 RPC 证书尚未准备".to_string())?;
+    let client = build_local_rpc_client(certificate)?;
+    let _ = LOCAL_RPC_HTTP_CLIENT.set(client);
+    LOCAL_RPC_HTTP_CLIENT
+        .get()
+        .ok_or_else(|| "create RPC HTTP client failed: unset client".to_string())
+}
+
+/// 本机客户端只信任本次会话证书并直接连接回环地址，供真实TLS测试复用。
+pub(crate) fn build_local_rpc_client(certificate: &[u8]) -> Result<reqwest::blocking::Client, String> {
+    let trusted = reqwest::Certificate::from_der(certificate)
+        .map_err(|error| format!("桌面 RPC 证书无效: {error}"))?;
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_millis(RPC_CONNECT_TIMEOUT_MS))
+        .https_only(true)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .tls_certs_only([trusted])
+        .pool_max_idle_per_host(8)
+        .pool_idle_timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("create RPC HTTP client failed: {e}"))
+}
+
+/// 公网查询使用系统信任根，不能把仅用于 localhost 的会话证书加入远程客户端。
+fn remote_rpc_http_client() -> Result<&'static reqwest::blocking::Client, String> {
+    if let Some(client) = REMOTE_RPC_HTTP_CLIENT.get() {
         return Ok(client);
     }
     let client = reqwest::blocking::Client::builder()
@@ -96,11 +127,11 @@ fn rpc_http_client() -> Result<&'static reqwest::blocking::Client, String> {
         .pool_max_idle_per_host(8)
         .pool_idle_timeout(Duration::from_secs(30))
         .build()
-        .map_err(|e| format!("create RPC HTTP client failed: {e}"))?;
-    let _ = RPC_HTTP_CLIENT.set(client);
-    RPC_HTTP_CLIENT
+        .map_err(|error| format!("create remote RPC HTTP client failed: {error}"))?;
+    let _ = REMOTE_RPC_HTTP_CLIENT.set(client);
+    REMOTE_RPC_HTTP_CLIENT
         .get()
-        .ok_or_else(|| "create RPC HTTP client failed: unset client".to_string())
+        .ok_or_else(|| "create remote RPC HTTP client failed: unset client".into())
 }
 
 pub(crate) fn rpc_post(
@@ -168,7 +199,7 @@ pub(crate) fn rpc_post_url(
         "method": method,
         "params": params,
     });
-    let client = rpc_http_client()?;
+    let client = remote_rpc_http_client()?;
     let response = client
         .post(url.clone())
         .timeout(request_timeout)
@@ -304,7 +335,19 @@ pub(crate) fn clear_genesis_hash_cache() {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_genesis_hash;
+    use super::{
+        build_local_rpc_client, current_rpc_port, local_rpc_http_url, normalize_genesis_hash,
+    };
+
+    #[test]
+    fn desktop_rpc_url_uses_own_loopback_identity() {
+        crate::core::rpc_tls::prepare_desktop_rpc_tls().unwrap();
+        assert_eq!(
+            local_rpc_http_url().unwrap(),
+            format!("https://127.0.0.1:{}", current_rpc_port())
+        );
+        assert!(build_local_rpc_client(&[1, 2, 3]).is_err());
+    }
 
     #[test]
     fn normalize_genesis_hash_accepts_valid_hash() {
