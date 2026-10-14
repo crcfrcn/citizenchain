@@ -3317,7 +3317,7 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 
 WASM只由本仓`.github/workflows/wasm.yml`执行。GitHub准备阶段以固定产品User-Agent从公民服务端固定公开只读`https://www.crcfrcn.com/api/chain/runtime-target`读取同一finalized锚点的链上版本与真实块0哈希；CitizenServe Worker独自持有Access身份并经既有Tunnel访问国储会。预期创世哈希只从`runtime/primitives/src/genesis.rs`唯一冻结常量读取，不另设GitHub变量或向GitHub交付Cloudflare凭据。缺件、错链或请求失败立即失败，不重试。生成的spec_version取本仓源码版本、已成功产物版本和链上版本加一的最大值，写入本次临时构建源码，不回写main。链上未升级时可复用同一协议版本，正式tag包含本次Run和attempt，准确指向本仓源码提交。
 
-实际Clippy、完整WASM编译与节点候选Runtime政策探针由本仓`scripts/build.mjs ci-build wasm`在同一固定`target/build/wasm`任务会话中依次执行；原生Cargo/Tauri输出和成对任务身份均由产品入口交付，Workflow不再直接运行两条Cargo校验。政策探针必须实际执行一项且不得走缺WASM跳过路径。三件WASM逐件上传和回读，来源正文保留链目标证明。本仓负责自己的正式Release及同目标同结果历史清理。控制台只调用、跟踪和展示此自动化；其专属开发升级从成功wasm产物消费三件已证明资产，再执行冷签和提交，不生成自动化版本，也不替本仓读取链来阻止派发。配置原件归所属GitHub仓，本次源码修改没有向GitHub写入机密或部署配置。
+实际Clippy、完整WASM编译与节点候选Runtime政策探针由本仓`scripts/build.mjs ci-build wasm`在同一固定`target/build/wasm`任务会话中依次执行；原生Cargo/Tauri输出和成对任务身份均由产品入口交付，Workflow不再直接运行两条Cargo校验。政策探针必须实际执行一项且不得走缺WASM跳过路径。三件WASM逐件上传和回读：草稿Release先从有写权限的分页列表按本次Tag定位唯一数字ID，再按ID独立回读完整资产；正式发布后继续按Tag回读。两个阶段均严格核对源码提交、状态、说明正文和逐件摘要，草稿校验失败不得转为发布。来源正文保留链目标证明。本仓负责自己的正式Release及同目标同结果历史清理。控制台只调用、跟踪和展示此自动化；其专属开发升级从成功wasm产物消费三件已证明资产，再执行冷签和提交，不生成自动化版本，也不替本仓读取链来阻止派发。配置原件归所属GitHub仓，本次源码修改没有向GitHub写入机密或部署配置。
 
 
 ### 本仓 GitHub 自动化与塔塔门禁目录

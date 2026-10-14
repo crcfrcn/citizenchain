@@ -1089,11 +1089,30 @@ export async function verifyGithubRelease(platform,phase,environment=process.env
   ||plan.directory!==join(work,'release-assets')||plan.notes!==join(work,'release-notes.txt'))fail('本轮Release计划无效');
  const token=environment.GH_TOKEN||environment.GITHUB_TOKEN;
  if(typeof token!=='string'||!token)fail('缺少GitHub核验令牌');
- const url=`https://api.github.com/repos/crcfrcn/citizenchain/releases/tags/${encodeURIComponent(plan.tag)}`;
- const response=await fetchImpl(url,{redirect:'error',headers:{Accept:'application/vnd.github+json',Authorization:'Bearer '+token,'X-GitHub-Api-Version':'2022-11-28'}});
- if(!response.ok)fail('GitHub Release回读失败');
- const release=await response.json();
- if(release.tag_name!==plan.tag||release.target_commitish!==plan.source_sha||release.prerelease!==false
+ const base='https://api.github.com/repos/crcfrcn/citizenchain/releases';
+ const read=async url=>{
+  const response=await fetchImpl(url,{redirect:'error',headers:{Accept:'application/vnd.github+json',Authorization:'Bearer '+token,'X-GitHub-Api-Version':'2022-11-28'}});
+  if(!response.ok)fail('GitHub Release回读失败');
+  return response.json();
+ };
+ let release;
+ if(phase==='draft'){
+  // GitHub按tag查询只返回已发布版本；草稿先从有权限的完整列表定位唯一数字ID。
+  let candidate,finished=false;
+  for(let page=1;page<=100;page++){
+   const rows=await read(`${base}?per_page=100&page=${page}`);
+   if(!Array.isArray(rows)||rows.length>100)fail('GitHub草稿列表格式无效');
+   for(const row of rows)if(row?.tag_name===plan.tag){if(candidate)fail('GitHub草稿Tag不唯一');candidate=row;}
+   if(rows.length<100){finished=true;break;}
+  }
+  if(!finished)fail('GitHub草稿列表分页超限');
+  if(!candidate)fail('GitHub草稿Release缺失');
+  if(!Number.isSafeInteger(candidate.id)||candidate.id<=0||candidate.url!==`${base}/${candidate.id}`)fail('GitHub草稿Release身份无效');
+  release=await read(`${base}/${candidate.id}`);
+  if(release.id!==candidate.id)fail('GitHub草稿Release身份漂移');
+ }else release=await read(`${base}/tags/${encodeURIComponent(plan.tag)}`);
+ if(!Number.isSafeInteger(release?.id)||release.id<=0||release.url!==`${base}/${release.id}`
+  ||release.tag_name!==plan.tag||release.target_commitish!==plan.source_sha||release.prerelease!==false
   ||release.draft!==(phase==='draft')||phase==='published'&&!release.published_at
   ||release.body?.trim()!==readFileSync(plan.notes,'utf8').trim())fail('GitHub Release身份或状态不符');
  if(!Array.isArray(release.assets)||release.assets.length!==plan.assets.length)fail('GitHub Release资产数量不符');
@@ -3163,12 +3182,40 @@ test('Windows正式资产清单只回读本平台准确Release',async()=>{
    GITHUB_REPOSITORY:'crcfrcn/citizenchain',GITHUB_WORKFLOW:'citizenchain.windows',GH_TOKEN:'fixture'};
   const plan=await prepareGithubAssets('windows',work,null,environment);
   assert.equal(plan.assets.length,3);assert.equal(plan.tag,'citizenchain-windows-v1.0.0-r12-a1');
-  const release={tag_name:plan.tag,target_commitish:environment.GITHUB_SHA,prerelease:false,draft:true,
+  const base='https://api.github.com/repos/crcfrcn/citizenchain/releases';
+  const release={id:70,url:`${base}/70`,tag_name:plan.tag,target_commitish:environment.GITHUB_SHA,prerelease:false,draft:true,
    body:readFileSync(plan.notes,'utf8'),assets:plan.assets.map((value,index)=>({id:index+1,name:value.name,state:'uploaded',size:value.size,digest:'sha256:'+value.sha256}))};
-  const fetchImpl=async()=>Response.json(release);
+  let listed=[release],byId=release,pages=null;
+  const calls=[],fetchImpl=async url=>{
+   calls.push(url);
+   if(url.startsWith(base+'?'))return Response.json(pages?pages.get(Number(new URL(url).searchParams.get('page')))??[]:listed);
+   if(url===`${base}/70`)return byId?Response.json(byId):new Response(null,{status:404});
+   if(url===`${base}/tags/${plan.tag}`)return Response.json(release);
+   return new Response(null,{status:404});
+  };
   assert.deepEqual(await verifyGithubRelease('windows','draft',environment,{fetchImpl}),{platform:'windows',tag:plan.tag,phase:'draft'});
+  assert.deepEqual(calls,[`${base}?per_page=100&page=1`,`${base}/70`]);
   release.assets[0].digest='sha256:'+'0'.repeat(64);
   await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/资产回读不符/u);
+  release.assets[0].digest='sha256:'+plan.assets[0].sha256;
+  listed=[];await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/草稿Release缺失/u);
+  listed=[{...release,id:0}];await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/草稿Release身份无效/u);
+  listed=[release];byId=null;await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/Release回读失败/u);
+  byId={...release,id:71};await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/身份漂移/u);
+  byId=release;
+  const full=Array.from({length:100},(_,index)=>({tag_name:`other-${index}`}));
+  listed=full;await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/分页超限/u);
+  pages=new Map([[1,full],[2,[release]]]);
+  assert.deepEqual(await verifyGithubRelease('windows','draft',environment,{fetchImpl}),{platform:'windows',tag:plan.tag,phase:'draft'});
+  pages=new Map([[1,[release,...full.slice(1)]],[2,[release]]]);
+  await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/草稿Tag不唯一/u);
+  pages=null;
+  listed=[release];release.draft=false;release.published_at='2026-10-14T00:00:00Z';calls.length=0;
+  await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/身份或状态不符/u);
+  calls.length=0;
+  assert.deepEqual(await verifyGithubRelease('windows','published',environment,{fetchImpl}),{platform:'windows',tag:plan.tag,phase:'published'});
+  assert.deepEqual(calls,[`${base}/tags/${plan.tag}`]);
+  release.draft=true;await assert.rejects(verifyGithubRelease('windows','published',environment,{fetchImpl}),/身份或状态不符/u);
  }finally{clearFixedWork(work);}
 });
 test('本机安装意图只允许控制台macOS任务，GitHub及其它平台保持纯编译',()=>{
