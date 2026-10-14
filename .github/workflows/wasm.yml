@@ -143,9 +143,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo --config "$GITHUB_WORKSPACE/config.toml" metadata --locked --no-deps --format-version 1 >/dev/null
-          cargo --config "$GITHUB_WORKSPACE/config.toml" clippy --locked -p citizenchain --no-default-features --features std -- -D warnings
           node scripts/build.mjs ci-build wasm > "$RUNNER_TEMP/citizenchain-wasm-build-result.json"
-          cargo --config "$GITHUB_WORKSPACE/config.toml" test --locked -p node current_wasm_passes_candidate_runtime_policy_behavior_probes -- --nocapture
       - name: 创建并回读正式 WASM GitHub Release
         env:
           RELEASE_VERSION: "${{ steps.version.outputs.version }}"

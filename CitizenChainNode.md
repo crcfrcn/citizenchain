@@ -2888,6 +2888,7 @@ Windows LLVM准备步骤用Bash的`GITHUB_ENV`语法交付库路径；Windows工
 Windows Release在PowerShell组包步骤把固定安装包名称的`.exe`结尾替换为本轮软件版本后缀，再从Cargo输出复制安装包；下一步使用该包在`RUNNER_TEMP`下的绝对路径直接调用Tauri签名器，不把绝对路径接到GitHub检出根。
 
 WASM Release的版本准备由`.github/workflows/wasm.yml`以固定产品User-Agent GET`https://www.crcfrcn.com/api/chain/runtime-target`，只接受公民服务端返回的块0哈希、finalized头、`spec_version`与`spec_name`四个准确字段；回读块0哈希须等于`runtime/primitives/src/genesis.rs`唯一冻结常量，候选版本至少高于当前finalized的`spec_version`。公民服务端自身经Access/Tunnel只读查询正式链，GitHub不配置Cloudflare URL、ID或Secret，不能选择任意RPC方法。读取失败、错链或错误版本直接使Release准备失败。版本预检尚未创建固定`target`时，本产品`finish`对确实缺失的现场安全完成；已有现场、断链与目录链接继续逐层验真并按原所有权规则收尾。
+WASM正式Clippy、Runtime编译及Node候选政策探针均由`scripts/build.mjs ci-build wasm`在同一已领取的`target/build/wasm`会话内执行；Cargo不使用默认`target/debug`，Tauri取得原仓与任务根成对身份，政策探针缺WASM不能记为通过。GitHub Workflow只负责版本与工具准备、调用产品入口、正式Release及always收尾。
 候选版本同时计入本平台已有成功Release的版本：`citizenChainRelease`已按WASM Tag识别平台并核对Tag提交，历史收集仅继续核对对应Run成功及工作流身份，不读取其返回对象中不存在的`platform`字段；草稿、预发布、其他平台和失败Run不进入版本集合。
 
 所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。

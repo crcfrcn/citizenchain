@@ -563,6 +563,25 @@ function singleBundle(directory,suffix){
  if(files.length!==1)fail('节点安装包不是唯一文件：'+suffix);return files[0];
 }
 
+// WASM正式校验、编译与政策探针共用本产品已领取的固定现场；不能让Cargo回写默认target/debug。
+function wasmCargoEnvironment(work,environment){
+ if(work!==fixedWork('build/wasm'))fail('WASM校验不属于本平台固定工作根');
+ return {...environment,CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_SOURCE_ROOT:root,
+  CITIZENCHAIN_WORK_DIR:work,WASM_BUILD_FROM_SOURCE:'1',CITIZENCHAIN_PRODUCTION_WASM_BUILD:'1',
+  TAURI_CONFIG:JSON.stringify({build:{frontendDist:join(root,'node/frontend')}})};
+}
+async function runWasmCargoValidation(stage,work,environment,runner=runBuildProcess){
+ if(work!==fixedWork('build/wasm'))fail('WASM校验不属于本平台固定工作根');
+ const cargo=environment.CARGO||'cargo';
+ const args=stage==='clippy'
+  ? ['clippy','--locked','-p','citizenchain','--no-default-features','--features','std','--','-D','warnings']
+  : stage==='policy'
+   ? ['test','--locked','-p','node','current_wasm_passes_candidate_runtime_policy_behavior_probes','--','--nocapture']
+   : fail('WASM校验阶段无效');
+ const result=await runner(cargo,['--config',join(root,'config.toml'),...args],environment,root,{capture:stage==='policy'});
+ if(stage==='policy'&&(!/test result: ok\. 1 passed; 0 failed; 0 ignored;/u.test(result.stdout)
+  ||/跳过真实服务级坏块验收/u.test((result.stdout||'')+(result.stderr||''))))fail('WASM政策探针未准确运行');
+}
 async function buildWasmArtifacts(work,env){
  const cargo=env.CARGO||'cargo',target=env.CARGO_TARGET_DIR||join(work,'work/cargo-target');
  mkdirSync(target,{recursive:true});
@@ -989,11 +1008,16 @@ async function runDesktopRpcTests(platform,work,environment){
 }
 
 async function runNativePlatform(platform,work,environment){
- const env={...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',
+ const base={...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',
   CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_WORK_DIR:work,PRODUCT_WORK_DIR:work};
+ const env=platform==='wasm'?wasmCargoEnvironment(work,base):base;
  mkdirSync(env.CARGO_TARGET_DIR,{recursive:true});
  await runDesktopRpcTests(platform,work,env);
- if(platform==='wasm')await buildWasmArtifacts(work,env);
+ if(platform==='wasm'){
+  await runWasmCargoValidation('clippy',work,env);
+  await buildWasmArtifacts(work,env);
+  await runWasmCargoValidation('policy',work,env);
+ }
  else if(platform==='macos')await runEmbeddedBuild('run',[],{...env,PRODUCT_BASH_BIN:environment.PRODUCT_BASH_BIN||'/bin/bash'});
  else await buildNodePackage(platform,work,env);
  const declared=platformContract(platform);
@@ -1001,6 +1025,32 @@ async function runNativePlatform(platform,work,environment){
   files:declared.files.map(name=>{const path=join(work,name);if(!existsSync(path)||realpathSync(path)!==path)fail('平台编译产物缺失');return {path,sha256:outputDigest(path)};})};
  checkBuildResult(result,platform,work);
  return {env,result};
+}
+
+// 所属回归位于正式WASM实现之后，避免测试注册早于产品固定根导出初始化。
+if(inlineTestEntry){
+ const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
+ test('WASM正式校验只在固定现场交付成对Tauri身份并核对真实探针结果',async()=>{
+  const work=fixedWork('build/wasm'),env=wasmCargoEnvironment(work,{CARGO:'/verified/cargo',CARGO_TARGET_DIR:'/outside'});
+  assert.equal(env.CARGO_TARGET_DIR,join(work,'work/cargo-target'));
+  assert.equal(env.CITIZENCHAIN_SOURCE_ROOT,root);
+  assert.equal(env.CITIZENCHAIN_WORK_DIR,work);
+  assert.equal(JSON.parse(env.TAURI_CONFIG).build.frontendDist,join(root,'node/frontend'));
+  const calls=[],runner=async(file,args,supplied,cwd,options)=>{
+   calls.push({file,args,supplied,cwd,options});
+   return {stdout:'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;'};
+  };
+  await runWasmCargoValidation('clippy',work,env,runner);
+  await runWasmCargoValidation('policy',work,env,runner);
+  assert.deepEqual(calls.map(call=>call.args[2]),['clippy','test']);
+  assert.ok(calls.every(call=>call.file==='/verified/cargo'&&call.supplied===env&&call.cwd===root));
+  assert.deepEqual(calls.map(call=>call.options.capture),[false,true]);
+  assert.ok(calls[1].args.includes('current_wasm_passes_candidate_runtime_policy_behavior_probes'));
+  await assert.rejects(runWasmCargoValidation('policy',work,env,async()=>({stdout:'test result: ok. 0 passed; 0 failed; 0 ignored;'})),/未准确运行/);
+  await assert.rejects(runWasmCargoValidation('policy',work,env,async()=>({stdout:'test result: ok. 1 passed; 0 failed; 0 ignored;',stderr:'跳过真实服务级坏块验收'})),/未准确运行/);
+  await assert.rejects(runWasmCargoValidation('unknown',work,env,runner),/阶段无效/);
+  assert.throws(()=>wasmCargoEnvironment(fixedWork('test'),env),/固定工作根/);
+ });
 }
 
 export async function buildDirect(platform,environment=process.env){
