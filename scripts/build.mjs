@@ -65,7 +65,7 @@ function fixedScratch(prefix){
 function assertTargetTopology(){
  const target=join(root,'target');if(!fs.existsSync(target))return;
  directory(target);
- for(const name of fs.readdirSync(target))if(!scopes.has(name)&&name!=='node_modules')fail('target含非固定目录或根部生成文件：'+name);
+ for(const name of fs.readdirSync(target))if(!scopes.has(name)&&name!=='cache'&&name!=='node_modules')fail('target含非固定目录或根部生成文件：'+name);
  for(const name of fs.readdirSync(target))directory(join(target,name));
 }
 function regular(path){const value=fs.lstatSync(path);if(!value.isFile()||value.isSymbolicLink()||value.nlink!==1||value.size>65536)fail('任务标记不是准确普通文件');return value;}
@@ -423,10 +423,10 @@ export function requirements(platform,work) {
  checkWork(work);const declared=platformContract(platform);
  // QR 协议是本仓独立工作空间；其测试锁与平台构建锁在同一任务资源回执中验真。
  const protocolLock={ecosystem:'cargo',path:'crates/protocol/Cargo.lock'};
- const locks=[...declared.locks.map(value=>({...value})),protocolLock],sources=lockedSources(),archives=[];
+ const locks=[...declared.locks.map(value=>({...value})),...(platform==='wasm'?[]:[protocolLock])],sources=lockedSources(),archives=[];
  // 原生源归档坐标归本产品已有声明；准备后才提出展开源码的Cargo锁。
  for(const lock of locks){const file=join(root,lock.path);if(!existsSync(file)||!lstatSync(file).isFile()||lstatSync(file).isSymbolicLink())fail('原始锁缺失或带链接：'+lock.path);}
- // WASM平台本身不编译Node；完整Build的本仓Node测试仍由本产品声明同一登记版本。
+ // WASM平台使用Node执行本产品入口，但不编译Node包；复用本产品唯一登记的Node工具版本。
  const testNode=contract.platforms.macos.tools.find(value=>value.id==='node');
  if(!testNode)fail('产品测试Node声明缺失');
  const tools=declared.tools.some(value=>value.id==='node')?declared.tools:[...declared.tools,testNode];
@@ -563,24 +563,11 @@ function singleBundle(directory,suffix){
  if(files.length!==1)fail('节点安装包不是唯一文件：'+suffix);return files[0];
 }
 
-// WASM正式校验、编译与政策探针共用本产品已领取的固定现场；不能让Cargo回写默认target/debug。
+// WASM正式编译只使用本产品已领取的固定现场；不能让Cargo回写默认target/debug。
 function wasmCargoEnvironment(work,environment){
  if(work!==fixedWork('build/wasm'))fail('WASM校验不属于本平台固定工作根');
  return {...environment,CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_SOURCE_ROOT:root,
-  CITIZENCHAIN_WORK_DIR:work,WASM_BUILD_FROM_SOURCE:'1',CITIZENCHAIN_PRODUCTION_WASM_BUILD:'1',
-  TAURI_CONFIG:JSON.stringify({build:{frontendDist:join(root,'node/frontend')}})};
-}
-async function runWasmCargoValidation(stage,work,environment,runner=runBuildProcess){
- if(work!==fixedWork('build/wasm'))fail('WASM校验不属于本平台固定工作根');
- const cargo=environment.CARGO||'cargo';
- const args=stage==='clippy'
-  ? ['clippy','--locked','-p','citizenchain','--no-default-features','--features','std','--','-D','warnings']
-  : stage==='policy'
-   ? ['test','--locked','-p','node','current_wasm_passes_candidate_runtime_policy_behavior_probes','--','--nocapture']
-   : fail('WASM校验阶段无效');
- const result=await runner(cargo,['--config',join(root,'config.toml'),...args],environment,root,{capture:stage==='policy'});
- if(stage==='policy'&&(!/test result: ok\. 1 passed; 0 failed; 0 ignored;/u.test(result.stdout)
-  ||/跳过真实服务级坏块验收/u.test((result.stdout||'')+(result.stderr||''))))fail('WASM政策探针未准确运行');
+  CITIZENCHAIN_WORK_DIR:work,WASM_BUILD_FROM_SOURCE:'1',CITIZENCHAIN_PRODUCTION_WASM_BUILD:'1'};
 }
 async function buildWasmArtifacts(work,env){
  const cargo=env.CARGO||'cargo',target=env.CARGO_TARGET_DIR||join(work,'work/cargo-target');
@@ -601,13 +588,15 @@ async function buildNodePackage(platform,work,environment){
  const pg=environment.CITIZENCHAIN_PG_DIST||process.env.CITIZENCHAIN_PG_DIST;
  if(typeof pg!=='string'||!isAbsolute(pg)||!existsSync(join(pg,'bin'))||realpathSync(pg)!==pg)fail('正式节点包缺少当前平台PostgreSQL原件');
  mkdirSync(target,{recursive:true});mkdirSync(stage,{recursive:true});
- const env={...environment,CARGO_TARGET_DIR:target,WASM_BUILD_FROM_SOURCE:'1',CITIZENCHAIN_PRODUCTION_WASM_BUILD:'1',
+ // 节点安装包沿用链上Runtime代码，打包时不重新构建正式Runtime WASM。
+ const env={...environment,CARGO_TARGET_DIR:target,
   ONCHINA_FRONTEND_DIST:join(stage,'onchina-frontend'),CITIZENCHAIN_FRONTEND_DIST:join(stage,'node-frontend')};
  const npm=npmCLI(node),npmRun=(args,cwd,extra={})=>runBuildProcess(node,[npm,...args],{...env,...extra},cwd);
+ const frontendRun=(args,cwd,clean)=>runBuildProcess(node,[npm,...args],clean,cwd);
  for(const name of ['crates/scanner','node/frontend','onchina/frontend'])await npmRun(['ci',...(env.npm_config_offline==='true'?['--offline']:[])],join(project,name));
  await runBuildProcess(cargo,['--config',join(project,'config.toml'),'build','--locked','--release','-p','onchina'],env,project);
- await npmRun(['run','build'],join(project,'onchina/frontend'));
- await npmRun(['run','build'],join(project,'node/frontend'));
+ await buildFrontendIncrementally(platform,'onchina',work,join(project,'onchina/frontend'),env.ONCHINA_FRONTEND_DIST,env,frontendRun);
+ await buildFrontendIncrementally(platform,'node',work,join(project,'node/frontend'),env.CITIZENCHAIN_FRONTEND_DIST,env,frontendRun);
  const resources=join(stage,'resources'),binary=process.platform==='win32'?'onchina.exe':'onchina';
  mkdirSync(join(resources,'onchina-bin'),{recursive:true});mkdirSync(join(resources,'onchina-frontend'),{recursive:true});mkdirSync(join(resources,'postgres'),{recursive:true});
  copyFileSync(join(target,'release',binary),join(resources,'onchina-bin',binary));
@@ -700,12 +689,15 @@ async function prepareGithubAssets(platform,work,result,environment){
 export async function build(platform,work,receipt,base) {
  const env=resourceEnvironment(platform,work,receipt,base),declared=platformContract(platform);
  await checkArchives(platform,work,receipt,true);await stageArchives(work,receipt);
- // 塔塔控制台发起的每个平台 Build 均先跑独立 QR Rust 回归；失败不进入任何平台编译。
- if(typeof env.CARGO!=='string'||!isAbsolute(env.CARGO)||realpathSync(env.CARGO)!==env.CARGO
-   ||!lstatSync(env.CARGO).isFile()||lstatSync(env.CARGO).isSymbolicLink())
-  fail('QR协议测试缺少受控 Cargo 入口');
- await runBuildProcess(env.CARGO,['test','--manifest-path',join(root,'crates/protocol/Cargo.toml'),'--locked','--offline'],
-  {...env,CARGO_TARGET_DIR:join(work,'work/qr-test-target')},root,{timeout:600000});
+ restoreBuildCache(platform,work,env);
+ // QR协议仅属于节点平台的构建前测试；正式WASM不编译这个独立工作空间。
+ if(platform!=='wasm'){
+  if(typeof env.CARGO!=='string'||!isAbsolute(env.CARGO)||realpathSync(env.CARGO)!==env.CARGO
+    ||!lstatSync(env.CARGO).isFile()||lstatSync(env.CARGO).isSymbolicLink())
+   fail('QR协议测试缺少受控 Cargo 入口');
+  await runBuildProcess(env.CARGO,['test','--manifest-path',join(root,'crates/protocol/Cargo.toml'),'--locked','--offline'],
+   {...env,CARGO_TARGET_DIR:join(work,'work/qr-test-target')},root,{timeout:600000});
+ }
  await runDesktopRpcTests(platform,work,env);
  const shell=receipt.tools.bash?.path;
  if(platform==='macos'&&!shell)fail('缺少显式Shell资源');
@@ -718,7 +710,9 @@ export async function build(platform,work,receipt,base) {
    await runEmbeddedBuild('run',[],{...nodeEnv,PRODUCT_BASH_BIN:shell});
   }else await buildNodePackage(platform,work,env);
 
- return completeBuild(platform,work,receipt,env);
+ const result=await completeBuild(platform,work,receipt,env);
+ saveBuildCache(platform,work,env);
+ return result;
 }
 
 // 每次调用拥有自己的取消和进程集合，导入API并发也不能共享执行状态。
@@ -996,7 +990,6 @@ async function runDesktopRpcTests(platform,work,environment){
  const testTarget=join(work,'work/cargo-target');
  mkdirSync(testTarget,{recursive:true});
  let env={...environment,CARGO_TARGET_DIR:testTarget,CITIZENCHAIN_SOURCE_ROOT:root,CITIZENCHAIN_WORK_DIR:work,
-  WASM_BUILD_FROM_SOURCE:'1',CITIZENCHAIN_PRODUCTION_WASM_BUILD:'1',
   TAURI_CONFIG:JSON.stringify({build:{frontendDist:join(root,'node/frontend')}})};
  if(platform==='macos'&&env.CC&&env.DEVELOPER_DIR)env=nodeCargoEnvironment(env);
  const offline=env.CITIZENCHAIN_OFFLINE==='true'?['--offline']:[];
@@ -1014,16 +1007,202 @@ async function runDesktopRpcTests(platform,work,environment){
  }
 }
 
+// 各平台的持久编译缓存与本轮固定现场分离；仅复制Cargo中间物，不缓存签名包或发布资产。
+const cacheParts=Object.freeze(['.fingerprint','build','deps','incremental']);
+function platformCacheRoot(platform){
+ platformContract(platform);
+ return testSession?join(root,'target/test/sessions',testSession,'cache',platform):join(root,'target/cache',platform);
+}
+function cacheIdentity(platform,environment){
+ const declared=platformContract(platform),lockDigest=declared.locks.map(item=>{
+  const path=join(root,item.path);
+  return [item.path,createHash('sha256').update(readFileSync(path)).digest('hex')];
+ });
+ const values={schema:1,platform,source_root:root,host:process.platform,arch:process.arch,
+  tools:declared.tools,locks:lockDigest,config:createHash('sha256').update(readFileSync(join(root,'config.toml'))).digest('hex'),
+  runner_image:environment.ImageVersion||'',runner_os:environment.ImageOS||'',
+  rustflags:environment.RUSTFLAGS||'',encoded_rustflags:environment.CARGO_ENCODED_RUSTFLAGS||'',
+  wasm_flags:environment.WASM_BUILD_RUSTFLAGS||'',incremental:'1'};
+ return createHash('sha256').update(JSON.stringify(values)).digest('hex');
+}
+function checkedCacheDirectory(path,{create=false}={}){
+ if(!isAbsolute(path)||resolve(path)!==path||!inside(join(root,'target'),path))fail('平台缓存目录越界');
+ const parts=relative(root,path).split(sep);let current=root;
+ for(const part of parts){
+  current=join(current,part);
+  if(create&&!existsSync(current))try{mkdirSync(current,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;}
+  const state=lstatSync(current,{throwIfNoEntry:false});
+  if(!state)return false;
+  if(!state.isDirectory()||state.isSymbolicLink()||realpathSync(current)!==current)fail('平台缓存目录含链接或非目录');
+ }
+ return true;
+}
+function validateCacheSnapshot(snapshot){
+ if(!checkedCacheDirectory(snapshot))fail('平台缓存快照目录缺失');
+ const profiles=new Set(['debug','release']),parts=new Set(cacheParts);
+ function visit(path,depth){
+  for(const name of readdirSync(path)){
+   if(depth===0&&!profiles.has(name)||depth===1&&!parts.has(name))fail('平台缓存包含未声明路径');
+   const child=join(path,name),state=lstatSync(child);
+   if(state.isSymbolicLink()||realpathSync(child)!==child||state.isFile()&&state.nlink!==1)fail('平台缓存包含链接');
+   if(state.isDirectory())visit(child,depth+1);
+   else if(depth<2)fail('平台缓存层级不是目录');
+   else if(!state.isFile())fail('平台缓存包含特殊文件');
+  }
+ }
+ visit(snapshot,0);
+}
+function restoreBuildCache(platform,work,environment){
+ if(work!==fixedWork('build/'+platform))fail('平台缓存与任务现场不匹配');
+ const cache=platformCacheRoot(platform),current=join(cache,'current');
+ if(!checkedCacheDirectory(cache)||!checkedCacheDirectory(current))return false;
+ const metadata=join(current,'manifest.json'),snapshot=join(current,'snapshot');
+ if(!existsSync(metadata)||!checkedCacheDirectory(snapshot))fail('平台缓存快照不完整');
+ const state=lstatSync(metadata);
+ if(!state.isFile()||state.isSymbolicLink()||state.nlink!==1||state.size>65536)fail('平台缓存清单无效');
+ const manifest=JSON.parse(readFileSync(metadata,'utf8'));
+ if(manifest.schema!==1||manifest.platform!==platform||typeof manifest.identity!=='string'
+  ||!/^[a-f0-9]{64}$/u.test(manifest.digest||''))fail('平台缓存身份无效');
+ if(manifest.identity!==cacheIdentity(platform,environment))return false;
+ validateCacheSnapshot(snapshot);
+ if(outputDigest(snapshot)!==manifest.digest)fail('平台缓存字节漂移');
+ const target=join(work,'work/cargo-target');
+ if(existsSync(target))fail('平台缓存导入目标已存在');
+ mkdirSync(dirname(target),{recursive:true});
+ cpSync(snapshot,target,{recursive:true,errorOnExist:true,force:false});
+ process.stderr.write('公民链'+platform+'命中已验真增量缓存\n');
+ return true;
+}
+function saveBuildCache(platform,work,environment){
+ if(work!==fixedWork('build/'+platform))fail('平台缓存与任务现场不匹配');
+ const target=join(work,'work/cargo-target'),cache=platformCacheRoot(platform);
+ if(!checkedCacheDirectory(target))fail('平台Cargo目标目录无效');
+ checkedCacheDirectory(cache,{create:true});
+ const candidate=join(cache,'candidate'),current=join(cache,'current');
+ if(existsSync(candidate)){
+  checkedCacheDirectory(candidate);
+  rmSync(candidate,{recursive:true});
+ }
+ checkedCacheDirectory(candidate,{create:true});
+ const snapshot=join(candidate,'snapshot');checkedCacheDirectory(snapshot,{create:true});
+ for(const profile of ['debug','release'])for(const part of cacheParts){
+  const source=join(target,profile,part);
+  if(!existsSync(source))continue;
+  if(!checkedCacheDirectory(source))fail('平台Cargo缓存来源无效');
+  const destination=join(snapshot,profile,part);mkdirSync(dirname(destination),{recursive:true});
+  cpSync(source,destination,{recursive:true,errorOnExist:true,force:false,filter:path=>{
+   const state=lstatSync(path);
+   // 正式WASM与所属Runtime本体每轮从当前源码重建；只复用其依赖的编译中间物。
+   if(platform==='wasm'&&path!==source){
+    const rel=relative(source,path).split(sep);
+    if(rel.length===1&&part==='build'&&/^citizenchain-/u.test(rel[0]))return false;
+    if(rel.length===1&&part==='.fingerprint'&&/^citizenchain-/u.test(rel[0]))return false;
+    if(rel.length===1&&part==='deps'&&/^(?:lib)?citizenchain[-.]/u.test(rel[0]))return false;
+   }
+   return state.isDirectory()&&!state.isSymbolicLink()||state.isFile()&&!state.isSymbolicLink()&&state.nlink===1;
+  }});
+ }
+ validateCacheSnapshot(snapshot);
+ const manifest={schema:1,platform,identity:cacheIdentity(platform,environment),digest:outputDigest(snapshot)};
+ writeFileSync(join(candidate,'manifest.json'),JSON.stringify(manifest)+'\n',{flag:'wx',mode:0o600});
+ if(lstatSync(current,{throwIfNoEntry:false})){checkedCacheDirectory(current);rmSync(current,{recursive:true});}
+ renameSync(candidate,current);
+ process.stderr.write('公民链'+platform+'增量缓存已验真保存\n');
+}
+
+// 节点前端只在准确源码、共享扫码组件、图标及原始锁均未变化时复用公开静态产物。
+function frontendInputDigest(name){
+ if(!['node','onchina'].includes(name))fail('前端缓存名称无效');
+ const paths=[join(root,name,'frontend'),join(root,'crates/scanner'),join(root,'icons')];
+ const hash=createHash('sha256'),ignored=new Set(['node_modules','dist','build','target','.cache','.DS_Store','tsconfig.tsbuildinfo']);
+ function visit(path,base){
+  const state=lstatSync(path);
+  if(state.isSymbolicLink()||realpathSync(path)!==path||state.isFile()&&state.nlink!==1)fail('前端缓存输入包含链接');
+  const rel=relative(base,path);
+  if(state.isDirectory()){
+   hash.update(JSON.stringify([rel,'directory'])+'\n');
+   for(const child of readdirSync(path).sort()){
+    if(ignored.has(child))continue;
+    if(child.startsWith('.env'))fail('前端缓存输入包含环境机密文件');
+    visit(join(path,child),base);
+   }
+  }else if(state.isFile()){
+   hash.update(JSON.stringify([rel,'file',state.size])+'\n');hash.update(readFileSync(path));
+  }else fail('前端缓存输入包含特殊文件');
+ }
+ for(const path of paths){hash.update(relative(root,path)+'\n');visit(path,path);}
+ return hash.digest('hex');
+}
+function frontendCacheIdentity(platform,name,environment){
+ const node=contract.platforms.macos.tools.find(value=>value.id==='node');
+ if(!node||Object.keys(environment).some(key=>key.startsWith('VITE_')))fail('前端构建环境含未声明变量');
+ return createHash('sha256').update(JSON.stringify({schema:1,platform,name,node:node.version,
+  source:frontendInputDigest(name),runner:environment.ImageVersion||'',node_env:environment.NODE_ENV||'',
+  onchina_url:environment.ONCHINA_BASE_URL||''})).digest('hex');
+}
+function validateFrontendTree(path){
+ if(!checkedCacheDirectory(path))fail('前端静态产物目录无效');
+ function visit(at){for(const name of readdirSync(at)){
+  const child=join(at,name),state=lstatSync(child);
+  if(state.isSymbolicLink()||realpathSync(child)!==child||state.isFile()&&state.nlink!==1)
+   fail('前端静态产物包含链接');
+  if(state.isDirectory())visit(child);
+  else if(!state.isFile())fail('前端静态产物包含特殊文件');
+ }}visit(path);
+}
+function frontendBuildEnvironment(environment,output){
+ const result={...environment,...output};
+ for(const key of Object.keys(result))if(/(?:^|_)(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|CERTIFICATE_BASE64|PROFILE_BASE64)$/iu.test(key))delete result[key];
+ return result;
+}
+async function buildFrontendIncrementally(platform,name,work,source,destination,environment,runner){
+ if(platform==='wasm'||!['node','onchina'].includes(name)||work!==fixedWork('build/'+platform)
+  ||!inside(work,source)||!inside(work,destination)||resolve(source)!==source||resolve(destination)!==destination)
+  fail('前端构建不属于本平台现场');
+ if(!checkedCacheDirectory(source))fail('前端工程目录无效');
+ const cache=join(platformCacheRoot(platform),'frontend',name),current=join(cache,'current');
+ const identity=frontendCacheIdentity(platform,name,environment);
+ if(checkedCacheDirectory(current)){
+  const metadata=join(current,'manifest.json'),dist=join(current,'dist');
+  if(!existsSync(metadata)||!checkedCacheDirectory(dist))fail('前端缓存快照不完整');
+  const state=lstatSync(metadata);
+  if(!state.isFile()||state.isSymbolicLink()||state.nlink!==1||state.size>65536)fail('前端缓存清单无效');
+  const manifest=JSON.parse(readFileSync(metadata,'utf8'));
+  if(manifest.schema!==1||manifest.platform!==platform||manifest.name!==name
+   ||!/^[a-f0-9]{64}$/u.test(manifest.digest||''))fail('前端缓存身份无效');
+  if(manifest.identity===identity){
+   validateFrontendTree(dist);
+   if(outputDigest(dist)!==manifest.digest)fail('前端缓存字节漂移');
+   if(existsSync(destination))fail('前端缓存导入目标已存在');
+   mkdirSync(dirname(destination),{recursive:true});cpSync(dist,destination,{recursive:true,errorOnExist:true,force:false});
+   process.stderr.write('公民链'+platform+' '+name+'前端命中增量缓存\n');
+   return;
+  }
+ }
+ const output=name==='node'?{CITIZENCHAIN_FRONTEND_DIST:destination}:{ONCHINA_FRONTEND_DIST:destination};
+ await runner(['run','build'],source,frontendBuildEnvironment(environment,output));
+ if(!checkedCacheDirectory(destination))fail('前端编译产物缺失');
+ validateFrontendTree(destination);
+ checkedCacheDirectory(cache,{create:true});
+ const candidate=join(cache,'candidate');
+ if(lstatSync(candidate,{throwIfNoEntry:false})){checkedCacheDirectory(candidate);rmSync(candidate,{recursive:true});}
+ checkedCacheDirectory(candidate,{create:true});
+ const dist=join(candidate,'dist');cpSync(destination,dist,{recursive:true,errorOnExist:true,force:false});
+ const manifest={schema:1,platform,name,identity,digest:outputDigest(dist)};
+ writeFileSync(join(candidate,'manifest.json'),JSON.stringify(manifest)+'\n',{flag:'wx',mode:0o600});
+ if(lstatSync(current,{throwIfNoEntry:false})){checkedCacheDirectory(current);rmSync(current,{recursive:true});}
+ renameSync(candidate,current);
+}
+
 async function runNativePlatform(platform,work,environment){
- const base={...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',
+ const base={...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',CARGO_INCREMENTAL:'1',
   CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_WORK_DIR:work,PRODUCT_WORK_DIR:work};
  const env=platform==='wasm'?wasmCargoEnvironment(work,base):base;
+ restoreBuildCache(platform,work,env);
  mkdirSync(env.CARGO_TARGET_DIR,{recursive:true});
  await runDesktopRpcTests(platform,work,env);
  if(platform==='wasm'){
-  await runWasmCargoValidation('clippy',work,env);
   await buildWasmArtifacts(work,env);
-  await runWasmCargoValidation('policy',work,env);
  }
  else if(platform==='macos')await runEmbeddedBuild('run',[],{...env,PRODUCT_BASH_BIN:environment.PRODUCT_BASH_BIN||'/bin/bash'});
  else await buildNodePackage(platform,work,env);
@@ -1031,32 +1210,74 @@ async function runNativePlatform(platform,work,environment){
  const result={schema:1,product_id:product,platform,work,completion:declared.completion,
   files:declared.files.map(name=>{const path=join(work,name);if(!existsSync(path)||realpathSync(path)!==path)fail('平台编译产物缺失');return {path,sha256:outputDigest(path)};})};
  checkBuildResult(result,platform,work);
+ saveBuildCache(platform,work,env);
  return {env,result};
 }
 
 // 所属回归位于正式WASM实现之后，避免测试注册早于产品固定根导出初始化。
 if(inlineTestEntry){
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
- test('WASM正式校验只在固定现场交付成对Tauri身份并核对真实探针结果',async()=>{
+ test('WASM正式编译只使用本平台固定现场且不注入Node编译配置',()=>{
   const work=fixedWork('build/wasm'),env=wasmCargoEnvironment(work,{CARGO:'/verified/cargo',CARGO_TARGET_DIR:'/outside'});
   assert.equal(env.CARGO_TARGET_DIR,join(work,'work/cargo-target'));
   assert.equal(env.CITIZENCHAIN_SOURCE_ROOT,root);
   assert.equal(env.CITIZENCHAIN_WORK_DIR,work);
-  assert.equal(JSON.parse(env.TAURI_CONFIG).build.frontendDist,join(root,'node/frontend'));
-  const calls=[],runner=async(file,args,supplied,cwd,options)=>{
-   calls.push({file,args,supplied,cwd,options});
-   return {stdout:'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;'};
-  };
-  await runWasmCargoValidation('clippy',work,env,runner);
-  await runWasmCargoValidation('policy',work,env,runner);
-  assert.deepEqual(calls.map(call=>call.args[2]),['clippy','test']);
-  assert.ok(calls.every(call=>call.file==='/verified/cargo'&&call.supplied===env&&call.cwd===root));
-  assert.deepEqual(calls.map(call=>call.options.capture),[false,true]);
-  assert.ok(calls[1].args.includes('current_wasm_passes_candidate_runtime_policy_behavior_probes'));
-  await assert.rejects(runWasmCargoValidation('policy',work,env,async()=>({stdout:'test result: ok. 0 passed; 0 failed; 0 ignored;'})),/未准确运行/);
-  await assert.rejects(runWasmCargoValidation('policy',work,env,async()=>({stdout:'test result: ok. 1 passed; 0 failed; 0 ignored;',stderr:'跳过真实服务级坏块验收'})),/未准确运行/);
-  await assert.rejects(runWasmCargoValidation('unknown',work,env,runner),/阶段无效/);
+  assert.equal(env.TAURI_CONFIG,undefined);
+  assert.equal(env.WASM_BUILD_FROM_SOURCE,'1');
+  assert.equal(env.CITIZENCHAIN_PRODUCTION_WASM_BUILD,'1');
   assert.throws(()=>wasmCargoEnvironment(fixedWork('test'),env),/固定工作根/);
+ });
+ test('五平台增量缓存按平台隔离，命中复用并拒绝字节漂移',async()=>{
+  const platform='wasm',cache=platformCacheRoot(platform),other=platformCacheRoot('windows'),env={CARGO_INCREMENTAL:'1'};
+  try{
+   await withFixedWork('build/'+platform,async work=>{
+    const source=join(work,'work/cargo-target/release/deps');
+    mkdirSync(source,{recursive:true});writeFileSync(join(source,'runtime.rlib'),'first');
+    writeFileSync(join(source,'libcitizenchain-001.rlib'),'runtime-owned');
+    const wasmOutput=join(work,'work/cargo-target/release/wbuild/citizenchain');
+    mkdirSync(wasmOutput,{recursive:true});writeFileSync(join(wasmOutput,'citizenchain.wasm'),'candidate');
+    saveBuildCache(platform,work,env);
+    assert.equal(existsSync(join(cache,'current/snapshot/release/deps/libcitizenchain-001.rlib')),false);
+    assert.equal(existsSync(join(cache,'current/snapshot/release/wbuild')),false);
+    rmSync(join(work,'work/cargo-target'),{recursive:true});
+    assert.equal(restoreBuildCache(platform,work,env),true);
+    assert.equal(readFileSync(join(source,'runtime.rlib'),'utf8'),'first');
+    assert.equal(restoreBuildCache('windows',fixedWork('build/windows'),env),false);
+    assert.equal(restoreBuildCache(platform,work,{...env,RUSTFLAGS:'changed'}),false);
+    assert.equal(restoreBuildCache(platform,work,{...env,ImageVersion:'changed'}),false);
+    rmSync(join(work,'work/cargo-target'),{recursive:true});
+    writeFileSync(join(cache,'current/snapshot/release/deps/runtime.rlib'),'drift');
+    assert.throws(()=>restoreBuildCache(platform,work,env),/字节漂移/);
+   });
+   await withFixedWork('build/windows',async work=>{
+    const source=join(work,'work/cargo-target/release/deps');
+    mkdirSync(source,{recursive:true});writeFileSync(join(source,'node.rlib'),'independent');
+    saveBuildCache('windows',work,env);
+    rmSync(join(work,'work/cargo-target'),{recursive:true});
+    assert.equal(restoreBuildCache('windows',work,env),true);
+    assert.equal(readFileSync(join(source,'node.rlib'),'utf8'),'independent');
+   });
+  }finally{for(const path of [cache,other])if(existsSync(path))rmSync(path,{recursive:true});}
+ });
+ test('节点前端仅在准确输入不变时复用，缓存漂移与机密环境失败关闭',async()=>{
+  const platform='windows',cache=platformCacheRoot(platform);
+  try{await withFixedWork('build/'+platform,async work=>{
+   const source=join(work,'source/node/frontend'),destination=join(work,'stage/node-frontend');
+   mkdirSync(source,{recursive:true});let calls=0;
+   const environment={NODE_ENV:'production',GH_TOKEN:'fixture-private-token'};
+   const runner=async(args,cwd,clean)=>{
+    calls++;assert.deepEqual(args,['run','build']);assert.equal(cwd,source);assert.equal(clean.GH_TOKEN,undefined);
+    mkdirSync(destination,{recursive:true});writeFileSync(join(destination,'index.html'),'public');
+   };
+   await buildFrontendIncrementally(platform,'node',work,source,destination,environment,runner);
+   rmSync(destination,{recursive:true});
+   await buildFrontendIncrementally(platform,'node',work,source,destination,environment,runner);
+   assert.equal(calls,1);assert.equal(readFileSync(join(destination,'index.html'),'utf8'),'public');
+   rmSync(destination,{recursive:true});
+   writeFileSync(join(cache,'frontend/node/current/dist/index.html'),'drift');
+   await assert.rejects(buildFrontendIncrementally(platform,'node',work,source,destination,environment,runner),/字节漂移/);
+   await assert.rejects(buildFrontendIncrementally(platform,'node',work,source,destination,{...environment,VITE_SECRET:'bad'},runner),/未声明变量/);
+  });}finally{if(existsSync(cache))rmSync(cache,{recursive:true});}
  });
 }
 
@@ -1136,6 +1357,18 @@ export async function verifyGithubRelease(platform,phase,environment=process.env
 
 async function runCLI(){
  if(process.argv[2]==='editor')return editorCommand(process.argv.slice(3));
+ if(process.argv[2]==='frontend-build'){
+  const platform=process.argv[3],name=process.argv[4];
+  if(process.argv.length!==5||platform!=='macos'||!['node','onchina'].includes(name)
+   ||process.env.CITIZENCHAIN_WORK_DIR!==fixedWork('build/macos'))fail('前端构建入口身份无效');
+  await withFixedWork('build/macos',async work=>{
+   const source=join(work,'source/citizenchain',name==='node'?'node/frontend':'onchina/frontend');
+   const destination=join(work,name==='node'?'node-frontend':'onchina-frontend/dist');
+   const environment={...process.env,NODE:process.execPath};
+   const runner=(args,cwd,clean)=>runBuildProcess(process.execPath,[npmCLI(process.execPath),...args],clean,cwd);
+   await buildFrontendIncrementally(platform,name,work,source,destination,environment,runner);
+  },{environment:process.env});return;
+ }
  if(process.argv[2]==='native-build'){
   if(process.argv.length!==4)fail('直接编译入口参数无效');
   process.stdout.write(JSON.stringify(await buildDirect(process.argv[3]))+'\n');return;
@@ -3126,7 +3359,7 @@ return {runResourceProcess,inventory,acquireArchive,extractArchive,validateNpmLo
 export const {runResourceProcess,inventory,acquireArchive,extractArchive,validateNpmLocal,normalizeCargoManifest,podSourceCoordinate,readDependencySupply,materializePodSupply,materializeMavenCache,mavenSupplyInit,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,editorResources,resources,prepareResourceSupply,supplyRequirements,assertWorkQuiescent,prepareToolSupply}=resourceInternals;
 
 import {mkdtempSync as createEmbeddedDirectory} from 'node:fs';
-export const BUILD_SOURCES=Object.freeze({"run":"#!/usr/bin/env bash\n# CitizenChain节点本机Build入口：只构建、签名验真并写入产品产物目录。\n# 本入口不启动或停止节点，不修改链数据；编译成功后只安装已验签的App。\n# 测试、手工调试和清库不走本入口。\nset -euo pipefail\n\nMACOS_APP_BUNDLE=''\nMACOS_APP_PENDING=0\n\ncleanup() {\n    local result=\"${1:-1}\"\n    trap - EXIT INT TERM HUP\n    # 唯一成功路径会撤销 trap；其余提前退出必须失败，避免 Bash 参数展开错误被清理返回值吞掉。\n    [[ \"$result\" != 0 ]] || result=1\n    # 只清理本轮尚未通过完整签名验收的固定 App；历史成功归档和用户数据均不触碰。\n    if [[ \"${MACOS_APP_PENDING:-0}\" == 1 \\\n        && -n \"${TARGET_DIR:-}\" \\\n        && \"${MACOS_APP_BUNDLE:-}\" == \"$TARGET_DIR/release/bundle/macos/citizenchain.app\" ]]; then\n        rm -rf -- \"$MACOS_APP_BUNDLE\"\n    fi\n    # Build 不启动节点或 PG；校验失败不得停止其它任务或用户已运行的实例。\n    exit \"$result\"\n}\ntrap 'cleanup \"$?\"' EXIT\ntrap 'cleanup 130' INT\ntrap 'cleanup 143' TERM\ntrap 'cleanup 129' HUP\n\n# macOS 产品 App 只接受今后唯一的新团队 Developer ID；禁止按枚举顺序选证书，\n# 否则Apple Development或其它团队身份可能被静默当成产品正式签名。\nMACOS_SIGNING_IDENTITY='Developer ID Application: WEI CHENG (MHYMVRN6FC)'\nMACOS_TEAM_ID='MHYMVRN6FC'\nMACOS_BUNDLE_ID='macOS.citizenappchain'\nMACOS_APPLICATION_ID=\"${MACOS_TEAM_ID}.${MACOS_BUNDLE_ID}\"\nMACOS_PROFILE_NAME='CitizenChain Developer ID'\nMACOS_PROFILE_DIR=\"$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles\"\n\nrequire_macos_signing_identity() {\n    /usr/bin/security find-identity -v -p codesigning 2>/dev/null \\\n        | grep -F \"\\\"$MACOS_SIGNING_IDENTITY\\\"\" >/dev/null\n}\n\n# Apple 安全时间戳服务偶发不可用时只重试签名相关步骤。错误不属于该服务、\n# 或三次重试仍失败时立即关闭，不允许改用无时间戳、临时签名等降级路径。\nMACOS_TIMESTAMP_RETRY_DELAYS=(2 5 10)\n\nis_macos_timestamp_service_failure() {\n    local output=\"$1\"\n    [[ \"$output\" == *\"A timestamp was expected but was not found\"* \\\n        || \"$output\" == *\"The timestamp service is not available\"* \\\n        || \"$output\" == *\"timestamp service is not available\"* ]]\n}\n\nrun_with_macos_timestamp_retry() {\n    local action=\"$1\"\n    shift\n    local output='' status=0 retry=0 delay\n    while true; do\n        set +e\n        output=\"$(\"$@\" 2>&1)\"\n        status=$?\n        set -e\n        [[ -z \"$output\" ]] || printf '%s\\n' \"$output\"\n        [[ \"$status\" == 0 ]] && return 0\n        is_macos_timestamp_service_failure \"$output\" || return \"$status\"\n        if (( retry >= ${#MACOS_TIMESTAMP_RETRY_DELAYS[@]} )); then\n            echo \"    [error] $action 因 Apple 安全时间戳服务异常连续重试三次后仍失败\" >&2\n            return \"$status\"\n        fi\n        delay=\"${MACOS_TIMESTAMP_RETRY_DELAYS[$retry]}\"\n        retry=$((retry + 1))\n        echo \"    [warn] $action 未取得 Apple 安全时间戳，${delay} 秒后执行第 $retry 次重试\" >&2\n        sleep \"$delay\"\n    done\n}\n\n# Apple 重新签发描述文件会改变 UUID，因此禁止绑定文件名。只允许唯一一个同时匹配\n# 产品名、Team ID 和公民链 App ID 的 Developer ID 描述文件，重复或旧标识均失败关闭。\nresolve_macos_profile() {\n    local candidate profile_name application_id team_id matched='' matched_count=0\n    shopt -s nullglob\n    for candidate in \"$MACOS_PROFILE_DIR\"/*.provisionprofile \"$MACOS_PROFILE_DIR\"/*.mobileprovision; do\n        profile_name=\"$(security cms -D -i \"$candidate\" 2>/dev/null \\\n            | plutil -extract Name raw -o - - 2>/dev/null || true)\"\n        application_id=\"$(security cms -D -i \"$candidate\" 2>/dev/null \\\n            | plutil -extract 'Entitlements.com\\.apple\\.application-identifier' raw -o - - 2>/dev/null || true)\"\n        team_id=\"$(security cms -D -i \"$candidate\" 2>/dev/null \\\n            | plutil -extract 'Entitlements.com\\.apple\\.developer\\.team-identifier' raw -o - - 2>/dev/null || true)\"\n        if [[ \"$profile_name\" == \"$MACOS_PROFILE_NAME\" \\\n            && \"$application_id\" == \"$MACOS_APPLICATION_ID\" \\\n            && \"$team_id\" == \"$MACOS_TEAM_ID\" ]]; then\n            matched=\"$candidate\"\n            matched_count=$((matched_count + 1))\n        fi\n    done\n    shopt -u nullglob\n    [[ \"$matched_count\" == 1 ]] || {\n        echo \"    [error] 必须且只能安装一个匹配 $MACOS_BUNDLE_ID 的 $MACOS_PROFILE_NAME\" >&2\n        return 1\n    }\n    printf '%s\\n' \"$matched\"\n}\n\nSCRIPT_DIR=\"$CITIZENCHAIN_SOURCE_ROOT/scripts\"\nREPO_ROOT=\"$CITIZENCHAIN_SOURCE_ROOT\"\nCITIZENCHAIN_ROOT=\"$CITIZENCHAIN_SOURCE_ROOT\"\n# 所有独立入口的工具临时状态归本产品target；宿主已交付的产品工作根继续归当前任务。\nPRODUCT_TEMP_SOURCE=\"$CITIZENCHAIN_SOURCE_ROOT\"\nPRODUCT_TARGET_TEMP_ROOT=\"${CITIZENCHAIN_WORK_DIR:-$CITIZENCHAIN_SOURCE_ROOT/target/build/macos}\"\nCITIZENCHAIN_WORK_DIR=\"${CITIZENCHAIN_WORK_DIR:-$PRODUCT_TARGET_TEMP_ROOT}\"\nBUILD_WORK_DIR=\"${CITIZENCHAIN_BUILD_WORK_DIR:-$CITIZENCHAIN_WORK_DIR/work}\"\nCITIZENCHAIN_DEPENDENCY_DIR=\"${CITIZENCHAIN_DEPENDENCY_DIR:-$CITIZENCHAIN_WORK_DIR/dependencies}\"\nTARGET_DIR=\"$BUILD_WORK_DIR/cargo-target\"\nexport CARGO_TARGET_DIR=\"$TARGET_DIR\"\nNODE_FRONTEND_DIST=\"$CITIZENCHAIN_WORK_DIR/node-frontend\"\nONCHINA_BUILD_DIST=\"$CITIZENCHAIN_WORK_DIR/onchina-frontend/dist\"\nPACKAGE_RESOURCES=\"$CITIZENCHAIN_WORK_DIR/resources\"\n# 本段只形成当前调用的候选App；控制台本机任务验收后安装，正式Release与Publish另行验真。\nARTIFACT_DIR=\"${CITIZENCHAIN_ARTIFACT_DIR:-$CITIZENCHAIN_WORK_DIR/artifacts}\"\n\n# 产品自行使用当前环境中的工具，并按自己的锁文件在源码外工作目录准备依赖。\nsource \"$PRODUCT_PREPARE_SHELL\"\n\n# 本机Build脚本只使用当前工作区源码构建 runtime WASM，禁止接受外部 WASM 覆盖。\nunset WASM_FILE\n# Cargo/Tauri 的 release profile 只是本机优化配置；gmb.dev 是本机开发数据隔离环境。\n# 本任务不修改正式gmb数据，也不与正式安装版争用RocksDB。\nexport CITIZENCHAIN_DATA_PROFILE=dev\nmkdir -p \"$TARGET_DIR\" \"$npm_config_cache\" \"$PACKAGE_RESOURCES/onchina-bin\" \"$PACKAGE_RESOURCES/onchina-frontend\"\n\n# ── OnChina 控制台本机配置 ──\n# 启动节点不需要任何机构鉴权/身份。这里只让本机能跑起链上中国平台服务:\n#   ① 构建 onchina 二进制(节点同目录,设置页手动启动时由 onchina_proc 拉起)+ 前端产物;\n#   ② DB 用内嵌私有 PG(方案 A):借本机 PostgreSQL 二进制起一个 onchina 专属实例(127.0.0.1)。\n# 本机构的\"系统签名钥 / 机构身份\"是可选配置(签登录 QR / 签发凭证才需要),非启动前提。\necho \"==> 构建 OnChina 本机优化二进制 + 前端...\"\n( cd \"$REPO_ROOT\" && CARGO_INCREMENTAL=1 cargo build --locked --release -p onchina --config \"$REPO_ROOT/config.toml\" )\necho \"==> 构建链上中国平台前端产物...\"\n( cd \"$ONCHINA_FRONTEND_PROJECT\" && ONCHINA_FRONTEND_DIST=\"$ONCHINA_BUILD_DIST\" npm run build )\necho \"==> 构建节点前端产物...\"\n( cd \"$NODE_FRONTEND_PROJECT\" && CITIZENCHAIN_FRONTEND_DIST=\"$NODE_FRONTEND_DIST\" npm run build )\ncp \"$TARGET_DIR/release/onchina\" \"$PACKAGE_RESOURCES/onchina-bin/onchina\"\ncp -R \"$ONCHINA_BUILD_DIST\" \"$PACKAGE_RESOURCES/onchina-frontend/dist\"\nPG_PREFIX=\"${CITIZENCHAIN_PG_DIST:-}\"\nif [ -z \"$PG_PREFIX\" ]; then\n    for v in postgresql@17 postgresql@16 postgresql@15 postgresql; do\n        if p=\"$(brew --prefix \"$v\" 2>/dev/null)\" && [ -x \"$p/bin/initdb\" ]; then PG_PREFIX=\"$p\"; break; fi\n    done\nfi\n[[ -z \"$PG_PREFIX\" || -x \"$PG_PREFIX/bin/initdb\" ]] || { echo 'PostgreSQL原件路径无效' >&2; exit 1; }\nif [ -n \"$PG_PREFIX\" ]; then\n    mkdir -p \"$PACKAGE_RESOURCES/postgres/macos\"\n    cp -R \"$PG_PREFIX/.\" \"$PACKAGE_RESOURCES/postgres/macos/\"\n    [[ -x \"$PACKAGE_RESOURCES/postgres/macos/bin/initdb\" ]] || { echo 'macOS节点包缺少PostgreSQL initdb' >&2; exit 1; }\n    export ONCHINA_EMBEDDED_PG=1\n    export ONCHINA_PG_BIN_DIR=\"$PG_PREFIX/bin\"\n    export ONCHINA_PG_PORT=\"${ONCHINA_PG_PORT:-5433}\"\n    export ONCHINA_PG_DATA_DIR=\"$HOME/Library/Application Support/gmb.dev/onchina-pgdata\"\n    echo \"    内嵌私有 PG:$ONCHINA_PG_BIN_DIR(端口 $ONCHINA_PG_PORT)\"\nelse\n    [[ \"${GITHUB_ACTIONS:-false}\" != true ]] || { echo '正式macOS节点包缺少PostgreSQL' >&2; exit 1; }\n    echo \"    [warn] 未找到本机 PostgreSQL(brew install postgresql@16);链上中国平台仍可起但缺 DB,功能受限。\"\nfi\nexport ONCHINA_CHINA_DB=\"$REPO_ROOT/onchina/src/codes/china.sqlite\"\nexport ONCHINA_FRONTEND_DIST=\"$ONCHINA_BUILD_DIST\"\nexport ONCHINA_ENABLE_TLS=1\nexport ONCHINA_TLS_DIR=\"$HOME/Library/Application Support/gmb.dev/onchina-tls\"\n# 公权机构目录只允许从链上投影到本地缓存;开发启动不再打开旧本地生成开关。\n# 链不可达或投影不可读时,链上中国按 fail-closed 不放行平台服务。\n# OnChina 后端不再持有任何链上签名钥:机构操作全部由管理员冷钱包直接冷签,\n# 原平台签名钥与注销凭证签发配置已随注销凭证链路整体删除。\n\necho \"==> 使用当前工作区源码构建本机 runtime WASM...\"\necho \"    节点Build产物目录: $TARGET_DIR\"\necho \"    本机运行数据目录: $HOME/Library/Application Support/gmb.dev\"\necho \"==> 链上中国平台:节点设置页点击「启动」后访问 https://onchina.local:8964\"\n\n# ── 构建与签名封装 ──\ncd \"$REPO_ROOT/node\"\necho \"==> 构建公民链...\"\nif [[ \"$(uname -s)\" == \"Darwin\" ]]; then\n    require_macos_signing_identity || {\n        echo \"    [error] 未找到唯一允许的新团队 Developer ID：$MACOS_SIGNING_IDENTITY\" >&2\n        exit 1\n    }\n    export APPLE_SIGNING_IDENTITY=\"$MACOS_SIGNING_IDENTITY\"\n    macos_profile=\"$(resolve_macos_profile)\"\n    echo \"    使用新团队 Developer ID 构建带摄像头权限的本机优化 App\"\n    # 使用当前任务按原始 lockfile 安装的 CLI，不能读取源码 node_modules 或全局 CLI。\n    app_bundle=\"$TARGET_DIR/release/bundle/macos/citizenchain.app\"\n    MACOS_APP_BUNDLE=\"$app_bundle\"\n    # Tauri 2 的 build 默认使用优化 profile；--debug 才会切换为调试产物。\n    # 编译与封装分离，时间戳瞬时失败时只重试封装签名，不重复整轮 Rust 编译。\n    # 前端已在私有工程完成构建；清除 Tauri 的源码 npm 钩子，避免重复构建或回写主仓。\n    tauri_override=\"$(\"${PYTHON:?}\" -c 'import json,sys,os; print(json.dumps({\"build\":{\"beforeBuildCommand\":None,\"frontendDist\":sys.argv[1]},\"bundle\":{\"createUpdaterArtifacts\":bool(os.environ.get(\"TAURI_SIGNING_PRIVATE_KEY\")),\"resources\":{sys.argv[2]+\"/\":\"\",sys.argv[3]+\"/\":\"icons/\",sys.argv[4]:\"china.sqlite\"}}}))' \"$NODE_FRONTEND_DIST\" \"$PACKAGE_RESOURCES\" \"$REPO_ROOT/icons\" \"$REPO_ROOT/onchina/src/codes/china.sqlite\")\"\n    CITIZENCHAIN_FRONTEND_DIST=\"$NODE_FRONTEND_DIST\" CARGO_INCREMENTAL=1 \\\n        node \"$NODE_FRONTEND_PROJECT/node_modules/@tauri-apps/cli/tauri.js\" build --config \"$tauri_override\" \\\n        --no-bundle --ci -- --locked --config \"$REPO_ROOT/config.toml\"\n    MACOS_APP_PENDING=1\n    bundle_macos_app() {\n        rm -rf -- \"$app_bundle\"\n        CITIZENCHAIN_FRONTEND_DIST=\"$NODE_FRONTEND_DIST\" CARGO_INCREMENTAL=1 \\\n            node \"$NODE_FRONTEND_PROJECT/node_modules/@tauri-apps/cli/tauri.js\" bundle --config \"$tauri_override\" \\\n            --bundles app --ci\n    }\n    run_with_macos_timestamp_retry \"Tauri App 封装签名\" bundle_macos_app\n\n    app_plist=\"$app_bundle/Contents/Info.plist\"\n    app_executable=\"$app_bundle/Contents/MacOS/citizenchain\"\n    [[ -x \"$app_executable\" ]] || {\n        echo \"    [error] Tauri 构建完成但缺少 App 主程序：$app_executable\" >&2\n        exit 1\n    }\n    # Tauri 负责生成产品 App；描述文件属于本机签名材料，绝不进入仓库或其它产物路径。\n    # 嵌入后必须重新封签根 App，使描述文件、唯一 App ID 与权限成为同一个签名整体。\n    /usr/bin/ditto \"$macos_profile\" \"$app_bundle/Contents/embedded.provisionprofile\"\n    run_with_macos_timestamp_retry \"描述文件嵌入后的 App 封签\" \\\n        /usr/bin/codesign --force --deep --options runtime --timestamp \\\n        --entitlements \"$REPO_ROOT/node/Entitlements.plist\" \\\n        --sign \"$MACOS_SIGNING_IDENTITY\" \"$app_bundle\"\n    codesign --verify --deep --strict \"$app_bundle\"\n    signature_details=\"$(codesign -dv --verbose=4 \"$app_bundle\" 2>&1)\"\n    grep -Fqx \"Authority=$MACOS_SIGNING_IDENTITY\" <<<\"$signature_details\" || {\n        echo \"    [error] macOS App 未使用唯一允许的新团队 Developer ID\" >&2\n        exit 1\n    }\n    grep -Fqx \"TeamIdentifier=$MACOS_TEAM_ID\" <<<\"$signature_details\" || {\n        echo \"    [error] macOS App Team ID 不属于唯一允许的新团队\" >&2\n        exit 1\n    }\n    grep -Eq '^CodeDirectory .*flags=.*\\(runtime\\)' <<<\"$signature_details\" || {\n        echo \"    [error] macOS App 未启用 Hardened Runtime\" >&2\n        exit 1\n    }\n    grep -Eq '^Timestamp=' <<<\"$signature_details\" || {\n        echo \"    [error] macOS App 缺少安全时间戳\" >&2\n        exit 1\n    }\n    [[ \"$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \"$app_plist\")\" == \"$MACOS_BUNDLE_ID\" ]] || {\n        echo \"    [error] macOS App Bundle ID 与 Tauri 配置不一致\" >&2\n        exit 1\n    }\n    embedded_profile_name=\"$(security cms -D -i \"$app_bundle/Contents/embedded.provisionprofile\" 2>/dev/null \\\n        | plutil -extract Name raw -o - - 2>/dev/null || true)\"\n    [[ \"$embedded_profile_name\" == \"$MACOS_PROFILE_NAME\" ]] || {\n        echo \"    [error] macOS App 未嵌入 $MACOS_PROFILE_NAME\" >&2\n        exit 1\n    }\n    /usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' \"$app_plist\" >/dev/null\n    signed_entitlements=\"$(codesign -d --entitlements :- \"$app_bundle\" 2>/dev/null)\"\n    for entitlement in \\\n        com.apple.security.device.camera \\\n        com.apple.security.cs.allow-jit \\\n        com.apple.security.cs.allow-unsigned-executable-memory; do\n        # plutil 把点号解释为字典层级；entitlement 名本身含点号，必须先转义为单个键。\n        entitlement_key_path=\"${entitlement//./\\\\.}\"\n        [[ \"$(printf '%s' \"$signed_entitlements\" | plutil -extract \"$entitlement_key_path\" raw -)\" == \"true\" ]] || {\n            echo \"    [error] macOS App 签名缺少 $entitlement\" >&2\n            exit 1\n        }\n    done\n    get_task_allow=\"$(printf '%s' \"$signed_entitlements\" \\\n        | plutil -extract 'com\\.apple\\.security\\.get-task-allow' raw - 2>/dev/null \\\n        || printf 'false')\"\n    [[ \"$get_task_allow\" == \"false\" ]] || {\n        echo \"    [error] macOS 本机优化 App 禁止 get-task-allow\" >&2\n        exit 1\n    }\n    MACOS_APP_PENDING=0\n    echo \"    本机优化路径、新团队签名、Bundle ID、Hardened Runtime、安全时间戳与 entitlement 校验通过\"\n    # 成功后只保存本次缓存根的候选 App；不得触碰正式产物库。\n    mkdir -p \"$ARTIFACT_DIR\"\n    rm -rf \"$ARTIFACT_DIR/CitizenChain.app\"\n    mv \"$app_bundle\" \"$ARTIFACT_DIR/CitizenChain.app\"\n    app_bundle=\"$ARTIFACT_DIR/CitizenChain.app\"\n    app_executable=\"$app_bundle/Contents/MacOS/citizenchain\"\n    export ONCHINA_FRONTEND_DIST=\"$app_bundle/Contents/Resources/onchina-frontend/dist\"\n    # 本段只生成并验真产品候选；后续安装事务不终止旧实例，也不启动新实例。\n    trap - EXIT INT TERM HUP\n    echo \"    CitizenChain Node macOS候选产物构建完成；Build不会启动节点\"\nelse\n    echo \"    [error] 本入口只负责macOS Build；其它平台使用各自产品构建入口\" >&2\n    exit 1\nfi\n","local":"#!/usr/bin/env bash\n# 保留原非macOS检查与编译矩阵；输出只进入本轮build或test。\nset -euo pipefail\n[[ $# -eq 2 && \"$2\" == /* ]] || { echo \"构建参数无效\" >&2; exit 2; }\ncase \"$1\" in windows|linux-arm|linux-amd) ;; *) exit 2;; esac\nroot=\"${CITIZENCHAIN_SOURCE_ROOT:?}\"; work=\"$2\"\n[[ \"$work\" == \"$root/target/build/\"* || \"$work\" == \"$root/target/test/\"* ]] || { echo \"工作根越界\" >&2; exit 1; }\n[[ -x \"${CARGO:?}\" && -x \"${RUSTC:?}\" ]] || exit 1\n# 非macOS本机检查同样要求本产品锁定的宿主protoc。\nif [[ ! -x \"${PROTOC:?}\" || \"$(\"$PROTOC\" --version)\" != 'libprotoc 35.0' ]]; then\n  echo 'CitizenChain protoc 35.0验真失败' >&2; exit 1\nfi\nexport CARGO_TARGET_DIR=\"$work/cargo-target\"\nunset WASM_FILE\n\"$CARGO\" check --manifest-path \"$root/Cargo.toml\" --locked --release -p node --no-default-features --features std --all-targets\n\"$CARGO\" test --manifest-path \"$root/Cargo.toml\" --locked --release -p node --no-default-features --features std --no-run\n","prepack":"#!/usr/bin/env bash\n# Card 05 打包前置(macOS / Linux):把 onchina 二进制 + 前端产物 + china.sqlite +\n# PostgreSQL官方二进制组装到产品源码外资源目录。冻结plain chainspec已由\n# node 二进制 include_bytes! 内嵌；安装包不复制 258 MB 创世 RocksDB，首启按同一\n# chainspec 本地物化并由节点守卫校验块 0。之后在 node/ 跑 `npm run tauri build`。\n#\n# 用法:\n#   export CITIZENCHAIN_PG_DIST=<postgresql.org 官方二进制解压目录(含 bin/lib/share)>\n#   node citizenchain/scripts/build.mjs prepack\nset -euo pipefail\n\nSCRIPT_DIR=\"$CITIZENCHAIN_SOURCE_ROOT/scripts\"\nROOT=\"$CITIZENCHAIN_SOURCE_ROOT\"\nHERE=\"$ROOT/node\"                             # citizenchain/node\n# 所有独立入口的工具临时状态归本产品target；宿主已交付的产品工作根继续归当前任务。\nPRODUCT_TEMP_SOURCE=\"$CITIZENCHAIN_SOURCE_ROOT\"\nPRODUCT_TARGET_TEMP_ROOT=\"${CITIZENCHAIN_WORK_DIR:-$CITIZENCHAIN_SOURCE_ROOT/target/build/windows}\"\nCITIZENCHAIN_WORK_DIR=\"${CITIZENCHAIN_PREPACK_WORK_DIR:-$PRODUCT_TARGET_TEMP_ROOT}\"\nCITIZENCHAIN_DEPENDENCY_DIR=\"${CITIZENCHAIN_DEPENDENCY_DIR:-$CITIZENCHAIN_WORK_DIR/dependencies}\"\nexport CITIZENCHAIN_WORK_DIR CITIZENCHAIN_DEPENDENCY_DIR\nexport CARGO_TARGET_DIR=\"${CARGO_TARGET_DIR:-$CITIZENCHAIN_WORK_DIR/cargo-target}\"\nPACKAGE_RESOURCES=\"${CITIZENCHAIN_PACKAGE_RESOURCES_DIR:-$CITIZENCHAIN_WORK_DIR/resources}\"\nONCHINA_BUILD_DIST=\"$CITIZENCHAIN_WORK_DIR/onchina-frontend/dist\"\nsource \"$PRODUCT_PREPARE_SHELL\"\ncase \"$(uname -s)\" in\n  Darwin) OS=macos ;;\n  Linux) OS=linux ;;\n  *) OS=linux ;;\nesac\n\necho \"[prepack] build onchina (release)\"\n( cd \"$ROOT\" && cargo build -p onchina --release --config \"$ROOT/config.toml\" )\n\necho \"[prepack] build onchina frontend\"\n( cd \"$ONCHINA_FRONTEND_PROJECT\" && ONCHINA_FRONTEND_DIST=\"$ONCHINA_BUILD_DIST\" npm run build )\n\necho \"[prepack] assemble node/resources\"\nmkdir -p \"$PACKAGE_RESOURCES/onchina-bin\" \"$PACKAGE_RESOURCES/onchina-frontend\" \"$PACKAGE_RESOURCES/postgres\"\n# onchina 二进制随包(Tauri resources/onchina-bin),onchina_proc 从资源目录解析(见 node/src/onchina_proc)。\ncp \"$CARGO_TARGET_DIR/release/onchina\" \"$PACKAGE_RESOURCES/onchina-bin/onchina\"\nchmod +x \"$PACKAGE_RESOURCES/onchina-bin/onchina\"\nrm -rf \"$PACKAGE_RESOURCES/onchina-frontend/dist\"\ncp -R \"$ONCHINA_BUILD_DIST\" \"$PACKAGE_RESOURCES/onchina-frontend/dist\"\n\n# PostgreSQL 官方二进制(postgresql.org):把已解压的 PG 安装目录(含 bin/lib/share)\n# 指向 CITIZENCHAIN_PG_DIST,脚本拷进 resources/postgres/$OS;未提供则告警(安装包将缺内嵌 PG)。\nif [ -n \"${CITIZENCHAIN_PG_DIST:-}\" ] && [ -d \"$CITIZENCHAIN_PG_DIST/bin\" ]; then\n  rm -rf \"$PACKAGE_RESOURCES/postgres/$OS\"\n  mkdir -p \"$PACKAGE_RESOURCES/postgres/$OS\"\n  cp -R \"$CITIZENCHAIN_PG_DIST/.\" \"$PACKAGE_RESOURCES/postgres/$OS/\"\n  echo \"[prepack] PostgreSQL 已组装($OS)\"\nelse\n  echo \"[prepack][warn] 未提供 CITIZENCHAIN_PG_DIST。\"\n  echo \"                请从 https://www.postgresql.org/download/ 取本平台官方二进制(含 bin/lib/share),\"\n  echo \"                解压后 export CITIZENCHAIN_PG_DIST=<解压目录> 再重跑;否则安装包不含内嵌 PG。\"\nfi\n\n# 中文注释：release 状态包只作为正式创世审计制品保留在 target/build/chainspec，不进入任一\n# 平台安装包；清掉旧预打包残留，保证本机 prepack 与 GitHub CI 使用同一轻量合同。\nrm -rf \"$PACKAGE_RESOURCES/genesis-state\"\necho \"[prepack] 已确认安装包不携带 genesis-state；首启按冻结 plain chainspec 本地物化\"\n\necho \"[prepack] 完成：资源目录 $PACKAGE_RESOURCES\"\n","prepare":"#!/usr/bin/env bash\n# 公民链产品工具准备：使用调用环境中的标准工具和产品锁文件。\n# 必须由 build.mjs run source，使产品路径和包管理器设置留在当前进程。\nset -euo pipefail\n\nPREPARE_SCRIPT_DIR=\"$CITIZENCHAIN_SOURCE_ROOT/scripts\"\nCITIZENCHAIN_ROOT=\"$CITIZENCHAIN_SOURCE_ROOT\"\nNODE_FRONTEND_SOURCE=\"$CITIZENCHAIN_ROOT/node/frontend\"\nONCHINA_FRONTEND_SOURCE=\"$CITIZENCHAIN_ROOT/onchina/frontend\"\n\ncase \"$(uname -s)/$(uname -m)\" in\n  Darwin/arm64) CITIZENCHAIN_WORK_PLATFORM=macos ;;\n  Linux/aarch64) CITIZENCHAIN_WORK_PLATFORM=linux-arm ;;\n  Linux/x86_64) CITIZENCHAIN_WORK_PLATFORM=linux-amd ;;\n  *) echo 'CitizenChain当前宿主未声明' >&2; exit 1 ;;\nesac\nCITIZENCHAIN_WORK_DIR=\"${CITIZENCHAIN_WORK_DIR:-$CITIZENCHAIN_ROOT/target/build}\"\nCITIZENCHAIN_DEPENDENCY_DIR=\"${CITIZENCHAIN_DEPENDENCY_DIR:-$CITIZENCHAIN_WORK_DIR/dependencies}\"\n\"${PYTHON:?}\" - \"$CITIZENCHAIN_ROOT\" \"$CITIZENCHAIN_WORK_DIR\" \"$CITIZENCHAIN_DEPENDENCY_DIR\" \"${CARGO_TARGET_DIR:-$CITIZENCHAIN_WORK_DIR/cargo-target}\" <<'CHECK_WORK'\nfrom pathlib import Path\nimport sys\nsource = Path(sys.argv[1]).resolve()\nfor value in sys.argv[2:]:\n    raw = Path(value)\n    target = raw.resolve()\n    if not raw.is_absolute() or source / 'target' not in target.parents:\n        raise SystemExit(f'CitizenChain可写目录必须是本产品target内绝对路径：{value}')\nCHECK_WORK\nexport npm_config_cache=\"${npm_config_cache:-$CITIZENCHAIN_DEPENDENCY_DIR/npm}\"\nmkdir -p \"$npm_config_cache\" \"$CITIZENCHAIN_WORK_DIR/source\"\nexport npm_config_audit=false npm_config_fund=false\n\n# 只消费本产品资源回执交付的官方protoc 35.0。\nif [[ ! -x \"${PROTOC:?}\" || \"$(\"$PROTOC\" --version)\" != 'libprotoc 35.0' ]]; then\n  echo 'CitizenChain protoc 35.0验真失败' >&2; exit 1\nfi\nexport PROTOC\n\nprepare_node_project() {\n  local source=\"$1\" relative=\"$2\" destination\n  destination=\"$CITIZENCHAIN_WORK_DIR/source/$relative\"\n  [[ -f \"$source/package.json\" && -f \"$source/package-lock.json\" ]] \\\n    || { echo \"公民链Node工程缺少锁文件：$source\" >&2; return 1; }\n  # 每次只重建当前产品工作根中的准确工程副本，保留包管理器缓存和其它任务目录。\n  rm -rf -- \"$destination\"\n  node - \"$source\" \"$destination\" <<'COPY_PROJECT'\nconst fs = require('node:fs');\nconst path = require('node:path');\nconst [source, destination] = process.argv.slice(2);\nfs.cpSync(source, destination, {\n  recursive: true,\n  errorOnExist: true,\n  force: false,\n  filter: (entry) => !['node_modules', 'dist'].includes(path.basename(entry)),\n});\nCOPY_PROJECT\n  local -a npm_args=(ci)\n  case \"${CITIZENCHAIN_OFFLINE:-false}\" in\n    true) npm_args+=(--offline) ;;\n    false) ;;\n    *) echo 'CITIZENCHAIN_OFFLINE只接受true或false' >&2; return 1 ;;\n  esac\n  (cd \"$destination\" && npm \"${npm_args[@]}\")\n  BUILD_NODE_PROJECT=\"$destination\"\n}\n\necho '==> 准备产品依赖：citizenchain/crates/scanner'\nprepare_node_project \"$CITIZENCHAIN_ROOT/crates/scanner\" citizenchain/crates/scanner\nSCANNER_REACT_PROJECT=\"$BUILD_NODE_PROJECT\"\necho '==> 准备产品依赖：citizenchain/node/frontend'\nprepare_node_project \"$NODE_FRONTEND_SOURCE\" citizenchain/node/frontend\nNODE_FRONTEND_PROJECT=\"$BUILD_NODE_PROJECT\"\necho '==> 准备产品依赖：citizenchain/onchina/frontend'\nprepare_node_project \"$ONCHINA_FRONTEND_SOURCE\" citizenchain/onchina/frontend\nONCHINA_FRONTEND_PROJECT=\"$BUILD_NODE_PROJECT\"\n\n# 图片原件只复制到本轮统一资源目录，前端不另建图片副本。\nmkdir -p \"$CITIZENCHAIN_WORK_DIR/source/citizenchain/icons\"\ncp -R \"$CITIZENCHAIN_ROOT/icons/.\" \"$CITIZENCHAIN_WORK_DIR/source/citizenchain/icons/\"\nexport SCANNER_REACT_PROJECT NODE_FRONTEND_PROJECT ONCHINA_FRONTEND_PROJECT\n\nexport CITIZENCHAIN_PROJECT_ROOT=\"$CITIZENCHAIN_WORK_DIR/source/citizenchain\"\n"});
+export const BUILD_SOURCES=Object.freeze({"run":"#!/usr/bin/env bash\n# CitizenChain节点本机Build入口：只构建、签名验真并写入产品产物目录。\n# 本入口不启动或停止节点，不修改链数据；编译成功后只安装已验签的App。\n# 测试、手工调试和清库不走本入口。\nset -euo pipefail\n\nMACOS_APP_BUNDLE=''\nMACOS_APP_PENDING=0\n\ncleanup() {\n    local result=\"${1:-1}\"\n    trap - EXIT INT TERM HUP\n    # 唯一成功路径会撤销 trap；其余提前退出必须失败，避免 Bash 参数展开错误被清理返回值吞掉。\n    [[ \"$result\" != 0 ]] || result=1\n    # 只清理本轮尚未通过完整签名验收的固定 App；历史成功归档和用户数据均不触碰。\n    if [[ \"${MACOS_APP_PENDING:-0}\" == 1 \\\n        && -n \"${TARGET_DIR:-}\" \\\n        && \"${MACOS_APP_BUNDLE:-}\" == \"$TARGET_DIR/release/bundle/macos/citizenchain.app\" ]]; then\n        rm -rf -- \"$MACOS_APP_BUNDLE\"\n    fi\n    # Build 不启动节点或 PG；校验失败不得停止其它任务或用户已运行的实例。\n    exit \"$result\"\n}\ntrap 'cleanup \"$?\"' EXIT\ntrap 'cleanup 130' INT\ntrap 'cleanup 143' TERM\ntrap 'cleanup 129' HUP\n\n# macOS 产品 App 只接受今后唯一的新团队 Developer ID；禁止按枚举顺序选证书，\n# 否则Apple Development或其它团队身份可能被静默当成产品正式签名。\nMACOS_SIGNING_IDENTITY='Developer ID Application: WEI CHENG (MHYMVRN6FC)'\nMACOS_TEAM_ID='MHYMVRN6FC'\nMACOS_BUNDLE_ID='macOS.citizenappchain'\nMACOS_APPLICATION_ID=\"${MACOS_TEAM_ID}.${MACOS_BUNDLE_ID}\"\nMACOS_PROFILE_NAME='CitizenChain Developer ID'\nMACOS_PROFILE_DIR=\"$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles\"\n\nrequire_macos_signing_identity() {\n    /usr/bin/security find-identity -v -p codesigning 2>/dev/null \\\n        | grep -F \"\\\"$MACOS_SIGNING_IDENTITY\\\"\" >/dev/null\n}\n\n# Apple 安全时间戳服务偶发不可用时只重试签名相关步骤。错误不属于该服务、\n# 或三次重试仍失败时立即关闭，不允许改用无时间戳、临时签名等降级路径。\nMACOS_TIMESTAMP_RETRY_DELAYS=(2 5 10)\n\nis_macos_timestamp_service_failure() {\n    local output=\"$1\"\n    [[ \"$output\" == *\"A timestamp was expected but was not found\"* \\\n        || \"$output\" == *\"The timestamp service is not available\"* \\\n        || \"$output\" == *\"timestamp service is not available\"* ]]\n}\n\nrun_with_macos_timestamp_retry() {\n    local action=\"$1\"\n    shift\n    local output='' status=0 retry=0 delay\n    while true; do\n        set +e\n        output=\"$(\"$@\" 2>&1)\"\n        status=$?\n        set -e\n        [[ -z \"$output\" ]] || printf '%s\\n' \"$output\"\n        [[ \"$status\" == 0 ]] && return 0\n        is_macos_timestamp_service_failure \"$output\" || return \"$status\"\n        if (( retry >= ${#MACOS_TIMESTAMP_RETRY_DELAYS[@]} )); then\n            echo \"    [error] $action 因 Apple 安全时间戳服务异常连续重试三次后仍失败\" >&2\n            return \"$status\"\n        fi\n        delay=\"${MACOS_TIMESTAMP_RETRY_DELAYS[$retry]}\"\n        retry=$((retry + 1))\n        echo \"    [warn] $action 未取得 Apple 安全时间戳，${delay} 秒后执行第 $retry 次重试\" >&2\n        sleep \"$delay\"\n    done\n}\n\n# Apple 重新签发描述文件会改变 UUID，因此禁止绑定文件名。只允许唯一一个同时匹配\n# 产品名、Team ID 和公民链 App ID 的 Developer ID 描述文件，重复或旧标识均失败关闭。\nresolve_macos_profile() {\n    local candidate profile_name application_id team_id matched='' matched_count=0\n    shopt -s nullglob\n    for candidate in \"$MACOS_PROFILE_DIR\"/*.provisionprofile \"$MACOS_PROFILE_DIR\"/*.mobileprovision; do\n        profile_name=\"$(security cms -D -i \"$candidate\" 2>/dev/null \\\n            | plutil -extract Name raw -o - - 2>/dev/null || true)\"\n        application_id=\"$(security cms -D -i \"$candidate\" 2>/dev/null \\\n            | plutil -extract 'Entitlements.com\\.apple\\.application-identifier' raw -o - - 2>/dev/null || true)\"\n        team_id=\"$(security cms -D -i \"$candidate\" 2>/dev/null \\\n            | plutil -extract 'Entitlements.com\\.apple\\.developer\\.team-identifier' raw -o - - 2>/dev/null || true)\"\n        if [[ \"$profile_name\" == \"$MACOS_PROFILE_NAME\" \\\n            && \"$application_id\" == \"$MACOS_APPLICATION_ID\" \\\n            && \"$team_id\" == \"$MACOS_TEAM_ID\" ]]; then\n            matched=\"$candidate\"\n            matched_count=$((matched_count + 1))\n        fi\n    done\n    shopt -u nullglob\n    [[ \"$matched_count\" == 1 ]] || {\n        echo \"    [error] 必须且只能安装一个匹配 $MACOS_BUNDLE_ID 的 $MACOS_PROFILE_NAME\" >&2\n        return 1\n    }\n    printf '%s\\n' \"$matched\"\n}\n\nSCRIPT_DIR=\"$CITIZENCHAIN_SOURCE_ROOT/scripts\"\nREPO_ROOT=\"$CITIZENCHAIN_SOURCE_ROOT\"\nCITIZENCHAIN_ROOT=\"$CITIZENCHAIN_SOURCE_ROOT\"\n# 所有独立入口的工具临时状态归本产品target；宿主已交付的产品工作根继续归当前任务。\nPRODUCT_TEMP_SOURCE=\"$CITIZENCHAIN_SOURCE_ROOT\"\nPRODUCT_TARGET_TEMP_ROOT=\"${CITIZENCHAIN_WORK_DIR:-$CITIZENCHAIN_SOURCE_ROOT/target/build/macos}\"\nCITIZENCHAIN_WORK_DIR=\"${CITIZENCHAIN_WORK_DIR:-$PRODUCT_TARGET_TEMP_ROOT}\"\nBUILD_WORK_DIR=\"${CITIZENCHAIN_BUILD_WORK_DIR:-$CITIZENCHAIN_WORK_DIR/work}\"\nCITIZENCHAIN_DEPENDENCY_DIR=\"${CITIZENCHAIN_DEPENDENCY_DIR:-$CITIZENCHAIN_WORK_DIR/dependencies}\"\nTARGET_DIR=\"$BUILD_WORK_DIR/cargo-target\"\nexport CARGO_TARGET_DIR=\"$TARGET_DIR\"\nNODE_FRONTEND_DIST=\"$CITIZENCHAIN_WORK_DIR/node-frontend\"\nONCHINA_BUILD_DIST=\"$CITIZENCHAIN_WORK_DIR/onchina-frontend/dist\"\nPACKAGE_RESOURCES=\"$CITIZENCHAIN_WORK_DIR/resources\"\n# 本段只形成当前调用的候选App；控制台本机任务验收后安装，正式Release与Publish另行验真。\nARTIFACT_DIR=\"${CITIZENCHAIN_ARTIFACT_DIR:-$CITIZENCHAIN_WORK_DIR/artifacts}\"\n\n# 产品自行使用当前环境中的工具，并按自己的锁文件在源码外工作目录准备依赖。\nsource \"$PRODUCT_PREPARE_SHELL\"\n\n# 节点App只编译节点与配套平台，不生成正式Runtime WASM；既有链从链上读取代码。\nunset WASM_FILE\n# Cargo/Tauri 的 release profile 只是本机优化配置；gmb.dev 是本机开发数据隔离环境。\n# 本任务不修改正式gmb数据，也不与正式安装版争用RocksDB。\nexport CITIZENCHAIN_DATA_PROFILE=dev\nmkdir -p \"$TARGET_DIR\" \"$npm_config_cache\" \"$PACKAGE_RESOURCES/onchina-bin\" \"$PACKAGE_RESOURCES/onchina-frontend\"\n\n# ── OnChina 控制台本机配置 ──\n# 启动节点不需要任何机构鉴权/身份。这里只让本机能跑起链上中国平台服务:\n#   ① 构建 onchina 二进制(节点同目录,设置页手动启动时由 onchina_proc 拉起)+ 前端产物;\n#   ② DB 用内嵌私有 PG(方案 A):借本机 PostgreSQL 二进制起一个 onchina 专属实例(127.0.0.1)。\n# 本机构的\"系统签名钥 / 机构身份\"是可选配置(签登录 QR / 签发凭证才需要),非启动前提。\necho \"==> 构建 OnChina 本机优化二进制 + 前端...\"\n( cd \"$REPO_ROOT\" && CARGO_INCREMENTAL=1 cargo build --locked --release -p onchina --config \"$REPO_ROOT/config.toml\" )\necho \"==> 构建链上中国平台前端产物...\"\n\"${NODE:?}\" \"$REPO_ROOT/scripts/build.mjs\" frontend-build macos onchina\necho \"==> 构建节点前端产物...\"\n\"${NODE:?}\" \"$REPO_ROOT/scripts/build.mjs\" frontend-build macos node\ncp \"$TARGET_DIR/release/onchina\" \"$PACKAGE_RESOURCES/onchina-bin/onchina\"\ncp -R \"$ONCHINA_BUILD_DIST\" \"$PACKAGE_RESOURCES/onchina-frontend/dist\"\nPG_PREFIX=\"${CITIZENCHAIN_PG_DIST:-}\"\nif [ -z \"$PG_PREFIX\" ]; then\n    for v in postgresql@17 postgresql@16 postgresql@15 postgresql; do\n        if p=\"$(brew --prefix \"$v\" 2>/dev/null)\" && [ -x \"$p/bin/initdb\" ]; then PG_PREFIX=\"$p\"; break; fi\n    done\nfi\n[[ -z \"$PG_PREFIX\" || -x \"$PG_PREFIX/bin/initdb\" ]] || { echo 'PostgreSQL原件路径无效' >&2; exit 1; }\nif [ -n \"$PG_PREFIX\" ]; then\n    mkdir -p \"$PACKAGE_RESOURCES/postgres/macos\"\n    cp -R \"$PG_PREFIX/.\" \"$PACKAGE_RESOURCES/postgres/macos/\"\n    [[ -x \"$PACKAGE_RESOURCES/postgres/macos/bin/initdb\" ]] || { echo 'macOS节点包缺少PostgreSQL initdb' >&2; exit 1; }\n    export ONCHINA_EMBEDDED_PG=1\n    export ONCHINA_PG_BIN_DIR=\"$PG_PREFIX/bin\"\n    export ONCHINA_PG_PORT=\"${ONCHINA_PG_PORT:-5433}\"\n    export ONCHINA_PG_DATA_DIR=\"$HOME/Library/Application Support/gmb.dev/onchina-pgdata\"\n    echo \"    内嵌私有 PG:$ONCHINA_PG_BIN_DIR(端口 $ONCHINA_PG_PORT)\"\nelse\n    [[ \"${GITHUB_ACTIONS:-false}\" != true ]] || { echo '正式macOS节点包缺少PostgreSQL' >&2; exit 1; }\n    echo \"    [warn] 未找到本机 PostgreSQL(brew install postgresql@16);链上中国平台仍可起但缺 DB,功能受限。\"\nfi\nexport ONCHINA_CHINA_DB=\"$REPO_ROOT/onchina/src/codes/china.sqlite\"\nexport ONCHINA_FRONTEND_DIST=\"$ONCHINA_BUILD_DIST\"\nexport ONCHINA_ENABLE_TLS=1\nexport ONCHINA_TLS_DIR=\"$HOME/Library/Application Support/gmb.dev/onchina-tls\"\n# 公权机构目录只允许从链上投影到本地缓存;开发启动不再打开旧本地生成开关。\n# 链不可达或投影不可读时,链上中国按 fail-closed 不放行平台服务。\n# OnChina 后端不再持有任何链上签名钥:机构操作全部由管理员冷钱包直接冷签,\n# 原平台签名钥与注销凭证签发配置已随注销凭证链路整体删除。\n\necho \"==> 使用既有链上Runtime单独构建本机节点...\"\necho \"    节点Build产物目录: $TARGET_DIR\"\necho \"    本机运行数据目录: $HOME/Library/Application Support/gmb.dev\"\necho \"==> 链上中国平台:节点设置页点击「启动」后访问 https://onchina.local:8964\"\n\n# ── 构建与签名封装 ──\ncd \"$REPO_ROOT/node\"\necho \"==> 构建公民链...\"\nif [[ \"$(uname -s)\" == \"Darwin\" ]]; then\n    require_macos_signing_identity || {\n        echo \"    [error] 未找到唯一允许的新团队 Developer ID：$MACOS_SIGNING_IDENTITY\" >&2\n        exit 1\n    }\n    export APPLE_SIGNING_IDENTITY=\"$MACOS_SIGNING_IDENTITY\"\n    macos_profile=\"$(resolve_macos_profile)\"\n    echo \"    使用新团队 Developer ID 构建带摄像头权限的本机优化 App\"\n    # 使用当前任务按原始 lockfile 安装的 CLI，不能读取源码 node_modules 或全局 CLI。\n    app_bundle=\"$TARGET_DIR/release/bundle/macos/citizenchain.app\"\n    MACOS_APP_BUNDLE=\"$app_bundle\"\n    # Tauri 2 的 build 默认使用优化 profile；--debug 才会切换为调试产物。\n    # 编译与封装分离，时间戳瞬时失败时只重试封装签名，不重复整轮 Rust 编译。\n    # 前端已在私有工程完成构建；清除 Tauri 的源码 npm 钩子，避免重复构建或回写主仓。\n    tauri_override=\"$(\"${PYTHON:?}\" -c 'import json,sys,os; print(json.dumps({\"build\":{\"beforeBuildCommand\":None,\"frontendDist\":sys.argv[1]},\"bundle\":{\"createUpdaterArtifacts\":bool(os.environ.get(\"TAURI_SIGNING_PRIVATE_KEY\")),\"resources\":{sys.argv[2]+\"/\":\"\",sys.argv[3]+\"/\":\"icons/\",sys.argv[4]:\"china.sqlite\"}}}))' \"$NODE_FRONTEND_DIST\" \"$PACKAGE_RESOURCES\" \"$REPO_ROOT/icons\" \"$REPO_ROOT/onchina/src/codes/china.sqlite\")\"\n    CITIZENCHAIN_FRONTEND_DIST=\"$NODE_FRONTEND_DIST\" CARGO_INCREMENTAL=1 \\\n        node \"$NODE_FRONTEND_PROJECT/node_modules/@tauri-apps/cli/tauri.js\" build --config \"$tauri_override\" \\\n        --no-bundle --ci -- --locked --config \"$REPO_ROOT/config.toml\"\n    MACOS_APP_PENDING=1\n    bundle_macos_app() {\n        rm -rf -- \"$app_bundle\"\n        CITIZENCHAIN_FRONTEND_DIST=\"$NODE_FRONTEND_DIST\" CARGO_INCREMENTAL=1 \\\n            node \"$NODE_FRONTEND_PROJECT/node_modules/@tauri-apps/cli/tauri.js\" bundle --config \"$tauri_override\" \\\n            --bundles app --ci\n    }\n    run_with_macos_timestamp_retry \"Tauri App 封装签名\" bundle_macos_app\n\n    app_plist=\"$app_bundle/Contents/Info.plist\"\n    app_executable=\"$app_bundle/Contents/MacOS/citizenchain\"\n    [[ -x \"$app_executable\" ]] || {\n        echo \"    [error] Tauri 构建完成但缺少 App 主程序：$app_executable\" >&2\n        exit 1\n    }\n    # Tauri 负责生成产品 App；描述文件属于本机签名材料，绝不进入仓库或其它产物路径。\n    # 嵌入后必须重新封签根 App，使描述文件、唯一 App ID 与权限成为同一个签名整体。\n    /usr/bin/ditto \"$macos_profile\" \"$app_bundle/Contents/embedded.provisionprofile\"\n    run_with_macos_timestamp_retry \"描述文件嵌入后的 App 封签\" \\\n        /usr/bin/codesign --force --deep --options runtime --timestamp \\\n        --entitlements \"$REPO_ROOT/node/Entitlements.plist\" \\\n        --sign \"$MACOS_SIGNING_IDENTITY\" \"$app_bundle\"\n    codesign --verify --deep --strict \"$app_bundle\"\n    signature_details=\"$(codesign -dv --verbose=4 \"$app_bundle\" 2>&1)\"\n    grep -Fqx \"Authority=$MACOS_SIGNING_IDENTITY\" <<<\"$signature_details\" || {\n        echo \"    [error] macOS App 未使用唯一允许的新团队 Developer ID\" >&2\n        exit 1\n    }\n    grep -Fqx \"TeamIdentifier=$MACOS_TEAM_ID\" <<<\"$signature_details\" || {\n        echo \"    [error] macOS App Team ID 不属于唯一允许的新团队\" >&2\n        exit 1\n    }\n    grep -Eq '^CodeDirectory .*flags=.*\\(runtime\\)' <<<\"$signature_details\" || {\n        echo \"    [error] macOS App 未启用 Hardened Runtime\" >&2\n        exit 1\n    }\n    grep -Eq '^Timestamp=' <<<\"$signature_details\" || {\n        echo \"    [error] macOS App 缺少安全时间戳\" >&2\n        exit 1\n    }\n    [[ \"$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \"$app_plist\")\" == \"$MACOS_BUNDLE_ID\" ]] || {\n        echo \"    [error] macOS App Bundle ID 与 Tauri 配置不一致\" >&2\n        exit 1\n    }\n    embedded_profile_name=\"$(security cms -D -i \"$app_bundle/Contents/embedded.provisionprofile\" 2>/dev/null \\\n        | plutil -extract Name raw -o - - 2>/dev/null || true)\"\n    [[ \"$embedded_profile_name\" == \"$MACOS_PROFILE_NAME\" ]] || {\n        echo \"    [error] macOS App 未嵌入 $MACOS_PROFILE_NAME\" >&2\n        exit 1\n    }\n    /usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' \"$app_plist\" >/dev/null\n    signed_entitlements=\"$(codesign -d --entitlements :- \"$app_bundle\" 2>/dev/null)\"\n    for entitlement in \\\n        com.apple.security.device.camera \\\n        com.apple.security.cs.allow-jit \\\n        com.apple.security.cs.allow-unsigned-executable-memory; do\n        # plutil 把点号解释为字典层级；entitlement 名本身含点号，必须先转义为单个键。\n        entitlement_key_path=\"${entitlement//./\\\\.}\"\n        [[ \"$(printf '%s' \"$signed_entitlements\" | plutil -extract \"$entitlement_key_path\" raw -)\" == \"true\" ]] || {\n            echo \"    [error] macOS App 签名缺少 $entitlement\" >&2\n            exit 1\n        }\n    done\n    get_task_allow=\"$(printf '%s' \"$signed_entitlements\" \\\n        | plutil -extract 'com\\.apple\\.security\\.get-task-allow' raw - 2>/dev/null \\\n        || printf 'false')\"\n    [[ \"$get_task_allow\" == \"false\" ]] || {\n        echo \"    [error] macOS 本机优化 App 禁止 get-task-allow\" >&2\n        exit 1\n    }\n    MACOS_APP_PENDING=0\n    echo \"    本机优化路径、新团队签名、Bundle ID、Hardened Runtime、安全时间戳与 entitlement 校验通过\"\n    # 成功后只保存本次缓存根的候选 App；不得触碰正式产物库。\n    mkdir -p \"$ARTIFACT_DIR\"\n    rm -rf \"$ARTIFACT_DIR/CitizenChain.app\"\n    mv \"$app_bundle\" \"$ARTIFACT_DIR/CitizenChain.app\"\n    app_bundle=\"$ARTIFACT_DIR/CitizenChain.app\"\n    app_executable=\"$app_bundle/Contents/MacOS/citizenchain\"\n    export ONCHINA_FRONTEND_DIST=\"$app_bundle/Contents/Resources/onchina-frontend/dist\"\n    # 本段只生成并验真产品候选；后续安装事务不终止旧实例，也不启动新实例。\n    trap - EXIT INT TERM HUP\n    echo \"    CitizenChain Node macOS候选产物构建完成；Build不会启动节点\"\nelse\n    echo \"    [error] 本入口只负责macOS Build；其它平台使用各自产品构建入口\" >&2\n    exit 1\nfi\n","local":"#!/usr/bin/env bash\n# 保留原非macOS检查与编译矩阵；输出只进入本轮build或test。\nset -euo pipefail\n[[ $# -eq 2 && \"$2\" == /* ]] || { echo \"构建参数无效\" >&2; exit 2; }\ncase \"$1\" in windows|linux-arm|linux-amd) ;; *) exit 2;; esac\nroot=\"${CITIZENCHAIN_SOURCE_ROOT:?}\"; work=\"$2\"\n[[ \"$work\" == \"$root/target/build/\"* || \"$work\" == \"$root/target/test/\"* ]] || { echo \"工作根越界\" >&2; exit 1; }\n[[ -x \"${CARGO:?}\" && -x \"${RUSTC:?}\" ]] || exit 1\n# 非macOS本机检查同样要求本产品锁定的宿主protoc。\nif [[ ! -x \"${PROTOC:?}\" || \"$(\"$PROTOC\" --version)\" != 'libprotoc 35.0' ]]; then\n  echo 'CitizenChain protoc 35.0验真失败' >&2; exit 1\nfi\nexport CARGO_TARGET_DIR=\"$work/cargo-target\"\nunset WASM_FILE\n\"$CARGO\" check --manifest-path \"$root/Cargo.toml\" --locked --release -p node --no-default-features --features std --all-targets\n\"$CARGO\" test --manifest-path \"$root/Cargo.toml\" --locked --release -p node --no-default-features --features std --no-run\n","prepack":"#!/usr/bin/env bash\n# Card 05 打包前置(macOS / Linux):把 onchina 二进制 + 前端产物 + china.sqlite +\n# PostgreSQL官方二进制组装到产品源码外资源目录。冻结plain chainspec已由\n# node 二进制 include_bytes! 内嵌；安装包不复制 258 MB 创世 RocksDB，首启按同一\n# chainspec 本地物化并由节点守卫校验块 0。之后在 node/ 跑 `npm run tauri build`。\n#\n# 用法:\n#   export CITIZENCHAIN_PG_DIST=<postgresql.org 官方二进制解压目录(含 bin/lib/share)>\n#   node citizenchain/scripts/build.mjs prepack\nset -euo pipefail\n\nSCRIPT_DIR=\"$CITIZENCHAIN_SOURCE_ROOT/scripts\"\nROOT=\"$CITIZENCHAIN_SOURCE_ROOT\"\nHERE=\"$ROOT/node\"                             # citizenchain/node\n# 所有独立入口的工具临时状态归本产品target；宿主已交付的产品工作根继续归当前任务。\nPRODUCT_TEMP_SOURCE=\"$CITIZENCHAIN_SOURCE_ROOT\"\nPRODUCT_TARGET_TEMP_ROOT=\"${CITIZENCHAIN_WORK_DIR:-$CITIZENCHAIN_SOURCE_ROOT/target/build/windows}\"\nCITIZENCHAIN_WORK_DIR=\"${CITIZENCHAIN_PREPACK_WORK_DIR:-$PRODUCT_TARGET_TEMP_ROOT}\"\nCITIZENCHAIN_DEPENDENCY_DIR=\"${CITIZENCHAIN_DEPENDENCY_DIR:-$CITIZENCHAIN_WORK_DIR/dependencies}\"\nexport CITIZENCHAIN_WORK_DIR CITIZENCHAIN_DEPENDENCY_DIR\nexport CARGO_TARGET_DIR=\"${CARGO_TARGET_DIR:-$CITIZENCHAIN_WORK_DIR/cargo-target}\"\nPACKAGE_RESOURCES=\"${CITIZENCHAIN_PACKAGE_RESOURCES_DIR:-$CITIZENCHAIN_WORK_DIR/resources}\"\nONCHINA_BUILD_DIST=\"$CITIZENCHAIN_WORK_DIR/onchina-frontend/dist\"\nsource \"$PRODUCT_PREPARE_SHELL\"\ncase \"$(uname -s)\" in\n  Darwin) OS=macos ;;\n  Linux) OS=linux ;;\n  *) OS=linux ;;\nesac\n\necho \"[prepack] build onchina (release)\"\n( cd \"$ROOT\" && cargo build -p onchina --release --config \"$ROOT/config.toml\" )\n\necho \"[prepack] build onchina frontend\"\n( cd \"$ONCHINA_FRONTEND_PROJECT\" && ONCHINA_FRONTEND_DIST=\"$ONCHINA_BUILD_DIST\" npm run build )\n\necho \"[prepack] assemble node/resources\"\nmkdir -p \"$PACKAGE_RESOURCES/onchina-bin\" \"$PACKAGE_RESOURCES/onchina-frontend\" \"$PACKAGE_RESOURCES/postgres\"\n# onchina 二进制随包(Tauri resources/onchina-bin),onchina_proc 从资源目录解析(见 node/src/onchina_proc)。\ncp \"$CARGO_TARGET_DIR/release/onchina\" \"$PACKAGE_RESOURCES/onchina-bin/onchina\"\nchmod +x \"$PACKAGE_RESOURCES/onchina-bin/onchina\"\nrm -rf \"$PACKAGE_RESOURCES/onchina-frontend/dist\"\ncp -R \"$ONCHINA_BUILD_DIST\" \"$PACKAGE_RESOURCES/onchina-frontend/dist\"\n\n# PostgreSQL 官方二进制(postgresql.org):把已解压的 PG 安装目录(含 bin/lib/share)\n# 指向 CITIZENCHAIN_PG_DIST,脚本拷进 resources/postgres/$OS;未提供则告警(安装包将缺内嵌 PG)。\nif [ -n \"${CITIZENCHAIN_PG_DIST:-}\" ] && [ -d \"$CITIZENCHAIN_PG_DIST/bin\" ]; then\n  rm -rf \"$PACKAGE_RESOURCES/postgres/$OS\"\n  mkdir -p \"$PACKAGE_RESOURCES/postgres/$OS\"\n  cp -R \"$CITIZENCHAIN_PG_DIST/.\" \"$PACKAGE_RESOURCES/postgres/$OS/\"\n  echo \"[prepack] PostgreSQL 已组装($OS)\"\nelse\n  echo \"[prepack][warn] 未提供 CITIZENCHAIN_PG_DIST。\"\n  echo \"                请从 https://www.postgresql.org/download/ 取本平台官方二进制(含 bin/lib/share),\"\n  echo \"                解压后 export CITIZENCHAIN_PG_DIST=<解压目录> 再重跑;否则安装包不含内嵌 PG。\"\nfi\n\n# 中文注释：release 状态包只作为正式创世审计制品保留在 target/build/chainspec，不进入任一\n# 平台安装包；清掉旧预打包残留，保证本机 prepack 与 GitHub CI 使用同一轻量合同。\nrm -rf \"$PACKAGE_RESOURCES/genesis-state\"\necho \"[prepack] 已确认安装包不携带 genesis-state；首启按冻结 plain chainspec 本地物化\"\n\necho \"[prepack] 完成：资源目录 $PACKAGE_RESOURCES\"\n","prepare":"#!/usr/bin/env bash\n# 公民链产品工具准备：使用调用环境中的标准工具和产品锁文件。\n# 必须由 build.mjs run source，使产品路径和包管理器设置留在当前进程。\nset -euo pipefail\n\nPREPARE_SCRIPT_DIR=\"$CITIZENCHAIN_SOURCE_ROOT/scripts\"\nCITIZENCHAIN_ROOT=\"$CITIZENCHAIN_SOURCE_ROOT\"\nNODE_FRONTEND_SOURCE=\"$CITIZENCHAIN_ROOT/node/frontend\"\nONCHINA_FRONTEND_SOURCE=\"$CITIZENCHAIN_ROOT/onchina/frontend\"\n\ncase \"$(uname -s)/$(uname -m)\" in\n  Darwin/arm64) CITIZENCHAIN_WORK_PLATFORM=macos ;;\n  Linux/aarch64) CITIZENCHAIN_WORK_PLATFORM=linux-arm ;;\n  Linux/x86_64) CITIZENCHAIN_WORK_PLATFORM=linux-amd ;;\n  *) echo 'CitizenChain当前宿主未声明' >&2; exit 1 ;;\nesac\nCITIZENCHAIN_WORK_DIR=\"${CITIZENCHAIN_WORK_DIR:-$CITIZENCHAIN_ROOT/target/build}\"\nCITIZENCHAIN_DEPENDENCY_DIR=\"${CITIZENCHAIN_DEPENDENCY_DIR:-$CITIZENCHAIN_WORK_DIR/dependencies}\"\n\"${PYTHON:?}\" - \"$CITIZENCHAIN_ROOT\" \"$CITIZENCHAIN_WORK_DIR\" \"$CITIZENCHAIN_DEPENDENCY_DIR\" \"${CARGO_TARGET_DIR:-$CITIZENCHAIN_WORK_DIR/cargo-target}\" <<'CHECK_WORK'\nfrom pathlib import Path\nimport sys\nsource = Path(sys.argv[1]).resolve()\nfor value in sys.argv[2:]:\n    raw = Path(value)\n    target = raw.resolve()\n    if not raw.is_absolute() or source / 'target' not in target.parents:\n        raise SystemExit(f'CitizenChain可写目录必须是本产品target内绝对路径：{value}')\nCHECK_WORK\nexport npm_config_cache=\"${npm_config_cache:-$CITIZENCHAIN_DEPENDENCY_DIR/npm}\"\nmkdir -p \"$npm_config_cache\" \"$CITIZENCHAIN_WORK_DIR/source\"\nexport npm_config_audit=false npm_config_fund=false\n\n# 只消费本产品资源回执交付的官方protoc 35.0。\nif [[ ! -x \"${PROTOC:?}\" || \"$(\"$PROTOC\" --version)\" != 'libprotoc 35.0' ]]; then\n  echo 'CitizenChain protoc 35.0验真失败' >&2; exit 1\nfi\nexport PROTOC\n\nprepare_node_project() {\n  local source=\"$1\" relative=\"$2\" destination\n  destination=\"$CITIZENCHAIN_WORK_DIR/source/$relative\"\n  [[ -f \"$source/package.json\" && -f \"$source/package-lock.json\" ]] \\\n    || { echo \"公民链Node工程缺少锁文件：$source\" >&2; return 1; }\n  # 每次只重建当前产品工作根中的准确工程副本，保留包管理器缓存和其它任务目录。\n  rm -rf -- \"$destination\"\n  node - \"$source\" \"$destination\" <<'COPY_PROJECT'\nconst fs = require('node:fs');\nconst path = require('node:path');\nconst [source, destination] = process.argv.slice(2);\nfs.cpSync(source, destination, {\n  recursive: true,\n  errorOnExist: true,\n  force: false,\n  filter: (entry) => !['node_modules', 'dist'].includes(path.basename(entry)),\n});\nCOPY_PROJECT\n  local -a npm_args=(ci)\n  case \"${CITIZENCHAIN_OFFLINE:-false}\" in\n    true) npm_args+=(--offline) ;;\n    false) ;;\n    *) echo 'CITIZENCHAIN_OFFLINE只接受true或false' >&2; return 1 ;;\n  esac\n  (cd \"$destination\" && npm \"${npm_args[@]}\")\n  BUILD_NODE_PROJECT=\"$destination\"\n}\n\necho '==> 准备产品依赖：citizenchain/crates/scanner'\nprepare_node_project \"$CITIZENCHAIN_ROOT/crates/scanner\" citizenchain/crates/scanner\nSCANNER_REACT_PROJECT=\"$BUILD_NODE_PROJECT\"\necho '==> 准备产品依赖：citizenchain/node/frontend'\nprepare_node_project \"$NODE_FRONTEND_SOURCE\" citizenchain/node/frontend\nNODE_FRONTEND_PROJECT=\"$BUILD_NODE_PROJECT\"\necho '==> 准备产品依赖：citizenchain/onchina/frontend'\nprepare_node_project \"$ONCHINA_FRONTEND_SOURCE\" citizenchain/onchina/frontend\nONCHINA_FRONTEND_PROJECT=\"$BUILD_NODE_PROJECT\"\n\n# 图片原件只复制到本轮统一资源目录，前端不另建图片副本。\nmkdir -p \"$CITIZENCHAIN_WORK_DIR/source/citizenchain/icons\"\ncp -R \"$CITIZENCHAIN_ROOT/icons/.\" \"$CITIZENCHAIN_WORK_DIR/source/citizenchain/icons/\"\nexport SCANNER_REACT_PROJECT NODE_FRONTEND_PROJECT ONCHINA_FRONTEND_PROJECT\n\nexport CITIZENCHAIN_PROJECT_ROOT=\"$CITIZENCHAIN_WORK_DIR/source/citizenchain\"\n"});
 export async function runEmbeddedBuild(kind,args=[],environment=process.env){
  const platform=kind==='windows'?'windows':environment.PLATFORM||(kind==='local'?args[0]:'macos');platformContract(platform);
  const work=environment.PRODUCT_WORK_DIR||environment.CITIZENCHAIN_WORK_DIR||temporaryRoot(platform,'build');checkWork(work);
@@ -3320,7 +3553,7 @@ test('每个平台从自身原始锁只读提出需求；缺失原始Pod锁按�
    assert.equal(result.platform,platform);assert.equal(result.schema,1);
    assert.ok(result.tools.every(value=>value.id&&value.version));
    assert.ok(result.locks.every(value=>['cargo','pub','npm','cocoapods'].includes(value.ecosystem)));
-   assert.equal(result.locks.filter(value=>value.ecosystem==='cargo'&&value.path==='crates/protocol/Cargo.lock').length,1);
+   assert.equal(result.locks.filter(value=>value.ecosystem==='cargo'&&value.path==='crates/protocol/Cargo.lock').length,platform==='wasm'?0:1);
   }
   assert.deepEqual(readdirSync(work),before);
  }}finally{removeFixture(work,{recursive:true});}

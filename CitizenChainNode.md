@@ -2,9 +2,11 @@
 
 > 当前塔塔鹿鹿：每仓 `.github/tatalulu.yml` 只登记仓库身份；控制台 `.github/tatalulu.mjs` 保存并推送后，以 GitHub `main` 回查结果收口。本文早期推送触发检查记录仅供历史追溯。
 
-本产品编译任务使用本仓 `target/build/<平台>` 独立临时目录，平台键为 `macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。不同平台同时领取并执行；同平台已有活跃任务时立即拒绝再次领取。资源准备、工程副本、缓存和编译输出只写本平台现场；确认进程及后代退出、结果被调用方消费后，删除整个平台目录。`target/build` 仅是父目录，`target/test` 仍用于独立测试。直接运行 `scripts/build.mjs` 的 Node 回归时，本进程为测试夹具生成唯一 `target/test/sessions/<随机会话>/`，平台夹具位于其 `build/<平台>/`；测试子进程继承同一会话，退出时只按本产品守卫核验并清理该会话。正式编译与普通导入仍使用原固定根，测试不领取或清理其它编译任务。独立执行和控制台调度调用同一本仓编译入口与清理接口。
+本产品编译任务使用本仓 `target/build/<平台>` 独立临时目录，平台键为 `macos`、`windows`、`linux-arm`、`linux-amd`、`wasm`。不同平台同时领取并执行；同平台已有活跃任务时立即拒绝再次领取。资源准备、工程副本和编译输出只写本平台现场；可复用的Cargo中间物经平台身份与全树字节核验后保存在独立的`target/cache/<平台>`，不含签名包或正式Release资产，也不代替本轮编译与产物验真。确认进程及后代退出、结果被调用方消费后，删除本轮工作目录，保留对应平台已验真缓存。`target/build` 仅是父目录，`target/test` 仍用于独立测试。直接运行 `scripts/build.mjs` 的 Node 回归时，本进程为测试夹具生成唯一 `target/test/sessions/<随机会话>/`，平台夹具位于其 `build/<平台>/`、缓存夹具位于其`cache/<平台>/`；测试子进程继承同一会话，退出时只按本产品守卫核验并清理该会话。正式编译与普通导入仍使用原固定根，测试不领取或清理其它编译任务。独立执行和控制台调度调用同一本仓编译入口与清理接口。
 
-完整 Build 在本产品资源回执之后由本仓运行 Node 回归，再进入工程准备；独立 QR Rust 回归在平台正式编译前执行。WASM 原编译工具集不含 Node，本仓为其测试阶段声明同一登记 Node 版本。控制台只调用本产品完整 Build 并按本仓需求供给资源，不选择测试文件或测试工具。
+五份既有GitHub工作流以各自平台、宿主架构和原始锁命名缓存，先恢复本平台缓存，编译验收成功后再保存新缓存，随后才进行本平台Release。Rust缓存只存Cargo的`.fingerprint`、`build`、`deps`与`incremental`中间物；四个节点平台还按准确前端源码、共享扫码组件、图标、原始锁和Node版本复用已验真的公开静态资源，输入变化则重编，`npm ci`仍按原锁执行。WASM平台排除Runtime本体的编译记录、字节和整个`wbuild`，使正式Runtime WASM每轮从当前源码重建。签名包、Release资产、凭据及本轮任务标记不进入缓存。缓存错身份则冷编译，字节或拓扑损坏则拒绝使用；平台间没有任务依赖或共同可写缓存。GitHub缓存只是跨Runner传输层，实际缓存身份、全树验真、工作现场导入导出仍由本仓唯一`build.mjs`管理。
+
+完整 Build 在本产品资源回执之后由本仓运行 Node 回归，再进入工程准备；独立 QR Rust 回归仅在四个节点平台正式编译前执行，WASM平台不编译QR工作空间。WASM以本产品唯一登记的Node版本运行`build.mjs`入口，不编译Node包。控制台只调用本产品完整 Build 并按本仓需求供给资源，不选择测试文件或测试工具。
 合成阶段注入只在本仓测试上下文有效，正式完整 Build 必须执行上述测试。
 
 ## 工具与依赖的声明和供给职责（2026-10-08）
@@ -2888,7 +2890,7 @@ Windows LLVM准备步骤用Bash的`GITHUB_ENV`语法交付库路径；Windows工
 Windows Release在PowerShell组包步骤把固定安装包名称的`.exe`结尾替换为本轮软件版本后缀，再从Cargo输出复制安装包；下一步使用该包在`RUNNER_TEMP`下的绝对路径直接调用Tauri签名器，不把绝对路径接到GitHub检出根。
 
 WASM Release的版本准备由`.github/workflows/wasm.yml`以固定产品User-Agent GET`https://www.crcfrcn.com/api/chain/runtime-target`，只接受公民服务端返回的块0哈希、finalized头、`spec_version`与`spec_name`四个准确字段；回读块0哈希须等于`runtime/primitives/src/genesis.rs`唯一冻结常量，候选版本至少高于当前finalized的`spec_version`。公民服务端自身经Access/Tunnel只读查询正式链，GitHub不配置Cloudflare URL、ID或Secret，不能选择任意RPC方法。读取失败、错链或错误版本直接使Release准备失败。版本预检尚未创建固定`target`时，本产品`finish`对确实缺失的现场安全完成；已有现场、断链与目录链接继续逐层验真并按原所有权规则收尾。
-WASM正式Clippy、Runtime编译及Node候选政策探针均由`scripts/build.mjs ci-build wasm`在同一已领取的`target/build/wasm`会话内执行；Cargo不使用默认`target/debug`，Tauri取得原仓与任务根成对身份，政策探针缺WASM不能记为通过。GitHub Workflow只负责版本与工具准备、调用产品入口、正式Release及always收尾。
+WASM正式`ci-build wasm`只在已领取的`target/build/wasm`会话内构建与校验三件Runtime WASM；Cargo不使用默认`target/debug`。Clippy与Node候选政策探针不进入WASM编译步骤，准确Release WASM的Node政策验收归后续升级验收，缺WASM不能记为通过。GitHub Workflow负责版本与工具准备、调用产品入口、正式Release及always收尾。四个节点平台的日常桌面RPC定向测试与安装包均不显式请求源码WASM；需要真实WASM的Runtime升级政策验收另取准确正式WASM执行。
 正式Release的草稿按本次Tag在有权限的完整分页列表中定位唯一数字ID并按ID核验，不使用只返回已发布版本的按Tag读取接口；草稿验真后才发布，已发布版本仍按Tag复核。上传资产的摘要只对文件原始字节计算SHA-256，不能把产品输出目录的`outputDigest`作为GitHub资产digest；两阶段的资产名称、大小、摘要和来源提交必须一致，失败保留真实草稿状态并停止。
 候选版本同时计入本平台已有成功Release的版本：`citizenChainRelease`已按WASM Tag识别平台并核对Tag提交，历史收集仅继续核对对应Run成功及工作流身份，不读取其返回对象中不存在的`platform`字段；草稿、预发布、其他平台和失败Run不进入版本集合。
 

@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 180
     env:
       GH_TOKEN: "${{ github.token }}"
-      CARGO_INCREMENTAL: '0'
+      CARGO_INCREMENTAL: '1'
       WASM_BUILD_FROM_SOURCE: '1'
       CITIZENCHAIN_PRODUCTION_WASM_BUILD: '1'
     steps:
@@ -103,13 +103,13 @@ jobs:
         with:
           toolchain: 1.97.1
           targets: wasm32v1-none
-          components: rust-src, clippy
+          components: rust-src
       - name: 安装编译依赖与固定 protoc
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y clang llvm llvm-dev libclang-dev libpam0g-dev libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev pkg-config patchelf file unzip
+          sudo apt-get install -y clang llvm llvm-dev libclang-dev libssl-dev pkg-config file unzip
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip
           echo 'a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc  '"$RUNNER_TEMP/protoc.zip" | sha256sum --check
           mkdir -p "$RUNNER_TEMP/protoc"
@@ -138,12 +138,24 @@ jobs:
                   raise SystemExit(f'{filename} 版本位置不唯一')
               path.write_text(changed)
           PY
+      - name: 恢复WASM独立增量缓存
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: target/cache/wasm
+          key: citizenchain-cargo-v1-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            citizenchain-cargo-v1-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml') }}-
       - name: 校验与编译正式 WASM
         shell: bash
         run: |
           set -euo pipefail
           cargo --config "$GITHUB_WORKSPACE/config.toml" metadata --locked --no-deps --format-version 1 >/dev/null
           node scripts/build.mjs ci-build wasm > "$RUNNER_TEMP/citizenchain-wasm-build-result.json"
+      - name: 保存WASM独立增量缓存
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: target/cache/wasm
+          key: citizenchain-cargo-v1-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml') }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: 创建并回读正式 WASM GitHub Release
         env:
           RELEASE_VERSION: "${{ steps.version.outputs.version }}"
