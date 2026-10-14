@@ -688,7 +688,7 @@ async function prepareGithubAssets(platform,work,result,environment){
   update={version,platforms:{[updateTarget]:{signature,url}}};
   const manifest=join(directory,manifestName);writeFileSync(manifest,JSON.stringify(update)+'\n',{flag:'wx',mode:0o600});owned.push(manifest);
  }
- const assets=owned.map(path=>({name:basename(path),size:lstatSync(path).size,sha256:outputDigest(path)})).sort((a,b)=>a.name.localeCompare(b.name));
+ const assets=owned.map(path=>({name:basename(path),size:lstatSync(path).size,sha256:releaseAssetSha256(path)})).sort((a,b)=>a.name.localeCompare(b.name));
  const proof={schema:1,repository:'crcfrcn/citizenchain',product_id:product,platform,
   workflow:`.github/workflows/${{macos:'macos.yml',windows:'windows.yml','linux-arm':'linuxarm.yml','linux-amd':'linuxamd.yml',wasm:'wasm.yml'}[platform]}`,
   run_id:Number(run),run_attempt:Number(attempt),source_sha:environment.GITHUB_SHA,tag,version,assets};
@@ -765,6 +765,13 @@ export function outputDigest(path) {
   else if(info.isFile()&&info.nlink===1){hash.update(JSON.stringify([name,'file',Boolean(info.mode&0o111),info.size])+'\n');hash.update(readFileSync(file));}
   else fail('输出包含特殊文件或硬链接');
  }visit(path);return hash.digest('hex');
+}
+
+// GitHub Release的digest只哈入上传文件原始字节；产品目录回执仍使用outputDigest的全树合同。
+function releaseAssetSha256(path){
+ const info=lstatSync(path);
+ if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||!info.size||realpathSync(path)!==path)fail('GitHub上传资产不是规范普通文件');
+ return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
 // 公民链拥有服务器节点版本确认；控制台只交付网络和安装执行能力。
@@ -1118,7 +1125,7 @@ export async function verifyGithubRelease(platform,phase,environment=process.env
  if(!Array.isArray(release.assets)||release.assets.length!==plan.assets.length)fail('GitHub Release资产数量不符');
  for(const expected of plan.assets){
   const path=join(plan.directory,expected.name),local=lstatSync(path);
-  if(!local.isFile()||local.isSymbolicLink()||local.size!==expected.size||outputDigest(path)!==expected.sha256)fail('本轮资产字节已改变');
+  if(!local.isFile()||local.isSymbolicLink()||local.size!==expected.size||releaseAssetSha256(path)!==expected.sha256)fail('本轮资产字节已改变');
   const matches=release.assets.filter(value=>value.name===expected.name);
   if(matches.length!==1||matches[0].state!=='uploaded'||matches[0].size!==expected.size
    ||matches[0].digest!=='sha256:'+expected.sha256)fail('GitHub Release资产回读不符：'+expected.name);
@@ -3177,11 +3184,16 @@ test('本平台正式版号必须高于自己的历史正式Release',async()=>{
 test('Windows正式资产清单只回读本平台准确Release',async()=>{
  const work=checkFixedWork(fixedWork('build/windows'),{create:true});
  try{
-  writeFileSync(join(work,'CitizenChain.exe'),'installer');writeFileSync(join(work,'CitizenChain.exe.sig'),'signature');
+  writeFileSync(join(work,'CitizenChain.exe'),'abc');writeFileSync(join(work,'CitizenChain.exe.sig'),'signature');
   const environment={GITHUB_RUN_ID:'12',GITHUB_RUN_ATTEMPT:'1',GITHUB_SHA:'a'.repeat(40),GITHUB_ACTIONS:'true',
    GITHUB_REPOSITORY:'crcfrcn/citizenchain',GITHUB_WORKFLOW:'citizenchain.windows',GH_TOKEN:'fixture'};
   const plan=await prepareGithubAssets('windows',work,null,environment);
   assert.equal(plan.assets.length,3);assert.equal(plan.tag,'citizenchain-windows-v1.0.0-r12-a1');
+  const installer=plan.assets.find(value=>value.name.endsWith('.exe'));
+  assert.equal(installer.sha256,'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  assert.notEqual(installer.sha256,outputDigest(join(plan.directory,installer.name)));
+  const link=join(work,'asset-link');symlinkSync(join(plan.directory,installer.name),link);
+  try{assert.throws(()=>releaseAssetSha256(link),/规范普通文件/u);}finally{rmSync(link);}
   const base='https://api.github.com/repos/crcfrcn/citizenchain/releases';
   const release={id:70,url:`${base}/70`,tag_name:plan.tag,target_commitish:environment.GITHUB_SHA,prerelease:false,draft:true,
    body:readFileSync(plan.notes,'utf8'),assets:plan.assets.map((value,index)=>({id:index+1,name:value.name,state:'uploaded',size:value.size,digest:'sha256:'+value.sha256}))};
@@ -3195,6 +3207,9 @@ test('Windows正式资产清单只回读本平台准确Release',async()=>{
   };
   assert.deepEqual(await verifyGithubRelease('windows','draft',environment,{fetchImpl}),{platform:'windows',tag:plan.tag,phase:'draft'});
   assert.deepEqual(calls,[`${base}?per_page=100&page=1`,`${base}/70`]);
+  writeFileSync(join(plan.directory,installer.name),'abd');
+  await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/本轮资产字节已改变/u);
+  writeFileSync(join(plan.directory,installer.name),'abc');
   release.assets[0].digest='sha256:'+'0'.repeat(64);
   await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/资产回读不符/u);
   release.assets[0].digest='sha256:'+plan.assets[0].sha256;
