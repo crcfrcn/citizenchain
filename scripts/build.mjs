@@ -736,7 +736,7 @@ export function nodeDeploymentVerifier(){return NODE_RELEASE_CANDIDATE_SOURCE;}
 
 // 控制台macOS任务完成安装和回读后才交付结果；其它任务只编译，宿主消费后调用本产品收尾。
 // 产品拥有编译前测试清单、受控工具和执行顺序；控制台仅调用完整Build。
-function testFiles(){return ['scripts/build.mjs','scripts/publish.mjs'];}
+function testFiles(){return ['scripts/build.mjs'];}
 async function runProductTests(platform,work,receipt,base){
  const env=resourceEnvironment(platform,work,receipt,base),expected=requirements(platform,work).tools.find(value=>value.id==='node'),node=receipt.tools.node;
  if(!node||node.version!==expected?.version||!isAbsolute(node.path)||realpathSync(node.path)!==node.path)fail('本仓测试缺少准确Node入口');

@@ -13,5 +13,3 @@
 GitHub Actions 保留 `macos.yml`、`windows.yml`、`linuxarm.yml`、`linuxamd.yml`、`wasm.yml` 五个独立手动流程。各流程编译本平台、核验本轮产物、先创建草稿 GitHub Release，回读资产摘要后才转为正式版。一个平台失败不取消其他平台。
 
 节点正式包需要 `TAURI_SIGNING_PRIVATE_KEY`；私钥有密码时还需要 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。macOS 另外需要 `APPLE_CERTIFICATE_BASE64`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_PROFILE_BASE64`。这些值由 GitHub Actions Secrets 提供。缺少必要签名材料时，流程在创建正式 Release 前失败。
-
-`scripts/publish.mjs inspect <平台> <Tag>` 只核验已经成功的 GitHub Release，为随后发布到官网或应用商店提供资产清单；它不参与编译或 GitHub 自动化。渠道上传需要先确定具体渠道和授权配置。

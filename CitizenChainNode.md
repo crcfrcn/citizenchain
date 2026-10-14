@@ -2581,62 +2581,13 @@ Artifact，新任务失败只删除同分组旧失败 Run 及全部 Artifact，�
 - 本步骤不表示 CitizenChain 其它公开 Release、资产或历史文档命名已经迁移完成；其余候选
   继续由全仓命名任务卡分步处理。
 
-## macOS updater 公开路由分域（GMB 第 2.5 步，2026-09-02）
+## macOS updater 历史记录（2026-09-02）
 
-- Tauri updater 源码配置中的唯一公网入口已迁移为 `/download/citizenchain/macOS/updater`：
-  `macOS` 是独立平台路径段，`updater` 是独立交付用途路径段；旧架构拼接路由已从源码合同
-  删除且不保留兼容壳。本步没有部署，因此不把源码完成冒充生产入口已经切换。
-- CitizenServe 路由、限流白名单与 外部调用方 发布后/回滚验收同步使用同一新路径；GMB
-  `repo_guard` 正向锁定四端合同并反向拒绝旧路由和 `macOS-updater` 复合名称。
-- 本步不迁移 GitHub updater manifest、安装包、Release Tag 或生产 D1 平台值；当前 manifest
-  `citizenchain-node-latest-macos.json` 仍属于待后续原子迁移的 Release 资产合同。
-- Tauri JSON 解析通过；CitizenServe 两个定向文件 16/16、GMB `repo_guard` 12/12、
-  外部调用方 原生发布合同 2/2 通过。
-- 首次无签名 Xcode 构建在编译前因正式打包阶段的 外部宿主专用 运行时资源尚未暂存而
-  中止；随后在不触碰共享工作目录的前提下，仅对本次编译命令排除这两个外部复制项，同一工程
-  完成 macOS 平台 `arm64-apple-macos14.0` target 的 Swift 编译和链接。编译产物含新路由
-  字节且不含被排除的运行时资源，不能冒充完整可运行包、正式 Release 或安装验收。
-- 本轮 268MB 受控测试与编译目录已移至系统废纸篓
-  `/Users/rhett/.Trash/gmb-platform-naming-step2-5-20260902`；没有启动、停止、安装或重启 外部调用方。
+当时的服务端下载路径已退役；当前官网安装包直接由 GitHub 正式 Release 交付。Tauri updater 的独立更新服务需要按当前产品配置另行核对，不再由公民服务端旧下载指针承载。
 
-## 四端安装下载公开路由统一（GMB 第 2.6 步，2026-09-02）
+## 四端安装下载历史记录（2026-09-02）
 
-- CitizenChain 四端安装下载的源码公开路径已统一为
-  `/download/citizenchain/macOS`、`/download/citizenchain/Windows`、
-  `/download/citizenchain/LinuxARM`、`/download/citizenchain/LinuxAMD`；macOS updater 继续使用
-  `/download/citizenchain/macOS/updater`。公开路径不再拼接处理器架构、位数或小写别名。
-- CitizenWeb 只生成上述标准公开路径；CitizenServe 在类型化边界内把它们分别映射到既有内部
-  发布指针 `macos`、`windows`、`linux-arm`、`linux-amd`；外部调用方 发布后验收和回滚验收
-  使用相同公开路径。内部指针不是公开平台名，本步没有修改其数据库值。
-- 旧安装路径 `macos`、`windows-x86_64`、`linux-arm64`、`linux-amd64`、`linux-arm`、
-  `linux-amd` 已从生效源码删除，不保留兼容入口；只允许作为负向测试和守卫的禁止值存在。
-- 本步不修改 Release Tag、GitHub 资产名、manifest 文件名、生产 D1、Tauri updater 资产合同或
-  外部调用方 流程定义，也没有部署，因此不能把源码合同完成表述成生产下载入口已经切换。
-- 本机定向验证结果：CitizenServe 17/17、CitizenWeb 9/9、外部调用方 静态合同 1/1、GMB
-  `repo_guard` 13/13、外部调用方 macOS 原生下载合同 XCTest 1/1，全部通过；没有启动、停止、
-  安装或重启正在运行的 外部调用方。
-- 独立跨端终检确认上述公开路径迁移正确，同时发现两处早于本步存在、但现有分层测试未覆盖的
-  发布互操作阻断：CitizenServe publication wire 使用 `version_tag`，外部调用方 发布器却使用
-  `release_tag`；当时 CitizenServe 302 仍使用旧仓库账户，已退役聚合仓remote 与塔塔统一流程
-  使用 `crcfrcn/citizenchain`。因此本步只可判定“路径合同完成”，不能判定真实发布事务可用；必须
-  先完成单独确认的第 2.6.1 步互操作修复，再迁移 Release 资产名。
-
-## 下载发布互操作修复（GMB 第 2.6.1 步，2026-09-02）
-
-- 外部调用方 动作/QR_V1 输入的 `release_tag` 与 CitizenServe publication/D1 的
-  `version_tag` 已明确分域。Swift 发布器只在 publication 组装边界显式映射；快照、
-  回滚、比较和验收不再错读动作字段。
-- CitizenServe 302 与 外部调用方 精确验收统一使用权威仓库
-  `crcfrcn/citizenchain`，不再使用旧所有者。
-- 唯一跨端 golden 位于
-  D1 路由测试与 Swift 真实 codec XCTest 同时执行；Node/Rust 门禁锁定消费接线、
-  字段闭集和仓库身份。
-- 本机验证为 CitizenServe 18/18、GMB 守卫 14/14、外部调用方 Node 1/1、
-  Swift XCTest 2/2；282MB 受控输出已移入
-  `/Users/rhett/.Trash/gmb-platform-naming-step2-6-1-20260902-1219`。
-- 本步不改链协议、节点运行时、D1 schema/数据、Release Tag、安装包、updater 或
-  manifest，也没有部署、正式 Release 或 Git 操作。当前只能声明源码合同与
-  本机验证完成，不能声明线上已切换。
+当时由服务端发布指针交付的四端安装下载已退役；当前官网按平台直接查询 GitHub 正式 Release 的安装资产，公民服务端不再提供公民链安装下载接口。
 
 ## 四端正式 Release 资产公开命名（GMB 第 2.7 步，2026-09-02）
 
@@ -2649,29 +2600,8 @@ CitizenChain 正式 Release 自定义资产名现固定为以下闭集；`<VERSI
 | macOS | `citizenchain-node-macOS-v<VERSION>.dmg` | `citizenchain-node-macOS-v<VERSION>.app.tar.gz` | `citizenchain-node-latest-macOS.json` |
 | Windows | `citizenchain-node-Windows-v<VERSION>.exe` | 与安装资产共用同一 `.exe` | `citizenchain-node-latest-Windows.json` |
 
-  仍是统一流程中的独立动作，不增设第二套发布实现。
-- Release Tag 前缀继续为既有 `citizenchain-linux-arm-v`、
-  `citizenchain-linux-amd-v`、`citizenchain-macos-v`、
-  `citizenchain-windows-v`；内部 D1 发布键、Tauri updater target、Runner、Rust target
-  triple、Debian 架构与操作系统工具链值也保持不变。公开资产名迁移不得机械改写这些类型化值。
-- CitizenServe 和 外部调用方 共同校验新资产；旧 `linux-arm64`、`linux-amd64`、
-  `macos`、`windows-x86_64` 自定义资产只允许存在于负向测试或历史记录，不能重新进入
-  当前 Release matrix、发布指针或下载 Location。
-- macOS 互操作 golden 的新 snapshot anchor 为
-  `ccdp:macos:1:c7665f9bf103e67517f8c56665db3553ec3a764fc935a0d0ac5337d9bd67b042`，
-  由 Swift、CitizenServe、Node 与 Rust 共同消费。
-- 本机验证结果为 CitizenServe 18/18、GMB 守卫 15/15、外部调用方 Node 49/49、Swift
-  XCTest 4/4，共 86 项；Node 的 49 项由 github 26 项、matrix 8 项和 native-ui 15 项组成，
-  native-ui 第 15 项通过 `testTuyuMerchantMobileUI` 别名注册。静态格式、语法、JSON 和 golden
-  哈希检查均通过。
-- 284MB 受控验证目录已整体移至
-  `/Users/rhett/.Trash/gmb-platform-naming-step2-7-20260902-1245`。独立终审另发现 Vitest 覆写了
-  源码树既有 `.vite` 目录中的 3450-byte `results.json`；该精确文件已移至
-  `/Users/rhett/.Trash/gmb-platform-naming-step2-7-vitest-results-20260902-1255.json`，预存空目录
-  保持不动，活动源码树无本轮缓存文件。本步没有运行 Git、远程 CI、正式 Release、发布或部署，
-  也没有启动、停止、安装或重启 外部调用方。
-- 生产 D1 可能仍保存旧资产指针。正式上线必须把新 Release 资产、CitizenServe 严格身份校验与
-  publication 指针作为同一维护事务切换并验证；源码迁移完成不能冒充线上已完成。
+Release Tag 前缀继续为 `citizenchain-linux-arm-v`、`citizenchain-linux-amd-v`、`citizenchain-macos-v`、`citizenchain-windows-v`。四个平台分别生成正式 Release；官网直接按平台及准确安装资产下载，不再经公民服务端的 D1 发布指针。更新资产仍由各平台 Release 独立交付，不属于服务端旧安装下载路由。
+
 ### 产品流程物理归属
 
 
@@ -2893,7 +2823,7 @@ Runtime、node/vendor与node/libp2p保持原件。其它源码最深三级，第
 
 根icons是本产品唯一持久静态视觉资源目录。Logo与公民币母版字节保持，重复PNG仅留一份，ICO/ICNS格式保留；六处扫码按钮共用原SVG几何并保持currentColor和尺寸，宪法背景从唯一PNG编码进离线HTML。官网白皮书图片由官网静态正文接口内嵌，节点不再复制图片或正文进入安装包。
 
-scripts仅保留build.mjs与publish.mjs；GitHub自动化归.github/workflows，门禁归.github/tatagate，文档、图标、维护和Runtime数据工具各归所属功能目录。内嵌测试位于对应正式实现之后，仅直接node --test时注册；导入无执行副作用。原Job阶段、独立产品平台流程身份、候选校验、缓存隔离与失败条件保持；同一平台同一流程共享其本文件实现，阶段号仍由既有Workflow固定。
+scripts保留build.mjs与config.mjs；GitHub自动化归.github/workflows，门禁归.github/tatagate，文档、图标、维护和Runtime数据工具各归所属功能目录。内嵌测试位于对应正式实现之后，仅直接node --test时注册；导入无执行副作用。原Job阶段、独立产品平台流程身份、候选校验、缓存隔离与失败条件保持；同一平台同一流程共享其本文件实现，阶段号仍由既有Workflow固定。
 
 本机输出只归target/build或target/test。非macOS检查通过同一显式工具入口，Windows预打包将原资源组装到本轮现场；本轮npm视图按锁定原件复制安装，不依赖旧控制台缓存链接。金标镜像读取公民App当前test/citizen/shared路径；未执行任何Runtime生成或刷新。实际验收及待确认状态只记录于唯一任务卡，本文目录合同不冒充完整发布或运行验收。
 
@@ -2964,9 +2894,9 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 
 ### 编译启动、GitHub自动化与独立分发准备
 
-`scripts/` 只保留 `build.mjs` 和 `publish.mjs`。`build.mjs describe` 只读交付本仓唯一编译声明；同文件独占编译、macOS安装、资源需求与固定工作根，控制台只调用公开入口。白皮书正文由官网静态接口运行时提供，不再有构建期文档生成脚本；图标派生位于 `icons/generate.mjs` 且只处理本仓图标；行政区及账户派生脚本归 `runtime/primitives/`。节点与OnChina维护脚本及外部 PostgreSQL 调优样例已删除。旧权重benchmark脚本与模板已删除，已有权重实现保持。内嵌旧链规脚本及创世检查已删除，不再由Build直接修改邻仓资源；重新生成冻结链规须另行确定所属流程。
+`scripts/` 保留唯一编译文件 `build.mjs` 与配置声明文件 `config.mjs`。`build.mjs describe` 只读交付本仓唯一编译声明；同文件独占编译、macOS安装、资源需求与固定工作根，控制台只调用公开入口。白皮书正文由官网静态接口运行时提供，不再有构建期文档生成脚本；图标派生位于 `icons/generate.mjs` 且只处理本仓图标；行政区及账户派生脚本归 `runtime/primitives/`。节点与OnChina维护脚本及外部 PostgreSQL 调优样例已删除。旧权重benchmark脚本与模板已删除，已有权重实现保持。内嵌旧链规脚本及创世检查已删除，不再由Build直接修改邻仓资源；重新生成冻结链规须另行确定所属流程。
 
-五组 `release-<平台>.yml` 和同名mjs仍由 `.github/workflows/` 独立拥有，继续产生版本、构建并逐件验收资产、创建GitHub Release和执行本目标历史清理。自动化不调用 `scripts/publish.mjs`。`publish.mjs inspect <平台> <准确Tag>` 是独立只读入口：通过公开GitHub Release、Tag和成功Run读取已完成产物的身份、来源、大小及公开摘要，输出待分发清单；它不派发或重跑自动化，也不修改Release。商店等分发目标未声明时，该入口不执行任何外部渠道上传。
+五组 `release-<平台>.yml` 和同名 mjs 仍由 `.github/workflows/` 独立拥有，继续产生版本、构建并逐件验收资产、创建 GitHub Release 和执行本目标历史清理。官网四平台安装下载直接查询正式 GitHub Release，不再需要本仓额外的发布清单脚本。
 
 
 ## GitHub塔塔门禁与同类记录清理
