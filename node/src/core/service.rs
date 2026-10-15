@@ -15,14 +15,16 @@
 
 use citizenchain::{self, apis::RuntimeApi, opaque::Block};
 use codec::{Decode, Encode};
+use frame_metadata::{RuntimeMetadata, RuntimeMetadataPrefixed, META_RESERVED};
 use futures::FutureExt;
-use sc_client_api::{Backend, BlockBackend, StorageProvider};
+use sc_client_api::{Backend, BlockBackend, HeaderBackend, StorageProvider};
 use sc_consensus_pow::{MiningHandle, PowAlgorithm, PowBlockImport};
 use sc_network::NetworkBackend as _;
 use sc_service::WarpSyncConfig;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
+use sp_api::{Core as _, Metadata as _, ProvideRuntimeApi as _};
 use sp_consensus::{NoNetwork, SyncOracle};
 use sp_core::{crypto::KeyTypeId, sr25519, Pair as _, U256};
 use sp_crypto_hashing::{blake2_256, twox_128};
@@ -74,6 +76,40 @@ pub(crate) const POW_AUTHOR_KEY_TYPE: KeyTypeId = KeyTypeId(*b"powr");
 const POW_MINING_TIMEOUT_SECS: u64 = 2;
 const POW_PROPOSAL_BUILD_SECS: u64 = 2;
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 64;
+
+/// 父块事件解码和RPC能力探测只信任该块Runtime自身的完整元数据。
+pub(crate) fn decode_runtime_metadata(raw: &[u8]) -> Result<RuntimeMetadata, String> {
+    let mut input = raw;
+    let RuntimeMetadataPrefixed(prefix, metadata) = RuntimeMetadataPrefixed::decode(&mut input)
+        .map_err(|_| "Runtime元数据SCALE解码失败".to_string())?;
+    if prefix != META_RESERVED || !input.is_empty() {
+        return Err("Runtime元数据前缀或尾随字节非法".into());
+    }
+    if !matches!(
+        &metadata,
+        RuntimeMetadata::V14(_) | RuntimeMetadata::V15(_) | RuntimeMetadata::V16(_)
+    ) {
+        return Err("Runtime元数据版本不受支持".into());
+    }
+    Ok(metadata)
+}
+
+/// Ethereum方法只在Runtime实际注册Revive时初始化；创世旧版只提供原生TLS RPC。
+fn ethereum_rpc_available(metadata: &[u8], spec_version: u32) -> Result<bool, String> {
+    let has_revive = match decode_runtime_metadata(metadata)? {
+        RuntimeMetadata::V14(value) => value.pallets.iter().any(|pallet| pallet.name == "Revive"),
+        RuntimeMetadata::V15(value) => value.pallets.iter().any(|pallet| pallet.name == "Revive"),
+        RuntimeMetadata::V16(value) => value.pallets.iter().any(|pallet| pallet.name == "Revive"),
+        _ => unreachable!("元数据版本已校验"),
+    };
+    if has_revive {
+        return Ok(true);
+    }
+    if spec_version == 0 {
+        return Ok(false);
+    }
+    Err("运行期Runtime缺少必需的Revive，拒绝启动Ethereum RPC".into())
+}
 
 #[derive(Clone)]
 pub(crate) struct SimplePow {
@@ -623,15 +659,28 @@ pub(crate) fn new_full(
     if let Some(rpc_tls) = rpc_tls {
         // 原生后端仅在进程内使用；公开副本显式覆盖为 Safe，防止 Unsafe 扩展泄漏。
         let native = (*rpc_handlers.handle()).clone();
+        let rpc_client = client.clone();
         task_manager.spawn_essential_handle().spawn("ethereum-rpc-tls", Some("rpc"), async move {
             let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
-                let (ethereum, synchronization) = crate::core::ethereum_rpc::initialize(native.clone()).await?;
+                let finalized = rpc_client.info().finalized_hash;
+                let metadata = rpc_client.runtime_api().metadata(finalized)?;
+                let version = rpc_client.runtime_api().version(finalized)?;
+                let with_ethereum = ethereum_rpc_available(metadata.as_slice(), version.spec_version)
+                    .map_err(std::io::Error::other)?;
                 let mut exposed = native;
-                exposed.merge(ethereum)?;
-                tokio::try_join!(
-                    async { synchronization.await.map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) }) },
-                    rpc_tls.run(rpc_endpoints, exposed),
-                )?;
+                if with_ethereum {
+                    let (ethereum, synchronization) = crate::core::ethereum_rpc::initialize(exposed.clone()).await?;
+                    exposed.merge(ethereum)?;
+                    tokio::try_join!(
+                        async { synchronization.await.map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) }) },
+                        rpc_tls.run(rpc_endpoints, exposed),
+                    )?;
+                } else {
+                    // 创世旧Runtime尚无Revive，只提供受同一TLS和Safe规则保护的原生RPC。
+                    // 正式升级最终确认后由节点重启重新装配Ethereum方法，初始化失败仍终止节点。
+                    log::info!("创世Runtime尚无Revive，原生TLS RPC先行服务；升级最终确认后需重启节点");
+                    rpc_tls.run(rpc_endpoints, exposed).await?;
+                }
                 Ok(())
             }.await;
             if let Err(error) = result {
@@ -872,6 +921,31 @@ mod p2p_bad_block_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ethereum_rpc_requires_runtime_revive_after_genesis() {
+        let metadata: Vec<u8> = citizenchain::Runtime::metadata().into();
+        assert_eq!(ethereum_rpc_available(&metadata, 0), Ok(true));
+        assert_eq!(ethereum_rpc_available(&metadata, 1), Ok(true));
+
+        let mut input = metadata.as_slice();
+        let mut old = RuntimeMetadataPrefixed::decode(&mut input).expect("metadata decodes");
+        assert!(input.is_empty());
+        match &mut old.1 {
+            RuntimeMetadata::V14(value) => value.pallets.retain(|pallet| pallet.name != "Revive"),
+            RuntimeMetadata::V15(value) => value.pallets.retain(|pallet| pallet.name != "Revive"),
+            RuntimeMetadata::V16(value) => value.pallets.retain(|pallet| pallet.name != "Revive"),
+            _ => panic!("unsupported metadata version"),
+        }
+        let old_metadata = old.encode();
+        assert_eq!(ethereum_rpc_available(&old_metadata, 0), Ok(false));
+        assert!(ethereum_rpc_available(&old_metadata, 1).is_err());
+        assert!(ethereum_rpc_available(&[0, 1, 2], 0).is_err());
+
+        let mut trailing = metadata;
+        trailing.push(0);
+        assert!(ethereum_rpc_available(&trailing, 0).is_err());
+    }
 
     #[test]
     fn pow_hash_deterministic() {

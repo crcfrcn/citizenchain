@@ -85,6 +85,9 @@ async-trait = { workspace = true }
 
 # frame and pallets
 frame-metadata-hash-extension = { workspace = true, default-features = true }
+frame-metadata = "=23.0.1"
+scale-value = "=0.18.2"
+scale-info = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }
 pallet-transaction-payment = { workspace = true, default-features = true }
 pallet-transaction-payment-rpc = { workspace = true, default-features = true }

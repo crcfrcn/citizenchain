@@ -10,7 +10,14 @@
 use std::collections::BTreeMap;
 
 use codec::Encode;
+#[cfg(test)]
+use codec::Decode;
+use frame_metadata::RuntimeMetadata;
+#[cfg(test)]
+use frame_metadata::RuntimeMetadataPrefixed;
+#[cfg(test)]
 use frame_system::{EventRecord, Phase};
+use scale_value::{Composite, Value, ValueDef};
 use sp_core::{sr25519, Pair as _};
 use sp_crypto_hashing::twox_128;
 use sp_runtime::{
@@ -20,7 +27,9 @@ use sp_runtime::{
 };
 use sp_state_machine::{Backend, OverlayedChanges, StateMachine};
 
-use citizenchain::{RuntimeCall, RuntimeEvent, UncheckedExtrinsic};
+use citizenchain::{RuntimeCall, UncheckedExtrinsic};
+#[cfg(test)]
+use citizenchain::RuntimeEvent;
 
 use super::{decode_exact, fullnode_issuance, MAccountData, MAccountInfo};
 
@@ -213,14 +222,213 @@ fn expected_fee(rule: ProtectedFee) -> ([u8; 32], u128) {
     }
 }
 
-fn decode_events<F>(read_post: &F) -> Result<Vec<EventRecord<RuntimeEvent, sp_core::H256>>, String>
+/// System::Events 由执行本块的父块 Runtime 编码；不能用节点内置的 RuntimeEvent 解码。
+/// Runtime 升级块尤其会包含旧版无字段的 System::CodeUpdated，而新版定义附带 hash。
+#[derive(Debug)]
+enum FeeEvent {
+    Paid {
+        extrinsic: Option<u32>,
+        account_id: [u8; 32],
+        fee: u128,
+    },
+    Settled {
+        recipient_bank_cid: Vec<u8>,
+        transfer_amount: u128,
+        fee_amount: u128,
+    },
+}
+
+fn event_storage_type(metadata_raw: &[u8]) -> Result<(scale_info::PortableRegistry, u32), String> {
+    let (types, event_type) = match crate::core::service::decode_runtime_metadata(metadata_raw)? {
+        RuntimeMetadata::V14(meta) => {
+            let ty = meta
+                .pallets
+                .iter()
+                .find(|pallet| pallet.name == "System")
+                .and_then(|pallet| pallet.storage.as_ref())
+                .and_then(|storage| storage.entries.iter().find(|entry| entry.name == "Events"))
+                .and_then(|entry| match &entry.ty {
+                    frame_metadata::v14::StorageEntryType::Plain(ty) => Some(ty.id),
+                    _ => None,
+                });
+            (meta.types, ty)
+        }
+        RuntimeMetadata::V15(meta) => {
+            let ty = meta
+                .pallets
+                .iter()
+                .find(|pallet| pallet.name == "System")
+                .and_then(|pallet| pallet.storage.as_ref())
+                .and_then(|storage| storage.entries.iter().find(|entry| entry.name == "Events"))
+                .and_then(|entry| match &entry.ty {
+                    frame_metadata::v15::StorageEntryType::Plain(ty) => Some(ty.id),
+                    _ => None,
+                });
+            (meta.types, ty)
+        }
+        RuntimeMetadata::V16(meta) => {
+            let ty = meta
+                .pallets
+                .iter()
+                .find(|pallet| pallet.name == "System")
+                .and_then(|pallet| pallet.storage.as_ref())
+                .and_then(|storage| storage.entries.iter().find(|entry| entry.name == "Events"))
+                .and_then(|entry| match &entry.ty {
+                    frame_metadata::v16::StorageEntryType::Plain(ty) => Some(ty.id),
+                    _ => None,
+                });
+            (meta.types, ty)
+        }
+        _ => unreachable!("元数据版本已校验"),
+    };
+    Ok((
+        types,
+        event_type.ok_or("父块 Runtime 元数据缺少 System::Events Plain 类型")?,
+    ))
+}
+
+fn named_field<'a>(value: &'a Value<()>, name: &str) -> Option<&'a Value<()>> {
+    match &value.value {
+        ValueDef::Composite(fields) => composite_field(fields, name),
+        _ => None,
+    }
+}
+
+fn composite_field<'a>(fields: &'a Composite<()>, name: &str) -> Option<&'a Value<()>> {
+    match fields {
+        Composite::Named(fields) => fields
+            .iter()
+            .find_map(|(key, field)| (key == name).then_some(field)),
+        Composite::Unnamed(_) => None,
+    }
+}
+
+fn variant(value: &Value<()>) -> Option<(&str, &Composite<()>)> {
+    match &value.value {
+        ValueDef::Variant(variant) => Some((&variant.name, &variant.values)),
+        _ => None,
+    }
+}
+
+fn only_field(fields: &Composite<()>) -> Option<&Value<()>> {
+    (fields.len() == 1)
+        .then(|| fields.values().next())
+        .flatten()
+}
+
+fn exact_fields(fields: &Composite<()>, expected: &[&str]) -> bool {
+    matches!(fields, Composite::Named(values) if values.len() == expected.len()
+        && expected.iter().all(|name| values.iter().any(|(field, _)| field == name)))
+}
+
+fn integer(value: &Value<()>) -> Option<u128> {
+    value.as_u128().or_else(|| match &value.value {
+        ValueDef::Composite(fields) => only_field(fields).and_then(integer),
+        _ => None,
+    })
+}
+
+fn bytes(value: &Value<()>) -> Option<Vec<u8>> {
+    match &value.value {
+        ValueDef::Composite(Composite::Unnamed(values)) => {
+            if values.len() == 1 && matches!(&values[0].value, ValueDef::Composite(_)) {
+                return bytes(&values[0]);
+            }
+            values
+                .iter()
+                .map(|part| u8::try_from(integer(part)?).ok())
+                .collect()
+        }
+        ValueDef::Composite(Composite::Named(values)) if values.len() == 1 => bytes(&values[0].1),
+        _ => None,
+    }
+}
+
+fn decode_events<F>(read_post: &F, metadata_raw: &[u8]) -> Result<Vec<FeeEvent>, String>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    match read_post(&storage_key::events()) {
-        Some(raw) => decode_exact(&raw, "System::Events"),
-        None => Ok(Vec::new()),
+    let Some(raw) = read_post(&storage_key::events()) else {
+        return Ok(Vec::new());
+    };
+    let (types, event_type) = event_storage_type(metadata_raw)?;
+    let mut input = raw.as_slice();
+    let decoded = scale_value::scale::decode_as_type(&mut input, event_type, &types)
+        .map_err(|_| "System::Events SCALE 解码失败".to_string())?
+        .remove_context();
+    if !input.is_empty() {
+        return Err("System::Events 存在尾随字节".into());
     }
+    let ValueDef::Composite(Composite::Unnamed(records)) = decoded.value else {
+        return Err("System::Events 不是事件列表".into());
+    };
+    let mut fees = Vec::new();
+    for record in &records {
+        let phase = named_field(record, "phase").ok_or("System::Events 缺少 phase")?;
+        let extrinsic = match variant(phase) {
+            Some(("ApplyExtrinsic", fields)) => Some(
+                only_field(fields)
+                    .and_then(integer)
+                    .and_then(|value| u32::try_from(value).ok())
+                    .ok_or("System::Events extrinsic phase 格式非法")?,
+            ),
+            Some(("Initialization" | "Finalization", fields)) if fields.is_empty() => None,
+            _ => return Err("System::Events phase 格式非法".into()),
+        };
+        let event = named_field(record, "event").ok_or("System::Events 缺少 event")?;
+        let (pallet, outer_fields) = variant(event).ok_or("System::Events event 格式非法")?;
+        if pallet != "OnchainTransaction" && pallet != "OffchainTransaction" {
+            continue;
+        }
+        let inner = only_field(outer_fields).ok_or("System::Events 业务事件格式非法")?;
+        let (name, fields) = variant(inner).ok_or("System::Events 业务事件类型非法")?;
+        if pallet == "OnchainTransaction" && name == "FeePaid" {
+            if !exact_fields(fields, &["account_id", "fee"]) {
+                return Err("FeePaid 字段格式非法".into());
+            }
+            let account = composite_field(fields, "account_id")
+                .and_then(bytes)
+                .ok_or("FeePaid 账户格式非法")?;
+            let account_id: [u8; 32] = account
+                .try_into()
+                .map_err(|_| "FeePaid 账户长度非法".to_string())?;
+            let fee = composite_field(fields, "fee")
+                .and_then(integer)
+                .ok_or("FeePaid 金额格式非法")?;
+            fees.push(FeeEvent::Paid {
+                extrinsic,
+                account_id,
+                fee,
+            });
+        } else if pallet == "OffchainTransaction" && name == "PaymentSettled" {
+            if !exact_fields(
+                fields,
+                &[
+                    "tx_id",
+                    "payer_account_id",
+                    "payer_bank_cid",
+                    "recipient_account_id",
+                    "recipient_bank_cid",
+                    "transfer_amount",
+                    "fee_amount",
+                ],
+            ) {
+                return Err("PaymentSettled 字段格式非法".into());
+            }
+            fees.push(FeeEvent::Settled {
+                recipient_bank_cid: composite_field(fields, "recipient_bank_cid")
+                    .and_then(bytes)
+                    .ok_or("PaymentSettled 收款行 CID 格式非法")?,
+                transfer_amount: composite_field(fields, "transfer_amount")
+                    .and_then(integer)
+                    .ok_or("PaymentSettled 转账金额格式非法")?,
+                fee_amount: composite_field(fields, "fee_amount")
+                    .and_then(integer)
+                    .ok_or("PaymentSettled 手续费格式非法")?,
+            });
+        }
+    }
+    Ok(fees)
 }
 
 fn decode_body(body: &[sp_runtime::OpaqueExtrinsic]) -> Result<Vec<UncheckedExtrinsic>, String> {
@@ -263,12 +471,16 @@ fn check_max_rate(raw: Option<Vec<u8>>) -> Result<(), String> {
 }
 
 /// 校验普通区块实际产生的固定链上费用和链下清算费用。
-pub fn check_block<F>(body: &[sp_runtime::OpaqueExtrinsic], read_post: F) -> Result<(), String>
+pub fn check_block<F>(
+    body: &[sp_runtime::OpaqueExtrinsic],
+    read_post: F,
+    parent_metadata: &[u8],
+) -> Result<(), String>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
     let extrinsics = decode_body(body)?;
-    let events = decode_events(&read_post)?;
+    let events = decode_events(&read_post, parent_metadata)?;
 
     for (index, xt) in extrinsics.iter().enumerate() {
         let Some(rule) = protected_fee(xt) else {
@@ -276,17 +488,10 @@ where
         };
         let (expected_payer, expected_amount) = expected_fee(rule);
         let found = events.iter().any(|record| {
-            record.phase == Phase::ApplyExtrinsic(index as u32)
-                && matches!(
-                    &record.event,
-                    RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
-                        account_id,
-                        fee
-                    })
-                        if <AccountId32 as Clone>::clone(account_id)
-                            == AccountId32::new(expected_payer)
-                            && *fee == expected_amount
-                )
+            matches!(record, FeeEvent::Paid { extrinsic: Some(event_index), account_id, fee }
+                if *event_index == index as u32
+                    && *account_id == expected_payer
+                    && *fee == expected_amount)
         });
         if !found {
             return Err(format!(
@@ -297,12 +502,11 @@ where
     }
 
     for record in &events {
-        let RuntimeEvent::OffchainTransaction(offchain::pallet::Event::PaymentSettled {
+        let FeeEvent::Settled {
             recipient_bank_cid,
             transfer_amount,
             fee_amount,
-            ..
-        }) = &record.event
+        } = record
         else {
             continue;
         };
@@ -1617,6 +1821,72 @@ where
 mod tests {
     use super::*;
 
+    fn local_metadata() -> Vec<u8> {
+        citizenchain::Runtime::metadata().into()
+    }
+
+    fn unit_code_updated_metadata() -> Vec<u8> {
+        let metadata = local_metadata();
+        let mut input = metadata.as_slice();
+        let mut prefixed = RuntimeMetadataPrefixed::decode(&mut input).expect("metadata decodes");
+        assert!(input.is_empty());
+        let (types, event_type) = match &mut prefixed.1 {
+            RuntimeMetadata::V14(meta) => (
+                &mut meta.types,
+                meta.pallets
+                    .iter()
+                    .find(|pallet| pallet.name == "System")
+                    .unwrap()
+                    .event
+                    .as_ref()
+                    .unwrap()
+                    .ty
+                    .id,
+            ),
+            RuntimeMetadata::V15(meta) => (
+                &mut meta.types,
+                meta.pallets
+                    .iter()
+                    .find(|pallet| pallet.name == "System")
+                    .unwrap()
+                    .event
+                    .as_ref()
+                    .unwrap()
+                    .ty
+                    .id,
+            ),
+            RuntimeMetadata::V16(meta) => (
+                &mut meta.types,
+                meta.pallets
+                    .iter()
+                    .find(|pallet| pallet.name == "System")
+                    .unwrap()
+                    .event
+                    .as_ref()
+                    .unwrap()
+                    .ty
+                    .id,
+            ),
+            _ => panic!("unsupported metadata version"),
+        };
+        let event = types
+            .types
+            .iter_mut()
+            .find(|entry| entry.id == event_type)
+            .expect("System event type exists");
+        let scale_info::TypeDef::Variant(variants) = &mut event.ty.type_def else {
+            panic!("System events are variants");
+        };
+        let code_updated = variants
+            .variants
+            .iter_mut()
+            .find(|variant| variant.name == "CodeUpdated")
+            .expect("CodeUpdated exists");
+        assert_eq!(code_updated.fields.len(), 1);
+        code_updated.fields.clear();
+        prefixed.encode()
+    }
+
     fn signed_transfer(amount: u128) -> (Vec<sp_runtime::OpaqueExtrinsic>, AccountId32) {
         let pair = sr25519::Pair::from_seed(&[7u8; 32]);
         let payer_account_id = chain_signing::account_id_from_public(pair.public());
@@ -1654,6 +1924,7 @@ mod tests {
     #[test]
     fn actual_onchain_fee_event_must_match_fixed_formula() {
         let (body, payer_account_id) = signed_transfer(50_000);
+        let metadata = local_metadata();
         let good_events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
             phase: Phase::ApplyExtrinsic(0),
             event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
@@ -1663,9 +1934,11 @@ mod tests {
             topics: Vec::new(),
         }];
         let events_key = storage_key::events();
-        assert!(check_block(&body, |key| {
-            (key == events_key.as_slice()).then(|| good_events.encode())
-        })
+        assert!(check_block(
+            &body,
+            |key| { (key == events_key.as_slice()).then(|| good_events.encode()) },
+            &metadata
+        )
         .is_ok());
 
         let bad_events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
@@ -1676,15 +1949,18 @@ mod tests {
             }),
             topics: Vec::new(),
         }];
-        assert!(check_block(&body, |key| {
-            (key == events_key.as_slice()).then(|| bad_events.encode())
-        })
+        assert!(check_block(
+            &body,
+            |key| { (key == events_key.as_slice()).then(|| bad_events.encode()) },
+            &metadata
+        )
         .is_err());
     }
 
     #[test]
     fn actual_offchain_settlement_uses_recipient_rate_and_one_fen_minimum() {
         let bank: Vec<u8> = b"ZS001-PRB08-233384677-2026".to_vec();
+        let metadata = local_metadata();
         let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
             phase: Phase::ApplyExtrinsic(0),
             event: RuntimeEvent::OffchainTransaction(offchain::pallet::Event::PaymentSettled {
@@ -1700,15 +1976,19 @@ mod tests {
         }];
         let events_key = storage_key::events();
         let rate_key = storage_key::rate(&bank);
-        assert!(check_block(&[], |key| {
-            if key == events_key.as_slice() {
-                Some(events.encode())
-            } else if key == rate_key.as_slice() {
-                Some(10u32.encode())
-            } else {
-                None
-            }
-        })
+        assert!(check_block(
+            &[],
+            |key| {
+                if key == events_key.as_slice() {
+                    Some(events.encode())
+                } else if key == rate_key.as_slice() {
+                    Some(10u32.encode())
+                } else {
+                    None
+                }
+            },
+            &metadata
+        )
         .is_ok());
 
         let wrong_events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
@@ -1724,15 +2004,97 @@ mod tests {
             }),
             topics: Vec::new(),
         }];
-        assert!(check_block(&[], |key| {
-            if key == events_key.as_slice() {
-                Some(wrong_events.encode())
-            } else if key == rate_key.as_slice() {
-                Some(10u32.encode())
-            } else {
-                None
-            }
-        })
+        assert!(check_block(
+            &[],
+            |key| {
+                if key == events_key.as_slice() {
+                    Some(wrong_events.encode())
+                } else if key == rate_key.as_slice() {
+                    Some(10u32.encode())
+                } else {
+                    None
+                }
+            },
+            &metadata
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks() {
+        let metadata = local_metadata();
+        let old_metadata = unit_code_updated_metadata();
+        let (body, payer) = signed_transfer(50_000);
+        let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![
+            EventRecord {
+                phase: Phase::ApplyExtrinsic(0),
+                event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+                    account_id: payer,
+                    fee: 50,
+                }),
+                topics: Vec::new(),
+            },
+            EventRecord {
+                phase: Phase::ApplyExtrinsic(1),
+                event: RuntimeEvent::System(frame_system::Event::CodeUpdated {
+                    hash: sp_core::H256::repeat_byte(0xA5),
+                }),
+                topics: Vec::new(),
+            },
+        ];
+        let mut old_encoding = events.encode();
+        let hash = [0xA5; 32];
+        let offset = old_encoding
+            .windows(hash.len())
+            .position(|window| window == hash)
+            .expect("CodeUpdated hash appears exactly once");
+        old_encoding.drain(offset..offset + hash.len());
+        let events_key = storage_key::events();
+        let old_read = |key: &[u8]| (key == events_key.as_slice()).then(|| old_encoding.clone());
+        assert_eq!(decode_events(&old_read, &old_metadata).unwrap().len(), 1);
+        assert!(decode_events(&old_read, &metadata).is_err());
+        assert!(check_block(&body, old_read, &old_metadata).is_ok());
+
+        let mut wrong = events.clone();
+        wrong[0].event = RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+            account_id: AccountId32::new([0; 32]),
+            fee: 49,
+        });
+        let mut wrong_old_encoding = wrong.encode();
+        let offset = wrong_old_encoding
+            .windows(hash.len())
+            .position(|window| window == hash)
+            .expect("CodeUpdated hash appears exactly once");
+        wrong_old_encoding.drain(offset..offset + hash.len());
+        assert!(check_block(
+            &body,
+            |key| (key == events_key.as_slice()).then(|| wrong_old_encoding.clone()),
+            &old_metadata,
+        )
+        .is_err());
+
+        let new_encoding = events.encode();
+        assert_eq!(
+            decode_events(
+                &|key| (key == events_key.as_slice()).then(|| new_encoding.clone()),
+                &metadata,
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+        let truncated = &old_encoding[..old_encoding.len() - 1];
+        assert!(decode_events(
+            &|key| (key == events_key.as_slice()).then(|| truncated.to_vec()),
+            &old_metadata,
+        )
+        .is_err());
+        let mut trailing = old_encoding;
+        trailing.push(0);
+        assert!(decode_events(
+            &|key| (key == events_key.as_slice()).then(|| trailing.clone()),
+            &old_metadata,
+        )
         .is_err());
     }
 

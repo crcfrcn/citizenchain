@@ -23,7 +23,7 @@ use sc_client_api::StorageProvider;
 use sc_consensus::{
     BlockCheckParams, BlockImport, BlockImportParams, ImportResult, StateAction, StorageChanges,
 };
-use sp_api::{ApiExt, Core, ProvideRuntimeApi};
+use sp_api::{ApiExt, Core, Metadata, ProvideRuntimeApi};
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::Error as ConsensusError;
@@ -1025,7 +1025,13 @@ impl<I> NodeGuard<I> {
             );
             return Ok(true);
         }
-        if let Err(reason) = runtime_policy::check_block(&body, read_post) {
+        // 事件由父块 Runtime 执行时编码；升级块不能用节点内置的新事件类型解码。
+        let parent_metadata = self
+            .client
+            .runtime_api()
+            .metadata(parent_hash)
+            .map_err(|error| format!("读取父块 Runtime 元数据失败:{error}"))?;
+        if let Err(reason) = runtime_policy::check_block(&body, read_post, parent_metadata.as_slice()) {
             log::error!(
                 target: "node-guard",
                 "拒绝区块 #{} ({:?}):实际手续费结果非法 —— {reason}",

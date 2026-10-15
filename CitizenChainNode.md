@@ -64,6 +64,10 @@ Total output lines: 12501
 
 正式NodeGuard启动入口只接受冻结的GENESIS_HASH与GENESIS_STATE_ROOT；客户端创世哈希、块0索引、实际区块头高度、状态根及区块头重算哈希必须全部一致，缺失或读取失败均拒绝启动。临时测试链通过仅cfg(test)编译的显式入口装配，信任身份从声明的创世storage独立计算，且代码必须逐字匹配本次内置WASM；不从数据库返回值反向生成信任值。测试与正式入口共用完整身份核验及后续宪法、NodeGuard、PoW导入规则，正式构建没有可替换主网身份的配置、环境开关或测试入口。
 
+NodeGuard对普通区块的`System::Events`使用父块哈希处的Runtime元数据定位事件存储类型，完整解码并拒绝坏元数据、截断或尾随字节。升级块事件由升级前Runtime编码，因此不使用节点内置的新版`RuntimeEvent`解释整份事件列表；这使旧链无字段的`System::CodeUpdated`与新版带`hash`的同名事件都走同一条按实际Runtime解码的路径。只从完整解码结果提取准确`FeePaid`与`PaymentSettled`字段，原有固定链上费用、投票费、收款行费率及结算金额判断不变；`:code`变化后的候选WASM真实收费探针与其他永久守卫继续执行。未知元数据版本或费用事件字段结构失败即拒块，不根据升级调用跳过费用检查。
+
+节点TLS RPC以最终确定块的实际Runtime元数据决定是否装配Ethereum方法。含Revive时必须成功初始化官方Ethereum客户端与同步任务，否则节点必要任务退出；无Revive仅允许创世旧版`spec_version=0`，此时原生RPC继续经同一TLS和Safe约束提供读链与交易提交，其他版本缺Revive均拒绝启动。正式Runtime升级最终确定后须重启节点，使Ethereum方法按新Runtime重新装配；该阶段不关闭NodeGuard、PoW或最终性，也不把缺Revive错误当作TLS证书失败。
+
 公民链工作空间新增`pallet-revive`编译依赖，与现有SDK固定为同一Git来源和提交
 `ac4a17f99d39e6e67b47a9e809351a763fe789f0`；Node继续通过现有Runtime路径依赖
 消费其feature。第6步获批源码已新增官方`pallet-revive-eth-rpc`依赖和节点内接入；
