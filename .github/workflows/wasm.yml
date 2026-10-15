@@ -151,7 +151,16 @@ jobs:
           set -euo pipefail
           cargo --config "$GITHUB_WORKSPACE/config.toml" metadata --locked --no-deps --format-version 1 >/dev/null
           node scripts/build.mjs ci-build wasm > "$RUNNER_TEMP/citizenchain-wasm-build-result.json"
+      - name: 验真WASM增量缓存
+        if: success() || failure()
+        id: cache_ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready="$(node scripts/build.mjs ci-cache-ready wasm)"
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
       - name: 保存WASM独立增量缓存
+        if: (success() || failure()) && steps.cache_ready.outputs.ready == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: target/cache/wasm

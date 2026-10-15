@@ -566,8 +566,24 @@ function singleBundle(directory,suffix){
 // WASM正式编译只使用本产品已领取的固定现场；不能让Cargo回写默认target/debug。
 function wasmCargoEnvironment(work,environment){
  if(work!==fixedWork('build/wasm'))fail('WASM校验不属于本平台固定工作根');
+ if(Object.keys(environment).some(key=>key==='SKIP_WASM_BUILD'||/^SKIP_.+_WASM_BUILD$/u.test(key))
+  ||environment.DOCS_RS!==undefined||environment.WASM_FILE!==undefined)
+  fail('正式WASM编译环境含跳过或外部WASM入口');
  return {...environment,CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_SOURCE_ROOT:root,
   CITIZENCHAIN_WORK_DIR:work,WASM_BUILD_FROM_SOURCE:'1',CITIZENCHAIN_PRODUCTION_WASM_BUILD:'1'};
+}
+// 四端节点只编译原生程序；SDK内部开发Runtime的WASM构建也必须跳过。
+function nativeCargoEnvironment(environment){
+ const env={...environment};
+ for(const key of ['WASM_FILE','WASM_BUILD_FROM_SOURCE','CITIZENCHAIN_PRODUCTION_WASM_BUILD','FORCE_WASM_BUILD'])delete env[key];
+ for(const key of Object.keys(env))if(/^SKIP_.+_WASM_BUILD$/u.test(key))delete env[key];
+ env.SKIP_WASM_BUILD='1';
+ return env;
+}
+function platformCargoEnvironment(platform,work,environment){
+ if(platform==='wasm')return wasmCargoEnvironment(work,environment);
+ const env=nativeCargoEnvironment(environment);
+ return platform==='macos'&&env.CC&&env.DEVELOPER_DIR?nodeCargoEnvironment(env):env;
 }
 async function buildWasmArtifacts(work,env){
  const cargo=env.CARGO||'cargo',target=env.CARGO_TARGET_DIR||join(work,'work/cargo-target');
@@ -583,13 +599,14 @@ async function buildNodePackage(platform,work,environment){
  if(!['windows','linux-arm','linux-amd'].includes(platform))fail('节点打包平台无效');
  const expected={windows:['win32','x64'],'linux-arm':['linux','arm64'],'linux-amd':['linux','x64']}[platform];
  if(process.platform!==expected[0]||process.arch!==expected[1])fail('节点必须在对应原生宿主构建');
- const project=prepareSourceView(),node=environment.NODE||process.execPath,cargo=environment.CARGO||'cargo';
- const target=environment.CARGO_TARGET_DIR||join(work,'work/cargo-target'),stage=join(work,'stage');
- const pg=environment.CITIZENCHAIN_PG_DIST||process.env.CITIZENCHAIN_PG_DIST;
+ const environmentForNode=nativeCargoEnvironment(environment);
+ const project=prepareSourceView(),node=environmentForNode.NODE||process.execPath,cargo=environmentForNode.CARGO||'cargo';
+ const target=environmentForNode.CARGO_TARGET_DIR||join(work,'work/cargo-target'),stage=join(work,'stage');
+ const pg=environmentForNode.CITIZENCHAIN_PG_DIST||process.env.CITIZENCHAIN_PG_DIST;
  if(typeof pg!=='string'||!isAbsolute(pg)||!existsSync(join(pg,'bin'))||realpathSync(pg)!==pg)fail('正式节点包缺少当前平台PostgreSQL原件');
  mkdirSync(target,{recursive:true});mkdirSync(stage,{recursive:true});
  // 节点安装包沿用链上Runtime代码，打包时不重新构建正式Runtime WASM。
- const env={...environment,CARGO_TARGET_DIR:target,
+ const env={...environmentForNode,CARGO_TARGET_DIR:target,
   ONCHINA_FRONTEND_DIST:join(stage,'onchina-frontend'),CITIZENCHAIN_FRONTEND_DIST:join(stage,'node-frontend')};
  const npm=npmCLI(node),npmRun=(args,cwd,extra={})=>runBuildProcess(node,[npm,...args],{...env,...extra},cwd);
  const frontendRun=(args,cwd,clean)=>runBuildProcess(node,[npm,...args],clean,cwd);
@@ -687,7 +704,8 @@ async function prepareGithubAssets(platform,work,result,environment){
  return plan;
 }
 export async function build(platform,work,receipt,base) {
- const env=resourceEnvironment(platform,work,receipt,base),declared=platformContract(platform);
+ const supplied=resourceEnvironment(platform,work,receipt,base),declared=platformContract(platform);
+ const env=platformCargoEnvironment(platform,work,supplied);
  await checkArchives(platform,work,receipt,true);await stageArchives(work,receipt);
  restoreBuildCache(platform,work,env);
  // QR协议仅属于节点平台的构建前测试；正式WASM不编译这个独立工作空间。
@@ -706,8 +724,7 @@ export async function build(platform,work,receipt,base) {
   env.CITIZENCHAIN_BUILD_WORK_DIR=join(work,'work');env.CITIZENCHAIN_DEPENDENCY_DIR=join(work,'dependencies');env.CITIZENCHAIN_ARTIFACT_DIR=work;
   if(platform==='wasm')await buildWasmArtifacts(work,env);
   else if(platform==='macos'){
-   const nodeEnv=nodeCargoEnvironment(env);
-   await runEmbeddedBuild('run',[],{...nodeEnv,PRODUCT_BASH_BIN:shell});
+   await runEmbeddedBuild('run',[],{...env,PRODUCT_BASH_BIN:shell});
   }else await buildNodePackage(platform,work,env);
 
  const result=await completeBuild(platform,work,receipt,env);
@@ -991,8 +1008,8 @@ async function runDesktopRpcTests(platform,work,environment){
  mkdirSync(testTarget,{recursive:true});
  let env={...environment,CARGO_TARGET_DIR:testTarget,CITIZENCHAIN_SOURCE_ROOT:root,CITIZENCHAIN_WORK_DIR:work,
   TAURI_CONFIG:JSON.stringify({build:{frontendDist:join(root,'node/frontend')}})};
- if(platform==='macos'&&env.CC&&env.DEVELOPER_DIR)env=nodeCargoEnvironment(env);
  const offline=env.CITIZENCHAIN_OFFLINE==='true'?['--offline']:[];
+ const checkpointed=new Set();
  for(const [name,filter] of [
   ['onchina','core::chain_url::tests::desktop_chain_certificate_is_bound_to_loopback_and_valid_hex'],
   ['node','desktop::node_runner::tests::startup_disconnect_reports_saved_thread_failure'],
@@ -1000,10 +1017,19 @@ async function runDesktopRpcTests(platform,work,environment){
   ['node','core::rpc_tls::tests::missing_relative_invalid_and_mismatched_credentials_are_rejected'],
   ['node','core::rpc_tls::tests::https_wss_certificate_validation_safe_methods_and_plaintext_rejection'],
   ['node','shared::rpc::tests::desktop_rpc_url_uses_own_loopback_identity'],
+  ['node','core::service::tests::ethereum_rpc_requires_runtime_revive_after_genesis'],
+  ['node','guard::runtime_policy::tests::node_fixed_fee_values_are_exact'],
+  ['node','guard::runtime_policy::tests::rates_above_zero_point_one_percent_are_rejected'],
+  ['node','guard::runtime_policy::tests::actual_onchain_fee_event_must_match_fixed_formula'],
+  ['node','guard::runtime_policy::tests::actual_offchain_settlement_uses_recipient_rate_and_one_fen_minimum'],
+  ['node','guard::runtime_policy::tests::upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks'],
+  ['node','guard::runtime_policy::tests::cid_storage_keys_use_compact_len_prefix'],
  ]){
   const result=await runBuildProcess(cargo,['--config',join(root,'config.toml'),'test','--locked','--release','--quiet',...offline,'-p',name,filter,'--','--exact'],env,root,{capture:true,streamError:true});
   if(!/test result: ok\. 1 passed; 0 failed; 0 ignored;/u.test(result.stdout))fail('桌面RPC定向测试未准确运行：'+filter);
   process.stderr.write('桌面RPC定向测试通过：'+filter+'\n');
+  // 每个Cargo包首次成功编译后留下验真中间物，后续测试或打包失败也能增量复用。
+  if(!checkpointed.has(name)){saveBuildCache(platform,work,env);checkpointed.add(name);}
  }
 }
 
@@ -1023,6 +1049,11 @@ function cacheIdentity(platform,environment){
   runner_image:environment.ImageVersion||'',runner_os:environment.ImageOS||'',
   rustflags:environment.RUSTFLAGS||'',encoded_rustflags:environment.CARGO_ENCODED_RUSTFLAGS||'',
   wasm_flags:environment.WASM_BUILD_RUSTFLAGS||'',incremental:'1'};
+ // 不触碰既有WASM缓存身份；原生缓存必须区分SDK是否编译了附带WASM。
+ if(platform!=='wasm'){
+  values.native_wasm_skip=environment.SKIP_WASM_BUILD||'';
+  if(platform==='macos')values.build_script_strip=environment.CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP||'';
+ }
  return createHash('sha256').update(JSON.stringify(values)).digest('hex');
 }
 function checkedCacheDirectory(path,{create=false}={}){
@@ -1052,10 +1083,10 @@ function validateCacheSnapshot(snapshot){
  }
  visit(snapshot,0);
 }
-function restoreBuildCache(platform,work,environment){
- if(work!==fixedWork('build/'+platform))fail('平台缓存与任务现场不匹配');
+function verifiedBuildCacheSnapshot(platform,environment){
  const cache=platformCacheRoot(platform),current=join(cache,'current');
- if(!checkedCacheDirectory(cache)||!checkedCacheDirectory(current))return false;
+ if(!checkedCacheDirectory(cache)||!checkedCacheDirectory(current))return null;
+ if(readdirSync(current).sort().join(',')!=='manifest.json,snapshot')fail('平台缓存包含未验真条目');
  const metadata=join(current,'manifest.json'),snapshot=join(current,'snapshot');
  if(!existsSync(metadata)||!checkedCacheDirectory(snapshot))fail('平台缓存快照不完整');
  const state=lstatSync(metadata);
@@ -1063,9 +1094,46 @@ function restoreBuildCache(platform,work,environment){
  const manifest=JSON.parse(readFileSync(metadata,'utf8'));
  if(manifest.schema!==1||manifest.platform!==platform||typeof manifest.identity!=='string'
   ||!/^[a-f0-9]{64}$/u.test(manifest.digest||''))fail('平台缓存身份无效');
- if(manifest.identity!==cacheIdentity(platform,environment))return false;
+ if(manifest.identity!==cacheIdentity(platform,environment))return null;
  validateCacheSnapshot(snapshot);
  if(outputDigest(snapshot)!==manifest.digest)fail('平台缓存字节漂移');
+ return snapshot;
+}
+function verifiedPlatformCacheForUpload(platform,environment){
+ if(!verifiedBuildCacheSnapshot(platform,environment))return false;
+ const cache=platformCacheRoot(platform);
+ for(const name of readdirSync(cache)){
+  if(name==='current')continue;
+  if(name!=='frontend')fail('平台缓存包含未验真目录');
+  const frontend=join(cache,name);
+  if(!checkedCacheDirectory(frontend))fail('前端缓存目录无效');
+  for(const component of readdirSync(frontend)){
+   if(!['node','onchina'].includes(component))fail('前端缓存组件无效');
+   const base=join(frontend,component);
+   if(!checkedCacheDirectory(base))fail('前端缓存组件目录无效');
+   const entries=readdirSync(base);
+   if(entries.length!==1||entries[0]!=='current')fail('前端缓存包含未验真候选');
+   const current=join(base,'current'),manifestPath=join(current,'manifest.json'),dist=join(current,'dist');
+   if(!checkedCacheDirectory(current))fail('前端缓存当前目录无效');
+   if(readdirSync(current).sort().join(',')!=='dist,manifest.json')fail('前端缓存包含未验真条目');
+   if(!checkedCacheDirectory(dist))fail('前端缓存快照缺失');
+   const state=lstatSync(manifestPath,{throwIfNoEntry:false});
+   if(!state?.isFile()||state.isSymbolicLink()||state.nlink!==1||state.size>65536)
+    fail('前端缓存清单无效');
+   const manifest=JSON.parse(readFileSync(manifestPath,'utf8'));
+   if(manifest.schema!==1||manifest.platform!==platform||manifest.name!==component
+    ||!/^[a-f0-9]{64}$/u.test(manifest.identity||'')
+    ||!/^[a-f0-9]{64}$/u.test(manifest.digest||''))fail('前端缓存身份无效');
+   validateFrontendTree(dist);
+   if(outputDigest(dist)!==manifest.digest)fail('前端缓存字节漂移');
+  }
+ }
+ return true;
+}
+function restoreBuildCache(platform,work,environment){
+ if(work!==fixedWork('build/'+platform))fail('平台缓存与任务现场不匹配');
+ const snapshot=verifiedBuildCacheSnapshot(platform,environment);
+ if(!snapshot)return false;
  const target=join(work,'work/cargo-target');
  if(existsSync(target))fail('平台缓存导入目标已存在');
  mkdirSync(dirname(target),{recursive:true});
@@ -1197,7 +1265,7 @@ async function buildFrontendIncrementally(platform,name,work,source,destination,
 async function runNativePlatform(platform,work,environment){
  const base={...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',CARGO_INCREMENTAL:'1',
   CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_WORK_DIR:work,PRODUCT_WORK_DIR:work};
- const env=platform==='wasm'?wasmCargoEnvironment(work,base):base;
+ const env=platformCargoEnvironment(platform,work,base);
  restoreBuildCache(platform,work,env);
  mkdirSync(env.CARGO_TARGET_DIR,{recursive:true});
  await runDesktopRpcTests(platform,work,env);
@@ -1226,9 +1294,23 @@ if(inlineTestEntry){
   assert.equal(env.WASM_BUILD_FROM_SOURCE,'1');
   assert.equal(env.CITIZENCHAIN_PRODUCTION_WASM_BUILD,'1');
   assert.throws(()=>wasmCargoEnvironment(fixedWork('test'),env),/固定工作根/);
+  for(const injected of [{SKIP_WASM_BUILD:'0'},{SKIP_CITIZENCHAIN_WASM_BUILD:'1'},
+   {WASM_FILE:'/untrusted.wasm'},{DOCS_RS:'1'}])
+   assert.throws(()=>wasmCargoEnvironment(work,injected),/跳过或外部WASM入口/);
+ });
+ test('四端原生编译统一跳过SDK依赖WASM且清除源码构建环境',()=>{
+  const injected={SKIP_REVIVE_DEV_RUNTIME_WASM_BUILD:'0',WASM_FILE:'/outside.wasm',
+   WASM_BUILD_FROM_SOURCE:'1',CITIZENCHAIN_PRODUCTION_WASM_BUILD:'1',FORCE_WASM_BUILD:'1'};
+  for(const platform of ['macos','windows','linux-arm','linux-amd']){
+   const env=platformCargoEnvironment(platform,fixedWork('build/'+platform),injected);
+   assert.equal(env.SKIP_WASM_BUILD,'1');
+   for(const key of Object.keys(injected))assert.equal(env[key],undefined);
+   assert.notEqual(cacheIdentity(platform,env),cacheIdentity(platform,{...env,SKIP_WASM_BUILD:''}));
+  }
  });
  test('五平台增量缓存按平台隔离，命中复用并拒绝字节漂移',async()=>{
-  const platform='wasm',cache=platformCacheRoot(platform),other=platformCacheRoot('windows'),env={CARGO_INCREMENTAL:'1'};
+  const platform='wasm',cache=platformCacheRoot(platform),other=platformCacheRoot('windows'),
+   failed=platformCacheRoot('linux-arm'),env={CARGO_INCREMENTAL:'1'};
   try{
    await withFixedWork('build/'+platform,async work=>{
     const source=join(work,'work/cargo-target/release/deps');
@@ -1237,6 +1319,7 @@ if(inlineTestEntry){
     const wasmOutput=join(work,'work/cargo-target/release/wbuild/citizenchain');
     mkdirSync(wasmOutput,{recursive:true});writeFileSync(join(wasmOutput,'citizenchain.wasm'),'candidate');
     saveBuildCache(platform,work,env);
+    assert.ok(verifiedBuildCacheSnapshot(platform,env));
     assert.equal(existsSync(join(cache,'current/snapshot/release/deps/libcitizenchain-001.rlib')),false);
     assert.equal(existsSync(join(cache,'current/snapshot/release/wbuild')),false);
     rmSync(join(work,'work/cargo-target'),{recursive:true});
@@ -1244,20 +1327,43 @@ if(inlineTestEntry){
     assert.equal(readFileSync(join(source,'runtime.rlib'),'utf8'),'first');
     assert.equal(restoreBuildCache('windows',fixedWork('build/windows'),env),false);
     assert.equal(restoreBuildCache(platform,work,{...env,RUSTFLAGS:'changed'}),false);
+    assert.equal(verifiedBuildCacheSnapshot(platform,{...env,RUSTFLAGS:'changed'}),null);
     assert.equal(restoreBuildCache(platform,work,{...env,ImageVersion:'changed'}),false);
     rmSync(join(work,'work/cargo-target'),{recursive:true});
     writeFileSync(join(cache,'current/snapshot/release/deps/runtime.rlib'),'drift');
     assert.throws(()=>restoreBuildCache(platform,work,env),/字节漂移/);
+    assert.throws(()=>verifiedBuildCacheSnapshot(platform,env),/字节漂移/);
    });
    await withFixedWork('build/windows',async work=>{
     const source=join(work,'work/cargo-target/release/deps');
     mkdirSync(source,{recursive:true});writeFileSync(join(source,'node.rlib'),'independent');
-    saveBuildCache('windows',work,env);
+    const nodeEnv=nativeCargoEnvironment(env);
+    saveBuildCache('windows',work,nodeEnv);
     rmSync(join(work,'work/cargo-target'),{recursive:true});
-    assert.equal(restoreBuildCache('windows',work,env),true);
+    assert.equal(restoreBuildCache('windows',work,nodeEnv),true);
     assert.equal(readFileSync(join(source,'node.rlib'),'utf8'),'independent');
+    const head=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).stdout.trim();
+    const github={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'crcfrcn/citizenchain',
+     GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',
+     GITHUB_WORKFLOW:'citizenchain.windows',GITHUB_SHA:head};
+    assert.equal(githubCacheReady('windows',github),true);
+    assert.equal(githubCacheReady('windows',{...github,RUSTFLAGS:'different'}),false);
+    assert.throws(()=>githubCacheReady('linux-arm',github),/GitHub编译身份无效/);
+    mkdirSync(join(other,'candidate'));
+    assert.throws(()=>githubCacheReady('windows',github),/未验真目录/);
+    rmSync(join(other,'candidate'),{recursive:true});
+    assert.equal(githubCacheReady('windows',github),true);
    });
-  }finally{for(const path of [cache,other])if(existsSync(path))rmSync(path,{recursive:true});}
+   const armEnv=nativeCargoEnvironment(env);
+   await assert.rejects(withFixedWork('build/linux-arm',async work=>{
+    const source=join(work,'work/cargo-target/release/deps');
+    mkdirSync(source,{recursive:true});writeFileSync(join(source,'compiled.rlib'),'verified');
+    saveBuildCache('linux-arm',work,armEnv);
+    throw Error('后续打包失败');
+   }),/后续打包失败/);
+   assert.equal(existsSync(fixedWork('build/linux-arm')),false);
+   assert.ok(verifiedBuildCacheSnapshot('linux-arm',armEnv));
+  }finally{for(const path of [cache,other,failed])if(existsSync(path))rmSync(path,{recursive:true});}
  });
  test('节点前端仅在准确输入不变时复用，缓存漂移与机密环境失败关闭',async()=>{
   const platform='windows',cache=platformCacheRoot(platform);
@@ -1292,13 +1398,16 @@ export async function buildDirect(platform,environment=process.env){
  },{environment});
 }
 
-export async function buildForGithub(platform,environment=process.env){
+function assertGithubBuildIdentity(platform,environment){
  const workflow={macos:'macos.yml',windows:'windows.yml','linux-arm':'linuxarm.yml','linux-amd':'linuxamd.yml',wasm:'wasm.yml'}[platform];
  if(!workflow||environment.GITHUB_ACTIONS!=='true'||environment.GITHUB_REPOSITORY!=='crcfrcn/citizenchain'
   ||environment.GITHUB_REF!=='refs/heads/main'||environment.GITHUB_EVENT_NAME!=='workflow_dispatch'
   ||environment.GITHUB_WORKFLOW!=='citizenchain.'+platform||!/^[0-9a-f]{40}$/u.test(environment.GITHUB_SHA||''))fail('GitHub编译身份无效');
  const head=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'});
  if(head.status!==0||head.stdout.trim()!==environment.GITHUB_SHA)fail('GitHub源码提交不匹配');
+}
+export async function buildForGithub(platform,environment=process.env){
+ assertGithubBuildIdentity(platform,environment);
  await assertFreshGithubVersion(platform,environment);
  return withFixedWork('build/'+platform,async work=>{
   const {env,result}=await runNativePlatform(platform,work,environment);
@@ -1306,6 +1415,14 @@ export async function buildForGithub(platform,environment=process.env){
   writeFileSync(join(work,'build-result.json'),JSON.stringify(result)+'\n',{flag:'wx',mode:0o600});
   return result;
  },{environment,retain:true});
+}
+// 失败后只允许上传已通过产品身份、锁与全树摘要复验的增量快照。
+function githubCacheReady(platform,environment=process.env){
+ assertGithubBuildIdentity(platform,environment);
+ const work=fixedWork('build/'+platform);
+ const base={...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',CARGO_INCREMENTAL:'1',
+  CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_WORK_DIR:work,PRODUCT_WORK_DIR:work};
+ return verifiedPlatformCacheForUpload(platform,platformCargoEnvironment(platform,work,base));
 }
 
 export async function verifyGithubRelease(platform,phase,environment=process.env,{fetchImpl=fetch}={}){
@@ -1376,6 +1493,10 @@ async function runCLI(){
  if(process.argv[2]==='ci-build'){
   if(process.argv.length!==4)fail('GitHub编译入口参数无效');
   process.stdout.write(JSON.stringify(await buildForGithub(process.argv[3]))+'\n');return;
+ }
+ if(process.argv[2]==='ci-cache-ready'){
+  if(process.argv.length!==4)fail('GitHub缓存验真入口参数无效');
+  process.stdout.write(String(githubCacheReady(process.argv[3]))+'\n');return;
  }
  if(process.argv[2]==='ci-verify-release'){
   if(process.argv.length!==5)fail('GitHub Release核验入口参数无效');

@@ -53,11 +53,14 @@ jobs:
           security import "$RUNNER_TEMP/citizenchain.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$GITHUB_RUN_ID" "$keychain"
           security list-keychains -d user -s "$keychain"
+          developer="$(cd "$(xcode-select -p)" && pwd -P)"
           {
             echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc"
             echo "PYTHON=$(command -v python3)"
             echo "PRODUCT_BASH_BIN=$(brew --prefix bash)/bin/bash"
-            echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib"
+            echo "LIBCLANG_PATH=$developer/Toolchains/XcodeDefault.xctoolchain/usr/lib"
+            echo "DEVELOPER_DIR=$developer"
+            echo "CC=$developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
           } >> "$GITHUB_ENV"
       - name: 恢复macOS独立增量缓存
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -71,7 +74,16 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/build.mjs ci-build macos > "$RUNNER_TEMP/citizenchain-build-result.json"
+      - name: 验真macOS增量缓存
+        if: success() || failure()
+        id: cache_ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready="$(node scripts/build.mjs ci-cache-ready macos)"
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
       - name: 保存macOS独立增量缓存
+        if: (success() || failure()) && steps.cache_ready.outputs.ready == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: target/cache/macos

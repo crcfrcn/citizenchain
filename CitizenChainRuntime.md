@@ -3224,13 +3224,19 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 
 ---
 
-## Release 全量构建（第 7.4 步）
+## Release 增量构建（第 7.4 步）
 
-正式 Release 固定从干净源码执行全量构建，显式关闭 Rust 增量编译及工具链内置缓存，不读取CI作业缓存且不复用本机编译中间物。版本、签名、校验、产物和发布流程保持原有产品合同。
+正式Release从已验真的main源码和本轮独立工作现场开始。WASM平台只复用身份、锁与
+全树摘要均验真的依赖编译中间物，所属Runtime本体每轮由当前源码重建；不复用旧WASM
+产物。WASM入口拒绝`SKIP_WASM_BUILD`、按crate跳过变量及外部`WASM_FILE`。与四个原生
+节点平台的缓存互不混用；任一阶段失败只允许保存先前已验真的检查点，不保存失败中的
+工作现场。版本、真实WASM校验、资产回读与发布门禁仍逐轮执行。
 
 ## 双仓统一流程最终收口（第 7.5 步）
 
-本产品执行统一流程规则：本机编译中间物只进入本轮塔塔缓存库的build目录并按终态规则清理；GitHub CI 的作业过程数据只进入该次Runner任务空间；正式Release从干净编译状态执行。源码不进入塔塔缓存库、塔塔依赖库或塔塔产物库。
+本产品执行统一流程规则：本轮固定工作现场在工具退出并验收后清理；仅分平台验真
+缓存可跨轮留存。GitHub只保存本产品`target/cache/wasm`的准确快照；源码、签名材料和
+正式WASM资产不进入缓存。
 ### 完整产品仓组织重构的Runtime边界
 
 Node、Runtime、OnChina同属完整citizenchain仓。原聚合Cargo工作空间及其锁完整保留到QR协议工具工作空间，公民链主体工作空间仍包含原有全部Runtime成员；Polkadot SDK准确提交保持1aa4447575d446ab393e89b86cd8ec0a8fca100d。
