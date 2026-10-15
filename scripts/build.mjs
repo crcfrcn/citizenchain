@@ -779,10 +779,11 @@ export function outputDigest(path) {
 }
 
 // GitHub Release的digest只哈入上传文件原始字节；产品目录回执仍使用outputDigest的全树合同。
+function rawFileSha256(path){return createHash('sha256').update(readFileSync(path)).digest('hex');}
 function releaseAssetSha256(path){
  const info=lstatSync(path);
  if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||!info.size||realpathSync(path)!==path)fail('GitHub上传资产不是规范普通文件');
- return createHash('sha256').update(readFileSync(path)).digest('hex');
+ return rawFileSha256(path);
 }
 
 // 公民链拥有服务器节点版本确认；控制台只交付网络和安装执行能力。
@@ -1325,6 +1326,28 @@ if(inlineTestEntry){
   assert.throws(()=>checkServerBinaryEvidence('Mach-O 64-bit arm64',''),/架构不符/);
   assert.throws(()=>checkServerBinaryEvidence('ELF 64-bit ARM aarch64','libpam.so => not found'),/动态库/);
  });
+ test('Cargo硬链接源程序可交付独占副本，异常源及共享交付文件拒绝',async()=>{
+  const {linkSync}=await import('node:fs');
+  await withFixedWork('test',async work=>{
+   const source=join(work,'cargo-binary'),peer=join(work,'cargo-deps-binary'),binary=join(work,'citizenchain');
+   writeFileSync(source,'fixed executable bytes');chmodSync(source,0o755);linkSync(source,peer);
+   assert.equal(lstatSync(source).nlink,2);
+   assert.throws(()=>releaseAssetSha256(source),/GitHub上传资产不是规范普通文件/);
+   const result=stageServerBinary(source,binary);
+   assert.equal(lstatSync(binary).nlink,1);
+   assert.equal(result.size,lstatSync(binary).size);
+   assert.equal(result.sha256,rawFileSha256(source));
+   assert.throws(()=>stageServerBinary(source,binary),/交付文件已存在/);
+   linkSync(binary,join(work,'shared-delivery'));
+   assert.throws(()=>checkServerBinaryFile(binary,{delivery:true}),/交付程序无效/);
+   symlinkSync(source,join(work,'linked-source'));
+   assert.throws(()=>checkServerBinaryFile(join(work,'linked-source')),/Cargo程序无效/);
+   writeFileSync(join(work,'empty-source'),'');chmodSync(join(work,'empty-source'),0o755);
+   assert.throws(()=>checkServerBinaryFile(join(work,'empty-source')),/Cargo程序无效/);
+   writeFileSync(join(work,'nonexec-source'),'bytes');chmodSync(join(work,'nonexec-source'),0o600);
+   assert.throws(()=>checkServerBinaryFile(join(work,'nonexec-source')),/Cargo程序无效/);
+  });
+ });
  test('国储会服务器节点派发必须是准确main提交与显式模式',async()=>{
   await withFixedWork('test',async work=>{
    const path=join(work,'server-event.json');
@@ -1487,6 +1510,24 @@ function checkServerBinaryEvidence(kind,libraries){
  if(!/ELF 64-bit.*ARM aarch64/u.test(kind))fail('服务器节点架构不符');
  if(libraries.includes('not found'))fail('服务器节点缺少动态库');
 }
+function checkServerBinaryFile(path,{delivery=false}={}){
+ const state=lstatSync(path);
+ // Cargo在Linux可将release入口与deps内编译产物硬链接；只有上传副本必须独占。
+ if(!state.isFile()||state.isSymbolicLink()||delivery&&state.nlink!==1
+  ||!state.size||!(state.mode&0o111)||realpathSync(path)!==path)
+  fail(delivery?'服务器节点交付程序无效':'服务器节点Cargo程序无效');
+ return state;
+}
+function stageServerBinary(source,binary){
+ checkServerBinaryFile(source);
+ if(existsSync(binary))fail('服务器节点交付文件已存在');
+ const sourceSha256=rawFileSha256(source);
+ copyFileSync(source,binary);chmodSync(binary,0o755);
+ const size=checkServerBinaryFile(binary,{delivery:true}).size;
+ const sha256=releaseAssetSha256(binary);
+ if(sha256!==sourceSha256)fail('服务器节点复制后字节改变');
+ return {sha256,size};
+}
 async function buildServerNode(environment,{github=false}={}){
  if(process.platform!=='linux'||process.arch!=='arm64')fail('服务器节点必须在Linux ARM原生宿主构建');
  if(github)assertServerDispatch(environment);
@@ -1499,19 +1540,12 @@ async function buildServerNode(environment,{github=false}={}){
   await runServerNodeTests(work,env);
   await runBuildProcess(cargo,['--config',join(root,'config.toml'),'build','--locked','--release',
    '-p','node','--bin','citizenchain'],env,root);
-  const source=join(env.CARGO_TARGET_DIR,'release/citizenchain'),state=lstatSync(source);
-  if(!state.isFile()||state.isSymbolicLink()||state.nlink!==1||!state.size||!(state.mode&0o111))
-   fail('服务器节点原生程序无效');
-  const kind=await runBuildProcess('file',['-b',source],env,root,{capture:true});
-  const libraries=await runBuildProcess('ldd',[source],env,root,{capture:true});
+  const source=join(env.CARGO_TARGET_DIR,'release/citizenchain');
+  const binary=join(work,'citizenchain'),{sha256,size}=stageServerBinary(source,binary);
+  const kind=await runBuildProcess('file',['-b',binary],env,root,{capture:true});
+  const libraries=await runBuildProcess('ldd',[binary],env,root,{capture:true});
   checkServerBinaryEvidence(kind.stdout,libraries.stdout+'\n'+libraries.stderr);
-  await runBuildProcess(source,['--version'],{...env,CITIZENCHAIN_HEADLESS:'1'},root,{capture:true,timeout:15000});
-  const binary=join(work,'citizenchain');
-  if(existsSync(binary))fail('服务器节点交付文件已存在');
-  const sourceSha256=releaseAssetSha256(source);
-  copyFileSync(source,binary);chmodSync(binary,0o755);
-  const sha256=releaseAssetSha256(binary),size=lstatSync(binary).size;
-  if(sha256!==sourceSha256)fail('服务器节点复制后字节改变');
+  await runBuildProcess(binary,['--version'],{...env,CITIZENCHAIN_HEADLESS:'1'},root,{capture:true,timeout:15000});
   writeFileSync(join(work,'citizenchain.sha256'),sha256+'  citizenchain\n',{flag:'wx',mode:0o600});
   saveBuildCache('linux-arm',work,env);
   retainWork();

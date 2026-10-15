@@ -74,7 +74,8 @@ NodeGuard对普通区块的`System::Events`使用父块哈希处的Runtime元数
 同一二进制的构建宏；服务器以无显示器CLI模式运行，不编译网页前端或打包OnChina、
 PostgreSQL、`.deb`、AppImage及Tauri更新资产，也不需要桌面更新签名密钥。交付为绑定
 本次GitHub Run和源码提交的Actions工件`citizenchain`与`citizenchain.sha256`；Runner
-先验ELF ARM64、动态库和`--version`，部署前仍需在国储会服务器复验字节与动态库。
+允许Cargo生成的release入口与deps产物硬链接，先按原始字节SHA复制为独占普通文件，
+再对实际交付副本验ELF ARM64、动态库和`--version`；部署前仍需在国储会服务器复验字节与动态库。
 正式Runtime升级成功并验收后，按任务卡准确清单移除这次临时模式与现场数据。
 
 公民链工作空间新增`pallet-revive`编译依赖，与现有SDK固定为同一Git来源和提交

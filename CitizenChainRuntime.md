@@ -3234,6 +3234,8 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 
 国储会旧节点升级的临时Linux ARM服务器节点模式只编译Node原生可执行程序；启动
 先读取旧链上的Runtime代码，既有冷签交易最终确定后才切换到已发布的正式WASM。
+Cargo原始程序可与编译中间物硬链接，上传前的独占副本仍须通过原始字节SHA、
+ARM64架构、动态库及可执行性检查。
 该模式不生成、不替换正式WASM资产，也不改变spec_version或升级调用。只有既有
 冷签交易在修复后的节点上进入区块并达到最终性，
 才算Runtime升级成功；成功验收后清理本次临时构建模式和接入现场。
