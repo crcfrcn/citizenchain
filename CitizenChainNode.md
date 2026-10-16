@@ -68,16 +68,6 @@ NodeGuard对普通区块的`System::Events`使用父块哈希处的Runtime元数
 
 节点TLS RPC以最终确定块的实际Runtime元数据决定是否装配Ethereum方法。含Revive时必须成功初始化官方Ethereum客户端与同步任务，否则节点必要任务退出；无Revive仅允许创世旧版`spec_version=0`，此时原生RPC继续经同一TLS和Safe约束提供读链与交易提交，其他版本缺Revive均拒绝启动。正式Runtime升级最终确定后须重启节点，使Ethereum方法按新Runtime重新装配；该阶段不关闭NodeGuard、PoW或最终性，也不把缺Revive错误当作TLS证书失败。
 
-本次国储会旧节点升级使用同一产品、同一`build.mjs`的临时`server-node`交付模式：
-只在Linux ARM原生Runner上以现有锁和平台增量缓存运行旧链启动与NodeGuard定向回归，
-然后编译单个`citizenchain`可执行程序。`TAURI_CONFIG`仅指向既有前端源码目录以满足
-同一二进制的构建宏；服务器以无显示器CLI模式运行，不编译网页前端或打包OnChina、
-PostgreSQL、`.deb`、AppImage及Tauri更新资产，也不需要桌面更新签名密钥。交付为绑定
-本次GitHub Run和源码提交的Actions工件`citizenchain`与`citizenchain.sha256`；Runner
-允许Cargo生成的release入口与deps产物硬链接，先按原始字节SHA复制为独占普通文件，
-再对实际交付副本验ELF ARM64、动态库和`--version`；部署前仍需在国储会服务器复验字节与动态库。
-正式Runtime升级成功并验收后，按任务卡准确清单移除这次临时模式与现场数据。
-
 公民链工作空间新增`pallet-revive`编译依赖，与现有SDK固定为同一Git来源和提交
 `ac4a17f99d39e6e67b47a9e809351a763fe789f0`；Node继续通过现有Runtime路径依赖
 消费其feature。第6步获批源码已新增官方`pallet-revive-eth-rpc`依赖和节点内接入；

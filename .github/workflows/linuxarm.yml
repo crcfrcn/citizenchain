@@ -2,15 +2,6 @@ name: citizenchain.linux-arm
 run-name: "${{ github.workflow }} · ${{ github.run_number }}"
 on:
   workflow_dispatch:
-    inputs:
-      delivery:
-        description: 本次交付目标
-        type: choice
-        required: false
-        default: desktop-release
-        options:
-          - desktop-release
-          - server-node
 concurrency:
   group: "${{ github.repository }}-linux-arm"
   cancel-in-progress: false
@@ -46,14 +37,12 @@ jobs:
           sudo apt-get install -y build-essential clang llvm-dev libclang-dev libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libpam0g-dev libxdo-dev pkg-config curl wget file unzip
           printf 'int main(void){return 0;}\n' | cc -x c - -lpam -lxdo -o "$RUNNER_TEMP/citizenchain-link-preflight"
           pkg-config --exists webkit2gtk-4.1 gtk+-3.0 openssl
-          if [ "${{ inputs.delivery }}" != server-node ]; then
-            sudo apt-get install -y patchelf postgresql-16 postgresql-server-dev-16
-            mkdir -p "$RUNNER_TEMP/pg-dist/bin" "$RUNNER_TEMP/pg-dist/lib" "$RUNNER_TEMP/pg-dist/share"
-            cp -a "$(pg_config --bindir)/." "$RUNNER_TEMP/pg-dist/bin/"
-            cp -a "$(pg_config --pkglibdir)/." "$RUNNER_TEMP/pg-dist/lib/"
-            cp -a "$(pg_config --sharedir)/." "$RUNNER_TEMP/pg-dist/share/"
-            echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-dist" >> "$GITHUB_ENV"
-          fi
+          sudo apt-get install -y patchelf postgresql-16 postgresql-server-dev-16
+          mkdir -p "$RUNNER_TEMP/pg-dist/bin" "$RUNNER_TEMP/pg-dist/lib" "$RUNNER_TEMP/pg-dist/share"
+          cp -a "$(pg_config --bindir)/." "$RUNNER_TEMP/pg-dist/bin/"
+          cp -a "$(pg_config --pkglibdir)/." "$RUNNER_TEMP/pg-dist/lib/"
+          cp -a "$(pg_config --sharedir)/." "$RUNNER_TEMP/pg-dist/share/"
+          echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-dist" >> "$GITHUB_ENV"
           echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/protoc.zip" "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-aarch_64.zip"
           echo '36b518ac14d90351cc6598228ed2bbe5afe4e357b1af470b07e0ec1609875de2  '"$RUNNER_TEMP/protoc.zip" | sha256sum --check
@@ -68,7 +57,6 @@ jobs:
           restore-keys: |
             citizenchain-cargo-v1-linux-arm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/frontend/package-lock.json') }}-
       - name: 编译并验收本平台安装包
-        if: inputs.delivery != 'server-node'
         env:
           TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
@@ -76,23 +64,6 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/build.mjs ci-build linux-arm > "$RUNNER_TEMP/citizenchain-build-result.json"
-      - name: 仅编译并验收国储会服务器节点程序
-        if: inputs.delivery == 'server-node'
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/build.mjs ci-server-build linux-arm > "$RUNNER_TEMP/citizenchain-server-build-result.json"
-      - name: 交付国储会服务器节点程序与摘要
-        if: inputs.delivery == 'server-node'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: citizenchain-server-linux-arm-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            target/build/linux-arm/citizenchain
-            target/build/linux-arm/citizenchain.sha256
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 7
       - name: 验真Linux ARM增量缓存
         if: success() || failure()
         id: cache_ready
@@ -108,7 +79,6 @@ jobs:
           path: target/cache/linux-arm
           key: citizenchain-cargo-v1-linux-arm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: 创建并回读本平台 GitHub Release
-        if: inputs.delivery != 'server-node'
         shell: bash
         run: |
           set -euo pipefail

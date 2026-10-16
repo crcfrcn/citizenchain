@@ -1309,60 +1309,6 @@ if(inlineTestEntry){
    assert.notEqual(cacheIdentity(platform,env),cacheIdentity(platform,{...env,SKIP_WASM_BUILD:''}));
   }
  });
- test('国储会服务器节点只使用原生固定现场并剔除发布密钥',()=>{
-  const work=fixedWork('build/linux-arm');
-  const env=serverNodeEnvironment(work,{CARGO:'/verified/cargo',GH_TOKEN:'fixture-token',
-   TAURI_SIGNING_PRIVATE_KEY:'fixture-key',WASM_FILE:'/outside.wasm',WASM_BUILD_FROM_SOURCE:'1'});
-  assert.equal(env.CARGO_TARGET_DIR,join(work,'work/cargo-target'));
-  assert.equal(env.CITIZENCHAIN_SOURCE_ROOT,root);
-  assert.equal(env.SKIP_WASM_BUILD,'1');
-  assert.equal(env.WASM_FILE,undefined);
-  assert.equal(env.WASM_BUILD_FROM_SOURCE,undefined);
-  assert.equal(env.GH_TOKEN,undefined);
-  assert.equal(env.TAURI_SIGNING_PRIVATE_KEY,undefined);
-  assert.deepEqual(JSON.parse(env.TAURI_CONFIG),{build:{frontendDist:join(root,'node/frontend')}});
-  assert.throws(()=>serverNodeEnvironment(fixedWork('build/windows'),env),/固定现场/);
-  checkServerBinaryEvidence('ELF 64-bit LSB pie executable, ARM aarch64','libpam.so => /lib/libpam.so');
-  assert.throws(()=>checkServerBinaryEvidence('Mach-O 64-bit arm64',''),/架构不符/);
-  assert.throws(()=>checkServerBinaryEvidence('ELF 64-bit ARM aarch64','libpam.so => not found'),/动态库/);
- });
- test('Cargo硬链接源程序可交付独占副本，异常源及共享交付文件拒绝',async()=>{
-  const {linkSync}=await import('node:fs');
-  await withFixedWork('test',async work=>{
-   const source=join(work,'cargo-binary'),peer=join(work,'cargo-deps-binary'),binary=join(work,'citizenchain');
-   writeFileSync(source,'fixed executable bytes');chmodSync(source,0o755);linkSync(source,peer);
-   assert.equal(lstatSync(source).nlink,2);
-   assert.throws(()=>releaseAssetSha256(source),/GitHub上传资产不是规范普通文件/);
-   const result=stageServerBinary(source,binary);
-   assert.equal(lstatSync(binary).nlink,1);
-   assert.equal(result.size,lstatSync(binary).size);
-   assert.equal(result.sha256,rawFileSha256(source));
-   assert.throws(()=>stageServerBinary(source,binary),/交付文件已存在/);
-   linkSync(binary,join(work,'shared-delivery'));
-   assert.throws(()=>checkServerBinaryFile(binary,{delivery:true}),/交付程序无效/);
-   symlinkSync(source,join(work,'linked-source'));
-   assert.throws(()=>checkServerBinaryFile(join(work,'linked-source')),/Cargo程序无效/);
-   writeFileSync(join(work,'empty-source'),'');chmodSync(join(work,'empty-source'),0o755);
-   assert.throws(()=>checkServerBinaryFile(join(work,'empty-source')),/Cargo程序无效/);
-   writeFileSync(join(work,'nonexec-source'),'bytes');chmodSync(join(work,'nonexec-source'),0o600);
-   assert.throws(()=>checkServerBinaryFile(join(work,'nonexec-source')),/Cargo程序无效/);
-  });
- });
- test('国储会服务器节点派发必须是准确main提交与显式模式',async()=>{
-  await withFixedWork('test',async work=>{
-   const path=join(work,'server-event.json');
-   const head=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).stdout.trim();
-   const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'crcfrcn/citizenchain',
-    GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',
-    GITHUB_WORKFLOW:'citizenchain.linux-arm',GITHUB_SHA:head,GITHUB_EVENT_PATH:path};
-   writeFileSync(path,JSON.stringify({inputs:{delivery:'server-node'}}));
-   assert.doesNotThrow(()=>assertServerDispatch(env));
-   writeFileSync(path,JSON.stringify({inputs:{delivery:'desktop-release'}}));
-   assert.throws(()=>assertServerDispatch(env),/派发模式不符/);
-   writeFileSync(path,JSON.stringify({inputs:{delivery:'server-node'}}));
-   assert.throws(()=>assertServerDispatch({...env,GITHUB_SHA:'0'.repeat(40)}),/源码提交不匹配/);
-  });
- });
  test('五平台增量缓存按平台隔离，命中复用并拒绝字节漂移',async()=>{
   const platform='wasm',cache=platformCacheRoot(platform),other=platformCacheRoot('windows'),
    failed=platformCacheRoot('linux-arm'),env={CARGO_INCREMENTAL:'1'};
@@ -1471,88 +1417,6 @@ export async function buildForGithub(platform,environment=process.env){
   return result;
  },{environment,retain:true});
 }
-// 国储会旧节点升级只交付同一产品的原生可执行程序；不构建桌面安装包及更新签名。
-function serverNodeEnvironment(work,environment){
- if(work!==fixedWork('build/linux-arm'))fail('服务器节点不属于Linux ARM固定现场');
- const env=platformCargoEnvironment('linux-arm',work,{...environment,NODE:process.execPath,
-  CARGO:environment.CARGO||'cargo',CARGO_INCREMENTAL:'1',
-  CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_SOURCE_ROOT:root,
-  CITIZENCHAIN_WORK_DIR:work,PRODUCT_WORK_DIR:work,
-  TAURI_CONFIG:JSON.stringify({build:{frontendDist:join(root,'node/frontend')}})});
- for(const key of Object.keys(env))if(/(?:^|_)(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|CERTIFICATE_BASE64|PROFILE_BASE64)$/iu.test(key))delete env[key];
- return env;
-}
-function assertServerDispatch(environment){
- assertGithubBuildIdentity('linux-arm',environment);
- const path=environment.GITHUB_EVENT_PATH;
- if(typeof path!=='string'||!isAbsolute(path)||realpathSync(path)!==path)fail('服务器节点派发事件路径无效');
- const state=lstatSync(path);
- if(!state.isFile()||state.isSymbolicLink()||state.nlink!==1||state.size>1048576)fail('服务器节点派发事件无效');
- const event=JSON.parse(readFileSync(path,'utf8'));
- if(event?.inputs?.delivery!=='server-node')fail('服务器节点派发模式不符');
-}
-async function runServerNodeTests(work,env){
- const cargo=env.CARGO||'cargo';
- for(const [filter,count,exact] of [
-  ['core::service::tests::ethereum_rpc_requires_runtime_revive_after_genesis',1,true],
-  ['guard::runtime_policy::tests::',6,false],
- ]){
-  const result=await runBuildProcess(cargo,['--config',join(root,'config.toml'),'test','--locked','--release','--quiet',
-   '-p','node',filter,'--',...(exact?['--exact']:[]),'--test-threads=1'],env,root,{capture:true,streamError:true});
-  if(!new RegExp(`test result: ok\\. ${count} passed; 0 failed; 0 ignored;`,'u').test(result.stdout))
-   fail('服务器节点定向回归未准确执行：'+filter);
-  process.stderr.write('服务器节点定向回归通过：'+filter+'\n');
-  // 首个节点测试已完成原生依赖编译，后续失败仍可复用验真中间物。
-  saveBuildCache('linux-arm',work,env);
- }
-}
-function checkServerBinaryEvidence(kind,libraries){
- if(!/ELF 64-bit.*ARM aarch64/u.test(kind))fail('服务器节点架构不符');
- if(libraries.includes('not found'))fail('服务器节点缺少动态库');
-}
-function checkServerBinaryFile(path,{delivery=false}={}){
- const state=lstatSync(path);
- // Cargo在Linux可将release入口与deps内编译产物硬链接；只有上传副本必须独占。
- if(!state.isFile()||state.isSymbolicLink()||delivery&&state.nlink!==1
-  ||!state.size||!(state.mode&0o111)||realpathSync(path)!==path)
-  fail(delivery?'服务器节点交付程序无效':'服务器节点Cargo程序无效');
- return state;
-}
-function stageServerBinary(source,binary){
- checkServerBinaryFile(source);
- if(existsSync(binary))fail('服务器节点交付文件已存在');
- const sourceSha256=rawFileSha256(source);
- copyFileSync(source,binary);chmodSync(binary,0o755);
- const size=checkServerBinaryFile(binary,{delivery:true}).size;
- const sha256=releaseAssetSha256(binary);
- if(sha256!==sourceSha256)fail('服务器节点复制后字节改变');
- return {sha256,size};
-}
-async function buildServerNode(environment,{github=false}={}){
- if(process.platform!=='linux'||process.arch!=='arm64')fail('服务器节点必须在Linux ARM原生宿主构建');
- if(github)assertServerDispatch(environment);
- else if(environment.GITHUB_ACTIONS==='true'||environment.PRODUCT_RESOURCE_FD==='4'||environment.PRODUCT_HOST_FD==='3')
-  fail('服务器节点独立入口不接受远端或控制台身份');
- return withFixedWork('build/linux-arm',async work=>{
-  const env=serverNodeEnvironment(work,environment),cargo=env.CARGO||'cargo';
-  restoreBuildCache('linux-arm',work,env);
-  mkdirSync(env.CARGO_TARGET_DIR,{recursive:true});
-  await runServerNodeTests(work,env);
-  await runBuildProcess(cargo,['--config',join(root,'config.toml'),'build','--locked','--release',
-   '-p','node','--bin','citizenchain'],env,root);
-  const source=join(env.CARGO_TARGET_DIR,'release/citizenchain');
-  const binary=join(work,'citizenchain'),{sha256,size}=stageServerBinary(source,binary);
-  const kind=await runBuildProcess('file',['-b',binary],env,root,{capture:true});
-  const libraries=await runBuildProcess('ldd',[binary],env,root,{capture:true});
-  checkServerBinaryEvidence(kind.stdout,libraries.stdout+'\n'+libraries.stderr);
-  await runBuildProcess(binary,['--version'],{...env,CITIZENCHAIN_HEADLESS:'1'},root,{capture:true,timeout:15000});
-  writeFileSync(join(work,'citizenchain.sha256'),sha256+'  citizenchain\n',{flag:'wx',mode:0o600});
-  saveBuildCache('linux-arm',work,env);
-  retainWork();
-  return {schema:1,product_id:product,platform:'linux-arm',mode:'server-node',
-   source_sha:github?environment.GITHUB_SHA:null,binary,sha256,size};
- },{environment,retain:github});
-}
 // 失败后只允许上传已通过产品身份、锁与全树摘要复验的增量快照。
 function githubCacheReady(platform,environment=process.env){
  assertGithubBuildIdentity(platform,environment);
@@ -1630,11 +1494,6 @@ async function runCLI(){
  if(process.argv[2]==='ci-build'){
   if(process.argv.length!==4)fail('GitHub编译入口参数无效');
   process.stdout.write(JSON.stringify(await buildForGithub(process.argv[3]))+'\n');return;
- }
- if(process.argv[2]==='server-build'||process.argv[2]==='ci-server-build'){
-  if(process.argv.length!==4||process.argv[3]!=='linux-arm')fail('服务器节点编译入口参数无效');
-  process.stdout.write(JSON.stringify(await buildServerNode(process.env,
-   {github:process.argv[2]==='ci-server-build'}))+'\n');return;
  }
  if(process.argv[2]==='ci-cache-ready'){
   if(process.argv.length!==4)fail('GitHub缓存验真入口参数无效');
