@@ -33,7 +33,7 @@ use sp_runtime::traits::Block as BlockT;
 use sp_storage::StorageKey;
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     thread,
@@ -233,26 +233,81 @@ fn ensure_powr_key(keystore: &sp_keystore::KeystorePtr) -> Result<(), ServiceErr
     Ok(())
 }
 
+// CPU 矿工归本次服务所有；停止时先通知所有线程，再等待其释放交易池和客户端引用。
+struct CpuMinerThreads {
+    stopping: Arc<AtomicBool>,
+    threads: Vec<thread::JoinHandle<()>>,
+}
+
+impl CpuMinerThreads {
+    fn new() -> Self {
+        Self { stopping: Arc::new(AtomicBool::new(false)), threads: Vec::new() }
+    }
+
+    fn spawn(&mut self, run: impl FnOnce(Arc<AtomicBool>) + Send + 'static) {
+        let stopping = self.stopping.clone();
+        self.threads.push(thread::spawn(move || run(stopping)));
+    }
+}
+
+impl Drop for CpuMinerThreads {
+    fn drop(&mut self) {
+        self.stopping.store(true, Ordering::Release);
+        for handle in self.threads.drain(..) {
+            if handle.join().is_err() {
+                log::error!("CPU矿工线程退出时发生panic");
+            }
+        }
+        CPU_HASHRATE.store(0, Ordering::Relaxed);
+    }
+}
+
+type RpcTaskError = Box<dyn std::error::Error + Send + Sync>;
+
+// 只增加阶段上下文，原错误仍作为 source 保留，不以清理错误或固定提示替代。
+#[derive(Debug)]
+struct RpcStageError {
+    stage: &'static str,
+    source: RpcTaskError,
+}
+
+impl std::fmt::Display for RpcStageError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.stage, self.source)
+    }
+}
+
+impl std::error::Error for RpcStageError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
+
+fn rpc_stage_error(stage: &'static str, source: impl Into<RpcTaskError>) -> RpcTaskError {
+    Box::new(RpcStageError { stage, source: source.into() })
+}
+
 fn start_cpu_miner(
     worker: MiningHandle<Block, SimplePow, ()>,
     num_threads: usize,
     pool_ready: Arc<dyn Fn() -> usize + Send + Sync>,
     keystore: sp_keystore::KeystorePtr,
     author_public: sr25519::Public,
-) {
+) -> CpuMinerThreads {
     let stride = (num_threads as u64).max(1);
+    let mut miners = CpuMinerThreads::new();
 
     for thread_id in 0..num_threads {
         let worker = worker.clone();
         let pool_ready = pool_ready.clone();
         let keystore = keystore.clone();
-        thread::spawn(move || {
+        miners.spawn(move |stopping| {
             // 哈希率采样：仅 thread 0 每 SAMPLE_INTERVAL 次哈希统计一次，乘以线程数得到总哈希率。
             const SAMPLE_INTERVAL: u64 = 100_000;
             let mut sample_count: u64 = 0;
             let mut sample_start = Instant::now();
 
-            loop {
+            while !stopping.load(Ordering::Acquire) {
                 let Some(metadata) = worker.metadata() else {
                     thread::sleep(Duration::from_millis(200));
                     continue;
@@ -276,7 +331,7 @@ fn start_cpu_miner(
                 };
                 let mut nonce = random_base.wrapping_add(thread_id as u64);
 
-                loop {
+                while !stopping.load(Ordering::Acquire) {
                     if worker.version() != build_version {
                         break;
                     }
@@ -316,7 +371,9 @@ fn start_cpu_miner(
                             }
                         };
                         let seal = (nonce, sr25519::Signature::from(signature)).encode();
-                        let _submitted = futures::executor::block_on(worker.submit(seal));
+                        if !stopping.load(Ordering::Acquire) {
+                            let _submitted = futures::executor::block_on(worker.submit(seal));
+                        }
                         break;
                     }
 
@@ -325,6 +382,7 @@ fn start_cpu_miner(
             }
         });
     }
+    miners
 }
 
 /// 返回当前允许矿工消费的 ready 交易数。
@@ -663,32 +721,39 @@ pub(crate) fn new_full(
         let native = (*rpc_handlers.handle()).clone();
         let rpc_client = client.clone();
         task_manager.spawn_essential_handle().spawn("ethereum-rpc-tls", Some("rpc"), async move {
-            let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
+            let result: Result<(), RpcTaskError> = async {
                 let finalized = rpc_client.info().finalized_hash;
-                let metadata = rpc_client.runtime_api().metadata(finalized)?;
-                let version = rpc_client.runtime_api().version(finalized)?;
+                let metadata = rpc_client.runtime_api().metadata(finalized)
+                    .map_err(|error| rpc_stage_error("读取Runtime元数据", error))?;
+                let version = rpc_client.runtime_api().version(finalized)
+                    .map_err(|error| rpc_stage_error("读取Runtime版本", error))?;
                 let with_ethereum = ethereum_rpc_available(metadata.as_slice(), version.spec_version)
-                    .map_err(std::io::Error::other)?;
+                    .map_err(|error| rpc_stage_error("核验Runtime的Revive能力", std::io::Error::other(error)))?;
                 let mut exposed = native;
                 if with_ethereum {
-                    let (ethereum, synchronization) = crate::core::ethereum_rpc::initialize(exposed.clone()).await?;
-                    exposed.merge(ethereum)?;
+                    let (ethereum, synchronization) = crate::core::ethereum_rpc::initialize(exposed.clone()).await
+                        .map_err(|error| rpc_stage_error("Ethereum客户端初始化", error))?;
+                    exposed.merge(ethereum)
+                        .map_err(|error| rpc_stage_error("Ethereum方法装配", error))?;
                     tokio::try_join!(
-                        async { synchronization.await.map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) }) },
-                        rpc_tls.run(rpc_endpoints, exposed),
+                        async { synchronization.await.map_err(|error| rpc_stage_error("Ethereum同步任务", error)) },
+                        async { rpc_tls.run(rpc_endpoints, exposed).await.map_err(|error| rpc_stage_error("TLS监听", error)) },
                     )?;
                 } else {
                     // 创世旧Runtime尚无Revive，只提供受同一TLS和Safe规则保护的原生RPC。
                     // 正式升级最终确认后由节点重启重新装配Ethereum方法，初始化失败仍终止节点。
                     log::info!("创世Runtime尚无Revive，原生TLS RPC先行服务；升级最终确认后需重启节点");
-                    rpc_tls.run(rpc_endpoints, exposed).await?;
+                    rpc_tls.run(rpc_endpoints, exposed).await
+                        .map_err(|error| rpc_stage_error("原生TLS监听", error))?;
                 }
                 Ok(())
             }.await;
             if let Err(error) = result {
                 if let Some(failure) = desktop_rpc_failure {
-                    *failure.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                        Some(format!("Ethereum RPC/TLS 必要任务失败: {error}"));
+                    let mut saved = failure.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if saved.is_none() {
+                        *saved = Some(format!("Ethereum RPC/TLS 必要任务失败: {error}"));
+                    }
                 }
                 log::error!("Ethereum RPC/TLS 必要任务失败: {error}");
             }
@@ -819,13 +884,14 @@ pub(crate) fn new_full(
     );
 
     if mining_threads > 0 {
-        start_cpu_miner(
+        let miners = start_cpu_miner(
             worker.clone(),
             mining_threads,
             pool_ready.clone(),
             keystore.clone(),
             author_public,
         );
+        task_manager.keep_alive(miners);
     }
 
     // GPU 矿工（仅在 gpu-mining feature 编译时可用）。
@@ -923,6 +989,45 @@ mod p2p_bad_block_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cpu_miner_shutdown_joins_idle_and_busy_threads_and_releases_resources() {
+        let mut miners = CpuMinerThreads::new();
+        let resource = Arc::new(());
+        let weak = Arc::downgrade(&resource);
+        let exits = Arc::new(AtomicU64::new(0));
+        let (ready, started) = std::sync::mpsc::channel();
+        for busy in [false, true] {
+            let resource = resource.clone();
+            let exits = exits.clone();
+            let ready = ready.clone();
+            miners.spawn(move |stopping| {
+                let _resource = resource;
+                ready.send(()).unwrap();
+                while !stopping.load(Ordering::Acquire) {
+                    if busy { std::hint::spin_loop(); }
+                    else { thread::sleep(Duration::from_millis(10)); }
+                }
+                exits.fetch_add(1, Ordering::Release);
+            });
+        }
+        drop(ready);
+        for _ in 0..2 { started.recv_timeout(Duration::from_secs(10)).unwrap(); }
+        drop(resource);
+        assert!(weak.upgrade().is_some());
+        drop(miners);
+        assert_eq!(exits.load(Ordering::Acquire), 2);
+        assert!(weak.upgrade().is_none(), "停止返回前必须释放全部线程捕获资源");
+        drop(CpuMinerThreads::new());
+    }
+
+    #[test]
+    fn rpc_stage_preserves_original_error_chain() {
+        let original = std::io::Error::other("固定上游错误(4003)");
+        let error = rpc_stage_error("Ethereum客户端初始化", original);
+        assert_eq!(error.to_string(), "Ethereum客户端初始化: 固定上游错误(4003)");
+        assert_eq!(error.source().unwrap().to_string(), "固定上游错误(4003)");
+    }
 
     #[test]
     fn ethereum_rpc_requires_runtime_revive_after_genesis() {

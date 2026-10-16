@@ -40,6 +40,71 @@ fn essential_failure_message(
         .unwrap_or_else(|| fallback.to_string())
 }
 
+// 首个业务错误是诊断真源，清理故障只能追加，不能覆盖它。
+fn remember_first_failure(failure: &Arc<Mutex<Option<String>>>, reason: String) {
+    let mut saved = failure.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if saved.is_none() {
+        *saved = Some(reason);
+    }
+}
+
+fn remember_panic(
+    failure: &Arc<Mutex<Option<String>>>,
+    rpc_failure: &Arc<Mutex<Option<String>>>,
+    payload: Box<dyn std::any::Any + Send>,
+) {
+    let detail = payload.downcast_ref::<String>().cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|value| (*value).to_string()))
+        .unwrap_or_else(|| "未知 panic payload".to_string());
+    if let Some(reason) = rpc_failure.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
+        remember_first_failure(failure, format!("节点必要后台任务退出: {reason}"));
+    }
+    let mut saved = failure.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    match saved.as_mut() {
+        Some(reason) => reason.push_str(&format!("；节点线程或清理 panic: {detail}")),
+        None => *saved = Some(format!("节点后台线程 panic: {detail}")),
+    }
+}
+
+// TaskManager 持有独立 RPC Runtime；只借用它做异步等待，在 block_on 外销毁。
+// 与官方 CLI 一样，先通知并回收服务任务，再关闭仍存活的宿主 Runtime。
+fn run_node_tasks(
+    runtime: tokio::runtime::Runtime,
+    mut task_manager: sc_service::TaskManager,
+    shutdown_rx: oneshot::Receiver<()>,
+    rpc_failure: &Arc<Mutex<Option<String>>>,
+    exit_error: &Arc<Mutex<Option<String>>>,
+) {
+    let waited = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime.block_on(async {
+            tokio::select! {
+                result = task_manager.future() => format!("节点必要后台任务退出: {}",
+                    essential_failure_message(rpc_failure, &format!("{result:?}"))),
+                result = shutdown_rx => format!("节点后台线程收到停机信号: {result:?}"),
+            }
+        })
+    }));
+    match waited {
+        Ok(reason) => remember_first_failure(exit_error, reason),
+        Err(payload) => remember_panic(exit_error, rpc_failure, payload),
+    }
+    let registry = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        task_manager.into_task_registry()
+    })) {
+        Ok(registry) => Some(registry),
+        Err(payload) => { remember_panic(exit_error, rpc_failure, payload); None },
+    };
+    runtime.shutdown_timeout(NODE_RUNTIME_SHUTDOWN_TIMEOUT);
+    if let Some(registry) = registry {
+        let remaining = registry.running_tasks();
+        if !remaining.is_empty() {
+            let mut saved = exit_error.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let reason = saved.get_or_insert_with(|| "节点停机失败".into());
+            reason.push_str(&format!("；关闭执行器后仍有 {} 类任务未退出", remaining.len()));
+        }
+    }
+}
+
 impl Drop for NodeThreadAliveGuard {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
@@ -134,7 +199,6 @@ pub fn start_node_in_process(
     let (startup_tx, startup_rx) = std::sync::mpsc::channel::<Result<(), String>>();
     let exit_error = Arc::new(Mutex::new(None));
     let thread_exit_error = Arc::clone(&exit_error);
-    let task_exit_error = Arc::clone(&exit_error);
     let thread_rpc_task_failure = Arc::new(Mutex::new(None));
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let alive = Arc::new(AtomicBool::new(true));
@@ -190,12 +254,13 @@ pub fn start_node_in_process(
                     }
                 };
 
-                // 在 tokio runtime 中启动节点服务。
+                // 同步构造只进入 Runtime 句柄上下文，避免失败清理发生在异步作用域。
                 // UI 启动路径暂不支持清算行角色,
                 // 全部透传 None(bank CID / role / password / reserve interval);生产用户
                 // 通过 CLI 的 `--clearing-bank` 进入无 UI 模式启动清算行节点。
-                tokio_runtime.block_on(async {
-                    match crate::core::service::new_full(
+                let service = {
+                    let _entered = tokio_runtime.enter();
+                    crate::core::service::new_full(
                         config,
                         mining_threads,
                         gpu_device,
@@ -205,56 +270,24 @@ pub fn start_node_in_process(
                         None,
                         None,
                         None,
-                    ) {
-                        Ok(mut task_manager) => {
-                            // 明确通知调用线程服务已构建完成，禁止用固定 sleep 猜测启动结果。
-                            let _ = startup_tx.send(Ok(()));
-                            // 退出条件二选一：essential task 失败 / 收到外部 shutdown 信号。
-                            tokio::select! {
-                            result = task_manager.future() => {
-                                let reason = essential_failure_message(
-                                    &thread_rpc_task_failure,
-                                    &format!("{result:?}"),
-                                );
-                                *task_exit_error
-                                    .lock()
-                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                                    Some(format!("节点必要后台任务退出: {reason}"));
-                                },
-                            result = shutdown_rx => {
-                                *task_exit_error
-                                    .lock()
-                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(
-                                    format!("节点后台线程收到停机信号: {result:?}")
-                                );
-                            },
-                            }
-                            // 显式 drop task_manager 触发 Backend 释放（含 RocksDB LOCK）。
-                            // 必须发生在 tokio_runtime 仍存活时，否则 drop 内的异步 cleanup 无法执行。
-                            drop(task_manager);
-                        }
-                        Err(e) => {
-                            let _ = startup_tx.send(Err(format!("节点启动失败: {e}")));
-                        }
+                    )
+                };
+                match service {
+                    Ok(task_manager) => {
+                        let _ = startup_tx.send(Ok(()));
+                        run_node_tasks(tokio_runtime, task_manager, shutdown_rx,
+                            &thread_rpc_task_failure, &thread_exit_error);
                     }
-                });
-                // 等待 tokio runtime 内残余任务退出（包括 Backend flush）。
-                tokio_runtime.shutdown_timeout(NODE_RUNTIME_SHUTDOWN_TIMEOUT);
+                    Err(error) => {
+                        let reason = format!("节点启动失败: {error}");
+                        remember_first_failure(&thread_exit_error, reason.clone());
+                        let _ = startup_tx.send(Err(reason));
+                        tokio_runtime.shutdown_timeout(NODE_RUNTIME_SHUTDOWN_TIMEOUT);
+                    }
+                }
             }));
             if let Err(payload) = thread_result {
-                let detail = payload
-                    .downcast_ref::<String>()
-                    .cloned()
-                    .or_else(|| {
-                        payload
-                            .downcast_ref::<&str>()
-                            .map(|value| (*value).to_string())
-                    })
-                    .unwrap_or_else(|| "未知 panic payload".to_string());
-                *thread_exit_error
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                    Some(format!("节点后台线程 panic: {detail}"));
+                remember_panic(&thread_exit_error, &thread_rpc_task_failure, payload);
             }
         })
         .map_err(|e| format!("启动节点线程失败: {e}"))?;
@@ -303,5 +336,82 @@ mod tests {
         let reason = Arc::new(Mutex::new(Some("TLS 监听失败".to_string())));
         assert_eq!(essential_failure_message(&reason, "Essential task failed"), "TLS 监听失败");
         assert_eq!(essential_failure_message(&reason, "Essential task failed"), "Essential task failed");
+    }
+
+    fn lifecycle_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap()
+    }
+
+    #[test]
+    fn task_manager_runtime_shutdown_releases_database_before_reopen() {
+        use clap::Parser;
+        use sc_cli::CliConfiguration;
+        let runtime = lifecycle_runtime();
+        let work = std::fs::canonicalize(std::env::var_os("CITIZENCHAIN_WORK_DIR")
+            .expect("生命周期测试必须归本轮产品现场")).unwrap();
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = work.join(format!("node-lifecycle-db-{}-{unique}", std::process::id()));
+        std::fs::create_dir(&path).unwrap();
+        let cli = crate::core::cli::Cli::try_parse_from([
+            "node", "--base-path", path.to_str().unwrap(), "--chain", "citizenchain",
+            "--database", "rocksdb", "--no-prometheus",
+        ]).unwrap();
+        let config = cli.run.create_configuration(&cli, runtime.handle().clone()).unwrap();
+        let backend = sc_service::new_db_backend::<citizenchain::opaque::Block>(config.db_config()).unwrap();
+        let weak = Arc::downgrade(&backend);
+        let mut manager = sc_service::TaskManager::new(runtime.handle().clone(), None).unwrap();
+        manager.keep_alive(backend);
+        // 真实嵌套Runtime会在旧的异步drop路径panic，不能用计数器替代该回归。
+        manager.keep_alive(lifecycle_runtime());
+        let (stop, stopped) = oneshot::channel();
+        stop.send(()).unwrap();
+        let rpc_failure = Arc::new(Mutex::new(None));
+        let exit_error = Arc::new(Mutex::new(None));
+        run_node_tasks(runtime, manager, stopped, &rpc_failure, &exit_error);
+        let reason = exit_error.lock().unwrap().clone().unwrap();
+        assert!(reason.starts_with("节点后台线程收到停机信号:"));
+        assert!(!reason.contains("panic"), "{reason}");
+        assert!(weak.upgrade().is_none(), "Backend必须在停机返回前释放");
+        // 同进程直接重新打开真实RocksDB，验证实际LOCK释放而非只读生命周期标记。
+        drop(sc_service::new_db_backend::<citizenchain::opaque::Block>(config.db_config()).unwrap());
+        drop(config);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn essential_failure_keeps_original_reason_after_runtime_shutdown() {
+        let runtime = lifecycle_runtime();
+        let mut manager = sc_service::TaskManager::new(runtime.handle().clone(), None).unwrap();
+        manager.keep_alive(lifecycle_runtime());
+        let original = "Ethereum RPC/TLS 必要任务失败: Ethereum客户端初始化: 固定原始错误(4003)";
+        let rpc_failure = Arc::new(Mutex::new(Some(original.to_string())));
+        manager.spawn_essential_handle().spawn("lifecycle-failure", None, async {});
+        let (_stop, stopped) = oneshot::channel();
+        let exit_error = Arc::new(Mutex::new(None));
+        run_node_tasks(runtime, manager, stopped, &rpc_failure, &exit_error);
+        assert_eq!(exit_error.lock().unwrap().as_deref(), Some(format!("节点必要后台任务退出: {original}").as_str()));
+    }
+
+    #[test]
+    fn cleanup_panic_is_appended_without_overwriting_first_error() {
+        struct FailingCleanup;
+        impl Drop for FailingCleanup {
+            fn drop(&mut self) { panic!("固定清理故障"); }
+        }
+        let runtime = lifecycle_runtime();
+        let mut manager = sc_service::TaskManager::new(runtime.handle().clone(), None).unwrap();
+        manager.keep_alive(lifecycle_runtime());
+        manager.keep_alive(FailingCleanup);
+        let rpc_failure = Arc::new(Mutex::new(Some("固定原始错误".to_string())));
+        manager.spawn_essential_handle().spawn("lifecycle-cleanup-failure", None, async {});
+        let (_stop, stopped) = oneshot::channel();
+        let exit_error = Arc::new(Mutex::new(None));
+        run_node_tasks(runtime, manager, stopped, &rpc_failure, &exit_error);
+        let reason = exit_error.lock().unwrap().clone().unwrap();
+        assert!(reason.starts_with("节点必要后台任务退出: 固定原始错误"), "{reason}");
+        assert!(reason.contains("固定清理故障"), "{reason}");
+        let missing = Arc::new(Mutex::new(None));
+        remember_panic(&missing, &rpc_failure, Box::new("独立panic"));
+        assert_eq!(missing.lock().unwrap().as_deref(), Some("节点后台线程 panic: 独立panic"));
     }
 }

@@ -65,60 +65,60 @@ jsonrpsee  = { version = "0.24.2", features = ["server"] }
 arrayvec   = { version = "0.7.6", default-features = false }
 
 # SDK 核心零件（统一使用指定 Polkadot SDK 提交）
-sp-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-block-builder = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-blockchain = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-consensus-aura = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-consensus-grandpa = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-core = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-genesis-builder = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-inherents = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-io = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-keyring = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-offchain = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-runtime = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-session = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-storage = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-transaction-pool = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-timestamp = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-sp-version = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
+sp-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-block-builder = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-blockchain = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-consensus-aura = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-consensus-grandpa = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-core = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-genesis-builder = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-inherents = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-io = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-keyring = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-offchain = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-runtime = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-session = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-storage = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-transaction-pool = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-timestamp = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+sp-version = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
 
-sc-basic-authorship = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-cli = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-client-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-consensus = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-consensus-aura = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-consensus-grandpa = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-executor = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-network = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-service = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-telemetry = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-transaction-pool = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-sc-transaction-pool-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
+sc-basic-authorship = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-cli = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-client-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-consensus = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-consensus-aura = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-consensus-grandpa = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-executor = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-network = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-service = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-telemetry = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-transaction-pool = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+sc-transaction-pool-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 
-frame-executive = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-frame-support = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-frame-system = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-frame-benchmarking = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-frame-system-benchmarking = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-frame-try-runtime = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-frame-metadata-hash-extension = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-frame-benchmarking-cli = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
+frame-executive = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+frame-support = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+frame-system = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+frame-benchmarking = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+frame-system-benchmarking = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+frame-try-runtime = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+frame-metadata-hash-extension = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+frame-benchmarking-cli = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 
 # ✅ 关键：Runtime APIs (这里是报错最多的地方)
-frame-system-rpc-runtime-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-pallet-transaction-payment-rpc-runtime-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
+frame-system-rpc-runtime-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+pallet-transaction-payment-rpc-runtime-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
 
 # Pallets
-pallet-aura = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-pallet-balances = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-pallet-grandpa = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-pallet-sudo = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-pallet-timestamp = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-pallet-transaction-payment = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46", default-features = false }
-pallet-transaction-payment-rpc = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-substrate-frame-rpc-system = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
+pallet-aura = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+pallet-balances = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+pallet-grandpa = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+pallet-sudo = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+pallet-timestamp = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+pallet-transaction-payment = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+pallet-transaction-payment-rpc = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+substrate-frame-rpc-system = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 
 # Tools
-substrate-build-script-utils = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
-substrate-wasm-builder = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "134a87024fbd9edb5fd5fc22d7ae2ba71090fb46" }
+substrate-build-script-utils = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
+substrate-wasm-builder = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }

@@ -1015,16 +1015,21 @@ async function runDesktopRpcTests(platform,work,environment){
   ['onchina','core::chain_url::tests::desktop_chain_certificate_is_bound_to_loopback_and_valid_hex'],
   ['node','desktop::node_runner::tests::startup_disconnect_reports_saved_thread_failure'],
   ['node','desktop::node_runner::tests::essential_task_failure_reports_rpc_reason_when_available'],
+  ['node','desktop::node_runner::tests::task_manager_runtime_shutdown_releases_database_before_reopen'],
+  ['node','desktop::node_runner::tests::essential_failure_keeps_original_reason_after_runtime_shutdown'],
+  ['node','desktop::node_runner::tests::cleanup_panic_is_appended_without_overwriting_first_error'],
+  ['node','core::service::tests::cpu_miner_shutdown_joins_idle_and_busy_threads_and_releases_resources'],
+  ['node','core::service::tests::rpc_stage_preserves_original_error_chain'],
   ['node','core::rpc_tls::tests::missing_relative_invalid_and_mismatched_credentials_are_rejected'],
   ['node','core::rpc_tls::tests::https_wss_certificate_validation_safe_methods_and_plaintext_rejection'],
   ['node','shared::rpc::tests::desktop_rpc_url_uses_own_loopback_identity'],
   ['node','core::service::tests::ethereum_rpc_requires_runtime_revive_after_genesis'],
-  ['node','guard::runtime_policy::tests::node_fixed_fee_values_are_exact'],
-  ['node','guard::runtime_policy::tests::rates_above_zero_point_one_percent_are_rejected'],
-  ['node','guard::runtime_policy::tests::actual_onchain_fee_event_must_match_fixed_formula'],
-  ['node','guard::runtime_policy::tests::actual_offchain_settlement_uses_recipient_rate_and_one_fen_minimum'],
-  ['node','guard::runtime_policy::tests::upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks'],
-  ['node','guard::runtime_policy::tests::cid_storage_keys_use_compact_len_prefix'],
+  ['node','core::node_guard::runtime_policy::tests::node_fixed_fee_values_are_exact'],
+  ['node','core::node_guard::runtime_policy::tests::rates_above_zero_point_one_percent_are_rejected'],
+  ['node','core::node_guard::runtime_policy::tests::actual_onchain_fee_event_must_match_fixed_formula'],
+  ['node','core::node_guard::runtime_policy::tests::actual_offchain_settlement_uses_recipient_rate_and_one_fen_minimum'],
+  ['node','core::node_guard::runtime_policy::tests::upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks'],
+  ['node','core::node_guard::runtime_policy::tests::cid_storage_keys_use_compact_len_prefix'],
  ]){
   const result=await runBuildProcess(cargo,['--config',join(root,'config.toml'),'test','--locked','--release','--quiet',...offline,'-p',name,filter,'--','--exact'],env,root,{capture:true,streamError:true});
   if(!/test result: ok\. 1 passed; 0 failed; 0 ignored;/u.test(result.stdout))fail('桌面RPC定向测试未准确运行：'+filter);
@@ -2701,7 +2706,8 @@ async function parser(kind,options){
  await directoryCheck(options.library.root);await directoryCheck(options.library.work);
  if(!await stat(payload)){
   if(await stat(parserRoot))fail('本轮解析器现场不完整');
-  const file=await acquireArchive(entry,{work:options.library.work,store:join(options.library.root,'archives'),optional:options.optionalDependencies,offline:options.offline,fetcher:options.fetcher,signal:options.signal});
+  // 解析器是锁定npm依赖，复用依赖原件目录及其URL/SRI映射，不走工具归档通道。
+  const file=await packageOriginal(entry,options);
   await directory(parserRoot,true);
   try{await extractArchive(file,payload,{prefix:'package',signal:options.signal});}
   catch(error){await rm(parserRoot,{recursive:true,force:true});throw error;}
@@ -3388,6 +3394,26 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===imp
   assert.deepEqual(await readdir(local),[]);
   await assert.rejects(resourceSupplies.run({...supply,acquireOriginal:async()=>{throw Error('离线缺原件');}},()=>parser('yaml',options)),/离线缺原件/);
  });
+ test('解析器原件归依赖供给，有库存不联网且缺件准确失败',async t=>{
+  await mkdir(fixedWork('test'),{recursive:true});const work=await mkdtemp(join(fixedWork('test'),'parser-dependency-'));t.after(()=>rm(work,{recursive:true,force:true}));
+  const library={root:join(work,'tools'),work,installed:new Map()},dependencyRoot=join(work,'rely');await mkdir(library.root);await mkdir(dependencyRoot);
+  const input=join(work,'parser.tgz');await writeFile(input,tar([['package/package.json','{"main":"index.js"}'],['package/index.js','module.exports={parse(text){return {text}},stringify(value){return value.text}};']]));
+  const key=entry=>JSON.stringify([entry.url,entry.integrity]);
+  const catalog=new Map(['yaml','toml'].map(kind=>[key(parserDefinitions[kind]),input]));let acquired=0,network=0;
+  const options={library,dependencyRoot,offline:true,fetcher:async()=>{network++;assert.fail('已有依赖原件不得联网');}};
+  const supply={toolRoot:library.root,dependencyRoot,acquireOriginal:async(entry,policy)=>{
+   acquired++;assert.equal(policy.kind,'dependency');assert.equal(policy.offline,true);
+   const file=catalog.get(key(entry));if(!file)throw Error('离线缺少解析器依赖原件');return file;
+  },publishCandidate:()=>assert.fail('解析器不得提交共享生成目录')};
+  for(const kind of ['yaml','toml'])for(const text of ['first','again']){
+   const parse=await resourceSupplies.run(supply,()=>parser(kind,options));assert.deepEqual(parse(text),{text});
+  }
+  assert.equal(acquired,2);assert.equal(network,0);
+  await rm(join(work,'resource-pending','parsers'),{recursive:true});catalog.delete(key(parserDefinitions.toml));
+  await assert.rejects(resourceSupplies.run(supply,()=>parser('toml',options)),/离线缺少解析器依赖原件/);
+  assert.equal(acquired,3);assert.equal(network,0);
+  await assert.rejects(lstat(join(library.root,'parsers')),{code:'ENOENT'});
+ });
  test('锁定Git远端获取延长超时且其它Git命令保持原上限',()=>{
   assert.equal(gitCommandTimeout(),600000);
   assert.equal(gitCommandTimeout(false),600000);
@@ -3587,6 +3613,22 @@ test('Windows正式资产清单只回读本平台准确Release',async()=>{
   assert.deepEqual(calls,[`${base}/tags/${plan.tag}`]);
   release.draft=true;await assert.rejects(verifyGithubRelease('windows','published',environment,{fetchImpl}),/身份或状态不符/u);
  }finally{clearFixedWork(work);}
+});
+test('六项节点守卫定向筛选对应真实Rust模块与注册用例',()=>{
+ // 从实际执行清单取名并核对源码注册链，防止模块迁移后精确筛选静默空跑。
+ const filters=[...runDesktopRpcTests.toString().matchAll(/\['node','([^']*::runtime_policy::tests::[^']+)'\]/gu)].map(match=>match[1]);
+ assert.equal(filters.length,6);assert.equal(new Set(filters).size,6);
+ assert.match(readFileSync(join(root,'node/src/main.rs'),'utf8'),/^mod core;/mu);
+ assert.match(readFileSync(join(root,'node/src/core/mod.rs'),'utf8'),/#\[path\s*=\s*"\.\.\/guard\/mod\.rs"\]\s*pub\(crate\) mod node_guard;/u);
+ assert.match(readFileSync(join(root,'node/src/guard/mod.rs'),'utf8'),/^mod runtime_policy;/mu);
+ const source=readFileSync(join(root,'node/src/guard/runtime_policy.rs'),'utf8');
+ assert.match(source,/#\[cfg\(test\)\]\s*mod tests\s*\{/u);
+ for(const filter of filters){
+  const parts=filter.split('::'),name=parts.pop();
+  assert.deepEqual(parts,['core','node_guard','runtime_policy','tests']);
+  assert.match(name,/^[a-z][a-z0-9_]*$/u);
+  assert.match(source,new RegExp('#\\[test\\]\\s+fn '+name+'\\s*\\(','u'));
+ }
 });
 test('本机安装意图只允许控制台macOS任务，GitHub及其它平台保持纯编译',()=>{
  assert.equal(localInstallRequested({},'macos',{}),false);
