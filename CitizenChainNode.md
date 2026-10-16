@@ -162,7 +162,12 @@ Runtime升级；其他无Revive版本拒绝启动。升级最终确定后重启�
 或解锁用户Ethereum密钥。既有本机钱包授权与节点守卫继续独立执行。
 
 近期索引固定保留256块，在启动时按现有链状态重建；链状态已修剪而无法重建时
-启动失败，不改变节点修剪或扩充历史存储策略。重组删除被替换块及全部已索引后代，
+启动失败，不改变节点修剪或扩充历史存储策略。升级前历史尚无Revive API时，
+SDK仅跳过窗口开头连续且准确缺`ReviveApi_eth_block`的旧区块，从首个Ethereum区块
+建立`FirstEvmBlock`边界；进入Ethereum历史后的同类错误和其它读取错误仍停止启动。
+节点向SDK交付显式空RPC端点，使其仅保留进程内处理器，不另开明文回环监听；
+公开RPC仍只由节点现有TLS入口承载。上述消费须以固定SDK提交和真实启动验收确认。
+重组删除被替换块及全部已索引后代，
 即使通知中间存在缺口也不保留旧分叉。按交易哈希读取回执再次校验规范链。
 latest/pending状态读取最佳块，safe/finalized读取GRANDPA最终块；newHeads订阅最佳块，
 logs订阅只发布最终块日志。eth_subscribe使用标准newHeads和logs参数，由同一官方EthRpcServerImpl处理器接受、通知并取消；Node直接绑定官方SubscriptionKind，未知类型及多余参数拒绝，不另建发布任务。pending nonce通过原生system_accountNextIndex读取同一

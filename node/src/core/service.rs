@@ -488,6 +488,8 @@ pub(crate) fn new_full(
     // 先装载可信 RPC 证书并取走端点，禁止上游 spawn_tasks 同时开启明文监听。
     // 进程内 RpcHandlers 仍正常创建，CLI 和桌面共用本服务入口。
     let rpc_endpoints = config.rpc.addr.take().unwrap_or_default();
+    // SDK 的显式空端点表示只保留进程内 RPC；None 会重开默认明文回环端口。
+    config.rpc.addr = Some(Vec::new());
     let rpc_tls = if rpc_endpoints.is_empty() {
         None
     } else {
