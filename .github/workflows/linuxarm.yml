@@ -1,5 +1,5 @@
 name: citizenchain.linux-arm
-run-name: "${{ github.workflow }} · ${{ github.run_number }}"
+run-name: "公民链·LinuxARM-v1.0.0"
 on:
   workflow_dispatch:
 concurrency:
@@ -9,6 +9,7 @@ permissions:
   contents: write
 jobs:
   release:
+    name: "公民链·LinuxARM-v1.0.0"
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
@@ -85,8 +86,9 @@ jobs:
           plan="$GITHUB_WORKSPACE/target/build/linux-arm/release-plan.json"
           tag="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.tag)' "$plan")"
           notes="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.notes)' "$plan")"
+          title="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.title)' "$plan")"
           assets="$GITHUB_WORKSPACE/target/build/linux-arm/release-assets"
-          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "citizenchain · linux-arm · $tag" --notes-file "$notes" --draft --latest=false
+          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
           node scripts/build.mjs ci-verify-release linux-arm draft
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
           node scripts/build.mjs ci-verify-release linux-arm published
@@ -95,3 +97,28 @@ jobs:
         shell: bash
         run: |
           if [ -d "target/build/linux-arm" ]; then node scripts/build.mjs finish linux-arm; fi
+  finalize:
+    needs: [release]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: write
+    env:
+      GH_TOKEN: "${{ github.token }}"
+      CITIZENCHAIN_BUSINESS_RESULT: "${{ needs.release.result }}"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: "${{ github.sha }}"
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 25.2.1
+      - name: 核对本平台业务结果并清理历史
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const e=process.env;process.stdout.write(JSON.stringify({run_id:Number(e.GITHUB_RUN_ID),run_attempt:Number(e.GITHUB_RUN_ATTEMPT),source_sha:e.GITHUB_SHA,business_result:e.CITIZENCHAIN_BUSINESS_RESULT}))' |
+            node scripts/build.mjs ci-finalize linux-arm

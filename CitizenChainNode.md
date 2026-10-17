@@ -2651,12 +2651,14 @@ CitizenChain 正式 Release 自定义资产名现固定为以下闭集；`<VERSI
 
 | 公开平台 | 安装资产 | 更新资产 | manifest |
 |---|---|---|---|
-| LinuxARM | `citizenchain-node-LinuxARM-v<VERSION>.deb` | `citizenchain-node-LinuxARM-v<VERSION>.AppImage` | `citizenchain-node-latest-LinuxARM.json` |
-| LinuxAMD | `citizenchain-node-LinuxAMD-v<VERSION>.deb` | `citizenchain-node-LinuxAMD-v<VERSION>.AppImage` | `citizenchain-node-latest-LinuxAMD.json` |
-| macOS | `citizenchain-node-macOS-v<VERSION>.dmg` | `citizenchain-node-macOS-v<VERSION>.app.tar.gz` | `citizenchain-node-latest-macOS.json` |
-| Windows | `citizenchain-node-Windows-v<VERSION>.exe` | 与安装资产共用同一 `.exe` | `citizenchain-node-latest-Windows.json` |
+| LinuxARM | `公民链·LinuxARM-v<VERSION>.deb` | `公民链·LinuxARM-v<VERSION>.AppImage` | `公民链·LinuxARM-v<VERSION>.json` |
+| LinuxAMD | `公民链·LinuxAMD-v<VERSION>.deb` | `公民链·LinuxAMD-v<VERSION>.AppImage` | `公民链·LinuxAMD-v<VERSION>.json` |
+| macOS | `公民链·macOS-v<VERSION>.dmg` | `公民链·macOS-v<VERSION>.app.tar.gz` | `公民链·macOS-v<VERSION>.json` |
+| Windows | `公民链·Windows-v<VERSION>.exe` | 与安装资产共用同一 `.exe` | `公民链·Windows-v<VERSION>.json` |
 
 Release Tag 前缀继续为 `citizenchain-linux-arm-v`、`citizenchain-linux-amd-v`、`citizenchain-macos-v`、`citizenchain-windows-v`。四个平台分别生成正式 Release；官网直接按平台及准确安装资产下载，不再经公民服务端的 D1 发布指针。更新资产仍由各平台 Release 独立交付，不属于服务端旧安装下载路由。
+
+节点版本只读取`node/tauri.conf.json`；四份Workflow的Run和Job标题是本次版本的展示投影，产品入口必须核对其与版本真源一致。安装包及更新包的`.sig`与对应本体同名；四平台正式资产数分别为macOS四件、Windows三件、LinuxARM四件、LinuxAMD四件。发布计划交付准确标题，草稿及正式Release回读均核对标题、名称、大小、原始字节SHA-256和经过URL编码的准确下载地址；中文或中点被平台改写、地址偏移或同名重复均失败。桌面更新器使用同一成功Run证明中的版本组成清单名，不猜测其他平台或旧名。包内可执行文件、应用标识及生产安装路径保持其既有合同。
 
 ### 产品流程物理归属
 
@@ -2899,17 +2901,17 @@ scripts/build.mjs是本产品唯一完整本机编译实现。独立执行由本
 
 ## GitHub自动化
 
-本仓自动化只在GitHub的main源码上执行；控制台只调用与展示。各目标独立拥有同名的YAML与Node实现，不调用其他仓或其他目标的Workflow。版本、构建、测试、签名、完整产物核验与正式tag/Release均由本仓负责。
+本仓自动化只在GitHub的main源码上执行；控制台只调用与展示。各目标独立拥有自己的YAML，通过本仓唯一`scripts/build.mjs`执行产品实现，不调用其他仓或其他目标的Workflow。版本、构建、测试、签名、完整产物核验与正式tag/Release均由本仓负责。
 
-- `.github/workflows/release-linux-amd.yml`及同名`.mjs`。
-- `.github/workflows/release-linux-arm.yml`及同名`.mjs`。
-- `.github/workflows/release-macos.yml`及同名`.mjs`。
+- `.github/workflows/linuxamd.yml`。
+- `.github/workflows/linuxarm.yml`。
+- `.github/workflows/macos.yml`。
 - `.github/workflows/wasm.yml`，WASM 自动化逻辑只在此文件内。
-- `.github/workflows/release-windows.yml`及同名`.mjs`。
+- `.github/workflows/windows.yml`。
 
-每个目标的最后任务使用always读取所有前置结果：全部成功清本仓本目标旧成功，否则清旧失败并失败退出。仅保留最新成功、最新失败各一条；保护本次Run和所有活动任务，另一类结果与其他目标不受影响。删除关联正式Release、tag、Actions产物和Run后回查；任何清理错误都按实际失败报告，不自动重试。
+五个平台各自在既有YAML中保留业务release Job及只依赖它的finalize Job；平台间的并发组、任务现场与缓存独立，不建立跨平台依赖。收尾Job使用本仓Workflow的actions:write与contents:write令牌，产品代码从GitHub回读本次attempt的真实Job列表，核对业务Job已结束及needs.release.result后才执行本平台保留规则。正常业务成功或失败且收尾成功时，保留最新成功、最新失败各一条及一个有效正式Release；当前Run与其他活动Run不可删除。回执明确business_result、run_status和final_run_verified:false，不能把业务结果冒充整个Run最终结论。Run真正结束后须只读核验实际保留数量；收尾失败或强制取消时数量可能未收敛，必须报告失败，不承诺跨GitHub API原子回滚，不自动重试或吞错。
 
-四个节点Release目标的`node-version`动作由各自同名`.mjs`经`action node-version apply`和`action node-version lock`调用；内嵌版本脚本只接受`apply`或`lock`作为首个参数。目标各自验证并同步本次软件版本，调用方不得重复传入动作名称。
+四个节点平台编译前共用本仓QR协议与节点定向测试入口，前者失败不得进入后者或正式编译；调度供给保持受控Cargo绝对路径及离线执行，原生独立入口沿用其明确Cargo入口和原锁。WASM不执行节点QR及桌面测试。LinuxARM、LinuxAMD在依赖准备阶段均预检PAM/Xdo链接和WebKit、GTK、OpenSSL发现结果，失败不得进入Cargo。
 
 GitHub Release的官方protoc入口只接受平台名称，按本仓固定目录准备并逐次验真，不再接收调用方拼接的工作路径。四个平台完成软件版本和锁文件同步后，从前端构建步骤起使用`scripts/build.mjs`的本产品工程视图；在`node`目录启动的Tauri步骤保持该相对工作目录。各平台Workflow在产物上传后以`always()`调用本产品固定目录收尾，失败时也清理本轮工程视图；收尾不修改正式源码或产物。白皮书运行时才经官网HTTPS读取，不是节点Release构建输入。
 
@@ -2922,7 +2924,7 @@ WASM正式`ci-build wasm`只在已领取的`target/build/wasm`会话内构建与
 正式Release的草稿按本次Tag在有权限的完整分页列表中定位唯一数字ID并按ID核验，不使用只返回已发布版本的按Tag读取接口；草稿验真后才发布，已发布版本仍按Tag复核。上传资产的摘要只对文件原始字节计算SHA-256，不能把产品输出目录的`outputDigest`作为GitHub资产digest；两阶段的资产名称、大小、摘要和来源提交必须一致，失败保留真实草稿状态并停止。
 候选版本同时计入本平台已有成功Release的版本：`citizenChainRelease`已按WASM Tag识别平台并核对Tag提交，历史收集仅继续核对对应Run成功及工作流身份，不读取其返回对象中不存在的`platform`字段；草稿、预发布、其他平台和失败Run不进入版本集合。
 
-所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
+所属脚本回归位于`scripts/build.mjs`，覆盖前置门槛首错阻断、版本及名称边界、资产来源和回读、平台隔离及缓存验真；真实GitHub构建与发布验收依任务授权另行执行。
 
 本机编译现场由本产品领取和收尾。调度任务编号随本产品领取记录保存；本轮结果消费后，只允许匹配该编号的收尾请求。产品确认自身进程及资源供给后代全部退出后才清场；异常、编号不符或退出未确认时保留现场。控制台只持有调度锁、调用本产品入口并供给资源，不实现产品清理。
 
@@ -2938,12 +2940,14 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 
 独立Build在可选依赖供给缺少原锁固定Git提交且允许联网时，只对该提交的GitHub HTTPS `fetch`设置30分钟上限；本地bundle导入、身份复验及其它Git命令仍为10分钟。取得后必须核对`FETCH_HEAD`为原锁提交，再物化本任务bundle；离线缺件继续直接失败。
 
-软件版本计算使用本目标GitHub运行序号作为单调下界，并与本仓已成功版本比较；失败或历史清理不使版本返回源码初值。版本只在GitHub本次运行内产生，同一Run重试保持运行序号，Tag另绑定准确attempt。
+Git来源准备区分实际执行模式：控制台供给时，产品从Cargo原锁提出source及该来源的name/version集合，通过公开acquireOriginal的dependency用途领取永久原件，缺能力或供给失败立即失败，不再自行fetch或写控制台索引。独立执行时先复用可选的同提交原件，否则在本产品永久依赖原件目录按完整固定来源保存bundle；同坐标首次获取互斥，校验真实FETCH_HEAD及Git对象完成后原子落位，后续任务清场不删除永久原件，离线热命中零网络、离线缺件准确失败。本轮检出与可写Git现场仍只在本产品target中，包版本、固定SDK及Runtime不变。新增同文件回归覆盖公开供给失败不回退、越界拒绝、独立并发、任务清场后复用和提交错误不落位。
+
+节点软件版本以`node/tauri.conf.json`为唯一真源，并须高于本平台已有正式版本；Run序号不改写节点版本。WASM继续由自身Workflow按既有Runtime规则确定本次spec_version。所有平台Tag各自绑定准确Run和attempt，历史清理不得伪造新的成功构建身份。
 
 
 ### 当前自动化最后处理
 
-本仓每个自动化目标仅由自身release-<平台>.yml与同名mjs执行，最后处理依赖全部前置任务。清理只接受该目标准确Workflow路径、main和手动事件，不根据已删除文件或旧入口名称猜测归属。前置失败时，本次产物撤销与旧失败清理分别尝试并汇总错误；任何一项未确认均失败。固定依赖仍由本仓声明和原锁管理，不参加自产历史结果分类。
+本仓每个自动化目标仅由自身既有平台YAML调用本仓产品入口；跨平台不建立依赖。历史清理只接受该目标准确Workflow路径、main和原Run及attempt，不根据已删除文件或旧入口名称猜测归属，也不另造一次成功维护Run替代原构建身份。固定依赖及有效增量缓存不参加自产发布历史删除。
 
 桌面更新检查由node/src/settings/desktop_update.rs按当前系统平台读取本仓唯一成功Run、正式Release及Tag证明，使用该Release的更新清单交给Tauri签名更新器。安装包不嵌入自身版本Tag，也不通过其它产品仓的自动化寻找更新。Linux正式集合同时包含DEB、AppImage、本体签名与平台清单。
 
@@ -2956,7 +2960,11 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 
 `scripts/` 保留唯一编译文件 `build.mjs` 与配置声明文件 `config.mjs`。`build.mjs describe` 只读交付本仓唯一编译声明；同文件独占编译、macOS安装、资源需求与固定工作根，控制台只调用公开入口。白皮书正文由官网静态接口运行时提供，不再有构建期文档生成脚本；图标派生位于 `icons/generate.mjs` 且只处理本仓图标；行政区及账户派生脚本归 `runtime/primitives/`。节点与OnChina维护脚本及外部 PostgreSQL 调优样例已删除。旧权重benchmark脚本与模板已删除，已有权重实现保持。内嵌旧链规脚本及创世检查已删除，不再由Build直接修改邻仓资源；重新生成冻结链规须另行确定所属流程。
 
-五组 `release-<平台>.yml` 和同名 mjs 仍由 `.github/workflows/` 独立拥有，继续产生版本、构建并逐件验收资产、创建 GitHub Release 和执行本目标历史清理。官网四平台安装下载直接查询正式 GitHub Release，不再需要本仓额外的发布清单脚本。
+五份既有平台YAML各自调用本仓`scripts/build.mjs`，独立产生和验收本平台资产及GitHub Release。产品收尾入口`ci-finalize <platform>`由本平台finalize Job调用，标准输入只接受run_id、run_attempt、source_sha、business_result；必须核对本仓本平台main手动Workflow身份、原Run坐标及真实业务Job结果。产品直接核对和清理自己的Run、Release、Tag，删除后回读，保护当前Run、其他平台及有效缓存；不依赖控制台回调、控制台删除权限、独立维护Run或新增文件。官网四平台安装下载直接查询正式GitHub Release，不使用本仓额外发布清单脚本。
+
+控制台接入按其既有要求声明产品名称、编译/塔塔自动化/发布流程及平台，显示如“公民链 · 编译 · macOS”；GitHub与交付产物使用如“公民链·macOS-v1.0.0”的发布名称。两者分别维护，不向控制台任务名称注入发布版本，tata/citizenchain.mjs不承载产品历史清理。
+
+本产品自动化观察器只在整个Run完成且成功后调用同仓`verifyGithubHistory`只读核验：本平台唯一成功Run、至多一条失败记录、唯一有效正式Release、来源证明、版本化完整资产及Tag提交须一致，最后再次回读原Run身份。首次成功没有失败历史时不伪造失败记录。核验失败立即把本产品任务登记为失败，不重派、不删除、不转成观察重连；原Run失败或取消则据实失败。删除仍由各平台既有YAML的产品收尾负责，控制台只提供公开任务宿主和短期授权。本机macOS验证可按准确授权签名安装，安装入口不启动或重启节点。
 
 
 ## GitHub塔塔门禁与同类记录清理
@@ -2971,7 +2979,7 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 
 ## 节点部署离线批准
 
-权威和权益节点实例的部署批准使用本仓独立 `crates/protocol` 的 QR_V1 `node_deploy=16` 链下动作；它不进入 Runtime WASM，不借用软件发布动作或链交易签名。载荷固定包含公民链产品、节点类别与编号、目标服务器 IP、版本、源码提交、产物摘要、控制台任务编号、期限和随机挑战，钱包必须完整解码并显示目标。签名消息使用独立 `GMB\0TATA_NODE_DEPLOY_V1\0` 前缀，控制台只接受受保护的 `rtupg:NRC_PUBLIC_KEY`；同一个国储会管理员公钥也是开发升级签名者，且只存 Touch ID Keychain，离线私钥不进入产品或控制台。节点部署是使用公民链的实例操作，由控制台节点管理维护，不等同于发布公民链软件。`scripts/build.mjs` 将独立 QR Cargo 锁纳入本轮受控资源供给，并在所有平台编译前运行其离线 Rust 测试；失败即不编译。此协议准备阶段不执行节点部署，正式接线仍归控制台三级权限第④步。
+权威和权益节点实例的部署批准使用本仓独立 `crates/protocol` 的 QR_V1 `node_deploy=16` 链下动作；它不进入 Runtime WASM，不借用软件发布动作或链交易签名。载荷固定包含公民链产品、节点类别与编号、目标服务器 IP、版本、源码提交、产物摘要、控制台任务编号、期限和随机挑战，钱包必须完整解码并显示目标。签名消息使用独立 `GMB\0TATA_NODE_DEPLOY_V1\0` 前缀，控制台只接受受保护的 `rtupg:NRC_PUBLIC_KEY`；同一个国储会管理员公钥也是开发升级签名者，且只存 Touch ID Keychain，离线私钥不进入产品或控制台。节点部署是使用公民链的实例操作，由控制台节点管理维护，不等同于发布公民链软件。`scripts/build.mjs` 将独立 QR Cargo 锁纳入本轮受控资源供给，并在节点平台编译前测试该协议；本机受控供给使用离线原件，原生CI按原锁准备。失败即不编译。此协议准备阶段不执行节点部署，正式接线仍归控制台三级权限第④步。
 
 ## 编辑器固定依赖目录
 

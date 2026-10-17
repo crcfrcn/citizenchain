@@ -1,5 +1,5 @@
 name: citizenchain.linux-amd
-run-name: "${{ github.workflow }} · ${{ github.run_number }}"
+run-name: "公民链·LinuxAMD-v1.0.0"
 on:
   workflow_dispatch:
 concurrency:
@@ -9,6 +9,7 @@ permissions:
   contents: write
 jobs:
   release:
+    name: "公民链·LinuxAMD-v1.0.0"
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -36,7 +37,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y build-essential clang llvm-dev libclang-dev libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev pkg-config patchelf file unzip postgresql-16 postgresql-server-dev-16
+          sudo apt-get install -y build-essential clang llvm-dev libclang-dev libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libpam0g-dev libxdo-dev pkg-config patchelf file unzip postgresql-16 postgresql-server-dev-16
+          printf 'int main(void){return 0;}\n' | cc -x c - -lpam -lxdo -o "$RUNNER_TEMP/citizenchain-link-preflight"
+          pkg-config --exists webkit2gtk-4.1 gtk+-3.0 openssl
           echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/protoc.zip" "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip"
           echo 'a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc  '"$RUNNER_TEMP/protoc.zip" | sha256sum --check
@@ -80,8 +83,9 @@ jobs:
           plan="$GITHUB_WORKSPACE/target/build/linux-amd/release-plan.json"
           tag="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.tag)' "$plan")"
           notes="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.notes)' "$plan")"
+          title="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.title)' "$plan")"
           assets="$GITHUB_WORKSPACE/target/build/linux-amd/release-assets"
-          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "citizenchain · linux-amd · $tag" --notes-file "$notes" --draft --latest=false
+          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
           node scripts/build.mjs ci-verify-release linux-amd draft
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
           node scripts/build.mjs ci-verify-release linux-amd published
@@ -90,3 +94,28 @@ jobs:
         shell: bash
         run: |
           if [ -d "target/build/linux-amd" ]; then node scripts/build.mjs finish linux-amd; fi
+  finalize:
+    needs: [release]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: write
+    env:
+      GH_TOKEN: "${{ github.token }}"
+      CITIZENCHAIN_BUSINESS_RESULT: "${{ needs.release.result }}"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: "${{ github.sha }}"
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 25.2.1
+      - name: 核对本平台业务结果并清理历史
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const e=process.env;process.stdout.write(JSON.stringify({run_id:Number(e.GITHUB_RUN_ID),run_attempt:Number(e.GITHUB_RUN_ATTEMPT),source_sha:e.GITHUB_SHA,business_result:e.CITIZENCHAIN_BUSINESS_RESULT}))' |
+            node scripts/build.mjs ci-finalize linux-amd

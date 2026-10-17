@@ -1,5 +1,5 @@
 name: citizenchain.windows
-run-name: "${{ github.workflow }} · ${{ github.run_number }}"
+run-name: "公民链·Windows-v1.0.0"
 on:
   workflow_dispatch:
 concurrency:
@@ -9,6 +9,7 @@ permissions:
   contents: write
 jobs:
   release:
+    name: "公民链·Windows-v1.0.0"
     if: github.ref == 'refs/heads/main'
     runs-on: windows-2025
     timeout-minutes: 360
@@ -75,7 +76,7 @@ jobs:
         run: |
           $plan = Get-Content 'target/build/windows/release-plan.json' -Raw | ConvertFrom-Json
           $assets = @(Get-ChildItem $plan.directory -File | ForEach-Object { $_.FullName })
-          gh release create $plan.tag @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "citizenchain · windows · $($plan.tag)" --notes-file $plan.notes --draft --latest=false
+          gh release create $plan.tag @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title $plan.title --notes-file $plan.notes --draft --latest=false
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/build.mjs ci-verify-release windows draft
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -88,3 +89,28 @@ jobs:
         shell: pwsh
         run: |
           if (Test-Path 'target/build/windows') { node scripts/build.mjs finish windows; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+  finalize:
+    needs: [release]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: write
+    env:
+      GH_TOKEN: "${{ github.token }}"
+      CITIZENCHAIN_BUSINESS_RESULT: "${{ needs.release.result }}"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: "${{ github.sha }}"
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 25.2.1
+      - name: 核对本平台业务结果并清理历史
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const e=process.env;process.stdout.write(JSON.stringify({run_id:Number(e.GITHUB_RUN_ID),run_attempt:Number(e.GITHUB_RUN_ATTEMPT),source_sha:e.GITHUB_SHA,business_result:e.CITIZENCHAIN_BUSINESS_RESULT}))' |
+            node scripts/build.mjs ci-finalize windows

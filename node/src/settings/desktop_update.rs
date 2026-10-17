@@ -35,6 +35,36 @@ fn workflow_file(platform: &str) -> Result<&'static str, String> {
     }
 }
 
+// 展示名与节点交付清单一致；版本来自已绑定成功Run的Release证明。
+fn update_manifest_name(platform: &str, version: &str) -> Result<String, String> {
+    if !matches!(platform, "macOS" | "Windows" | "LinuxARM" | "LinuxAMD") {
+        return Err("更新清单平台无效".into());
+    }
+    let parts: Vec<_> = version.split('.').collect();
+    if parts.len() != 3
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || !part.bytes().all(|byte| byte.is_ascii_digit())
+                || part.len() > 1 && part.starts_with('0')
+        })
+    {
+        return Err("更新清单版本无效".into());
+    }
+    Ok(format!("公民链·{platform}-v{version}.json"))
+}
+
+fn update_manifest_url(tag: &str, filename: &str) -> Result<reqwest::Url, String> {
+    let mut url = reqwest::Url::parse(
+        "https://github.com/crcfrcn/citizenchain/releases/download/",
+    )
+    .map_err(|_| "更新地址无效")?;
+    url.path_segments_mut()
+        .map_err(|_| "更新地址路径无效")?
+        .push(tag)
+        .push(filename);
+    Ok(url)
+}
+
 fn release_proof(
     release: &serde_json::Value,
     run: &serde_json::Value,
@@ -162,7 +192,8 @@ pub async fn check_desktop_update(
     if reference["object"]["type"] != "commit" || reference["object"]["sha"] != run["head_sha"] {
         return Err("更新Tag提交不符".into());
     }
-    let filename = format!("citizenchain-node-latest-{manifest_platform}.json");
+    let version = proof["version"].as_str().ok_or("更新证明版本缺失")?;
+    let filename = update_manifest_name(manifest_platform, version)?;
     let assets = release["assets"].as_array().ok_or("更新资产列表无效")?;
     let proofs = proof["assets"].as_array().ok_or("更新资产证明无效")?;
     if assets.len() != proofs.len() {
@@ -193,10 +224,7 @@ pub async fn check_desktop_update(
     {
         return Err("更新清单缺失或重复".into());
     }
-    let endpoint =
-        format!("https://github.com/crcfrcn/citizenchain/releases/download/{tag}/{filename}")
-            .parse()
-            .map_err(|_| "更新地址无效")?;
+    let endpoint = update_manifest_url(tag, &filename)?;
     let update = webview
         .updater_builder()
         .endpoints(vec![endpoint])
@@ -226,6 +254,24 @@ pub async fn check_desktop_update(
 #[cfg(test)]
 mod update_tests {
     use super::*;
+    #[test]
+    fn delivery_manifest_name_and_url_bind_platform_version_and_encoded_path() {
+        for platform in ["macOS", "Windows", "LinuxARM", "LinuxAMD"] {
+            let name = update_manifest_name(platform, "1.0.0").unwrap();
+            assert_eq!(name, format!("公民链·{platform}-v1.0.0.json"));
+            let url = update_manifest_url("citizenchain-macos-v1.0.0-r1-a1", &name).unwrap();
+            assert_eq!(url.host_str(), Some("github.com"));
+            assert_eq!(url.scheme(), "https");
+            assert!(url.as_str().contains("%E5%85%AC%E6%B0%91%E9%93%BE%C2%B7"));
+            assert!(url.as_str().ends_with(&format!("{platform}-v1.0.0.json")));
+            assert_eq!(url.query(), None);
+            assert_eq!(url.fragment(), None);
+        }
+        for version in ["", "1.0", "01.0.0", "1.0.0/other", "1.0.0?other", "1.0.0-rc1"] {
+            assert!(update_manifest_name("macOS", version).is_err());
+        }
+        assert!(update_manifest_name("wasm", "1.0.0").is_err());
+    }
     #[test]
     fn release_selection_is_platform_run_and_attempt_specific() {
         let run = serde_json::json!({"id":7,"run_attempt":2,"head_sha":"source"});

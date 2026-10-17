@@ -3311,17 +3311,17 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 
 ## GitHub自动化
 
-本仓自动化只在GitHub的main源码上执行；控制台只调用与展示。各目标独立拥有同名的YAML与Node实现，不调用其他仓或其他目标的Workflow。版本、构建、测试、签名、完整产物核验与正式tag/Release均由本仓负责。
+本仓自动化只在GitHub的main源码上执行；控制台只调用与展示。各目标独立拥有自己的YAML，调用本仓唯一`scripts/build.mjs`产品实现，不调用其他仓或其他目标的Workflow。版本、构建、测试、签名、完整产物核验与正式tag/Release均由本仓负责。
 
-- `.github/workflows/release-linux-amd.yml`及同名`.mjs`。
-- `.github/workflows/release-linux-arm.yml`及同名`.mjs`。
-- `.github/workflows/release-macos.yml`及同名`.mjs`。
-- `.github/workflows/release-wasm.yml`及同名`.mjs`。
-- `.github/workflows/release-windows.yml`及同名`.mjs`。
+- `.github/workflows/linuxamd.yml`。
+- `.github/workflows/linuxarm.yml`。
+- `.github/workflows/macos.yml`。
+- `.github/workflows/wasm.yml`。
+- `.github/workflows/windows.yml`。
 
-每个目标的最后任务使用always读取所有前置结果：全部成功清本仓本目标旧成功，否则清旧失败并失败退出。仅保留最新成功、最新失败各一条；保护本次Run和所有活动任务，另一类结果与其他目标不受影响。删除关联正式Release、tag、Actions产物和Run后回查；任何清理错误都按实际失败报告，不自动重试。
+五个平台平行独立，各自在原YAML内由release业务Job及finalize收尾Job执行，不借用控制台终态回调。收尾使用本仓Workflow令牌，回读本次Run、attempt、源码和业务Job结果，按产品自己的证明闭集清理Run、Release与Tag；正常业务结束且收尾成功时保留一成功一失败及一个有效正式版本，保护当前Run、其它活动任务和有效缓存。业务结果与整个Run最终结论分别记录；收尾故障或强制取消时当轮数量可能未收敛，必须登记失败并在Run结束后只读验收，不能声称原子回滚或吞掉清理错误。WASM保持现有spec_version与三件资产合同，节点交付命名不得改变Runtime源码、创世或收费规则。
 
-所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
+所属脚本回归位于`scripts/build.mjs`，真实GitHub构建与发布验收依任务授权另行执行；文档要求不替代真实验收记录。
 
 ## WASM自动化与专属开发升级
 
@@ -3333,3 +3333,8 @@ WASM只由本仓`.github/workflows/wasm.yml`执行。GitHub准备阶段以固定
 ### 本仓 GitHub 自动化与塔塔门禁目录
 
 `.github/` 仅保留 `workflows/` 与 `tatagate/` 两个目录。`workflows/` 持有本仓自动化；`tatagate/` 仅保留 `tatagate.json` 与 `tatagate.mjs`。前者登记本仓门禁合同，后者保留正式门禁实现与测试报告器，测试代码统一位于正式代码之后。直接运行执行门禁命令，测试运行只执行末尾测试，普通导入不注册测试；本仓测试清单及逐文件成功回执使用同一个门禁文件且仅执行一次。
+## 塔塔自动化远端任务归属
+
+WASM自动化沿用自己的增量缓存和版本规则。整个Run成功后由本产品只读回验本平台Run保留数量、唯一正式Release、来源证明、完整三件WASM资产及Tag的源码提交；业务Job成功不替代整个Run终态，收尾或回验失败据实登记失败。四节点平台与WASM之间没有执行依赖，历史清理不删除有效缓存；本步骤不执行Runtime开发升级或链上提交。
+
+本产品现有 `scripts/build.mjs` 提供 `startAutomation(route, action, host)`、`recoverAutomation(task, route, host)` 和独立模式的 `dispatchAutomation(platform, token, options)`。产品按本仓平台与 Workflow 白名单派发、回读、观察 Run 与 Job、限额读取终态日志、取消及恢复原 GitHub Run；控制台的 `tata/citizenchain.mjs` 仅调用这些公开入口，提供任务宿主及短期授权。派发回执中的 Run ID 先写入任务，回读中断后只恢复该 Run，禁止重复派发；控制台宿主通过 `recoverTask(task)` 重进所属产品的恢复授权上下文，显式独立模式才调用产品恢复入口。恢复时先挂接原任务的产品取消入口，再请求观察授权；观察授权失败仍保留取消能力，用户取消时单独领取关闭授权。取消和恢复均重新核验本仓、主分支、Workflow、提交及 Run ID。其他记录、资产和发布能力不在本次迁移范围内。 同文件的合成合同回归覆盖派发成功与不确定回执、错误仓库/平台/SHA、观察两种终态、只取消原 Run、只恢复原 Run 和过期授权保留取消入口。
