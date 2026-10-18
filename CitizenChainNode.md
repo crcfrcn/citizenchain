@@ -328,6 +328,8 @@ PG 官方二进制来源:https://www.postgresql.org/download/(解压后含 bin/l
 
 - 机房服务器 + RAID/NAS(数十 TB:法人照片、档案材料)+ UPS。
 - 数据库两选:① 内嵌私有 PG(`ONCHINA_EMBEDDED_PG=1`,OnChina 自管);② 外部托管 PG(关 `ONCHINA_EMBEDDED_PG`,直接给 `DATABASE_URL`)。
+
+OnChina的数据库地址本机判断保持跨平台一致：TCP仅接受`localhost`（不区分大小写）、`127.0.0.1`和`::1`，多主机配置必须全部为本机；未显式声明主机保持既有默认语义。PostgreSQL的`Host::Unix`枚举分支仅在Unix宿主编译，Windows不引用不存在的枚举分支，也不新增通配放行。Unix socket仍按本机地址处理；远程数据库的既有TLS及显式授权规则不变。同文件回归仅解析配置，覆盖本机TCP、多主机混入远程、非法输入及Unix socket，不连接数据库。
 - **WAL 归档**:内嵌 PG 配置 `ONCHINA_PG_WAL_ARCHIVE_DIR` 后持续归档 WAL 到指定目录；本仓不再提供全量备份与 PITR 恢复命令。外部托管 PG 的备份与恢复由数据库运维流程负责。
 - 联邦节点**按省管理**:每市自治节点跑自己的 OnChina+PG;联邦注册局按省给市配管理员(链上,3a/3b)。
 - **联邦注册局（FRG）每节点单省部署**：本节点所辖省由首次 active admin 的链上省专员岗位任职确定。管理员钱包从 `PublicAdmins::AdminAccounts` 读取，省域从 `PublicManage::InstitutionRoleAssignments` 的 `PROVINCE_COMMISSIONER_<省码>` 读取。
