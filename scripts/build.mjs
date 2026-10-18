@@ -3976,6 +3976,44 @@ test('五份既有Workflow只有本平台Job，动态名称及版本输入一致
   assert.ok(source.includes('path: target/cache/'+platform));assert.ok(source.includes('ci-verify-release '+platform+' draft'));
  }
 });
+test('Windows检出步骤覆盖Runner的CRLF转换且保留实际生成文件LF字节',()=>{
+ const git=process.env.PRODUCT_GIT_BIN;assert.ok(git&&isAbsolute(git),'回归使用产品已交付的Git');
+ const workflow=readFileSync(join(root,'.github/workflows/windows.yml'),'utf8');
+ const variablesFrom=source=>{
+  const lines=source.split(/\r?\n/u),start=lines.findIndex(line=>line.startsWith('      - uses: actions/checkout@'));
+  assert.ok(start>=0);const next=lines.findIndex((line,index)=>index>start&&line.startsWith('      - '));
+  const step=lines.slice(start,next<0?lines.length:next).join('\n');
+  const block=step.match(/^        env:\n((?:          GIT_CONFIG_[^\n]+\n)+)/mu);assert.ok(block,'检出步骤必须显式声明Git进程配置');
+  const values=Object.fromEntries([...block[1].matchAll(/^          (GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)): '([^']*)'$/gmu)].map(match=>[match[1],match[2]]));
+  assert.deepEqual(values,{GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:'core.autocrlf',GIT_CONFIG_VALUE_0:'false'});return values;
+ };
+ const variables=variablesFrom(workflow);assert.deepEqual(variablesFrom(workflow.replace(/\r?\n/gu,'\r\n')),variables);
+ const paths=['node/frontend/protocol/qrBodies.g.ts','onchina/frontend/core/qrBodies.g.ts','onchina/src/protocol/generated.rs'];
+ const originals=new Map(paths.map(path=>[path,readFileSync(join(root,path))]));
+ const work=mkdtempSync(join(testRoot(),'windows-checkout-')),repository=join(work,'repository');
+ try{
+  mkdirSync(repository);
+  const env={...Object.fromEntries(['PATH','SystemRoot','WINDIR','TEMP','TMP','TMPDIR'].filter(key=>typeof process.env[key]==='string').map(key=>[key,process.env[key]])),
+   HOME:work,USERPROFILE:work,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:join(work,'absent-global-config'),GIT_TERMINAL_PROMPT:'0',
+   GIT_AUTHOR_NAME:'fixture',GIT_AUTHOR_EMAIL:'fixture@example.invalid',GIT_COMMITTER_NAME:'fixture',GIT_COMMITTER_EMAIL:'fixture@example.invalid'};
+  const invoke=(args,extra={})=>{
+   const result=spawnSync(git,['-c','core.hooksPath='+join(work,'absent-hooks'),'-c','commit.gpgsign=false',...args],
+    {cwd:repository,env:{...env,...extra},encoding:'utf8',timeout:15000,maxBuffer:1024**2});
+   assert.equal(result.status,0,result.stderr||result.error?.message);return result;
+  };
+  invoke(['init','--quiet']);
+  for(const [path,bytes] of originals){assert.equal(bytes.includes(Buffer.from('\r\n')),false);mkdirSync(dirname(join(repository,path)),{recursive:true});writeFileSync(join(repository,path),bytes);}
+  invoke(['-c','core.autocrlf=false','add','--',...paths]);invoke(['commit','--quiet','-m','checkout-fixture']);
+  invoke(['config','--local','core.autocrlf','true']);
+  // 用同一索引复现失败和修复：配置只改夹具仓，不写本机全局Git或产品源码。
+  for(const path of paths)rmSync(join(repository,path));
+  invoke(['checkout-index','--all']);
+  for(const [path,bytes] of originals)assert.equal(readFileSync(join(repository,path),'utf8'),bytes.toString('utf8').replace(/\n/gu,'\r\n'));
+  for(const path of paths)rmSync(join(repository,path));
+  invoke(['checkout-index','--all'],variables);
+  for(const [path,bytes] of originals){assert.deepEqual(readFileSync(join(repository,path)),bytes);assert.deepEqual(readFileSync(join(root,path)),bytes);}
+ }finally{rmSync(work,{recursive:true,force:true});}
+});
 test('版本按本平台成功正式版推进，草稿与失败不消耗版本',async()=>{
  const f=historyFixture();let plan=await prepareVersionPlan('windows',f.request,'a'.repeat(40));assert.equal(plan.version,'1.0.1');
  f.source.conclusion='failure';plan=await prepareVersionPlan('windows',f.request,'a'.repeat(40));assert.equal(plan.version,'1.0.1');

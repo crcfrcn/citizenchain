@@ -2905,7 +2905,7 @@ scripts/build.mjs是本产品唯一完整本机编译实现。独立执行和控
 
 GitHub Release的官方protoc入口只接受平台名称，按本仓固定目录准备并逐次验真，不再接收调用方拼接的工作路径。四个平台完成软件版本和锁文件同步后，从前端构建步骤起使用`scripts/build.mjs`的本产品工程视图；在`node`目录启动的Tauri步骤保持该相对工作目录。各平台Workflow在产物上传后以`always()`调用本产品固定目录收尾，失败时也清理本轮工程视图；收尾不修改正式源码或产物。白皮书运行时才经官网HTTPS读取，不是节点Release构建输入。
 
-Windows LLVM准备步骤用Bash的`GITHUB_ENV`语法交付库路径；Windows工程视图收尾也显式使用Bash解释`GITHUB_RUN_ID`，在视图尚未创建的失败路径安全结束。
+Windows LLVM准备步骤用Bash的`GITHUB_ENV`语法交付库路径；Windows工程视图收尾也显式使用Bash解释`GITHUB_RUN_ID`，在视图尚未创建的失败路径安全结束。Windows检出步骤通过`GIT_CONFIG_COUNT=1`、`GIT_CONFIG_KEY_0=core.autocrlf`、`GIT_CONFIG_VALUE_0=false`仅覆盖该步骤Git进程的换行转换，保留仓库生成文件的LF原始字节；不写全局Git配置、不重写生成文件、不放宽协议生成物的严格一致性断言。同文件回归使用产品交付的Git及本轮临时仓，从三份实际生成文件复现Runner的CRLF转换，再验证Workflow声明交付的环境能恢复准确LF字节。
 
 Windows既有YAML通过本产品ci-build调用原生打包与签名实现，上传参数来自release-plan.json的uploads。交付版本在本轮source工程副本写入节点包Cargo版本、对应本地包锁记录及Tauri配置，依赖版本和SDK提交不变；本机与GitHub共用同一副本准备及编译实现，原仓Cargo、Runtime和配置不回写。节点锁记录替换兼容LF与Windows CRLF，保留副本原有换行和其它包版本；唯一node包记录缺失或重复仍失败，原仓Cargo.lock不改写。
 
