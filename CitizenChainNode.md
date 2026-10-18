@@ -2907,9 +2907,9 @@ GitHub Release的官方protoc入口只接受平台名称，按本仓固定目录
 
 Windows LLVM准备步骤用Bash的`GITHUB_ENV`语法交付库路径；Windows工程视图收尾也显式使用Bash解释`GITHUB_RUN_ID`，在视图尚未创建的失败路径安全结束。
 
-Windows既有YAML通过本产品ci-build调用原生打包与签名实现，上传参数来自release-plan.json的uploads。交付版本在本轮source工程副本写入节点包Cargo版本、对应本地包锁记录及Tauri配置，依赖版本和SDK提交不变；本机与GitHub共用同一副本准备及编译实现，原仓Cargo、Runtime和配置不回写。
+Windows既有YAML通过本产品ci-build调用原生打包与签名实现，上传参数来自release-plan.json的uploads。交付版本在本轮source工程副本写入节点包Cargo版本、对应本地包锁记录及Tauri配置，依赖版本和SDK提交不变；本机与GitHub共用同一副本准备及编译实现，原仓Cargo、Runtime和配置不回写。节点锁记录替换兼容LF与Windows CRLF，保留副本原有换行和其它包版本；唯一node包记录缺失或重复仍失败，原仓Cargo.lock不改写。
 
-WASM版本计划由本产品prepareVersionPlan在派发前确定，读取固定公开HTTPS runtime-target的spec_name、spec_version、块0哈希及finalized头；块0哈希必须匹配本仓唯一冻结常量。候选整数取源码种子、本平台成功正式版加一、链上spec_version加一的最大值，Runner重新复核后只改本轮source工程副本。读取失败、错链、过期计划或版本越界立即失败，不创建成功交付。控制台不读取链目标来决定产品版本。
+WASM版本计划由本产品prepareVersionPlan在派发前确定，读取固定公开HTTPS runtime-target的spec_name、spec_version、块0哈希及finalized头；块0哈希必须匹配本仓唯一冻结常量。候选整数取源码种子、本平台成功正式版加一、链上spec_version加一的最大值，Runner重新复核后只改本轮source工程副本。请求失败保留原始异常为cause；非成功HTTP和缺失响应体报告HTTP状态，响应流、UTF-8或JSON失败保留阶段与原始cause，不另行记录响应正文、不自动重试或替换接口。错链、过期计划或版本越界仍立即失败，不创建成功交付。控制台不读取链目标来决定产品版本。
 WASM正式`ci-build wasm`只在已领取的`target/build/wasm`会话内构建与校验三件Runtime WASM；Cargo不使用默认`target/debug`。Clippy与Node候选政策探针不进入WASM编译步骤，准确Release WASM的Node政策验收归后续升级验收，缺WASM不能记为通过。GitHub Workflow负责接收产品版本计划、准备工具、调用产品入口、验收草稿及always清理本轮现场；正式发布及历史保留归Run外产品执行器。四个节点平台的日常桌面RPC定向测试与安装包均不显式请求源码WASM；需要真实WASM的Runtime升级政策验收另取准确正式WASM执行。
 正式Release的草稿按本次Tag在有权限的完整分页列表中定位唯一数字ID并按ID核验，不使用只返回已发布版本的按Tag读取接口；草稿验真后才发布，已发布版本仍按Tag复核。上传资产的摘要只对文件原始字节计算SHA-256，不能把产品输出目录的`outputDigest`作为GitHub资产digest；两阶段的资产名称、大小、摘要和来源提交必须一致，失败保留真实草稿状态并停止。
 版本基线只接受本平台来源证明完整、原Run真正completed/success、资产逐件匹配的正式Release；草稿、预发布、失败Run和其它平台不推进版本。Tag与Release名称均为公民链·平台·v版本；原Run、attempt和源码SHA保存在发布证明，消费者不从Tag后缀推断身份。WASM三件协议原文件名保持，GitHub显示label使用实际整数版本。
@@ -3023,6 +3023,6 @@ macOS接入的显式offline=true映射为本产品CLI的既有--offline参数；
 
 执行器源码唯一入口为scripts/build.mjs，公开工具声明automationRuntime固定GitHub CLI 2.88.1；使用既有本机Node及GitHub CLI，不下载工具。产品仅检查已有CLI与本仓访问，CLI自行使用自己的既有登录；不调用gh auth token，不把凭据写入参数、状态或日志，也不使用控制台短期令牌。子进程只继承明确的系统环境，移除GitHub令牌及调试环境。
 
-派发前按平台独占写入target/cache/automation/<平台>/current.json，记录非机密版本计划、原Run和恢复阶段；Run ID回读后启动脱离控制台进程组的产品执行器。运行命令为node scripts/build.mjs automation-worker <平台> [本次nonce]；省略nonce只恢复本平台现有记录。worker.lock只锁同一平台收尾，其他平台不受影响。再次进入产品派发API时，若原收尾未结束，只恢复同一Run，不重新POST。原Run不确定时按原源码、版本、时间及唯一Run身份只读确认，无法唯一确认则停止，不猜测。
+派发前按平台独占写入target/cache/automation/<平台>/current.json，记录非机密版本计划、原Run和恢复阶段；收到准确派发回执后先持久化原Run ID，随后只对该ID最多回读12次、名称未匹配时最多等待11次且每次5秒；仓库、Workflow、main、源码及attempt校验不放宽，名称完全匹配后才启动脱离控制台进程组的产品执行器。名称超限或读取失败保留原坐标与失败状态，恢复仍只核对原Run，不重新POST；首次GET失败时未取得的attempt在恢复核对后补齐。运行命令为node scripts/build.mjs automation-worker <平台> [本次nonce]；省略nonce只恢复本平台现有记录。worker.lock只锁同一平台收尾，其他平台不受影响。再次进入产品派发API时，若原收尾未结束，只恢复同一Run，不重新POST。原Run不确定时按原源码、版本、时间及唯一Run身份只读确认，无法唯一确认则停止，不猜测。
 
 执行器在原Run真正completed后验收候选、发布成功交付或撤销失败草稿，确认新正式资产和Tag后再删除旧Release、旧Tag及同结果旧Run。删除计划在执行前持久化；Release已删除但Tag未删除的中断也能按原计划恢复。GitHub缓存按本平台、系统和架构保留最新已完成且可用的快照，活动Run的缓存及其它平台保持；新快照未确认时保留旧增量。GitHub成功结论和后续收尾错误分别如实记录；不能因清理错误改写真实Run结果或承诺跨资源事务回滚。

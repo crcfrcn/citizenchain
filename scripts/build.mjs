@@ -745,12 +745,19 @@ async function productGithubPages(request,path,field){
  fail('产品GitHub分页超限');
 }
 async function readRuntimeTarget(fetchImpl=fetch){
- const response=await fetchImpl('https://www.crcfrcn.com/api/chain/runtime-target',{redirect:'error',
-  headers:{Accept:'application/json','User-Agent':'CitizenChain-Wasm-Release/1'},signal:AbortSignal.timeout(15000)});
- if(!response.ok||!response.body)fail('WASM正式链目标读取失败');
+ let response;
+ try{response=await fetchImpl('https://www.crcfrcn.com/api/chain/runtime-target',{redirect:'error',
+  headers:{Accept:'application/json','User-Agent':'CitizenChain-Wasm-Release/1'},signal:AbortSignal.timeout(15000)});}
+ catch(cause){throw Error(product+' Build：WASM正式链目标请求失败',{cause});}
+ // 保留阶段、HTTP状态及原始cause，不另行记录响应正文；网络与身份校验均不降级。
+ if(!response.ok)fail('WASM正式链目标读取失败：HTTP '+response.status);
+ if(!response.body)fail('WASM正式链目标响应体缺失：HTTP '+response.status);
  const chunks=[];let size=0;
- for await(const chunk of response.body){size+=chunk.length;if(size>131072)fail('WASM正式链目标超限');chunks.push(chunk);}
- const value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
+ try{for await(const chunk of response.body){size+=chunk.length;if(size>131072)fail('WASM正式链目标超限');chunks.push(chunk);}}
+ catch(cause){throw Error(product+' Build：WASM正式链目标响应读取失败：HTTP '+response.status,{cause});}
+ let value;
+ try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));}
+ catch(cause){throw Error(product+' Build：WASM正式链目标响应解析失败：HTTP '+response.status,{cause});}
  const matches=[...readFileSync(join(root,'runtime/primitives/src/genesis.rs'),'utf8').matchAll(/pub const GENESIS_HASH:\s*\[u8;\s*32\]\s*=\s*hex_literal::hex!\("([0-9a-f]{64})"\);/gu)];
  if(Object.keys(value).sort().join(',')!=='finalized_head,genesis_hash,spec_name,spec_version'
   ||value.spec_name!=='citizenchain'||!Number.isInteger(value.spec_version)||value.spec_version<0||value.spec_version>=2**32
@@ -815,7 +822,8 @@ function prepareVersionProject(platform,work,version){
  }else{
   const config=join(project,'node/tauri.conf.json'),value=JSON.parse(readFileSync(config,'utf8'));value.version=version;writeFileSync(config,JSON.stringify(value,null,2)+'\n');
   replace(join(project,'node/Cargo.toml'),/^version\.workspace\s*=\s*true[^\n]*$/gmu,()=> 'version = "'+version+'" # 本轮交付版本，仅限任务副本');
-  replace(join(project,'Cargo.lock'),/(\[\[package\]\]\nname = "node"\nversion = ")[^"]+("\n)/gu,(_m,a,b)=>a+version+b);
+  // Windows检出可使用CRLF；只替换副本中唯一node包版本，捕获并原样保留换行。
+  replace(join(project,'Cargo.lock'),/(^\[\[package\]\]\r?\nname = "node"\r?\nversion = ")[^"\r\n]+("\r?\n)/gmu,(_m,a,b)=>a+version+b);
  }
  return project;
 }
@@ -3980,6 +3988,68 @@ test('WASM整数候选同时高于正式链和本平台成功版本',async()=>{
  assert.equal(plan.version,'7');assert.equal(checkedVersionPlan('wasm',plan),plan);
  assert.throws(()=>checkedVersionPlan('wasm',{...plan,version:'6'}),/候选版本/u);
 });
+test('WASM正式链读取保持准确接口及原有身份边界',async()=>{
+ const genesis=readFileSync(join(root,'runtime/primitives/src/genesis.rs'),'utf8').match(/pub const GENESIS_HASH:\s*\[u8;\s*32\]\s*=\s*hex_literal::hex!\("([0-9a-f]{64})"\);/u)[1];
+ const target={spec_name:'citizenchain',spec_version:1,genesis_hash:'0x'+genesis,finalized_head:'0x'+'a'.repeat(64)};
+ const received=await readRuntimeTarget(async(url,options)=>{
+  assert.equal(url,'https://www.crcfrcn.com/api/chain/runtime-target');assert.equal(options.redirect,'error');
+  assert.equal(options.headers.Accept,'application/json');assert.equal(options.headers['User-Agent'],'CitizenChain-Wasm-Release/1');
+  assert.ok(options.signal instanceof AbortSignal);return Response.json(target);
+ });
+ assert.deepEqual(received,target);
+ for(const change of [{spec_name:'other'},{spec_version:-1},{spec_version:2**32},{genesis_hash:'0x'+'f'.repeat(64)},{finalized_head:'invalid'},{extra:true}]){
+  await assert.rejects(()=>readRuntimeTarget(async()=>Response.json({...target,...change})),/正式链版本身份无效/u);
+ }
+});
+test('WASM读取失败保留HTTP阶段和原始cause且不另记响应正文',async()=>{
+ for(const status of [403,404,503]){
+  await assert.rejects(()=>readRuntimeTarget(async()=>new Response('upstream-body',{status})),error=>{
+   assert.match(error.message,new RegExp('读取失败：HTTP '+status));assert.doesNotMatch(error.message,/upstream-body/u);return true;
+  });
+ }
+ await assert.rejects(()=>readRuntimeTarget(async()=>new Response(null)),/响应体缺失：HTTP 200/u);
+ for(const original of [new Error('network-original'),new DOMException('timeout-original','TimeoutError')]){
+  await assert.rejects(()=>readRuntimeTarget(async()=>{throw original;}),error=>{
+   assert.match(error.message,/目标请求失败/u);assert.equal(error.cause,original);return true;
+  });
+ }
+ const streamError=new Error('stream-original');
+ await assert.rejects(()=>readRuntimeTarget(async()=>new Response(new ReadableStream({start(controller){controller.error(streamError);}}))),error=>{
+  assert.match(error.message,/响应读取失败：HTTP 200/u);assert.equal(error.cause,streamError);return true;
+ });
+ for(const body of ['invalid-json',new Uint8Array([255])]){
+  await assert.rejects(()=>readRuntimeTarget(async()=>new Response(body)),error=>{
+   assert.match(error.message,/响应解析失败：HTTP 200/u);assert.ok(error.cause instanceof Error);return true;
+  });
+ }
+ await assert.rejects(()=>readRuntimeTarget(async()=>new Response('x'.repeat(131073))),error=>{
+  assert.match(error.message,/响应读取失败：HTTP 200/u);assert.match(error.cause.message,/目标超限/u);return true;
+ });
+});
+test('版本工程副本兼容LF和CRLF且缺失或重复node包仍失败',()=>{
+ const originalPaths=['Cargo.lock','node/Cargo.toml','node/tauri.conf.json'];
+ const originals=originalPaths.map(path=>readFileSync(join(root,path)));
+ for(const eol of ['\n','\r\n'])for(const copies of [1,0,2]){
+  withFixedWorkSync('build/windows',work=>{
+   const project=join(work,'source');mkdirSync(join(project,'node'),{recursive:true});
+   writeFileSync(join(project,'node/tauri.conf.json'),JSON.stringify({version:'1.0.0'}));
+   writeFileSync(join(project,'node/Cargo.toml'),'[package]\nversion.workspace = true\n');
+   const node=['[[package]]','name = "node"','version = "1.0.0"',''].join(eol);
+   const other=['[[package]]','name = "other"','version = "1.0.0"',''].join(eol);
+   const source=other+eol+Array(copies).fill(node).join(eol),lock=join(project,'Cargo.lock');writeFileSync(lock,source);
+   if(copies===1){
+    assert.equal(prepareVersionProject('windows',work,'2.3.4'),project);
+    assert.equal(readFileSync(lock,'utf8'),other+eol+node.replace('version = "1.0.0"','version = "2.3.4"'));
+    assert.equal(JSON.parse(readFileSync(join(project,'node/tauri.conf.json'),'utf8')).version,'2.3.4');
+    assert.match(readFileSync(join(project,'node/Cargo.toml'),'utf8'),/^version = "2\.3\.4"/mu);
+   }else{
+    assert.throws(()=>prepareVersionProject('windows',work,'2.3.4'),/版本位置不唯一：Cargo\.lock/u);
+    assert.equal(readFileSync(lock,'utf8'),source);
+   }
+  });
+ }
+ originalPaths.forEach((path,index)=>assert.deepEqual(readFileSync(join(root,path)),originals[index]));
+});
 test('产品生成的节点安装验证按新Tag、准确Run和资产证明执行',()=>{
  const python=process.env.PRODUCT_TEST_PYTHON;assert.ok(python&&isAbsolute(python));
  const code=String.raw`import sys, json, re
@@ -4855,6 +4925,20 @@ async function resolveFinalizerRun(record,request,{pause,signal}){
  }
  fail('原派发Run尚未唯一确认，保留原请求，禁止重派');
 }
+// 派发回执的Run坐标先持久化；仅名称允许短暂未稳定，始终回读同一Run，不重新POST。
+async function confirmDispatchedRun(record,request,{pause=()=>new Promise(resolve=>setTimeout(resolve,5000)),signal,remember=()=>{}}={}){
+ const expected=productDeliveryName(record.platform,record.plan.version);let attempt=record.run_attempt;
+ for(let count=0;count<12;count++){
+  signal?.throwIfAborted();
+  const run=checkedFinalRun(record.platform,await request('actions/runs/'+record.run_id),record.run_id);
+  if(run.head_sha!==record.source_sha)fail('产品派发Run源码不符：'+record.run_id);
+  if(attempt!==null&&run.run_attempt!==attempt)fail('产品派发Run attempt变化：'+record.run_id);
+  attempt=run.run_attempt;remember(run);
+  if(run.display_title===expected)return run;
+  if(count<11)await pause();
+ }
+ fail('产品派发Run名称未在有界回读内匹配：'+record.run_id);
+}
 async function runProductFinalizer(platform,nonce,{request,pause=()=>new Promise(resolve=>setTimeout(resolve,5000)),signal}={}){
  let record=readFinalizerRecord(platform);if(!record||record.nonce!==nonce)fail('产品收尾进程身份无效');
  if(record.phase==='complete')return record.result;
@@ -4866,6 +4950,10 @@ async function runProductFinalizer(platform,nonce,{request,pause=()=>new Promise
   record={...record,owner_pid:process.pid,phase:'waiting'};writeFinalizerRecord(record);
   if(!Number.isSafeInteger(record.run_id)||record.run_id<1){
    record=await resolveFinalizerRun(record,call,{pause,signal});writeFinalizerRecord(record);
+  }
+  if(record.run_attempt===null){
+   const run=await confirmDispatchedRun(record,call,{pause,signal});
+   record={...record,run_attempt:run.run_attempt};writeFinalizerRecord(record);
   }
   for(let count=0;count<17280;count++){
    signal?.throwIfAborted();const run=checkedFinalRun(platform,await call('actions/runs/'+record.run_id),record.run_id);
@@ -4926,8 +5014,8 @@ async function automationRequest(path,token,{method='GET',body}={}){
     record=await resolveFinalizerRun(record,request,{pause:transport?.pause||(()=>new Promise(resolve=>setTimeout(resolve,5000)))});
     writeFinalizerRecord(record);
    }
-   const run=checkedFinalRun(platform,await request('actions/runs/'+record.run_id),record.run_id);
-   if(run.run_attempt!==record.run_attempt||run.head_sha!==record.source_sha)fail('原收尾Run身份变化，禁止重新派发');
+   const run=await confirmDispatchedRun(record,request,{pause:transport?.pause});
+   record={...record,run_attempt:run.run_attempt};writeFinalizerRecord(record);
    const lock=join(finalizerDirectory(platform),'worker.lock/owner.json');let running=false;
    if(existsSync(lock)){
     const info=lstatSync(lock);if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||info.size>4096)fail('产品收尾锁无效');
@@ -4968,9 +5056,11 @@ async function automationRequest(path,token,{method='GET',body}={}){
   if(reservation){
    if(!Number.isSafeInteger(value.workflow_run_id)||value.workflow_run_id<1||value.html_url!=='https://github.com/'+automationRepository+'/actions/runs/'+value.workflow_run_id)
     fail('产品派发缺少准确Run，保留状态，禁止重发');
-   const run=checkedFinalRun(reservation.platform,await automationRequest('actions/runs/'+value.workflow_run_id,token),value.workflow_run_id);
-   if(run.head_sha!==reservation.source_sha||run.display_title!==productDeliveryName(reservation.platform,reservation.plan.version))fail('产品派发Run版本或源码不符');
-   reservation={...reservation,run_id:run.id,run_attempt:run.run_attempt};writeFinalizerRecord(reservation);
+   reservation={...reservation,run_id:value.workflow_run_id};writeFinalizerRecord(reservation);
+   await confirmDispatchedRun(reservation,(path,options)=>automationRequest(path,token,options),{
+    pause:transport?.pause,remember:run=>{
+     reservation={...reservation,run_attempt:run.run_attempt};writeFinalizerRecord(reservation);
+    }});
    if(inlineTestEntry){if(typeof transport?.launchFinalizer!=='function')fail('测试未提供执行器替身');transport.launchFinalizer(reservation);}else launchFinalizer(reservation);
   }
   return value;
@@ -5163,13 +5253,14 @@ export const automationClient=Object.freeze({prepareVersionPlan,settleProductRun
 // 合成回归只替换产品GitHub和进程IO，不使用控制台或真实凭据。
 if(inlineTestEntry){
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
- test('独立派发先确定版本，只发起一次且由产品启动Run外收尾',async()=>{
+ test('独立派发先保存Run坐标，有界等候名称且恢复仍只派发一次',async()=>{
   const platform=Object.keys(automationWorkflows)[0],workflow=automationWorkflows[platform],sha='a'.repeat(40);
   const run={id:731,run_number:1,run_attempt:1,path:'.github/workflows/'+workflow,event:'workflow_dispatch',head_branch:'main',
    head_sha:sha,repository:{full_name:automationRepository},status:'in_progress',conclusion:null,
    display_title:productDeliveryName(platform,sourceNodeVersion()),html_url:'https://github.com/'+automationRepository+'/actions/runs/731'};
-  for(const mode of ['success','ambiguous','wrong']){
-   let dispatches=0,launched=0;
+  for(const mode of ['success','delayed','name-timeout','ambiguous','wrong-source','wrong-workflow','attempt-drift','read-failure']){
+   let dispatches=0,launched=0,reads=0,pauses=0,recovering=false;
+   const originalReadError=Error('dispatch-read-original');
    const existing=readFinalizerRecord(platform);if(existing)unlinkSync(join(finalizerDirectory(platform),'current.json'));
    const fetchImpl=async(url,options)=>{
     const path=new URL(url).pathname;
@@ -5181,14 +5272,42 @@ if(inlineTestEntry){
      assert.equal(body.inputs.version,sourceNodeVersion());assert.equal(plan.source_sha,sha);assert.equal(plan.platform,platform);
      return mode==='ambiguous'?new Response(null,{status:204}):Response.json({workflow_run_id:731,html_url:run.html_url});
     }
-    assert.ok(path.endsWith('/runs/731'));return Response.json(mode==='wrong'?{...run,head_sha:'invalid'}:run);
+    assert.ok(path.endsWith('/runs/731'));reads++;
+    // 第一次GET之前回执坐标必须已保存，即使该GET真实失败也不能丢失原Run。
+    assert.equal(readFinalizerRecord(platform).run_id,731);
+    if(mode==='read-failure'&&!recovering)throw originalReadError;
+    if(recovering)return Response.json(run);
+    if(mode==='wrong-source')return Response.json({...run,head_sha:'b'.repeat(40)});
+    if(mode==='wrong-workflow')return Response.json({...run,path:'.github/workflows/other.yml'});
+    if(mode==='attempt-drift')return Response.json({...run,display_title:'pending',run_attempt:reads===1?1:2});
+    const pending=mode==='name-timeout'||mode==='delayed'&&reads<=2;
+    return Response.json(pending?{...run,display_title:'pending'}:run);
    };
    try{
-    const operation=()=>automationTransport.run({fetchImpl,finalizerExecutable:process.execPath,launchFinalizer:record=>{
-     launched++;assert.equal(record.run_id,731);assert.equal(record.source_sha,sha);
+    const operation=()=>automationTransport.run({fetchImpl,finalizerExecutable:process.execPath,pause:async()=>{
+     pauses++;assert.equal(dispatches,1);assert.equal(launched,0);
+     const saved=readFinalizerRecord(platform);assert.equal(saved.run_id,731);assert.equal(saved.run_attempt,1);
+    },launchFinalizer:record=>{
+     launched++;assert.equal(record.run_id,731);assert.equal(record.run_attempt,1);assert.equal(record.source_sha,sha);
     }},()=>dispatchAutomation(platform,'fixture'));
-    if(mode==='success'){assert.equal((await operation()).id,731);assert.equal(launched,1);}
-    else{await assert.rejects(operation);assert.equal(launched,0);assert.equal(readFinalizerRecord(platform).phase,'failed');}
+    if(mode==='success'||mode==='delayed'){
+     assert.equal((await operation()).id,731);assert.equal(launched,1);assert.equal(pauses,mode==='delayed'?2:0);
+    }else{
+     const pattern={'name-timeout':/名称未在有界回读内匹配/u,ambiguous:/缺少准确Run/u,
+      'wrong-source':/Run源码不符/u,'wrong-workflow':/Run 身份不符/u,'attempt-drift':/attempt变化/u};
+     if(mode==='read-failure')await assert.rejects(operation,error=>error===originalReadError);
+     else await assert.rejects(operation,pattern[mode]);
+     assert.equal(launched,0);const saved=readFinalizerRecord(platform);assert.equal(saved.phase,'failed');
+     assert.equal(saved.run_id,mode==='ambiguous'?null:731);
+     if(mode==='name-timeout'){assert.equal(reads,12);assert.equal(pauses,11);assert.equal(saved.run_attempt,1);}
+     if(mode==='wrong-source'||mode==='wrong-workflow'){assert.equal(reads,1);assert.equal(pauses,0);}
+     if(mode==='attempt-drift'){assert.equal(reads,2);assert.equal(pauses,1);assert.equal(saved.run_attempt,1);}
+     if(mode==='read-failure'||mode==='name-timeout'){
+      if(mode==='read-failure'){assert.equal(saved.run_attempt,null);assert.equal(saved.error,originalReadError.message);}
+      recovering=true;assert.equal((await operation()).id,731);assert.equal(launched,1);
+      assert.equal(readFinalizerRecord(platform).run_attempt,1);
+     }
+    }
     assert.equal(dispatches,1);
    }finally{const record=readFinalizerRecord(platform);if(record)unlinkSync(join(finalizerDirectory(platform),'current.json'));}
   }
