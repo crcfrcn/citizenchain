@@ -1,5 +1,5 @@
-name: citizenchain.linux-amd
-run-name: "公民链·LinuxAMD-v1.0.0"
+name: "公民链·LinuxAMD"
+run-name: "公民链·LinuxAMD·v1.0.0"
 on:
   workflow_dispatch:
 concurrency:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 jobs:
   release:
-    name: "公民链·LinuxAMD-v1.0.0"
+    name: "公民链·LinuxAMD·v1.0.0"
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -84,8 +84,10 @@ jobs:
           tag="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.tag)' "$plan")"
           notes="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.notes)' "$plan")"
           title="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.title)' "$plan")"
-          assets="$GITHUB_WORKSPACE/target/build/linux-amd/release-assets"
-          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
+          upload_arguments="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.uploads.join("\n"))' "$plan")"
+          uploads=()
+          while IFS= read -r item; do uploads+=("$item"); done <<< "$upload_arguments"
+          gh release create "$tag" "${uploads[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
           node scripts/build.mjs ci-verify-release linux-amd draft
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
           node scripts/build.mjs ci-verify-release linux-amd published
@@ -95,6 +97,7 @@ jobs:
         run: |
           if [ -d "target/build/linux-amd" ]; then node scripts/build.mjs finish linux-amd; fi
   finalize:
+    name: "公民链·LinuxAMD·v1.0.0"
     needs: [release]
     if: ${{ always() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04

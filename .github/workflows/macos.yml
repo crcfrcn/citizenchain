@@ -1,5 +1,5 @@
-name: citizenchain.macos
-run-name: "公民链·macOS-v1.0.0"
+name: "公民链·macOS"
+run-name: "公民链·macOS·v1.0.0"
 on:
   workflow_dispatch:
 concurrency:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 jobs:
   release:
-    name: "公民链·macOS-v1.0.0"
+    name: "公民链·macOS·v1.0.0"
     if: github.ref == 'refs/heads/main'
     runs-on: xcode-27
     timeout-minutes: 360
@@ -39,8 +39,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$APPLE_CERTIFICATE_BASE64" && test -n "$APPLE_CERTIFICATE_PASSWORD" && test -n "$APPLE_PROFILE_BASE64" && test -n "$TAURI_SIGNING_PRIVATE_KEY"
-          xcodebuild -version | grep -q '^Xcode 27'
+          # 保留既有四项签名输入要求，逐项报告缺件，不输出材料或派生值。
+          for required in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_PROFILE_BASE64 TAURI_SIGNING_PRIVATE_KEY; do
+            test -n "${!required:-}" || { echo "缺少GitHub签名配置：$required" >&2; exit 1; }
+          done
+          # 完整收取版本输出，避免grep提前关闭管道令xcodebuild写入Broken pipe。
+          xcode_version="$(xcodebuild -version)"
+          printf '%s\n' "$xcode_version" | grep '^Xcode 27'
           brew install bash postgresql@17
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-aarch_64.zip
           echo '45444963204757fd3e2fbe304bc1fdadfb488d8556ff099c4cc06575eab88976  '"$RUNNER_TEMP/protoc.zip" | shasum -a 256 --check
@@ -97,8 +102,10 @@ jobs:
           tag="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.tag)' "$plan")"
           notes="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.notes)' "$plan")"
           title="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.title)' "$plan")"
-          assets="$GITHUB_WORKSPACE/target/build/macos/release-assets"
-          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
+          upload_arguments="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.uploads.join("\n"))' "$plan")"
+          uploads=()
+          while IFS= read -r item; do uploads+=("$item"); done <<< "$upload_arguments"
+          gh release create "$tag" "${uploads[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
           node scripts/build.mjs ci-verify-release macos draft
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
           node scripts/build.mjs ci-verify-release macos published
@@ -108,6 +115,7 @@ jobs:
         run: |
           if [ -d target/build/macos ]; then node scripts/build.mjs finish macos; fi
   finalize:
+    name: "公民链·macOS·v1.0.0"
     needs: [release]
     if: ${{ always() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04

@@ -3325,13 +3325,15 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 
 WASM只由本仓`.github/workflows/wasm.yml`执行。GitHub准备阶段以固定产品User-Agent从公民服务端固定公开只读`https://www.crcfrcn.com/api/chain/runtime-target`读取同一finalized锚点的链上版本与真实块0哈希；CitizenServe Worker独自持有Access身份并经既有Tunnel访问国储会。预期创世哈希只从`runtime/primitives/src/genesis.rs`唯一冻结常量读取，不另设GitHub变量或向GitHub交付Cloudflare凭据。缺件、错链或请求失败立即失败，不重试。生成的spec_version取本仓源码版本、已成功产物版本和链上版本加一的最大值，写入本次临时构建源码，不回写main。链上未升级时可复用同一协议版本，正式tag包含本次Run和attempt，准确指向本仓源码提交。
 
-正式WASM编译由本仓`scripts/build.mjs ci-build wasm`在固定`target/build/wasm`任务会话中只构建与校验三件Runtime WASM；已验真的`target/cache/wasm`只复用依赖的Cargo中间物，排除Runtime本体与`wbuild`，本轮仍从准确源码版本重编并验真正式资产；GitHub工作流只恢复和保存本平台缓存，不借用任何节点平台缓存，保存先于Release。Clippy与原生Node政策探针不在WASM编译阶段运行。节点候选政策验收在后续升级验收中消费准确正式WASM字节，必须实际执行且不得走缺WASM跳过路径。三件WASM逐件上传和回读：Release资产摘要是上传文件原始字节的SHA-256，产品目录回执仍采用含目录/文件元信息的`outputDigest`，两者不得混用；草稿Release先从有写权限的分页列表按本次Tag定位唯一数字ID，再按ID独立回读完整资产；正式发布后继续按Tag回读。两个阶段均严格核对源码提交、状态、说明正文和逐件摘要，草稿校验失败不得转为发布。来源正文保留链目标证明。本仓负责自己的正式Release及同目标同结果历史清理。控制台只调用、跟踪和展示此自动化；其专属开发升级从成功wasm产物消费三件已证明资产，再执行冷签和提交，不生成自动化版本，也不替本仓读取链来阻止派发。配置原件归所属GitHub仓，本次源码修改没有向GitHub写入机密或部署配置。
+正式WASM编译由本仓`scripts/build.mjs ci-build wasm`在固定`target/build/wasm`任务会话中只构建与校验三件Runtime WASM；已验真的`target/cache/wasm`只复用依赖的Cargo中间物，排除Runtime本体与`wbuild`，本轮仍从准确源码版本重编并验真正式资产；GitHub工作流只恢复和保存本平台缓存，不借用任何节点平台缓存，保存先于Release。Clippy与原生Node政策探针不在WASM编译阶段运行。节点候选政策验收在后续升级验收中消费准确正式WASM字节，必须实际执行且不得走缺WASM跳过路径。三件WASM逐件上传和回读：Release资产摘要是上传文件原始字节的SHA-256，产品目录回执仍采用含目录/文件元信息的`outputDigest`，两者不得混用；草稿Release先从有写权限的分页列表按本次Tag定位唯一数字ID，再按ID独立回读完整资产；逐件核对不重复的正整数资产ID、本仓准确资产API地址、名称、uploaded状态、大小及原始字节SHA-256，草稿的临时浏览地址不作为正式Tag下载地址。正式发布后继续按Tag回读，并严格核对公开下载地址。两个阶段均严格核对源码提交、状态、说明正文和逐件摘要，失败时准确报告阶段、资产名与不符字段，不记录机密或响应正文；草稿校验失败不得转为发布。来源正文保留链目标证明。本仓负责自己的正式Release及同目标同结果历史清理。控制台只调用、跟踪和展示此自动化；其专属开发升级从成功wasm产物消费三件已证明资产，再执行冷签和提交，不生成自动化版本，也不替本仓读取链来阻止派发。配置原件归所属GitHub仓，本次源码修改没有向GitHub写入机密或部署配置。
 
 
 ### 本仓 GitHub 自动化与塔塔门禁目录
 
 `.github/` 仅保留 `workflows/` 与 `tatagate/` 两个目录。`workflows/` 持有本仓自动化；`tatagate/` 仅保留 `tatagate.json` 与 `tatagate.mjs`。前者登记本仓门禁合同，后者保留正式门禁实现与测试报告器，测试代码统一位于正式代码之后。直接运行执行门禁命令，测试运行只执行末尾测试，普通导入不注册测试；本仓测试清单及逐文件成功回执使用同一个门禁文件且仅执行一次。
 ## 塔塔自动化远端任务归属
+
+WASM唯一版本就是实际产物中的整数spec_version，不建立SemVer或其它发布版本。控制台任务标题为“公民链·塔塔自动化·WASM”，固定Workflow为“公民链·WASM”，每次Run、Job、Release和产物显示为“公民链·WASM·v<spec_version>”，中点两侧无空格。三件协议文件仍使用既有固定名称；GitHub下载显示label分别使用版本化交付主名加.wasm、.compact.wasm、.compact.compressed.wasm后缀，上传与回读均来自产品计划，不重命名协议输入。WASM阶段回归直接构造版本确定后的三件资产计划，再调用真实验收入口，不为回归改写主仓spec_version。
 
 WASM自动化沿用自己的增量缓存和版本规则。整个Run成功后由本产品只读回验本平台Run保留数量、唯一正式Release、来源证明、完整三件WASM资产及Tag的源码提交；业务Job成功不替代整个Run终态，收尾或回验失败据实登记失败。四节点平台与WASM之间没有执行依赖，历史清理不删除有效缓存；本步骤不执行Runtime开发升级或链上提交。
 

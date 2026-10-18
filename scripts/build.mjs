@@ -435,16 +435,15 @@ export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope=
 }
 // 测试继承当前平台现场；独立执行没有任务身份时才选产品首个平台。
 export const testRoot=platform=>{
- const workflow=String(process.env.GITHUB_WORKFLOW||'').split('.');
+ const workflow=workflowPlatformName(process.env.GITHUB_WORKFLOW);
  const local=process.env.TMPDIR?relative(join(root,'target'),resolve(process.env.TMPDIR)).split(sep)[0]:undefined;
- const inherited=workflow[0]===product&&Object.hasOwn(contract.platforms,workflow[1])?workflow[1]
-  :Object.hasOwn(contract.platforms,local)?local:undefined;
+ const inherited=workflow|| (Object.hasOwn(contract.platforms,local)?local:undefined);
  return temporaryRoot(platform||inherited||Object.keys(contract.platforms)[0],'test');
 };
 // 远端Runner基础设施仍归GitHub；本产品步骤的可写临时目录归准确平台流程target。
 export function remoteEnvironment(environment=process.env) {
- const [id,platform,...extra]=String(environment.GITHUB_WORKFLOW||'').split('.');
- if(id!==product||extra.length||!Object.hasOwn(contract.platforms,platform))fail('远端临时目录缺少准确产品平台流程身份');
+ const platform=workflowPlatformName(environment.GITHUB_WORKFLOW);
+ if(!platform)fail('远端临时目录缺少准确产品平台流程身份');
  const temporary=temporaryRoot(platform,'build',null);
  return {...environment,RUNNER_TEMP:temporary,TMPDIR:temporary,TMP:temporary,TEMP:temporary};
 }
@@ -701,12 +700,53 @@ function nodeDeliveryVersion(){
 function nodeDeliveryName(platform,version=nodeDeliveryVersion()){
  const display={macos:'macOS',windows:'Windows','linux-arm':'LinuxARM','linux-amd':'LinuxAMD'}[platform];
  if(!display||typeof version!=='string'||!/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u.test(version))fail('节点交付名称无效');
- return `公民链·${display}-v${version}`;
+ return `公民链·${display}·v${version}`;
 }
 function nodeDeliveryFiles(platform){
  const extensions={macos:['.app'],windows:['.exe','.exe.sig'],'linux-arm':['.deb','.AppImage','.AppImage.sig'],'linux-amd':['.deb','.AppImage','.AppImage.sig']}[platform];
  if(!extensions)fail('节点交付平台无效');
  const name=nodeDeliveryName(platform);return extensions.map(extension=>name+extension);
+}
+// 任务显示与交付显示分别生成，记录身份仍由产品、流程、平台字段确定。
+function productTaskName(platform){
+ const display={macos:'macOS',windows:'Windows','linux-arm':'LinuxARM','linux-amd':'LinuxAMD',wasm:'WASM'}[platform];
+ if(!display)fail('任务平台无效');return '公民链·塔塔自动化·'+display;
+}
+function productDeliveryName(platform,version){
+ if(platform!=='wasm')return nodeDeliveryName(platform,version);
+ if(typeof version!=='string'||!/^[1-9][0-9]*$/u.test(version)||BigInt(version)>=2n**32n)fail('WASM版本无效');
+ return '公民链·WASM·v'+version;
+}
+function workflowPlatformName(title){
+ const match=/^公民链·(macOS|Windows|LinuxARM|LinuxAMD|WASM)$/u.exec(String(title||''));
+ return match?{macOS:'macos',Windows:'windows',LinuxARM:'linux-arm',LinuxAMD:'linux-amd',WASM:'wasm'}[match[1]]:undefined;
+}
+function githubWorkflowTitle(platform){
+ const file={macos:'macos.yml',windows:'windows.yml','linux-arm':'linuxarm.yml','linux-amd':'linuxamd.yml',wasm:'wasm.yml'}[platform];
+ if(!file)fail('Workflow平台无效');
+ const source=readFileSync(join(root,'.github/workflows',file),'utf8'),names=source.split(/\r?\n/u).filter(line=>line.startsWith('name: '));
+ if(names.length!==1)fail('Workflow显示名称不唯一');
+ const title=JSON.parse(names[0].slice(6)),expected=productTaskName(platform).replace('·塔塔自动化·','·');
+ if(title!==expected)fail('Workflow显示名称无效');return title;
+}
+// 固定Workflow目录不含版本；每次Run与Job共同使用本次交付名称。
+function githubRunTitle(platform){
+ const file={macos:'macos.yml',windows:'windows.yml','linux-arm':'linuxarm.yml','linux-amd':'linuxamd.yml',wasm:'wasm.yml'}[platform];
+ if(!file)fail('Workflow平台无效');
+ const source=readFileSync(join(root,'.github/workflows',file),'utf8'),names=source.split(/\r?\n/u).filter(line=>line.startsWith('run-name: '));
+ if(names.length!==1)fail('Run显示名称不唯一');
+ const title=JSON.parse(names[0].slice(10)),prefix=githubWorkflowTitle(platform)+'·v';
+ if(typeof title!=='string'||!title.startsWith(prefix)||productDeliveryName(platform,title.slice(prefix.length))!==title)fail('Run显示名称无效');
+ return title;
+}
+// WASM协议文件名保持原合同，GitHub资产label使用同一交付名称及文件类型后缀。
+function githubAssetLabel(platform,version,name){
+ const title=productDeliveryName(platform,version);
+ if(platform==='wasm'){
+  if(!contract.platforms.wasm.files.includes(name))fail('WASM资产名无效');
+  return title+name.slice('citizenchain'.length);
+ }
+ if(!githubReleaseFiles(platform,version).includes(name))fail('节点资产名无效');return name;
 }
 function githubReleaseFiles(platform,version){
  if(platform==='wasm')return [...contract.platforms.wasm.files];
@@ -740,6 +780,7 @@ async function prepareGithubAssets(platform,work,result,environment){
   if(values.length!==1||!Number.isSafeInteger(Number(values[0][1]))||Number(values[0][1])<1)fail('WASM版本真源无效');return values[0][1];
  })():nodeDeliveryVersion();
  if(platform!=='wasm'&&!/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u.test(version))fail('节点版本无效');
+ if(productDeliveryName(platform,version)!==githubRunTitle(platform))fail('本次版本与GitHub列表名称不一致');
  const tag=`citizenchain-${platform}-v${version}-r${run}-a${attempt}`;
  const directory=join(work,'release-assets');mkdirSync(directory,{mode:0o700});
  const owned=[];
@@ -778,14 +819,15 @@ async function prepareGithubAssets(platform,work,result,environment){
   update={version,platforms:{[updateTarget]:{signature,url}}};
   const manifest=join(directory,manifestName);writeFileSync(manifest,JSON.stringify(update)+'\n',{flag:'wx',mode:0o600});owned.push(manifest);
  }
- const assets=owned.map(path=>({name:basename(path),size:lstatSync(path).size,sha256:releaseAssetSha256(path)})).sort((a,b)=>a.name.localeCompare(b.name));
+ const assets=owned.map(path=>({name:basename(path),label:githubAssetLabel(platform,version,basename(path)),size:lstatSync(path).size,sha256:releaseAssetSha256(path)})).sort((a,b)=>a.name.localeCompare(b.name));
  if(JSON.stringify(assets.map(asset=>asset.name).sort())!==JSON.stringify(githubReleaseFiles(platform,version).sort()))fail('本平台Release交付集合不完整');
  const proof={schema:1,repository:'crcfrcn/citizenchain',product_id:product,platform,
   workflow:`.github/workflows/${{macos:'macos.yml',windows:'windows.yml','linux-arm':'linuxarm.yml','linux-amd':'linuxamd.yml',wasm:'wasm.yml'}[platform]}`,
   run_id:Number(run),run_attempt:Number(attempt),source_sha:environment.GITHUB_SHA,tag,version,assets};
  const notes=join(work,'release-notes.txt');writeFileSync(notes,`<!-- automation:${JSON.stringify(proof)} -->\n`,{flag:'wx',mode:0o600});
- const title=platform==='wasm'?`公民链·WASM-v${version}`:nodeDeliveryName(platform,version);
- const plan={schema:1,platform,tag,title,source_sha:environment.GITHUB_SHA,assets,directory,notes};
+ const title=productDeliveryName(platform,version);
+ const uploads=assets.map(asset=>join(directory,asset.name)+'#'+asset.label);
+ const plan={schema:1,platform,version,tag,title,source_sha:environment.GITHUB_SHA,assets,directory,notes,uploads};
  writeFileSync(join(work,'release-plan.json'),JSON.stringify(plan)+'\n',{flag:'wx',mode:0o600});
  return plan;
 }
@@ -1376,10 +1418,13 @@ async function buildFrontendIncrementally(platform,name,work,source,destination,
  renameSync(candidate,current);
 }
 
+// 原生CI和缓存回读共用同一平台环境，成对交付原产品与固定任务身份。
+function nativePlatformEnvironment(platform,work,environment){
+ return platformCargoEnvironment(platform,work,{...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',CARGO_INCREMENTAL:'1',
+  CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_SOURCE_ROOT:root,CITIZENCHAIN_WORK_DIR:work,PRODUCT_WORK_DIR:work});
+}
 async function runNativePlatform(platform,work,environment){
- const base={...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',CARGO_INCREMENTAL:'1',
-  CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_WORK_DIR:work,PRODUCT_WORK_DIR:work};
- const env=platformCargoEnvironment(platform,work,base);
+ const env=nativePlatformEnvironment(platform,work,environment);
  restoreBuildCache(platform,work,env);
  mkdirSync(env.CARGO_TARGET_DIR,{recursive:true});
  await runNodePrebuildTests(platform,work,env);
@@ -1460,7 +1505,7 @@ if(inlineTestEntry){
     const head=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).stdout.trim();
     const github={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'crcfrcn/citizenchain',
      GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',
-     GITHUB_WORKFLOW:'citizenchain.windows',GITHUB_SHA:head};
+     GITHUB_WORKFLOW:githubWorkflowTitle('windows'),GITHUB_SHA:head};
     assert.equal(githubCacheReady('windows',github),true);
     assert.equal(githubCacheReady('windows',{...github,RUSTFLAGS:'different'}),false);
     assert.throws(()=>githubCacheReady('linux-arm',github),/GitHub编译身份无效/);
@@ -1513,22 +1558,27 @@ export async function buildDirect(platform,environment=process.env){
  },{environment});
 }
 
+// Workflow按文本行验名；Windows检出的CRLF与LF表达同一份声明。
+function assertGithubWorkflowNames(platform,source){
+ const title=nodeDeliveryName(platform),workflow=productTaskName(platform).replace('·塔塔自动化·','·'),lines=source.split(/\r?\n/u);
+ if(!lines.includes('name: "'+workflow+'"')||!lines.includes('run-name: "'+title+'"')||!lines.includes('    name: "'+title+'"'))
+  fail('节点自动化名称与正式版本不一致');
+}
 function assertGithubBuildIdentity(platform,environment){
  const workflow={macos:'macos.yml',windows:'windows.yml','linux-arm':'linuxarm.yml','linux-amd':'linuxamd.yml',wasm:'wasm.yml'}[platform];
  if(!workflow||environment.GITHUB_ACTIONS!=='true'||environment.GITHUB_REPOSITORY!=='crcfrcn/citizenchain'
   ||environment.GITHUB_REF!=='refs/heads/main'||environment.GITHUB_EVENT_NAME!=='workflow_dispatch'
-  ||environment.GITHUB_WORKFLOW!=='citizenchain.'+platform||!/^[0-9a-f]{40}$/u.test(environment.GITHUB_SHA||''))fail('GitHub编译身份无效');
+  ||environment.GITHUB_WORKFLOW!==githubWorkflowTitle(platform)||!/^[0-9a-f]{40}$/u.test(environment.GITHUB_SHA||''))fail('GitHub编译身份无效');
  const head=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'});
  if(head.status!==0||head.stdout.trim()!==environment.GITHUB_SHA)fail('GitHub源码提交不匹配');
  if(platform!=='wasm'){
-  const title=nodeDeliveryName(platform),source=readFileSync(join(root,'.github/workflows',workflow),'utf8');
-  if(!source.split('\n').includes('run-name: "'+title+'"')||!source.split('\n').includes('    name: "'+title+'"'))
-   fail('节点自动化名称与正式版本不一致');
+  assertGithubWorkflowNames(platform,readFileSync(join(root,'.github/workflows',workflow),'utf8'));
  }
 }
 export async function buildForGithub(platform,environment=process.env){
  assertGithubBuildIdentity(platform,environment);
- await assertFreshGithubVersion(platform,environment);
+ const version=await assertFreshGithubVersion(platform,environment);
+ if(productDeliveryName(platform,version)!==githubRunTitle(platform))fail('本次版本与GitHub列表名称不一致');
  return withFixedWork('build/'+platform,async work=>{
   const {env,result}=await runNativePlatform(platform,work,environment);
   await prepareGithubAssets(platform,work,result,env);
@@ -1540,24 +1590,22 @@ export async function buildForGithub(platform,environment=process.env){
 function githubCacheReady(platform,environment=process.env){
  assertGithubBuildIdentity(platform,environment);
  const work=fixedWork('build/'+platform);
- const base={...environment,NODE:process.execPath,CARGO:environment.CARGO||'cargo',CARGO_INCREMENTAL:'1',
-  CARGO_TARGET_DIR:join(work,'work/cargo-target'),CITIZENCHAIN_WORK_DIR:work,PRODUCT_WORK_DIR:work};
- return verifiedPlatformCacheForUpload(platform,platformCargoEnvironment(platform,work,base));
+ return verifiedPlatformCacheForUpload(platform,nativePlatformEnvironment(platform,work,environment));
 }
 
 export async function verifyGithubRelease(platform,phase,environment=process.env,{fetchImpl=fetch}={}){
  if(!['draft','published'].includes(phase)||environment.GITHUB_ACTIONS!=='true'||environment.GITHUB_REPOSITORY!=='crcfrcn/citizenchain'
-  ||environment.GITHUB_WORKFLOW!=='citizenchain.'+platform)fail('GitHub Release核验身份无效');
+  ||environment.GITHUB_WORKFLOW!==githubWorkflowTitle(platform))fail('GitHub Release核验身份无效');
  const work=fixedWork('build/'+platform);checkFixedWork(work);
  const plan=JSON.parse(readFileSync(join(work,'release-plan.json'),'utf8'));
- if(plan.platform!==platform||plan.source_sha!==environment.GITHUB_SHA||!Array.isArray(plan.assets)
+ if(plan.platform!==platform||plan.title!==productDeliveryName(platform,plan.version)||plan.source_sha!==environment.GITHUB_SHA||!Array.isArray(plan.assets)
   ||plan.directory!==join(work,'release-assets')||plan.notes!==join(work,'release-notes.txt'))fail('本轮Release计划无效');
  const token=environment.GH_TOKEN||environment.GITHUB_TOKEN;
  if(typeof token!=='string'||!token)fail('缺少GitHub核验令牌');
  const base='https://api.github.com/repos/crcfrcn/citizenchain/releases';
  const read=async url=>{
   const response=await fetchImpl(url,{redirect:'error',headers:{Accept:'application/vnd.github+json',Authorization:'Bearer '+token,'X-GitHub-Api-Version':'2022-11-28'}});
-  if(!response.ok)fail('GitHub Release回读失败');
+  if(!response.ok)fail('GitHub Release回读失败：HTTP '+response.status+' '+new URL(url).pathname);
   return response.json();
  };
  let release;
@@ -1581,13 +1629,23 @@ export async function verifyGithubRelease(platform,phase,environment=process.env
   ||release.name!==plan.title||release.draft!==(phase==='draft')||phase==='published'&&!release.published_at
   ||release.body?.trim()!==readFileSync(plan.notes,'utf8').trim())fail('GitHub Release身份或状态不符');
  if(!Array.isArray(release.assets)||release.assets.length!==plan.assets.length)fail('GitHub Release资产数量不符');
+ const assetIds=new Set();
  for(const expected of plan.assets){
   const path=join(plan.directory,expected.name),local=lstatSync(path);
   if(!local.isFile()||local.isSymbolicLink()||local.size!==expected.size||releaseAssetSha256(path)!==expected.sha256)fail('本轮资产字节已改变');
+  const mismatch=field=>fail('GitHub Release资产回读不符：'+expected.name+'（'+phase+'：'+field+'）');
   const matches=release.assets.filter(value=>value.name===expected.name);
-  if(matches.length!==1||matches[0].state!=='uploaded'||matches[0].size!==expected.size
-   ||matches[0].digest!=='sha256:'+expected.sha256||!matchesGithubReleaseAssetUrl(plan.tag,expected.name,matches[0].browser_download_url))
-   fail('GitHub Release资产回读不符：'+expected.name);
+  if(matches.length!==1)mismatch('name');
+  const asset=matches[0];
+  // 资产归属来自已按ID回读的Release；草稿临时浏览地址不代表正式Tag下载地址。
+  if(!Number.isSafeInteger(asset.id)||asset.id<=0||assetIds.has(asset.id))mismatch('id');
+  assetIds.add(asset.id);
+  if(asset.url!==base+'/assets/'+asset.id)mismatch('url');
+  if(expected.label!==githubAssetLabel(platform,plan.version,expected.name))mismatch('label');
+  for(const [field,value]of Object.entries({label:expected.label,state:'uploaded',size:expected.size,digest:'sha256:'+expected.sha256}))
+   if(asset[field]!==value)mismatch(field);
+  // 公开下载地址只在正式发布阶段验真，其它身份、状态和原始字节摘要两阶段均核对。
+  if(phase==='published'&&!matchesGithubReleaseAssetUrl(plan.tag,expected.name,asset.browser_download_url))mismatch('browser_download_url');
  }
  return {platform,tag:plan.tag,phase};
 }
@@ -1600,7 +1658,7 @@ export async function finalizeGithubHistory(platform,request,environment=process
   ||!Number.isSafeInteger(request.run_id)||request.run_id<1||!Number.isSafeInteger(request.run_attempt)||request.run_attempt<1
   ||!/^[0-9a-f]{40}$/u.test(request.source_sha||'')||!['success','failure','cancelled','skipped'].includes(request.business_result))fail('历史收尾坐标无效');
  if(environment.GITHUB_ACTIONS!=='true'||environment.GITHUB_REPOSITORY!=='crcfrcn/citizenchain'
-  ||environment.GITHUB_WORKFLOW!=='citizenchain.'+platform||environment.GITHUB_EVENT_NAME!=='workflow_dispatch'
+  ||environment.GITHUB_WORKFLOW!==githubWorkflowTitle(platform)||environment.GITHUB_EVENT_NAME!=='workflow_dispatch'
   ||environment.GITHUB_REF!=='refs/heads/main'||environment.GITHUB_SHA!==request.source_sha
   ||environment.GITHUB_RUN_ID!==String(request.run_id)||environment.GITHUB_RUN_ATTEMPT!==String(request.run_attempt))
   fail('历史收尾必须属于本仓本平台原Workflow');
@@ -1636,15 +1694,16 @@ export async function finalizeGithubHistory(platform,request,environment=process
  const source=checkedRun(await call('/actions/runs/'+request.run_id));
  if(source.id!==request.run_id||source.run_attempt!==request.run_attempt||source.head_sha!==request.source_sha)fail('历史收尾Run坐标已变化');
  if(source.status!=='in_progress')fail('本平台收尾必须在原Workflow执行中完成');
- const businessName=platform==='wasm'?'release':nodeDeliveryName(platform);
+ const businessName=githubRunTitle(platform);
  const jobs=await pages('/actions/runs/'+source.id+'/attempts/'+source.run_attempt+'/jobs','jobs');
- const business=jobs.filter(job=>job.name===businessName);
+ const business=jobs.filter(job=>job.name===businessName&&job.status==='completed');
  if(business.length!==1||business[0].run_id!==source.id||business[0].head_sha!==source.head_sha
   ||business[0].status!=='completed'||business[0].conclusion!==request.business_result)
   fail('本平台前序业务Job尚未完成或结果不符');
- const finalizers=jobs.filter(job=>job.name==='finalize');
+ const finalizers=jobs.filter(job=>job.name===businessName&&job.status==='in_progress');
  if(finalizers.length!==1||finalizers[0].status!=='in_progress'
-  ||jobs.some(job=>![businessName,'finalize'].includes(job.name)||job.run_id!==source.id||job.head_sha!==source.head_sha))
+  ||jobs.length!==2||business[0].id===finalizers[0].id
+  ||jobs.some(job=>job.name!==businessName||job.run_id!==source.id||job.head_sha!==source.head_sha))
   fail('本平台收尾Job身份或执行集合不符');
  const resultOf=run=>run.id===source.id?request.business_result:run.conclusion;
  const settled=run=>run.id===source.id||run.status==='completed';
@@ -3867,13 +3926,13 @@ function historyFixture(platform='windows'){
  for(const [id,conclusion]of [[1,'success'],[2,'failure'],[3,'failure'],[4,'success']])runs.set(id,{id,run_attempt:1,status:'completed',conclusion,
   path:workflow,event:'workflow_dispatch',head_branch:'main',head_sha:sha,repository:{full_name:'crcfrcn/citizenchain'}});
  runs.get(4).status='in_progress';runs.get(4).conclusion=null;
- const jobs=[{id:41,run_id:4,head_sha:sha,name:platform==='wasm'?'release':nodeDeliveryName(platform),status:'completed',conclusion:'success'},
-  {id:42,run_id:4,head_sha:sha,name:'finalize',status:'in_progress',conclusion:null}];
+ const jobs=[{id:41,run_id:4,head_sha:sha,name:githubRunTitle(platform),status:'completed',conclusion:'success'},
+  {id:42,run_id:4,head_sha:sha,name:githubRunTitle(platform),status:'in_progress',conclusion:null}];
  const release=(id,run,version)=>{
   const tag=`citizenchain-${platform}-v${version}-r${run}-a1`;
-  const assets=githubReleaseFiles(platform,version).map((name,index)=>({id:id*10+index,name,state:'uploaded',size:3,digest:'sha256:'+'b'.repeat(64)}));
+  const assets=githubReleaseFiles(platform,version).map((name,index)=>({id:id*10+index,name,label:githubAssetLabel(platform,version,name),state:'uploaded',size:3,digest:'sha256:'+'b'.repeat(64)}));
   const proof={schema:1,repository:'crcfrcn/citizenchain',product_id:'citizenchain',platform,workflow,run_id:run,run_attempt:1,
-   source_sha:sha,tag,version,assets:assets.map(asset=>({name:asset.name,size:asset.size,sha256:'b'.repeat(64)}))};
+   source_sha:sha,tag,version,assets:assets.map(asset=>({name:asset.name,label:asset.label,size:asset.size,sha256:'b'.repeat(64)}))};
   const value={id,tag_name:tag,target_commitish:sha,body:`<!-- automation:${JSON.stringify(proof)} -->`,draft:false,prerelease:false,
    published_at:'2026-10-16T00:00:00Z',assets};
   releases.set(id,value);refs.set(tag,{ref:'refs/tags/'+tag,object:{type:'commit',sha}});return value;
@@ -3896,7 +3955,7 @@ function historyFixture(platform='windows'){
   throw Error('夹具拒绝未声明请求：'+method+' '+path);
  };
  return {...state,state,fetchImpl,request:{run_id:4,run_attempt:1,source_sha:sha,business_result:'success'},environment:{GH_TOKEN:'fixture',
-  GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'crcfrcn/citizenchain',GITHUB_WORKFLOW:'citizenchain.'+platform,
+  GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'crcfrcn/citizenchain',GITHUB_WORKFLOW:githubWorkflowTitle(platform),
   GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/main',GITHUB_SHA:sha,GITHUB_RUN_ID:'4',GITHUB_RUN_ATTEMPT:'1'}};
 }
 test('五平台业务收尾可并行且各自只删除所属历史',async()=>{
@@ -3982,10 +4041,16 @@ test('本平台正式版号必须高于自己的历史正式Release',async()=>{
 test('四节点交付主名和清单URL使用正式版本及准确编码',()=>{
  for(const [platform,display]of Object.entries({macos:'macOS',windows:'Windows','linux-arm':'LinuxARM','linux-amd':'LinuxAMD'})){
   const name=nodeDeliveryName(platform,'1.0.0');
-  assert.equal(name,`公民链·${display}-v1.0.0`);
+  assert.equal(name,`公民链·${display}·v1.0.0`);
   const source=readFileSync(join(root,'.github/workflows',({macos:'macos.yml',windows:'windows.yml','linux-arm':'linuxarm.yml','linux-amd':'linuxamd.yml'})[platform]),'utf8');
-  assert.ok(source.split('\n').includes('run-name: "'+nodeDeliveryName(platform)+'"'));
-  assert.ok(source.split('\n').includes('    name: "'+nodeDeliveryName(platform)+'"'));
+  for(const text of [source.replace(/\r\n/gu,'\n'),source.replace(/\r?\n/gu,'\r\n')]){
+   assert.doesNotThrow(()=>assertGithubWorkflowNames(platform,text));
+   const fixed=productTaskName(platform).replace('·塔塔自动化·','·');
+   assert.throws(()=>assertGithubWorkflowNames(platform,text.replace('name: "'+fixed+'"','name: "'+nodeDeliveryName(platform)+'"')),/名称与正式版本/u);
+   assert.throws(()=>assertGithubWorkflowNames(platform,text.replaceAll('    name: "'+nodeDeliveryName(platform)+'"','    name: "'+productTaskName(platform)+'"')),/名称与正式版本/u);
+   assert.throws(()=>assertGithubWorkflowNames(platform,text.replace('run-name: "'+nodeDeliveryName(platform)+'"','run-name: "错误名称"')),/名称与正式版本/u);
+   assert.throws(()=>assertGithubWorkflowNames(platform,text.replaceAll('    name: "'+nodeDeliveryName(platform)+'"','    name: "公民链·错误平台·v1.0.0"')),/名称与正式版本/u);
+  }
   const url=new URL(githubReleaseAssetUrl('citizenchain-'+platform+'-v1.0.0-r1-a1',name+'.json'));
   assert.equal(decodeURIComponent(url.pathname.split('/').at(-1)),name+'.json');
   assert.equal(url.search,'');assert.equal(url.hash,'');
@@ -3995,6 +4060,32 @@ test('四节点交付主名和清单URL使用正式版本及准确编码',()=>{
  }
  for(const version of ['','1.0','01.0.0','1.0.0/other','1.0.0?other','1.0.0-rc1'])assert.throws(()=>nodeDeliveryName('macos',version),/名称无效/u);
  assert.throws(()=>nodeDeliveryName('wasm','1.0.0'),/名称无效/u);
+});
+test('原生平台成对交付公民链原件与任务身份，保持节点和WASM构建隔离',()=>{
+ for(const platform of Object.keys(contract.platforms)){
+  const work=fixedWork('build/'+platform),env=nativePlatformEnvironment(platform,work,{});
+  assert.equal(env.CITIZENCHAIN_SOURCE_ROOT,root);assert.equal(env.CITIZENCHAIN_WORK_DIR,work);assert.equal(env.PRODUCT_WORK_DIR,work);
+  assert.equal(env.CARGO_TARGET_DIR,join(work,'work/cargo-target'));assert.equal(env.CARGO_INCREMENTAL,'1');
+  if(platform==='wasm'){assert.equal(env.WASM_BUILD_FROM_SOURCE,'1');assert.equal(env.SKIP_WASM_BUILD,undefined);}
+  else assert.equal(env.SKIP_WASM_BUILD,'1');
+ }
+});
+test('公民链任务、列表和下载显示按各自合同生成且无分隔空格',()=>{
+ for(const [platform,display]of Object.entries({macos:'macOS',windows:'Windows','linux-arm':'LinuxARM','linux-amd':'LinuxAMD',wasm:'WASM'})){
+  const version=platform==='wasm'?'2':'1.0.0',title=productDeliveryName(platform,version),task=productTaskName(platform);
+  assert.equal(task,'公民链·塔塔自动化·'+display);assert.equal(title,'公民链·'+display+'·v'+version);
+  const workflow='公民链·'+display;
+  assert.equal(githubWorkflowTitle(platform),workflow);assert.equal(githubRunTitle(platform),title);assert.equal(workflowPlatformName(workflow),platform);
+  assert.equal(workflowPlatformName(title),undefined);assert.equal(workflowPlatformName(workflow+' '),undefined);assert.doesNotMatch(task+title,/\s·|·\s/u);
+  const file={macos:'macos.yml',windows:'windows.yml','linux-arm':'linuxarm.yml','linux-amd':'linuxamd.yml',wasm:'wasm.yml'}[platform];
+  const source=readFileSync(join(root,'.github/workflows',file),'utf8');
+  assert.ok(source.includes('run-name: "'+title+'"'));assert.equal(source.split('    name: "'+title+'"').length-1,2);
+  assert.ok(source.includes(platform==='windows'?'$plan.uploads':'p.uploads.join("\\n")'));
+ }
+ assert.deepEqual(contract.platforms.wasm.files.map(name=>githubAssetLabel('wasm','2',name)),[
+  '公民链·WASM·v2.wasm','公民链·WASM·v2.compact.wasm','公民链·WASM·v2.compact.compressed.wasm']);
+ assert.throws(()=>productDeliveryName('wasm','1.0.0'),/WASM版本无效/u);
+ assert.throws(()=>githubAssetLabel('wasm','2','other.wasm'),/资产名无效/u);
 });
 test('两种节点入口的编译前门槛顺序一致且首错阻断后续',async()=>{
  const work=fixedWork('build/macos'),seen=[];
@@ -4021,11 +4112,11 @@ test('Windows正式资产清单只回读本平台准确Release',async()=>{
  try{
   writeFileSync(join(work,nodeDeliveryName('windows')+'.exe'),'abc');writeFileSync(join(work,nodeDeliveryName('windows')+'.exe.sig'),'signature');
   const environment={GITHUB_RUN_ID:'12',GITHUB_RUN_ATTEMPT:'1',GITHUB_SHA:'a'.repeat(40),GITHUB_ACTIONS:'true',
-   GITHUB_REPOSITORY:'crcfrcn/citizenchain',GITHUB_WORKFLOW:'citizenchain.windows',GH_TOKEN:'fixture'};
+   GITHUB_REPOSITORY:'crcfrcn/citizenchain',GITHUB_WORKFLOW:githubWorkflowTitle('windows'),GH_TOKEN:'fixture'};
   const plan=await prepareGithubAssets('windows',work,null,environment);
   assert.equal(plan.assets.length,3);assert.equal(plan.tag,'citizenchain-windows-v1.0.0-r12-a1');
-  assert.equal(plan.title,'公民链·Windows-v1.0.0');
-  assert.deepEqual(plan.assets.map(value=>value.name).sort(),['公民链·Windows-v1.0.0.exe','公民链·Windows-v1.0.0.exe.sig','公民链·Windows-v1.0.0.json'].sort());
+  assert.equal(plan.title,'公民链·Windows·v1.0.0');
+  assert.deepEqual(plan.assets.map(value=>value.name).sort(),['公民链·Windows·v1.0.0.exe','公民链·Windows·v1.0.0.exe.sig','公民链·Windows·v1.0.0.json'].sort());
   const installer=plan.assets.find(value=>value.name.endsWith('.exe'));
   assert.equal(installer.sha256,'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   assert.notEqual(installer.sha256,outputDigest(join(plan.directory,installer.name)));
@@ -4033,7 +4124,7 @@ test('Windows正式资产清单只回读本平台准确Release',async()=>{
   try{assert.throws(()=>releaseAssetSha256(link),/规范普通文件/u);}finally{rmSync(link);}
   const base='https://api.github.com/repos/crcfrcn/citizenchain/releases';
   const release={id:70,url:`${base}/70`,name:plan.title,tag_name:plan.tag,target_commitish:environment.GITHUB_SHA,prerelease:false,draft:true,
-   body:readFileSync(plan.notes,'utf8'),assets:plan.assets.map((value,index)=>({id:index+1,name:value.name,state:'uploaded',size:value.size,digest:'sha256:'+value.sha256,browser_download_url:githubReleaseAssetUrl(plan.tag,value.name)}))};
+   body:readFileSync(plan.notes,'utf8'),assets:plan.assets.map((value,index)=>({id:index+1,url:base+'/assets/'+(index+1),name:value.name,label:value.label,state:'uploaded',size:value.size,digest:'sha256:'+value.sha256,browser_download_url:'https://github.com/crcfrcn/citizenchain/releases/download/untagged-fixture/'+encodeURIComponent(value.name)}))};
   let listed=[release],byId=release,pages=null;
   const calls=[],fetchImpl=async url=>{
    calls.push(url);
@@ -4045,11 +4136,14 @@ test('Windows正式资产清单只回读本平台准确Release',async()=>{
   assert.deepEqual(await verifyGithubRelease('windows','draft',environment,{fetchImpl}),{platform:'windows',tag:plan.tag,phase:'draft'});
   assert.deepEqual(calls,[`${base}?per_page=100&page=1`,`${base}/70`]);
   release.name='错误标题';await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/身份或状态/u);release.name=plan.title;
-  const assetURL=release.assets[0].browser_download_url;
-  release.assets[0].browser_download_url=decodeURIComponent(assetURL);
-  assert.deepEqual(await verifyGithubRelease('windows','draft',environment,{fetchImpl}),{platform:'windows',tag:plan.tag,phase:'draft'});
-  release.assets[0].browser_download_url=assetURL+'?other';await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/资产回读不符/u);
-  release.assets[0].browser_download_url=assetURL;
+  // 草稿使用临时浏览地址，真实性仍由所属Release、资产API身份和原始字节摘要证明。
+  for(const [field,value]of [['id',0],['url',base+'/assets/999'],['label','错误显示名'],['state','starter'],['size',0],['digest','sha256:'+'0'.repeat(64)]]){
+   const original=release.assets[0][field];release.assets[0][field]=value;
+   await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),error=>error.message.includes('draft：'+field));
+   release.assets[0][field]=original;
+  }
+  const duplicateId=release.assets[1].id;release.assets[1].id=release.assets[0].id;
+  await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/draft：id/u);release.assets[1].id=duplicateId;
   writeFileSync(join(plan.directory,installer.name),'abd');
   await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/本轮资产字节已改变/u);
   writeFileSync(join(plan.directory,installer.name),'abc');
@@ -4069,12 +4163,71 @@ test('Windows正式资产清单只回读本平台准确Release',async()=>{
   await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/草稿Tag不唯一/u);
   pages=null;
   listed=[release];release.draft=false;release.published_at='2026-10-14T00:00:00Z';calls.length=0;
+  for(const asset of release.assets)asset.browser_download_url=githubReleaseAssetUrl(plan.tag,asset.name);
   await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/身份或状态不符/u);
   calls.length=0;
   assert.deepEqual(await verifyGithubRelease('windows','published',environment,{fetchImpl}),{platform:'windows',tag:plan.tag,phase:'published'});
   assert.deepEqual(calls,[`${base}/tags/${plan.tag}`]);
+  const assetURL=release.assets[0].browser_download_url;
+  release.assets[0].browser_download_url=decodeURIComponent(assetURL);
+  assert.deepEqual(await verifyGithubRelease('windows','published',environment,{fetchImpl}),{platform:'windows',tag:plan.tag,phase:'published'});
+  for(const value of [assetURL+'?other',assetURL.replace(plan.tag,'untagged-fixture'),assetURL.replace('crcfrcn/citizenchain','other/repository')]){
+   release.assets[0].browser_download_url=value;
+   await assert.rejects(verifyGithubRelease('windows','published',environment,{fetchImpl}),/published：browser_download_url/u);
+  }
+  release.assets[0].browser_download_url=assetURL;
   release.draft=true;await assert.rejects(verifyGithubRelease('windows','published',environment,{fetchImpl}),/身份或状态不符/u);
  }finally{clearFixedWork(work);}
+});
+test('WASM三件资产在草稿和发布阶段分别按真实地址语义验收',async()=>{
+ const work=checkFixedWork(fixedWork('build/wasm'),{create:true});
+ try{
+  const environment={GITHUB_RUN_ID:'12',GITHUB_RUN_ATTEMPT:'1',GITHUB_SHA:'a'.repeat(40),GITHUB_ACTIONS:'true',
+   GITHUB_REPOSITORY:'crcfrcn/citizenchain',GITHUB_WORKFLOW:githubWorkflowTitle('wasm'),GH_TOKEN:'fixture'};
+  // 本回归消费版本确定后的计划；正式Workflow已在Runner视图写入正spec_version，主仓0不改。
+  const version='2',directory=join(work,'release-assets'),notes=join(work,'release-notes.txt');mkdirSync(directory);
+  const assets=contract.platforms.wasm.files.map(name=>{const path=join(directory,name);writeFileSync(path,'fixture-wasm-'+name);
+   return {name,label:githubAssetLabel('wasm',version,name),size:lstatSync(path).size,sha256:releaseAssetSha256(path)};});
+  const plan={schema:1,platform:'wasm',version,tag:'citizenchain-wasm-v2-r12-a1',title:productDeliveryName('wasm',version),
+   source_sha:environment.GITHUB_SHA,assets,directory,notes,uploads:assets.map(asset=>join(directory,asset.name)+'#'+asset.label)};
+  const proof={schema:1,repository:'crcfrcn/citizenchain',product_id:'citizenchain',platform:'wasm',workflow:'.github/workflows/wasm.yml',
+   run_id:12,run_attempt:1,source_sha:environment.GITHUB_SHA,tag:plan.tag,version,assets};
+  writeFileSync(notes,'<!-- automation:'+JSON.stringify(proof)+' -->\n');writeFileSync(join(work,'release-plan.json'),JSON.stringify(plan)+'\n');
+  const base='https://api.github.com/repos/crcfrcn/citizenchain/releases';
+  const release={id:70,url:base+'/70',name:plan.title,tag_name:plan.tag,target_commitish:environment.GITHUB_SHA,prerelease:false,draft:true,
+   body:readFileSync(plan.notes,'utf8'),assets:plan.assets.map((asset,index)=>({id:index+1,url:base+'/assets/'+(index+1),name:asset.name,label:asset.label,
+    state:'uploaded',size:asset.size,digest:'sha256:'+asset.sha256,browser_download_url:'https://github.com/crcfrcn/citizenchain/releases/download/untagged-fixture/'+asset.name}))};
+  const fetchImpl=async url=>Response.json(url.startsWith(base+'?')?[release]:release);
+  assert.equal((await verifyGithubRelease('wasm','draft',environment,{fetchImpl})).phase,'draft');
+  for(const asset of release.assets){const digest=asset.digest;asset.digest='sha256:'+'0'.repeat(64);
+   await assert.rejects(verifyGithubRelease('wasm','draft',environment,{fetchImpl}),error=>error.message.includes(asset.name)&&error.message.includes('draft：digest'));
+   asset.digest=digest;
+  }
+  release.draft=false;release.published_at='2026-10-17T00:00:00Z';
+  await assert.rejects(verifyGithubRelease('wasm','published',environment,{fetchImpl}),/published：browser_download_url/u);
+  for(const asset of release.assets)asset.browser_download_url=githubReleaseAssetUrl(plan.tag,asset.name);
+  assert.equal((await verifyGithubRelease('wasm','published',environment,{fetchImpl})).phase,'published');
+ }finally{clearFixedWork(work);}
+});
+test('macOS既有签名缺项立即报告，版本检查完整读取并保留原始失败',()=>{
+ const source=readFileSync(join(root,'.github/workflows/macos.yml'),'utf8');
+ const step=source.split('      - name: 准备 macOS 原生依赖、官方 protoc 与签名身份\n')[1];
+ assert.ok(step);const body=step.split('        run: |\n')[1].split('          brew install ')[0].split('\n').map(line=>line.startsWith('          ')?line.slice(10):line).join('\n');
+ const keys=['APPLE_CERTIFICATE_BASE64','APPLE_CERTIFICATE_PASSWORD','APPLE_PROFILE_BASE64','TAURI_SIGNING_PRIVATE_KEY'];
+ const run=(version='Xcode 27.0',status='0',missing)=>{
+  const env={PATH:process.env.PATH,FIXTURE_VERSION:version,FIXTURE_STATUS:status,...Object.fromEntries(keys.map(key=>[key,'fixture']))};
+  if(missing)delete env[missing];
+  // 真实执行YAML前缀，只替换版本命令；不触及证书、网络、依赖或Keychain。
+  const command=['xcodebuild() {','  printf "%s\\n" version-command-called >&2','  printf "%s\\n" "$FIXTURE_VERSION"',
+   '  for ((i=0;i<128;i++)); do printf "%4096s\\n" x; done','  printf "%s\\n" "Build version fixture-tail"',
+   '  if [[ "$FIXTURE_STATUS" != 0 ]]; then printf "%s\\n" version-original-error >&2; fi','  return "$FIXTURE_STATUS"','}',
+   body,'printf "%s\\n" "$xcode_version" version-check-complete'].join('\n');
+  return spawnSync(process.env.PRODUCT_TEST_SHELL||'/bin/bash',['-c',command],{env,encoding:'utf8',timeout:10000,maxBuffer:2*1024*1024});
+ };
+ const valid=run();assert.equal(valid.status,0,valid.stderr);assert.match(valid.stdout,/Build version fixture-tail/u);assert.match(valid.stdout,/version-check-complete/u);
+ const wrong=run('Xcode 26.0');assert.notEqual(wrong.status,0);assert.doesNotMatch(wrong.stdout,/version-check-complete/u);
+ const original=run('Xcode 27.0','37');assert.equal(original.status,37);assert.match(original.stderr,/version-original-error/u);assert.doesNotMatch(original.stdout,/version-check-complete/u);
+ for(const key of keys){const missing=run('Xcode 27.0','0',key);assert.equal(missing.status,1);assert.ok(missing.stderr.includes('缺少GitHub签名配置：'+key));assert.doesNotMatch(missing.stderr,/version-command-called/u);}
 });
 test('六项节点守卫定向筛选对应真实Rust模块与注册用例',()=>{
  // 从实际执行清单取名并核对源码注册链，防止模块迁移后精确筛选静默空跑。
@@ -4465,7 +4618,7 @@ export async function verifyGithubHistory(platform,source,token){
   ||proof.schema!==1||proof.repository!==automationRepository||proof.product_id!=='citizenchain'||proof.platform!==platform
   ||proof.workflow!==`.github/workflows/${workflow}`||proof.run_id!==source.id||proof.run_attempt!==source.run_attempt
   ||proof.source_sha!==source.head_sha||proof.tag!==release.tag_name||String(proof.version)!==match[1]
-  ||release.name!==(platform==='wasm'?`公民链·WASM-v${match[1]}`:nodeDeliveryName(platform,match[1])))
+  ||release.name!==productDeliveryName(platform,match[1]))
   throw Error('产品终态Release身份或版本不符');
  const expected=githubReleaseFiles(platform,match[1]);
  if(!Array.isArray(proof.assets)||!Array.isArray(release.assets)||proof.assets.length!==expected.length
@@ -4474,6 +4627,7 @@ export async function verifyGithubHistory(platform,source,token){
  for(const name of expected){
   const asset=release.assets.find(value=>value.name===name),declared=proof.assets.find(value=>value.name===name);
   if(!asset||!declared||!Number.isSafeInteger(declared.size)||declared.size<1||!/^[0-9a-f]{64}$/u.test(declared.sha256||'')
+   ||declared.label!==githubAssetLabel(platform,match[1],name)||asset.label!==declared.label
    ||asset.state!=='uploaded'||asset.size!==declared.size||asset.digest!=='sha256:'+declared.sha256
    ||!matchesGithubReleaseAssetUrl(release.tag_name,name,asset.browser_download_url))throw Error('产品终态资产回读不符：'+name);
  }
@@ -4576,11 +4730,11 @@ if(inlineTestEntry){
   const workflow=automationWorkflows[target],version=target==='wasm'?'2':'1.0.0';
   const source={...run(),path:`.github/workflows/${workflow}`};
   const tag=`citizenchain-${target}-v${version}-r${runId}-a1`;
-  const assets=githubReleaseFiles(target,version).map(name=>({name,state:'uploaded',size:3,digest:'sha256:'+'b'.repeat(64),
+  const assets=githubReleaseFiles(target,version).map(name=>({name,label:githubAssetLabel(target,version,name),state:'uploaded',size:3,digest:'sha256:'+'b'.repeat(64),
    browser_download_url:`https://github.com/${automationRepository}/releases/download/${tag}/${encodeURIComponent(name)}`}));
   const proof={schema:1,repository:automationRepository,product_id:'citizenchain',platform:target,workflow:source.path,
-   run_id:runId,run_attempt:1,source_sha:sha,tag,version,assets:assets.map(asset=>({name:asset.name,size:3,sha256:'b'.repeat(64)}))};
-  const release={id:17,tag_name:tag,name:target==='wasm'?`公民链·WASM-v${version}`:nodeDeliveryName(target,version),
+   run_id:runId,run_attempt:1,source_sha:sha,tag,version,assets:assets.map(asset=>({name:asset.name,label:asset.label,size:3,sha256:'b'.repeat(64)}))};
+  const release={id:17,tag_name:tag,name:productDeliveryName(target,version),
    target_commitish:sha,published_at:'2026-10-16T00:00:00Z',draft:false,prerelease:false,body:`<!-- automation:${JSON.stringify(proof)} -->`,assets};
   const state={source,runs:[source],releases:[release],reference:{ref:'refs/tags/'+tag,object:{type:'commit',sha}},calls:[]};
   state.fetchImpl=async(url,options)=>{

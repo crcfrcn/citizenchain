@@ -1,5 +1,5 @@
-name: citizenchain.windows
-run-name: "公民链·Windows-v1.0.0"
+name: "公民链·Windows"
+run-name: "公民链·Windows·v1.0.0"
 on:
   workflow_dispatch:
 concurrency:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 jobs:
   release:
-    name: "公民链·Windows-v1.0.0"
+    name: "公民链·Windows·v1.0.0"
     if: github.ref == 'refs/heads/main'
     runs-on: windows-2025
     timeout-minutes: 360
@@ -75,7 +75,7 @@ jobs:
         shell: pwsh
         run: |
           $plan = Get-Content 'target/build/windows/release-plan.json' -Raw | ConvertFrom-Json
-          $assets = @(Get-ChildItem $plan.directory -File | ForEach-Object { $_.FullName })
+          $assets = @($plan.uploads)
           gh release create $plan.tag @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title $plan.title --notes-file $plan.notes --draft --latest=false
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/build.mjs ci-verify-release windows draft
@@ -90,6 +90,7 @@ jobs:
         run: |
           if (Test-Path 'target/build/windows') { node scripts/build.mjs finish windows; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
   finalize:
+    name: "公民链·Windows·v1.0.0"
     needs: [release]
     if: ${{ always() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04

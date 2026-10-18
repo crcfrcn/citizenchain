@@ -1,5 +1,5 @@
-name: citizenchain.wasm
-run-name: "${{ github.workflow }} · ${{ github.run_number }}"
+name: "公民链·WASM"
+run-name: "公民链·WASM·v2"
 on:
   workflow_dispatch:
 concurrency:
@@ -10,6 +10,7 @@ permissions:
   actions: read
 jobs:
   release:
+    name: "公民链·WASM·v2"
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -180,8 +181,10 @@ jobs:
           test "$tag" = "citizenchain-wasm-v${RELEASE_VERSION}-r${GITHUB_RUN_ID}-a${GITHUB_RUN_ATTEMPT}"
           file="$GITHUB_WORKSPACE/target/build/wasm/citizenchain.compact.compressed.wasm"
           test -s "$file" && test "$(wc -c < "$file")" -le 5242880
-          assets="$GITHUB_WORKSPACE/target/build/wasm/release-assets"
-          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
+          upload_arguments="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.uploads.join("\n"))' "$plan")"
+          uploads=()
+          while IFS= read -r item; do uploads+=("$item"); done <<< "$upload_arguments"
+          gh release create "$tag" "${uploads[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
           node scripts/build.mjs ci-verify-release wasm draft
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
           node scripts/build.mjs ci-verify-release wasm published
@@ -190,6 +193,7 @@ jobs:
         shell: bash
         run: node scripts/build.mjs finish wasm
   finalize:
+    name: "公民链·WASM·v2"
     needs: [release]
     if: ${{ always() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04

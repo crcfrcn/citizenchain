@@ -2651,10 +2651,10 @@ CitizenChain 正式 Release 自定义资产名现固定为以下闭集；`<VERSI
 
 | 公开平台 | 安装资产 | 更新资产 | manifest |
 |---|---|---|---|
-| LinuxARM | `公民链·LinuxARM-v<VERSION>.deb` | `公民链·LinuxARM-v<VERSION>.AppImage` | `公民链·LinuxARM-v<VERSION>.json` |
-| LinuxAMD | `公民链·LinuxAMD-v<VERSION>.deb` | `公民链·LinuxAMD-v<VERSION>.AppImage` | `公民链·LinuxAMD-v<VERSION>.json` |
-| macOS | `公民链·macOS-v<VERSION>.dmg` | `公民链·macOS-v<VERSION>.app.tar.gz` | `公民链·macOS-v<VERSION>.json` |
-| Windows | `公民链·Windows-v<VERSION>.exe` | 与安装资产共用同一 `.exe` | `公民链·Windows-v<VERSION>.json` |
+| LinuxARM | `公民链·LinuxARM·v<VERSION>.deb` | `公民链·LinuxARM·v<VERSION>.AppImage` | `公民链·LinuxARM·v<VERSION>.json` |
+| LinuxAMD | `公民链·LinuxAMD·v<VERSION>.deb` | `公民链·LinuxAMD·v<VERSION>.AppImage` | `公民链·LinuxAMD·v<VERSION>.json` |
+| macOS | `公民链·macOS·v<VERSION>.dmg` | `公民链·macOS·v<VERSION>.app.tar.gz` | `公民链·macOS·v<VERSION>.json` |
+| Windows | `公民链·Windows·v<VERSION>.exe` | 与安装资产共用同一 `.exe` | `公民链·Windows·v<VERSION>.json` |
 
 Release Tag 前缀继续为 `citizenchain-linux-arm-v`、`citizenchain-linux-amd-v`、`citizenchain-macos-v`、`citizenchain-windows-v`。四个平台分别生成正式 Release；官网直接按平台及准确安装资产下载，不再经公民服务端的 D1 发布指针。更新资产仍由各平台 Release 独立交付，不属于服务端旧安装下载路由。
 
@@ -2952,7 +2952,15 @@ Git来源始终由本产品原锁决定。每次执行均先复用可选的同�
 
 五份既有平台YAML各自调用本仓`scripts/build.mjs`，独立产生和验收本平台资产及GitHub Release。产品收尾入口`ci-finalize <platform>`由本平台finalize Job调用，标准输入只接受run_id、run_attempt、source_sha、business_result；必须核对本仓本平台main手动Workflow身份、原Run坐标及真实业务Job结果。产品直接核对和清理自己的Run、Release、Tag，删除后回读，保护当前Run、其他平台及有效缓存；不依赖控制台回调、控制台删除权限、独立维护Run或新增文件。官网四平台安装下载直接查询正式GitHub Release，不使用本仓额外发布清单脚本。
 
-控制台接入按其既有要求声明产品名称、编译/塔塔自动化/发布流程及平台，显示如“公民链 · 编译 · macOS”；GitHub与交付产物使用如“公民链·macOS-v1.0.0”的发布名称。两者分别维护，不向控制台任务名称注入发布版本，tata/citizenchain.mjs不承载产品历史清理。
+控制台接入按其既有要求声明产品名称、编译/塔塔自动化/发布流程及平台，显示如“公民链·编译·macOS”；GitHub与交付产物使用如“公民链·macOS·v1.0.0”的发布名称。两者分别维护，不向控制台任务名称注入发布版本，tata/citizenchain.mjs不承载产品历史清理。
+
+控制台任务标题统一为“产品·流程·平台”；GitHub固定Workflow名称为“产品·平台”，不含版本；每次Run、业务Job、Release及节点交付文件统一为“产品·平台·v版本”，分隔符两侧无空格。节点更新器按相同新文件名读取更新清单，GitHub资产label由产品发布计划生成并逐件回读。内部Workflow路径、平台ID、Run及Tag来源坐标保持技术身份，显示名称不充当记录分组键；分组仍为产品、流程、平台。固定Workflow目录名在版本变化时保持；具体版本只归本次Run和产物，发布准备须使Run及Job名称与本次计划一致，不能在运行中改写已创建Run。
+
+原生CI环境统一成对设置CITIZENCHAIN_SOURCE_ROOT及CITIZENCHAIN_WORK_DIR，前者指向准确原件，后者指向本平台固定任务目录；节点build.rs继续校验原件或本轮source视图及输出边界，不修改该校验或SDK。
+
+节点Workflow文本验名统一接受LF与CRLF换行，名称、正式版本、仓库、平台及源码提交仍逐项核对。macOS准备阶段逐项报告既有签名输入缺项，只输出配置键名；Xcode版本先完整收取输出再检查，原命令失败及退出码直接保留，不用提前结束的管道掩盖。GitHub签名配置属于本仓，空输入不得误报为本机缺证书，也不由控制台替产品配置。
+
+Release草稿先按唯一数字ID回读，所属资产必须具有不重复的正整数ID和本仓准确API地址，名称、上传状态、字节大小及SHA-256均与本轮文件一致；草稿临时浏览地址不充当正式Tag下载地址。正式发布后继续严格核对Tag下载地址。失败信息包含阶段、资产名和不符字段，不输出机密或响应正文；上述实现与回归均归本仓scripts/build.mjs。
 
 本产品自动化观察器只在整个Run完成且成功后调用同仓`verifyGithubHistory`只读核验：本平台唯一成功Run、至多一条失败记录、唯一有效正式Release、来源证明、版本化完整资产及Tag提交须一致，最后再次回读原Run身份。首次成功没有失败历史时不伪造失败记录。核验失败立即把本产品任务登记为失败，不重派、不删除、不转成观察重连；原Run失败或取消则据实失败。删除仍由各平台既有YAML的产品收尾负责，公开接口只接收普通参数、仓库令牌和返回值。本机macOS验证可按准确授权签名安装，安装入口不启动或重启节点。
 

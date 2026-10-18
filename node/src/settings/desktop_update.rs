@@ -50,7 +50,7 @@ fn update_manifest_name(platform: &str, version: &str) -> Result<String, String>
     {
         return Err("更新清单版本无效".into());
     }
-    Ok(format!("公民链·{platform}-v{version}.json"))
+    Ok(format!("公民链·{platform}·v{version}.json"))
 }
 
 fn update_manifest_url(tag: &str, filename: &str) -> Result<reqwest::Url, String> {
@@ -258,12 +258,12 @@ mod update_tests {
     fn delivery_manifest_name_and_url_bind_platform_version_and_encoded_path() {
         for platform in ["macOS", "Windows", "LinuxARM", "LinuxAMD"] {
             let name = update_manifest_name(platform, "1.0.0").unwrap();
-            assert_eq!(name, format!("公民链·{platform}-v1.0.0.json"));
+            assert_eq!(name, format!("公民链·{platform}·v1.0.0.json"));
             let url = update_manifest_url("citizenchain-macos-v1.0.0-r1-a1", &name).unwrap();
             assert_eq!(url.host_str(), Some("github.com"));
             assert_eq!(url.scheme(), "https");
             assert!(url.as_str().contains("%E5%85%AC%E6%B0%91%E9%93%BE%C2%B7"));
-            assert!(url.as_str().ends_with(&format!("{platform}-v1.0.0.json")));
+            assert!(url.as_str().ends_with(&format!("{platform}%C2%B7v1.0.0.json")));
             assert_eq!(url.query(), None);
             assert_eq!(url.fragment(), None);
         }
