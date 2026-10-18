@@ -2,6 +2,45 @@ use serde_json::Value;
 use std::{env, fs, path::Path};
 use substrate_build_script_utils::{generate_cargo_keys, rerun_if_git_head_changed};
 
+// 只统一Windows盘符及UNC扩展长度前缀的表示，不解析链接、不折叠..或改写目录大小写。
+fn comparison_path(path: &Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        use std::path::{Component, Prefix};
+        let original: Vec<u16> = path.as_os_str().encode_wide().collect();
+        let mut units = match path.components().next() {
+            Some(Component::Prefix(prefix)) => match prefix.kind() {
+                Prefix::VerbatimDisk(_) => original[4..].to_vec(),
+                Prefix::VerbatimUNC(_, _) => {
+                    let mut unc = vec![92, 92];
+                    unc.extend_from_slice(&original[8..]);
+                    unc
+                }
+                Prefix::Disk(_) => original,
+                _ => return path.to_path_buf(),
+            },
+            _ => return path.to_path_buf(),
+        };
+        if units.len() >= 2 && units[1] == u16::from(b':') && (97..=122).contains(&units[0]) {
+            units[0] -= 32;
+        }
+        std::ffi::OsString::from_wide(&units).into()
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_path_buf()
+    }
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    comparison_path(left) == comparison_path(right)
+}
+
+fn path_within(path: &Path, root: &Path) -> bool {
+    comparison_path(path).starts_with(comparison_path(root))
+}
+
 fn main() {
     generate_cargo_keys();
     rerun_if_git_head_changed();
@@ -25,11 +64,11 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
         (Some(original), Some(task)) => {
             let original = std::path::PathBuf::from(original).canonicalize()?;
             let task = std::path::PathBuf::from(task).canonicalize()?;
-            if !platforms.iter().any(|platform| task == original.join("target/build").join(platform))
-                && task != original.join("target/test") {
+            if !platforms.iter().any(|platform| same_path(&task, &original.join("target/build").join(platform)))
+                && !same_path(&task, &original.join("target/test")) {
                 return Err("Tauri 任务只能使用公民链固定工作根".into());
             }
-            if repository != original && repository != task.join("source") {
+            if !same_path(&repository, &original) && !same_path(&repository, &task.join("source")) {
                 return Err("Tauri 源码不属于公民链原件或本轮工程副本".into());
             }
             task
@@ -37,9 +76,9 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
         (None, None) => {
             let build = repository.join("target/build");
             let test = repository.join("target/test");
-            if let Some(platform_work) = platforms.iter().map(|platform| build.join(platform)).find(|work| output.starts_with(work)) {
+            if let Some(platform_work) = platforms.iter().map(|platform| build.join(platform)).find(|work| path_within(&output, work)) {
                 platform_work
-            } else if output.starts_with(&test) {
+            } else if path_within(&output, &test) {
                 test
             } else {
                 return Err("Tauri 输出只能位于公民链固定 build 或 test 目录".into());
@@ -48,9 +87,9 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
         _ => return Err("Tauri 原产品与固定任务身份必须同时提供".into()),
     };
     if !output.is_absolute()
-        || !output.starts_with(target_root)
-        || output.canonicalize()? != output
-        || (fs::symlink_metadata(&work).is_ok() && work.canonicalize()? != work)
+        || !path_within(&output, &target_root)
+        || !same_path(&output.canonicalize()?, &output)
+        || (fs::symlink_metadata(&work).is_ok() && !same_path(&work.canonicalize()?, &work))
     {
         return Err("Tauri 生成目录必须是公民链 target 内的规范路径".into());
     }
@@ -133,7 +172,7 @@ fn build_rpc_assets(source: &Path, output: &Path) -> Result<(), Box<dyn std::err
     let node = std::path::PathBuf::from(env::var_os("NODE").ok_or("接入页构建缺少已交付的 NODE")?);
     if !node.is_absolute()
         || !fs::symlink_metadata(&node)?.is_file()
-        || node.canonicalize()? != node
+        || !same_path(&node.canonicalize()?, &node)
     {
         return Err("接入页生成必须使用已交付的普通 Node 执行器绝对路径".into());
     }
@@ -170,4 +209,55 @@ fn write_if_changed(path: &Path, contents: &[u8]) -> std::io::Result<()> {
         fs::write(path, contents)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::{comparison_path, path_within, same_path};
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn comparison_keeps_directory_boundaries_and_different_targets() {
+        let root = PathBuf::from(if cfg!(windows) { r"C:\repo\target\build\windows" } else { "/repo/target/build/windows" });
+        assert!(path_within(&root.join("work/out"), &root));
+        assert!(!path_within(&root.with_file_name("windows-other").join("out"), &root));
+        assert!(!same_path(&root.join("work/../out"), &root.join("out")));
+        assert!(!same_path(&root.join("link/out"), &root.join("real/out")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_disk_and_unc_prefixes_compare_without_relaxing_ownership() {
+        assert!(same_path(Path::new(r"C:\repo\target\out"), Path::new(r"\\?\C:\repo\target\out")));
+        assert!(same_path(Path::new(r"c:\repo\target\out"), Path::new(r"\\?\C:\repo\target\out")));
+        assert!(same_path(Path::new(r"\\server\share\repo\out"), Path::new(r"\\?\UNC\server\share\repo\out")));
+        assert!(path_within(Path::new(r"\\?\C:\repo\target\out"), Path::new(r"C:\repo\target")));
+        assert!(!same_path(Path::new(r"D:\repo\out"), Path::new(r"\\?\C:\repo\out")));
+        assert!(!same_path(Path::new(r"C:\repo\out"), Path::new(r"\\.\C:\repo\out")));
+        assert!(!path_within(Path::new(r"\\?\C:\repo\target-other\out"), Path::new(r"C:\repo\target")));
+        assert!(!same_path(Path::new(r"C:\repo\link\out"), Path::new(r"\\?\C:\repo\real\out")));
+        assert!(!Path::new(r"C:repo\out").is_absolute());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_comparison_preserves_native_path_code_units() {
+        use std::os::windows::ffi::OsStringExt;
+        let raw = [67, 58, 92, 0xd800];
+        let mut extended = vec![92, 92, 63, 92];
+        extended.extend_from_slice(&raw);
+        let plain = PathBuf::from(std::ffi::OsString::from_wide(&raw));
+        let extended = PathBuf::from(std::ffi::OsString::from_wide(&extended));
+        let other = PathBuf::from(std::ffi::OsString::from_wide(&[67, 58, 92, 0xd801]));
+        assert!(same_path(&plain, &extended));
+        assert!(!same_path(&plain, &other));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn non_windows_paths_keep_the_original_representation() {
+        let path = Path::new(r"\\?\C:\repo\out");
+        assert_eq!(comparison_path(path), path);
+        assert!(!same_path(path, Path::new(r"C:\repo\out")));
+    }
 }

@@ -2662,6 +2662,8 @@ macOS构建先完成现有Developer ID、描述文件、Hardened Runtime、时�
 
 Windows沿用Runner预装的`%ProgramFiles%\OpenSSL`，准备步骤核对`include\openssl\ssl.h`、`lib\VC\x64\MD`内两件MSVC导入库及`bin`内`libssl-3-x64.dll`、`libcrypto-3-x64.dll`，通过标准`OPENSSL_DIR`、`OPENSSL_INCLUDE_DIR`、`OPENSSL_LIB_DIR`和`OPENSSL_STATIC=0`交给Cargo，不下载另一套OpenSSL。DLL按x64 PE原件核对，复制到同一完整安装包内主程序及OnChina各自的加载目录并回读字节；用户设备无需依赖Runner的PATH或额外安装OpenSSL。原件缺失或架构错误保留实际错误并停止。
 
+`node/build.rs`在Windows比较任务根、`OUT_DIR`、Tauri生成目录和Node工具路径时，只统一盘符及UNC的扩展长度前缀与盘符字母表示，保留Windows原生路径编码，不折叠父目录或改变目录大小写。仍要求绝对路径、当前产品固定任务根、源码归属及普通Node文件；仍将原始路径与真实`canonicalize()`结果比较，链接改向或输出越界继续拒绝。Unix平台比较语义保持。同文件回归覆盖Windows普通/扩展盘符、UNC、不同盘符、相邻目录、父目录和不同目标，以及非Windows表示不变。
+
 桌面启动只检查当前平台的新版本。用户点击“下载新版安装包”时，由后端重新读取本平台正式Release中的唯一完整包，系统浏览器下载后由用户通过系统安装；不接收前端指定的任意执行目标，不预先停止节点，不自动安装或重启应用。下载打开失败保留错误和新版提示。节点的正常退出清理保持原行为。
 
 每个平台的Cargo与前端增量编译机制继续保留。依赖锁变动后旧快照按现有输入身份失效，移除失效快照不会删除工具、SDK原件或其他平台缓存；新任务只保存自身最近的有效增量。回归在既有文件内覆盖四平台单包回执、发布资产数量、下载名称及地址、版本比较、错误平台、缺失或重复资产和系统浏览器参数；现有系统签名、安装回滚及并发隔离回归继续保留。
