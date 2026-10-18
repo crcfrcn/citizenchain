@@ -3317,13 +3317,13 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 - `.github/workflows/wasm.yml`。
 - `.github/workflows/windows.yml`。
 
-五个平台平行独立，各自在原YAML内由release业务Job及finalize收尾Job执行，不借用控制台终态回调。收尾使用本仓Workflow令牌，回读本次Run、attempt、源码和业务Job结果，按产品自己的证明闭集清理Run、Release与Tag；正常业务结束且收尾成功时保留一成功一失败及一个有效正式版本，保护当前Run、其它活动任务和有效缓存。业务结果与整个Run最终结论分别记录；收尾故障或强制取消时当轮数量可能未收敛，必须登记失败并在Run结束后只读验收，不能声称原子回滚或吞掉清理错误。WASM保持现有spec_version与三件资产合同，节点交付命名不得改变Runtime源码、创世或收费规则。
+五个平台平行独立，各自在既有YAML中仅执行本平台release Job。版本计划、候选生成及Run外收尾由本产品scripts/build.mjs拥有；Runner只验收草稿，Run真正结束后由产品自己的独立执行器决定发布、失败草稿撤销及同结果历史替换，不借用控制台终态代码、令牌或权限扩展。每个平台一成功一失败、一个最新正式Release；活动Run与其它平台保持，故障恢复只接续原Run和原删除计划。
 
 所属脚本回归位于`scripts/build.mjs`，真实GitHub构建与发布验收依任务授权另行执行；文档要求不替代真实验收记录。
 
 ## WASM自动化与专属开发升级
 
-WASM只由本仓`.github/workflows/wasm.yml`执行。GitHub准备阶段以固定产品User-Agent从公民服务端固定公开只读`https://www.crcfrcn.com/api/chain/runtime-target`读取同一finalized锚点的链上版本与真实块0哈希；CitizenServe Worker独自持有Access身份并经既有Tunnel访问国储会。预期创世哈希只从`runtime/primitives/src/genesis.rs`唯一冻结常量读取，不另设GitHub变量或向GitHub交付Cloudflare凭据。缺件、错链或请求失败立即失败，不重试。生成的spec_version取本仓源码版本、已成功产物版本和链上版本加一的最大值，写入本次临时构建源码，不回写main。链上未升级时可复用同一协议版本，正式tag包含本次Run和attempt，准确指向本仓源码提交。
+WASM仅由本仓既有wasm.yml编排，派发前通过本产品读取固定公开runtime-target并验证本仓冻结块0哈希。实际整数spec_version取源码种子、本平台成功正式版加一、正式链版本加一的最大值；版本输入用于Run和Job显示，Runner复核计划后只写本轮source副本。主仓Runtime和创世常量不改。正式Tag为公民链·WASM·v整数，来源证明绑定原Run、attempt和源码SHA，不从Tag后缀取Run身份。
 
 正式WASM编译由本仓`scripts/build.mjs ci-build wasm`在固定`target/build/wasm`任务会话中只构建与校验三件Runtime WASM；已验真的`target/cache/wasm`只复用依赖的Cargo中间物，排除Runtime本体与`wbuild`，本轮仍从准确源码版本重编并验真正式资产；GitHub工作流只恢复和保存本平台缓存，不借用任何节点平台缓存，保存先于Release。Clippy与原生Node政策探针不在WASM编译阶段运行。节点候选政策验收在后续升级验收中消费准确正式WASM字节，必须实际执行且不得走缺WASM跳过路径。三件WASM逐件上传和回读：Release资产摘要是上传文件原始字节的SHA-256，产品目录回执仍采用含目录/文件元信息的`outputDigest`，两者不得混用；草稿Release先从有写权限的分页列表按本次Tag定位唯一数字ID，再按ID独立回读完整资产；逐件核对不重复的正整数资产ID、本仓准确资产API地址、名称、uploaded状态、大小及原始字节SHA-256，草稿的临时浏览地址不作为正式Tag下载地址。正式发布后继续按Tag回读，并严格核对公开下载地址。两个阶段均严格核对源码提交、状态、说明正文和逐件摘要，失败时准确报告阶段、资产名与不符字段，不记录机密或响应正文；草稿校验失败不得转为发布。来源正文保留链目标证明。本仓负责自己的正式Release及同目标同结果历史清理。控制台只调用、跟踪和展示此自动化；其专属开发升级从成功wasm产物消费三件已证明资产，再执行冷签和提交，不生成自动化版本，也不替本仓读取链来阻止派发。配置原件归所属GitHub仓，本次源码修改没有向GitHub写入机密或部署配置。
 
@@ -3335,6 +3335,6 @@ WASM只由本仓`.github/workflows/wasm.yml`执行。GitHub准备阶段以固定
 
 WASM唯一版本就是实际产物中的整数spec_version，不建立SemVer或其它发布版本。控制台任务标题为“公民链·塔塔自动化·WASM”，固定Workflow为“公民链·WASM”，每次Run、Job、Release和产物显示为“公民链·WASM·v<spec_version>”，中点两侧无空格。三件协议文件仍使用既有固定名称；GitHub下载显示label分别使用版本化交付主名加.wasm、.compact.wasm、.compact.compressed.wasm后缀，上传与回读均来自产品计划，不重命名协议输入。WASM阶段回归直接构造版本确定后的三件资产计划，再调用真实验收入口，不为回归改写主仓spec_version。
 
-WASM自动化沿用自己的增量缓存和版本规则。整个Run成功后由本产品只读回验本平台Run保留数量、唯一正式Release、来源证明、完整三件WASM资产及Tag的源码提交；业务Job成功不替代整个Run终态，收尾或回验失败据实登记失败。四节点平台与WASM之间没有执行依赖，历史清理不删除有效缓存；本步骤不执行Runtime开发升级或链上提交。
+WASM自动化沿用自己的增量缓存，派发前由本产品按正式链实际spec_version和本平台成功正式版确定整数候选，Runner重新核对后仅写本轮工程副本。整个Run真正结束后由产品独立执行器发布或撤销候选并清理历史；只读验收入口不承担删除操作。四节点平台与WASM之间没有执行依赖；本步骤不执行Runtime开发升级或链上提交，不修改控制台。
 
-本产品现有 `scripts/build.mjs` 提供 `startAutomation(route, action, host)`、`recoverAutomation(task, route, host)` 和独立模式的 `dispatchAutomation(platform, token, options)`。产品按本仓平台与 Workflow 白名单派发、回读、观察 Run 与 Job、限额读取终态日志、取消及恢复原 GitHub Run；控制台的 `tata/citizenchain.mjs` 仅调用这些公开入口，提供任务宿主及短期授权。派发回执中的 Run ID 先写入任务，回读中断后只恢复该 Run，禁止重复派发；控制台宿主通过 `recoverTask(task)` 重进所属产品的恢复授权上下文，显式独立模式才调用产品恢复入口。恢复时先挂接原任务的产品取消入口，再请求观察授权；观察授权失败仍保留取消能力，用户取消时单独领取关闭授权。取消和恢复均重新核验本仓、主分支、Workflow、提交及 Run ID。其他记录、资产和发布能力不在本次迁移范围内。 同文件的合成合同回归覆盖派发成功与不确定回执、错误仓库/平台/SHA、观察两种终态、只取消原 Run、只恢复原 Run 和过期授权保留取消入口。
+本产品scripts/build.mjs的automationClient公开普通参数接口，包括dispatchAutomation、verifyGithubHistory、prepareVersionPlan、settleProductRun和runProductFinalizer；不接收任务宿主。既有控制台适配保持不变，调用产品接口并展示原Run。产品派发接口在请求前生成版本输入并预留本平台恢复记录，收到准确Run后启动自己的独立执行器；重复进入时只恢复原收尾。GitHub写操作由产品自己的既有GitHub CLI登录处理，不导出凭据或扩大控制台权限。旧控制台WASM升级解析保持原样，不承诺它识别新Tag，本步不执行链上升级。

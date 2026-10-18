@@ -1,7 +1,16 @@
 name: "公民链·macOS"
-run-name: "公民链·macOS·v1.0.0"
+run-name: "公民链·macOS·v${{ inputs.version }}"
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 产品确定的本次版本
+        required: true
+        type: string
+      version_plan:
+        description: 产品确定的版本与源码计划
+        required: true
+        type: string
 concurrency:
   group: "${{ github.repository }}-macos"
   cancel-in-progress: false
@@ -9,11 +18,13 @@ permissions:
   contents: write
 jobs:
   release:
-    name: "公民链·macOS·v1.0.0"
+    name: "公民链·macOS·v${{ inputs.version }}"
     if: github.ref == 'refs/heads/main'
     runs-on: xcode-27
     timeout-minutes: 360
     env:
+      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
+      CITIZENCHAIN_VERSION_PLAN: "${{ inputs.version_plan }}"
       GH_TOKEN: "${{ github.token }}"
       CARGO_INCREMENTAL: '1'
       TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
@@ -30,6 +41,11 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 25.2.1
+      - name: 核对本产品派发版本和源码计划
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build.mjs ci-version macos
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
         with:
           toolchain: 1.97.1
@@ -107,36 +123,8 @@ jobs:
           while IFS= read -r item; do uploads+=("$item"); done <<< "$upload_arguments"
           gh release create "$tag" "${uploads[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
           node scripts/build.mjs ci-verify-release macos draft
-          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
-          node scripts/build.mjs ci-verify-release macos published
       - name: 清理本平台编译现场
         if: always()
         shell: bash
         run: |
           if [ -d target/build/macos ]; then node scripts/build.mjs finish macos; fi
-  finalize:
-    name: "公民链·macOS·v1.0.0"
-    needs: [release]
-    if: ${{ always() && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      actions: write
-      contents: write
-    env:
-      GH_TOKEN: "${{ github.token }}"
-      CITIZENCHAIN_BUSINESS_RESULT: "${{ needs.release.result }}"
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: "${{ github.sha }}"
-          persist-credentials: false
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-        with:
-          node-version: 25.2.1
-      - name: 核对本平台业务结果并清理历史
-        shell: bash
-        run: |
-          set -euo pipefail
-          node -e 'const e=process.env;process.stdout.write(JSON.stringify({run_id:Number(e.GITHUB_RUN_ID),run_attempt:Number(e.GITHUB_RUN_ATTEMPT),source_sha:e.GITHUB_SHA,business_result:e.CITIZENCHAIN_BUSINESS_RESULT}))' |
-            node scripts/build.mjs ci-finalize macos
