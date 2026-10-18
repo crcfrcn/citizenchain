@@ -17,12 +17,12 @@ import type {
 
 type SettingsSectionProps = {
   desktopUpdateInfo: DesktopUpdateInfo;
-  onInstallDesktopUpdate: () => Promise<void>;
+  onOpenDesktopInstaller: () => Promise<void>;
 };
 
 export function SettingsSection({
   desktopUpdateInfo,
-  onInstallDesktopUpdate,
+  onOpenDesktopInstaller,
 }: SettingsSectionProps) {
   const [nodeMode, setNodeMode] = useState<NodeModeState | null>(null);
   const [onChinaPlatform, setOnChinaPlatform] =
@@ -85,26 +85,26 @@ export function SettingsSection({
           <div className="settings-version-row">
             <span className="settings-version-label">节点程序版本</span>
             <span className="settings-version-value-wrap">
-              {desktopUpdateInfo.status === 'available' || desktopUpdateInfo.status === 'installing' ? (
+              {desktopUpdateInfo.status === 'available' ? (
                 <button
                   type="button"
                   className="settings-update-button"
-                  disabled={desktopUpdateInfo.status === 'installing'}
                   title={
                     desktopUpdateInfo.latestVersion
                       ? `可更新到 ${desktopUpdateInfo.latestVersion}`
                       : undefined
                   }
                   onClick={() => {
-                    void onInstallDesktopUpdate();
+                    void onOpenDesktopInstaller();
                   }}
                 >
-                  {desktopUpdateInfo.status === 'installing' ? '更新中' : '更新'}
+                  下载新版安装包
                 </button>
               ) : null}
               <span className="settings-version-value">{chainStatus.nodeVersion}</span>
             </span>
           </div>
+          {desktopUpdateInfo.error ? <p role="alert">{desktopUpdateInfo.error}</p> : null}
           <div className="settings-version-row">
             <span className="settings-version-label">Runtime 版本</span>
             <span className="settings-version-value">

@@ -31,9 +31,7 @@
           "permissions": [
             "core:default",
             "dialog:default",
-            "dialog:allow-open",
-            "process:default",
-            "updater:default"
+            "dialog:allow-open"
           ]
         }
       ]
@@ -75,15 +73,6 @@
           "SimpChinese"
         ],
         "displayLanguageSelector": false
-      }
-    }
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDMDhFN0U0NDBENUMxNjMKUldSandkVkE1T2NJak5MSlhwS0s4Tnp4WFJ0TmQxSXEySkZBc0Z1TzFIQklxejNrSys4RzJVRCsK",
-      "endpoints": [],
-      "windows": {
-        "installMode": "passive"
       }
     }
   }

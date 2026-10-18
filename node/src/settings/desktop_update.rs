@@ -1,18 +1,9 @@
-//! 桌面端更新前置准备。
+//! 桌面端完整安装包下载。
 //!
-//! 本模块按当前平台发现本仓成功Release；更新安装由Tauri updater负责，并在安装前停掉节点，
-//! 确保 RocksDB 文件锁和后台线程先释放。
+//! 按当前平台发现本仓成功Release，首次安装与更新共用同一个完整安装包。
+//! 下载交给系统浏览器；本模块不停止节点、不安装软件、不重启应用。
 
-use crate::home;
 use tauri::AppHandle;
-
-#[tauri::command]
-pub async fn prepare_desktop_update(app: AppHandle) -> Result<(), String> {
-    // downloadAndInstall 会触发安装器和进程重启，安装前先停节点，避免节点数据目录仍被占用。
-    tauri::async_runtime::spawn_blocking(move || home::stop_node_blocking(app).map(|_| ()))
-        .await
-        .map_err(|err| format!("prepare desktop update task failed: {err}"))?
-}
 
 // 当前平台只读取自己的成功Workflow，不使用跨平台latest或安装时的旧Tag。
 fn update_target() -> Result<(&'static str, &'static str), String> {
@@ -35,11 +26,8 @@ fn workflow_file(platform: &str) -> Result<&'static str, String> {
     }
 }
 
-// 展示名与节点交付清单一致；版本来自已绑定成功Run的Release证明。
-fn update_manifest_name(platform: &str, version: &str) -> Result<String, String> {
-    if !matches!(platform, "macOS" | "Windows" | "LinuxARM" | "LinuxAMD") {
-        return Err("更新清单平台无效".into());
-    }
+// 软件版本沿用三个无前导零的整数分量，与产品交付版本使用相同数值顺序。
+fn version_parts(version: &str) -> Result<[u64; 3], String> {
     let parts: Vec<_> = version.split('.').collect();
     if parts.len() != 3
         || parts.iter().any(|part| {
@@ -48,12 +36,28 @@ fn update_manifest_name(platform: &str, version: &str) -> Result<String, String>
                 || part.len() > 1 && part.starts_with('0')
         })
     {
-        return Err("更新清单版本无效".into());
+        return Err("安装包版本无效".into());
     }
-    Ok(format!("公民链·{platform}·v{version}.json"))
+    let numbers = parts
+        .iter()
+        .map(|part| part.parse::<u64>().map_err(|_| "安装包版本越界".to_owned()))
+        .collect::<Result<Vec<_>, _>>()?;
+    numbers.try_into().map_err(|_| "安装包版本无效".to_owned())
 }
 
-fn update_manifest_url(tag: &str, filename: &str) -> Result<reqwest::Url, String> {
+// 展示名与唯一完整安装包一致；版本来自已绑定成功Run的Release证明。
+fn installer_name(platform: &str, version: &str) -> Result<String, String> {
+    let suffix = match platform {
+        "macOS" => "dmg",
+        "Windows" => "exe",
+        "LinuxARM" | "LinuxAMD" => "deb",
+        _ => return Err("安装包平台无效".into()),
+    };
+    version_parts(version)?;
+    Ok(format!("公民链·{platform}·v{version}.{suffix}"))
+}
+
+fn installer_url(tag: &str, filename: &str) -> Result<reqwest::Url, String> {
     let mut url = reqwest::Url::parse(
         "https://github.com/crcfrcn/citizenchain/releases/download/",
     )
@@ -63,6 +67,57 @@ fn update_manifest_url(tag: &str, filename: &str) -> Result<reqwest::Url, String
         .push(tag)
         .push(filename);
     Ok(url)
+}
+
+// 沿用Release资产证明，只接受该平台唯一完整安装包，不读取额外下载清单。
+fn installer_asset_url(
+    release: &serde_json::Value,
+    proof: &serde_json::Value,
+    platform: &str,
+    version: &str,
+    tag: &str,
+) -> Result<String, String> {
+    let filename = installer_name(platform, version)?;
+    let assets = release["assets"].as_array().ok_or("安装包资产列表无效")?;
+    let proofs = proof["assets"].as_array().ok_or("安装包资产证明无效")?;
+    if assets.len() != 1 || proofs.len() != 1 {
+        return Err("本平台必须只有一个完整安装包".into());
+    }
+    let asset = &assets[0];
+    let item = &proofs[0];
+    let digest = format!("sha256:{}", item["sha256"].as_str().ok_or("安装包摘要无效")?);
+    let expected = installer_url(tag, &filename)?;
+    let actual = asset["browser_download_url"]
+        .as_str()
+        .ok_or("安装包下载地址缺失")?
+        .parse::<reqwest::Url>()
+        .map_err(|_| "安装包下载地址无效")?;
+    if asset["name"] != filename
+        || item["name"] != filename
+        || asset["state"] != "uploaded"
+        || asset["size"] != item["size"]
+        || asset["digest"] != digest
+        || actual != expected
+    {
+        return Err("安装包与本平台Release证明不符".into());
+    }
+    Ok(expected.into())
+}
+
+// URL作为单个参数传给系统浏览器入口，不执行Shell脚本或安装器。
+fn installer_browser_command(os: &str, url: &str) -> Result<std::process::Command, String> {
+    let mut command = match os {
+        "macos" => std::process::Command::new("/usr/bin/open"),
+        "windows" => {
+            let mut command = std::process::Command::new("rundll32.exe");
+            command.arg("url.dll,FileProtocolHandler");
+            command
+        }
+        "linux" => std::process::Command::new("xdg-open"),
+        _ => return Err("当前平台没有安装包下载入口".into()),
+    };
+    command.arg(url);
+    Ok(command)
 }
 
 // Tag作为一个URL路径段交给现有URL实现编码，避免中文名称或分隔符改变API目标。
@@ -139,11 +194,10 @@ async fn github_json(client: &reqwest::Client, path: &str) -> Result<serde_json:
 /// 从当前平台唯一成功Release检查更新，不复用安装时的旧Tag。
 #[tauri::command]
 pub async fn check_desktop_update(
-    webview: tauri::Webview,
+    app: AppHandle,
 ) -> Result<Option<serde_json::Value>, String> {
-    use tauri::Manager;
-    use tauri_plugin_updater::UpdaterExt;
-    let (platform, manifest_platform) = update_target()?;
+    let current_version = app.package_info().version.to_string();
+    let (platform, display) = update_target()?;
     let workflow = workflow_file(platform)?;
     let client = reqwest::Client::builder()
         .user_agent("CitizenChain")
@@ -198,8 +252,7 @@ pub async fn check_desktop_update(
     let (release, proof) = &matches[0];
     let tag = proof["tag"].as_str().ok_or("更新Tag无效")?;
     let version = proof["version"].as_str().ok_or("更新证明版本缺失")?;
-    let filename = update_manifest_name(manifest_platform, version)?;
-    let expected_tag = format!("公民链·{manifest_platform}·v{version}");
+    let expected_tag = format!("公民链·{display}·v{version}");
     if tag != expected_tag {
         return Err("更新Tag无效".into());
     }
@@ -207,77 +260,50 @@ pub async fn check_desktop_update(
     if reference["object"]["type"] != "commit" || reference["object"]["sha"] != run["head_sha"] {
         return Err("更新Tag提交不符".into());
     }
-    let assets = release["assets"].as_array().ok_or("更新资产列表无效")?;
-    let proofs = proof["assets"].as_array().ok_or("更新资产证明无效")?;
-    if assets.len() != proofs.len() {
-        return Err("更新资产集合不完整".into());
+    let download_url = installer_asset_url(release, proof, display, version, tag)?;
+    if version_parts(version)? <= version_parts(&current_version)? {
+        return Ok(None);
     }
-    for item in proofs {
-        let matching: Vec<_> = assets
-            .iter()
-            .filter(|asset| asset["name"] == item["name"])
-            .collect();
-        let digest = format!(
-            "sha256:{}",
-            item["sha256"].as_str().ok_or("更新资产摘要无效")?
-        );
-        if matching.len() != 1
-            || matching[0]["state"] != "uploaded"
-            || matching[0]["size"] != item["size"]
-            || matching[0]["digest"] != digest
-        {
-            return Err("更新资产证明不符".into());
+    Ok(Some(serde_json::json!({
+        "currentVersion": current_version, "version": version, "downloadUrl": download_url,
+    })))
+}
+
+/// 点击时重新发现本平台正式完整包；前端不能指定任意下载或执行目标。
+#[tauri::command]
+pub async fn open_desktop_installer(app: AppHandle) -> Result<(), String> {
+    let package = check_desktop_update(app).await?.ok_or("当前没有新版安装包")?;
+    let url = package["downloadUrl"].as_str().ok_or("安装包下载地址缺失")?.to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = installer_browser_command(std::env::consts::OS, &url)?
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|error| format!("打开安装包下载失败：{error}"))?;
+        if !status.success() {
+            return Err(format!("系统下载入口失败：{status}"));
         }
-    }
-    if assets
-        .iter()
-        .filter(|asset| asset["name"] == filename)
-        .count()
-        != 1
-    {
-        return Err("更新清单缺失或重复".into());
-    }
-    let endpoint = update_manifest_url(tag, &filename)?;
-    let update = webview
-        .updater_builder()
-        .endpoints(vec![endpoint])
-        .map_err(|e| e.to_string())?
-        .build()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| e.to_string())?;
-    if let Some(update) = update {
-        if proof["version"] != update.version {
-            return Err("更新清单版本不符".into());
-        }
-        let current_version = update.current_version.clone();
-        let version = update.version.clone();
-        let body = update.body.clone();
-        let raw_json = update.raw_json.clone();
-        let rid = webview.resources_table().add(update);
-        Ok(Some(
-            serde_json::json!({"rid":rid,"currentVersion":current_version,"version":version,"body":body,"rawJson":raw_json}),
-        ))
-    } else {
-        Ok(None)
-    }
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("打开安装包下载任务失败：{error}"))?
 }
 
 #[cfg(test)]
 mod update_tests {
     use super::*;
     #[test]
-    fn delivery_manifest_name_and_url_bind_platform_version_and_encoded_path() {
-        for platform in ["macOS", "Windows", "LinuxARM", "LinuxAMD"] {
-            let name = update_manifest_name(platform, "1.0.0").unwrap();
-            assert_eq!(name, format!("公民链·{platform}·v1.0.0.json"));
+    fn installer_name_and_url_bind_platform_version_and_encoded_path() {
+        for (platform, suffix) in [("macOS", "dmg"), ("Windows", "exe"), ("LinuxARM", "deb"), ("LinuxAMD", "deb")] {
+            let name = installer_name(platform, "1.0.0").unwrap();
+            assert_eq!(name, format!("公民链·{platform}·v1.0.0.{suffix}"));
             let tag = format!("公民链·{platform}·v1.0.0");
-            let url = update_manifest_url(&tag, &name).unwrap();
+            let url = installer_url(&tag, &name).unwrap();
             assert_eq!(url.host_str(), Some("github.com"));
             assert_eq!(url.scheme(), "https");
             assert!(url.as_str().contains("%E5%85%AC%E6%B0%91%E9%93%BE%C2%B7"));
-            assert!(url.as_str().ends_with(&format!("{platform}%C2%B7v1.0.0.json")));
+            assert!(url.as_str().ends_with(&format!("{platform}%C2%B7v1.0.0.{suffix}")));
             assert_eq!(url.query(), None);
             assert_eq!(url.fragment(), None);
             let api_path = github_tag_path(&tag).unwrap();
@@ -286,9 +312,47 @@ mod update_tests {
             assert!(!api_path.contains('?') && !api_path.contains('#'));
         }
         for version in ["", "1.0", "01.0.0", "1.0.0/other", "1.0.0?other", "1.0.0-rc1"] {
-            assert!(update_manifest_name("macOS", version).is_err());
+            assert!(installer_name("macOS", version).is_err());
         }
-        assert!(update_manifest_name("wasm", "1.0.0").is_err());
+        assert!(installer_name("wasm", "1.0.0").is_err());
+    }
+    #[test]
+    fn installer_asset_requires_one_complete_platform_package() {
+        let name = installer_name("LinuxARM", "1.0.1").unwrap();
+        let tag = "公民链·LinuxARM·v1.0.1";
+        let url = installer_url(tag, &name).unwrap().to_string();
+        let hash = "a".repeat(64);
+        let asset = serde_json::json!({"name":name,"state":"uploaded","size":3,"digest":format!("sha256:{hash}"),"browser_download_url":url});
+        let release = serde_json::json!({"assets":[asset.clone()]});
+        let proof = serde_json::json!({"assets":[{"name":name,"size":3,"sha256":hash}]});
+        assert_eq!(installer_asset_url(&release, &proof, "LinuxARM", "1.0.1", tag).unwrap(), url);
+        for assets in [serde_json::json!([]), serde_json::json!([asset.clone(), asset.clone()])] {
+            assert!(installer_asset_url(&serde_json::json!({"assets":assets}), &proof, "LinuxARM", "1.0.1", tag).is_err());
+        }
+        assert!(installer_asset_url(&release, &proof, "LinuxAMD", "1.0.1", tag).is_err());
+        let mut wrong = release.clone();
+        wrong["assets"][0]["browser_download_url"] = "https://example.invalid/package.deb".into();
+        assert!(installer_asset_url(&wrong, &proof, "LinuxARM", "1.0.1", tag).is_err());
+        wrong = release.clone();
+        wrong["assets"][0]["digest"] = format!("sha256:{}", "b".repeat(64)).into();
+        assert!(installer_asset_url(&wrong, &proof, "LinuxARM", "1.0.1", tag).is_err());
+    }
+    #[test]
+    fn versions_and_browser_commands_keep_download_separate_from_installation() {
+        assert!(version_parts("1.0.10").unwrap() > version_parts("1.0.9").unwrap());
+        assert!(version_parts("1.1.0").unwrap() > version_parts("1.0.99").unwrap());
+        assert_eq!(version_parts("1.0.0").unwrap(), version_parts("1.0.0").unwrap());
+        assert!(version_parts("18446744073709551616.0.0").is_err());
+        let url = "https://github.com/crcfrcn/citizenchain/releases/download/version/package.deb";
+        for (os, program, prefix) in [("macos", "/usr/bin/open", None), ("windows", "rundll32.exe", Some("url.dll,FileProtocolHandler")), ("linux", "xdg-open", None)] {
+            let command = installer_browser_command(os, url).unwrap();
+            assert_eq!(command.get_program(), program);
+            let mut arguments = command.get_args();
+            if let Some(prefix) = prefix { assert_eq!(arguments.next().unwrap(), prefix); }
+            assert_eq!(arguments.next().unwrap(), url);
+            assert!(arguments.next().is_none());
+        }
+        assert!(installer_browser_command("other", url).is_err());
     }
     #[test]
     fn release_selection_is_platform_run_and_attempt_specific() {

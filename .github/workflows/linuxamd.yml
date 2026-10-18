@@ -27,8 +27,6 @@ jobs:
       CITIZENCHAIN_VERSION_PLAN: "${{ inputs.version_plan }}"
       GH_TOKEN: "${{ github.token }}"
       CARGO_INCREMENTAL: '1'
-      TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:

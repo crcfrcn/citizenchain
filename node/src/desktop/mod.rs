@@ -27,15 +27,13 @@ use tauri::Manager;
 pub fn run_desktop() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState(Mutex::new(RuntimeState::default())))
         .invoke_handler(tauri::generate_handler![
             home::identity::get_node_status,
             home::process::start_node,
             home::process::stop_node,
             home::sync_guard::get_sync_guard_status,
-            settings::desktop_update::prepare_desktop_update,
+            settings::desktop_update::open_desktop_installer,
             settings::desktop_update::check_desktop_update,
             settings::node_mode::get_node_mode,
             settings::node_mode::set_node_mode,

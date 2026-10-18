@@ -1,8 +1,8 @@
-import type { Update } from '@tauri-apps/plugin-updater';
 import { invoke } from '../tauri';
 import type {
   BootnodeKey,
   BootnodeOption,
+  DesktopInstaller,
   GrandpaKey,
   NodeMode,
   NodeModeState,
@@ -33,6 +33,6 @@ export const settingsApi = {
     invoke<GrandpaKey>('set_grandpa_key', { key, unlockPassword }),
   getGenesisBootnodeOptions: () =>
     invoke<BootnodeOption[]>('get_genesis_bootnode_options'),
-  checkDesktopUpdate: () => invoke<ConstructorParameters<typeof Update>[0] | null>('check_desktop_update'),
-  prepareDesktopUpdate: () => invoke<void>('prepare_desktop_update'),
+  checkDesktopUpdate: () => invoke<DesktopInstaller | null>('check_desktop_update'),
+  openDesktopInstaller: () => invoke<void>('open_desktop_installer'),
 };

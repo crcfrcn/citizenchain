@@ -2637,10 +2637,6 @@ SDK附带的开发Runtime WASM；正式WASM平台拒绝跳过编译，并排除�
 - 本步骤不表示 CitizenChain 其它公开 Release、资产或历史文档命名已经迁移完成；其余候选
   继续由全仓命名任务卡分步处理。
 
-## macOS updater 历史记录（2026-09-02）
-
-当时的服务端下载路径已退役；当前官网安装包直接由 GitHub 正式 Release 交付。Tauri updater 的独立更新服务需要按当前产品配置另行核对，不再由公民服务端旧下载指针承载。
-
 ## 四端安装下载历史记录（2026-09-02）
 
 当时由服务端发布指针交付的四端安装下载已退役；当前官网按平台直接查询 GitHub 正式 Release 的安装资产，公民服务端不再提供公民链安装下载接口。
@@ -2649,16 +2645,22 @@ SDK附带的开发Runtime WASM；正式WASM平台拒绝跳过编译，并排除�
 
 CitizenChain 正式 Release 自定义资产名现固定为以下闭集；`<VERSION>` 是不含 `v` 的版本值：
 
-| 公开平台 | 安装资产 | 更新资产 | manifest |
-|---|---|---|---|
-| LinuxARM | `公民链·LinuxARM·v<VERSION>.deb` | `公民链·LinuxARM·v<VERSION>.AppImage` | `公民链·LinuxARM·v<VERSION>.json` |
-| LinuxAMD | `公民链·LinuxAMD·v<VERSION>.deb` | `公民链·LinuxAMD·v<VERSION>.AppImage` | `公民链·LinuxAMD·v<VERSION>.json` |
-| macOS | `公民链·macOS·v<VERSION>.dmg` | `公民链·macOS·v<VERSION>.app.tar.gz` | `公民链·macOS·v<VERSION>.json` |
-| Windows | `公民链·Windows·v<VERSION>.exe` | 与安装资产共用同一 `.exe` | `公民链·Windows·v<VERSION>.json` |
+| 公开平台 | 唯一完整安装包，首次安装和更新共用 |
+|---|---|
+| LinuxARM | `公民链·LinuxARM·v<VERSION>.deb` |
+| LinuxAMD | `公民链·LinuxAMD·v<VERSION>.deb` |
+| macOS | `公民链·macOS·v<VERSION>.dmg` |
+| Windows | `公民链·Windows·v<VERSION>.exe` |
 
-Release Tag 前缀继续为 `citizenchain-linux-arm-v`、`citizenchain-linux-amd-v`、`citizenchain-macos-v`、`citizenchain-windows-v`。四个平台分别生成正式 Release；官网直接按平台及准确安装资产下载，不再经公民服务端的 D1 发布指针。更新资产仍由各平台 Release 独立交付，不属于服务端旧安装下载路由。
+Release名称与Tag统一为`公民链·平台·v版本`。四个平台分别生成正式Release，每个Release只有对应平台的一个完整安装包；官网与桌面端下载同一个安装资产，不经公民服务端的旧下载指针。
 
-节点版本只读取`node/tauri.conf.json`；四份Workflow的Run和Job标题是本次版本的展示投影，产品入口必须核对其与版本真源一致。安装包及更新包的`.sig`与对应本体同名；四平台正式资产数分别为macOS四件、Windows三件、LinuxARM四件、LinuxAMD四件。发布计划交付准确标题，草稿及正式Release回读均核对标题、名称、大小、原始字节SHA-256和经过URL编码的准确下载地址；中文或中点被平台改写、地址偏移或同名重复均失败。桌面更新器使用同一成功Run证明中的版本组成清单名，不猜测其他平台或旧名。包内可执行文件、应用标识及生产安装路径保持其既有合同。
+节点初始版本读取`node/tauri.conf.json`。本机与自动化共用本平台成功正式版查询：本机复用最近成功版，自动化候选在其基础上增加补丁号；失败不推进版本，尚无成功正式版时首次构建使用初始版本。四份Workflow的Run和Job使用同一候选版本。四平台本机编译回执和正式Release都只声明一个完整安装包；发布计划、草稿及正式Release回读沿用准确平台、Run、标题、名称、大小、原始字节SHA-256及下载地址证明。包内可执行文件、应用标识及生产安装路径保持既有合同。
+
+macOS构建先完成现有Developer ID、描述文件、Hardened Runtime、时间戳及entitlements签名验收；已签名的`CitizenChain.app`位于本轮`installer/`内部目录，再由同一构建入口封装唯一DMG。本机安装复用这个内部App，公开产物只有DMG。Windows只封装NSIS完整安装器，两个Linux平台只封装各自架构的DEB。四平台不再单独维护另一套更新资产或更新密钥要求。
+
+桌面启动只检查当前平台的新版本。用户点击“下载新版安装包”时，由后端重新读取本平台正式Release中的唯一完整包，系统浏览器下载后由用户通过系统安装；不接收前端指定的任意执行目标，不预先停止节点，不自动安装或重启应用。下载打开失败保留错误和新版提示。节点的正常退出清理保持原行为。
+
+每个平台的Cargo与前端增量编译机制继续保留。依赖锁变动后旧快照按现有输入身份失效，移除失效快照不会删除工具、SDK原件或其他平台缓存；新任务只保存自身最近的有效增量。回归在既有文件内覆盖四平台单包回执、发布资产数量、下载名称及地址、版本比较、错误平台、缺失或重复资产和系统浏览器参数；现有系统签名、安装回滚及并发隔离回归继续保留。
 
 ### 产品流程物理归属
 
@@ -2932,14 +2934,14 @@ macOS App的独立Build明确准备`crates/scanner`、`node/frontend`、`onchina
 
 Git来源始终由本产品原锁决定。每次执行均先复用可选的同提交原件，否则在本产品永久依赖原件目录按完整固定来源保存bundle；同坐标首次获取互斥，校验真实FETCH_HEAD及Git对象完成后原子落位，后续任务清场不删除永久原件，离线热命中零网络、离线缺件准确失败。本轮检出与可写Git现场仍只在本产品target中，包版本、固定SDK及Runtime不变。新增同文件回归覆盖公开供给失败不回退、越界拒绝、独立并发、任务清场后复用和提交错误不落位。
 
-节点软件初始版本来自node/tauri.conf.json，各平台后续候选由本产品最近成功正式版增加补丁号。失败Run不推进版本，本机验证不消耗正式版本；本轮节点Cargo和Tauri版本只写source副本。产品更新器与本产品生成的LinuxARM安装候选验证正文消费新Tag及真实Run证明；旧控制台的升级、部署解析保持原样，不声称它们能够识别新Tag，也不部署或替换已有节点助手。
+节点软件初始版本来自node/tauri.conf.json，各平台自动化候选由本产品最近成功正式版增加补丁号。本机完整入口、原生直接构建和公开build入口在当前任务内只确定一次本平台最近成功版本；查询只读取GitHub公开版本元数据，不下载工具或依赖，不读取控制台凭据，不创建额外版本文件。网络读取失败保留原始错误，不把失败当作没有历史版本。失败Run不推进版本，本机验证不消耗正式版本；本轮节点Cargo、对应包锁记录、Tauri配置及安装包名使用同一版本，只写source副本。设置页继续显示程序内嵌的CARGO_PKG_VERSION，因此安装并运行该完整包后与该包的自动化成功版本一致；Runtime版本及其显示不变。回归覆盖成功版复用、候选加号、平台并发隔离、无成功记录的初始号、同一任务不重复查询和网络失败不进入构建。产品完整安装包发现与本产品生成的LinuxARM安装候选验证正文继续消费新Tag及真实Run证明；旧控制台的升级、部署解析保持原样，不部署或替换已有节点助手。
 
 
 ### 当前自动化最后处理
 
 本仓每个自动化目标仅由自身既有平台YAML调用本仓产品入口；跨平台不建立依赖。历史清理只接受该目标准确Workflow路径、main和原Run及attempt，不根据已删除文件或旧入口名称猜测归属，也不另造一次成功维护Run替代原构建身份。固定依赖及有效增量缓存不参加自产发布历史删除。
 
-桌面更新检查由node/src/settings/desktop_update.rs按当前系统平台读取本仓唯一成功Run、正式Release及Tag证明，使用该Release的更新清单交给Tauri签名更新器。安装包不嵌入自身版本Tag，也不通过其它产品仓的自动化寻找更新。Linux正式集合同时包含DEB、AppImage、本体签名与平台清单。
+桌面更新检查由node/src/settings/desktop_update.rs按当前系统平台读取本仓成功Run、正式Release及Tag证明，返回该Release唯一完整安装包的下载地址。安装包不嵌入自身版本Tag，也不通过其它产品仓的自动化寻找更新。LinuxARM和LinuxAMD分别只交付对应架构的一个DEB。
 
 
 ### 本仓 GitHub 自动化与塔塔门禁目录
@@ -2954,7 +2956,7 @@ Git来源始终由本产品原锁决定。每次执行均先复用可选的同�
 
 控制台接入按其既有要求声明产品名称、编译/塔塔自动化/发布流程及平台，显示如“公民链·编译·macOS”；GitHub与交付产物使用如“公民链·macOS·v1.0.0”的发布名称。两者分别维护，不向控制台任务名称注入发布版本，tata/citizenchain.mjs不承载产品历史清理。
 
-控制台任务标题统一为“产品·流程·平台”；GitHub固定Workflow名称为“产品·平台”，不含版本；每次Run、业务Job、Release及节点交付文件统一为“产品·平台·v版本”，分隔符两侧无空格。节点更新器按相同新文件名读取更新清单，GitHub资产label由产品发布计划生成并逐件回读。内部Workflow路径、平台ID、Run及Tag来源坐标保持技术身份，显示名称不充当记录分组键；分组仍为产品、流程、平台。固定Workflow目录名在版本变化时保持；具体版本只归本次Run和产物，发布准备须使Run及Job名称与本次计划一致，不能在运行中改写已创建Run。
+控制台任务标题统一为“产品·流程·平台”；GitHub固定Workflow名称为“产品·平台”，不含版本；每次Run、业务Job、Release及节点交付文件统一为“产品·平台·v版本”，分隔符两侧无空格。桌面端按相同文件名下载本平台唯一完整安装包，GitHub资产label由产品发布计划生成并回读。内部Workflow路径、平台ID、Run及Tag来源坐标保持技术身份，显示名称不充当记录分组键；分组仍为产品、流程、平台。固定Workflow目录名在版本变化时保持；具体版本只归本次Run和产物，发布准备须使Run及Job名称与本次计划一致，不能在运行中改写已创建Run。
 
 原生CI环境统一成对设置CITIZENCHAIN_SOURCE_ROOT及CITIZENCHAIN_WORK_DIR，前者指向准确原件，后者指向本平台固定任务目录；节点build.rs继续校验原件或本轮source视图及输出边界，不修改该校验或SDK。
 

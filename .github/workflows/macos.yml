@@ -27,8 +27,6 @@ jobs:
       CITIZENCHAIN_VERSION_PLAN: "${{ inputs.version_plan }}"
       GH_TOKEN: "${{ github.token }}"
       CARGO_INCREMENTAL: '1'
-      TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
       APPLE_CERTIFICATE_BASE64: "${{ secrets.APPLE_CERTIFICATE_BASE64 }}"
       APPLE_CERTIFICATE_PASSWORD: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
       APPLE_PROFILE_BASE64: "${{ secrets.APPLE_PROFILE_BASE64 }}"
@@ -55,8 +53,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # 保留既有四项签名输入要求，逐项报告缺件，不输出材料或派生值。
-          for required in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_PROFILE_BASE64 TAURI_SIGNING_PRIVATE_KEY; do
+          # 系统签名复用既有Apple身份；逐项报告缺件，不输出材料或派生值。
+          for required in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_PROFILE_BASE64; do
             test -n "${!required:-}" || { echo "缺少GitHub签名配置：$required" >&2; exit 1; }
           done
           # 完整收取版本输出，避免grep提前关闭管道令xcodebuild写入Broken pipe。

@@ -51,8 +51,14 @@ export type DesktopUpdateStatus =
   | 'checking'
   | 'available'
   | 'unavailable'
-  | 'installing'
   | 'error';
+
+// 更新只指向本平台的完整安装包，不持有安装器或进程资源。
+export type DesktopInstaller = {
+  currentVersion: string;
+  version: string;
+  downloadUrl: string;
+};
 
 export type DesktopUpdateInfo = {
   status: DesktopUpdateStatus;

@@ -1,7 +1,5 @@
 // 节点 UI 顶级 tab 栏：首页 / 挖矿 / 国家储委会 / 省储委会 / 省储行 / 清算行 / 白皮书 / 公民宪法 / 设置。
 import { useCallback, useEffect, useState } from 'react';
-import { relaunch } from '@tauri-apps/plugin-process';
-import { Update } from '@tauri-apps/plugin-updater';
 import { NrcSection } from '../governance/NrcSection';
 import { PrcSection } from '../governance/PrcSection';
 import { PrbSection } from '../governance/PrbSection';
@@ -13,7 +11,7 @@ import { OtherTabsSection } from '../other';
 import { settingsApi } from '../settings/api';
 import { SettingsSection } from '../settings';
 import { shouldShowDesktopUpdateDot } from '../settings/updateIndicator';
-import type { DesktopUpdateInfo } from '../settings/types';
+import type { DesktopInstaller, DesktopUpdateInfo } from '../settings/types';
 
 type TabKey =
   | 'home'
@@ -28,7 +26,7 @@ type TabKey =
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>('home');
-  const [desktopUpdate, setDesktopUpdate] = useState<Update | null>(null);
+  const [desktopUpdate, setDesktopUpdate] = useState<DesktopInstaller | null>(null);
   const [desktopUpdateInfo, setDesktopUpdateInfo] = useState<DesktopUpdateInfo>({
     status: 'checking',
     currentVersion: null,
@@ -41,7 +39,7 @@ export default function App() {
     try {
       // App 打开后只检查 GitHub Release 元数据，不下载、不安装，等待用户在设置页主动点击。
       const metadata = await settingsApi.checkDesktopUpdate();
-      const update = metadata ? new Update(metadata) : null;
+      const update = metadata;
       setDesktopUpdate(update);
       setDesktopUpdateInfo({
         status: update ? 'available' : 'unavailable',
@@ -64,13 +62,12 @@ export default function App() {
     void checkDesktopUpdate();
   }, [checkDesktopUpdate]);
 
-  const installDesktopUpdate = useCallback(async () => {
+  const openDesktopInstaller = useCallback(async () => {
     if (!desktopUpdate) return;
-    setDesktopUpdateInfo((prev) => ({ ...prev, status: 'installing', error: null }));
+    setDesktopUpdateInfo((prev) => ({ ...prev, error: null }));
     try {
-      await settingsApi.prepareDesktopUpdate();
-      await desktopUpdate.downloadAndInstall();
-      await relaunch();
+      // 下载完整包由系统浏览器承接；此动作不停止节点、不安装或重启应用。
+      await settingsApi.openDesktopInstaller();
     } catch (error) {
       setDesktopUpdateInfo((prev) => ({
         ...prev,
@@ -123,7 +120,7 @@ export default function App() {
             {tab === 'settings' ? (
               <SettingsSection
                 desktopUpdateInfo={desktopUpdateInfo}
-                onInstallDesktopUpdate={installDesktopUpdate}
+                onOpenDesktopInstaller={openDesktopInstaller}
               />
             ) : null}
 

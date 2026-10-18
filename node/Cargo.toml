@@ -141,8 +141,6 @@ twox-hash = "=2.1.4"
 unicode-normalization = "=0.1.25"
 zeroize = "=1.9.0"
 tokio = { workspace = true, default-features = true, features = ["time"] }
-tauri-plugin-updater = "=2.10.1"
-tauri-plugin-process = "=2.3.1"
 
 [dev-dependencies]
 # Ethereum 服务验收直接装配正式原生 RPC，复用同一链客户端与交易池。
