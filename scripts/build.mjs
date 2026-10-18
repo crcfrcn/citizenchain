@@ -5,7 +5,7 @@ const inlineTestEntry = directEntry && Boolean(process.env.NODE_TEST_CONTEXT) &&
 import {spawn,spawnSync} from 'node:child_process';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {rmSync,rmdirSync,chmodSync,closeSync,openSync,readlinkSync,unlinkSync,copyFileSync,cpSync,existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,realpathSync,renameSync,symlinkSync,writeFileSync} from 'node:fs';
-import {basename,dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
+import {basename,dirname,extname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createHash,randomUUID} from 'node:crypto';
 
@@ -645,6 +645,27 @@ async function buildWasmArtifacts(work,env){
  for(const name of contract.platforms.wasm.files){const from=join(source,name),info=lstatSync(from);if(!info.isFile()||info.isSymbolicLink()||!info.size)fail('真实WASM候选缺失：'+name);copyFileSync(from,join(work,name));}
 }
 
+// Windows动态OpenSSL来自同一预装开发目录，DLL随完整包交付，不依赖用户的PATH。
+function stageWindowsOpenSsl(resources,environment){
+ const directory=typeof environment.OPENSSL_DIR==='string'&&isAbsolute(environment.OPENSSL_DIR)?join(environment.OPENSSL_DIR,'bin'):undefined;
+ if(typeof directory!=='string'||!isAbsolute(directory)||realpathSync(directory)!==directory)fail('Windows OpenSSL运行原件目录无效');
+ const names=['libssl-3-x64.dll','libcrypto-3-x64.dll'],copied=[];
+ for(const name of names){
+  const source=join(directory,name),info=lstatSync(source),bytes=readFileSync(source);
+  if(!info.isFile()||info.isSymbolicLink()||realpathSync(source)!==source||bytes.length<64)fail('Windows OpenSSL DLL原件无效：'+name);
+  const offset=bytes.readUInt32LE(60);
+  if(bytes.toString('ascii',0,2)!=='MZ'||offset>bytes.length-24||bytes.readUInt32LE(offset)!==0x4550
+   ||bytes.readUInt16LE(offset+4)!==0x8664||!(bytes.readUInt16LE(offset+22)&0x2000))fail('Windows OpenSSL DLL不是x64运行库：'+name);
+  // Tauri主程序和OnChina子程序分别从自身目录加载同一套运行库。
+  for(const destination of [join(resources,name),join(resources,'onchina-bin',name)]){
+   if(existsSync(destination))fail('Windows OpenSSL打包目标已存在：'+name);
+   copyFileSync(source,destination);
+   if(!readFileSync(destination).equals(bytes))fail('Windows OpenSSL DLL复制回读不符：'+name);
+   copied.push(destination);
+  }
+ }
+ return copied;
+}
 // 四端节点使用同一原生构建函数；调用环境只决定工具及是否允许联网准备依赖。
 async function buildNodePackage(platform,work,environment){
  if(!['windows','linux-arm','linux-amd'].includes(platform))fail('节点打包平台无效');
@@ -668,6 +689,7 @@ async function buildNodePackage(platform,work,environment){
  const resources=join(stage,'resources'),binary=process.platform==='win32'?'onchina.exe':'onchina';
  mkdirSync(join(resources,'onchina-bin'),{recursive:true});mkdirSync(join(resources,'onchina-frontend'),{recursive:true});mkdirSync(join(resources,'postgres'),{recursive:true});
  copyFileSync(join(target,'release',binary),join(resources,'onchina-bin',binary));
+ if(platform==='windows')stageWindowsOpenSsl(resources,environmentForNode);
  cpSync(env.ONCHINA_FRONTEND_DIST,join(resources,'onchina-frontend/dist'),{recursive:true});
  const stagedPostgres=join(resources,'postgres',process.platform==='win32'?'windows':'linux');
  cpSync(pg,stagedPostgres,{recursive:true});
@@ -898,12 +920,16 @@ function githubAssetLabel(platform,version,name){
   if(!contract.platforms.wasm.files.includes(name))fail('WASM资产名无效');
   return title+name.slice('citizenchain'.length);
  }
- if(!githubReleaseFiles(platform,version).includes(name))fail('节点资产名无效');return name;
+ if(!githubReleaseFiles(platform,version).includes(name))fail('节点资产名无效');return title+extname(name);
 }
 function githubReleaseFiles(platform,version){
  if(platform==='wasm')return [...contract.platforms.wasm.files];
  const extensions={macos:['.dmg'],windows:['.exe'],'linux-arm':['.deb'],'linux-amd':['.deb']}[platform];
- if(!extensions)fail('Release平台无效');const name=nodeDeliveryName(platform,version);
+ if(!extensions)fail('Release平台无效');
+ // GitHub上传接口会改写中文和中点；传输名用ASCII，label保持产品统一中文显示。
+ nodeDeliveryName(platform,version);
+ const display={macos:'macOS',windows:'Windows','linux-arm':'LinuxARM','linux-amd':'LinuxAMD'}[platform];
+ const name=`citizenchain-${display}-v${version}`;
  return extensions.map(extension=>name+extension);
 }
 // 本机和GitHub共用完整安装包；macOS的已签名App只留在本轮内部安装目录。
@@ -941,7 +967,7 @@ async function prepareGithubAssets(platform,work,result,environment){
  const owned=[];
  const add=(source,name)=>{const target=join(directory,name),info=lstatSync(source);if(!info.isFile()||info.isSymbolicLink()||!info.size||existsSync(target))fail('GitHub资产无效或重复：'+name);copyFileSync(source,target);owned.push(target);return target;};
  if(platform==='wasm')for(const name of contract.platforms.wasm.files)add(join(work,name),name);
- else for(const name of githubReleaseFiles(platform,version))add(join(work,name),name);
+ else for(const name of githubReleaseFiles(platform,version))add(join(work,nodeDeliveryName(platform,version)+extname(name)),name);
  const assets=owned.map(path=>({name:basename(path),label:githubAssetLabel(platform,version,basename(path)),size:lstatSync(path).size,sha256:releaseAssetSha256(path)})).sort((a,b)=>a.name.localeCompare(b.name));
  if(JSON.stringify(assets.map(asset=>asset.name).sort())!==JSON.stringify(githubReleaseFiles(platform,version).sort()))fail('本平台Release交付集合不完整');
  const proof={schema:1,repository:'crcfrcn/citizenchain',product_id:product,platform,
@@ -1059,7 +1085,7 @@ function releaseAssetSha256(path){
 }
 
 // 本机签名安装只接受本产品显式请求，并由本产品核验结果。
-const NODE_RELEASE_CANDIDATE_SOURCE="def candidate(value):\n    coordinate(value)\n    require(IDENTITY['product'] == 'citizenchain' and IDENTITY['platform'] == 'linux-arm'\n            and REPOSITORY == 'crcfrcn/citizenchain', '公民链只交付自身Linux ARM节点部署')\n    release = metadata('/releases/' + str(value['release_id']))\n    require(isinstance(release, dict) and release.get('draft') is False and release.get('prerelease') is False\n            and release.get('id') == value['release_id'] and release.get('url') == API + '/releases/' + str(value['release_id']), '节点正式版本身份无效')\n    lines = [line for line in str(release.get('body', '')).splitlines()\n             if line.startswith('<!-- automation:') and line.endswith(' -->')]\n    require(len(lines) == 1, '节点版本来源证明不唯一')\n    proof = json.loads(lines[0][len('<!-- automation:'):-len(' -->')])\n    version = str(proof.get('version', ''))\n    require(re.fullmatch(r'(?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)', version) is not None, '节点软件版本无效')\n    title = '公民链·LinuxARM·v' + version\n    tag = release.get('tag_name')\n    require(tag == title and release.get('name') == title and proof.get('tag') == tag\n            and proof.get('schema') == 1 and proof.get('repository') == REPOSITORY\n            and proof.get('product_id') == 'citizenchain' and proof.get('platform') == 'linux-arm'\n            and proof.get('workflow') == '.github/workflows/' + IDENTITY['workflow'], '节点Tag或来源身份无效')\n    run_id, attempt = proof.get('run_id'), proof.get('run_attempt')\n    require(type(run_id) is int and 0 < run_id <= 2**53 - 1 and type(attempt) is int and 0 < attempt <= 2**53 - 1, '节点Run坐标无效')\n    reference = metadata('/git/ref/tags/' + quote(tag, safe=''))\n    require(isinstance(reference, dict) and reference.get('ref') == 'refs/tags/' + tag, '节点Tag引用身份无效')\n    obj = reference.get('object')\n    require(isinstance(obj, dict) and obj.get('type') == 'commit' and re.fullmatch('[0-9a-f]{40}', str(obj.get('sha', '')))\n            and proof.get('source_sha') == obj['sha'] and release.get('target_commitish') == obj['sha'], '节点Tag没有准确提交')\n    successes, page = [], 1\n    while True:\n        runs = metadata('/actions/workflows/' + IDENTITY['workflow'] + '/runs?per_page=100&page=' + str(page))\n        require(isinstance(runs, dict) and isinstance(runs.get('workflow_runs'), list), '节点自动化记录无效')\n        successes.extend(run for run in runs['workflow_runs'] if isinstance(run, dict)\n                         and run.get('status') == 'completed' and run.get('conclusion') == 'success')\n        if len(runs['workflow_runs']) < 100:\n            break\n        page += 1\n        require(page <= 100, '节点Run分页超限')\n    require(successes, '公民链Linux ARM缺少正式成功版本')\n    run = max(successes, key=lambda item: int(item.get('id', 0)))\n    require(run.get('id') == run_id and run.get('run_attempt') == attempt\n            and run.get('path') == proof['workflow'] and run.get('head_sha') == obj['sha']\n            and run.get('head_branch') == 'main' and run.get('event') == 'workflow_dispatch'\n            and isinstance(run.get('repository'), dict) and run['repository'].get('full_name') == REPOSITORY\n            and run.get('url') == API + '/actions/runs/' + str(run_id), '节点版本没有匹配的成功自动化')\n    assets, declared = release.get('assets'), proof.get('assets')\n    expected = {title + suffix for suffix in ('.deb',)}\n    require(isinstance(assets, list) and len(assets) == 1 and all(isinstance(asset, dict) for asset in assets)\n            and {asset.get('name') for asset in assets} == expected\n            and isinstance(declared, list) and len(declared) == 1\n            and all(isinstance(asset, dict) for asset in declared)\n            and {asset.get('name') for asset in declared} == expected, '节点完整运行包集合缺失')\n    ids = set()\n    for asset in assets:\n        require(type(asset.get('id')) is int and 0 < asset['id'] <= 2**53 - 1 and asset['id'] not in ids\n                and asset.get('url') == API + '/releases/assets/' + str(asset['id']) and asset.get('state') == 'uploaded'\n                and type(asset.get('size')) is int and 0 < asset['size'] <= LIMIT\n                and re.fullmatch('sha256:[0-9a-f]{64}', str(asset.get('digest', ''))), '节点GitHub正式资产不完整')\n        ids.add(asset['id'])\n        original = next(item for item in declared if item['name'] == asset['name'])\n        require(original.get('size') == asset['size'] and 'sha256:' + str(original.get('sha256')) == asset['digest']\n                and asset.get('label') == asset['name'] and original.get('label') == asset['name'], '节点正式资产证明不符')\n    installer = next(asset for asset in assets if asset['name'] == title + '.deb')\n    require(installer['id'] == value['asset_id'], '节点安装资产坐标不属于本次请求')\n    return {key: installer[key] for key in ('id', 'url', 'name', 'state', 'size', 'digest')} | {\n        'release_id': release['id'], 'tag': tag, 'source_sha': obj['sha'], 'run_id': run_id}\n";
+const NODE_RELEASE_CANDIDATE_SOURCE="def candidate(value):\n    coordinate(value)\n    require(IDENTITY['product'] == 'citizenchain' and IDENTITY['platform'] == 'linux-arm'\n            and REPOSITORY == 'crcfrcn/citizenchain', '公民链只交付自身Linux ARM节点部署')\n    release = metadata('/releases/' + str(value['release_id']))\n    require(isinstance(release, dict) and release.get('draft') is False and release.get('prerelease') is False\n            and release.get('id') == value['release_id'] and release.get('url') == API + '/releases/' + str(value['release_id']), '节点正式版本身份无效')\n    lines = [line for line in str(release.get('body', '')).splitlines()\n             if line.startswith('<!-- automation:') and line.endswith(' -->')]\n    require(len(lines) == 1, '节点版本来源证明不唯一')\n    proof = json.loads(lines[0][len('<!-- automation:'):-len(' -->')])\n    version = str(proof.get('version', ''))\n    require(re.fullmatch(r'(?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)', version) is not None, '节点软件版本无效')\n    title = '公民链·LinuxARM·v' + version\n    tag = release.get('tag_name')\n    require(tag == title and release.get('name') == title and proof.get('tag') == tag\n            and proof.get('schema') == 1 and proof.get('repository') == REPOSITORY\n            and proof.get('product_id') == 'citizenchain' and proof.get('platform') == 'linux-arm'\n            and proof.get('workflow') == '.github/workflows/' + IDENTITY['workflow'], '节点Tag或来源身份无效')\n    run_id, attempt = proof.get('run_id'), proof.get('run_attempt')\n    require(type(run_id) is int and 0 < run_id <= 2**53 - 1 and type(attempt) is int and 0 < attempt <= 2**53 - 1, '节点Run坐标无效')\n    reference = metadata('/git/ref/tags/' + quote(tag, safe=''))\n    require(isinstance(reference, dict) and reference.get('ref') == 'refs/tags/' + tag, '节点Tag引用身份无效')\n    obj = reference.get('object')\n    require(isinstance(obj, dict) and obj.get('type') == 'commit' and re.fullmatch('[0-9a-f]{40}', str(obj.get('sha', '')))\n            and proof.get('source_sha') == obj['sha'] and release.get('target_commitish') == obj['sha'], '节点Tag没有准确提交')\n    successes, page = [], 1\n    while True:\n        runs = metadata('/actions/workflows/' + IDENTITY['workflow'] + '/runs?per_page=100&page=' + str(page))\n        require(isinstance(runs, dict) and isinstance(runs.get('workflow_runs'), list), '节点自动化记录无效')\n        successes.extend(run for run in runs['workflow_runs'] if isinstance(run, dict)\n                         and run.get('status') == 'completed' and run.get('conclusion') == 'success')\n        if len(runs['workflow_runs']) < 100:\n            break\n        page += 1\n        require(page <= 100, '节点Run分页超限')\n    require(successes, '公民链Linux ARM缺少正式成功版本')\n    run = max(successes, key=lambda item: int(item.get('id', 0)))\n    require(run.get('id') == run_id and run.get('run_attempt') == attempt\n            and run.get('path') == proof['workflow'] and run.get('head_sha') == obj['sha']\n            and run.get('head_branch') == 'main' and run.get('event') == 'workflow_dispatch'\n            and isinstance(run.get('repository'), dict) and run['repository'].get('full_name') == REPOSITORY\n            and run.get('url') == API + '/actions/runs/' + str(run_id), '节点版本没有匹配的成功自动化')\n    assets, declared = release.get('assets'), proof.get('assets')\n    filename = 'citizenchain-LinuxARM-v' + version + '.deb'\n    expected = {filename}\n    require(isinstance(assets, list) and len(assets) == 1 and all(isinstance(asset, dict) for asset in assets)\n            and {asset.get('name') for asset in assets} == expected\n            and isinstance(declared, list) and len(declared) == 1\n            and all(isinstance(asset, dict) for asset in declared)\n            and {asset.get('name') for asset in declared} == expected, '节点完整运行包集合缺失')\n    ids = set()\n    for asset in assets:\n        require(type(asset.get('id')) is int and 0 < asset['id'] <= 2**53 - 1 and asset['id'] not in ids\n                and asset.get('url') == API + '/releases/assets/' + str(asset['id']) and asset.get('state') == 'uploaded'\n                and type(asset.get('size')) is int and 0 < asset['size'] <= LIMIT\n                and re.fullmatch('sha256:[0-9a-f]{64}', str(asset.get('digest', ''))), '节点GitHub正式资产不完整')\n        ids.add(asset['id'])\n        original = next(item for item in declared if item['name'] == asset['name'])\n        require(original.get('size') == asset['size'] and 'sha256:' + str(original.get('sha256')) == asset['digest']\n                and asset.get('label') == title + '.deb' and original.get('label') == title + '.deb', '节点正式资产证明不符')\n    installer = next(asset for asset in assets if asset['name'] == filename)\n    require(installer['id'] == value['asset_id'], '节点安装资产坐标不属于本次请求')\n    return {key: installer[key] for key in ('id', 'url', 'name', 'state', 'size', 'digest')} | {\n        'release_id': release['id'], 'tag': tag, 'source_sha': obj['sha'], 'run_id': run_id}\n";
 export function nodeDeploymentVerifier(){return NODE_RELEASE_CANDIDATE_SOURCE;}
 
 // 本机签名安装只接受本产品显式请求，并由本产品核验结果。
@@ -3951,6 +3977,27 @@ test('失败终态撤销本次草稿，保留旧成功正式版且不推进版�
  const result=await settleProductRun('windows',f.source,f.request);
  assert.equal(result.kept_release,101);assert.deepEqual([...f.runs.keys()],[1,4]);assert.deepEqual([...f.releases.keys()],[101,999]);
 });
+test('失败草稿上传改名不阻止撤销，未知内容仍不得删除',async()=>{
+ for(const platform of ['linux-arm','linux-amd']){
+  for(const tamper of [null,'label','digest','size','extra']){
+   const f=historyFixture(platform);f.source.conclusion='failure';
+   const candidate=f.releases.get(104),proof=readReleaseProof(candidate);
+   proof.assets[0].name=proof.assets[0].label;
+   candidate.body='<!-- automation:'+JSON.stringify(proof)+' -->';
+   candidate.assets[0].name=(platform==='linux-arm'?'LinuxARM':'LinuxAMD')+'.v1.0.1.deb';
+   if(tamper==='extra')candidate.assets.push({...candidate.assets[0],id:99999});
+   else if(tamper)candidate.assets[0][tamper]=tamper==='size'?4:'wrong';
+   if(tamper){
+    await assert.rejects(settleProductRun(platform,f.source,f.request),/失败草稿/u);
+    assert.equal(f.calls.filter(([method])=>method!=='GET').length,0);
+   }else{
+    const result=await settleProductRun(platform,f.source,f.request);
+    assert.equal(result.kept_release,101);assert.deepEqual([...f.releases.keys()],[101,999]);
+    assert.equal(f.releases.get(101).draft,false);assert.deepEqual([...f.runs.keys()],[1,4]);
+   }
+  }
+ }
+});
 test('Run未结束、身份或资产漂移时禁止发布和删除',async()=>{
  for(const change of [f=>f.source.status='in_progress',f=>f.source.head_sha='invalid',
   f=>f.releases.get(104).assets.pop(),f=>f.releases.get(101).target_commitish='c'.repeat(40),f=>f.releases.get(104).tag_name='other']){
@@ -4133,7 +4180,7 @@ repo = 'crcfrcn/citizenchain'
 api = 'https://api.github.com/repos/' + repo
 sha, digest = 'a' * 40, 'b' * 64
 version, title = '1.0.1', '公民链·LinuxARM·v1.0.1'
-assets = [{'id': i + 1, 'url': api + '/releases/assets/' + str(i + 1), 'name': title + suffix,
+assets = [{'id': i + 1, 'url': api + '/releases/assets/' + str(i + 1), 'name': 'citizenchain-LinuxARM-v' + version + suffix,
            'label': title + suffix, 'size': 3, 'state': 'uploaded', 'digest': 'sha256:' + digest}
           for i, suffix in enumerate(('.deb',))]
 proof = {'schema': 1, 'repository': repo, 'product_id': 'citizenchain', 'platform': 'linux-arm',
@@ -4163,6 +4210,16 @@ scope = dict(json=json, re=re, quote=quote, require=require, metadata=metadata,
              REPOSITORY=repo, API=api, LIMIT=1000000)
 exec(source, scope)
 assert scope['candidate']({'release_id': 12, 'asset_id': 1})['tag'] == title
+for key, value in [('name', 'LinuxARM.v1.0.1.deb'), ('label', 'wrong'), ('digest', 'sha256:' + 'c' * 64)]:
+    original = assets[0][key]
+    assets[0][key] = value
+    try:
+        scope['candidate']({'release_id': 12, 'asset_id': 1})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(key)
+    assets[0][key] = original
 for key, value in [('tag_name', 'wrong'), ('target_commitish', 'c' * 40)]:
     original = release[key]
     release[key] = value
@@ -4308,10 +4365,30 @@ test('四节点本机回执与正式交付共用唯一完整安装包',async()=>
    assert.throws(()=>checkBuildResult({...result,files:[...result.files,...result.files]},platform,work),/交付方式/u);
    const environment={GITHUB_RUN_ID:'12',GITHUB_RUN_ATTEMPT:'1',GITHUB_SHA:'a'.repeat(40)};
    const plan=await prepareGithubAssets(platform,work,result,environment);
-   assert.deepEqual(plan.assets.map(asset=>asset.name),[name]);
-   assert.equal(plan.uploads.length,1);assert.deepEqual(readdirSync(plan.directory),[name]);
+   const remote=githubReleaseFiles(platform,'1.0.0')[0];
+   assert.deepEqual(plan.assets.map(asset=>asset.name),[remote]);assert.equal(plan.assets[0].label,name);
+   assert.match(remote,/^citizenchain-(?:macOS|Windows|LinuxARM|LinuxAMD)-v1[.]0[.]0[.](?:dmg|exe|deb)$/u);
+   assert.equal(plan.uploads.length,1);assert.deepEqual(readdirSync(plan.directory),[remote]);
+   assert.equal(plan.uploads[0],join(plan.directory,remote)+'#'+name);
   });
  }
+});
+test('Windows复用预装OpenSSL并向两个可执行文件目录交付x64 DLL',async()=>{
+ const yaml=readFileSync(join(root,'.github/workflows/windows.yml'),'utf8');
+ for(const key of ['OPENSSL_DIR','OPENSSL_INCLUDE_DIR','OPENSSL_LIB_DIR','OPENSSL_STATIC=0'])assert.ok(yaml.includes(key));
+ assert.match(yaml,/lib\\VC\\x64\\MD/u);
+ await withFixedWork('build/windows',async work=>{
+  const directory=join(work,'openssl/bin'),resources=join(work,'resources');
+  mkdirSync(directory,{recursive:true});mkdirSync(join(resources,'onchina-bin'),{recursive:true});
+  const bytes=Buffer.alloc(128);bytes.write('MZ');bytes.writeUInt32LE(64,60);bytes.writeUInt32LE(0x4550,64);bytes.writeUInt16LE(0x8664,68);bytes.writeUInt16LE(0x2000,86);
+  for(const name of ['libssl-3-x64.dll','libcrypto-3-x64.dll'])writeFileSync(join(directory,name),bytes);
+  const paths=stageWindowsOpenSsl(resources,{OPENSSL_DIR:dirname(directory)});assert.equal(paths.length,4);
+  for(const path of paths)assert.deepEqual(readFileSync(path),bytes);
+  assert.deepEqual(readdirSync(resources).sort(),['libcrypto-3-x64.dll','libssl-3-x64.dll','onchina-bin']);
+  assert.throws(()=>stageWindowsOpenSsl(resources,{}),/目录无效/u);
+  bytes.writeUInt16LE(0xaa64,68);writeFileSync(join(directory,'libssl-3-x64.dll'),bytes);
+  assert.throws(()=>stageWindowsOpenSsl(resources,{OPENSSL_DIR:dirname(directory)}),/不是x64/u);
+ });
 });
 test('Windows正式资产只回读本平台准确Release',async()=>{
  const work=checkFixedWork(fixedWork('build/windows'),{create:true});
@@ -4322,7 +4399,8 @@ test('Windows正式资产只回读本平台准确Release',async()=>{
   const plan=await prepareGithubAssets('windows',work,null,environment);
   assert.equal(plan.assets.length,1);assert.equal(plan.tag,'公民链·Windows·v1.0.0');
   assert.equal(plan.title,'公民链·Windows·v1.0.0');
-  assert.deepEqual(plan.assets.map(value=>value.name),['公民链·Windows·v1.0.0.exe']);
+  assert.deepEqual(plan.assets.map(value=>value.name),['citizenchain-Windows-v1.0.0.exe']);
+  assert.equal(plan.assets[0].label,'公民链·Windows·v1.0.0.exe');
   const installer=plan.assets.find(value=>value.name.endsWith('.exe'));
   assert.equal(installer.sha256,'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   assert.notEqual(installer.sha256,outputDigest(join(plan.directory,installer.name)));
@@ -4343,7 +4421,7 @@ test('Windows正式资产只回读本平台准确Release',async()=>{
   assert.deepEqual(calls,[`${base}?per_page=100&page=1`,`${base}/70`]);
   release.name='错误标题';await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),/身份或状态/u);release.name=plan.title;
   // 草稿使用临时浏览地址，真实性仍由所属Release、资产API身份和原始字节摘要证明。
-  for(const [field,value]of [['id',0],['url',base+'/assets/999'],['label','错误显示名'],['state','starter'],['size',0],['digest','sha256:'+'0'.repeat(64)]]){
+  for(const [field,value]of [['id',0],['url',base+'/assets/999'],['name','Windows.v1.0.0.exe'],['label','错误显示名'],['state','starter'],['size',0],['digest','sha256:'+'0'.repeat(64)]]){
    const original=release.assets[0][field];release.assets[0][field]=value;
    await assert.rejects(verifyGithubRelease('windows','draft',environment,{fetchImpl}),error=>error.message.includes('draft：'+field));
    release.assets[0][field]=original;
@@ -4874,6 +4952,25 @@ function checkedFinalRun(platform,run,id){
 }
 function verifyRemoteAssets(platform,release,proof,{current=false,published=false,allowPartial=false}={}){
  if(!Array.isArray(release.assets)||!allowPartial&&release.assets.length!==proof.assets.length)fail('产品终态资产集合不完整');
+ if(allowPartial&&release.draft){
+  // 失败草稿撤销按原Run证明中的显示名和原始内容归属核验；上传改名不能阻止撤销。
+  // 此分支只负责删除失败草稿，成功候选仍必须逐项匹配准确传输名和下载地址。
+  if(current||published||!Array.isArray(proof.assets))fail('失败草稿不能作为成功交付');
+  const labels=new Map(),ids=new Set(),seen=new Set();
+  for(const expected of proof.assets){
+   if(typeof expected.label!=='string'||!expected.label||labels.has(expected.label)
+    ||!Number.isSafeInteger(expected.size)||expected.size<1||!/^[0-9a-f]{64}$/u.test(expected.sha256||''))fail('失败草稿资产证明无效');
+   labels.set(expected.label,expected);
+  }
+  for(const asset of release.assets){
+   const expected=labels.get(asset.label);
+   if(!expected||seen.has(asset.label)||!Number.isSafeInteger(asset.id)||asset.id<1||ids.has(asset.id)
+    ||typeof asset.name!=='string'||!asset.name||/[\\/#]/u.test(asset.name)||asset.state!=='uploaded'
+    ||asset.size!==expected.size||asset.digest!=='sha256:'+expected.sha256)fail('失败草稿含未声明或内容不符资产');
+   seen.add(asset.label);ids.add(asset.id);
+  }
+  return;
+ }
  const names=new Set();
  if(current&&JSON.stringify(proof.assets.map(a=>a.name).sort())!==JSON.stringify(githubReleaseFiles(platform,String(proof.version)).sort()))fail('产品终态交付集合不符');
  for(const expected of proof.assets){

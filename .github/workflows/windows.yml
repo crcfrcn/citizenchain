@@ -61,6 +61,18 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP 'protoc'
           Expand-Archive $zip -DestinationPath $dir
           if (-not (Test-Path (Join-Path $env:PGROOT 'bin\initdb.exe'))) { throw 'Runner 缺少 PostgreSQL 17 原件' }
+          # 复用Runner现有x64 MSVC OpenSSL开发库；只声明位置，不另下载或安装。
+          $openssl = Join-Path $env:ProgramFiles 'OpenSSL'
+          $opensslInclude = Join-Path $openssl 'include'
+          $opensslLib = Join-Path $openssl 'lib\VC\x64\MD'
+          $opensslBin = Join-Path $openssl 'bin'
+          foreach ($file in @((Join-Path $opensslInclude 'openssl\ssl.h'), (Join-Path $opensslLib 'libssl.lib'), (Join-Path $opensslLib 'libcrypto.lib'), (Join-Path $opensslBin 'libssl-3-x64.dll'), (Join-Path $opensslBin 'libcrypto-3-x64.dll'))) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Runner预装OpenSSL开发原件缺失：$file" }
+          }
+          "OPENSSL_DIR=$openssl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_INCLUDE_DIR=$opensslInclude" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_LIB_DIR=$opensslLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_STATIC=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "PROTOC=$(Join-Path $dir 'bin\protoc.exe')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CITIZENCHAIN_PG_DIST=$env:PGROOT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "LIBCLANG_PATH=$env:PROGRAMFILES\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append

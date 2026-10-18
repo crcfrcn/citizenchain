@@ -2643,20 +2643,22 @@ SDK附带的开发Runtime WASM；正式WASM平台拒绝跳过编译，并排除�
 
 ## 四端正式 Release 资产公开命名（GMB 第 2.7 步，2026-09-02）
 
-CitizenChain 正式 Release 自定义资产名现固定为以下闭集；`<VERSION>` 是不含 `v` 的版本值：
+CitizenChain正式Release各平台只交付一个完整安装包。GitHub上传接口会改写中文及中点，传输文件名使用下列ASCII闭集；本机文件名及GitHub资产label保留统一中文显示。`<VERSION>`是不含`v`的版本值：
 
-| 公开平台 | 唯一完整安装包，首次安装和更新共用 |
-|---|---|
-| LinuxARM | `公民链·LinuxARM·v<VERSION>.deb` |
-| LinuxAMD | `公民链·LinuxAMD·v<VERSION>.deb` |
-| macOS | `公民链·macOS·v<VERSION>.dmg` |
-| Windows | `公民链·Windows·v<VERSION>.exe` |
+| 公开平台 | 本机文件名与GitHub显示标签 | GitHub唯一完整安装包传输名 |
+|---|---|---|
+| LinuxARM | `公民链·LinuxARM·v<VERSION>.deb` | `citizenchain-LinuxARM-v<VERSION>.deb` |
+| LinuxAMD | `公民链·LinuxAMD·v<VERSION>.deb` | `citizenchain-LinuxAMD-v<VERSION>.deb` |
+| macOS | `公民链·macOS·v<VERSION>.dmg` | `citizenchain-macOS-v<VERSION>.dmg` |
+| Windows | `公民链·Windows·v<VERSION>.exe` | `citizenchain-Windows-v<VERSION>.exe` |
 
 Release名称与Tag统一为`公民链·平台·v版本`。四个平台分别生成正式Release，每个Release只有对应平台的一个完整安装包；官网与桌面端下载同一个安装资产，不经公民服务端的旧下载指针。
 
 节点初始版本读取`node/tauri.conf.json`。本机与自动化共用本平台成功正式版查询：本机复用最近成功版，自动化候选在其基础上增加补丁号；失败不推进版本，尚无成功正式版时首次构建使用初始版本。四份Workflow的Run和Job使用同一候选版本。四平台本机编译回执和正式Release都只声明一个完整安装包；发布计划、草稿及正式Release回读沿用准确平台、Run、标题、名称、大小、原始字节SHA-256及下载地址证明。包内可执行文件、应用标识及生产安装路径保持既有合同。
 
 macOS构建先完成现有Developer ID、描述文件、Hardened Runtime、时间戳及entitlements签名验收；已签名的`CitizenChain.app`位于本轮`installer/`内部目录，再由同一构建入口封装唯一DMG。本机安装复用这个内部App，公开产物只有DMG。Windows只封装NSIS完整安装器，两个Linux平台只封装各自架构的DEB。四平台不再单独维护另一套更新资产或更新密钥要求。
+
+Windows沿用Runner预装的`%ProgramFiles%\OpenSSL`，准备步骤核对`include\openssl\ssl.h`、`lib\VC\x64\MD`内两件MSVC导入库及`bin`内`libssl-3-x64.dll`、`libcrypto-3-x64.dll`，通过标准`OPENSSL_DIR`、`OPENSSL_INCLUDE_DIR`、`OPENSSL_LIB_DIR`和`OPENSSL_STATIC=0`交给Cargo，不下载另一套OpenSSL。DLL按x64 PE原件核对，复制到同一完整安装包内主程序及OnChina各自的加载目录并回读字节；用户设备无需依赖Runner的PATH或额外安装OpenSSL。原件缺失或架构错误保留实际错误并停止。
 
 桌面启动只检查当前平台的新版本。用户点击“下载新版安装包”时，由后端重新读取本平台正式Release中的唯一完整包，系统浏览器下载后由用户通过系统安装；不接收前端指定的任意执行目标，不预先停止节点，不自动安装或重启应用。下载打开失败保留错误和新版提示。节点的正常退出清理保持原行为。
 
@@ -2956,7 +2958,7 @@ Git来源始终由本产品原锁决定。每次执行均先复用可选的同�
 
 控制台接入按其既有要求声明产品名称、编译/塔塔自动化/发布流程及平台，显示如“公民链·编译·macOS”；GitHub与交付产物使用如“公民链·macOS·v1.0.0”的发布名称。两者分别维护，不向控制台任务名称注入发布版本，tata/citizenchain.mjs不承载产品历史清理。
 
-控制台任务标题统一为“产品·流程·平台”；GitHub固定Workflow名称为“产品·平台”，不含版本；每次Run、业务Job、Release及节点交付文件统一为“产品·平台·v版本”，分隔符两侧无空格。桌面端按相同文件名下载本平台唯一完整安装包，GitHub资产label由产品发布计划生成并回读。内部Workflow路径、平台ID、Run及Tag来源坐标保持技术身份，显示名称不充当记录分组键；分组仍为产品、流程、平台。固定Workflow目录名在版本变化时保持；具体版本只归本次Run和产物，发布准备须使Run及Job名称与本次计划一致，不能在运行中改写已创建Run。
+控制台任务标题统一为“产品·流程·平台”；GitHub固定Workflow名称为“产品·平台”，不含版本；每次Run、业务Job、Release、Tag、本机节点交付文件及GitHub资产label统一为“产品·平台·v版本”，分隔符两侧无空格。GitHub传输文件名使用上表ASCII闭集；桌面端及产品生成的LinuxARM部署验证同时核对真实传输名和中文label，发布证明、大小、原始字节摘要及下载地址一致，不把label当成下载文件名。内部Workflow路径、平台ID、Run及Tag来源坐标保持技术身份，显示名称不充当记录分组键；分组仍为产品、流程、平台。固定Workflow目录名在版本变化时保持；具体版本只归本次Run和产物，发布准备须使Run及Job名称与本次计划一致，不能在运行中改写已创建Run。
 
 原生CI环境统一成对设置CITIZENCHAIN_SOURCE_ROOT及CITIZENCHAIN_WORK_DIR，前者指向准确原件，后者指向本平台固定任务目录；节点build.rs继续校验原件或本轮source视图及输出边界，不修改该校验或SDK。
 
@@ -3028,3 +3030,10 @@ macOS接入的显式offline=true映射为本产品CLI的既有--offline参数；
 派发前按平台独占写入target/cache/automation/<平台>/current.json，记录非机密版本计划、原Run和恢复阶段；收到准确派发回执后先持久化原Run ID，随后只对该ID最多回读12次、名称未匹配时最多等待11次且每次5秒；仓库、Workflow、main、源码及attempt校验不放宽，名称完全匹配后才启动脱离控制台进程组的产品执行器。名称超限或读取失败保留原坐标与失败状态，恢复仍只核对原Run，不重新POST；首次GET失败时未取得的attempt在恢复核对后补齐。运行命令为node scripts/build.mjs automation-worker <平台> [本次nonce]；省略nonce只恢复本平台现有记录。worker.lock只锁同一平台收尾，其他平台不受影响。再次进入产品派发API时，若原收尾未结束，只恢复同一Run，不重新POST。原Run不确定时按原源码、版本、时间及唯一Run身份只读确认，无法唯一确认则停止，不猜测。
 
 执行器在原Run真正completed后验收候选、发布成功交付或撤销失败草稿，确认新正式资产和Tag后再删除旧Release、旧Tag及同结果旧Run。删除计划在执行前持久化；Release已删除但Tag未删除的中断也能按原计划恢复。GitHub缓存按本平台、系统和架构保留最新已完成且可用的快照，活动Run的缓存及其它平台保持；新快照未确认时保留旧增量。GitHub成功结论和后续收尾错误分别如实记录；不能因清理错误改写真实Run结果或承诺跨资源事务回滚。
+
+
+### 失败草稿名称与收尾
+
+成功候选必须准确匹配本平台传输文件名、中文label、Release、Run、Tag、大小、原始内容摘要及正式下载地址，不能用上传后的任意名称替代。失败Run的草稿仅供撤销：先确认原Run、attempt、源码、平台及发布证明，再按证明中的唯一label、大小、原始字节摘要和唯一资产ID核对已上传内容；允许尚未上传的声明项，不允许未知、重复或内容不符资产。上传接口改名不能阻塞所属失败草稿清理，也不能据此将失败候选发布为成功。删除仍经过既有持久计划和删除前快照回读，其他平台、活动Run及缓存保持独立。
+
+网络中断后的worker沿用既有`automation-worker <平台> [本次nonce]`入口及持久化原Run恢复；本次修复不新增重派或兼容入口，不把旧失败Run当作新版本成功记录。

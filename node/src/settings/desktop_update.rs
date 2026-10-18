@@ -45,7 +45,7 @@ fn version_parts(version: &str) -> Result<[u64; 3], String> {
     numbers.try_into().map_err(|_| "安装包版本无效".to_owned())
 }
 
-// 展示名与唯一完整安装包一致；版本来自已绑定成功Run的Release证明。
+// GitHub传输文件名使用ASCII，中文显示名仍由同一平台和成功版本生成。
 fn installer_name(platform: &str, version: &str) -> Result<String, String> {
     let suffix = match platform {
         "macOS" => "dmg",
@@ -54,6 +54,12 @@ fn installer_name(platform: &str, version: &str) -> Result<String, String> {
         _ => return Err("安装包平台无效".into()),
     };
     version_parts(version)?;
+    Ok(format!("citizenchain-{platform}-v{version}.{suffix}"))
+}
+
+fn installer_label(platform: &str, version: &str) -> Result<String, String> {
+    let filename = installer_name(platform, version)?;
+    let suffix = filename.rsplit('.').next().ok_or("安装包后缀无效")?;
     Ok(format!("公民链·{platform}·v{version}.{suffix}"))
 }
 
@@ -78,6 +84,7 @@ fn installer_asset_url(
     tag: &str,
 ) -> Result<String, String> {
     let filename = installer_name(platform, version)?;
+    let label = installer_label(platform, version)?;
     let assets = release["assets"].as_array().ok_or("安装包资产列表无效")?;
     let proofs = proof["assets"].as_array().ok_or("安装包资产证明无效")?;
     if assets.len() != 1 || proofs.len() != 1 {
@@ -94,6 +101,8 @@ fn installer_asset_url(
         .map_err(|_| "安装包下载地址无效")?;
     if asset["name"] != filename
         || item["name"] != filename
+        || asset["label"] != label
+        || item["label"] != label
         || asset["state"] != "uploaded"
         || asset["size"] != item["size"]
         || asset["digest"] != digest
@@ -297,13 +306,14 @@ mod update_tests {
     fn installer_name_and_url_bind_platform_version_and_encoded_path() {
         for (platform, suffix) in [("macOS", "dmg"), ("Windows", "exe"), ("LinuxARM", "deb"), ("LinuxAMD", "deb")] {
             let name = installer_name(platform, "1.0.0").unwrap();
-            assert_eq!(name, format!("公民链·{platform}·v1.0.0.{suffix}"));
+            assert_eq!(name, format!("citizenchain-{platform}-v1.0.0.{suffix}"));
+            assert_eq!(installer_label(platform, "1.0.0").unwrap(), format!("公民链·{platform}·v1.0.0.{suffix}"));
             let tag = format!("公民链·{platform}·v1.0.0");
             let url = installer_url(&tag, &name).unwrap();
             assert_eq!(url.host_str(), Some("github.com"));
             assert_eq!(url.scheme(), "https");
             assert!(url.as_str().contains("%E5%85%AC%E6%B0%91%E9%93%BE%C2%B7"));
-            assert!(url.as_str().ends_with(&format!("{platform}%C2%B7v1.0.0.{suffix}")));
+            assert!(url.as_str().ends_with(&format!("/citizenchain-{platform}-v1.0.0.{suffix}")));
             assert_eq!(url.query(), None);
             assert_eq!(url.fragment(), None);
             let api_path = github_tag_path(&tag).unwrap();
@@ -322,14 +332,23 @@ mod update_tests {
         let tag = "公民链·LinuxARM·v1.0.1";
         let url = installer_url(tag, &name).unwrap().to_string();
         let hash = "a".repeat(64);
-        let asset = serde_json::json!({"name":name,"state":"uploaded","size":3,"digest":format!("sha256:{hash}"),"browser_download_url":url});
+        let label = installer_label("LinuxARM", "1.0.1").unwrap();
+        let asset = serde_json::json!({"name":name,"label":label,"state":"uploaded","size":3,"digest":format!("sha256:{hash}"),"browser_download_url":url});
         let release = serde_json::json!({"assets":[asset.clone()]});
-        let proof = serde_json::json!({"assets":[{"name":name,"size":3,"sha256":hash}]});
+        let proof = serde_json::json!({"assets":[{"name":name,"label":label,"size":3,"sha256":hash}]});
         assert_eq!(installer_asset_url(&release, &proof, "LinuxARM", "1.0.1", tag).unwrap(), url);
         for assets in [serde_json::json!([]), serde_json::json!([asset.clone(), asset.clone()])] {
             assert!(installer_asset_url(&serde_json::json!({"assets":assets}), &proof, "LinuxARM", "1.0.1", tag).is_err());
         }
         assert!(installer_asset_url(&release, &proof, "LinuxAMD", "1.0.1", tag).is_err());
+        for field in ["name", "label"] {
+            let mut wrong = release.clone();
+            wrong["assets"][0][field] = "错误名称".into();
+            assert!(installer_asset_url(&wrong, &proof, "LinuxARM", "1.0.1", tag).is_err());
+            let mut wrong = proof.clone();
+            wrong["assets"][0][field] = "错误名称".into();
+            assert!(installer_asset_url(&release, &wrong, "LinuxARM", "1.0.1", tag).is_err());
+        }
         let mut wrong = release.clone();
         wrong["assets"][0]["browser_download_url"] = "https://example.invalid/package.deb".into();
         assert!(installer_asset_url(&wrong, &proof, "LinuxARM", "1.0.1", tag).is_err());
