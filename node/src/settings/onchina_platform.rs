@@ -4,7 +4,7 @@
 //! 浏览器管理后台资源,因此必须由用户在设置页二次确认后显式启动。
 
 use serde::Serialize;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 use crate::shared::security;
@@ -98,12 +98,18 @@ fn failed_state(running: bool, detail: String) -> OnChinaPlatformState {
     }
 }
 
+/// 等待用尽仅说明尚未就绪，不能把仍存活的服务报告成启动失败。
+fn state_after_wait(process_running: bool, last_error: String) -> OnChinaPlatformState {
+    if !process_running { return failed_state(false, format!("链上中国平台启动失败:{last_error}")); }
+    OnChinaPlatformState { running: true, status: "starting", status_label: "启动中", url: ONCHINA_PLATFORM_URL, detail: None }
+}
+
 fn wait_until_healthy_after_start(app: &AppHandle) -> OnChinaPlatformState {
     let mut last_error = "链上中国平台健康检查未通过".to_string();
-    // 上限 120 次 × 500ms = 60 秒;健康一通过即提前返回。首次内嵌 PostgreSQL 要
-    // initdb 建集群 + 建库 + 迁移,明显超过原来的 10 秒预算,过短会把还在初始化的
-    // 正常启动误判成"启动失败"。子进程退出才是真失败,超时只表示还没就绪。
-    for _ in 0..120 {
+    let start = Instant::now();
+    // 使用实际墙钟预算，包含每次HTTPS检查；模块初始化可继续，页面沿用已有启动中状态。
+    let budget = Duration::from_secs(60);
+    while start.elapsed() < budget {
         let process_running = crate::onchina_proc::is_onchina_running();
         if !process_running {
             return failed_state(false, "链上中国平台启动失败:子进程已退出".to_string());
@@ -112,12 +118,26 @@ fn wait_until_healthy_after_start(app: &AppHandle) -> OnChinaPlatformState {
             Ok(()) => return current_state(app),
             Err(err) => last_error = err,
         }
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(500).min(budget.saturating_sub(start.elapsed())));
     }
-    failed_state(
-        crate::onchina_proc::is_onchina_running(),
-        format!("链上中国平台启动失败:{last_error}"),
-    )
+    state_after_wait(crate::onchina_proc::is_onchina_running(), last_error)
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod startup_tests {
+    use super::*;
+    #[test]
+    fn timeout_is_starting_only_while_process_survives() {
+        let waiting = state_after_wait(true, "not ready".into());
+        assert_eq!(waiting.status, "starting");
+        assert_eq!(waiting.status_label, "启动中");
+        assert!(waiting.running && waiting.detail.is_none());
+        let failed = state_after_wait(false, "exited".into());
+        assert_eq!(failed.status, "error");
+        assert!(!failed.running);
+        assert!(failed.detail.expect("failure detail").contains("exited"));
+    }
 }
 
 #[tauri::command]

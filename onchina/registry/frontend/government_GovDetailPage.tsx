@@ -222,6 +222,7 @@ function InstitutionGovernancePanel({
       const prepared = await prepareRegisterInstitutionAdmins(auth, {
         cid_number: cidNumber,
         admins,
+        actor_role_code: (form.getFieldValue('proposer_role_code') as string | undefined)?.trim() ?? '',
       });
       await submitPrepared(prepared.request_id, prepared.sign_request);
     } catch (err) {

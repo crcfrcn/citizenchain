@@ -1,4 +1,4 @@
-//! 注册局直接登记机构管理员；保持原签名、授权和 SCALE 载荷。
+//! 注册局直接登记机构管理员；对齐现有链调用字段，保持原签名与授权规则。
 use axum::{extract::State, http::{HeaderMap, StatusCode}, response::IntoResponse, Json};
 use serde::Deserialize;
 use crate::authentication::repo as auth_repo;
@@ -12,6 +12,7 @@ pub(crate) const PURPOSE_INSTITUTION_REGISTER_ADMINS: &str = "INSTITUTION_REGIST
 pub(crate) struct PrepareRegisterInstitutionAdminsInput {
     pub(crate) cid_number: String,
     pub(crate) admins: Vec<InstitutionAdminInput>,
+    pub(crate) actor_role_code: String,
 }
 
 pub(crate) async fn prepare_register_institution_admins(
@@ -35,6 +36,10 @@ pub(crate) async fn prepare_register_institution_admins(
     };
     if let Err(resp) = ensure_registry_admin(&ctx) {
         return resp;
+    }
+    let actor_role_code = input.actor_role_code.trim();
+    if actor_role_code.is_empty() || actor_role_code.len() > entity_primitives::INSTITUTION_ROLE_CODE_MAX_BYTES as usize {
+        return api_error(StatusCode::BAD_REQUEST, 1001, "actor_role_code 长度必须为 1 到 64 字节");
     }
     let binding = match auth_repo::active_node_binding(&state.db) {
         Ok(Some(binding)) => binding,
@@ -78,6 +83,7 @@ pub(crate) async fn prepare_register_institution_admins(
         admins,
         institution_code: code,
         actor_cid_number: binding.institution_cid_number.as_bytes().to_vec(),
+        actor_role_code: actor_role_code.as_bytes().to_vec(),
     });
     let output = match build_chain_sign_output(
         &state,
@@ -90,6 +96,7 @@ pub(crate) async fn prepare_register_institution_admins(
             context: serde_json::json!({
                 "cid_number": cid_number,
                 "actor_cid_number": binding.institution_cid_number,
+                "actor_role_code": actor_role_code,
                 "op": "register_admins"
             }),
         },

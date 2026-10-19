@@ -444,15 +444,13 @@ if(inlineTestEntry){
   test('隔离HTML生成入口仅写入调用方持有的本产品测试现场', async () => {
     const output = process.env.CITIZENCHAIN_TEST_PAGE_OUTPUT;
     if (output === undefined) { assert.equal(typeof isolatePage(html, isolatedOrigin), 'string'); return; }
-    const { fixedWork, checkScratchPath } = await import('../../scripts/build.mjs');
     const { dirname, join } = await import('node:path');
     const { writeFileSync, realpathSync } = await import('node:fs');
-    const work = ['build', 'test'].map(fixedWork).find(root => output === join(root, 'metamask', 'install.html'));
-    if (!work || realpathSync(import.meta.filename) !== import.meta.filename) throw Error('隔离HTML输出越出本产品固定现场');
-    checkScratchPath(dirname(output));
-    const owner = JSON.parse(readFileSync(join(work, '.active.json'), 'utf8'));
-    if (owner.work !== work || owner.product_id !== 'citizenchain' || owner.state !== 'running' || !process.env.PRODUCT_WORK_LEASE || owner.nonce !== process.env.PRODUCT_WORK_LEASE || !Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw Error('隔离HTML缺少当前调用方所有权');
-    process.kill(owner.pid, 0);
+    const work = process.env.CITIZENCHAIN_TEST_ROOT;
+    const {resolve,relative,isAbsolute,sep}=await import('node:path');
+    const base=resolve(import.meta.dirname,'../../target/test'),rel=relative(base,work||'');
+    if(!isAbsolute(work||'')||!rel||rel==='..'||rel.startsWith('..'+sep)||isAbsolute(rel)||realpathSync(work)!==work)throw Error('隔离HTML缺少本轮产品测试现场');
+    if (output !== join(work, 'metamask', 'install.html') || realpathSync(import.meta.filename) !== import.meta.filename || realpathSync(dirname(output)) !== dirname(output)) throw Error('隔离HTML输出越出本轮产品测试现场');
     writeFileSync(output, isolatePage(html, isolatedOrigin), { flag: 'wx', mode: 0o444 });
     assert.equal(readFileSync(output, 'utf8'), isolatePage(html, isolatedOrigin));
   });

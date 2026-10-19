@@ -149,7 +149,8 @@ describe('实际业务API补齐一次Passkey且不改变提交字段', () => {
         fetcher.mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
         await commitAdminAction(auth, { action_id: 'action', action_type, payload_hash: 'hash', account_id: 'account', signature: 'signature' });
         expect(assertPasskey).toHaveBeenCalledTimes(action_type === 'INSTITUTION_UPDATE' ? 0 : 1);
-        const body = JSON.parse(String(fetcher.mock.calls.at(-1)?.[1]?.body));
+        const calls = fetcher.mock.calls;
+        const body = JSON.parse(String(calls[calls.length - 1]?.[1]?.body));
         expect(body).toEqual({ action_id: 'action', payload_hash: 'hash', account_id: 'account', signature: 'signature' });
       }
     } finally { fetcher.mockRestore(); }
@@ -200,12 +201,12 @@ describe('跨目录前端项目配置', () => {
 // 模块装载只改变资源入口；回归不启动服务、钱包或浏览器。
 describe('模块前端装载与重启边界', () => {
   type Asset = import('./platform_capabilityMap').ModuleAsset;
-  type ElementFixture = { tag: string; src?: string; href?: string; onload?: (event: Event) => unknown; onerror?: (event: Event) => unknown };
+  type ElementFixture = { tag: string; src?: string; href?: string; onload?: ((event: Event) => unknown) | null; onerror?: ((event: Event) => unknown) | null; removed: boolean; remove: () => void };
   const asset = (id: string, codes = ['FRG']): Asset => ({
     id, version: '1.0.0', interface_version: 1, script: '/modules/' + id + '/module.js?v=1.0.0',
     stylesheet: '/modules/' + id + '/module.css?v=1.0.0', exports: ['Workspace'], institution_codes: codes, workspace: 'Workspace',
   });
-  async function fixture(items: Asset[], options: { badVersion?: string; badStyle?: string } = {}) {
+  async function fixture(items: Asset[], options: { badVersion?: string; badStyle?: string; badScript?: string; pendingScript?: string; pendingHealth?: boolean } = {}) {
     vi.resetModules();
     const elements: ElementFixture[] = [];
     const views = Object.fromEntries(items.map(item => [item.id, () => null]));
@@ -215,20 +216,27 @@ describe('模块前端装载与重启边界', () => {
     vi.stubGlobal('window', { location: { href: 'https://onchina.local/', origin: 'https://onchina.local' } });
     vi.stubGlobal('OnChinaModules', modules);
     vi.stubGlobal('document', {
-      createElement: (tag: string) => ({ tag }),
+      createElement: (tag: string) => {
+        const element: ElementFixture = { tag, removed: false, remove: () => { element.removed = true; } };
+        return element;
+      },
       head: { append: (...nodes: ElementFixture[]) => {
         elements.push(...nodes);
         for (const node of nodes) {
           if (node.tag === 'link' && options.badStyle && node.href?.includes('/' + options.badStyle + '/')) node.onerror?.(new Event('error'));
-          else node.onload?.(new Event('load'));
+          else if (node.tag === 'script' && options.badScript && node.src?.includes('/' + options.badScript + '/')) node.onerror?.(new Event('error'));
+          else if (!(node.tag === 'script' && options.pendingScript && node.src?.includes('/' + options.pendingScript + '/'))) node.onload?.(new Event('load'));
         }
       } },
     });
-    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ code: 0, data: { modules: items } })),
-    );
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (options.pendingHealth) return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+      return new Response(JSON.stringify({ code: 0, data: { modules: items } }));
+    });
     const loader = await import('./platform_capabilityMap');
-    return { loader, fetcher, elements, views, dispose: () => { fetcher.mockRestore(); vi.unstubAllGlobals(); } };
+    return { loader, fetcher, elements, views, dispose: () => { fetcher.mockRestore(); vi.unstubAllGlobals(); vi.useRealTimers(); } };
   }
 
   it('一次启动只装载一次，返回模块原组件并保留原会话请求方式', async () => {
@@ -261,6 +269,47 @@ describe('模块前端装载与重启边界', () => {
       expect(context.elements.filter(element => element.src?.startsWith('https://other.invalid'))).toEqual([]);
     } finally { context.dispose(); }
   });
+  it('脚本失败清理本模块资源和导出，其他模块保持', async () => {
+    const context = await fixture([asset('broken'), asset('ready', ['NJD'])], { badScript: 'broken' });
+    try {
+      await context.loader.initializeModules();
+      expect(() => context.loader.moduleView('broken', 'Workspace')).toThrow('脚本装载失败');
+      expect(globalThis.OnChinaModules.broken).toBeUndefined();
+      expect(context.elements.filter(element => (element.src ?? element.href)?.includes('/broken/')).every(element => element.removed)).toBe(true);
+      expect(context.elements.filter(element => (element.src ?? element.href)?.includes('/ready/')).every(element => !element.removed)).toBe(true);
+      expect(context.loader.moduleView('ready', 'Workspace')).toBe(context.views.ready);
+    } finally { context.dispose(); }
+  });
+  it('迟迟不结束的资源超时隔离，清理计时器并结束本次启动', async () => {
+    vi.useFakeTimers();
+    const context = await fixture([asset('slow'), asset('ready', ['NJD'])], { pendingScript: 'slow' });
+    try {
+      const startup = context.loader.initializeModules();
+      await vi.advanceTimersByTimeAsync(16000);
+      await startup;
+      expect(() => context.loader.moduleView('slow', 'Workspace')).toThrow('装载超时');
+      expect(context.loader.moduleView('ready', 'Workspace')).toBe(context.views.ready);
+      expect(context.elements.filter(element => (element.src ?? element.href)?.includes('/slow/')).every(element => element.removed && !element.onload && !element.onerror)).toBe(true);
+      expect(globalThis.OnChinaModules.slow).toBeUndefined();
+      globalThis.OnChinaModules.slow = { Workspace: () => null, __onchina: { id: 'slow', version: '1.0.0', interface_version: 1 } };
+      expect(globalThis.OnChinaModules.slow).toBeUndefined();
+      expect(() => context.loader.moduleView('slow', 'Workspace')).toThrow('装载超时');
+      expect(vi.getTimerCount()).toBe(0);
+      await context.loader.initializeModules();
+      expect(context.fetcher).toHaveBeenCalledTimes(1);
+    } finally { context.dispose(); }
+  });
+  it('健康声明超时也结束等待，不创建资源节点', async () => {
+    vi.useFakeTimers();
+    const context = await fixture([], { pendingHealth: true });
+    try {
+      const rejected = expect(context.loader.initializeModules()).rejects.toThrow('aborted');
+      await vi.advanceTimersByTimeAsync(16000);
+      await rejected;
+      expect(context.elements).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { context.dispose(); }
+  });
   it('准确实例工作台优先；同一机构类出现冲突时拒绝猜测归属', async () => {
     const context = await fixture([asset('generic'), asset('instance')]);
     try {
@@ -272,3 +321,157 @@ describe('模块前端装载与重启边界', () => {
     } finally { context.dispose(); }
   });
 });
+
+
+describe('模块装载失败清理与路径边界', () => {
+  it('POSIX与Windows均拒绝同名前缀、父级和跨盘路径', async () => {
+    const { insideModule } = await import('./vite.config');
+    const { posix, win32 } = await import('node:path');
+    for (const [paths, owner] of [[posix, '/repo/onchina/registry/frontend'], [win32, 'C:\\repo\\onchina\\registry\\frontend']] as const) {
+      expect(insideModule(owner, paths.join(owner, 'Workspace.tsx'), paths)).toBe(true);
+      for (const candidate of [owner, owner + '-other/Workspace.tsx', paths.join(owner, '../other.tsx')]) {
+        expect(insideModule(owner, candidate, paths)).toBe(false);
+      }
+    }
+    expect(insideModule('C:\\repo', 'D:\\repo\\Workspace.tsx', win32)).toBe(false);
+  });
+
+  it('开发与预览的API和模块资源复用同一受校验HTTPS代理', async () => {
+    const { default: config } = await import('./vite.config');
+    const value = await config({ command: 'build', mode: 'test' });
+    for (const options of [value.server, value.preview]) {
+      const proxy = options?.proxy;
+      expect(proxy).toMatchObject({ '/api': { secure: true }, '/modules': { secure: true, agent: { options: { rejectUnauthorized: true } } } });
+      if (!proxy) throw new Error('missing proxy');
+      const api = proxy['/api']; const modules = proxy['/modules'];
+      if (typeof api === 'string' || typeof modules === 'string' || !api || !modules) throw new Error('invalid proxy');
+      expect(Object.keys(proxy)).toEqual(['/api', '/modules']);
+      expect(api.target).toBe(modules.target);
+      expect(api.agent).toBe(modules.agent);
+    }
+  });
+});
+
+
+describe('登记管理员原有请求参数衔接', () => {
+  it('原URL、Bearer与管理员集合保持，透传操作注册局岗位码', async () => {
+    const { prepareRegisterInstitutionAdmins } = await import('../../registry/frontend/admins_cityRegistryAdminsApi');
+    const auth = { access_token: 'test-session' } as never;
+    const input = { cid_number: 'target-fixture-cid', admins: [{ account_id: 'fixture-account', family_name: '测', given_name: '试' }], actor_role_code: 'REGISTRY-ROLE' };
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
+    try {
+      await prepareRegisterInstitutionAdmins(auth, input);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      const [path, init] = fetcher.mock.calls[0];
+      expect(path).toBe('/api/admin/institution/admins/register/prepare');
+      expect(init?.method).toBe('POST');
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer test-session');
+      expect(JSON.parse(String(init?.body))).toEqual(input);
+    } finally { fetcher.mockRestore(); }
+  });
+});
+
+
+// 编译后的独立验收：必须显式传入本轮模块产物，普通单元测试不要求程序已构建。
+(process.env.ONCHINA_TEST_MODULE_ROOT ? it : it.skip)('实际IIFE装载复用宿主React、认证Provider与真实后端声明', async () => {
+  vi.resetModules();
+  const { realpathSync } = await import('node:fs');
+  const { isAbsolute } = await import('node:path');
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { createContext, runInContext, runInNewContext } = await import('node:vm');
+  const moduleRoot = process.env.ONCHINA_TEST_MODULE_ROOT!;
+  if (!isAbsolute(moduleRoot) || realpathSync(moduleRoot) !== moduleRoot) throw new Error('模块验收必须使用本轮实际绝对目录');
+  const React = await import('react');
+  const ReactDOM = await import('react-dom/client');
+  const JSX = await import('react/jsx-runtime');
+  const JSXDev = await import('react/jsx-dev-runtime');
+  const antd = await import('antd');
+  const icons = await import('@ant-design/icons');
+  const { default: dayjs } = await import('dayjs');
+  const { renderToString } = await import('react-dom/server');
+  const bindings: Record<string, unknown> = { ReactRuntime: React, ReactDOMRuntime: ReactDOM, JSXRuntime: JSX, JSXDevRuntime: JSXDev, AntdRuntime: antd, IconRuntime: icons, dayjs };
+  // 只从宿主真实公开导入声明取得名称，不另维护SDK清单，不导入main.tsx启动页面。
+  const main = readFileSync(join(import.meta.dirname, 'main.tsx'), 'utf8');
+  const sources = import.meta.glob<Record<string, unknown>>('./*.{ts,tsx}');
+  for (const match of main.matchAll(/import \* as Shared_([A-Za-z0-9_]+) from ["'](\.\/[^"']+)["']/g)) {
+    const load = sources[match[2] + '.tsx'] ?? sources[match[2] + '.ts'];
+    if (!load) throw new Error('宿主公开导入不存在：' + match[1]);
+    bindings['Shared_' + match[1]] = await load();
+  }
+  const initializer = main.match(/globalThis\.OnChinaPlatform = (Object\.freeze\(\{[\s\S]*?\}\));/);
+  if (!initializer) throw new Error('宿主公开对象初始化声明不存在');
+  const sdk = runInNewContext(initializer[1], bindings) as Readonly<Record<string, unknown>>;
+  const { AuthProvider } = await import('./authentication_AuthContext');
+  const { EMPTY_CAPABILITIES } = await import('./platform_capabilityMap');
+  const layout = JSON.parse(readFileSync(join(import.meta.dirname, '../modules/layout.fixture.json'), 'utf8')) as {
+    capabilityCases: { code: string; owner: string | null; kind: string; flags: string[]; sections: unknown[] }[];
+  };
+  const assets: import('./platform_capabilityMap').ModuleAsset[] = [];
+  const scripts = new Map<string, string>();
+  const execute = promisify(execFile);
+  const ids: unknown = JSON.parse(process.env.ONCHINA_TEST_MODULE_IDS || 'null');
+  if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length || ids.some(id => typeof id !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(id))) throw new Error('缺少所选模块ID');
+  for (const id of ids as string[]) {
+    const directory = join(moduleRoot, id);
+    const executable = join(directory, 'onchina-' + id + (process.platform === 'win32' ? '.exe' : ''));
+    if (realpathSync(directory) !== directory || realpathSync(executable) !== executable) throw new Error('验收模块不能经过链接');
+    const { stdout } = await execute(executable, ['--describe'], { encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024 });
+    const description = JSON.parse(stdout) as { id: string; version: string; interface_version: number; frontend_exports: string[]; frontend_workspace: string | null; workspaces: Record<string, unknown> };
+    expect(description.id).toBe(id);
+    expect(description.interface_version).toBe(1);
+    const base = '/modules/' + description.id + '/';
+    assets.push({ id: description.id, version: description.version, interface_version: description.interface_version,
+      exports: description.frontend_exports, workspace: description.frontend_workspace, institution_codes: Object.keys(description.workspaces), script: base + 'module.js', stylesheet: base + 'module.css' });
+    scripts.set(base + 'module.js', readFileSync(join(directory, 'frontend/module.js'), 'utf8'));
+  }
+  expect(assets.length).toBeGreaterThan(0);
+  const sharedModules: Record<string, import('./platform_capabilityMap').LoadedModule> = Object.create(null);
+  const sandbox = createContext({ OnChinaPlatform: Object.freeze(sdk), OnChinaModules: sharedModules, console, setTimeout, clearTimeout, URL, TextEncoder, TextDecoder, AbortController });
+  vi.stubGlobal('OnChinaModules', sharedModules);
+  vi.stubGlobal('window', { location: { href: 'https://onchina.local/', origin: 'https://onchina.local' } });
+  vi.stubGlobal('document', {
+    createElement: (tag: string) => ({ tag, remove() {}, onload: null, onerror: null }),
+    head: { append: (...elements: { tag: string; src?: string; onload?: ((event: Event) => void) | null }[]) => {
+      for (const element of elements) {
+        if (element.tag === 'script') {
+          const path = new URL(element.src!, 'https://onchina.local/').pathname;
+          const script = scripts.get(path);
+          if (!script) throw new Error('验收脚本不存在');
+          runInContext(script, sandbox, { timeout: 10000 });
+          globalThis.OnChinaModules = sandbox.OnChinaModules;
+        }
+        element.onload?.(new Event('load'));
+      }
+    } },
+  });
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (path) => {
+    expect(path).toBe('/api/health');
+    return new Response(JSON.stringify({ code: 0, data: { modules: assets } }));
+  });
+  sandbox.window = globalThis.window; sandbox.document = globalThis.document;
+  sandbox.crypto = globalThis.crypto; sandbox.navigator = globalThis.navigator;
+  let stored = '';
+  vi.stubGlobal('sessionStorage', { getItem: () => stored || null, setItem: (_key: string, value: string) => { stored = value; }, removeItem: () => { stored = ''; } });
+  try {
+    const loader = await import('./platform_capabilityMap');
+    await loader.initializeModules();
+    for (const asset of assets) {
+      for (const name of asset.exports) expect(typeof loader.moduleView(asset.id, name)).toBe('function');
+      const golden = layout.capabilityCases.find(item => item.owner === asset.id);
+      if (!golden) throw new Error('缺少模块工作台金标');
+      const capabilities = { ...EMPTY_CAPABILITIES };
+      for (const flag of golden.flags) capabilities[flag as keyof typeof capabilities] = true;
+      const auth = { access_token: 'fixture-session', account_id: 'fixture-account', institution_cid_number: 'fixture-institution', institution_code: golden.code,
+        family_name: '测', given_name: '试', capabilities,
+        workspace: { workspace_kind: golden.kind, workspace_title: 'fixture', workspace_sections: golden.sections, workspace_modules: [] } };
+      stored = JSON.stringify(auth);
+      const View = loader.moduleView<Record<string, unknown>>(asset.id, asset.workspace ?? asset.exports[0]);
+      const html = renderToString(React.createElement(AuthProvider, null,
+        React.createElement(View, { auth, capabilities, passkeyRegistered: true, cidMeta: null, setCidMeta: () => {} })));
+      expect(typeof html).toBe('string');
+      expect(sandbox.OnChinaPlatform.react).toBe(React);
+      expect(sandbox.OnChinaPlatform.platform_authentication_AuthContext).toBe(bindings.Shared_authentication_AuthContext);
+    }
+  } finally { fetcher.mockRestore(); vi.unstubAllGlobals(); }
+}, 60000);

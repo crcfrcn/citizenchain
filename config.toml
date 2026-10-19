@@ -21,7 +21,7 @@ WASM_BUILD_RUSTFLAGS = "-C link-arg=--allow-undefined"
 [future-incompat-report]
 frequency = "never"
 
-# 工具链要求由塔塔从本文件读取并校验，实际工具统一由中央工具库提供。
+# 本产品的固定 Rust 工具链；独立自动化和外部调用使用同一官方版本。
 # Cargo 通过 --config 加载编译配置；此节不依赖 rustup 自动发现。
 [toolchain]
 channel = "1.97.1"

@@ -42,12 +42,35 @@ pub(crate) struct ModuleAsset {
     pub(crate) institution_codes: Vec<String>,
     pub(crate) workspace: Option<String>,
 }
+// 启动中或异步任务取消时仍持有进程所有权，不能让尚未登记的模块成为孤儿。
+struct ModuleProcess(Child);
+impl std::ops::Deref for ModuleProcess {
+    type Target = Child;
+    fn deref(&self) -> &Child { &self.0 }
+}
+impl std::ops::DerefMut for ModuleProcess {
+    fn deref_mut(&mut self) -> &mut Child { &mut self.0 }
+}
+impl Drop for ModuleProcess {
+    fn drop(&mut self) {
+        if !matches!(self.0.try_wait(), Ok(Some(_))) {
+            if self.0.kill().is_ok() { let _ = self.0.wait(); }
+        }
+    }
+}
+struct PreparedModule {
+    description: ModuleDescription,
+    executable: PathBuf,
+    frontend: PathBuf,
+}
+const MODULE_CONCURRENCY: usize = 4;
+const WORKSPACE_TIMEOUT: Duration = Duration::from_secs(5);
 struct RemoteModule {
     description: ModuleDescription,
     client: reqwest::Client,
     endpoint: String,
     frontend: PathBuf,
-    child: Mutex<Child>,
+    child: Mutex<ModuleProcess>,
 }
 impl RemoteModule {
     fn available(&self) -> bool {
@@ -100,22 +123,33 @@ impl ModuleCatalog {
     }
     pub(crate) async fn workspace_modules(&self, cid: &str, headers: &HeaderMap) -> Vec<String> {
         if let Some(local) = &self.local { return local.workspace_modules(cid).await; }
-        let mut result = Vec::new();
-        for id in self.descriptions().into_iter().filter(|m| m.instance_workspace).map(|m| m.id) {
-            let Some(remote) = self.remote(&id) else { continue; };
-            match remote.client.get(format!("{}/internal/workspace", remote.endpoint)).headers(headers.clone()).send().await {
-                Ok(response) if response.status().is_success() => {
-                    if let Ok(value) = response.json::<serde_json::Value>().await {
-                        if let Some(items) = value.get("data").and_then(|v| v.as_array()) {
-                            result.extend(items.iter().filter_map(|v| v.as_str().map(str::to_string)));
-                        }
-                    }
-                }
-                Ok(_) => tracing::warn!(module = %id, "module workspace unavailable"),
-                Err(error) => tracing::warn!(module = %id, error = %error, "module workspace unavailable"),
+        let mut pending = tokio::task::JoinSet::new();
+        let permits = Arc::new(tokio::sync::Semaphore::new(MODULE_CONCURRENCY));
+        for (index, description) in self.descriptions().into_iter().filter(|m| m.instance_workspace).enumerate() {
+            let Some(remote) = self.remote(&description.id) else { continue; };
+            let headers = headers.clone();
+            let permits = permits.clone();
+            pending.spawn(async move {
+                let _permit = permits.acquire_owned().await.map_err(|e| e.to_string())?;
+                // 只限制内部只读查询；正式交易转发仍保留原有等待语义。
+                let response = remote.client.get(format!("{}/internal/workspace", remote.endpoint))
+                    .headers(headers).timeout(WORKSPACE_TIMEOUT).send().await.map_err(|e| e.to_string())?;
+                if !response.status().is_success() { return Err("module workspace unavailable".to_string()); }
+                let value: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                let items = value.get("data").and_then(|v| v.as_array()).ok_or("invalid module workspace")?
+                    .iter().filter_map(|v| v.as_str().map(str::to_string)).collect::<Vec<_>>();
+                Ok::<_, String>((index, items))
+            });
+        }
+        let mut ordered = BTreeMap::new();
+        while let Some(result) = pending.join_next().await {
+            match result {
+                Ok(Ok((index, items))) => { ordered.insert(index, items); }
+                Ok(Err(error)) => tracing::warn!(%error, "module workspace unavailable"),
+                Err(error) => tracing::warn!(%error, "module workspace task failed"),
             }
         }
-        result
+        ordered.into_values().flatten().collect()
     }
     pub(crate) async fn load_installed(&self, database_url: &str, reserved: &[RouteDescription]) -> Result<(), String> {
         let directory = module_directory()?;
@@ -124,17 +158,66 @@ impl ModuleCatalog {
         let mut purposes: BTreeSet<String> = crate::transactions::handler::builtin_purposes().into_iter().map(str::to_string).collect();
         let mut actions = BTreeSet::from([crate::authentication::operation_auth::AdminActionType::NodeBindingUnbind.as_str().to_string()]);
         let mut capabilities = BTreeSet::new();
-        let mut entries = std::fs::read_dir(&directory).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
-        entries.sort_by_key(|v| v.file_name());
-        for entry in entries {
-            if let Err(error) = self.start_one(entry.path(), database_url, &mut occupied, &mut purposes, &mut actions, &mut capabilities).await {
-                tracing::error!(module = %entry.file_name().to_string_lossy(), error = %error, "module not loaded");
+        let mut descriptions = tokio::task::JoinSet::new();
+        let permits = Arc::new(tokio::sync::Semaphore::new(MODULE_CONCURRENCY));
+        for entry in std::fs::read_dir(directory).map_err(|e| e.to_string())? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            let permits = permits.clone();
+            descriptions.spawn(async move {
+                let permit = permits.acquire_owned().await.map_err(|e| e.to_string())?;
+                // 同步说明读取放入有界阻塞任务，不能占住HTTPS执行线程。
+                let result = tokio::task::spawn_blocking(move || {
+                    let _permit = permit;
+                    let result = Self::prepare_one(&path);
+                    (path, result)
+                }).await.map_err(|e| e.to_string())?;
+                Ok::<_, String>(result)
+            });
+        }
+        let mut ordered = BTreeMap::new();
+        while let Some(result) = descriptions.join_next().await {
+            match result {
+                Ok(Ok((path, result))) => { ordered.insert(path, result); }
+                Ok(Err(error)) => tracing::error!(%error, "module description task failed"),
+                Err(error) => tracing::error!(%error, "module description task failed"),
             }
         }
+        let mut pending = tokio::task::JoinSet::new();
+        // 归属校验按实际目录稳定排序；耗时就绪等待独立并行，不串行累加120秒。
+        for (path, result) in ordered {
+            let prepared = match result {
+                Ok(prepared) => prepared,
+                Err(error) => { tracing::error!(module = %path.display(), %error, "module not loaded"); continue; }
+            };
+            let keys = route_keys(&prepared.description.routes)?;
+            if !occupied.is_disjoint(&keys) || prepared.description.purposes.iter().any(|v| purposes.contains(v))
+                || prepared.description.actions.iter().any(|v| actions.contains(v))
+                || prepared.description.capabilities.keys().any(|v| capabilities.contains(v)) {
+                tracing::error!(module = %path.display(), "module route or ownership conflict"); continue;
+            }
+            occupied.extend(keys);
+            purposes.extend(prepared.description.purposes.iter().cloned());
+            actions.extend(prepared.description.actions.iter().cloned());
+            capabilities.extend(prepared.description.capabilities.keys().cloned());
+            let database_url = database_url.to_string();
+            let permits = permits.clone();
+            pending.spawn(async move {
+                let _permit = permits.acquire_owned().await.map_err(|e| e.to_string())?;
+                Self::start_one(prepared, &database_url).await
+            });
+        }
+        while let Some(result) = pending.join_next().await {
+            match result {
+                Ok(Ok(remote)) => self.remotes.lock().map_err(|_| "module catalog lock poisoned")?.push(Arc::new(remote)),
+                Ok(Err(error)) => tracing::error!(%error, "module not loaded"),
+                Err(error) => tracing::error!(%error, "module startup task failed"),
+            }
+        }
+        self.remotes.lock().map_err(|_| "module catalog lock poisoned")?.sort_by(|a, b| a.description.id.cmp(&b.description.id));
         Ok(())
     }
-    async fn start_one(&self, directory: PathBuf, database_url: &str, occupied: &mut BTreeSet<(String, String)>, purposes: &mut BTreeSet<String>, actions: &mut BTreeSet<String>, capabilities: &mut BTreeSet<String>) -> Result<(), String> {
-        let metadata = std::fs::symlink_metadata(&directory).map_err(|e| e.to_string())?;
+    fn prepare_one(directory: &Path) -> Result<PreparedModule, String> {
+        let metadata = std::fs::symlink_metadata(directory).map_err(|e| e.to_string())?;
         if !metadata.is_dir() || metadata.file_type().is_symlink() { return Err("module must be an actual directory".into()); }
         let id = directory.file_name().and_then(|v| v.to_str()).ok_or("invalid module directory")?;
         if !valid_id(id) { return Err("invalid module id".into()); }
@@ -144,51 +227,56 @@ impl ModuleCatalog {
         let description = read_description(&executable)?;
         validate_description(&description)?;
         if description.id != id { return Err("module directory and description mismatch".into()); }
-        let keys = route_keys(&description.routes)?;
-        if !occupied.is_disjoint(&keys) { return Err("module route conflict".into()); }
-        if description.purposes.iter().any(|v| purposes.contains(v)) || description.actions.iter().any(|v| actions.contains(v)) || description.capabilities.keys().any(|v| capabilities.contains(v)) { return Err("module ownership conflict".into()); }
         let frontend = directory.join("frontend");
         verify_frontend(&frontend, &description)?;
+        Ok(PreparedModule { description, executable, frontend })
+    }
+    async fn start_one(prepared: PreparedModule, database_url: &str) -> Result<RemoteModule, String> {
+        let PreparedModule { description, executable, frontend } = prepared;
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
         let address = socket.local_addr().map_err(|e| e.to_string())?; drop(socket);
         let ca = crate::core::tls::organization_ca_certificate_pem()?;
         let client = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).add_root_certificate(reqwest::Certificate::from_pem(ca.as_bytes()).map_err(|e| e.to_string())?)
             .resolve("onchina.local", address).connect_timeout(Duration::from_secs(5)).build().map_err(|e| e.to_string())?;
-        let mut child = Command::new(&executable).env("DATABASE_URL", database_url).env("ONCHINA_EMBEDDED_PG", "0")
+        let mut child = ModuleProcess(Command::new(executable).env("DATABASE_URL", database_url).env("ONCHINA_EMBEDDED_PG", "0")
             .env("ONCHINA_MODULE_BIND", address.to_string()).env("ONCHINA_TLS_DIR", crate::core::tls::tls_dir())
-            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::inherit()).spawn().map_err(|e| e.to_string())?;
+            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::inherit()).spawn().map_err(|e| e.to_string())?);
         let endpoint = format!("https://onchina.local:{}", address.port());
         let start = Instant::now();
-        let ready = loop {
-            if child.try_wait().map_err(|e| e.to_string())?.is_some() || start.elapsed() > Duration::from_secs(120) { break false; }
+        loop {
+            if child.try_wait().map_err(|e| e.to_string())?.is_some() || start.elapsed() > Duration::from_secs(120) {
+                return Err(format!("module {} did not become ready", description.id));
+            }
             if let Ok(response) = client.get(format!("{endpoint}/api/health")).timeout(Duration::from_secs(2)).send().await {
                 if let Ok(value) = response.json::<serde_json::Value>().await {
                     if value.pointer("/data/status").and_then(|v| v.as_str()) == Some("UP")
-                        && value.pointer("/data/module_id").and_then(|v| v.as_str()) == Some(id)
-                        && value.pointer("/data/module_version").and_then(|v| v.as_str()) == Some(description.version.as_str()) { break true; }
+                        && value.pointer("/data/module_id").and_then(|v| v.as_str()) == Some(description.id.as_str())
+                        && value.pointer("/data/module_version").and_then(|v| v.as_str()) == Some(description.version.as_str()) { break; }
                 }
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
-        };
-        if !ready { let _ = child.kill(); let _ = child.wait(); return Err("module did not become ready".into()); }
-        occupied.extend(keys); purposes.extend(description.purposes.iter().cloned()); actions.extend(description.actions.iter().cloned()); capabilities.extend(description.capabilities.keys().cloned());
-        self.remotes.lock().map_err(|_| "module catalog lock poisoned")?.push(Arc::new(RemoteModule { description, client, endpoint, frontend, child: Mutex::new(child) }));
+        }
+        Ok(RemoteModule { description, client, endpoint, frontend, child: Mutex::new(child) })
+    }
+    pub(crate) fn stop_all(&self) -> Result<(), String> {
+        let remotes = self.remotes.lock().map_err(|_| "module catalog lock poisoned")?;
+        for remote in remotes.iter() {
+            let mut child = remote.child.lock().map_err(|_| "module process lock poisoned")?;
+            drop(child.stdin.take());
+        }
+        let start = Instant::now();
+        for remote in remotes.iter() {
+            let mut child = remote.child.lock().map_err(|_| "module process lock poisoned")?;
+            while child.try_wait().map_err(|e| e.to_string())?.is_none() && start.elapsed() < Duration::from_secs(12) {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            if child.try_wait().map_err(|e| e.to_string())?.is_none() { child.kill().map_err(|e| e.to_string())?; }
+            child.wait().map_err(|e| e.to_string())?;
+        }
         Ok(())
     }
-    pub(crate) fn stop_all(&self) {
-        if let Ok(remotes) = self.remotes.lock() {
-            for remote in remotes.iter() { if let Ok(mut child) = remote.child.lock() { drop(child.stdin.take()); } }
-            let start = Instant::now();
-            for remote in remotes.iter() {
-                if let Ok(mut child) = remote.child.lock() {
-                    while matches!(child.try_wait(), Ok(None)) && start.elapsed() < Duration::from_secs(12) { std::thread::sleep(Duration::from_millis(25)); }
-                    if matches!(child.try_wait(), Ok(None)) { let _ = child.kill(); }
-                    let _ = child.wait();
-                }
-            }
-        }
-    }
 }
+
 pub(crate) fn module_directory() -> Result<PathBuf, String> {
     if let Some(value) = std::env::var_os("ONCHINA_MODULE_DIR") {
         let path = PathBuf::from(value);
@@ -261,7 +349,7 @@ fn route_keys(routes: &[RouteDescription]) -> Result<BTreeSet<(String, String)>,
 }
 
 fn read_description(path: &Path) -> Result<ModuleDescription, String> {
-    let mut child = Command::new(path).arg("--describe").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
+    let mut child = ModuleProcess(Command::new(path).arg("--describe").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?);
     let stdout = child.stdout.take().ok_or("module description pipe missing")?;
     let reader = std::thread::spawn(move || { let mut bytes = Vec::new(); stdout.take(1024 * 1024 + 1).read_to_end(&mut bytes).map(|_| bytes).map_err(|e| e.to_string()) });
     let start = Instant::now();
@@ -346,6 +434,103 @@ pub(crate) fn run_module_command(id: &str, command: &str, database_url: &str) ->
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    #[ignore = "仅供HTTPS进程回归通过精确名称拉起"]
+    async fn https_child() {
+        if std::env::var_os("ONCHINA_HTTPS_CHILD_TEST").is_none() { return; }
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let directory = PathBuf::from(std::env::var_os("ONCHINA_TEST_TLS_DIRECTORY").unwrap());
+        let id = std::env::var("ONCHINA_TEST_MODULE_ID").unwrap();
+        let health_id = id.clone();
+        let workspace_id = id.clone();
+        let route = format!("/api/{id}/module-test/{{id}}");
+        let version = std::env::var("ONCHINA_TEST_VERSION").unwrap();
+        let health_version = version.clone();
+        let slow = std::env::var("ONCHINA_TEST_SLOW_WORKSPACE").unwrap() == "1";
+        let app = axum::Router::new()
+            .route("/api/health", axum::routing::get(move || {
+                let version = health_version.clone();
+                let id = health_id.clone();
+                async move { Json(serde_json::json!({"code":0,"data":{"status":"UP","module_id":id,"module_version":version}})) }
+            }))
+            .route(&route, axum::routing::post(move |request: Request| {
+                let version = version.clone();
+                async move {
+                    let (parts, body) = request.into_parts();
+                    let body = axum::body::to_bytes(body, 1024).await.unwrap();
+                    let response = serde_json::json!({"version":version,"method":parts.method.as_str(),"uri":parts.uri.to_string(),
+                        "authorization":parts.headers.get("authorization").and_then(|v|v.to_str().ok()),
+                        "passkey":parts.headers.get("x-passkey-assertion").and_then(|v|v.to_str().ok()),
+                        "grant":parts.headers.get("x-cid-security-grant").and_then(|v|v.to_str().ok()),
+                        "body":String::from_utf8(body.to_vec()).unwrap()});
+                    (StatusCode::CREATED, [("x-module-version", version)], Json(response))
+                }
+            }))
+            .route("/internal/workspace", axum::routing::get(move || {
+                let id = workspace_id.clone();
+                async move {
+                if slow { tokio::time::sleep(Duration::from_secs(60)).await; }
+                Json(serde_json::json!({"code":0,"data":[id]}))
+                }
+            }));
+        let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(directory.join("server.crt"), directory.join("server.key")).await.unwrap();
+        let handle = axum_server::Handle::new();
+        let close = handle.clone();
+        let parent = crate::parent_shutdown();
+        tokio::spawn(async move { crate::shutdown_signal(parent).await; close.graceful_shutdown(Some(Duration::from_millis(100))); });
+        axum_server::bind_rustls(std::env::var("ONCHINA_TEST_BIND").unwrap().parse().unwrap(), config)
+            .handle(handle).serve(app.into_make_service()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn https_workspace_timeout_and_restart_preserve_process_ownership() {
+        let mut fixture = super::test_support::https_fixture("example").await;
+        let old = fixture.catalog.remote("example").unwrap();
+        let old_pid = old.child.lock().unwrap().id();
+        assert_eq!(fixture.catalog.workspace_modules("test-cid", &HeaderMap::new()).await, vec!["example"]);
+        fixture.restart("1.0.1", true).await;
+        assert!(old.child.lock().unwrap().try_wait().unwrap().is_some());
+        assert_ne!(old_pid, fixture.catalog.remote("example").unwrap().child.lock().unwrap().id());
+        assert_eq!(fixture.catalog.assets()[0].version, "1.0.1");
+        let started = Instant::now();
+        assert!(fixture.catalog.workspace_modules("test-cid", &HeaderMap::new()).await.is_empty());
+        assert!(started.elapsed() < Duration::from_secs(9));
+        fixture.catalog.stop_all().unwrap();
+        fixture.catalog.stop_all().unwrap();
+        assert!(fixture.catalog.assets().is_empty());
+        let stopped = fixture.catalog.remote("example");
+        assert!(stopped.is_none());
+    }
+
+    #[tokio::test]
+    async fn slow_workspace_modules_do_not_serialize_or_hide_healthy_modules() {
+        let mut first = super::test_support::https_fixture("slowone").await;
+        let mut second = super::test_support::https_fixture("slowtwo").await;
+        let ready = super::test_support::https_fixture("ready").await;
+        first.restart("1.0.1", true).await;
+        second.restart("1.0.1", true).await;
+        let catalog = ModuleCatalog::new(None);
+        for fixture in [&first, &second, &ready] {
+            catalog.remotes.lock().unwrap().push(fixture.catalog.remote(&fixture.id).unwrap());
+        }
+        let start = Instant::now();
+        assert_eq!(catalog.workspace_modules("test-cid", &HeaderMap::new()).await, vec!["ready"]);
+        // 两个5秒超时若串行会超过10秒；允许调度余量，仍须保留健康模块。
+        assert!(start.elapsed() < Duration::from_secs(9));
+        catalog.stop_all().unwrap();
+    }
+
+    #[tokio::test]
+    async fn module_https_requires_certificate_trust_and_hostname() {
+        let fixture = super::test_support::https_fixture("example").await;
+        let untrusted = reqwest::Client::builder().no_proxy().https_only(true).resolve("onchina.local", fixture.address).timeout(Duration::from_secs(2)).build().unwrap();
+        assert!(untrusted.get(format!("https://onchina.local:{}/api/health", fixture.address.port())).send().await.is_err());
+        let wrong_host = reqwest::Client::builder().no_proxy().https_only(true).resolve("wrong.invalid", fixture.address)
+            .add_root_certificate(reqwest::Certificate::from_pem(fixture.ca.as_bytes()).unwrap()).timeout(Duration::from_secs(2)).build().unwrap();
+        assert!(wrong_host.get(format!("https://wrong.invalid:{}/api/health", fixture.address.port())).send().await.is_err());
+        fixture.catalog.stop_all().unwrap();
+    }
+
     #[test]
     fn route_conflicts_include_method_and_path() {
         let route = RouteDescription { group: "admin".into(), path: "/api/example/{id}".into(), methods: vec!["GET".into()], body_limit: 2 * 1024 * 1024 };
@@ -383,19 +568,20 @@ mod tests {
 
 /// 测试金标只用于输入夹具；各二进制另核验真实模块输出，不能把夹具当生产声明。
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 pub(crate) mod test_support {
     use super::*;
     pub(crate) fn fixture_description() -> ModuleDescription {
         let fixture: serde_json::Value = serde_json::from_str(include_str!("layout.fixture.json")).unwrap();
         let mut capabilities = BTreeMap::new();
         let mut workspaces = BTreeMap::new();
-        for case in fixture["capabilityCases"].as_array().unwrap() {
+        for case in fixture["capabilityCases"].as_array().unwrap().iter().filter(|case| case["owner"].is_string()) {
             let mut value = serde_json::to_value(capability::EMPTY).unwrap();
             for flag in case["flags"].as_array().unwrap() { value[flag.as_str().unwrap()] = serde_json::Value::Bool(true); }
             let code = case["code"].as_str().unwrap().to_string();
             capabilities.insert(code.clone(), serde_json::from_value(value).unwrap());
             if !case["kind"].is_null() {
-                workspaces.insert(code, WorkspaceDeclaration { kind: serde_json::from_value(case["kind"].clone()).unwrap(), sections: Vec::new() });
+                workspaces.insert(code, WorkspaceDeclaration { kind: serde_json::from_value(case["kind"].clone()).unwrap(), sections: serde_json::from_value(case["sections"].clone()).unwrap() });
             }
         }
         ModuleDescription {
@@ -412,6 +598,89 @@ pub(crate) mod test_support {
     }
     pub(crate) fn fixture_catalog() -> ModuleCatalog { ModuleCatalog::new(Some(Arc::new(FixtureModule))) }
 
+    // 真实HTTPS/父管道测试夹具：临时证书和程序只归本用例，不连接数据库或链。
+    pub(crate) struct HttpsFixture {
+        pub(crate) catalog: Arc<ModuleCatalog>,
+        pub(crate) address: std::net::SocketAddr,
+        pub(crate) ca: String,
+        directory: PathBuf,
+        pub(crate) id: String,
+    }
+    impl HttpsFixture {
+        pub(crate) async fn restart(&mut self, version: &str, slow: bool) {
+            self.catalog.stop_all().unwrap();
+            // 必须先回收进程才能替换同一个程序，Windows在进程未退出时会拒绝复制。
+            let executable = self.directory.join(format!("onchina-{}{}", self.id, std::env::consts::EXE_SUFFIX));
+            std::fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+            let mut child = ModuleProcess(Command::new(executable)
+                .args(["--ignored", "--exact", "modules::tests::https_child"])
+                .env("ONCHINA_HTTPS_CHILD_TEST", "1").env("ONCHINA_PARENT_PIPE", "1").env("ONCHINA_TEST_MODULE_ID", &self.id)
+                .env("ONCHINA_TEST_BIND", self.address.to_string()).env("ONCHINA_TEST_VERSION", version)
+                .env("ONCHINA_TEST_TLS_DIRECTORY", &self.directory).env("ONCHINA_TEST_SLOW_WORKSPACE", if slow { "1" } else { "0" })
+                .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+            let client = reqwest::Client::builder().no_proxy().https_only(true)
+                .redirect(reqwest::redirect::Policy::none())
+                .add_root_certificate(reqwest::Certificate::from_pem(self.ca.as_bytes()).unwrap())
+                .resolve("onchina.local", self.address).connect_timeout(Duration::from_secs(1)).build().unwrap();
+            let endpoint = format!("https://onchina.local:{}", self.address.port());
+            let start = Instant::now();
+            loop {
+                assert!(child.try_wait().unwrap().is_none(), "HTTPS test child exited");
+                if let Ok(response) = client.get(format!("{endpoint}/api/health")).timeout(Duration::from_millis(250)).send().await {
+                    if let Ok(value) = response.json::<serde_json::Value>().await {
+                        if value.pointer("/data/module_version").and_then(|v| v.as_str()) == Some(version) { break; }
+                    }
+                }
+                assert!(start.elapsed() < Duration::from_secs(10), "HTTPS test child readiness");
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            let route = RouteDescription { group: "public".into(), path: format!("/api/{}/module-test/{{id}}", self.id), methods: vec!["POST".into()], body_limit: 1024 };
+            let description = ModuleDescription { id: self.id.clone(), version: version.into(), interface_version: model::MODULE_INTERFACE_VERSION,
+                frontend_source: "frontend/Workspace.tsx".into(), frontend_exports: vec!["Workspace".into()], frontend_workspace: None,
+                instance_workspace: true, routes: vec![route], purposes: Vec::new(), actions: Vec::new(), capabilities: BTreeMap::new(), workspaces: BTreeMap::new() };
+            validate_description(&description).unwrap();
+            let frontend = self.directory.join("frontend");
+            std::fs::create_dir_all(&frontend).unwrap();
+            let marker = format!("/*onchina:{}*/\n", serde_json::json!({"id":&self.id,"version":version,"interface_version":model::MODULE_INTERFACE_VERSION}));
+            for name in ["module.js", "module.css"] { std::fs::write(frontend.join(name), &marker).unwrap(); }
+            verify_frontend(&frontend, &description).unwrap();
+            self.catalog = Arc::new(ModuleCatalog::new(None));
+            self.catalog.remotes.lock().unwrap().push(Arc::new(RemoteModule { description, client, endpoint, frontend, child: Mutex::new(child) }));
+        }
+    }
+    impl Drop for HttpsFixture {
+        fn drop(&mut self) {
+            let result = self.catalog.stop_all().and_then(|_| std::fs::remove_dir_all(&self.directory).map_err(|error| error.to_string()));
+            if !std::thread::panicking() { result.expect("test process and temporary directory cleanup"); }
+        }
+    }
+    pub(crate) async fn https_fixture(id: &str) -> HttpsFixture {
+        assert!(valid_id(id));
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let directory = std::env::temp_dir().join(format!("onchina-module-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        // 目录一创建就交给守卫，证书生成或启动失败同样清理自己的现场。
+        let mut fixture = HttpsFixture { catalog: Arc::new(ModuleCatalog::new(None)), address: (Ipv4Addr::LOCALHOST, 0).into(), ca: String::new(), directory, id: id.into() };
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fixture.directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let ca_key = rcgen::KeyPair::generate().unwrap();
+        let mut ca_params = rcgen::CertificateParams::default();
+        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let ca = ca_params.self_signed(&ca_key).unwrap();
+        let key = rcgen::KeyPair::generate().unwrap();
+        let params = rcgen::CertificateParams::new(vec!["onchina.local".into()]).unwrap();
+        let certificate = params.signed_by(&key, &ca, &ca_key).unwrap();
+        std::fs::write(fixture.directory.join("server.crt"), certificate.pem()).unwrap();
+        std::fs::write(fixture.directory.join("server.key"), key.serialize_pem()).unwrap();
+        let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        fixture.address = socket.local_addr().unwrap(); drop(socket);
+        fixture.ca = ca.pem();
+        fixture.restart("1.0.0", false).await;
+        fixture
+    }
+
     pub(crate) fn assert_actual_module(module: &dyn ModuleBusiness) {
         let description = module.describe();
         validate_description(&description).unwrap();
@@ -421,7 +690,9 @@ pub(crate) mod test_support {
         for case in fixture["capabilityCases"].as_array().unwrap().iter().filter(|case| case["owner"].as_str() == Some(description.id.as_str())) {
             let code = case["code"].as_str().unwrap();
             assert_eq!(serde_json::to_value(description.capabilities.get(code).unwrap()).unwrap(), serde_json::to_value(expected.capabilities[code]).unwrap(), "{code}");
-            assert_eq!(serde_json::to_value(description.workspaces.get(code).unwrap().kind).unwrap(), case["kind"]);
+            let workspace = description.workspaces.get(code).unwrap();
+            assert_eq!(serde_json::to_value(workspace.kind).unwrap(), case["kind"]);
+            assert_eq!(serde_json::to_value(&workspace.sections).unwrap(), case["sections"], "{code} sections");
         }
     }
 }

@@ -1,7 +1,7 @@
 //! 节点桌面端拉起 / 停止 onchina 控制台子进程。
 //!
 //! 形态:onchina 控制台是独立二进制(`onchina` crate)。节点桌面端不随启动自动拉起,
-//! 只在设置页二次确认后启动;App 退出时统一杀掉已由本进程拉起的子进程。
+//! 只在设置页二次确认后启动;App 退出时通过父管道通知并等待本进程拉起的服务退出。
 //!
 //! Card 05:onchina 二进制 + PostgreSQL 官方二进制 + 前端产物 + china.sqlite 均随安装包
 //! (Tauri resources)。本模块**不碰 PG**——只把资源/数据路径用环境变量告诉 onchina,
@@ -10,9 +10,9 @@
 #[cfg(unix)]
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 
@@ -23,9 +23,9 @@ static ONCHINA_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 #[cfg(unix)]
 const ONCHINA_PORT: u16 = 8964;
 
-/// 清理旧进程后等待端口释放的次数。每次 200ms，总等待约 4 秒。
+/// 清理旧进程后等待端口释放的次数。每次 200ms，总等待约 40 秒，覆盖模块退出收尾。
 #[cfg(unix)]
-const STALE_CLEANUP_ATTEMPTS: usize = 20;
+const STALE_CLEANUP_ATTEMPTS: usize = 200;
 
 /// 解析 onchina 二进制路径:优先随包 `resources/onchina-bin/`(打包形态),
 /// 兜底节点可执行文件同目录(开发期 `cargo build` 后的 `target/<profile>/onchina`)。
@@ -144,7 +144,7 @@ fn reap_finished_child(child: &mut Option<Child>) {
         }
         Err(err) => {
             eprintln!("[onchina] 检查 onchina 控制台子进程状态失败:{err}");
-            *child = None;
+            // 查询失败不能丢弃仍可能存活的进程所有权。
         }
     }
 }
@@ -282,11 +282,7 @@ fn clean_stale_onchina_processes_before_start() -> Result<(), String> {
     for pid in &pids {
         signal_pid(*pid, "-TERM");
     }
-    if wait_until_no_stale_onchina_processes().is_err() {
-        for pid in stale_onchina_processes() {
-            signal_pid(pid, "-KILL");
-        }
-    }
+    // 等待宿主自行回收模块；超时拒绝重启，不强杀宿主后留下仍占用文件的模块。
     wait_until_no_stale_onchina_processes()?;
     eprintln!("[onchina] 已清理旧链上中国平台进程 pid={pids:?}");
     Ok(())
@@ -332,6 +328,7 @@ pub fn start_onchina(app: &AppHandle) -> Result<(), String> {
         return Err("未找到链上中国平台二进制;开发期请先执行 cargo build -p onchina".to_string());
     };
     let mut cmd = Command::new(&binary);
+    cmd.env("ONCHINA_PARENT_PIPE", "1").stdin(Stdio::piped());
     apply_onchina_env(app, &mut cmd)?;
     match cmd.spawn() {
         Ok(child) => {
@@ -343,19 +340,27 @@ pub fn start_onchina(app: &AppHandle) -> Result<(), String> {
     }
 }
 
-/// 停止 onchina 子进程;未运行时视为成功。
+/// 仅在退出码和进程回收已确认后成功；超时仍由调用方保留原句柄。
+fn wait_onchina_exit(child: &mut Child, timeout: Duration) -> Result<(), String> {
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().map_err(|error| format!("等待链上中国退出失败:{error}"))? {
+            return if status.success() { Ok(()) } else { Err(format!("链上中国退出异常:{status}")) };
+        }
+        if start.elapsed() >= timeout { return Err("链上中国及模块尚未确认退出，禁止替换运行文件".into()); }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// 关闭父管道，等待宿主排空、模块停止及宿主退出；不直接强杀宿主而遗留模块。
 pub fn stop_onchina_checked() -> Result<(), String> {
-    let mut guard = match ONCHINA_CHILD.lock() {
-        Ok(guard) => guard,
-        Err(err) => return Err(format!("获取链上中国平台子进程锁失败:{err}")),
-    };
-    reap_finished_child(&mut guard);
-    if let Some(mut child) = guard.take() {
-        child
-            .kill()
-            .map_err(|err| format!("停止链上中国平台子进程失败:{err}"))?;
-        let _ = child.wait();
-        eprintln!("[onchina] 已停止 onchina 控制台子进程");
+    let mut guard = ONCHINA_CHILD.lock().map_err(|error| format!("获取链上中国平台子进程锁失败:{error}"))?;
+    if let Some(child) = guard.as_mut() {
+        drop(child.stdin.take());
+        // 覆盖HTTPS排空10秒、模块排空12秒及启动中说明读取的退出收尾。
+        wait_onchina_exit(child, Duration::from_secs(40))?;
+        *guard = None;
+        eprintln!("[onchina] 已确认宿主及模块退出");
     }
     Ok(())
 }
@@ -364,5 +369,48 @@ pub fn stop_onchina_checked() -> Result<(), String> {
 pub fn stop_onchina() {
     if let Err(err) = stop_onchina_checked() {
         eprintln!("[onchina] 停止 onchina 控制台子进程失败:{err}");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod lifecycle_tests {
+    use super::*;
+
+    // 使用当前测试程序作为子进程，覆盖Windows/Unix父管道；不启动业务、数据库或链。
+    #[test]
+    #[ignore = "仅供父进程测试通过精确名称拉起"]
+    fn pipe_child() {
+        if std::env::var_os("ONCHINA_PIPE_CHILD_TEST").is_none() { return; }
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::io::stdin().read_to_end(&mut bytes).expect("read parent pipe");
+        if std::env::var_os("ONCHINA_PIPE_CHILD_FAIL").is_some() { std::process::exit(7); }
+    }
+
+    fn spawn_pipe_child(fail: bool) -> Child {
+        let mut command = Command::new(std::env::current_exe().expect("test executable"));
+        command.args(["--ignored", "--exact", "onchina_proc::lifecycle_tests::pipe_child"])
+            .env("ONCHINA_PIPE_CHILD_TEST", "1").stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+        if fail { command.env("ONCHINA_PIPE_CHILD_FAIL", "1"); }
+        command.spawn().expect("spawn child")
+    }
+
+    #[test]
+    fn parent_pipe_closes_before_success_and_timeout_keeps_handle() {
+        let mut child = spawn_pipe_child(false);
+        assert!(wait_onchina_exit(&mut child, Duration::from_millis(20)).is_err());
+        assert!(child.try_wait().expect("child status").is_none());
+        drop(child.stdin.take());
+        wait_onchina_exit(&mut child, Duration::from_secs(5)).expect("reap after EOF");
+        wait_onchina_exit(&mut child, Duration::ZERO).expect("repeat reap");
+    }
+
+    #[test]
+    fn abnormal_exit_is_not_reported_as_success() {
+        let mut child = spawn_pipe_child(true);
+        drop(child.stdin.take());
+        assert!(wait_onchina_exit(&mut child, Duration::from_secs(5)).is_err());
+        assert!(!child.wait().expect("reap failed child").success());
     }
 }

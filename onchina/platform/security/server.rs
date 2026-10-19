@@ -1,7 +1,7 @@
 // 既有 HTTPS、机构证书和关闭信号处理。
 /// (Card 05):内网 TLS——正式入口固定为 https://onchina.local:8964;
 /// 关闭TLS必须失败；开发和正式入口都禁止明文或证书验证降级。
-async fn serve_console(addr: SocketAddr, app: axum::Router, state: &AppState) {
+async fn serve_console(addr: SocketAddr, app: axum::Router, state: &AppState, parent: tokio::sync::watch::Receiver<bool>) {
     let service = app.into_make_service_with_connect_info::<SocketAddr>();
     // 广告 onchina.local mDNS:局域网内可经统一 HTTPS 域名访问本节点控制台(best-effort)。
     if state.modules.local.is_none() { discovery::advertise(addr.port()); }
@@ -17,7 +17,7 @@ async fn serve_console(addr: SocketAddr, app: axum::Router, state: &AppState) {
     let handle = axum_server::Handle::new();
     let shutdown = handle.clone();
     tokio::spawn(async move {
-        shutdown_signal().await;
+        shutdown_signal(parent).await;
         shutdown.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
     });
     axum_server::bind_rustls(addr, config)
@@ -80,20 +80,34 @@ async fn organization_ca_certificate_info() -> impl IntoResponse {
     }
 }
 
-/// 退出信号:Ctrl-C 全平台;Unix 额外捕获 SIGTERM(node 停子进程默认信号)。
-async fn shutdown_signal() {
-    let (sender, parent_exit) = tokio::sync::oneshot::channel::<()>();
-    let _host_sender = if std::env::var_os("ONCHINA_MODULE_BIND").is_some() {
+/// 父管道在数据库、链读取和模块启动之前监听；独立启动不把终端EOF当退出信号。
+fn parent_shutdown() -> tokio::sync::watch::Receiver<bool> {
+    let (sender, receiver) = tokio::sync::watch::channel(false);
+    if std::env::var_os("ONCHINA_PARENT_PIPE").is_some() || std::env::var_os("ONCHINA_MODULE_BIND").is_some() {
         std::thread::spawn(move || {
             use std::io::Read;
             let mut byte = [0u8; 1];
-            while matches!(std::io::stdin().read(&mut byte), Ok(n) if n > 0) {}
-            let _ = sender.send(());
+            loop {
+                match std::io::stdin().read(&mut byte) {
+                    Ok(0) => break,
+                    Ok(_) => {},
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => break,
+                }
+            }
+            let _ = sender.send(true);
         });
-        None
-    } else {
-        // 宿主没有父管道，保留发送端直到退出信号触发。
-        Some(sender)
+    }
+    receiver
+}
+
+/// Ctrl-C/SIGTERM与父管道共用关闭路径；失去独立启动的发送端不等于父进程退出。
+async fn shutdown_signal(mut parent: tokio::sync::watch::Receiver<bool>) {
+    let parent_exit = async move {
+        loop {
+            if *parent.borrow() { return; }
+            if parent.changed().await.is_err() { std::future::pending::<()>().await; }
+        }
     };
     #[cfg(unix)]
     {
@@ -125,6 +139,7 @@ fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
     }
     tracing_subscriber::fmt().with_env_filter("info").with_target(false).compact().with_writer(std::io::stderr).init();
     disable_core_dumps();
+    let parent = parent_shutdown();
     let command = parse_backend_command();
     let is_host = local.is_none();
     let database_url = if is_host && core::embedded_pg::is_enabled() {
@@ -139,6 +154,7 @@ fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
         .unwrap_or_else(|e| panic!("init database failed: {e}"));
     let catalog = Arc::new(modules::ModuleCatalog::new(local.clone()));
     let state = AppState { db, rate_limiter: Arc::new(LocalRateLimiter::new()), modules: catalog };
+    if *parent.borrow() { if is_host { core::embedded_pg::stop(); } return; }
     if is_host && matches!(command, BackendCommand::AuditChainCatalog) {
         modules::run_module_command("registry", "audit-chain-catalog", &database_url).unwrap_or_else(|e| panic!("{e}"));
         return;
@@ -159,6 +175,7 @@ fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
                 .unwrap_or_else(|e| panic!("创世机构目录链上对账失败(fail-closed): {e}"));
         } else { warn!("ONCHINA_GOV_CHAIN_AUDIT=0,已跳过创世机构目录链上对账(仅限开发)"); }
     }
+    if *parent.borrow() { if is_host { core::embedded_pg::stop(); } return; }
     if let Some(module) = &local { module.startup(&state).unwrap_or_else(|e| panic!("module startup failed: {e}")); }
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()
         .unwrap_or_else(|e| panic!("build tokio runtime failed: {e}"));
@@ -167,7 +184,21 @@ fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
             // 先准备原机构证书，所有子模块只读取同一证书目录。
             core::tls::load_or_generate_rustls_config().await.unwrap_or_else(|e| panic!("onchina tls config failed: {e}"));
             let reserved = platform_routes().into_iter().map(|r| r.description).collect::<Vec<_>>();
-            state.modules.load_installed(&database_url, &reserved).await.unwrap_or_else(|e| panic!("module discovery failed: {e}"));
+            let stopped = tokio::select! {
+                biased;
+                _ = shutdown_signal(parent.clone()) => true,
+                result = state.modules.load_installed(&database_url, &reserved) => {
+                    result.unwrap_or_else(|e| panic!("module discovery failed: {e}"));
+                    false
+                }
+            };
+            if stopped {
+                while let Err(error) = state.modules.stop_all() {
+                    tracing::error!(%error, "modules still stopping");
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                core::embedded_pg::stop(); return;
+            }
             if core::chain_url::chain_ws_url().is_ok() {
                 tokio::spawn(indexer::indexer_worker(state.db.clone()));
                 tokio::spawn(indexer::bound_institution_projection_worker(state.db.clone()));
@@ -183,8 +214,12 @@ fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
             if !address.ip().is_loopback() { panic!("module listener must be loopback"); }
             address
         };
-        serve_console(address, app, &state).await;
-        state.modules.stop_all();
+        serve_console(address, app, &state, parent.clone()).await;
+        // 没有确认子模块退出就不退出宿主；节点超时只返回失败，不能误报可替换文件。
+        while let Err(error) = state.modules.stop_all() {
+            tracing::error!(%error, "modules still stopping");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
         if is_host { core::embedded_pg::stop(); }
     });
 }

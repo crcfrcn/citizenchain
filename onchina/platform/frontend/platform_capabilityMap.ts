@@ -83,38 +83,70 @@ function sameOriginAsset(value: string, id: string): string {
   }
   return url.href;
 }
+// 装载只等待有限时间；失败保留隔离结果，恢复仍需原有页面刷新。
+const MODULE_LOAD_TIMEOUT_MS = 15000;
 async function loadModule(asset: ModuleAsset): Promise<void> {
   if (!/^[a-z][a-z0-9_]{0,63}$/.test(asset.id) || !/^\d+\.\d+\.\d+$/.test(asset.version)
       || asset.interface_version !== 1 || !Array.isArray(asset.exports) || !Array.isArray(asset.institution_codes)) {
     throw new Error('模块声明无效或接口版本不匹配');
   }
+  // 两个地址都校验完成才创建节点，失败不能留下半套资源。
+  const stylesheetUrl = sameOriginAsset(asset.stylesheet, asset.id);
+  const scriptUrl = sameOriginAsset(asset.script, asset.id);
   const stylesheet = document.createElement('link');
-  stylesheet.rel = 'stylesheet'; stylesheet.href = sameOriginAsset(asset.stylesheet, asset.id);
+  stylesheet.rel = 'stylesheet'; stylesheet.href = stylesheetUrl;
   const script = document.createElement('script');
-  script.src = sameOriginAsset(asset.script, asset.id); script.async = true;
-  const styleReady = new Promise<void>((resolve, reject) => {
-    stylesheet.onload = () => resolve(); stylesheet.onerror = () => reject(new Error('模块样式装载失败'));
-  });
-  const scriptReady = new Promise<void>((resolve, reject) => {
-    script.onload = () => {
-      const module = globalThis.OnChinaModules[asset.id]; const metadata = module?.__onchina;
-      if (!metadata || metadata.id !== asset.id || metadata.version !== asset.version
-          || metadata.interface_version !== asset.interface_version
-          || asset.exports.some(name => !Object.prototype.hasOwnProperty.call(module, name))) {
-        reject(new Error('模块后端与前端声明不匹配')); return;
-      }
-      resolve();
-    };
-    script.onerror = () => reject(new Error('模块脚本装载失败'));
-  });
-  document.head.append(stylesheet, script);
-  await Promise.all([styleReady, scriptReady]);
+  script.src = scriptUrl; script.async = true;
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cleanup = () => {
+    clearTimeout(timer);
+    stylesheet.onload = stylesheet.onerror = script.onload = script.onerror = null;
+  };
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let styleReady = false;
+      let scriptReady = false;
+      const fail = (message: string) => {
+        if (settled) return;
+        settled = true; cleanup(); reject(new Error(message));
+      };
+      const ready = () => {
+        if (settled || !styleReady || !scriptReady) return;
+        settled = true; cleanup(); resolve();
+      };
+      stylesheet.onload = () => { styleReady = true; ready(); };
+      stylesheet.onerror = () => fail('模块样式装载失败');
+      script.onload = () => {
+        if (settled) return;
+        const module = globalThis.OnChinaModules[asset.id]; const metadata = module?.__onchina;
+        if (!metadata || metadata.id !== asset.id || metadata.version !== asset.version
+            || metadata.interface_version !== asset.interface_version
+            || asset.exports.some(name => !Object.prototype.hasOwnProperty.call(module, name))) {
+          fail('模块后端与前端声明不匹配'); return;
+        }
+        scriptReady = true; ready();
+      };
+      script.onerror = () => fail('模块脚本装载失败');
+      timer = setTimeout(() => fail('模块资源装载超时'), MODULE_LOAD_TIMEOUT_MS);
+      document.head.append(stylesheet, script);
+    });
+  } catch (error) {
+    settled = true; cleanup(); stylesheet.remove(); script.remove();
+    delete globalThis.OnChinaModules[asset.id];
+    // 已开始下载的脚本可能在移除节点后才执行；本次页面禁止迟到写回，刷新后自然重建。
+    Object.defineProperty(globalThis.OnChinaModules, asset.id, { configurable: true, get: () => undefined, set: () => {} });
+    throw error;
+  }
 }
 /** 在原启动阶段装载一次；运行期间不热替换模块。 */
 export function initializeModules(): Promise<void> {
   if (initialization) return initialization;
   initialization = (async () => {
-    const health = await request<{ modules: ModuleAsset[] }>('/api/health');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), MODULE_LOAD_TIMEOUT_MS);
+    const health = await request<{ modules: ModuleAsset[] }>('/api/health', { signal: controller.signal })
+      .finally(() => clearTimeout(timer));
     if (!Array.isArray(health.modules)) throw new Error('平台未返回模块声明');
     assets = health.modules;
     const ids = new Set<string>();

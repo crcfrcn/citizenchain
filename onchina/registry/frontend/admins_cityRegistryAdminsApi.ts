@@ -4,7 +4,7 @@ import { type FormInstance } from 'antd';
 import { type CidCityItem } from '../../platform/frontend/china_api';
 import { type AdminActionType } from '../../platform/frontend/admins_securityApi';
 import { type InstitutionDetail } from '../../platform/frontend/subjects_api';
-import { type PrepareInstitutionChainOutput } from '../../platform/frontend/admins_api';
+import { type InstitutionGovernanceAdminInput, type PrepareInstitutionChainOutput } from '../../platform/frontend/admins_api';
 // 市注册局管理员 API。
 // 市注册局管理员列表、创建、删除都归入 admins 管理员功能目录。
 
@@ -111,6 +111,8 @@ export type FederalRegistryAdminRow = {
 export type PrepareRegisterInstitutionAdminsInput = {
   cid_number: string;
   admins: InstitutionGovernanceAdminInput[];
+  /** 当前操作注册局管理员的岗位码，不是目标机构岗位。 */
+  actor_role_code: string;
 };
 
 export async function listFederalRegistryAdmins(auth: AdminAuth): Promise<FederalRegistryAdminRow[]> {

@@ -38,7 +38,7 @@ struct TxListOutput {
     has_more: bool,
 }
 
-/// GET /api/app/accounts/:account_id/transactions
+/// GET /api/app/accounts/{account_id}/transactions
 pub(crate) async fn account_transactions(
     State(state): State<AppState>,
     Path(account_id): Path<String>,

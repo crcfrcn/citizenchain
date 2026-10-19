@@ -164,18 +164,21 @@ mod tests {
     }
 
     #[test]
-    fn reserve_governance_institutions_stay_out_of_onchina() {
-        // 国家储委会/省储委会/省储行使用节点桌面端,不能因为同属公权码而拿到网页能力。
-        for code in ["NRC", "PRC", "PRB"] {
-            let capability = capabilities_for(code);
-            assert!(
-                !capability.can_view_own_admins,
-                "{code} must stay desktop-only"
-            );
-            assert!(
-                !capability.can_view_citizens,
-                "{code} must not receive business tabs"
-            );
+    fn ownerless_cases_exercise_real_base_capabilities() {
+        let empty = crate::modules::ModuleCatalog::new(None);
+        let fixture = crate::modules::test_support::fixture_catalog();
+        let golden: serde_json::Value = serde_json::from_str(include_str!("layout.fixture.json")).unwrap();
+        for case in golden["capabilityCases"].as_array().unwrap().iter().filter(|case| case["owner"].is_null()) {
+            let code = case["code"].as_str().unwrap();
+            // 无所属模块的夹具不得遮住真实base_capabilities分支。
+            assert!(fixture.capabilities(code).is_none(), "{code} must not be injected by fixture");
+            assert!(fixture.workspace(code).is_none());
+            let expected = serde_json::to_value(super::EMPTY).unwrap();
+            assert_eq!(serde_json::to_value(super::capabilities_for(&empty, code)).unwrap(), expected, "{code}");
+            assert_eq!(serde_json::to_value(super::capabilities_for(&fixture, code)).unwrap(), expected, "{code}");
         }
+        let ordinary = super::capabilities_for(&empty, "SFGQ");
+        assert!(ordinary.can_view_own_admins);
+        assert!(!ordinary.can_business_write && !ordinary.can_view_citizens);
     }
 }

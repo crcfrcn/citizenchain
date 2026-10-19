@@ -1,8 +1,8 @@
 import {fileURLToPath} from 'node:url';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, normalizePath, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { tmpdir } from 'node:os';
-import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createSecureContext } from 'node:tls';
 import { Agent } from 'node:https';
@@ -29,16 +29,21 @@ const dependencies = Object.keys(JSON.parse(readFileSync(new URL('./package.json
 
 // 模块沿用现有组件作为入口，公共对象仅从宿主公开导出取得。
 type ModuleBuild = { id: string; version: string; interface_version: number; frontend_source: string };
+/** 使用原生路径边界，避免Windows分隔符或同名前缀目录绕过模块归属。 */
+export function insideModule(parent: string, child: string, paths: { relative: (from: string, to: string) => string; isAbsolute: (path: string) => boolean; sep: string } = { relative, isAbsolute, sep }): boolean {
+  const value = paths.relative(parent, child);
+  return value !== '' && value !== '..' && !value.startsWith('..' + paths.sep) && !paths.isAbsolute(value);
+}
 function moduleBuild() {
   const raw = process.env.ONCHINA_MODULE_DESCRIPTION;
   if (!raw) return null;
   const descriptor = JSON.parse(raw) as ModuleBuild;
   if (!/^[a-z][a-z0-9_]{0,63}$/.test(descriptor.id) || !/^\d+\.\d+\.\d+$/.test(descriptor.version)
       || descriptor.interface_version !== 1) throw new Error('模块构建声明无效');
-  const platform = fileURLToPath(new URL('./', import.meta.url));
+  const platform = resolve(fileURLToPath(new URL('./', import.meta.url)));
   const owner = resolve(platform, '../../', descriptor.id, 'frontend');
   const entry = resolve(owner, '..', descriptor.frontend_source);
-  if (!entry.startsWith(owner + '/') || !existsSync(entry)) throw new Error('模块入口越界或不存在');
+  if (!insideModule(owner, entry) || !existsSync(entry)) throw new Error('模块入口越界或不存在');
   const packages: Record<string, string> = {
     react: 'react', 'react-dom/client': 'react_dom_client',
     'react/jsx-runtime': 'react_jsx_runtime', 'react/jsx-dev-runtime': 'react_jsx_dev_runtime',
@@ -48,7 +53,7 @@ function moduleBuild() {
     .matchAll(/import \* as Shared_([A-Za-z0-9_]+) from ["']\.\/[^"']+["']/g)].map(match => match[1]));
   const publicSource = (id: string, importer?: string) => {
     const path = isAbsolute(id) ? id : id.startsWith('.') && importer ? resolve(dirname(importer), id) : '';
-    if (!path.startsWith(platform)) return null;
+    if (!path || !insideModule(platform, path)) return null;
     const name = basename(path, extname(path));
     if (!exposed.has(name)) throw new Error('模块引用未公开的平台实现：' + name);
     return name;
@@ -59,11 +64,11 @@ function moduleBuild() {
     resolveId(id, importer) {
       if (packages[id]) return { id, external: true };
       const name = publicSource(id, importer);
-      if (name) return { id: join(platform, name), external: true };
+      if (name) return { id: normalizePath(join(platform, name)), external: true };
       if (importer && (isAbsolute(id) || id.startsWith('.'))) {
         const path = isAbsolute(id) ? id : resolve(dirname(importer), id);
-        const onchina = resolve(platform, '../..') + '/';
-        if (path.startsWith(onchina) && !path.startsWith(owner + '/')) throw new Error('跨模块运行时调用必须经公开装载入口');
+        const onchina = resolve(platform, '../..');
+        if (insideModule(onchina, path) && !insideModule(owner, path)) throw new Error('跨模块运行时调用必须经公开装载入口');
       }
       return null;
     },
@@ -91,6 +96,10 @@ export default defineConfig(({ command }) => {
     rejectUnauthorized: true,
     minVersion: "TLSv1.3",
   });
+  // API与模块资源共用同一受校验的HTTPS入口，开发与预览不维护另一套模块副本。
+  const proxy = Object.fromEntries(['/api', '/modules'].map(path => [path, {
+    target, changeOrigin: true, secure: true, agent,
+  }]));
 
   return {
   // OnChina 后端同源托管 dist,base 用相对路径以适配任意内网挂载路径。
@@ -113,28 +122,14 @@ export default defineConfig(({ command }) => {
     port: 5179,
     host: 'localhost',
     strictPort: true,
-    proxy: {
-      '/api': {
-        target,
-        changeOrigin: true,
-        secure: true,
-        agent
-      }
-    }
+    proxy
   },
   preview: {
     https,
     port: 5179,
     host: 'localhost',
     strictPort: true,
-    proxy: {
-      '/api': {
-        target,
-        changeOrigin: true,
-        secure: true,
-        agent
-      }
-    }
+    proxy
   }
   };
 });

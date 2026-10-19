@@ -1,8 +1,9 @@
-// 中文注释：仅登记结构回归；由产品既有测试流程执行，本轮不运行测试。
+// 结构回归复用产品既有测试流程；源码定位不启动业务服务。
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,readdirSync,existsSync,statSync} from 'node:fs';
-import {resolve,dirname,join,relative} from 'node:path';
+import {readFileSync,readdirSync,existsSync,statSync,realpathSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {resolve,dirname,join,relative,isAbsolute} from 'node:path';
+import {execFileSync} from 'node:child_process';
 
 const root=resolve(import.meta.dirname,'../../..');
 const onchina=join(root,'onchina');
@@ -77,6 +78,16 @@ test('显式Rust模块、include及前端相对导入都指向实际文件',()=>
   }
  }
  assert.match(source('platform/frontend/index.html'),/src="\/main\.tsx"/u);
+ // 根解决方案只引用现行配置，避免旧前端路径被迁移遗漏或重新引入。
+ const solution=JSON.parse(source('tsconfig.json'));
+ assert.deepEqual(solution.files,[]);
+ assert.ok(solution.references.length>0);
+ for(const reference of solution.references){
+  const path=resolve(onchina,reference.path),within=relative(onchina,path);
+  assert.ok(within!==''&&within!=='..'&&!within.startsWith('../')&&!within.startsWith('..\\')&&!isAbsolute(within),reference.path);
+  assert.ok(existsSync(path)&&statSync(path).isFile(),reference.path);
+ }
+ assert.equal(existsSync(join(onchina,'frontend/tsconfig.json')),false);
 });
 
 test('公共机构信息面板只定义在平台且原有消费者引用同一实现',()=>{
@@ -159,4 +170,109 @@ test('宿主生产装配和公开前端不再静态编译其他业务模块',()=
  }
  assert.match(source('platform/modules/mod.rs'),/verify_frontend\(&frontend, &description\)/u);
  assert.match(source('platform/modules/mod.rs'),/drop\(child\.stdin\.take\(\)\)/u);
+});
+
+
+// 编译阶段显式登记此项；普通测试没有产物输入时跳过，不隐式构建或启动业务服务。
+test('实际模块产物的程序声明与JS/CSS首行逐项一致', {skip: !process.env.ONCHINA_TEST_MODULE_ROOT}, async()=>{
+ const directory=process.env.ONCHINA_TEST_MODULE_ROOT;
+ assert.ok(isAbsolute(directory));assert.equal(realpathSync(directory),directory);
+ const {buildTargets,validateDescription}=await import('../../../scripts/onchina.mjs');
+ const targets=buildTargets(root);
+ const ids=JSON.parse(process.env.ONCHINA_TEST_MODULE_IDS||'null');
+ assert.ok(Array.isArray(ids)&&ids.length>0&&new Set(ids).size===ids.length,'必须交付所选实际模块ID');
+ for(const id of ids){
+  assert.ok(typeof id==='string'&&targets.has(id)&&id!=='platform','实际Cargo模块目标');
+  const target=targets.get(id),base=join(directory,id),executable=join(base,target.name+(process.platform==='win32'?'.exe':''));
+  assert.equal(realpathSync(base),base);assert.equal(realpathSync(executable),executable);
+  const description=validateDescription(JSON.parse(execFileSync(executable,['--describe'],{encoding:'utf8',timeout:10000,maxBuffer:1024*1024})),target);
+  for(const name of ['module.js','module.css']){
+   const path=join(base,'frontend',name);assert.equal(realpathSync(path),path);
+   const header=readFileSync(path,'utf8').split(/\r?\n/u)[0];
+   assert.ok(header.startsWith('/*onchina:')&&header.endsWith('*/'),name);
+   assert.deepEqual(JSON.parse(header.slice(10,-2)),{id:description.id,version:description.version,interface_version:description.interface_version});
+  }
+ }
+});
+
+
+test('原生平台读取产品声明并拒绝未声明架构',async()=>{
+ const {nativePlatform}=await import('../../../scripts/onchina.mjs');
+ const {product}=await import('../../../scripts/config.mjs');
+ for(const [id,declared]of Object.entries(product.platforms).filter(([id])=>id!=='wasm'))assert.equal(nativePlatform(declared.host,declared.arch),id);
+ assert.throws(()=>nativePlatform('unsupported','unsupported'),/未声明/);
+});
+
+
+// 只核对公开协调入口和真实文件生命周期，不执行编译、依赖准备或服务。
+test('专属现场互斥、普通失败清理、退出未确认保留',async()=>{
+ const {withOnChinaWork}=await import('../../../scripts/onchina.mjs');
+ const base=join(root,'target/test');mkdirSync(base,{recursive:true});
+ const directory=mkdtempSync(join(base,'onchina-work-')),work=join(directory,'work');
+ try{
+  await withOnChinaWork(work,async()=>{
+   const sentinel=join(work,'owned');writeFileSync(sentinel,'fixture');
+   await assert.rejects(withOnChinaWork(work,async()=>assert.fail('不能进入其他活动现场')),error=>error.code==='EEXIST');
+   assert.equal(readFileSync(sentinel,'utf8'),'fixture');
+  });
+  assert.equal(existsSync(work),false);
+  const failure=Error('fixture failure');
+  await assert.rejects(withOnChinaWork(work,async()=>{throw failure;}),error=>error===failure);
+  assert.equal(existsSync(work),false);
+  const cancelled=Object.assign(Error('fixture interrupted'),{retainWork:true});
+  await assert.rejects(withOnChinaWork(work,async()=>{throw cancelled;}),error=>error===cancelled);
+  assert.equal(existsSync(work),true);
+ }finally{rmSync(directory,{recursive:true,force:true});}
+});
+
+test('npm入口、平台隔离与四端前置验收登记保持闭环',async()=>{
+ const {argumentsOf,buildPaths}=await import('../../../scripts/onchina.mjs');
+ const {product}=await import('../../../scripts/config.mjs');
+ const pkg=JSON.parse(source('platform/frontend/package.json'));
+ assert.equal(pkg.scripts.build,'node ../../../scripts/onchina.mjs build');
+ assert.equal(pkg.scripts.dev,'npm run build && npm run preview');
+ assert.equal(pkg.scripts.preview,'node ../../../scripts/onchina.mjs preview');
+ assert.equal(argumentsOf(['build','--platform','macos','--module','registry']).selection,'registry');
+ for(const action of ['prepared','frontend','missing'])assert.throws(()=>argumentsOf([action]),/动作无效/);
+ assert.throws(()=>argumentsOf(['build','--project','/tmp/foreign']),/参数无效/);
+ for(const [id,declared]of Object.entries(product.platforms).filter(([id])=>id!=='wasm')){
+  const paths=buildPaths(id,'registry');
+  assert.equal(paths.work,join(root,'target/onchina',id,'work'));
+  assert.equal(paths.output,join(root,'target/onchina',id,'registry'));
+  assert.notEqual(paths.work,join(root,'target/build',id));
+  const workflow=readFileSync(join(root,'.github/workflows',declared.workflow),'utf8');
+  const compile=workflow.indexOf('node scripts/build.mjs '+id);
+  assert.ok(compile>0,id+' compile registration');
+  for(const command of ['onchina/platform/modules/structure.test.mjs','npm run typecheck --prefix onchina/platform/frontend','npm test --prefix onchina/platform/frontend']){
+   const index=workflow.indexOf(command);assert.ok(index>=0&&index<compile,id+': '+command);
+  }
+ }
+ assert.throws(()=>buildPaths('wasm'),/目标无效/);
+ assert.throws(()=>buildPaths('macos','../escape'),/目标无效/);
+});
+
+
+test('宿主产物验收读取真实资源并拒绝缺失、越界和覆盖工程',async()=>{
+ const {withOnChinaWork,verifyPreparedOnChina}=await import('../../../scripts/onchina.mjs');
+ const base=join(root,'target/test');mkdirSync(base,{recursive:true});
+ const directory=mkdtempSync(join(base,'onchina-assets-')),work=join(directory,'work');
+ try{
+  await withOnChinaWork(work,async()=>{
+   const frontend=join(work,'frontend');mkdirSync(join(frontend,'assets'),{recursive:true});
+   writeFileSync(join(frontend,'assets/main.js'),'/* fixture */');
+   writeFileSync(join(frontend,'assets/main.css'),'/* fixture */');
+   const html=join(frontend,'index.html');
+   const input={project:root,work,environment:{},result:{targets:['platform'],frontend}};
+   writeFileSync(html,'<script src="./assets/main.js"></script><link href="./assets/main.css">');
+   await verifyPreparedOnChina(input);
+   rmSync(join(frontend,'assets/main.css'));
+   await assert.rejects(verifyPreparedOnChina(input),error=>error.code==='ENOENT');
+   writeFileSync(html,'<script src="../../outside.js"></script>');
+   await assert.rejects(verifyPreparedOnChina(input),/越界或缺失/);
+   writeFileSync(html,'<div>fixture</div>');
+   await assert.rejects(verifyPreparedOnChina(input),/缺少真实脚本/);
+   await assert.rejects(verifyPreparedOnChina({...input,result:{targets:['platform'],frontend:join(work,'source')}}),/不能覆盖工程/);
+  });
+  assert.equal(existsSync(work),false);
+ }finally{rmSync(directory,{recursive:true,force:true});}
 });

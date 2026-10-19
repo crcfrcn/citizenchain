@@ -59,6 +59,8 @@ pub struct RegisterInstitutionAdminsArgs {
     pub admins: InstitutionAdminsPayload,
     pub institution_code: [u8; 4],
     pub actor_cid_number: Vec<u8>,
+    /// 当前注册局操作人的任职岗位；由现有链端权限规则最终核验。
+    pub actor_role_code: Vec<u8>,
 }
 
 /// `propose_add_institution_account` 完整参数(runtime call index 7)。
@@ -140,6 +142,7 @@ pub fn encode_register_institution_admins(args: &RegisterInstitutionAdminsArgs) 
     encode_bytes(&mut out, &args.cid_number);
     out.extend(encode_admins_payload(&args.admins));
     encode_bytes(&mut out, &args.actor_cid_number);
+    encode_bytes(&mut out, &args.actor_role_code);
 
     ChainCall {
         action: chain_action_code(pallet_index, REGISTER_INSTITUTION_ADMINS_CALL_INDEX),
@@ -300,18 +303,34 @@ mod tests {
 
     #[test]
     fn register_admins_payload_matches_runtime_call_field_order() {
-        let args = RegisterInstitutionAdminsArgs {
-            cid_number: b"LN001-SFAS-0001".to_vec(),
-            admins: InstitutionAdminsPayload::Private(vec![
-                private_admin([1; 32], "张", "三"),
-                private_admin([2; 32], "李", "四"),
-            ]),
-            institution_code: *b"SFAS",
-            actor_cid_number: b"LN001-FRG0-0001".to_vec(),
-        };
-        let encoded = encode_register_institution_admins(&args);
-        assert_eq!(&encoded.call_data[..2], &[31, 9]);
-        assert_eq!(encoded.action, 0x1f09);
+        use codec::DecodeAll;
+        // 公、私权均用真实RuntimeCall解码，锁住完整字段及末尾岗位码，拒绝截断和尾随字节。
+        for (institution_code, pallet) in [(*b"CFIN", 30u8), (*b"SFAS", 31u8)] {
+            let admins = vec![private_admin([1; 32], "张", "三"), private_admin([2; 32], "李", "四")];
+            let expected_admins = admins.iter().map(|admin| (
+                admin.account_id, admin.cid_number.clone(), admin.family_name.clone(), admin.given_name.clone(),
+            )).collect::<Vec<_>>();
+            let args = RegisterInstitutionAdminsArgs {
+                cid_number: b"LN001-SFAS-0001".to_vec(),
+                admins: if pallet == 30 { InstitutionAdminsPayload::Public(admins) } else { InstitutionAdminsPayload::Private(admins) },
+                institution_code,
+                actor_cid_number: b"LN001-FRG0-0001".to_vec(),
+                actor_role_code: b"REGISTRY-ROLE".to_vec(),
+            };
+            let encoded = encode_register_institution_admins(&args);
+            let mut expected = vec![pallet, 9];
+            expected.extend((args.cid_number.clone(), expected_admins, args.actor_cid_number.clone(), args.actor_role_code.clone()).encode());
+            assert_eq!(encoded.call_data, expected);
+            assert_eq!(encoded.action, u16::from(pallet) << 8 | 9);
+            let decoded = citizenchain::RuntimeCall::decode_all(&mut &encoded.call_data[..]).unwrap();
+            assert_eq!(decoded.encode(), encoded.call_data);
+            let mut incomplete = encoded.call_data.clone();
+            incomplete.truncate(incomplete.len() - args.actor_role_code.encode().len());
+            assert!(citizenchain::RuntimeCall::decode_all(&mut &incomplete[..]).is_err());
+            let mut trailing = encoded.call_data;
+            trailing.push(0);
+            assert!(citizenchain::RuntimeCall::decode_all(&mut &trailing[..]).is_err());
+        }
     }
 
     #[test]

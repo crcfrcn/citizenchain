@@ -42,7 +42,7 @@ export function setOnUnauthorized(cb: (() => void) | null) {
   unauthorizedFired = false;
 }
 
-/** 所有请求使用相对路径,由 Vite(开发) / Nginx(生产) 统一代理到后端。 */
+/** 请求使用相对路径；开发及预览由Vite代理，正式页面与API由OnChina宿主同源托管。 */
 export async function adminRequest<T>(
   path: string,
   auth: AdminAuth,

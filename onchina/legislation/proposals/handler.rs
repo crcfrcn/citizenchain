@@ -260,7 +260,7 @@ async fn build_law_views(laws: Vec<chain_read::OnChainLaw>) -> Vec<LawView> {
     views
 }
 
-/// GET /api/legislation/laws/:law_id —— 单部法律办理端展示版本全文。
+/// GET /api/legislation/laws/{law_id} —— 单部法律办理端展示版本全文。
 pub(crate) async fn law(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -307,7 +307,7 @@ pub(crate) async fn law(
     .into_response()
 }
 
-/// GET /api/legislation/proposals/:proposal_id —— 提案进度只读投影。
+/// GET /api/legislation/proposals/{proposal_id} —— 提案进度只读投影。
 pub(crate) async fn get_proposal_state(
     State(state): State<AppState>,
     headers: HeaderMap,

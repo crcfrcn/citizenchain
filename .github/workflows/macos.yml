@@ -1,121 +1,381 @@
-name: "公民链·macOS"
-run-name: "公民链·macOS·v${{ inputs.version }}"
-on:
+# 产品编译与正式交付归本工作流；repository_dispatch只收尾原编译Run。
+---
+name: 公民链·macOS
+run-name: 公民链·macOS·v${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version || inputs.version }}
+'on':
   workflow_dispatch:
     inputs:
       version:
-        description: 产品确定的本次版本
+        description: 已确定的交付版本 X.Y.Z，与Runtime协议版本独立
         required: true
         type: string
-      version_plan:
-        description: 产品确定的版本与源码计划
+      source_sha:
+        description: 批准的main完整提交
         required: true
         type: string
+  repository_dispatch:
+    types:
+    - citizenchain-finalize-macos
 concurrency:
-  group: "${{ github.repository }}-macos"
+  group: "${{ github.repository }}-macos-${{ github.event_name }}"
   cancel-in-progress: false
 permissions:
-  contents: write
+  contents: read
+  actions: read
 jobs:
-  release:
-    name: "公民链·macOS·v${{ inputs.version }}"
-    if: github.ref == 'refs/heads/main'
+  prepare:
+    name: 公民链·macOS·v${{ inputs.version }}
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    env:
+      PLATFORM: macos
+      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
+      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
+    steps:
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        persist-credentials: false
+    - name: 核对产品候选及准确源码
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      with:
+        retries: 0
+        script: |
+          const {pathToFileURL}=await import('node:url');
+          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
+          const p=process.env.PLATFORM,repo=context.repo;
+          const run=(await github.rest.actions.getWorkflowRun({...repo,run_id:context.runId})).data;
+          cfg.assertRun(p,run,context.runId);
+          if(run.head_sha!==process.env.CITIZENCHAIN_SOURCE_SHA||run.head_sha!==context.sha)throw Error('检出源码偏离批准');
+          const runs=await github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:cfg.product.platforms[p].workflow,branch:'main',event:'workflow_dispatch',per_page:100});
+          if(runs.some(row=>row.id<context.runId&&row.status!=='completed'))throw Error('本平台已有原编译任务，禁止重复编译');
+          const releases=await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100});
+          const {readFileSync}=await import('node:fs');
+          const initial=JSON.parse(readFileSync(process.env.GITHUB_WORKSPACE+'/node/tauri.conf.json','utf8')).version;
+          const expected=cfg.nextDeliveryVersion(p,runs.filter(row=>row.id!==context.runId),releases,initial);
+          if(process.env.CITIZENCHAIN_RELEASE_VERSION!==expected)throw Error('候选不是最新成功交付的补丁加一');
+          const success=cfg.retainedBuildRuns(p,runs).success;
+          if(success){const release=releases.find(value=>{try{return cfg.readReleaseProof(p,value).run_id===success.id;}catch{return false;}});
+           const ref=(await github.rest.git.getRef({...repo,ref:'tags/'+release.tag_name})).data;
+           if(ref.object.type!=='commit'||ref.object.sha!==success.head_sha)throw Error('最新成功Tag提交不符');}
+          const tag=cfg.releaseName(p,expected);
+          if(releases.some(release=>release.tag_name===tag))throw Error('候选版本仍有未收尾资产，请恢复原Run清理');
+          try{await github.rest.git.getRef({...repo,ref:'tags/'+tag});throw Error('候选Tag已存在，请先核对原Run');}catch(error){if(error.status!==404)throw error;}
+          core.info('候选已确认：'+tag);
+  build:
+    name: 公民链·macOS·v${{ inputs.version }}
+    needs: prepare
     runs-on: xcode-27
     timeout-minutes: 360
     env:
+      PLATFORM: macos
       CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_VERSION_PLAN: "${{ inputs.version_plan }}"
-      GH_TOKEN: "${{ github.token }}"
+      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/build/macos/cargo-target"
+      CITIZENCHAIN_SOURCE_ROOT: "${{ github.workspace }}"
+      CITIZENCHAIN_WORK_DIR: "${{ github.workspace }}/target/build/macos"
       CARGO_INCREMENTAL: '1'
-      APPLE_CERTIFICATE_BASE64: "${{ secrets.APPLE_CERTIFICATE_BASE64 }}"
-      APPLE_CERTIFICATE_PASSWORD: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
-      APPLE_PROFILE_BASE64: "${{ secrets.APPLE_PROFILE_BASE64 }}"
+      npm_config_cache: "${{ github.workspace }}/target/cache/macos/npm"
+    outputs:
+      assets: "${{ steps.assets.outputs.assets }}"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: "${{ github.sha }}"
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-        with:
-          node-version: 25.2.1
-      - name: 核对本产品派发版本和源码计划
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/build.mjs ci-version macos
-      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
-        with:
-          toolchain: 1.97.1
-          targets: aarch64-apple-darwin
-          components: rust-src, clippy
-      - name: 准备 macOS 原生依赖、官方 protoc 与签名身份
-        shell: bash
-        run: |
-          set -euo pipefail
-          # 系统签名复用既有Apple身份；逐项报告缺件，不输出材料或派生值。
-          for required in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_PROFILE_BASE64; do
-            test -n "${!required:-}" || { echo "缺少GitHub签名配置：$required" >&2; exit 1; }
-          done
-          # 完整收取版本输出，避免grep提前关闭管道令xcodebuild写入Broken pipe。
-          xcode_version="$(xcodebuild -version)"
-          printf '%s\n' "$xcode_version" | grep '^Xcode 27'
-          brew install bash postgresql@17
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-aarch_64.zip
-          echo '45444963204757fd3e2fbe304bc1fdadfb488d8556ff099c4cc06575eab88976  '"$RUNNER_TEMP/protoc.zip" | shasum -a 256 --check
-          mkdir -p "$RUNNER_TEMP/protoc" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
-          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
-          keychain="$RUNNER_TEMP/citizenchain-build.keychain-db"
-          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 -D > "$RUNNER_TEMP/citizenchain.p12"
-          printf '%s' "$APPLE_PROFILE_BASE64" | base64 -D > "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/citizenchain-ci.provisionprofile"
-          security create-keychain -p "$GITHUB_RUN_ID" "$keychain"
-          security unlock-keychain -p "$GITHUB_RUN_ID" "$keychain"
-          security import "$RUNNER_TEMP/citizenchain.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$GITHUB_RUN_ID" "$keychain"
-          security list-keychains -d user -s "$keychain"
-          developer="$(cd "$(xcode-select -p)" && pwd -P)"
-          {
-            echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc"
-            echo "PYTHON=$(command -v python3)"
-            echo "PRODUCT_BASH_BIN=$(brew --prefix bash)/bin/bash"
-            echo "LIBCLANG_PATH=$developer/Toolchains/XcodeDefault.xctoolchain/usr/lib"
-            echo "DEVELOPER_DIR=$developer"
-            echo "CC=$developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
-          } >> "$GITHUB_ENV"
-      - name: 恢复macOS独立增量缓存
-        continue-on-error: true
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: target/cache/macos
-          key: citizenchain-cargo-v1-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            citizenchain-cargo-v1-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-
-      - name: 编译并验收 macOS App
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/build.mjs ci-build macos > "$RUNNER_TEMP/citizenchain-build-result.json"
-      - name: 验真macOS增量缓存
-        continue-on-error: true
-        if: success() || failure()
-        id: cache_ready
-        shell: bash
-        run: |
-          set -euo pipefail
-          ready="$(node scripts/build.mjs ci-cache-ready macos)"
-          echo "ready=$ready" >> "$GITHUB_OUTPUT"
-      - name: 保存macOS独立增量缓存
-        continue-on-error: true
-        if: (success() || failure()) && steps.cache_ready.outputs.ready == 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: target/cache/macos
-          key: citizenchain-cargo-v1-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
-      - name: 创建并回读 macOS GitHub Release
-        shell: bash
-        run: node scripts/build.mjs ci-release macos
-      - name: 清理本平台编译现场
-        if: always()
-        shell: bash
-        run: |
-          if [ -d target/build/macos ]; then node scripts/build.mjs finish macos; fi
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        persist-credentials: false
+    - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      with:
+        node-version: 25.2.1
+    - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
+      with:
+        toolchain: 1.97.1
+        targets: aarch64-apple-darwin, wasm32v1-none
+        components: rust-src
+    - name: 准备 macOS 原生依赖、官方 protoc 与签名身份
+      shell: bash
+      run: |
+        set -euo pipefail
+        # 完整收取版本输出，避免grep提前关闭管道令xcodebuild写入Broken pipe。
+        xcode_version="$(xcodebuild -version)"
+        xcode_expected="$(node --input-type=module -e "import {product} from './scripts/config.mjs'; console.log(product.tools.xcode)")"
+        test "${xcode_version%%$'\n'*}" = "Xcode $xcode_expected"
+        brew install bash openssl@3 bison flex
+        export PATH="$(brew --prefix bison)/bin:$(brew --prefix flex)/bin:$PATH"
+        export CPPFLAGS="-I$(brew --prefix openssl@3)/include"
+        export LDFLAGS="-L$(brew --prefix openssl@3)/lib"
+        pg_version="$(node --input-type=module -e "import {product} from './scripts/config.mjs'; console.log(product.tools.postgres)")"
+        curl --fail --location --proto =https --proto-redir =https --retry 3 --output "$RUNNER_TEMP/postgres.tar.bz2" "https://ftp.postgresql.org/pub/source/v$pg_version/postgresql-$pg_version.tar.bz2"
+        tar -xjf "$RUNNER_TEMP/postgres.tar.bz2" -C "$RUNNER_TEMP"
+        (
+          cd "$RUNNER_TEMP/postgresql-$pg_version"
+          ./configure --prefix="$RUNNER_TEMP/pg-dist" --without-readline --without-icu --without-zlib --with-openssl
+          make -j4
+          make install
+          cp COPYRIGHT "$RUNNER_TEMP/pg-dist/COPYRIGHT"
+        )
+        echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-dist" >> "$GITHUB_ENV"
+        curl --fail --location --proto =https --proto-redir =https --retry 3 --output "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-aarch_64.zip
+        mkdir -p "$RUNNER_TEMP/protoc"
+        unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+        developer="$(cd "$(xcode-select -p)" && pwd -P)"
+        {
+          echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc"
+          echo "LIBCLANG_PATH=$developer/Toolchains/XcodeDefault.xctoolchain/usr/lib"
+          echo "DEVELOPER_DIR=$developer"
+          echo "CC=$developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
+        } >> "$GITHUB_ENV"
+    - name: 恢复本平台官方增量缓存
+      continue-on-error: true
+      timeout-minutes: 5
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: |
+          target/build/macos/cargo-target/release/.fingerprint
+          target/build/macos/cargo-target/release/build
+          target/build/macos/cargo-target/release/deps
+          target/build/macos/cargo-target/release/incremental
+          target/cache/macos/npm
+        key: citizenchain-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: 'citizenchain-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(''Cargo.lock'', ''crates/protocol/Cargo.lock'', ''config.toml'', ''crates/scanner/package-lock.json'', ''node/frontend/package-lock.json'', ''onchina/platform/frontend/package-lock.json'') }}-
+
+          '
+    - name: 执行产品所属真实测试
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p "$CITIZENCHAIN_WORK_DIR"
+        node --test scripts/config.mjs
+        npm ci --prefix crates/scanner --include=dev
+        npm ci --prefix node/frontend --include=dev
+        npm ci --prefix onchina/platform/frontend --include=dev
+        node --test --test-concurrency=1 onchina/platform/modules/structure.test.mjs node/frontend/metamask.mjs
+        cargo test --manifest-path crates/protocol/Cargo.toml --locked
+        npm run check --prefix crates/scanner
+        npm test --prefix crates/scanner
+        npm run test:local-doc --prefix node/frontend
+        npm run typecheck --prefix onchina/platform/frontend
+        npm test --prefix onchina/platform/frontend
+        export TAURI_CONFIG="$(node -e 'console.log(JSON.stringify({build:{beforeBuildCommand:null,frontendDist:process.env.GITHUB_WORKSPACE+"/node/frontend"}}))')"
+        # 节点真实服务和费用守卫测试必须内置本轮源码WASM，不能走缺件跳过。
+        cargo --config "$GITHUB_WORKSPACE/config.toml" clean -p citizenchain --locked
+        export WASM_BUILD_FROM_SOURCE=1
+        export CITIZENCHAIN_PRODUCTION_WASM_BUILD=1
+        cargo --config "$GITHUB_WORKSPACE/config.toml" test --locked --release --workspace --all-targets
+    - name: 编译及核对完整产物
+      shell: bash
+      run: |
+        set -euo pipefail
+        node scripts/build.mjs macos
+      env:
+        APPLE_CERTIFICATE: "${{ secrets.APPLE_CERTIFICATE_BASE64 }}"
+        APPLE_CERTIFICATE_PASSWORD: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
+        APPLE_PROFILE_BASE64: "${{ secrets.APPLE_PROFILE_BASE64 }}"
+        APPLE_SIGNING_IDENTITY: 'Developer ID Application: WEI CHENG (MHYMVRN6FC)'
+        APPLE_TEAM_ID: MHYMVRN6FC
+        APPLE_ID: "${{ secrets.APPLE_ID }}"
+        APPLE_PASSWORD: "${{ secrets.APPLE_PASSWORD }}"
+    - name: 记录实际产物原始字节
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      id: assets
+      with:
+        retries: 0
+        script: |
+          const {pathToFileURL}=await import('node:url');
+          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
+          const p=process.env.PLATFORM,repo=context.repo;
+          const {createReadStream,lstatSync,readdirSync}=await import('node:fs');
+          const {createHash}=await import('node:crypto');
+          const directory=process.env.GITHUB_WORKSPACE+'/target/build/'+p+'/artifact';
+          const names=cfg.artifactNames(p,process.env.CITIZENCHAIN_RELEASE_VERSION);
+          if(JSON.stringify(readdirSync(directory).sort())!==JSON.stringify([...names].sort()))throw Error('完整产物集合不符');
+          const assets=[];
+          for(const name of names){const path=directory+'/'+name,info=lstatSync(path);if(!info.isFile()||info.isSymbolicLink()||info.size<=0)throw Error('产物不是非空普通文件');
+           const hash=createHash('sha256');for await(const bytes of createReadStream(path))hash.update(bytes);
+           assets.push({name,label:cfg.artifactLabel(p,process.env.CITIZENCHAIN_RELEASE_VERSION,name),size:info.size,sha256:hash.digest('hex')});}
+          core.setOutput('assets',JSON.stringify(assets));
+    - name: 保存本平台官方增量缓存
+      if: success() || failure()
+      continue-on-error: true
+      timeout-minutes: 5
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: |
+          target/build/macos/cargo-target/release/.fingerprint
+          target/build/macos/cargo-target/release/build
+          target/build/macos/cargo-target/release/deps
+          target/build/macos/cargo-target/release/incremental
+          target/cache/macos/npm
+        key: citizenchain-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+    - name: 上传完整Artifact
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: 公民链·macOS·v${{ inputs.version }}
+        path: target/build/macos/artifact
+        if-no-files-found: error
+    - name: 清理本轮编译现场
+      if: always()
+      shell: bash
+      run: node --input-type=module -e "import {rmSync} from 'node:fs'; import {resolve} from 'node:path'; const work=resolve('target/build/macos'); if(work!==resolve(process.env.CITIZENCHAIN_WORK_DIR))throw Error('现场不符'); rmSync(work,{recursive:true,force:true});"
+  release:
+    name: 公民链·macOS·v${{ inputs.version }}
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    env:
+      PLATFORM: macos
+      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
+      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
+      GH_TOKEN: "${{ github.token }}"
+      SOURCE_ASSETS: "${{ needs.build.outputs.assets }}"
+    steps:
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: 公民链·macOS·v${{ inputs.version }}
+        path: "${{ runner.temp }}/artifact"
+    - name: 创建并回读正式Tag与Release
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      with:
+        retries: 0
+        script: |
+          const {pathToFileURL}=await import('node:url');
+          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
+          const p=process.env.PLATFORM,repo=context.repo;
+          const {readFileSync,writeFileSync,mkdirSync,createReadStream}=await import('node:fs');
+          const {createHash}=await import('node:crypto');
+          const {execFileSync}=await import('node:child_process');
+          const tag=cfg.releaseName(p,process.env.CITIZENCHAIN_RELEASE_VERSION),assets=JSON.parse(process.env.SOURCE_ASSETS);
+          const names=cfg.artifactNames(p,process.env.CITIZENCHAIN_RELEASE_VERSION);
+          if(JSON.stringify(assets.map(asset=>asset.name).sort())!==JSON.stringify([...names].sort()))throw Error('生产Run产物声明不完整');
+          const hashFile=async path=>{const hash=createHash('sha256');for await(const bytes of createReadStream(path))hash.update(bytes);return hash.digest('hex');};
+          const source=process.env.RUNNER_TEMP+'/artifact';
+          for(const asset of assets){const bytes=readFileSync(source+'/'+asset.name);if(bytes.length!==asset.size||await hashFile(source+'/'+asset.name)!==asset.sha256)throw Error('Actions附件偏离生产Run原始字节');}
+          const proof={schema:1,repository:cfg.product.repository,product_id:cfg.product.id,platform:p,workflow:'.github/workflows/'+cfg.product.platforms[p].workflow,
+           run_id:context.runId,run_attempt:Number(process.env.GITHUB_RUN_ATTEMPT),source_sha:context.sha,version:process.env.CITIZENCHAIN_RELEASE_VERSION,tag,assets};
+          const notes=process.env.RUNNER_TEMP+'/release-notes.txt';writeFileSync(notes,'<!-- automation:'+JSON.stringify(proof)+' -->\n');
+          const gh=args=>execFileSync('gh',args,{stdio:['ignore','pipe','pipe'],encoding:'utf8',maxBuffer:4*1024*1024});
+          gh(['release','create',tag,...assets.map(asset=>source+'/'+asset.name+'#'+asset.label),'--repo',cfg.product.repository,'--target',context.sha,'--title',tag,'--notes-file',notes,'--draft','--latest=false']);
+          let draft=(await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100})).filter(value=>value.tag_name===tag);
+          if(draft.length!==1)throw Error('本轮草稿不唯一');
+          const run=(await github.rest.actions.getWorkflowRun({...repo,run_id:context.runId})).data;
+          cfg.assertRelease(p,draft[0],run,{draft:true});
+          const downloaded=process.env.RUNNER_TEMP+'/release-download';mkdirSync(downloaded);
+          gh(['release','download',tag,'--repo',cfg.product.repository,'--dir',downloaded]);
+          for(const asset of assets)if(!readFileSync(downloaded+'/'+asset.name).equals(readFileSync(source+'/'+asset.name)))throw Error('正式附件回读字节不符');
+          gh(['release','edit',tag,'--repo',cfg.product.repository,'--draft=false','--latest=false']);
+          const published=(await github.rest.repos.getRelease({...repo,release_id:draft[0].id})).data;
+          cfg.assertRelease(p,published,run);
+          const ref=(await github.rest.git.getRef({...repo,ref:'tags/'+tag})).data;
+          if(ref.object.type!=='commit'||ref.object.sha!==context.sha)throw Error('正式Tag提交不符');
+          for(const asset of published.assets)if(new URL(asset.browser_download_url).href!=='https://github.com/'+cfg.product.repository+'/releases/download/'+encodeURIComponent(tag)+'/'+encodeURIComponent(asset.name))throw Error('正式附件下载地址不符');
+          core.info('正式Tag、Release及完整附件已确认：'+tag);
+  request-finalize:
+    name: 公民链·macOS·v${{ inputs.version }}
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs:
+    - prepare
+    - build
+    - release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    env:
+      PLATFORM: macos
+      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
+      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
+    steps:
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        persist-credentials: false
+    - name: 请求本平台原Run收尾
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      with:
+        retries: 0
+        script: |
+          const {pathToFileURL}=await import('node:url');
+          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
+          const p=process.env.PLATFORM,repo=context.repo;
+          cfg.deliveryVersion(process.env.CITIZENCHAIN_RELEASE_VERSION);
+          // 只请求本平台收尾，不派发另一次编译；POST 不自动重试。
+          await github.rest.repos.createDispatchEvent({...repo,event_type:'citizenchain-finalize-'+p,
+           client_payload:{platform:p,version:process.env.CITIZENCHAIN_RELEASE_VERSION,run_id:context.runId,
+           run_attempt:Number(process.env.GITHUB_RUN_ATTEMPT),source_sha:context.sha}});
+          core.info('已请求原Run终态收尾；结果由独立收尾Run如实记录');
+  finalize:
+    name: 公民链·macOS·v${{ github.event.client_payload.version }}
+    if: github.event_name == 'repository_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: write
+    env:
+      PLATFORM: macos
+    steps:
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      with:
+        ref: "${{ github.sha }}"
+        persist-credentials: false
+    - name: 只收尾原Run，不测试、不重编、不分配版本
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      with:
+        retries: 0
+        script: |
+          const {pathToFileURL}=await import('node:url');
+          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
+          const p=process.env.PLATFORM,repo=context.repo;
+          const input=context.payload.client_payload;
+          if(!input||input.platform!==p||!Number.isSafeInteger(input.run_id)||!Number.isSafeInteger(input.run_attempt))throw Error('收尾输入无效');
+          cfg.deliveryVersion(input.version);
+          const original=async()=>{const run=(await github.rest.actions.getWorkflowRun({...repo,run_id:input.run_id})).data;cfg.assertRun(p,run,input.run_id);
+           if(run.head_sha!==input.source_sha||run.run_attempt!==input.run_attempt||run.display_title!==cfg.releaseName(p,input.version))throw Error('原Run、attempt或版本变化');return run;};
+          let source=await original();
+          for(let count=0;source.status!=='completed'&&count<120;count++){await new Promise(done=>setTimeout(done,5000));source=await original();}
+          if(source.status!=='completed')throw Error('原Run尚未completed，禁止替换终态历史');
+          const rows=()=>github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:cfg.product.platforms[p].workflow,branch:'main',event:'workflow_dispatch',per_page:100});
+          const getRelease=id=>github.rest.repos.getRelease({...repo,release_id:id}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
+          const getTag=tag=>github.rest.git.getRef({...repo,ref:'tags/'+tag}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
+          const keep=cfg.retainedBuildRuns(p,await rows());
+          const releases=await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100});
+          const owned=releases.filter(value=>value.tag_name.startsWith(cfg.product.title+'·'+cfg.product.platforms[p].name+'·v'));
+          const proven=owned.map(value=>({release:value,proof:cfg.readReleaseProof(p,value)}));
+          let latest;
+          if(keep.success){const matches=proven.filter(value=>value.proof.run_id===keep.success.id);if(matches.length!==1)throw Error('最新成功没有唯一正式交付，保留旧记录');
+           latest=matches[0];cfg.assertRelease(p,latest.release,keep.success);
+           const ref=await getTag(latest.proof.tag);if(!ref||ref.object.type!=='commit'||ref.object.sha!==keep.success.head_sha)throw Error('最新成功Tag不符，保留旧记录');}
+          for(const item of proven){
+           if(item.release.id===latest?.release.id)continue;
+           const run=(await github.rest.actions.getWorkflowRun({...repo,run_id:item.proof.run_id})).data;cfg.assertRun(p,run,item.proof.run_id);
+           if(run.status!=='completed')continue;
+           const current=await getRelease(item.release.id);if(!current)continue;
+           const proof=cfg.assertRelease(p,current,run,{partial:run.conclusion!=='success',draft:true});
+           if(current.immutable)throw Error('旧Release不可变，未修改仓库设置');
+           const ref=await getTag(proof.tag);
+           if(ref){if(ref.object.type!=='commit'||ref.object.sha!==run.head_sha)throw Error('旧Tag提交变化');
+            await github.rest.git.deleteRef({...repo,ref:'tags/'+proof.tag});if(await getTag(proof.tag))throw Error('Tag删除未确认');}
+           await github.rest.repos.deleteRelease({...repo,release_id:current.id});if(await getRelease(current.id))throw Error('Release删除未确认');
+          }
+          for(const old of keep.obsolete){
+           const fresh=cfg.retainedBuildRuns(p,await rows());if(!fresh.obsolete.some(run=>run.id===old.id))continue;
+           let current;try{current=(await github.rest.actions.getWorkflowRun({...repo,run_id:old.id})).data;}catch(error){if(error.status===404)continue;throw error;}
+           cfg.assertRun(p,current,old.id);if(current.status!=='completed'||current.run_attempt!==old.run_attempt||current.head_sha!==old.head_sha||current.conclusion!==old.conclusion)throw Error('删除前旧Run终态变化');
+           await github.rest.actions.deleteWorkflowRun({...repo,run_id:old.id});
+           try{await github.rest.actions.getWorkflowRun({...repo,run_id:old.id});throw Error('旧Run删除未确认');}catch(error){if(error.status!==404)throw error;}
+          }
+          const remaining=await rows();if(cfg.retainedBuildRuns(p,remaining).obsolete.length)throw Error('编译终态集合尚未收口，需要恢复原Run收尾');
+          // 收尾Run不参与编译版本；这里只处理已经completed的旧收尾，保护当前活动Run。
+          const maintenance=await github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:cfg.product.platforms[p].workflow,event:'repository_dispatch',per_page:100});
+          const terminal=maintenance.filter(run=>run.status==='completed').sort((a,b)=>b.run_number-a.run_number),retained=new Set();
+          for(const outcome of [true,false]){const last=terminal.find(run=>(run.conclusion==='success')===outcome);if(last)retained.add(last.id);}
+          for(const run of terminal)if(!retained.has(run.id)){const current=(await github.rest.actions.getWorkflowRun({...repo,run_id:run.id})).data;
+           if(current.event!=='repository_dispatch'||current.path!=='.github/workflows/'+cfg.product.platforms[p].workflow||current.head_branch!=='main'||current.status!=='completed'||current.run_attempt!==run.run_attempt||current.head_sha!==run.head_sha||current.conclusion!==run.conclusion)throw Error('旧收尾Run状态变化');
+           await github.rest.actions.deleteWorkflowRun({...repo,run_id:run.id});
+           try{await github.rest.actions.getWorkflowRun({...repo,run_id:run.id});throw Error('旧收尾Run删除未确认');}catch(error){if(error.status!==404)throw error;}}
+          await core.summary.addHeading('原编译Run终态清理完成').addLink(String(input.run_id),'https://github.com/'+cfg.product.repository+'/actions/runs/'+input.run_id).addRaw('\n已保留最新成功、最新失败编译Run；活动Run保持。').write();
