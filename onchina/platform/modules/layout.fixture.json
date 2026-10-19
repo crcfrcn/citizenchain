@@ -1,0 +1,227 @@
+{
+  "parts": [
+    "judicial",
+    "legislation",
+    "platform",
+    "private",
+    "registry"
+  ],
+  "functions": {
+    "judicial": [
+      "frontend",
+      "workspace"
+    ],
+    "legislation": [
+      "budget",
+      "display",
+      "frontend",
+      "laws",
+      "personnel",
+      "proposals",
+      "voting",
+      "workspace"
+    ],
+    "platform": [
+      "audit",
+      "authentication",
+      "authorization",
+      "chain",
+      "client",
+      "codes",
+      "communication",
+      "database",
+      "discovery",
+      "documents",
+      "frontend",
+      "indexer",
+      "institutions",
+      "modules",
+      "qr",
+      "security",
+      "transactions",
+      "workspace"
+    ],
+    "private": [
+      "frontend",
+      "membership",
+      "workspace"
+    ],
+    "registry": [
+      "address",
+      "admins",
+      "citizens",
+      "documents",
+      "frontend",
+      "institutions",
+      "passports",
+      "projection",
+      "workspace"
+    ]
+  },
+  "requiredFiles": [
+    "platform/main.rs",
+    "platform/Cargo.toml",
+    "platform/frontend/package.json",
+    "platform/frontend/package-lock.json",
+    "platform/transactions/mod.rs",
+    "platform/transactions/session.rs",
+    "platform/transactions/handler.rs",
+    "platform/transactions/handler_tests.rs",
+    "platform/institutions/catalog.rs",
+    "platform/institutions/model.rs",
+    "platform/frontend/institutions_OwnInstitutionInfoPanel.tsx",
+    "registry/main.rs",
+    "registry/admins/mod.rs",
+    "registry/admins/catalog.rs",
+    "registry/admins/actions.rs",
+    "registry/admins/repo.rs",
+    "registry/admins/governance.rs",
+    "registry/institutions/registration.rs",
+    "legislation/main.rs",
+    "judicial/main.rs",
+    "private/main.rs",
+    "tsconfig.json",
+    "platform/frontend/tsconfig.node.json",
+    "platform/frontend/vitest.config.ts"
+  ],
+  "absentFiles": [
+    "src",
+    "backend",
+    "frontend",
+    "platform/authentication/catalog.rs",
+    "platform/institutions/subjects_registration.rs",
+    "platform/transactions/backend",
+    "registry/src"
+  ],
+  "functionOwners": {
+    "insert_chain_sign_session": "platform/transactions/session.rs",
+    "find_chain_sign_session": "platform/transactions/session.rs",
+    "delete_chain_sign_session": "platform/transactions/session.rs",
+    "promote_chain_sign_session": "platform/transactions/session.rs",
+    "submit_chain_sign": "platform/transactions/handler.rs",
+    "chain_resume_phase": "platform/transactions/handler.rs",
+    "recheck_chain_submit_authorization": "platform/transactions/handler.rs",
+    "list_federal_registry_admins": "registry/admins/catalog.rs",
+    "list_city_registry_admins": "registry/admins/city_registry.rs",
+    "list_city_registry_admins_by_scope_conn": "registry/admins/repo.rs",
+    "count_city_registry_admins_by_city_conn": "registry/admins/repo.rs",
+    "validate_create_city_registry_conn": "registry/admins/actions.rs",
+    "apply_create_city_registry_conn": "registry/admins/actions.rs",
+    "apply_delete_city_registry_conn": "registry/admins/actions.rs",
+    "prepare_register_institution_admins": "registry/admins/governance.rs",
+    "create_institution": "registry/institutions/registration.rs",
+    "create_private_institution": "registry/institutions/registration.rs",
+    "list_own_institution_admins": "platform/institutions/catalog.rs",
+    "get_own_institution": "platform/institutions/catalog.rs",
+    "precheck_institution_create_scope": "registry/institutions/registration.rs",
+    "get_admin_by_id_and_registry_org_conn": "registry/admins/repo.rs",
+    "allocate_citizen_id_conn": "platform/database/records.rs",
+    "commit_projection_batch": "registry/projection/mod.rs",
+    "chain_date": "registry/projection/mod.rs",
+    "entity_projection_worker": "platform/indexer/worker.rs"
+  },
+  "structOwners": {
+    "ChainSignSession": "platform/transactions/session.rs",
+    "ChainSubmitInput": "platform/transactions/handler.rs",
+    "ChainSubmitOutput": "platform/transactions/handler.rs",
+    "PrepareRegisterInstitutionAdminsInput": "registry/admins/governance.rs",
+    "OwnInstitutionAdminRow": "platform/institutions/model.rs",
+    "OwnInstitutionAdminListOutput": "platform/institutions/model.rs",
+    "CityRegistryIdPayload": "registry/admins/actions.rs"
+  },
+  "retiredPatterns": [
+    "onchina/(?:src|backend|frontend)(?:/|\\b)",
+    "onchina/Cargo\\.toml",
+    "crates/protocol/registry\\.json",
+    "(?<![\\w/])src/(?:cid|domains|platform)/",
+    "(?<![\\w/])domains/(?:gov|private|citizens|legislation|membership|docs|address)",
+    "(?<![\\w/])institution/(?:subjects|admins|accounts)",
+    "(?<![\\w/])core/(?:chain_|qr/)",
+    "(?<![\\w/])frontend/(?:utils|workspace)/",
+    "onchina/platform/frontend/workspace/",
+    "crate::(?:auth|institution|scope|domains)::",
+    "crate::platform::(?:capability|mdns)",
+    "禁止恢复旧\\s*`?registry`?\\s*目录",
+    "禁止恢复独立\\s*`?registry`?\\s*源码路径",
+    "registry::citizens::occupy::(?:ChainSignSession|SESSION_TTL_SECS|submit_chain_sign)",
+    "occupy::\\{[^}]*\\b(?:ChainSignSession|SESSION_TTL_SECS)\\b",
+    "authentication::(?:catalog|list_federal_registry_admins|list_city_registry_admins|list_own_institution_admins|get_own_institution)",
+    "institutions::subjects::registration",
+    "OwnInstitutionInfoPanel[^;\\n]*judicial_JudicialDisplay",
+    "(?<![\\w/])utils/http\\.ts",
+    "(?<![\\w/])core/useChainSign",
+    "(?<![\\w/])platform/capabilityMap",
+    "http_security\\.rs",
+    "cid/china/china\\.sqlite",
+    "feedback_institutions_two_layer\\.md",
+    "saveStoredAuth"
+  ],
+  "retiredExamples": [
+    "onchina/src/main.rs",
+    "src/cid/generator.rs",
+    "domains/citizens/chain_vote.rs",
+    "frontend/utils/http.ts",
+    "citizenchain/crates/protocol/registry.json",
+    "crate::domains::citizens",
+    "禁止恢复旧 registry 目录。",
+    "src/workspace/mod.rs",
+    "crate::registry::citizens::occupy::ChainSignSession",
+    "occupy::{ChainSignSession, SESSION_TTL_SECS}",
+    "authentication::list_federal_registry_admins",
+    "institutions::subjects::registration",
+    "utils/http.ts",
+    "core/useChainSign",
+    "platform/capabilityMap",
+    "http_security.rs",
+    "cid/china/china.sqlite",
+    "saveStoredAuth"
+  ],
+  "commonPanel": "platform/frontend/institutions_OwnInstitutionInfoPanel.tsx",
+  "commonPanelConsumers": [
+    "platform/frontend/workspace_GenericWorkspace.tsx",
+    "private/frontend/Workspace.tsx",
+    "judicial/frontend/judicial_JudicialDisplay.tsx"
+  ],
+  "onchinaOnlyPatterns": [
+    "(?<![\\w/])src/(?:accounts|address|admins|auth|authentication|budget|citizens|client|codes|core|crypto|display|docs|domains|government|indexer|institution|law|legislation|membership|personnel|platform|private|protocol|scope|subjects|workspace|cid)/",
+    "(?<![\\w/])(?:core/useChainSign\\.tsx|citizens/api\\.ts|admins/securityApi\\.ts|platform/capabilityMap\\.ts|legislation/shared/labels\\.ts)",
+    "workspace/<机构类>/"
+  ],
+  "constantOwners": {
+    "SESSION_TTL_SECS": "platform/transactions/session.rs",
+    "PURPOSE_INSTITUTION_REGISTER_ADMINS": "registry/admins/governance.rs"
+  },
+  "constantValues": {
+    "SESSION_TTL_SECS": "600",
+    "PURPOSE_INSTITUTION_REGISTER_ADMINS": "\"INSTITUTION_REGISTER_ADMINS\""
+  },
+  "consumerRoots": [
+    "runtime",
+    "node",
+    "crates",
+    "scripts",
+    ".github"
+  ],
+  "consumerDocuments": [
+    "CitizenChainOnChina.md",
+    "CitizenChainNode.md",
+    "CitizenChainRuntime.md"
+  ],
+  "consumerPatterns": [
+    "onchina/(?:src|backend|frontend)(?:/|\\b)",
+    "onchina/Cargo\\.toml"
+  ],
+  "retiredDefinitions": [
+    "stable_citizen_id",
+    "next_citizen_id",
+    "fetch_frg_admins_for_province",
+    "for_each_chain_institution_account"
+  ],
+  "uploadRoutes": [
+    "/api/institutions/{cid_number}/docs",
+    "/api/admin/citizens/{cid_number}/documents"
+  ],
+  "rootFiles": [
+    "tsconfig.json"
+  ]
+}

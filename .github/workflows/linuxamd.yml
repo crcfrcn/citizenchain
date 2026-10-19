@@ -65,18 +65,20 @@ jobs:
           echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc" >> "$GITHUB_ENV"
           echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-dist" >> "$GITHUB_ENV"
       - name: 恢复Linux AMD独立增量缓存
+        continue-on-error: true
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: target/cache/linux-amd
-          key: citizenchain-cargo-v1-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: citizenchain-cargo-v1-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            citizenchain-cargo-v1-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/frontend/package-lock.json') }}-
+            citizenchain-cargo-v1-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-
       - name: 编译并验收本平台安装包
         shell: bash
         run: |
           set -euo pipefail
           node scripts/build.mjs ci-build linux-amd > "$RUNNER_TEMP/citizenchain-build-result.json"
       - name: 验真Linux AMD增量缓存
+        continue-on-error: true
         if: success() || failure()
         id: cache_ready
         shell: bash
@@ -85,24 +87,15 @@ jobs:
           ready="$(node scripts/build.mjs ci-cache-ready linux-amd)"
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
       - name: 保存Linux AMD独立增量缓存
+        continue-on-error: true
         if: (success() || failure()) && steps.cache_ready.outputs.ready == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: target/cache/linux-amd
-          key: citizenchain-cargo-v1-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: citizenchain-cargo-v1-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: 创建并回读本平台 GitHub Release
         shell: bash
-        run: |
-          set -euo pipefail
-          plan="$GITHUB_WORKSPACE/target/build/linux-amd/release-plan.json"
-          tag="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.tag)' "$plan")"
-          notes="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.notes)' "$plan")"
-          title="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.title)' "$plan")"
-          upload_arguments="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.uploads.join("\n"))' "$plan")"
-          uploads=()
-          while IFS= read -r item; do uploads+=("$item"); done <<< "$upload_arguments"
-          gh release create "$tag" "${uploads[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
-          node scripts/build.mjs ci-verify-release linux-amd draft
+        run: node scripts/build.mjs ci-release linux-amd
       - name: 清理本平台编译现场
         if: always()
         shell: bash

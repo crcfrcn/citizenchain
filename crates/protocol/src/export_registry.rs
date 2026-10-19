@@ -63,11 +63,11 @@ fn check_generated_files() -> Result<(), Box<dyn std::error::Error>> {
             export_qr_bodies_typescript()?,
         ),
         (
-            "citizenchain/onchina/frontend/core/qrBodies.g.ts",
+            "citizenchain/onchina/platform/frontend/core_qrBodies.g.ts",
             export_qr_bodies_typescript()?,
         ),
         (
-            "citizenchain/onchina/src/protocol/generated.rs",
+            "citizenchain/onchina/platform/qr/generated.rs",
             export_qr_bodies_rust()?,
         ),
     ];

@@ -5,7 +5,7 @@
 //!
 //! Card 05:onchina 二进制 + PostgreSQL 官方二进制 + 前端产物 + china.sqlite 均随安装包
 //! (Tauri resources)。本模块**不碰 PG**——只把资源/数据路径用环境变量告诉 onchina,
-//! onchina 自管内嵌 PG 与内网 TLS(见 `onchina/src/core/{embedded_pg,tls}.rs`)。
+//! onchina 自管内嵌 PG 与内网 TLS(见 `onchina/platform/database/embedded.rs 与 onchina/platform/security/tls.rs`)。
 
 #[cfg(unix)]
 use std::collections::BTreeSet;

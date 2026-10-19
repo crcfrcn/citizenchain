@@ -3,7 +3,7 @@ members = [
     "node",                                  # 链节点程序
     "node/vendor",                           # 本地覆盖的 GRANDPA voter 持久化实现
     "node/libp2p",                 # 本地覆盖的 libp2p WebSocket 传输(经 [patch.crates-io] 生效)
-    "onchina",                               # onchina 多机构统一控制台:CID 身份 + 链下明细 + 鉴权 + 颁发(ADR-029/030)
+    "onchina/platform",                               # onchina 多机构统一控制台:CID 身份 + 链下明细 + 鉴权 + 颁发(ADR-029/030)
     "crates/harness",             # 区块链真实验收与坏块构造测试工具（非生产路径）
     "crates/signing",                  # Rust host 端链交易签名材料唯一真源
     "runtime",                               # 链上运行时

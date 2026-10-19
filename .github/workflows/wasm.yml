@@ -1,5 +1,5 @@
 name: "公民链·WASM"
-run-name: "公民链·WASM·v${{ inputs.version }}"
+run-name: "公民链·WASM·v1.0.${{ inputs.version }}"
 on:
   workflow_dispatch:
     inputs:
@@ -19,7 +19,7 @@ permissions:
   actions: read
 jobs:
   release:
-    name: "公民链·WASM·v${{ inputs.version }}"
+    name: "公民链·WASM·v1.0.${{ inputs.version }}"
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -67,6 +67,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
           echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc" >> "$GITHUB_ENV"
       - name: 恢复WASM独立增量缓存
+        continue-on-error: true
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: target/cache/wasm
@@ -80,6 +81,7 @@ jobs:
           cargo --config "$GITHUB_WORKSPACE/config.toml" metadata --locked --no-deps --format-version 1 >/dev/null
           node scripts/build.mjs ci-build wasm > "$RUNNER_TEMP/citizenchain-wasm-build-result.json"
       - name: 验真WASM增量缓存
+        continue-on-error: true
         if: success() || failure()
         id: cache_ready
         shell: bash
@@ -88,6 +90,7 @@ jobs:
           ready="$(node scripts/build.mjs ci-cache-ready wasm)"
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
       - name: 保存WASM独立增量缓存
+        continue-on-error: true
         if: (success() || failure()) && steps.cache_ready.outputs.ready == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -95,19 +98,7 @@ jobs:
           key: citizenchain-cargo-v1-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'config.toml') }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: 创建并回读正式 WASM GitHub Release
         shell: bash
-        run: |
-          set -euo pipefail
-          plan="$GITHUB_WORKSPACE/target/build/wasm/release-plan.json"
-          tag="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.tag)' "$plan")"
-          notes="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.notes)' "$plan")"
-          title="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.title)' "$plan")"
-          file="$GITHUB_WORKSPACE/target/build/wasm/citizenchain.compact.compressed.wasm"
-          test -s "$file" && test "$(wc -c < "$file")" -le 5242880
-          upload_arguments="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.uploads.join("\n"))' "$plan")"
-          uploads=()
-          while IFS= read -r item; do uploads+=("$item"); done <<< "$upload_arguments"
-          gh release create "$tag" "${uploads[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes" --draft --latest=false
-          node scripts/build.mjs ci-verify-release wasm draft
+        run: node scripts/build.mjs ci-release wasm
       - name: 清理本平台编译现场
         if: always()
         shell: bash

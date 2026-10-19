@@ -1,0 +1,60 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "paths": {
+      "*": [
+        "./node_modules/@types/*",
+        "./node_modules/*",
+        "../../../target/node_modules/@types/*",
+        "../../../target/node_modules/*"
+      ],
+      "@gmb/scanner-react": [
+        "../../../crates/scanner/src/index.ts"
+      ]
+    },
+    "typeRoots": [
+      "./node_modules/@types",
+      "./node_modules",
+      "../../../target/node_modules/@types",
+      "../../../target/node_modules"
+    ],
+    "types": [
+      "react",
+      "react-dom",
+      "vite/client"
+    ]
+  },
+  "include": [
+    "**/*.ts",
+    "../../registry/frontend/**/*.ts",
+    "../../registry/frontend/**/*.tsx",
+    "../../legislation/frontend/**/*.ts",
+    "../../legislation/frontend/**/*.tsx",
+    "../../judicial/frontend/**/*.ts",
+    "../../judicial/frontend/**/*.tsx",
+    "../../private/frontend/**/*.ts",
+    "../../private/frontend/**/*.tsx",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "node_modules",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
+}

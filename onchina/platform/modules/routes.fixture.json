@@ -1,0 +1,881 @@
+{
+  "routes": [
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/check",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_check"
+      ]
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/logout",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::login::admin_logout"
+      ]
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/qr/sign-request",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_qr_sign_request"
+      ]
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/qr/complete",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_qr_complete"
+      ]
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/qr/result",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_qr_result"
+      ]
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/node-binding/confirm",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_confirm_node_binding"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/city-registry-admins",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::admins::city_registry_admins::list_city_registry_admins"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/actions/prepare",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::actions::prepare_admin_action"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/actions/commit",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::actions::commit_admin_action"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/register/begin",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::passkey::register_begin"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/register/finish",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::passkey::register_finish"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/assert/begin",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::passkey::assert_begin"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/assert/finish",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::passkey::assert_finish"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/status",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "authentication::passkey::passkey_status"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/federal-registry-admins",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::admins::catalog::list_federal_registry_admins"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/registry/drill-in-project",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::projection::drill_in_project_city"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/own-institution-admins",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::catalog::list_own_institution_admins"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/own-institution",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::catalog::get_own_institution"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/institution/governance/prepare",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "institutions::admins::prepare_institution_governance"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/institution/admins/register/prepare",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::admins::governance::prepare_register_institution_admins"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/check-cid-full-name",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::admin::check_cid_full_name"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/search-parents",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::admin::search_parent_institutions"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/legal-representative/photo",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "institutions::subjects::admin::upload_legal_representative_photo"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/legal-representative/photo/{photo_id}",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::admin::read_legal_representative_photo"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/create",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::institutions::registration::create_institution"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/private/sole",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "registry::institutions::private::sole::list",
+        "registry::institutions::private::sole::create"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/private/partnership",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "registry::institutions::private::partnership::list",
+        "registry::institutions::private::partnership::create"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/private/company",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "registry::institutions::private::company::list",
+        "registry::institutions::private::company::create"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/private/corporation",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "registry::institutions::private::corporation::list",
+        "registry::institutions::private::corporation::create"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/private/welfare",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "registry::institutions::private::welfare::list",
+        "registry::institutions::private::welfare::create"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/private/association",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "registry::institutions::private::association::list",
+        "registry::institutions::private::association::create"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/account/create",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "institutions::accounts::handler::create_account"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/list",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::institutions::registration::list_institutions"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}",
+      "methods": [
+        "get",
+        "patch"
+      ],
+      "handlers": [
+        "institutions::subjects::admin::get_institution",
+        "institutions::subjects::admin::update_institution"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/accounts",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::accounts::handler::list_accounts"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/account/{account_name}",
+      "methods": [
+        "delete"
+      ],
+      "handlers": [
+        "institutions::accounts::handler::delete_account"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/docs",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "documents::handler::list_documents",
+        "documents::handler::upload_document"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/docs/{doc_id}/download",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "documents::handler::download_document"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/docs/{doc_id}",
+      "methods": [
+        "delete"
+      ],
+      "handlers": [
+        "documents::handler::delete_document"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/gov",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::institutions::government::handler::list_official_institutions"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/legislation/proposable",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "legislation::handler::list_proposable"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/legislation/propose",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "legislation::handler::propose_legislation"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/legislation/representative-vote",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "legislation::handler::cast_representative_vote"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/legislation/laws",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "legislation::handler::list_laws"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/legislation/laws/mine",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "legislation::handler::list_my_laws"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/legislation/laws/{law_id}",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "legislation::handler::law"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/legislation/proposals/{proposal_id}",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "legislation::handler::get_proposal_state"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/membership/platform-prices",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "private::membership::handler::platform_prices"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/membership/platform-prices/propose",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "private::membership::handler::propose_platform_price"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/federal-registry",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::admin::get_federal_registry"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/audit-logs",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "audit::admin_list_audit_logs"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "registry::citizens::handler::admin_list_citizens",
+        "registry::citizens::occupy::prepare_citizen_occupy"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/occupy/submit",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::citizens::occupy::submit_citizen_occupy"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/rebind/prepare",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::citizens::occupy::prepare_citizen_rebind"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/rebind/submit",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::citizens::occupy::submit_citizen_rebind"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/{cid_number}/binding",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::citizens::chain_identity::finalized_citizen_binding"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/chain/submit",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "transactions::handler::submit_chain_sign"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/{cid_number}/edit",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::citizens::admin_entry::admin_update_citizen"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/{cid_number}/onchain/revoke/prepare",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::citizens::occupy::prepare_citizen_revoke"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/legal-representatives",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::citizens::handler::admin_search_legal_representative_citizens"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/{cid_number}/documents",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "registry::documents::handler::list_citizen_documents",
+        "registry::documents::handler::upload_citizen_document"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/{cid_number}/documents/{doc_id}/download",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::documents::handler::download_citizen_document"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/{cid_number}/documents/{doc_id}",
+      "methods": [
+        "delete"
+      ],
+      "handlers": [
+        "registry::documents::handler::delete_citizen_document"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/{cid_number}/onchain/prepare",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::citizens::chain_identity::prepare_citizen_onchain_signature"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/citizens/{cid_number}/onchain/complete",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::citizens::chain_identity::complete_citizen_onchain_signature"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/cid/meta",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "cid::admin::admin_cid_meta"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/cid/china/cities",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "cid::china::admin::admin_china_cities"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/cid/china/towns",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "cid::china::admin::admin_china_towns"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/address/names",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::address::handler::list_address_names"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/address/items",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::address::handler::list_addresses"
+      ]
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/address/chain-call",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::address::handler::prepare_chain_call"
+      ]
+    },
+    {
+      "group": "public",
+      "path": "/api/health",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "health"
+      ]
+    },
+    {
+      "group": "public",
+      "path": "/api/platform/ca-certificate",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "organization_ca_certificate"
+      ]
+    },
+    {
+      "group": "public",
+      "path": "/api/platform/ca-certificate/info",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "organization_ca_certificate_info"
+      ]
+    },
+    {
+      "group": "public",
+      "path": "/api/public/identity/search",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::citizens::handler::public_identity_search"
+      ]
+    },
+    {
+      "group": "public",
+      "path": "/api/public/cid/labels",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "cid::admin::public_cid_labels"
+      ]
+    },
+    {
+      "group": "public",
+      "path": "/api/public/legislation/display/board",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "legislation::display::handler::display_board"
+      ]
+    },
+    {
+      "group": "app",
+      "path": "/api/app/voters/count",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "registry::citizens::chain_joint_vote::app_voters_count"
+      ]
+    },
+    {
+      "group": "app",
+      "path": "/api/app/vote/eligibility",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "registry::citizens::chain_vote::app_vote_eligibility"
+      ]
+    },
+    {
+      "group": "app",
+      "path": "/api/app/accounts/{account_id}/transactions",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "indexer::api::account_transactions"
+      ]
+    },
+    {
+      "group": "app",
+      "path": "/api/app/institutions/search",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::chain_multisig_info::app_search_institutions"
+      ]
+    },
+    {
+      "group": "app",
+      "path": "/api/app/institutions/{cid_number}",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::chain_multisig_info::app_get_institution"
+      ]
+    },
+    {
+      "group": "app",
+      "path": "/api/app/institutions/{cid_number}/accounts",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::chain_multisig_info::app_list_accounts"
+      ]
+    },
+    {
+      "group": "app",
+      "path": "/api/app/public-institutions",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "citizenapp::public_institution::list_public_institutions"
+      ]
+    },
+    {
+      "group": "app",
+      "path": "/api/app/public-institutions/version",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "citizenapp::public_institution::public_institutions_version"
+      ]
+    }
+  ],
+  "adminMiddleware": [
+    "authentication::login::require_admin_session_middleware"
+  ],
+  "globalMiddleware": [
+    "global_rate_limit_middleware",
+    "build_cors_layer"
+  ]
+}

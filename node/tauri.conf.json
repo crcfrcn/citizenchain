@@ -41,7 +41,7 @@
     "active": true,
     "resources": {
       "../icons/": "icons/",
-      "../onchina/src/codes/china.sqlite": "china.sqlite"
+      "../onchina/platform/codes/china.sqlite": "china.sqlite"
     },
     "icon": [
       "../icons/32x32.png",

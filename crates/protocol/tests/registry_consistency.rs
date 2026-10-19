@@ -368,11 +368,11 @@ fn generated_qr_body_validators_are_current() {
             export_qr_bodies_typescript().expect("TS body schema 必须可生成"),
         ),
         (
-            "onchina/frontend/core/qrBodies.g.ts",
+            "onchina/platform/frontend/core_qrBodies.g.ts",
             export_qr_bodies_typescript().expect("TS body schema 必须可生成"),
         ),
         (
-            "onchina/src/protocol/generated.rs",
+            "onchina/platform/qr/generated.rs",
             export_qr_bodies_rust().expect("Rust body schema 必须可生成"),
         ),
     ];
