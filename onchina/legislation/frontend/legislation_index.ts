@@ -2,3 +2,6 @@
 
 export * from './legislation_types';
 export * from './legislation_api';
+
+export { LegislationView } from './legislation_LegislationView';
+export { DisplayScreen } from './display_DisplayScreen';

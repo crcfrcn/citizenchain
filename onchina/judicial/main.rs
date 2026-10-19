@@ -21,10 +21,12 @@ fn actions() -> Vec<String> { Vec::new() }
     #[async_trait::async_trait]
     impl ModuleBusiness for Module {
         fn describe(&self) -> ModuleDescription {
-            modules::describe_module(
+            let mut description = modules::describe_module(
                 "judicial", VERSION, "frontend/judicial_JudicialWorkspace.tsx", &["JudicialWorkspace"],
                 self.routes(), purposes(), actions(), declaration,
-            )
+            );
+            description.frontend_workspace = Some("JudicialWorkspace".into());
+            description
         }
         fn routes(&self) -> Vec<ModuleRoute> {
             vec![

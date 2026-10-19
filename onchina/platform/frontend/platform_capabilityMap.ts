@@ -1,8 +1,8 @@
 // 控制台能力位类型 + 空能力兜底。
 //
-// 能力单源在【后端】(onchina/platform/modules/capability.rs),由登录会话下发(auth.capabilities)。
+// 能力由后端各模块真实入口声明，经 platform/modules/capability.rs 汇总并由会话下发。
 // 前端只镜像渲染工作台入口,不在此硬编码权限——render-gating 非安全边界,后端始终对越权独立拒绝。
-// 新增机构类型只需在后端 capability.rs 补能力位,前端无需改动。
+// 业务能力由模块真实声明提供，公共 capability.rs 负责汇总；前端不另写权限。
 
 export type CapabilitySet = {
   canViewCitizens: boolean;
@@ -55,3 +55,91 @@ export const EMPTY_CAPABILITIES: CapabilitySet = {
   canProposePersonnel: false,
   canProposeBudget: false,
 };
+
+
+// 模块只更换装载方式；React、登录Context和请求状态由同一宿主实例提供。
+import type { ComponentType } from 'react';
+import type { AdminAuth } from './authentication_types';
+import { request } from './helpers_http';
+export type ModuleAsset = {
+  id: string; version: string; interface_version: number; script: string; stylesheet: string;
+  exports: string[]; institution_codes: string[]; workspace: string | null;
+};
+export type ModuleMetadata = Pick<ModuleAsset, 'id' | 'version' | 'interface_version'>;
+export type LoadedModule = Record<string, unknown> & { __onchina?: ModuleMetadata };
+// 全局声明随实际公开接口进入浏览器与测试工程，不依赖编辑器隐式发现d.ts。
+declare global {
+  var OnChinaPlatform: Readonly<Record<string, unknown>>;
+  var OnChinaModules: Record<string, LoadedModule>;
+}
+let assets: ModuleAsset[] = [];
+let initialization: Promise<void> | null = null;
+let initializationError: Error | null = null;
+const failures = new Map<string, Error>();
+function sameOriginAsset(value: string, id: string): string {
+  const url = new URL(value, window.location.href);
+  if (url.origin !== window.location.origin || !url.pathname.startsWith('/modules/' + id + '/') || url.username || url.password) {
+    throw new Error('模块资源地址无效');
+  }
+  return url.href;
+}
+async function loadModule(asset: ModuleAsset): Promise<void> {
+  if (!/^[a-z][a-z0-9_]{0,63}$/.test(asset.id) || !/^\d+\.\d+\.\d+$/.test(asset.version)
+      || asset.interface_version !== 1 || !Array.isArray(asset.exports) || !Array.isArray(asset.institution_codes)) {
+    throw new Error('模块声明无效或接口版本不匹配');
+  }
+  const stylesheet = document.createElement('link');
+  stylesheet.rel = 'stylesheet'; stylesheet.href = sameOriginAsset(asset.stylesheet, asset.id);
+  const script = document.createElement('script');
+  script.src = sameOriginAsset(asset.script, asset.id); script.async = true;
+  const styleReady = new Promise<void>((resolve, reject) => {
+    stylesheet.onload = () => resolve(); stylesheet.onerror = () => reject(new Error('模块样式装载失败'));
+  });
+  const scriptReady = new Promise<void>((resolve, reject) => {
+    script.onload = () => {
+      const module = globalThis.OnChinaModules[asset.id]; const metadata = module?.__onchina;
+      if (!metadata || metadata.id !== asset.id || metadata.version !== asset.version
+          || metadata.interface_version !== asset.interface_version
+          || asset.exports.some(name => !Object.prototype.hasOwnProperty.call(module, name))) {
+        reject(new Error('模块后端与前端声明不匹配')); return;
+      }
+      resolve();
+    };
+    script.onerror = () => reject(new Error('模块脚本装载失败'));
+  });
+  document.head.append(stylesheet, script);
+  await Promise.all([styleReady, scriptReady]);
+}
+/** 在原启动阶段装载一次；运行期间不热替换模块。 */
+export function initializeModules(): Promise<void> {
+  if (initialization) return initialization;
+  initialization = (async () => {
+    const health = await request<{ modules: ModuleAsset[] }>('/api/health');
+    if (!Array.isArray(health.modules)) throw new Error('平台未返回模块声明');
+    assets = health.modules;
+    const ids = new Set<string>();
+    await Promise.all(assets.map(async asset => {
+      try {
+        if (ids.has(asset.id)) throw new Error('重复模块声明');
+        ids.add(asset.id); await loadModule(asset);
+      } catch (error) { failures.set(asset.id, error instanceof Error ? error : new Error('模块装载失败')); }
+    }));
+  })().catch(error => {
+    initializationError = error instanceof Error ? error : new Error('模块装载失败'); throw initializationError;
+  });
+  return initialization;
+}
+export function moduleView<Props extends object>(id: string, name: string): ComponentType<Props> {
+  const failure = failures.get(id) ?? initializationError; if (failure) throw failure;
+  const value = globalThis.OnChinaModules[id]?.[name];
+  if (typeof value !== 'function') throw new Error('所需模块未装载');
+  return value as ComponentType<Props>;
+}
+/** 已验证会话的实例级模块优先，其次使用模块声明的机构类工作台。 */
+export function workspaceView<Props extends object>(auth: AdminAuth): ComponentType<Props> | null {
+  const instance = assets.filter(asset => asset.workspace && auth.workspace?.workspace_modules.includes(asset.id));
+  const owned = instance.length ? instance : assets.filter(asset => asset.workspace && asset.institution_codes.includes(auth.institution_code));
+  if (owned.length > 1) throw new Error('机构工作台模块归属冲突');
+  const asset = owned[0];
+  return asset?.workspace ? moduleView<Props>(asset.id, asset.workspace) : null;
+}

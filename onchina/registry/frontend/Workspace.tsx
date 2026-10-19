@@ -1,20 +1,21 @@
-// 注册局工作台挂载层。私权目录是注册局登记与管理入口，不是私权机构自己的工作台。
-
 import { useEffect, useState } from 'react';
-import type { AdminAuth } from '../../platform/frontend/authentication_types';
-import type { CapabilitySet } from '../../platform/frontend/authentication_AuthContext';
-import type { CidMetaResult } from '../../platform/frontend/china_api';
+import { type AdminAuth } from '../../platform/frontend/authentication_types';
+import { type CapabilitySet } from '../../platform/frontend/authentication_AuthContext';
+import { type CidMetaResult } from '../../platform/frontend/china_api';
 import { loadCachedCidMeta } from '../../platform/frontend/china_metaCache';
 import { notice } from '../../platform/frontend/helpers_notice';
 import { GovView } from './government_GovView';
 import { PrivateShell } from './private_PrivateShell';
 import { EducationView } from './education_EducationView';
-import { OwnInstitutionAdminsView, RegistryAdminsView } from '../../platform/frontend/admins_RegistryAdminsView';
+import { OwnInstitutionAdminsView } from '../../platform/frontend/admins_RegistryAdminsView';
+import { RegistryAdminsView } from './admins_ProvinceDetailView';
 import { isSubordinateRegistry, isTier1Registry } from '../../platform/frontend/platform_registryTier';
 import { CitizensView } from './citizens_CitizensView';
 import { AddressManageView } from './address_AddressManageView';
-import { LegislationView } from '../../legislation/frontend/legislation_LegislationView';
-import type { PrivateType } from '../../platform/frontend/subjects_api';
+import { moduleView } from '../../platform/frontend/platform_capabilityMap';
+const LegislationView = (props: { auth: AdminAuth }) => { const View = moduleView<{ auth: AdminAuth }>('legislation', 'LegislationView'); return <View {...props} />; };
+import { type PrivateType } from '../../platform/frontend/subjects_api';
+// 注册局工作台挂载层。私权目录是注册局登记与管理入口，不是私权机构自己的工作台。
 
 type ActiveView =
   | 'citizens'
@@ -222,3 +223,5 @@ export function RegistryWorkspace({
     </>
   );
 }
+
+export { RegistryAdminsView };

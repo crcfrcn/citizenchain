@@ -1,31 +1,25 @@
 //! 链→注册局本地库 通用投影逻辑(M1 indexer 增量 / M3 联邦 drill-in 共用)。
 //!
 //! 行为契约由本模块测试和数据库 schema 共同固定。
-//! 本模块只放**纯逻辑**:给定"链上实体数据 + 本地现存行 + 本节点作用域",算出要写回的最终行。
+//! 本模块拥有公民投影纯逻辑、事务写入与增量 worker；公共机构投影调用平台公开接口。
 //! 因此保正本(链下正本不被覆盖)、作用域过滤、插入 vs 更新全部可离线单测,无需活链。
 //!
 //! 关键手法:merge 出的最终行**已把链下正本从 existing 原样带回**,故写库时即使走现有
 //! `upsert_citizen_row`(ON CONFLICT DO UPDATE 全列=EXCLUDED)也不会丢正本——EXCLUDED 已是
 //! 保留后的正确值。链读与写库在下方 writer 层,merge 纯逻辑离线单测。
 
-use crate::institutions::catalog::projection::{NodeScope, ChainInstitution, chain_or_local_str, r5_province_city, resolve_node_scope, chain_institution_from_lookup, merge_institution_record, apply_institution_projection_conn, refresh_bound_institution};
+use crate::institutions::catalog::projection::{NodeScope, ChainInstitution, chain_or_local_str, r5_province_city, resolve_node_scope, chain_institution_from_lookup, merge_institution_record, apply_institution_projection_conn};
 use chrono::{DateTime, Utc};
 
 use crate::cid::InstitutionCategory;
 use crate::core::chain_runtime::{
     institution_lookup, institution_lookup_at, is_tier1_registry, read_chain_citizen_detail, read_chain_citizen_detail_at,
-    OnChainCitizenDetail, OnChainInstitution,
+    OnChainCitizenDetail,
 };
 use crate::core::db::Db;
 use crate::registry::citizens::model::{CitizenRecord, CitizenStatus};
 use crate::institutions::subjects::model::LegalRepresentative;
 use crate::institutions::subjects::Institution;
-
-use primitives::cid::code::is_private_legal_code;
-use primitives::cid::number::{cid_scope_codes, parse_cid_number_parts};
-
-/// 本节点作用域(省码 + 市码)。公民按链上 residence 归属市;机构按 CID 市码归属市。
-
 
 /// 链上公民数据(由 chain_read 层从 CidRegistry/VotingIdentity/AccountId/Candidate 读出)。
 ///
@@ -66,9 +60,6 @@ impl ChainCitizen {
             && self.passport_valid_until.is_some()
     }
 }
-
-/// 链上字段优先,取不到则回落本地现存值(保正本),再回落空串。
-
 
 /// 新公民仅接收本范围；已有公民迁出时仍更新链上地域，使旧范围查询立即排除。
 ///
@@ -161,27 +152,7 @@ pub(crate) fn merge_citizen_record(
     })
 }
 
-/// 链上机构数据(公权/私权;由 chain_read 层从 Institutions 读出)。
-
-
-/// 计算机构投影要写回的最终行;`None` = 不在本作用域,跳过。
-///
-/// - **作用域**:机构按 CID 的 (省,市) 归属;不匹配本节点则跳过。
-/// - **链上来源列**(投影权威):全称/简称、省/市/镇码、机构码、盈利位、法人标记、法定代表人。
-/// - **链下正本列**(绝不覆盖,从 existing 保留):法定代表人证件照、机构业务分类(private_type/
-///   partnership_kind/education_type,由市补录)、创建人、创建时间。
-
-
 // ───────────────────────── 链读映射 + writer(接线层) ─────────────────────────
-
-/// 从机构 CID 唯一解析 (province_code, city_code)。复用 primitives 权威单源
-/// `cid_scope_codes`;人主体 CID(去地域化、R5 不载省市)传入即 fail-closed 返回 Err。
-/// 本函数仅应收机构 CID(节点自身机构 / 公私权机构投影)。
-
-
-/// 解析本节点作用域:`Ok(None)` = 未绑定机构;`Ok(Some((is_federal, scope)))`。
-/// 城市/省注册局 scope = 其自身机构 CID 的 (省,市);联邦(Tier1)只用 is_federal 标记。
-
 
 /// 链日期只接受真实日历日；None 仍表示该身份尚无该日期。
 pub(crate) fn chain_date(value: Option<u32>) -> Result<Option<String>, String> {
@@ -287,8 +258,6 @@ fn ensure_binding_projection_monotonic(
     Ok(())
 }
 
-
-
 /// 按 CID 投影单个私权机构进本地库。公权机构走 gov 投影,此处只收私权。
 /// `false` = 链上无此机构 / 非私权 / 不在本作用域(跳过)。
 pub(crate) async fn project_private_institution_by_cid(
@@ -311,10 +280,6 @@ pub(crate) async fn project_private_institution_by_cid(
         Ok(changed)
     })
 }
-
-/// 绑定机构不局限于创世基金会或 CREG：准确 CID 的机构及账户在固定 finalized 区块投影。
-/// 网络读在事务外；落库时复核原绑定并保留照片、创建人等链下正本。
-
 
 /// 网络读取与数据库写入分离；所有实体都读取同一个 finalized 区块。
 pub(crate) struct ProjectionBatch {
@@ -360,7 +325,7 @@ fn read_projection_cursor_conn(conn: &mut impl postgres::GenericClient, key: &st
         let number = row.get::<_, Option<i64>>(0).filter(|number| *number >= 0)
             .ok_or_else(|| "invalid entity projection cursor number".to_string())?;
         let hash: String = row.get(1);
-        if crate::registry::citizens::occupy::parse_hex32(&hash).is_none() { return Err("invalid entity projection cursor hash".to_string()); }
+        if crate::core::chain_submit::parse_hex32(&hash).is_none() { return Err("invalid entity projection cursor hash".to_string()); }
         Ok((number, hash))
     }).transpose()
 }
@@ -410,8 +375,6 @@ fn apply_citizen_projection_conn(conn: &mut impl postgres::GenericClient, chain:
     Db::upsert_target_citizen_rows(conn, &row)?;
     Ok(true)
 }
-
-
 
 /// 数据与进度原子提交。旧绑定、重复批次或任一实体失败均不能推进游标。
 pub(crate) fn commit_projection_batch(db: &Db, binding: &ProjectionBinding, genesis: &str,
@@ -895,7 +858,7 @@ pub(crate) mod genesis;
 pub(crate) async fn entity_projection_worker(db_pool: Db) {
     loop {
         if let Err(error) = project_entities_once(&db_pool).await {
-            warn!(error = %error, "registry entity projection paused; cursor retained for retry");
+            tracing::warn!(error = %error, "registry entity projection paused; cursor retained for retry");
         }
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
@@ -930,7 +893,7 @@ async fn project_entities_once(db_pool: &Db) -> Result<(), String> {
         let block = client.blocks().at(hash).await.map_err(|e| format!("read entity block failed: {e}"))?;
         if format!("{:#x}", block.header().parent_hash) != cursor.1 { return Err("entity projection parent hash mismatch".into()); }
         let events = block.events().await.map_err(|e| format!("read entity events failed: {e}"))?;
-        let (citizens, institutions) = event_parser::collect_entity_projection_cids(&events)?;
+        let (citizens, institutions) = crate::indexer::event_parser::collect_entity_projection_cids(&events)?;
         let batch = projection::prepare_projection_batch(&citizens, &institutions, hash.0).await?;
         let hash_text = format!("{hash:#x}");
         if !projection::commit_projection_batch(db_pool, &binding, &genesis, Some(cursor.0), number, &hash_text, &batch)? { return Ok(()); }

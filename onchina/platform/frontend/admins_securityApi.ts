@@ -18,7 +18,8 @@ export type AdminActionType =
   | 'INSTITUTION_UPLOAD_DOCUMENT'
   | 'INSTITUTION_DELETE_DOCUMENT'
   | 'NODE_BINDING_UNBIND'
-  | 'CITIZEN_ONCHAIN_PUSH';
+  | 'CITIZEN_ONCHAIN_PUSH'
+  | (string & {});
 
 export type AdminOperationAuth = 'SESSION' | 'PASSKEY' | 'PASSKEY_COLD_SIGN';
 

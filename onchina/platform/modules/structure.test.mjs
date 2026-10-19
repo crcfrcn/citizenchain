@@ -12,16 +12,21 @@ const source=path=>readFileSync(join(onchina,path),'utf8');
 const ignored=new Set(['.git','target','node_modules','dist','tasks']);
 function files(at){return readdirSync(at,{withFileTypes:true}).filter(entry=>!ignored.has(entry.name)&&!entry.isSymbolicLink()).flatMap(entry=>entry.isDirectory()?files(join(at,entry.name)):[join(at,entry.name)]);}
 function retiredReferences(text,onchinaContext=false){return [...layout.retiredPatterns,...(onchinaContext?layout.onchinaOnlyPatterns:[])].filter(pattern=>new RegExp(pattern,'u').test(text));}
-function routeRecords(text){
- const groups=[...text.matchAll(/let (auth|admin|public|app)_routes\s*=/gu)],result=[];
- for(const match of text.matchAll(/\.route\(\s*"([^"\n]+)"\s*,/gu)){
+// 读取真实ModuleRoute声明；不执行Rust或生成路由。
+function routeRecords(text,owner){
+ const result=[];
+ for(const match of text.matchAll(/ModuleRoute::new\(\s*"([^"\n]+)"\s*,\s*"([^"\n]+)"\s*,\s*&\[([^\]]+)\]\s*,/gu)){
   let index=match.index+match[0].length,start=index,depth=1;
   for(;index<text.length;index++){if(text[index]==='(')depth++;if(text[index]===')'&&--depth===0)break;}
   const handlers=[...text.slice(start,index).matchAll(/\b(get|post|patch|put|delete|head|options)\(\s*([\w:]+)/gu)];
-  result.push({group:groups.filter(group=>group.index<match.index).at(-1)[1],path:match[1],methods:handlers.map(value=>value[1]),handlers:handlers.map(value=>value[2])});
+  const methods=[...match[3].matchAll(/"([A-Z]+)"/gu)].map(value=>value[1].toLowerCase());
+  assert.deepEqual(handlers.map(value=>value[1]),methods,owner+': '+match[2]);
+  result.push({group:match[1],path:match[2],methods,handlers:handlers.map(value=>value[2].replace(/^crate::/u,'')),owner});
  }
  return result;
 }
+const routeSource=owner=>owner==='platform'?'platform/communication/routes.rs':owner+'/main.rs';
+const ordered=routes=>routes.toSorted((a,b)=>(a.group+' '+a.path).localeCompare(b.group+' '+b.path));
 function definitionOwners(kind,name){
  const pattern=new RegExp('\\b'+kind+'\\s+'+name+'\\b','u');
  return files(onchina).filter(file=>file.endsWith('.rs')&&pattern.test(readFileSync(file,'utf8'))).map(file=>relative(onchina,file));
@@ -51,7 +56,12 @@ test('通用会话、提交和注册局办理函数只在所属功能中定义',
   const declaration=source(owner).match(new RegExp('\\bconst\\s+'+name+'\\s*:[^=]+=[ \\t]*([^;]+);','u'));
   assert.equal(declaration?.[1].trim(),layout.constantValues[name],name);
  }
- assert.match(source('platform/main.rs'),/#\[path = "transactions\/mod\.rs"\]\s*mod transactions;/u);
+ assert.match(source('platform/interface.rs'),/#\[path = "transactions\/mod\.rs"\]\s*mod transactions;/u);
+ assert.match(source('platform/main.rs'),/include!\("interface\.rs"\)/u);
+ for(const owner of Object.keys(layout.moduleTargets).filter(owner=>owner!=='platform')){
+  assert.match(source(layout.moduleTargets[owner]),/include!\("\.\.\/platform\/interface\.rs"\)/u,owner);
+ }
+ for(const owner of ['registry','legislation','private','judicial'])assert.doesNotMatch(source('platform/interface.rs'),new RegExp('mod '+owner+'\\b','u'));
 });
 
 test('显式Rust模块、include及前端相对导入都指向实际文件',()=>{
@@ -92,7 +102,7 @@ test('旧路径负例确实被断言识别，当前功能路径不会被误报',
 
 test('原HTTP方法路径、路由分区和迁移后的handler归属逐项一致',()=>{
  const text=source('platform/communication/routes.rs');
- assert.deepEqual(routeRecords(text),expected.routes);
+ assert.deepEqual(ordered(Object.keys(layout.moduleTargets).flatMap(owner=>routeRecords(source(routeSource(owner)),owner))),ordered(expected.routes));
  const admin=[...text.matchAll(/\.route_layer\(\s*middleware::from_fn_with_state\(\s*state\.clone\(\),\s*([\w:]+)/gu)].map(value=>value[1]);
  const global=[...text.matchAll(/\.layer\(\s*middleware::from_fn_with_state\(\s*state\.clone\(\),\s*([\w:]+)/gu)].map(value=>value[1]);
  global.push(...[...text.matchAll(/\.layer\((build_cors_layer)\(\)\)/gu)].map(value=>value[1]));
@@ -116,8 +126,37 @@ test('十二项修复保留统一分配、上传约束与真实路由语法',()=
  for(const name of layout.retiredDefinitions)assert.deepEqual(definitionOwners('fn',name),[],name);
  const routes=source('platform/communication/routes.rs');
  assert.doesNotMatch(routes,/\.route\(\s*"[^"\n]*\/:\w+/u);
- assert.equal([...routes.matchAll(/\.layer\(documents::upload_body_limit\(\)\)/gu)].length,layout.uploadRoutes.length);
+ const declarations=Object.keys(layout.moduleTargets).map(owner=>source(routeSource(owner))).join('\n');
+ assert.equal([...declarations.matchAll(/\.layer\((?:crate::)?documents::upload_body_limit\(\)\)/gu)].length,layout.uploadRoutes.length);
  for(const path of layout.uploadRoutes)assert.ok(expected.routes.some(route=>route.path===path&&route.methods.includes('post')),path);
  assert.match(source('platform/transactions/submit.rs'),/super::chain_url::rpc_http_client\(\)/u);
- assert.match(source('platform/indexer/worker.rs'),/projection::commit_projection_batch/u);
+ assert.match(source('registry/projection/mod.rs'),/projection::commit_projection_batch/u);
+});
+
+
+// 只导入公开纯函数核对目标选择，不执行资源准备、工具链或构建。
+test('专属构建从真实Cargo入口选择单模块且拒绝错误声明',async()=>{
+ const {buildTargets,selectTargets,validateDescription}=await import('../../../scripts/onchina.mjs');
+ const targets=buildTargets(root);
+ assert.deepEqual([...targets.keys()],Object.keys(layout.moduleTargets));
+ for(const [id,path]of Object.entries(layout.moduleTargets)){
+  assert.equal(targets.get(id).entry,join(onchina,path));
+  assert.deepEqual(selectTargets(root,id).map(target=>target.id),[id]);
+ }
+ assert.throws(()=>selectTargets(root,'missing'),/不存在/);
+ const description={id:'registry',version:'1.2.3',interface_version:1,frontend_source:'frontend/Workspace.tsx',frontend_exports:['RegistryWorkspace']};
+ assert.equal(validateDescription(description,targets.get('registry')),description);
+ for(const patch of [{id:'private'},{version:'1'},{interface_version:2},{frontend_source:'../Workspace.tsx'}]){
+  assert.throws(()=>validateDescription({...description,...patch},targets.get('registry')),/声明无效/);
+ }
+});
+test('宿主生产装配和公开前端不再静态编译其他业务模块',()=>{
+ const shared=source('platform/interface.rs');
+ assert.doesNotMatch(shared,/#\[path = "\.\.\/(?:registry|legislation|private|judicial)\//u);
+ for(const file of files(join(onchina,'platform/frontend')).filter(file=>/\.(?:ts|tsx)$/u.test(file)&&!file.endsWith('.test.ts'))){
+  const text=readFileSync(file,'utf8');
+  assert.doesNotMatch(text,/from\s*['"]\.\.\/\.\.\/(?:registry|legislation|private|judicial)\/frontend\//u,file);
+ }
+ assert.match(source('platform/modules/mod.rs'),/verify_frontend\(&frontend, &description\)/u);
+ assert.match(source('platform/modules/mod.rs'),/drop\(child\.stdin\.take\(\)\)/u);
 });

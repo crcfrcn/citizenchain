@@ -598,7 +598,7 @@ pub(crate) fn builtin_purposes() -> Vec<&'static str> {
 }
 
 
-fn origin_matches_binding(session: &ChainSignSession, binding: &crate::authentication::login::NodeInstitutionBinding) -> bool {
+pub(crate) fn origin_matches_binding(session: &ChainSignSession, binding: &crate::authentication::login::NodeInstitutionBinding) -> bool {
     session.context.get("origin_binding_id").and_then(|value| value.as_str()).is_some_and(|id| !id.is_empty())
         && session.context.get("origin_institution_cid_number").and_then(|value| value.as_str()) == Some(binding.institution_cid_number.as_str())
         && session.context.get("origin_institution_code").and_then(|value| value.as_str()) == Some(binding.institution_code.as_str())
@@ -643,4 +643,4 @@ async fn recover_one_chain_session(state: &AppState, id: &str) -> Result<(), Str
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 #[path = "handler_tests.rs"]
-mod tests;
+pub(crate) mod tests;

@@ -30,24 +30,18 @@ use crate::authentication::repo;
 use crate::authentication::security_model::{AdminActionChallenge, AdminSecurityGrant};
 use crate::core::qr::build_sign_request;
 use crate::crypto::pubkey::{normalize_account_id, same_account_id};
-use crate::registry::admins::city_registry_admins::city_registry_row_from_user_conn;
-use crate::registry::institutions::registration::precheck_institution_create_scope;
-use crate::registry::admins::actions::{
-    CityRegistryIdPayload, validate_create_city_registry_conn, require_manageable_city_registry_conn,
-    apply_create_city_registry_conn, apply_delete_city_registry_conn,
-};
 use crate::*;
 
 const ADMIN_SECURITY_GRANT_TTL_SECONDS: i64 = 120;
 pub(crate) const ADMIN_SECURITY_GRANT_HEADER: &str = "x-cid-security-grant";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct PrepareAdminActionInput {
     action_type: AdminActionType,
     payload: serde_json::Value,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CommitAdminActionInput {
     action_id: String,
     /// 冷钱包扫码签名(PasskeyColdSign 档必填;Session 动作不走 commit)。
@@ -89,11 +83,11 @@ pub(crate) struct PrepareAdminActionOutput {
 
 
 
-struct ActionPreview {
-    before_hash: String,
-    after_hash: String,
-    target: String,
-    auth_type: AdminOperationAuth,
+pub(crate) struct ActionPreview {
+    pub(crate) before_hash: String,
+    pub(crate) after_hash: String,
+    pub(crate) target: String,
+    pub(crate) auth_type: AdminOperationAuth,
 }
 
 /// 从节点唯一 active 绑定读取当前机构 CID，并与登录上下文机构严格对齐。
@@ -212,6 +206,12 @@ pub(crate) async fn prepare_admin_action(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+    if let Some(owner) = state.modules.owner_of_action(input.action_type.as_str()) {
+        if !state.modules.local_owns(&owner) { return crate::modules::forward_json(&state, &owner, "/api/admin/actions/prepare", &headers, &input).await; }
+        if let Some(module) = &state.modules.local {
+            if let Err(response) = module.authorize_action(&ctx, &input.action_type) { return response; }
+        }
+    } else if input.action_type.requires_module() { return api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable"); }
     if let Err(resp) = ensure_action_role_allowed(&ctx, &input.action_type) {
         return resp;
     }
@@ -230,7 +230,8 @@ pub(crate) async fn prepare_admin_action(
         let ctx = ctx.clone();
         let action_type = input.action_type.clone();
         let payload = input.payload.clone();
-        move |conn| preview_action_conn(conn, &ctx, &action_type, &payload)
+        let module = state.modules.local.clone();
+        move |conn| match &module { Some(module) => module.preview_admin(conn, &ctx, &action_type, &payload), None => preview_action_conn(conn, &ctx, &action_type, &payload) }
     }) {
         Ok(v) => v,
         Err(err) => return admin_action_error(err),
@@ -320,6 +321,16 @@ pub(crate) async fn commit_admin_action(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+    let dispatch_challenge = match state.db.with_client(|conn| repo::get_action_challenge_conn(conn, &input.action_id, &ctx.account_id)) {
+        Ok(Some(challenge)) => challenge,
+        Ok(None) => return api_error(StatusCode::NOT_FOUND, 1004, "admin action not found"),
+        Err(err) => return admin_action_error(err),
+    };
+    if let Some(owner) = state.modules.owner_of_action(&dispatch_challenge.action_type) {
+        if !state.modules.local_owns(&owner) { return crate::modules::forward_json(&state, &owner, "/api/admin/actions/commit", &headers, &input).await; }
+    } else if parse_action_type(&dispatch_challenge.action_type).is_ok_and(|action| action.requires_module()) {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable");
+    }
     let now = Utc::now();
     let challenge = match state.db.with_client({
         let action_id = input.action_id.clone();
@@ -361,6 +372,11 @@ pub(crate) async fn commit_admin_action(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+    if state.modules.owner_of_action(action_type.as_str()).is_some() {
+        if let Some(module) = &state.modules.local {
+            if let Err(response) = module.authorize_action(&ctx, &action_type) { return response; }
+        }
+    }
     if let Err(resp) = ensure_action_role_allowed(&ctx, &action_type) {
         return resp;
     }
@@ -422,6 +438,7 @@ pub(crate) async fn commit_admin_action(
     let result = state.db.with_client({
         let ctx = ctx.clone();
         let challenge = challenge.clone();
+        let module = state.modules.local.clone();
         move |conn| {
             let mut tx = conn.transaction().map_err(|e| format!("begin action commit failed: {e}"))?;
             repo::lock_node_binding_conn(&mut tx)?;
@@ -446,8 +463,8 @@ pub(crate) async fn commit_admin_action(
                 return Err("http:unprocessable:admin action expired".to_string());
             }
             let output: Result<CommitAdminActionOutput, String> = if action_type.is_governance() {
-                recheck_preview_conn(conn, &ctx, &current)?;
-                let applied = apply_action_conn(conn, &ctx, &current)?;
+                recheck_preview_conn(conn, &ctx, &current, module.as_deref())?;
+                let applied = apply_action_conn(conn, &ctx, &current, module.as_deref())?;
                 current.consumed = true;
                 repo::upsert_action_challenge_conn(conn, &current)?;
                 Ok(CommitAdminActionOutput::Applied(applied))
@@ -609,68 +626,23 @@ pub(crate) fn consume_admin_security_grant(
     }
 }
 
-fn preview_action_conn(
-    conn: &mut impl postgres::GenericClient,
-    ctx: &AdminAuthContext,
-    action_type: &AdminActionType,
-    payload: &serde_json::Value,
+pub(crate) fn preview_action_conn(
+    conn: &mut impl postgres::GenericClient, ctx: &AdminAuthContext, action_type: &AdminActionType, payload: &serde_json::Value,
 ) -> Result<ActionPreview, String> {
     match action_type {
-        AdminActionType::CreateCityRegistry => {
-            let input: CreateCityRegistryAdminInput = serde_json::from_value(payload.clone())
-                .map_err(|_| "http:bad_request:invalid create payload".to_string())?;
-            let (account_id, family_name, given_name, city, creator_account_id) =
-                validate_create_city_registry_conn(conn, ctx, &input)?;
-            let after = json!({
-                "institution_code": "CREG",
-                "account_id": account_id,
-                "family_name": family_name,
-                "given_name": given_name,
-                "city_name": city,
-                "creator_account_id": creator_account_id,
-            });
-            let after_hash = hash_json(&after);
-            Ok(ActionPreview {
-                before_hash: "none".to_string(),
-                after_hash: after_hash.clone(),
-                target: account_id.clone(),
-                auth_type: action_type.auth_type(),
-            })
-        }
-        AdminActionType::DeleteCityRegistry => {
-            let input: CityRegistryIdPayload = serde_json::from_value(payload.clone())
-                .map_err(|_| "http:bad_request:invalid delete payload".to_string())?;
-            let city_registry = require_manageable_city_registry_conn(conn, ctx, input.id)?;
-            let before = city_registry_row_from_user_conn(conn, &city_registry)?;
-            let after =
-                json!({ "deleted": true, "id": input.id, "account_id": city_registry.account_id });
-            let before_hash = hash_serialized(&before);
-            let after_hash = hash_json(&after);
-            Ok(ActionPreview {
-                before_hash,
-                after_hash,
-                target: city_registry.account_id,
-                auth_type: action_type.auth_type(),
-            })
-        }
         AdminActionType::NodeBindingUnbind => preview_node_binding_unbind_conn(conn, action_type),
-        AdminActionType::InstitutionCreate => {
-            precheck_institution_create_scope(ctx, payload)?;
-            preview_security_action(action_type, payload)
-        }
-        AdminActionType::InstitutionCreateAccount
-        | AdminActionType::InstitutionDeleteAccount
-        | AdminActionType::InstitutionDeleteDocument => {
+        AdminActionType::InstitutionCreateAccount | AdminActionType::InstitutionDeleteAccount | AdminActionType::InstitutionDeleteDocument => {
             precheck_institution_target_scope_conn(conn, ctx, payload)?;
             preview_security_action(action_type, payload)
         }
+        action if action.requires_module() => Err("http:forbidden:module action unavailable".into()),
         _ => preview_security_action(action_type, payload),
     }
 }
 
 /// 对已存在机构的特殊操作(建/删账户、删机构文档)在 prepare 阶段预检管辖权,
 /// 与业务 handler 共用准确机构与注册局辖区规则；prepare 和最终写入均独立校验。
-fn precheck_institution_target_scope_conn(
+pub(crate) fn precheck_institution_target_scope_conn(
     conn: &mut impl postgres::GenericClient,
     ctx: &AdminAuthContext,
     payload: &serde_json::Value,
@@ -695,7 +667,7 @@ fn precheck_institution_target_scope_conn(
 
 
 
-fn preview_security_action(
+pub(crate) fn preview_security_action(
     action_type: &AdminActionType,
     payload: &serde_json::Value,
 ) -> Result<ActionPreview, String> {
@@ -723,48 +695,25 @@ fn preview_security_action(
 
 
 fn recheck_preview_conn(
-    conn: &mut impl postgres::GenericClient,
-    ctx: &AdminAuthContext,
-    challenge: &AdminActionChallenge,
+    conn: &mut postgres::Transaction<'_>, ctx: &AdminAuthContext, challenge: &AdminActionChallenge,
+    module: Option<&dyn crate::modules::model::ModuleBusiness>,
 ) -> Result<(), String> {
-    let action_type = parse_action_type(challenge.action_type.as_str())
-        .map_err(|_| "http:bad_request:unknown action_type".to_string())?;
-    let preview = preview_action_conn(conn, ctx, &action_type, &challenge.request_payload)?;
-    if preview.before_hash != challenge.before_hash {
-        return Err("http:conflict:admin action state changed".to_string());
-    }
+    let action = parse_action_type(&challenge.action_type).map_err(|_| "http:bad_request:unknown action_type")?;
+    let preview = match module { Some(module) => module.preview_admin_transaction(conn, ctx, &action, &challenge.request_payload)?, None => preview_action_conn(conn, ctx, &action, &challenge.request_payload)? };
+    if preview.before_hash != challenge.before_hash { return Err("http:conflict:admin action state changed".into()); }
     Ok(())
 }
 
 fn apply_action_conn(
-    conn: &mut impl postgres::GenericClient,
-    ctx: &AdminAuthContext,
-    challenge: &AdminActionChallenge,
+    conn: &mut postgres::Transaction<'_>, ctx: &AdminAuthContext, challenge: &AdminActionChallenge,
+    module: Option<&dyn crate::modules::model::ModuleBusiness>,
 ) -> Result<serde_json::Value, String> {
-    let action_type = parse_action_type(challenge.action_type.as_str())
-        .map_err(|_| "http:bad_request:unknown action_type".to_string())?;
-    match action_type {
-        AdminActionType::CreateCityRegistry => {
-            let input: CreateCityRegistryAdminInput =
-                serde_json::from_value(challenge.request_payload.clone())
-                    .map_err(|_| "http:bad_request:invalid create payload".to_string())?;
-            apply_create_city_registry_conn(conn, ctx, &input)
-        }
-        AdminActionType::DeleteCityRegistry => {
-            let input: CityRegistryIdPayload =
-                serde_json::from_value(challenge.request_payload.clone())
-                    .map_err(|_| "http:bad_request:invalid delete payload".to_string())?;
-            apply_delete_city_registry_conn(conn, ctx, &input)
-        }
-        AdminActionType::NodeBindingUnbind => apply_node_binding_unbind_conn(conn),
-        _ => Err(
-            "http:bad_request:business action cannot be applied by admin governance endpoint"
-                .to_string(),
-        ),
-    }
+    let action = parse_action_type(&challenge.action_type).map_err(|_| "http:bad_request:unknown action_type")?;
+    if action == AdminActionType::NodeBindingUnbind { return apply_node_binding_unbind_conn(conn); }
+    match module { Some(module) => module.apply_admin_transaction(conn, ctx, challenge), None => Err("http:bad_request:business action cannot be applied by admin governance endpoint".into()) }
 }
 
-fn preview_node_binding_unbind_conn(
+pub(crate) fn preview_node_binding_unbind_conn(
     conn: &mut impl postgres::GenericClient,
     action_type: &AdminActionType,
 ) -> Result<ActionPreview, String> {
@@ -788,7 +737,7 @@ fn preview_node_binding_unbind_conn(
     })
 }
 
-fn apply_node_binding_unbind_conn(conn: &mut impl postgres::GenericClient) -> Result<serde_json::Value, String> {
+pub(crate) fn apply_node_binding_unbind_conn(conn: &mut impl postgres::GenericClient) -> Result<serde_json::Value, String> {
     let Some(binding) = repo::get_active_node_binding_conn(conn)? else {
         return Err("http:conflict:node binding missing".to_string());
     };
@@ -810,7 +759,7 @@ fn apply_node_binding_unbind_conn(conn: &mut impl postgres::GenericClient) -> Re
 
 
 
-fn hash_serialized<T: Serialize>(value: &T) -> String {
+pub(crate) fn hash_serialized<T: Serialize>(value: &T) -> String {
     let encoded = serde_json::to_vec(value).unwrap_or_default();
     format!("0x{}", hex::encode(Sha256::digest(&encoded)))
 }
@@ -875,7 +824,7 @@ mod action_tests {
             }
             Ok(())
         }).unwrap();
-        let state = AppState { db: sandbox.db.clone(), rate_limiter: std::sync::Arc::new(LocalRateLimiter::new()), federal_admins_cache: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())) };
+        let state = AppState { db: sandbox.db.clone(), rate_limiter: std::sync::Arc::new(LocalRateLimiter::new()), modules: std::sync::Arc::new(crate::modules::ModuleCatalog::new(crate::local_module())) };
         let barrier = std::sync::Barrier::new(2);
         let successes = std::thread::scope(|scope| {
             let handles = ["assert-a","assert-b"].into_iter().map(|token| {
@@ -912,7 +861,7 @@ mod action_tests {
             repo::upsert_action_challenge_conn(conn, &challenge)?;
             Ok(challenge)
         }).unwrap();
-        let state = AppState { db: sandbox.db.clone(), rate_limiter: std::sync::Arc::new(LocalRateLimiter::new()), federal_admins_cache: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())) };
+        let state = AppState { db: sandbox.db.clone(), rate_limiter: std::sync::Arc::new(LocalRateLimiter::new()), modules: std::sync::Arc::new(crate::modules::ModuleCatalog::new(crate::local_module())) };
         let mut headers = HeaderMap::new(); headers.insert("authorization", "Bearer test-session".parse().unwrap());
         let mut expired = challenge.clone(); expired.expires_at = Utc::now()-Duration::seconds(1);
         sandbox.db.with_client(|conn| repo::upsert_action_challenge_conn(conn, &expired)).unwrap();

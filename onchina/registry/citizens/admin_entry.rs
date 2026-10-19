@@ -1205,51 +1205,8 @@ impl Db {
             .ok_or_else(|| "citizen id capacity exhausted or counter invalid".to_string())?;
         Ok(row.get(0))
     }
-    fn upsert_target_id_row<C: postgres::GenericClient>(
-        conn: &mut C,
-        cid_number: &str,
-        kind: &str,
-        province_code: &str,
-        city_code: Option<&str>,
-    ) -> Result<(), String> {
-        // ids 是 cid_number 全局唯一索引,同号不能在身份大类之间静默改义。
-        let existing = conn
-            .query_opt("SELECT kind FROM ids WHERE cid_number = $1", &[&cid_number])
-            .map_err(|e| format!("query target id failed: {e}"))?;
-        if let Some(row) = existing {
-            let existing_kind: String = row.get(0);
-            if existing_kind != kind {
-                return Err(format!(
-                    "cid_number {cid_number} already belongs to {existing_kind}, cannot write {kind}"
-                ));
-            }
-            conn.execute(
-                "UPDATE ids SET province_code = $2, city_code = $3 WHERE cid_number = $1",
-                &[&cid_number, &province_code, &city_code],
-            )
-            .map_err(|e| format!("update target id failed: {e}"))?;
-        } else {
-            conn.execute(
-                "INSERT INTO ids (cid_number, kind, province_code, city_code)
-                 VALUES ($1, $2, $3, $4)",
-                &[&cid_number, &kind, &province_code, &city_code],
-            )
-            .map_err(|e| format!("insert target id failed: {e}"))?;
-        }
-        Ok(())
-    }
-    fn delete_target_rows_outside_scope<C: postgres::GenericClient>(
-        conn: &mut C,
-        table: &str,
-        cid_number: &str,
-        province_code: &str,
-    ) -> Result<(), String> {
-        // 分区键按行政区划真源修正时,清掉同一 cid 留在原分区的查询行。
-        let sql = format!("DELETE FROM {table} WHERE cid_number = $1 AND province_code <> $2");
-        conn.execute(sql.as_str(), &[&cid_number, &province_code])
-            .map_err(|e| format!("delete {table} rows outside scope failed: {e}"))?;
-        Ok(())
-    }
+
+
     pub(crate) fn list_citizens_page(
         &self,
         keyword: &str,
@@ -1400,4 +1357,59 @@ pub(crate) async fn commit_module_projection(
         tracing::error!(error = %error, "finalized business projection retained for recovery");
         api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "链上交易已完成，本地投影尚未完成，会话已保留")
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod chain_projection_tests {
+    use super::*;
+    use chrono::Duration;
+    use crate::transactions::session::SessionLease;
+    use crate::transactions::handler::tests::chain_session_with_context;
+    use crate::transactions::handler::origin_matches_binding;
+#[tokio::test]
+#[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
+async fn recovery_lease_and_projection_commit_survive_revocation_failure_and_retry() {
+    use crate::authentication::{repo, login::NodeInstitutionBinding};
+    use crate::core::chain_citizen_identity::{FinalizedCitizenIdentity, FinalizedCidStatus};
+    let sandbox=crate::core::db::IsolatedTestDb::new();
+    let owner=format!("GZ018-CREG{}-000000001-2026",primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026",false));
+    let citizen=format!("CN000-CTZN{}-100000000-2026",primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026",true));
+    let binding=NodeInstitutionBinding { binding_id:"original".into(),candidate_id:"one-institution".into(),institution_code:"CREG".into(),institution_cid_number:owner.clone(),bound_account_id:format!("0x{}","11".repeat(32)),bound_at:Utc::now(),status:"ACTIVE".into() };
+    sandbox.db.with_client(|conn| repo::upsert_active_node_binding_conn(conn,&binding)).unwrap();
+    let mut session=chain_session_with_context(serde_json::json!({
+        "origin_binding_id":binding.binding_id,"origin_institution_cid_number":owner,"origin_institution_code":"CREG",
+        "cid_number":citizen,"finalized_tx_hash":format!("0x{}","55".repeat(32)),"finalized_block_number":7,"finalized_block_hash":format!("0x{}","22".repeat(32)),
+        "validated":{"cid_type":"CTZN","family_name":"","given_name":"","citizen_sex":"","citizen_birth_date":"","province_name":"贵州省","city_name":"绥阳市","province_code":"GZ","city_code":"018","town_code":"","birth_province_code":"","birth_city_code":"","birth_town_code":"","voting_eligible":false}
+    }));
+    session.purpose = crate::registry::citizens::occupy::PURPOSE_CITIZEN_OCCUPY.into();
+    session.call_data = vec![crate::registry::citizens::occupy::CITIZEN_IDENTITY_PALLET_INDEX, crate::registry::citizens::occupy::OCCUPY_CID_CALL_INDEX];
+    session.expires_at=Utc::now()-Duration::hours(1); // 已提交事务恢复不受签名会话到期阻断。
+    sandbox.db.with_client(|conn| {
+        conn.execute("INSERT INTO chain_sign_sessions(request_id,purpose,account_id,call_data,nonce,signing_hash,context,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", &[&session.request_id,&session.purpose,&session.account_id,&hex::encode(&session.call_data),&i64::from(session.nonce),&session.signing_hash,&session.context,&session.expires_at]).unwrap();
+        // 没有当前管理员行，恢复依然只按已确认会话的原机构完成，不能用于发新交易。
+        assert_eq!(conn.query_one("SELECT COUNT(*) FROM admins",&[]).unwrap().get::<_,i64>(0),0);
+        Ok(())
+    }).unwrap();
+    let lease=SessionLease::acquire(&sandbox.db,&session.request_id).unwrap().unwrap();
+    assert!(SessionLease::acquire(&sandbox.db,&session.request_id).unwrap().is_none());
+    let snapshot=FinalizedCitizenIdentity { genesis_hash:[1;32],finalized_block_hash:[0x22;32],finalized_block_number:7,chain_now_seconds:1_700_000_000,cid_status:FinalizedCidStatus::Active,
+        registrar_cid_number:Some(binding.institution_cid_number.as_bytes().to_vec()),commitment:Some([3;32]),residence_province_code:b"GZ".to_vec(),residence_city_code:b"018".to_vec(),account_id:Some([0x33;32]),binding_revision:Some(1),identity_version:0,voting:None,candidate:None };
+    let mut finalized = crate::core::chain_submit::FinalizedChainSubmit { tx_hash:"different-finalized-hash".into(), block_hash:[0x22;32], block_number:7 };
+    assert!(super::commit_module_projection(&sandbox.db,&session,&lease,&finalized,Some(&snapshot)).await.is_err());
+    assert!(sandbox.db.find_citizen_by_cid(&citizen).unwrap().is_none()); // 消费失败须回滚已写的公民/ID。
+    let hash=format!("0x{}","55".repeat(32));
+    finalized.tx_hash = hash.clone();
+    let output=super::commit_module_projection(&sandbox.db,&session,&lease,&finalized,Some(&snapshot)).await.unwrap().unwrap();
+    assert!(output["id"].as_u64().unwrap()>0);
+    assert!(sandbox.db.find_chain_sign_session(&session.request_id).unwrap().unwrap().consumed_at.is_some());
+    assert!(super::commit_module_projection(&sandbox.db,&session,&lease,&finalized,Some(&snapshot)).await.is_err());
+    assert_eq!(sandbox.db.find_citizen_by_cid(&citizen).unwrap().unwrap().id,output["id"].as_u64().unwrap());
+    assert!(origin_matches_binding(&session,&binding));
+    let other=NodeInstitutionBinding { institution_cid_number:"different-institution".into(),..binding.clone() };
+    assert!(!origin_matches_binding(&session,&other));
+    let fresh=chain_session_with_context(serde_json::json!({}));
+    assert!(!origin_matches_binding(&fresh,&binding));
+}
+
 }

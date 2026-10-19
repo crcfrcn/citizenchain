@@ -1,3 +1,20 @@
+import React, { useEffect, useState } from 'react';
+import { Alert, AutoComplete, Button, Card, Checkbox, Col, Descriptions, Divider, Form, Input, Row, Select, Space, Spin, Tag, Typography, Upload } from 'antd';
+import { SearchOutlined, UploadOutlined } from '@ant-design/icons';
+import { type AdminAuth } from '../../platform/frontend/authentication_types';
+import { LegalRepresentativePhoto } from '../../platform/frontend/subjects_LegalRepresentativePhoto';
+import { type AdminActionType, type AdminSecurityGrantOutput } from '../../platform/frontend/admins_securityApi';
+import { EDUCATION_TYPE_LABEL, PARTNERSHIP_KIND_LABEL, PRIVATE_TYPE_LABEL } from '../../platform/frontend/subjects_labels';
+import { useInstitutionCodeLabels } from '../../platform/frontend/subjects_institutionLabels';
+import { type InstitutionDetail, type ParentInstitutionRow, buildInstitutionUpdateSecurityPayload, checkCidFullName, searchParentInstitutions, updateInstitution, uploadLegalRepresentativePhoto } from './private_api';
+import { searchLegalRepresentativeCitizens } from './citizens_api';
+import { AccountList } from '../../platform/frontend/accounts_AccountList';
+import { DocsLibrary } from '../../platform/frontend/docs_DocsLibrary';
+import { notice } from '../../platform/frontend/helpers_notice';
+import { InstitutionDetailNavLayout } from '../../platform/frontend/core_InstitutionDetailNavLayout';
+import { OperationRecords } from './government_OperationRecords';
+import { submitChainSign, useChainSign } from '../../platform/frontend/core_useChainSign';
+import { type InstitutionGovernanceAdminInput, type InstitutionGovernanceAssignmentChangeInput, type InstitutionGovernanceRoleMutationInput, prepareInstitutionGovernance } from '../../platform/frontend/admins_api';
 // 私权机构详情页布局 — 共享详情壳承载标题、左侧 tab 和右侧业务内容。
 //
 // 机构信息 tab:
@@ -16,59 +33,6 @@
 //
 // 账户列表(AccountList)展示后端按机构类型生成的默认账户与自定义账户,
 // 自定义账户创建后只登记在 CID;链上状态由区块链软件同步回来。
-
-import React, { useEffect, useState } from 'react';
-import {
-  Alert,
-  AutoComplete,
-  Button,
-  Card,
-  Checkbox,
-  Col,
-  Descriptions,
-  Divider,
-  Form,
-  Input,
-  Row,
-  Select,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-  Upload,
-} from 'antd';
-import { SearchOutlined, UploadOutlined } from '@ant-design/icons';
-import type { AdminAuth } from '../../platform/frontend/authentication_types';
-import { LegalRepresentativePhoto } from '../../platform/frontend/subjects_LegalRepresentativePhoto';
-import type { AdminActionType, AdminSecurityGrantOutput } from '../../platform/frontend/admins_securityApi';
-import {
-  EDUCATION_TYPE_LABEL,
-  PARTNERSHIP_KIND_LABEL,
-  PRIVATE_TYPE_LABEL,
-} from '../../platform/frontend/subjects_labels';
-import { useInstitutionCodeLabels } from '../../platform/frontend/subjects_institutionLabels';
-import {
-  buildInstitutionUpdateSecurityPayload,
-  checkCidFullName,
-  searchParentInstitutions,
-  updateInstitution,
-  uploadLegalRepresentativePhoto,
-  type InstitutionDetail,
-  type ParentInstitutionRow,
-} from './private_api';
-import { searchLegalRepresentativeCitizens } from './citizens_api';
-import { AccountList } from '../../platform/frontend/accounts_AccountList';
-import { DocsLibrary } from '../../platform/frontend/docs_DocsLibrary';
-import { notice } from '../../platform/frontend/helpers_notice';
-import { InstitutionDetailNavLayout } from '../../platform/frontend/core_InstitutionDetailNavLayout';
-import { OperationRecords } from './government_OperationRecords';
-import { submitChainSign, useChainSign } from '../../platform/frontend/core_useChainSign';
-import {
-  prepareInstitutionGovernance,
-  type InstitutionGovernanceAdminInput,
-  type InstitutionGovernanceAssignmentChangeInput,
-  type InstitutionGovernanceRoleMutationInput,
-} from '../../platform/frontend/admins_api';
 
 // 创建者角色中文映射(与列表页保持一致)。
 const CREATOR_INSTITUTION_LABEL: Record<string, string> = {

@@ -1,4 +1,4 @@
-//! 注册局业务入口。仅迁移已有公民、机构登记、地址与投影实现，保持原运行方式。
+//! 注册局独立模块入口。公民、机构登记、地址与投影业务沿用原实现。
 include!("../platform/interface.rs");
 pub(crate) use registry::admins::model::*;
 pub(crate) use registry::citizens::model::*;
@@ -75,10 +75,12 @@ fn actions() -> Vec<String> { vec!["CREATE_SUBORDINATE_REGISTRY".into(),"DELETE_
     #[async_trait::async_trait]
     impl ModuleBusiness for Module {
         fn describe(&self) -> ModuleDescription {
-            modules::describe_module(
+            let mut description = modules::describe_module(
                 "registry", VERSION, "frontend/Workspace.tsx", &["RegistryWorkspace", "RegistryAdminsView"],
                 self.routes(), purposes(), actions(), declaration,
-            )
+            );
+            description.frontend_workspace = Some("RegistryWorkspace".into());
+            description
         }
         fn routes(&self) -> Vec<ModuleRoute> {
             vec![
@@ -86,9 +88,9 @@ fn actions() -> Vec<String> { vec!["CREATE_SUBORDINATE_REGISTRY".into(),"DELETE_
         modules::model::ModuleRoute::new("admin", "/api/admin/federal-registry-admins", &["GET"], get(registry::admins::catalog::list_federal_registry_admins).layer(axum::Extension(self.federal_cache.clone()))),
         modules::model::ModuleRoute::new("admin", "/api/admin/registry/drill-in-project", &["POST"], post(registry::projection::drill_in_project_city)),
         modules::model::ModuleRoute::new("admin", "/api/admin/institution/admins/register/prepare", &["POST"], post(registry::admins::governance::prepare_register_institution_admins)),
-        modules::model::ModuleRoute::new("admin", "/api/institutions/check-cid-full-name", &["GET"], get(institutions::subjects::admin::check_cid_full_name)),
-        modules::model::ModuleRoute::new("admin", "/api/institutions/search-parents", &["GET"], get(institutions::subjects::admin::search_parent_institutions)),
-        modules::model::ModuleRoute::new("admin", "/api/institutions/legal-representative/photo", &["POST"], post(institutions::subjects::admin::upload_legal_representative_photo).layer(
+        modules::model::ModuleRoute::new("admin", "/api/institutions/check-cid-full-name", &["GET"], get(crate::institutions::subjects::admin::check_cid_full_name)),
+        modules::model::ModuleRoute::new("admin", "/api/institutions/search-parents", &["GET"], get(crate::institutions::subjects::admin::search_parent_institutions)),
+        modules::model::ModuleRoute::new("admin", "/api/institutions/legal-representative/photo", &["POST"], post(crate::institutions::subjects::admin::upload_legal_representative_photo).layer(
             axum::extract::DefaultBodyLimit::max(5 * 1024 * 1024 + 64 * 1024),
         )).body_limit(5 * 1024 * 1024 + 64 * 1024),
         modules::model::ModuleRoute::new("admin", "/api/institutions/create", &["POST"], post(registry::institutions::registration::create_institution)),
@@ -103,7 +105,7 @@ fn actions() -> Vec<String> { vec!["CREATE_SUBORDINATE_REGISTRY".into(),"DELETE_
             .post(registry::institutions::private::association::create)),
         modules::model::ModuleRoute::new("admin", "/api/institutions/list", &["GET"], get(registry::institutions::registration::list_institutions)),
         modules::model::ModuleRoute::new("admin", "/api/institutions/gov", &["GET"], get(registry::institutions::government::handler::list_official_institutions)),
-        modules::model::ModuleRoute::new("admin", "/api/institutions/federal-registry", &["GET"], get(institutions::subjects::admin::get_federal_registry)),
+        modules::model::ModuleRoute::new("admin", "/api/institutions/federal-registry", &["GET"], get(crate::institutions::subjects::admin::get_federal_registry)),
         modules::model::ModuleRoute::new("admin", "/api/admin/audit-logs", &["GET"], get(audit::admin_list_audit_logs)),
         modules::model::ModuleRoute::new("admin", "/api/admin/citizens", &["GET", "POST"], get(registry::citizens::handler::admin_list_citizens)
             .post(registry::citizens::occupy::prepare_citizen_occupy)),
@@ -116,7 +118,7 @@ fn actions() -> Vec<String> { vec!["CREATE_SUBORDINATE_REGISTRY".into(),"DELETE_
         modules::model::ModuleRoute::new("admin", "/api/admin/citizens/legal-representatives", &["GET"], get(registry::citizens::handler::admin_search_legal_representative_citizens)),
         modules::model::ModuleRoute::new("admin", "/api/admin/citizens/{cid_number}/documents", &["GET", "POST"], get(registry::documents::handler::list_citizen_documents)
             .post(registry::documents::handler::upload_citizen_document)
-            .layer(documents::upload_body_limit())).body_limit(documents::MAX_REQUEST_BYTES),
+            .layer(crate::documents::upload_body_limit())).body_limit(crate::documents::MAX_REQUEST_BYTES),
         modules::model::ModuleRoute::new("admin", "/api/admin/citizens/{cid_number}/documents/{doc_id}/download", &["GET"], get(registry::documents::handler::download_citizen_document)),
         modules::model::ModuleRoute::new("admin", "/api/admin/citizens/{cid_number}/documents/{doc_id}", &["DELETE"], delete(registry::documents::handler::delete_citizen_document)),
         modules::model::ModuleRoute::new("admin", "/api/admin/citizens/{cid_number}/onchain/prepare", &["POST"], post(registry::citizens::chain_identity::prepare_citizen_onchain_signature)),

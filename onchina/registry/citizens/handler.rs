@@ -72,7 +72,7 @@ fn resolve_citizen_query_scope(
     auth_ctx: &crate::authentication::login::AdminAuthContext,
     query: &CitizensQuery,
 ) -> Result<(Option<String>, Option<String>), axum::response::Response> {
-    crate::registry::citizens::chain_identity::ensure_registry_admin(auth_ctx)?;
+    crate::authorization::rules::ensure_registry_admin(auth_ctx)?;
     let scope = crate::authorization::get_visible_scope(auth_ctx);
     if !scope.can_write {
         return Err(api_error(
@@ -305,7 +305,7 @@ pub(crate) async fn admin_search_legal_representative_citizens(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if let Err(resp) = crate::registry::citizens::chain_identity::ensure_registry_admin(&auth_ctx) {
+    if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&auth_ctx) {
         return resp;
     }
     let q = query.q.as_deref().map(str::trim).unwrap_or("").to_string();

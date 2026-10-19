@@ -4,7 +4,8 @@ import { Empty } from 'antd';
 import type { AdminAuth } from './authentication_types';
 import { OwnInstitutionAdminsView } from './admins_RegistryAdminsView';
 import { AccountManageSection } from './accounts_AccountManageSection';
-import { LegislationView } from '../../legislation/frontend/legislation_LegislationView';
+import { moduleView } from './platform_capabilityMap';
+const LegislationView = (props: { auth: AdminAuth }) => { const View = moduleView<{ auth: AdminAuth }>('legislation', 'LegislationView'); return <View {...props} />; };
 import { OwnInstitutionInfoPanel } from './institutions_OwnInstitutionInfoPanel';
 import { WorkspaceShell } from './workspace_WorkspaceShell';
 

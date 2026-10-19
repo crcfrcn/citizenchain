@@ -165,7 +165,7 @@ fn ensure_citizen_document_scope(
     auth_ctx: &crate::authentication::login::AdminAuthContext,
     cid_number: &str,
 ) -> Result<CitizenRecord, axum::response::Response> {
-    crate::registry::citizens::chain_identity::ensure_registry_admin(auth_ctx)?;
+    crate::authorization::rules::ensure_registry_admin(auth_ctx)?;
     let scope = crate::authorization::get_visible_scope(auth_ctx);
     if !scope.can_write {
         return Err(api_error(

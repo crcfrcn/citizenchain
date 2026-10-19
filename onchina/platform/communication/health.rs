@@ -1,4 +1,4 @@
-//! 平台健康响应模型，字段保持不变。
+//! 平台健康响应保留原字段，追加当前可用模块与本进程软件版本。
 use serde::Serialize;
 #[derive(Serialize)]
 pub(crate) struct HealthData {

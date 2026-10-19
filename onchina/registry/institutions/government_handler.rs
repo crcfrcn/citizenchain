@@ -21,7 +21,7 @@ use crate::institutions::subjects::model::InstitutionListRow;
 use crate::authorization::get_visible_scope;
 use crate::*;
 
-// ─── 0. 机构全称查重(私权=全国唯一,公权=同城唯一) ──────────────
+// 注册局原辖区查询参数。
 
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct ListOfficialInstitutionQuery {
@@ -141,5 +141,3 @@ pub(crate) async fn list_official_institutions(
 
     super::service::list_official(&state, &query, province_code, city_code, town_code, offset, page_size)
 }
-
-// ─── 资料库:机构文档 CRUD ──────────────────────────────────────

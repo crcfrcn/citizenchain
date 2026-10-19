@@ -1,7 +1,7 @@
 //! 既有司法操作入口，保持原有禁用条件。
 use crate::modules::capability::CapabilitySet;
 use crate::workspace::manifest::action;
-use crate::workspace::model::{WorkspaceAction, WorkspaceActionItem};
+use crate::workspace::model::{WorkspaceActionItem};
 pub(super) fn judicial_operations(capabilities: CapabilitySet) -> Vec<WorkspaceActionItem> {
 vec![
                 action(

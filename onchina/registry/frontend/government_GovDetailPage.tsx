@@ -1,41 +1,26 @@
-// 机构详情页(调度器)。各类机构统一使用左侧导航详情布局;
-// 私权机构仍由 PrivateDetailLayout 承接本模块独有编辑逻辑。
-
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card, Checkbox, Col, Descriptions, Divider, Form, Input, Row, Select, Space, Tag, Typography } from 'antd';
 import { EDUCATION_TYPE_LABEL } from '../../platform/frontend/subjects_labels';
 import { useInstitutionCodeLabels } from '../../platform/frontend/subjects_institutionLabels';
-import { getInstitution, type InstitutionDetail } from './government_api';
-import type { AdminAuth } from '../../platform/frontend/authentication_types';
+import { type InstitutionDetail, getInstitution } from './government_api';
+import { type AdminAuth } from '../../platform/frontend/authentication_types';
 import { LegalRepresentativePhoto } from '../../platform/frontend/subjects_LegalRepresentativePhoto';
 import { AccountList } from '../../platform/frontend/accounts_AccountList';
 import { notice } from '../../platform/frontend/helpers_notice';
 import { PrivateDetailLayout } from './private_PrivateDetailLayout';
 import { DocsLibrary } from '../../platform/frontend/docs_DocsLibrary';
-import {
-  commitAdminAction,
-  prepareAdminAction,
-  type AdminActionType,
-  type AdminSecurityGrantOutput,
-} from '../../platform/frontend/admins_securityApi';
+import { type AdminActionType, type AdminSecurityGrantOutput, commitAdminAction, prepareAdminAction } from '../../platform/frontend/admins_securityApi';
 import { parseSignedReceiptPayload } from '../../platform/frontend/helpers_parseSignedPayload';
 import { CitizenSignatureModal } from '../../platform/frontend/core_CitizenSignatureModal';
-import {
-  institutionDetailCacheKey,
-  readCachedInstitutionDetail,
-  writeCachedInstitutionDetail,
-} from '../../platform/frontend/china_metaCache';
+import { institutionDetailCacheKey, readCachedInstitutionDetail, writeCachedInstitutionDetail } from '../../platform/frontend/china_metaCache';
 import { InstitutionDetailNavLayout } from '../../platform/frontend/core_InstitutionDetailNavLayout';
 import { OperationRecords } from './government_OperationRecords';
 import { submitChainSign, useChainSign } from '../../platform/frontend/core_useChainSign';
-import {
-  prepareInstitutionGovernance,
-  prepareRegisterInstitutionAdmins,
-  type InstitutionGovernanceAdminInput,
-  type InstitutionGovernanceAssignmentChangeInput,
-  type InstitutionGovernanceRoleMutationInput,
-} from '../../platform/frontend/admins_api';
+import { type InstitutionGovernanceAdminInput, type InstitutionGovernanceAssignmentChangeInput, type InstitutionGovernanceRoleMutationInput, prepareInstitutionGovernance } from '../../platform/frontend/admins_api';
+import { prepareRegisterInstitutionAdmins } from './admins_cityRegistryAdminsApi';
 import { isSubordinateRegistry, isTier1Registry } from '../../platform/frontend/platform_registryTier';
+// 机构详情页(调度器)。各类机构统一使用左侧导航详情布局;
+// 私权机构仍由 PrivateDetailLayout 承接本模块独有编辑逻辑。
 
 interface Props {
   auth: AdminAuth;

@@ -11,6 +11,8 @@
 //! - 自机构(私权法人/非法人,无层级)→ 仅当前会话绑定的准确机构 CID
 
 use crate::authentication::login::AdminAuthContext;
+use crate::api_error;
+use axum::http::StatusCode;
 
 /// 登录管理员可见的数据范围。
 #[derive(Debug, Clone)]

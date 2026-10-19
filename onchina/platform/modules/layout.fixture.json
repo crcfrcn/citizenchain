@@ -115,10 +115,13 @@
     "get_own_institution": "platform/institutions/catalog.rs",
     "precheck_institution_create_scope": "registry/institutions/registration.rs",
     "get_admin_by_id_and_registry_org_conn": "registry/admins/repo.rs",
-    "allocate_citizen_id_conn": "platform/database/records.rs",
+    "allocate_citizen_id_conn": "registry/citizens/admin_entry.rs",
     "commit_projection_batch": "registry/projection/mod.rs",
     "chain_date": "registry/projection/mod.rs",
-    "entity_projection_worker": "platform/indexer/worker.rs"
+    "entity_projection_worker": "registry/projection/mod.rs",
+    "private_type_code_from_institution_code": "platform/institutions/model.rs",
+    "parse_hex32": "platform/transactions/submit.rs",
+    "refresh_bound_institution": "platform/institutions/catalog.rs"
   },
   "structOwners": {
     "ChainSignSession": "platform/transactions/session.rs",
@@ -127,7 +130,9 @@
     "PrepareRegisterInstitutionAdminsInput": "registry/admins/governance.rs",
     "OwnInstitutionAdminRow": "platform/institutions/model.rs",
     "OwnInstitutionAdminListOutput": "platform/institutions/model.rs",
-    "CityRegistryIdPayload": "registry/admins/actions.rs"
+    "CityRegistryIdPayload": "registry/admins/actions.rs",
+    "ModuleDescription": "platform/modules/model.rs",
+    "ModuleCatalog": "platform/modules/mod.rs"
   },
   "retiredPatterns": [
     "onchina/(?:src|backend|frontend)(?:/|\\b)",
@@ -223,5 +228,175 @@
   ],
   "rootFiles": [
     "tsconfig.json"
+  ],
+  "moduleTargets": {
+    "platform": "platform/main.rs",
+    "registry": "registry/main.rs",
+    "legislation": "legislation/main.rs",
+    "private": "private/main.rs",
+    "judicial": "judicial/main.rs"
+  },
+  "capabilityCases": [
+    {
+      "code": "FRG",
+      "owner": "registry",
+      "kind": "registry",
+      "flags": [
+        "canViewCitizens",
+        "canViewInstitutions",
+        "canViewPrivate",
+        "canViewEducation",
+        "canViewFederalRegistryAdmins",
+        "canViewCityRegistryAdmins",
+        "canManageInstitutions",
+        "canRegisterInstitutions",
+        "canBusinessWrite",
+        "canViewCityRegistry",
+        "canViewFederalRegistry",
+        "canCrudCityRegistryAdmins"
+      ]
+    },
+    {
+      "code": "CREG",
+      "owner": "registry",
+      "kind": "registry",
+      "flags": [
+        "canViewCitizens",
+        "canViewInstitutions",
+        "canViewPrivate",
+        "canViewEducation",
+        "canViewFederalRegistryAdmins",
+        "canViewCityRegistryAdmins",
+        "canManageInstitutions",
+        "canRegisterInstitutions",
+        "canBusinessWrite",
+        "canViewCityRegistry",
+        "canViewFederalRegistry"
+      ]
+    },
+    {
+      "code": "NJD",
+      "owner": "judicial",
+      "kind": "judicial",
+      "flags": [
+        "canViewOwnAdmins"
+      ]
+    },
+    {
+      "code": "NRP",
+      "owner": "legislation",
+      "kind": "legislation",
+      "flags": [
+        "canViewOwnAdmins",
+        "canViewLegislation",
+        "canProposeLegislation",
+        "canCastRepresentativeVote"
+      ]
+    },
+    {
+      "code": "PRP",
+      "owner": "legislation",
+      "kind": "legislation",
+      "flags": [
+        "canViewOwnAdmins",
+        "canViewLegislation",
+        "canProposeLegislation",
+        "canCastRepresentativeVote"
+      ]
+    },
+    {
+      "code": "CLEG",
+      "owner": "legislation",
+      "kind": "legislation",
+      "flags": [
+        "canViewOwnAdmins",
+        "canViewLegislation",
+        "canProposeLegislation",
+        "canCastRepresentativeVote"
+      ]
+    },
+    {
+      "code": "NED",
+      "owner": "legislation",
+      "kind": "legislation",
+      "flags": [
+        "canViewOwnAdmins",
+        "canViewLegislation",
+        "canProposeLegislation",
+        "canCastRepresentativeVote"
+      ]
+    },
+    {
+      "code": "NSN",
+      "owner": "legislation",
+      "kind": "legislation",
+      "flags": [
+        "canViewOwnAdmins",
+        "canViewLegislation",
+        "canCastRepresentativeVote"
+      ]
+    },
+    {
+      "code": "PSN",
+      "owner": "legislation",
+      "kind": "legislation",
+      "flags": [
+        "canViewOwnAdmins",
+        "canViewLegislation",
+        "canCastRepresentativeVote"
+      ]
+    },
+    {
+      "code": "CEDU",
+      "owner": "legislation",
+      "kind": "legislation",
+      "flags": [
+        "canViewOwnAdmins",
+        "canViewLegislation",
+        "canProposeLegislation"
+      ]
+    },
+    {
+      "code": "CSLF",
+      "owner": "legislation",
+      "kind": "legislation",
+      "flags": [
+        "canViewOwnAdmins",
+        "canViewLegislation",
+        "canProposeLegislation"
+      ]
+    },
+    {
+      "code": "SFGQ",
+      "owner": "private",
+      "kind": "private",
+      "flags": [
+        "canViewOwnAdmins"
+      ]
+    },
+    {
+      "code": "NRC",
+      "owner": null,
+      "kind": null,
+      "flags": []
+    },
+    {
+      "code": "PRC",
+      "owner": null,
+      "kind": null,
+      "flags": []
+    },
+    {
+      "code": "PRB",
+      "owner": null,
+      "kind": null,
+      "flags": []
+    },
+    {
+      "code": "UNKNOWN",
+      "owner": null,
+      "kind": null,
+      "flags": []
+    }
   ]
 }

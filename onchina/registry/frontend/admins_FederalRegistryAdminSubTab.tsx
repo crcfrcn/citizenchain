@@ -1,21 +1,16 @@
-// 联邦注册局管理员只读目录。管理员换届必须由治理业务写入 entity 任职结果，
-// OnChina 不提供本地替换或直接改管理员集合入口。
-
 import { useMemo, useState } from 'react';
 import { Badge, Button, Card, Modal, Space, Table } from 'antd';
 import { KeyOutlined } from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
+import { type ColumnsType } from 'antd/es/table';
 import { useAuth } from '../../platform/frontend/hooks_useAuth';
 import { normalizeScopeProvinceName } from '../../platform/frontend/hooks_useScope';
 import { CID_MODAL_Z_INDEX } from '../../platform/frontend/core_modalStack';
-import type { FederalRegistryAdminRow } from '../../platform/frontend/admins_api';
+import { type FederalRegistryAdminRow } from './admins_cityRegistryAdminsApi';
 import { sameHexAccount } from '../../platform/frontend/admins_adminUtils';
 import { usePasskeyRegistration } from '../../platform/frontend/authentication_usePasskey';
-import {
-  InstitutionAssignmentDetails,
-  assignmentDisplayLabel,
-  formatAdminBalanceFen,
-} from '../../platform/frontend/admins_InstitutionAssignmentCard';
+import { InstitutionAssignmentDetails, assignmentDisplayLabel, formatAdminBalanceFen } from '../../platform/frontend/admins_InstitutionAssignmentCard';
+// 联邦注册局管理员只读目录。管理员换届必须由治理业务写入 entity 任职结果，
+// OnChina 不提供本地替换或直接改管理员集合入口。
 
 interface FederalRegistryAdminSubTabProps {
   /** 可为 null：tab 外壳先渲染，链上定位/读链完成前列表内部显示加载态，不阻塞 tab 出现。 */

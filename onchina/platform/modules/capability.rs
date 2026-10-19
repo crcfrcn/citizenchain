@@ -1,4 +1,4 @@
-//! 机构码 → 控制台能力位的唯一权威源(后端单源,经会话下发给前端镜像)。
+//! 机构能力公共类型和装载汇总；业务能力由所属模块真实入口声明，经会话下发前端。
 //!
 //! 决定「什么机构登录后进入什么工作台、能看到什么入口」。这是权限的【声明式单源】,与后端实际执行
 //! 边界(`is_tier1_registry` 谓词 / `scope` / 链上 Active 集合)同源对齐;前端只据此 render-gating,
@@ -76,10 +76,7 @@ const OWN_ADMINS_READONLY: CapabilitySet = CapabilitySet {
     ..EMPTY
 };
 
-// 立法机构:在「本机构管理员只读」基础上叠加立法能力。
-// 发起/表决两个位由立法角色决定(发起院=发起+表决;参议会=只表决;教委会/自治会=只提案)。
-// 签署/任免/预算位本轮恒 false,分别由行政签署线程与 Phase 4 接入时置位。
-
+// 各业务模块在其真实入口声明业务能力；本文件只保留公共类型、基线与汇总。
 
 /// 机构码文本 → 能力集。按机构类(`primitives::cid::code` 单源)分发,未知/不归控制台返回空能力。
 pub(crate) fn base_capabilities(institution_code: &str) -> CapabilitySet {
@@ -95,7 +92,9 @@ pub(crate) fn capabilities_for(catalog: &crate::modules::ModuleCatalog, institut
 
 #[cfg(test)]
 mod tests {
-    use super::capabilities_for;
+    fn capabilities_for(code: &str) -> super::CapabilitySet {
+        super::capabilities_for(&crate::modules::test_support::fixture_catalog(), code)
+    }
 
     #[test]
     fn tier1_registry_keeps_subordinate_registry_business_superset() {

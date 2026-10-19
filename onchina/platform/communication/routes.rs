@@ -67,16 +67,13 @@ fn build_routes(state: AppState) -> Router {
     }
     if host {
         for (owner, route) in state.modules.routes() {
-            let mut methods = axum::routing::MethodFilter::empty();
-            for method in &route.methods {
-                methods = methods.or(match method.as_str() {
+            let methods = route.methods.iter().map(|method| match method.as_str() {
                     "GET" => axum::routing::MethodFilter::GET.or(axum::routing::MethodFilter::HEAD),
                     "POST" => axum::routing::MethodFilter::POST, "PATCH" => axum::routing::MethodFilter::PATCH,
                     "PUT" => axum::routing::MethodFilter::PUT, "DELETE" => axum::routing::MethodFilter::DELETE,
                     "HEAD" => axum::routing::MethodFilter::HEAD, "OPTIONS" => axum::routing::MethodFilter::OPTIONS,
                     _ => panic!("unsupported module route method"),
-                });
-            }
+                }).reduce(axum::routing::MethodFilter::or).expect("validated module route requires a method");
             let limit = route.body_limit;
             let handler = axum::routing::on(methods, move |State(state): State<AppState>, request: axum::extract::Request| {
                 let owner = owner.clone();
@@ -92,7 +89,9 @@ fn build_routes(state: AppState) -> Router {
     let mut router = Router::new().merge(public).merge(auth).merge(admin).merge(app);
     if host {
         for (id, frontend) in state.modules.static_frontends() {
-            router = router.nest_service(&format!("/modules/{id}"), tower_http::services::ServeDir::new(frontend));
+            let service = Router::new().fallback_service(tower_http::services::ServeDir::new(frontend))
+                .layer(middleware::from_fn(core::http_security::static_cache_headers));
+            router = router.nest_service(&format!("/modules/{id}"), service);
         }
         router = router.layer(middleware::from_fn_with_state(state.clone(), global_rate_limit_middleware)).layer(build_cors_layer());
         let frontend_dist = std::env::var("ONCHINA_FRONTEND_DIST")
@@ -100,10 +99,19 @@ fn build_routes(state: AppState) -> Router {
         let frontend_index = format!("{frontend_dist}/index.html");
         let frontend_service = Router::new().fallback_service(tower_http::services::ServeDir::new(&frontend_dist)
             .not_found_service(tower_http::services::ServeFile::new(frontend_index)))
-            .layer(middleware::from_fn(core::http_security::static_cache_headers));
+            .layer(middleware::from_fn(core::http_security::static_cache_headers))
+            .layer(middleware::from_fn(missing_api_or_frontend));
         router = router.fallback_service(frontend_service);
     }
     router.with_state(state)
+}
+
+// 已移出的模块没有业务路由；API缺失必须返回原错误格式，不能回成SPA的HTML。
+async fn missing_api_or_frontend(request: axum::extract::Request, next: middleware::Next) -> axum::response::Response {
+    if request.uri().path().starts_with("/api/") {
+        return api_error(StatusCode::NOT_FOUND, 1004, "endpoint or module unavailable");
+    }
+    next.run(request).await
 }
 
 #[cfg(test)]
@@ -112,11 +120,18 @@ mod route_tests {
     use super::*;
     use tower::ServiceExt;
 
+    #[test]
+    fn actual_module_preserves_capabilities_and_route_declarations() {
+        if let Some(module) = local_module() { modules::test_support::assert_actual_module(module.as_ref()); }
+        else { assert_eq!(modules::ModuleCatalog::new(None).assets().len(), 0); }
+    }
+
     #[tokio::test]
     async fn real_router_builds_and_protects_parameterized_business_routes() {
         let state = AppState { db: Db::empty_for_route_test(), rate_limiter: Arc::new(LocalRateLimiter::new()),
             modules: Arc::new(modules::ModuleCatalog::new(local_module())) };
-        let declared = state.modules.local.as_ref().map(|m| m.describe().routes).unwrap_or_default();
+        let declared = state.modules.local.as_ref().map(|m| m.describe().routes)
+            .unwrap_or_else(|| platform_routes().into_iter().map(|route| route.description).collect());
         let router = build_routes(state);
         let mut requests = vec![("POST".to_string(), "/api/admin/chain/submit".to_string())];
         for route in declared.into_iter().filter(|r| r.group == "admin") {
@@ -131,6 +146,8 @@ mod route_tests {
             let response = router.clone().oneshot(axum::http::Request::builder().method(method.as_str()).uri(&path).body(axum::body::Body::empty()).unwrap()).await.unwrap();
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{method} {path}");
         }
+        let missing = router.clone().oneshot(axum::http::Request::builder().uri("/api/not-installed/operation").body(axum::body::Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
         let response = router.oneshot(axum::http::Request::builder().method("DELETE").uri("/api/health").body(axum::body::Body::empty()).unwrap()).await.unwrap();
         assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     }

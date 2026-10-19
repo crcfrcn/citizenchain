@@ -1,7 +1,7 @@
 //! 运行期启动辅助和显式维护动作。
 //!
 //! 公权机构不在这里生成或对账;其唯一真源是链上 PublicManage,
-//! 本地只通过 gov::service 同步链投影缓存。
+//! 本地只通过平台 indexer::db::government 同步链投影缓存。
 
 use crate::AppState;
 
@@ -66,7 +66,7 @@ pub(crate) mod catalog {
 //!
 //! 本文件只做部署/启动验收:用创世派生规则抽样或全量比对链上
 //! `PublicManage::Institutions`,确认 runtime/onchina 版本未漂移。
-//! OnChina 本地公权机构数据不得由这里生成,只能由 gov::service 从链上投影。
+//! OnChina 本地公权机构数据不得由这里生成,只能由平台 indexer::db::government 从链上投影。
 
 use std::collections::{BTreeMap, BTreeSet};
 

@@ -8,7 +8,8 @@
       ],
       "handlers": [
         "authentication::login::admin_auth_check"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "auth",
@@ -18,7 +19,8 @@
       ],
       "handlers": [
         "authentication::login::admin_logout"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "auth",
@@ -28,7 +30,8 @@
       ],
       "handlers": [
         "authentication::login::admin_auth_qr_sign_request"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "auth",
@@ -38,7 +41,8 @@
       ],
       "handlers": [
         "authentication::login::admin_auth_qr_complete"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "auth",
@@ -48,7 +52,8 @@
       ],
       "handlers": [
         "authentication::login::admin_auth_qr_result"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "auth",
@@ -58,7 +63,8 @@
       ],
       "handlers": [
         "authentication::login::admin_auth_confirm_node_binding"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -68,7 +74,8 @@
       ],
       "handlers": [
         "registry::admins::city_registry_admins::list_city_registry_admins"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -78,7 +85,8 @@
       ],
       "handlers": [
         "authentication::actions::prepare_admin_action"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -88,7 +96,8 @@
       ],
       "handlers": [
         "authentication::actions::commit_admin_action"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -98,7 +107,8 @@
       ],
       "handlers": [
         "authentication::passkey::register_begin"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -108,7 +118,8 @@
       ],
       "handlers": [
         "authentication::passkey::register_finish"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -118,7 +129,8 @@
       ],
       "handlers": [
         "authentication::passkey::assert_begin"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -128,7 +140,8 @@
       ],
       "handlers": [
         "authentication::passkey::assert_finish"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -138,7 +151,8 @@
       ],
       "handlers": [
         "authentication::passkey::passkey_status"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -148,7 +162,8 @@
       ],
       "handlers": [
         "registry::admins::catalog::list_federal_registry_admins"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -158,7 +173,8 @@
       ],
       "handlers": [
         "registry::projection::drill_in_project_city"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -168,7 +184,8 @@
       ],
       "handlers": [
         "institutions::catalog::list_own_institution_admins"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -178,7 +195,8 @@
       ],
       "handlers": [
         "institutions::catalog::get_own_institution"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -188,7 +206,8 @@
       ],
       "handlers": [
         "institutions::admins::prepare_institution_governance"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -198,7 +217,8 @@
       ],
       "handlers": [
         "registry::admins::governance::prepare_register_institution_admins"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -208,7 +228,8 @@
       ],
       "handlers": [
         "institutions::subjects::admin::check_cid_full_name"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -218,7 +239,8 @@
       ],
       "handlers": [
         "institutions::subjects::admin::search_parent_institutions"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -228,7 +250,8 @@
       ],
       "handlers": [
         "institutions::subjects::admin::upload_legal_representative_photo"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -238,7 +261,8 @@
       ],
       "handlers": [
         "institutions::subjects::admin::read_legal_representative_photo"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -248,7 +272,8 @@
       ],
       "handlers": [
         "registry::institutions::registration::create_institution"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -260,7 +285,8 @@
       "handlers": [
         "registry::institutions::private::sole::list",
         "registry::institutions::private::sole::create"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -272,7 +298,8 @@
       "handlers": [
         "registry::institutions::private::partnership::list",
         "registry::institutions::private::partnership::create"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -284,7 +311,8 @@
       "handlers": [
         "registry::institutions::private::company::list",
         "registry::institutions::private::company::create"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -296,7 +324,8 @@
       "handlers": [
         "registry::institutions::private::corporation::list",
         "registry::institutions::private::corporation::create"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -308,7 +337,8 @@
       "handlers": [
         "registry::institutions::private::welfare::list",
         "registry::institutions::private::welfare::create"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -320,7 +350,8 @@
       "handlers": [
         "registry::institutions::private::association::list",
         "registry::institutions::private::association::create"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -330,7 +361,8 @@
       ],
       "handlers": [
         "institutions::accounts::handler::create_account"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -340,7 +372,8 @@
       ],
       "handlers": [
         "registry::institutions::registration::list_institutions"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -352,7 +385,8 @@
       "handlers": [
         "institutions::subjects::admin::get_institution",
         "institutions::subjects::admin::update_institution"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -362,7 +396,8 @@
       ],
       "handlers": [
         "institutions::accounts::handler::list_accounts"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -372,7 +407,8 @@
       ],
       "handlers": [
         "institutions::accounts::handler::delete_account"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -384,7 +420,8 @@
       "handlers": [
         "documents::handler::list_documents",
         "documents::handler::upload_document"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -394,7 +431,8 @@
       ],
       "handlers": [
         "documents::handler::download_document"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -404,7 +442,8 @@
       ],
       "handlers": [
         "documents::handler::delete_document"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -414,7 +453,8 @@
       ],
       "handlers": [
         "registry::institutions::government::handler::list_official_institutions"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -424,7 +464,8 @@
       ],
       "handlers": [
         "legislation::handler::list_proposable"
-      ]
+      ],
+      "owner": "legislation"
     },
     {
       "group": "admin",
@@ -434,7 +475,8 @@
       ],
       "handlers": [
         "legislation::handler::propose_legislation"
-      ]
+      ],
+      "owner": "legislation"
     },
     {
       "group": "admin",
@@ -444,7 +486,8 @@
       ],
       "handlers": [
         "legislation::handler::cast_representative_vote"
-      ]
+      ],
+      "owner": "legislation"
     },
     {
       "group": "admin",
@@ -454,7 +497,8 @@
       ],
       "handlers": [
         "legislation::handler::list_laws"
-      ]
+      ],
+      "owner": "legislation"
     },
     {
       "group": "admin",
@@ -464,7 +508,8 @@
       ],
       "handlers": [
         "legislation::handler::list_my_laws"
-      ]
+      ],
+      "owner": "legislation"
     },
     {
       "group": "admin",
@@ -474,7 +519,8 @@
       ],
       "handlers": [
         "legislation::handler::law"
-      ]
+      ],
+      "owner": "legislation"
     },
     {
       "group": "admin",
@@ -484,7 +530,8 @@
       ],
       "handlers": [
         "legislation::handler::get_proposal_state"
-      ]
+      ],
+      "owner": "legislation"
     },
     {
       "group": "admin",
@@ -494,7 +541,8 @@
       ],
       "handlers": [
         "private::membership::handler::platform_prices"
-      ]
+      ],
+      "owner": "private"
     },
     {
       "group": "admin",
@@ -504,7 +552,8 @@
       ],
       "handlers": [
         "private::membership::handler::propose_platform_price"
-      ]
+      ],
+      "owner": "private"
     },
     {
       "group": "admin",
@@ -514,7 +563,8 @@
       ],
       "handlers": [
         "institutions::subjects::admin::get_federal_registry"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -524,7 +574,8 @@
       ],
       "handlers": [
         "audit::admin_list_audit_logs"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -536,7 +587,8 @@
       "handlers": [
         "registry::citizens::handler::admin_list_citizens",
         "registry::citizens::occupy::prepare_citizen_occupy"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -546,7 +598,8 @@
       ],
       "handlers": [
         "registry::citizens::occupy::submit_citizen_occupy"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -556,7 +609,8 @@
       ],
       "handlers": [
         "registry::citizens::occupy::prepare_citizen_rebind"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -566,7 +620,8 @@
       ],
       "handlers": [
         "registry::citizens::occupy::submit_citizen_rebind"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -576,7 +631,8 @@
       ],
       "handlers": [
         "registry::citizens::chain_identity::finalized_citizen_binding"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -586,7 +642,8 @@
       ],
       "handlers": [
         "transactions::handler::submit_chain_sign"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -596,7 +653,8 @@
       ],
       "handlers": [
         "registry::citizens::admin_entry::admin_update_citizen"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -606,7 +664,8 @@
       ],
       "handlers": [
         "registry::citizens::occupy::prepare_citizen_revoke"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -616,7 +675,8 @@
       ],
       "handlers": [
         "registry::citizens::handler::admin_search_legal_representative_citizens"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -628,7 +688,8 @@
       "handlers": [
         "registry::documents::handler::list_citizen_documents",
         "registry::documents::handler::upload_citizen_document"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -638,7 +699,8 @@
       ],
       "handlers": [
         "registry::documents::handler::download_citizen_document"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -648,7 +710,8 @@
       ],
       "handlers": [
         "registry::documents::handler::delete_citizen_document"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -658,7 +721,8 @@
       ],
       "handlers": [
         "registry::citizens::chain_identity::prepare_citizen_onchain_signature"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -668,7 +732,8 @@
       ],
       "handlers": [
         "registry::citizens::chain_identity::complete_citizen_onchain_signature"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -678,7 +743,8 @@
       ],
       "handlers": [
         "cid::admin::admin_cid_meta"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -688,7 +754,8 @@
       ],
       "handlers": [
         "cid::china::admin::admin_china_cities"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -698,7 +765,8 @@
       ],
       "handlers": [
         "cid::china::admin::admin_china_towns"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "admin",
@@ -708,7 +776,8 @@
       ],
       "handlers": [
         "registry::address::handler::list_address_names"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -718,7 +787,8 @@
       ],
       "handlers": [
         "registry::address::handler::list_addresses"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "admin",
@@ -728,7 +798,8 @@
       ],
       "handlers": [
         "registry::address::handler::prepare_chain_call"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "public",
@@ -738,7 +809,8 @@
       ],
       "handlers": [
         "health"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "public",
@@ -748,7 +820,8 @@
       ],
       "handlers": [
         "organization_ca_certificate"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "public",
@@ -758,7 +831,8 @@
       ],
       "handlers": [
         "organization_ca_certificate_info"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "public",
@@ -768,7 +842,8 @@
       ],
       "handlers": [
         "registry::citizens::handler::public_identity_search"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "public",
@@ -778,7 +853,8 @@
       ],
       "handlers": [
         "cid::admin::public_cid_labels"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "public",
@@ -788,7 +864,8 @@
       ],
       "handlers": [
         "legislation::display::handler::display_board"
-      ]
+      ],
+      "owner": "legislation"
     },
     {
       "group": "app",
@@ -798,7 +875,8 @@
       ],
       "handlers": [
         "registry::citizens::chain_joint_vote::app_voters_count"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "app",
@@ -808,7 +886,8 @@
       ],
       "handlers": [
         "registry::citizens::chain_vote::app_vote_eligibility"
-      ]
+      ],
+      "owner": "registry"
     },
     {
       "group": "app",
@@ -818,7 +897,8 @@
       ],
       "handlers": [
         "indexer::api::account_transactions"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "app",
@@ -828,7 +908,8 @@
       ],
       "handlers": [
         "institutions::subjects::chain_multisig_info::app_search_institutions"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "app",
@@ -838,7 +919,8 @@
       ],
       "handlers": [
         "institutions::subjects::chain_multisig_info::app_get_institution"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "app",
@@ -848,7 +930,8 @@
       ],
       "handlers": [
         "institutions::subjects::chain_multisig_info::app_list_accounts"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "app",
@@ -858,7 +941,8 @@
       ],
       "handlers": [
         "citizenapp::public_institution::list_public_institutions"
-      ]
+      ],
+      "owner": "platform"
     },
     {
       "group": "app",
@@ -868,7 +952,8 @@
       ],
       "handlers": [
         "citizenapp::public_institution::public_institutions_version"
-      ]
+      ],
+      "owner": "platform"
     }
   ],
   "adminMiddleware": [

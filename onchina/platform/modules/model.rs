@@ -1,4 +1,4 @@
-//! 机构工作台登录态 DTO。
+//! 模块软件装载声明、公开业务回调与机构工作台登录态 DTO。
 //!
 //! 字段统一使用 `workspace_` 前缀,避免与机构、权限、业务列表字段混淆。
 
@@ -90,6 +90,7 @@ pub(crate) struct ModuleDescription {
     pub(crate) interface_version: u32,
     pub(crate) frontend_source: String,
     pub(crate) frontend_exports: Vec<String>,
+    pub(crate) frontend_workspace: Option<String>,
     pub(crate) instance_workspace: bool,
     pub(crate) routes: Vec<RouteDescription>,
     pub(crate) purposes: Vec<String>,
@@ -116,6 +117,12 @@ pub(crate) trait ModuleBusiness: Send + Sync {
             tracing::error!(error = %error, "finalized business projection retained for recovery");
             crate::api_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, 1004, "链上交易已完成，本地投影尚未完成，会话已保留")
         })
+    }
+    fn authorize_action(&self, _ctx: &crate::authentication::login::AdminAuthContext, action: &crate::authentication::operation_auth::AdminActionType) -> Result<(), axum::response::Response> {
+        if matches!(action, crate::authentication::operation_auth::AdminActionType::Module(_)) {
+            return Err(crate::api_error(axum::http::StatusCode::FORBIDDEN, 1003, "module action authorization missing"));
+        }
+        Ok(())
     }
     fn preview_admin(&self, conn: &mut postgres::Client, ctx: &crate::authentication::login::AdminAuthContext, action: &crate::authentication::operation_auth::AdminActionType, payload: &serde_json::Value) -> Result<crate::authentication::actions::ActionPreview, String> {
         crate::authentication::actions::preview_action_conn(conn, ctx, action, payload)

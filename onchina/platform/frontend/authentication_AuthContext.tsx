@@ -1,5 +1,5 @@
 // cid 前端登录态 + 能力标志的全局 Context。
-// 能力位由机构码经 platform_capabilityMap.ts 镜像后端权限派生(后端是唯一权限执行者)。
+// 能力位由后端按已装载模块下发；所有模块复用本文件的同一Context实例。
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { AdminAuth } from './authentication_types';

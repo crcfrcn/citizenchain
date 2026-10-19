@@ -73,10 +73,13 @@ pub(crate) enum AdminActionType {
     /// 注册局推送公民身份上链(prepare 生成公民待签载荷 + complete 验签绑定,
     /// 公民上链操作：一次 Passkey 后进入短期业务操作会话，最终链签独立完成。
     CitizenOnchainPush,
+    /// 模块扩展动作必须有实际登记及所属模块授权；不能自行降为只会话写入。
+    #[serde(untagged)]
+    Module(String),
 }
 
 impl AdminActionType {
-    pub(crate) fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &str {
         match self {
             Self::CreateCityRegistry => "CREATE_SUBORDINATE_REGISTRY",
             Self::DeleteCityRegistry => "DELETE_SUBORDINATE_REGISTRY",
@@ -98,6 +101,7 @@ impl AdminActionType {
             Self::ProposePersonnel => "PROPOSE_PERSONNEL",
             Self::ProposeBudget => "PROPOSE_BUDGET",
             Self::CitizenOnchainPush => "CITIZEN_ONCHAIN_PUSH",
+            Self::Module(name) => name.as_str(),
         }
     }
 
@@ -132,8 +136,13 @@ impl AdminActionType {
             | Self::OverrideSign
             | Self::GuardVote
             | Self::ProposePersonnel
-            | Self::ProposeBudget => AdminOperationAuth::PasskeyColdSign,
+            | Self::ProposeBudget
+            | Self::Module(_) => AdminOperationAuth::PasskeyColdSign,
         }
+    }
+
+    pub(crate) fn requires_module(&self) -> bool {
+        matches!(self, Self::CreateCityRegistry | Self::DeleteCityRegistry | Self::InstitutionCreate | Self::Module(_))
     }
 
     /// prepare 只允许冷签动作和明确支持的本地解绑，不能泛化放开所有写入。
@@ -182,6 +191,7 @@ pub(crate) fn parse_action_type(
         "PROPOSE_PERSONNEL" => Ok(AdminActionType::ProposePersonnel),
         "PROPOSE_BUDGET" => Ok(AdminActionType::ProposeBudget),
         "CITIZEN_ONCHAIN_PUSH" => Ok(AdminActionType::CitizenOnchainPush),
+        other if !other.is_empty() && other.len() <= 128 && other.bytes().all(|v| v.is_ascii_uppercase() || v.is_ascii_digit() || v == b'_') => Ok(AdminActionType::Module(other.to_string())),
         _ => Err(api_error(
             StatusCode::BAD_REQUEST,
             1001,
@@ -357,10 +367,11 @@ mod tests {
             A::GuardVote => PasskeyColdSign,
             A::ProposePersonnel => PasskeyColdSign,
             A::ProposeBudget => PasskeyColdSign,
+            A::Module(_) => PasskeyColdSign,
         }
     }
 
-    /// 与 [`expected_tier`] 共用同一份穷尽 `match`,保证遍历不漏变体。
+    /// 固定内建动作逐项核对；开放模块动作由独立回归核对归属和鉴权档。
     const ALL_ACTIONS: [AdminActionType; 20] = [
         AdminActionType::CreateCityRegistry,
         AdminActionType::DeleteCityRegistry,
@@ -391,7 +402,7 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for action in ALL_ACTIONS {
             assert!(
-                seen.insert(action.as_str()),
+                seen.insert(action.as_str().to_string()),
                 "ALL_ACTIONS 存在重复项: {}",
                 action.as_str()
             );
@@ -487,14 +498,12 @@ mod tests {
     }
 
     #[test]
-    fn unknown_action_type_is_rejected() {
+    fn malformed_action_type_is_rejected() {
         // fail-closed:未登记的动作名必须拒绝,不得回退到任意默认动作或默认档位。
         for bad in [
             "",
-            "UNKNOWN",
             "institution_create",
             "INSTITUTION_CREATE ",
-            "UNKNOWN_OPERATION",
         ] {
             assert!(
                 parse_action_type(bad).is_err(),
@@ -502,4 +511,15 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn module_action_cannot_bypass_owner_or_cold_signature() {
+        let action = parse_action_type("EXAMPLE_OPERATION").unwrap();
+        assert!(matches!(action, AdminActionType::Module(_)));
+        assert!(action.requires_module());
+        assert_eq!(action.auth_type(), AdminOperationAuth::PasskeyColdSign);
+        assert!(crate::modules::ModuleCatalog::new(None).owner_of_action(action.as_str()).is_none());
+        assert_eq!(serde_json::to_value(&action).unwrap(), serde_json::json!("EXAMPLE_OPERATION"));
+        assert_eq!(serde_json::from_value::<AdminActionType>(serde_json::json!("EXAMPLE_OPERATION")).unwrap(), action);
+    }
+
 }

@@ -214,6 +214,7 @@ use crate::institutions::subjects::model::LegalRepresentative;
 use crate::institutions::subjects::Institution;
 use primitives::cid::code::is_private_legal_code;
 use primitives::cid::number::{cid_scope_codes, parse_cid_number_parts};
+/// 链上机构数据(公权/私权;由 chain_read 层从 Institutions 读出)。
 #[derive(Debug, Clone)]
 pub(crate) struct ChainInstitution {
     pub(crate) cid_number: String,
@@ -230,16 +231,21 @@ pub(crate) struct ChainInstitution {
     pub(crate) legal_representative: Option<LegalRepresentative>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// 本节点作用域，沿用原省代码及省内市编号。
 pub(crate) struct NodeScope {
     pub(crate) province_code: String,
     pub(crate) city_code: String,
 }
+/// 链上字段优先；缺失时保留本地正本，其后才为空串。
 pub(crate) fn chain_or_local_str(chain: &Option<String>, local: Option<&str>) -> String {
     chain
         .clone()
         .or_else(|| local.map(str::to_string))
         .unwrap_or_default()
 }
+/// 从机构 CID 唯一解析 (province_code, city_code)。复用 primitives 权威单源
+/// `cid_scope_codes`;人主体 CID(去地域化、R5 不载省市)传入即 fail-closed 返回 Err。
+/// 本函数仅应收机构 CID(节点自身机构 / 公私权机构投影)。
 pub(crate) fn r5_province_city(cid_number: &str) -> Result<(String, String), String> {
     let (province, city) = cid_scope_codes(cid_number.as_bytes())
         .map_err(|e| format!("cid {cid_number} scope invalid: {e}"))?;
@@ -248,6 +254,8 @@ pub(crate) fn r5_province_city(cid_number: &str) -> Result<(String, String), Str
         String::from_utf8_lossy(&city).into_owned(),
     ))
 }
+/// 解析本节点作用域:`Ok(None)` = 未绑定机构;`Ok(Some((is_federal, scope)))`。
+/// 城市/省注册局 scope = 其自身机构 CID 的 (省,市);联邦(Tier1)只用 is_federal 标记。
 pub(crate) fn resolve_node_scope(db: &Db) -> Result<Option<(bool, NodeScope)>, String> {
     let Some(binding) = crate::authentication::repo::active_node_binding(db)? else {
         return Ok(None);
@@ -290,6 +298,12 @@ pub(crate) fn chain_institution_from_lookup(
         legal_representative,
     })
 }
+/// 计算机构投影要写回的最终行;`None` = 不在本作用域,跳过。
+///
+/// - **作用域**:机构按 CID 的 (省,市) 归属;不匹配本节点则跳过。
+/// - **链上来源列**(投影权威):全称/简称、省/市/镇码、机构码、盈利位、法人标记、法定代表人。
+/// - **链下正本列**(绝不覆盖,从 existing 保留):法定代表人证件照、机构业务分类(private_type/
+///   partnership_kind/education_type,由市补录)、创建人、创建时间。
 pub(crate) fn merge_institution_record(
     chain: &ChainInstitution,
     existing: Option<&Institution>,
@@ -325,7 +339,7 @@ pub(crate) fn merge_institution_record(
         // private_type 优先保留本地既有(市补录可能更细),纯链上投影(existing=None)按机构码
         // 确定性派生,否则私权列表 SQL 的 `private_type IS NOT NULL` 会漏掉纯投影的私权机构。
         private_type: existing.and_then(|e| e.private_type.clone()).or_else(|| {
-            crate::registry::institutions::private::common::private_type_code_from_institution_code(
+            crate::institutions::model::private_type_code_from_institution_code(
                 &chain.institution_code,
             )
             .map(str::to_string)
@@ -360,6 +374,8 @@ pub(crate) fn apply_institution_projection_conn(conn: &mut impl postgres::Generi
     Db::upsert_target_subject_rows(conn, &row)?;
     Ok(true)
 }
+/// 绑定机构不局限于创世基金会或 CREG：准确 CID 的机构及账户在固定 finalized 区块投影。
+/// 网络读在事务外；落库时复核原绑定并保留照片、创建人等链下正本。
 pub(crate) async fn refresh_bound_institution(db: &Db) -> Result<bool, String> {
     let Some(binding) = crate::authentication::repo::active_node_binding(db)? else { return Ok(false); };
     let finalized = crate::core::chain_runtime::FinalizedChainView::connect().await?;

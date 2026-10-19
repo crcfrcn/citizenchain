@@ -5,6 +5,7 @@
 //   3. 刷新登录态并把机构工作台交给 workspace_WorkspaceRouter.tsx
 //
 // 机构 UI 按原职责放在所属模块 frontend,不得继续把机构差异塞回 App.tsx。
+import { initializeModules } from './platform_capabilityMap';
 import { useEffect, useState } from 'react';
 import { QrcodeOutlined } from '@ant-design/icons';
 import { Button, Card, Layout, Typography } from 'antd';
@@ -42,6 +43,8 @@ function AppInner() {
   useEffect(() => {
     let cancelled = false;
     const bootstrap = async () => {
+      // 复用原启动等待状态；资源失败由原错误边界处理，不改变登录凭证。
+      await initializeModules().catch(() => undefined);
       if (!auth) {
         setBootstrapping(false);
         return;

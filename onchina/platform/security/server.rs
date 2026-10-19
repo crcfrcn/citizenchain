@@ -83,17 +83,18 @@ async fn organization_ca_certificate_info() -> impl IntoResponse {
 /// 退出信号:Ctrl-C 全平台;Unix 额外捕获 SIGTERM(node 停子进程默认信号)。
 async fn shutdown_signal() {
     let (sender, parent_exit) = tokio::sync::oneshot::channel::<()>();
-    if std::env::var_os("ONCHINA_MODULE_BIND").is_some() {
+    let _host_sender = if std::env::var_os("ONCHINA_MODULE_BIND").is_some() {
         std::thread::spawn(move || {
             use std::io::Read;
             let mut byte = [0u8; 1];
             while matches!(std::io::stdin().read(&mut byte), Ok(n) if n > 0) {}
             let _ = sender.send(());
         });
+        None
     } else {
         // 宿主没有父管道，保留发送端直到退出信号触发。
-        std::mem::forget(sender);
-    }
+        Some(sender)
+    };
     #[cfg(unix)]
     {
         let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())

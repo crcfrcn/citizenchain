@@ -1049,3 +1049,52 @@ impl Db {
     }
 }
 
+
+// 机构与公民共用的查询索引写入，保持唯一实现。
+impl Db {
+    fn upsert_target_id_row<C: postgres::GenericClient>(
+        conn: &mut C,
+        cid_number: &str,
+        kind: &str,
+        province_code: &str,
+        city_code: Option<&str>,
+    ) -> Result<(), String> {
+        // ids 是 cid_number 全局唯一索引,同号不能在身份大类之间静默改义。
+        let existing = conn
+            .query_opt("SELECT kind FROM ids WHERE cid_number = $1", &[&cid_number])
+            .map_err(|e| format!("query target id failed: {e}"))?;
+        if let Some(row) = existing {
+            let existing_kind: String = row.get(0);
+            if existing_kind != kind {
+                return Err(format!(
+                    "cid_number {cid_number} already belongs to {existing_kind}, cannot write {kind}"
+                ));
+            }
+            conn.execute(
+                "UPDATE ids SET province_code = $2, city_code = $3 WHERE cid_number = $1",
+                &[&cid_number, &province_code, &city_code],
+            )
+            .map_err(|e| format!("update target id failed: {e}"))?;
+        } else {
+            conn.execute(
+                "INSERT INTO ids (cid_number, kind, province_code, city_code)
+                 VALUES ($1, $2, $3, $4)",
+                &[&cid_number, &kind, &province_code, &city_code],
+            )
+            .map_err(|e| format!("insert target id failed: {e}"))?;
+        }
+        Ok(())
+    }
+    fn delete_target_rows_outside_scope<C: postgres::GenericClient>(
+        conn: &mut C,
+        table: &str,
+        cid_number: &str,
+        province_code: &str,
+    ) -> Result<(), String> {
+        // 分区键按行政区划真源修正时,清掉同一 cid 留在原分区的查询行。
+        let sql = format!("DELETE FROM {table} WHERE cid_number = $1 AND province_code <> $2");
+        conn.execute(sql.as_str(), &[&cid_number, &province_code])
+            .map_err(|e| format!("delete {table} rows outside scope failed: {e}"))?;
+        Ok(())
+    }
+}

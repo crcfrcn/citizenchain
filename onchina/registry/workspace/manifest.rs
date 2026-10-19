@@ -1,7 +1,7 @@
 //! 既有工作台分区，保持文字、顺序与能力条件。
 use crate::modules::capability::CapabilitySet;
 use crate::workspace::manifest::{action, section};
-use crate::workspace::model::{WorkspaceAction, WorkspaceSection, WorkspaceSectionKind};
+use crate::workspace::model::{WorkspaceSection, WorkspaceSectionKind};
 #[path = "operations.rs"]
 mod operations;
 pub(crate) fn registry_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSection> {
@@ -33,5 +33,3 @@ pub(crate) fn registry_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSec
         ),
     ]
 }
-
-

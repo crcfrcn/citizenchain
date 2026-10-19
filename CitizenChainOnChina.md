@@ -924,14 +924,14 @@ OnChina 是公民链 `citizenchain` 内置的链上中国平台能力，不再�
 - `onchina/platform/institutions`：通用机构、账户、管理员展示 DTO 与本机构查询。
 - `onchina/platform/documents`：机构资料库；`onchina/platform/audit`：统一审计。
 - `onchina/platform/database`、`onchina/platform/security`、`onchina/platform/communication`：现有数据访问、HTTPS、防护、响应与路由。
-- `onchina/platform/indexer`：公共链索引，调用既有业务投影。
+- `onchina/platform/indexer`：公共钱包索引及当前绑定机构投影；公民增量投影由注册局独立运行。
 - `onchina/registry/citizens`、`onchina/registry/passports`、`onchina/registry/documents`：公民办理、护照和公民资料库。
 - `onchina/registry/admins`：联邦与市注册局名册、机构管理员登记、办理校验及其数据查询。
 - `onchina/registry/institutions`、`onchina/registry/address`、`onchina/registry/projection`：机构登记、地址和注册局投影。
 - `onchina/legislation`：法律、提案、表决调用、看板及现有预留模型。
 - `onchina/judicial`：现有司法工作台；`onchina/private`：私权机构工作台与基金会 membership 业务。
 
-前端源码归 `onchina/<所属部分>/frontend`，仍由 `onchina/platform/frontend` 的原入口统一构建。通用机构信息面板归 `onchina/platform/frontend/institutions_OwnInstitutionInfoPanel.tsx`，司法页只组合现有公共面板。各模块消费公共前端接口，组件 JSX、样式、事件和请求语义保持不变。
+前端源码归 `onchina/<所属部分>/frontend`；宿主与各模块分别使用现有入口构建，依赖声明及原始锁仍归 `onchina/platform/frontend`。通用机构信息面板归 `onchina/platform/frontend/institutions_OwnInstitutionInfoPanel.tsx`，司法页只组合现有公共面板。各模块消费公共前端接口，组件 JSX、样式、事件和请求语义保持不变。
 
 #### 数据真源
 
@@ -1084,21 +1084,21 @@ registry与Git的目录源按原锁准确来源隔离，同名同版本不会混
 
 OnChina 的工程发现入口位于 `onchina/tsconfig.json`，以无源码的项目引用连接 `platform/frontend/tsconfig.json` 浏览器工程及 `platform/frontend/tsconfig.node.json` 测试/工具工程。五部分前端共用浏览器配置；测试和工具工程显式声明 Node 类型，不借用节点前端的依赖声明。OnChina 自己固定 `@types/node` 25.9.5 及其原锁闭包。`vitest.config.ts` 只配置单元测试，不启动开发 HTTPS、HMR 或生产代理；正式 Vite 配置的 HTTPS 要求保持。`typecheck` 检查两个叶工程且不输出代码，生成工作只能由产品既有流程在所属现场执行。
 
-## 2026-10-18 目录重构边界
+## 目录与业务边界
 
-本轮仅迁移物理目录、Rust 模块定位、TypeScript 相对导入、原始锁的本仓路径、构建复制与缓存输入、资源和测试夹具定位；HTTP 路径、QR/SCALE 字节、序列化字段、数据库结构、签名次数、业务条件、UI、交互和运行方式保持不变。
+目录结构、Rust 模块定位和前端导入按以下归属维护。模块进程与前端产物可分别构建和替换，重启生效；现有 HTTP 路径、QR/SCALE 字节、业务序列化字段、数据库结构、签名次数、业务条件、UI 和交互保持。健康接口仅追加实际可用模块的软件元数据。
 
-平台唯一 Cargo 包位于 `onchina/platform/Cargo.toml`，二进制仍为 onchina，入口直接是 `onchina/platform/main.rs`。现有注册局、立法、司法及私权功能通过各自模块入口编译到原单一程序；本次目录重构不等于已经实现模块独立进程、运行时装卸或独立升级，不创建假清单、空 Cargo 包或不存在的装载服务。
+唯一 Cargo 包仍在 `onchina/platform/Cargo.toml`，其中五个真实 binary 目标分别指向 platform、registry、legislation、private、judicial 的现有 main.rs。宿主不静态编入其他业务模块；各入口 include 同一 platform/interface.rs，独立链接原公共实现与自己的业务。没有新增 Cargo 包、依赖、锁文件或源码包装层。
 
 源码根为 onchina，下一层是 platform、registry、legislation、judicial、private，再下一层是实际功能目录或 frontend；功能目录内只有文件。公民资料归 registry/documents，护照算法归 registry/passports；机构资料归 platform/documents。私权机构登记归 registry/institutions，基金会会员价格治理归 private/membership。通用安全、数据库、交易、机构、链读取、索引和审计仍只有原有实现。
 
-前端组件按归属迁入各模块 frontend，仍由 platform/frontend 的原入口统一构建；组件 JSX、文字、样式、事件及请求语义保持不变，仅修复导入定位。Vite 从同一原始依赖声明解析各模块页面，构建工作视图必须复制所有实际模块 frontend；前端缓存身份覆盖这些目录。不能把物理前端拆分声称为已经支持前端独立加载。
+各模块 frontend 使用原组件入口生成自己的 module.js 与 module.css；宿主入口只持有公共组件、React、认证 Context、请求和扫码状态的唯一实例，并通过公开导出供模块使用。原组件 JSX、文字、样式、事件及请求语义保持。Vite 禁止模块静态引用另一模块的运行实现，跨模块页面通过已装载模块公开导出调用；类型引用继续由现有 TypeScript 工程发现。OnChina 不再使用旧的整体前端缓存实现。
 
 原内联回归和二维码金标随实现迁移，输入与预期字节不变；新增结构回归核对实际模块路径、前端导入、旧目录残留以及迁移前的 HTTP 方法和路径清单。检查通过与编译、运行验收分别记录在唯一任务卡。
 
 ### 框架、鉴权与回归约束
 
-冷签会话、提交与恢复归 `platform/transactions`；注册局业务编码、finalized 身份校验和正式档案投影仍归 `registry`。HTTP 方法、URL、路由分区和中间件顺序由 `platform/modules/routes.fixture.json` 管理；`layout.fixture.json` 只登记目录闭集、真实入口、定义归属与退役路径负例，不保存任务进度或“修复完成”状态。结构扫描包含生产和测试源码，以及仓库消费者与三份根技术文档。
+冷签会话、提交与恢复归 `platform/transactions`；注册局业务编码、finalized 身份校验和正式档案投影仍归 `registry`。HTTP 方法、URL、路由分区和中间件顺序由 `platform/modules/routes.fixture.json` 管理；`layout.fixture.json` 只登记目录闭集、真实入口、定义归属、原能力位及退役路径负例，不保存任务进度或“修复完成”状态。结构扫描包含生产和测试源码，以及仓库消费者与三份根技术文档。
 
 公民与管理员 ID 均使用 `sequence_counters` 原子递增并显式处理容量边界；已有 ID 保留。公民正本编辑锁后重读，出生日期等不可变字段不能并发覆盖，护照和相关索引一起提交；Passkey 有效期在获得绑定事务锁后按当前时间检查。链日期以真实日历校验并统一为 YYYY-MM-DD。Passkey 凭证消费绑定当时的账户与准确节点绑定，后续写入重核，不增加认证次数。仍缺失前端 Passkey 调用的入口不得通过放宽后端校验放行；补提示涉及交互变化，须单独确认。
 
@@ -1112,4 +1112,20 @@ OnChina 的工程发现入口位于 `onchina/tsconfig.json`，以无源码的项
 
 ## 模块独立构建与装载
 
-宿主和四个业务模块复用现有入口、平台接口源及同一依赖锁，分别构建成独立程序和前端产物。模块软件接口版本与链上Runtime版本无关。唯一新增源码为scripts/onchina.mjs；不新增源码目录、模块清单文件或前端入口文件。当前正在实施，尚未执行测试、类型检查、编译或安装。CID、CN、省码、省内市号及现有地域解析和立法数字分支保持原样，Runtime不修改。
+唯一专属构建入口是 scripts/onchina.mjs。构建目标直接读取现有 platform/Cargo.toml 的真实 binary 声明；业务模块的 ID、独立软件版本、前端入口、公开导出、HTTP 路由、提交 purpose、安全动作和工作台能力由对应 main.rs 实际实现提供。构建时执行已编译程序的 --describe 取得声明，该动作在日志、数据库、TLS 和链连接初始化之前返回。夹具不作为生产配置，既不新增 module.json，也不从目录名猜测业务。
+
+build --platform <平台> --module <模块ID或all> --output <交付目录> 是产品独立构建入口；它复用 build.mjs 自有资源准备、原锁、工作根、原生 Cargo 环境和受跟踪工具执行器。塔塔调度调用同一本仓实现，不提供第二套模块构建命令。只选择一个模块时，仅执行对应 Cargo --bin 和原前端入口，交付这个模块的产物，不重建宿主或其他模块；公共依赖仍使用本产品完整原始锁。单模块构建的类型检查只从所选入口及原工具配置出发；完整编辑器工程和既有 typecheck/test 仍覆盖各模块与测试，不把其他模块的测试文件作为单模块产物构建入口。prepared 及 frontend 是已准备工程的内部调用入口，必须交付同一工作根内的完整源码视图、工具和既有二进制；不能拿仅包含前端的旧工程副本替代。frontend 仅重建前端，并要求对应真实程序已存在，以取得准确声明。导入脚本不执行资源准备或构建。
+
+宿主交付文件为 onchina（Windows 为 onchina.exe）和原 frontend；每个模块交付为 modules/<ID>/onchina-<ID>（Windows 带 .exe）以及同目录 frontend/module.js、frontend/module.css 和必需运行库。JS、CSS 首行均包含与后端一致的软件 ID、版本和接口版本；IIFE 导出也包含同一元数据。每次模块软件升级必须更新该模块 main.rs 的 VERSION，前后端作为同一套产物交付。共享接口发生不兼容变更时才调整 MODULE_INTERFACE_VERSION；它与链上 Runtime spec_version 无关。本框架不改链上 Runtime、CID、CN、省代码、省内市编号、现有省市解析或新法原数字解析分支。
+
+运行时只从一个实际模块目录装载：可用 ONCHINA_MODULE_DIR 指定绝对路径；macOS 默认是用户 Library/Application Support/gmb.dev/onchina-modules，在 .app 外；其它平台默认是宿主程序同级 modules。整套节点包包含初始模块交付文件；macOS 首次部署须在获得安装授权后把它们放入上述实际目录，不能只把 .app 内的构建产物当作已启用模块。本构建入口不安装、不发布、不修改链或持久数据；不隐式复制初始模块，也不在 App 启动时覆盖已独立升级的模块。
+
+装载在宿主启动时执行一次：验证真实目录和程序、声明、接口、前后端版本、能力与工作台同一归属、HTTP 方法/路径匹配形状与归属冲突，再以原机构 CA 校验的回环 HTTPS 拉起模块，确认健康后登记。模块缺失、冲突、版本不符或启动失败时隔离该模块；公共服务及其他模块继续运行。没有热加载、轮询替换、安装按钮或双轨装配。增加、替换或移出模块时，先停止宿主，再调整其实际软件目录，最后重新启动；宿主先停止接收请求并排空，再关闭父管道通知模块退出，必要时终止仍未退出的进程。移出的是软件，不删除数据库、文件资料、待完成会话或审计。
+
+宿主保留原公共 HTTP 路由与中间件顺序，模块业务方法/URL 不变；上传请求限额由真实路由声明原样带到转发处。未匹配的 API 返回原 JSON 错误格式，不落入前端 HTML。原请求头、二维码、Passkey 和钱包冷签提交字段保持；宿主在消费凭证或会话前按实际登记归属转发，模块独立执行原业务校验。公民业务的 finalized 身份核验和正式投影归注册局；通用事务仍共同核对原绑定、租约、投影及会话完成标记。后台恢复各自只领取所属 purpose；模块缺失不会消费或清理其待完成会话。
+
+公共机构投影、私权机构类别字符串及类别映射归 platform；注册局录入、查询、资料和公民投影归 registry。类别映射只是原有机构类别归属迁移，所有字符串和值保持。宿主初始化现有公共数据库结构，模块只连接已有库；本次未改变 schema。今后模块自己的数据升级应由模块自身负责，不能借独立升级重建公共表或清除其他模块数据。
+
+前端在原启动阶段仅装载一次健康接口登记的模块；同源 JS/CSS、实际导出和前后端元数据均须匹配。公共 React、认证 Context、请求/401 状态从宿主公开接口取得；工作台按后端准确实例业务清单优先，再按实际模块的机构类声明选择，新增机构模块不需要增加宿主名称分支。原注册局管理员组件移至 registry/frontend/admins_ProvinceDetailView.tsx，专属状态和 API 移至同目录 admins_cityRegistryAdminsApi.ts；通用本机构管理员组件留在平台。基金会会员治理仍只是 private 中准确 CID 授权的一项业务。
+
+现有结构、HTTP 方法/路径金标、能力位金标、真实路由回归、恢复和授权回归随所有者同步；每个业务二进制单独对照原能力金标核验自身真实声明。模块装载回归覆盖正常资源、版本不符、样式失败、跨源拒绝、工作台冲突及准确实例优先。源码维护及静态核对与实际类型检查、测试、编译、部署验收分别记录在唯一任务卡。

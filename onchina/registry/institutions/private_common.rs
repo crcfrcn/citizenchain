@@ -1,4 +1,4 @@
-//! 私权机构类型单一来源。
+//! 注册局私权业务类型枚举及输入规则；公共类别映射归平台。
 //!
 //! 这里只定义私权机构的机构码分类。
 //! `ZG/TG` 只服务公民/自然人/智能人等人类主体来源分类,不用于私权机构。
@@ -23,24 +23,24 @@ pub(crate) enum PrivateType {
 impl PrivateType {
     pub(crate) fn from_str(value: &str) -> Option<Self> {
         match value.trim() {
-            "SOLE" => Some(Self::Sole),
-            "PARTNERSHIP" => Some(Self::Partnership),
-            "COMPANY" => Some(Self::Company),
-            "CORPORATION" => Some(Self::Corporation),
-            "WELFARE" => Some(Self::Welfare),
-            "ASSOCIATION" => Some(Self::Association),
+            crate::institutions::model::PRIVATE_TYPE_SOLE => Some(Self::Sole),
+            crate::institutions::model::PRIVATE_TYPE_PARTNERSHIP => Some(Self::Partnership),
+            crate::institutions::model::PRIVATE_TYPE_COMPANY => Some(Self::Company),
+            crate::institutions::model::PRIVATE_TYPE_CORPORATION => Some(Self::Corporation),
+            crate::institutions::model::PRIVATE_TYPE_WELFARE => Some(Self::Welfare),
+            crate::institutions::model::PRIVATE_TYPE_ASSOCIATION => Some(Self::Association),
             _ => None,
         }
     }
 
     pub(crate) fn as_code(self) -> &'static str {
         match self {
-            Self::Sole => "SOLE",
-            Self::Partnership => "PARTNERSHIP",
-            Self::Company => "COMPANY",
-            Self::Corporation => "CORPORATION",
-            Self::Welfare => "WELFARE",
-            Self::Association => "ASSOCIATION",
+            Self::Sole => crate::institutions::model::PRIVATE_TYPE_SOLE,
+            Self::Partnership => crate::institutions::model::PRIVATE_TYPE_PARTNERSHIP,
+            Self::Company => crate::institutions::model::PRIVATE_TYPE_COMPANY,
+            Self::Corporation => crate::institutions::model::PRIVATE_TYPE_CORPORATION,
+            Self::Welfare => crate::institutions::model::PRIVATE_TYPE_WELFARE,
+            Self::Association => crate::institutions::model::PRIVATE_TYPE_ASSOCIATION,
         }
     }
 
@@ -188,26 +188,6 @@ pub(crate) fn resolve_private_type_rule(
         },
     };
     Ok(rule)
-}
-
-/// 由私权机构码反推 private_type 展示码(如 `SFGY` → `WELFARE`)。
-///
-/// 链上 Institutions 只存机构码,不存 private_type —— 后者是按机构码确定性派生的业务分类。
-/// 联邦 drill-in 把纯链上私权机构投影进本地库时,本地无既有行可继承 private_type,必须据机构码
-/// 回填,否则私权列表 SQL 的 `private_type IS NOT NULL` 会把纯投影的私权机构(如创世公民链
-/// 技术发展基金会 SFGY)挡在列表外。非私权机构码返回 `None`(不写 private_type)。
-pub(crate) fn private_type_code_from_institution_code(
-    institution_code: &str,
-) -> Option<&'static str> {
-    match institution_code {
-        "SFGT" => Some(PrivateType::Sole.as_code()),
-        "SFGP" | "SFLP" => Some(PrivateType::Partnership.as_code()),
-        "SFGQ" => Some(PrivateType::Company.as_code()),
-        "SFGF" => Some(PrivateType::Corporation.as_code()),
-        "SFGY" => Some(PrivateType::Welfare.as_code()),
-        "SFAS" => Some(PrivateType::Association.as_code()),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

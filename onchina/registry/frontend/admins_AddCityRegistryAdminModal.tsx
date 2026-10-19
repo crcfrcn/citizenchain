@@ -1,13 +1,13 @@
-import scanIcon from "../../../icons/scan.svg?url";
-// 新增市注册局管理员 Modal
-// 当 selectedCity 有值时，城市字段预填并锁定（已在某市详情页内新增）
-
+import scanIcon from '../../../icons/scan.svg?url';
 import { useEffect } from 'react';
 import { Button, Form, Input, Modal, Select } from 'antd';
 import { decodeSs58 } from '../../platform/frontend/helpers_ss58';
 import { ScanAccountModal } from '../../platform/frontend/core_ScanAccountModal';
 import { CID_MODAL_Z_INDEX } from '../../platform/frontend/core_modalStack';
-import { MAX_CITY_REGISTRY_ADMINS_PER_CITY, type RegistryAdminsSharedState } from '../../platform/frontend/admins_adminUtils';
+import { MAX_CITY_REGISTRY_ADMINS_PER_CITY, type RegistryAdminsSharedState } from './admins_cityRegistryAdminsApi';
+
+// 新增市注册局管理员 Modal
+// 当 selectedCity 有值时，城市字段预填并锁定（已在某市详情页内新增）
 
 interface AddCityRegistryAdminModalProps {
   state: RegistryAdminsSharedState;

@@ -1,7 +1,7 @@
 //! 既有业务入口向量，保持原权限条件及关闭状态。
 use crate::modules::capability::CapabilitySet;
 use crate::workspace::manifest::action;
-use crate::workspace::model::{WorkspaceAction, WorkspaceActionItem};
+use crate::workspace::model::{WorkspaceActionItem};
 pub(super) fn operations(capabilities: CapabilitySet) -> Vec<WorkspaceActionItem> {
 vec![
                 action(

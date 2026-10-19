@@ -31,6 +31,7 @@ fn actions() -> Vec<String> { Vec::new() }
                 self.routes(), purposes(), actions(), declaration,
             );
             description.instance_workspace = true;
+            description.frontend_workspace = Some("PrivateInstitutionWorkspace".into());
             description
         }
         fn routes(&self) -> Vec<ModuleRoute> {

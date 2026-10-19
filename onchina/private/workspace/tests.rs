@@ -1,13 +1,15 @@
 //! 原私权工作台回归，参数与预期保持不变。
 use crate::workspace::build_institution_workspace;
-use crate::workspace::model::{WorkspaceKind, WorkspaceModule};
+use crate::workspace::model::WorkspaceKind;
 
 #[test]
 fn private_legal_institution_gets_own_private_workspace() {
+    let catalog = crate::modules::test_support::fixture_catalog();
     let workspace = build_institution_workspace(
+        &catalog,
         "SFGQ",
         Some("示例私权机构"),
-        crate::modules::capability::capabilities_for("SFGQ"),
+        crate::modules::capability::capabilities_for(&catalog, "SFGQ"),
         vec!["platform_membership_price".to_string()],
     );
     assert_eq!(workspace.workspace_kind, WorkspaceKind::Private);
@@ -19,16 +21,19 @@ fn private_legal_institution_gets_own_private_workspace() {
 
 #[test]
 fn registry_and_private_workspaces_never_share_kind() {
+    let catalog = crate::modules::test_support::fixture_catalog();
     let registry = build_institution_workspace(
+        &catalog,
         "FRG",
         None,
-        crate::modules::capability::capabilities_for("FRG"),
+        crate::modules::capability::capabilities_for(&catalog, "FRG"),
         Vec::new(),
     );
     let private = build_institution_workspace(
+        &catalog,
         "SFGQ",
         None,
-        crate::modules::capability::capabilities_for("SFGQ"),
+        crate::modules::capability::capabilities_for(&catalog, "SFGQ"),
         Vec::new(),
     );
     assert_eq!(registry.workspace_kind, WorkspaceKind::Registry);

@@ -27,7 +27,7 @@ pub(crate) fn describe_module(
     ModuleDescription {
         id: id.into(), version: version.into(), interface_version: model::MODULE_INTERFACE_VERSION,
         frontend_source: frontend_source.into(), frontend_exports: exports.iter().map(|v| (*v).into()).collect(),
-        instance_workspace: false, routes: routes.into_iter().map(|v| v.description).collect(),
+        frontend_workspace: None, instance_workspace: false, routes: routes.into_iter().map(|v| v.description).collect(),
         purposes, actions, capabilities, workspaces,
     }
 }
@@ -40,6 +40,7 @@ pub(crate) struct ModuleAsset {
     pub(crate) stylesheet: String,
     pub(crate) exports: Vec<String>,
     pub(crate) institution_codes: Vec<String>,
+    pub(crate) workspace: Option<String>,
 }
 struct RemoteModule {
     description: ModuleDescription,
@@ -57,11 +58,12 @@ impl RemoteModule {
 pub(crate) struct ModuleCatalog {
     pub(crate) local: Option<Arc<dyn ModuleBusiness>>,
     remotes: Mutex<Vec<Arc<RemoteModule>>>,
+    local_description: Option<ModuleDescription>,
 }
 impl ModuleCatalog {
-    pub(crate) fn new(local: Option<Arc<dyn ModuleBusiness>>) -> Self { Self { local, remotes: Mutex::new(Vec::new()) } }
+    pub(crate) fn new(local: Option<Arc<dyn ModuleBusiness>>) -> Self { let local_description = local.as_ref().map(|module| module.describe()); Self { local, local_description, remotes: Mutex::new(Vec::new()) } }
     fn descriptions(&self) -> Vec<ModuleDescription> {
-        if let Some(local) = &self.local { return vec![local.describe()]; }
+        if let Some(description) = &self.local_description { return vec![description.clone()]; }
         self.remotes.lock().map(|remotes| remotes.iter().filter(|m| m.available()).map(|m| m.description.clone()).collect()).unwrap_or_default()
     }
     pub(crate) fn capabilities(&self, code: &str) -> Option<capability::CapabilitySet> {
@@ -76,13 +78,14 @@ impl ModuleCatalog {
     pub(crate) fn owner_of_action(&self, action: &str) -> Option<String> {
         self.descriptions().iter().find(|m| m.actions.iter().any(|p| p == action)).map(|m| m.id.clone())
     }
-    pub(crate) fn local_owns(&self, owner: &str) -> bool { self.local.as_ref().is_some_and(|m| m.describe().id == owner) }
-    pub(crate) fn local_purposes(&self) -> Vec<String> { self.local.as_ref().map(|m| m.describe().purposes).unwrap_or_default() }
+    pub(crate) fn local_description(&self) -> Option<&ModuleDescription> { self.local_description.as_ref() }
+    pub(crate) fn local_owns(&self, owner: &str) -> bool { self.local_description.as_ref().is_some_and(|m| m.id == owner) }
+    pub(crate) fn local_purposes(&self) -> Vec<String> { self.local_description.as_ref().map(|m| m.purposes.clone()).unwrap_or_default() }
     pub(crate) fn assets(&self) -> Vec<ModuleAsset> {
         self.descriptions().into_iter().map(|m| ModuleAsset {
             script: format!("/modules/{}/module.js?v={}", m.id, m.version),
             stylesheet: format!("/modules/{}/module.css?v={}", m.id, m.version),
-            institution_codes: m.workspaces.keys().cloned().collect(),
+            institution_codes: m.workspaces.keys().cloned().collect(), workspace: m.frontend_workspace,
             id: m.id, version: m.version, interface_version: m.interface_version, exports: m.frontend_exports,
         }).collect()
     }
@@ -149,8 +152,8 @@ impl ModuleCatalog {
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
         let address = socket.local_addr().map_err(|e| e.to_string())?; drop(socket);
         let ca = crate::core::tls::organization_ca_certificate_pem()?;
-        let client = reqwest::Client::builder().no_proxy().add_root_certificate(reqwest::Certificate::from_pem(ca.as_bytes()).map_err(|e| e.to_string())?)
-            .resolve("onchina.local", address).connect_timeout(Duration::from_secs(5)).timeout(Duration::from_secs(1300)).build().map_err(|e| e.to_string())?;
+        let client = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).add_root_certificate(reqwest::Certificate::from_pem(ca.as_bytes()).map_err(|e| e.to_string())?)
+            .resolve("onchina.local", address).connect_timeout(Duration::from_secs(5)).build().map_err(|e| e.to_string())?;
         let mut child = Command::new(&executable).env("DATABASE_URL", database_url).env("ONCHINA_EMBEDDED_PG", "0")
             .env("ONCHINA_MODULE_BIND", address.to_string()).env("ONCHINA_TLS_DIR", crate::core::tls::tls_dir())
             .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::inherit()).spawn().map_err(|e| e.to_string())?;
@@ -174,10 +177,10 @@ impl ModuleCatalog {
     }
     pub(crate) fn stop_all(&self) {
         if let Ok(remotes) = self.remotes.lock() {
+            for remote in remotes.iter() { if let Ok(mut child) = remote.child.lock() { drop(child.stdin.take()); } }
+            let start = Instant::now();
             for remote in remotes.iter() {
                 if let Ok(mut child) = remote.child.lock() {
-                    drop(child.stdin.take());
-                    let start = Instant::now();
                     while matches!(child.try_wait(), Ok(None)) && start.elapsed() < Duration::from_secs(12) { std::thread::sleep(Duration::from_millis(25)); }
                     if matches!(child.try_wait(), Ok(None)) { let _ = child.kill(); }
                     let _ = child.wait();
@@ -199,11 +202,29 @@ pub(crate) fn module_directory() -> Result<PathBuf, String> {
 pub(crate) fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.bytes().all(|v| v.is_ascii_lowercase() || v.is_ascii_digit() || v == b'_') && id.as_bytes()[0].is_ascii_lowercase()
 }
+fn valid_version(value: &str) -> bool {
+    let parts = value.split('.').collect::<Vec<_>>();
+    parts.len() == 3 && parts.iter().all(|part| !part.is_empty() && part.bytes().all(|v| v.is_ascii_digit()))
+}
 pub(crate) fn validate_description(value: &ModuleDescription) -> Result<(), String> {
-    if !valid_id(&value.id) || value.interface_version != model::MODULE_INTERFACE_VERSION || value.version.is_empty() || !value.version.bytes().all(|v| v.is_ascii_digit() || v == b'.') { return Err("unsupported module identity/version/interface".into()); }
+    if !valid_id(&value.id) || value.interface_version != model::MODULE_INTERFACE_VERSION || !valid_version(&value.version) { return Err("unsupported module identity/version/interface".into()); }
     let source = Path::new(&value.frontend_source);
     if source.is_absolute() || source.components().any(|v| !matches!(v, std::path::Component::Normal(_))) || !value.frontend_source.starts_with("frontend/") { return Err("frontend source must stay inside its module".into()); }
     if value.frontend_exports.is_empty() || value.frontend_exports.iter().any(|v| v.is_empty() || !v.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')) { return Err("invalid frontend exports".into()); }
+    if value.frontend_exports.iter().collect::<BTreeSet<_>>().len() != value.frontend_exports.len()
+        || value.frontend_workspace.as_ref().is_some_and(|name| !value.frontend_exports.contains(name)) {
+        return Err("invalid frontend workspace or duplicate exports".into());
+    }
+    if value.capabilities.keys().chain(value.workspaces.keys()).any(|code| primitives::cid::code::institution_code_from_str(code).is_none()) {
+        return Err("unknown institution capability code".into());
+    }
+    if !value.capabilities.keys().eq(value.workspaces.keys()) {
+        return Err("module capability and workspace ownership mismatch".into());
+    }
+    for action in &value.actions {
+        let action = crate::authentication::operation_auth::parse_action_type(action).map_err(|_| "invalid module action")?;
+        if !action.requires_module() { return Err("module cannot replace a platform action".into()); }
+    }
     route_keys(&value.routes)?;
     for values in [&value.purposes, &value.actions] {
         if values.iter().collect::<BTreeSet<_>>().len() != values.len() || values.iter().any(|v| v.is_empty()) { return Err("duplicate module ownership".into()); }
@@ -213,12 +234,32 @@ pub(crate) fn validate_description(value: &ModuleDescription) -> Result<(), Stri
 fn route_keys(routes: &[RouteDescription]) -> Result<BTreeSet<(String, String)>, String> {
     let mut keys = BTreeSet::new();
     for route in routes {
-        if !matches!(route.group.as_str(), "auth" | "admin" | "public" | "app") || !route.path.starts_with("/api/") || route.methods.is_empty() || route.body_limit == 0 || route.body_limit > crate::documents::MAX_REQUEST_BYTES { return Err("invalid module route declaration".into()); }
-        for method in &route.methods {
-            if !matches!(method.as_str(), "GET" | "POST" | "PATCH" | "PUT" | "DELETE" | "HEAD" | "OPTIONS") || !keys.insert((method.clone(), route.path.clone())) { return Err("duplicate or unsupported route method".into()); }
+        if !matches!(route.group.as_str(), "auth" | "admin" | "public" | "app") || !route.path.starts_with("/api/")
+            || route.methods.is_empty() || route.body_limit == 0 || route.body_limit > crate::documents::MAX_REQUEST_BYTES {
+            return Err("invalid module route declaration".into());
         }
-    } Ok(keys)
+        let mut pattern = Vec::new();
+        for part in route.path.split('/') {
+            if part.starts_with('{') && part.ends_with('}') && part.len() > 2
+                && part[1..part.len()-1].bytes().all(|v| v.is_ascii_alphanumeric() || v == b'_') { pattern.push("{}"); }
+            else if part.bytes().all(|v| v.is_ascii_alphanumeric() || matches!(v, b'-' | b'_' | b'.')) { pattern.push(part); }
+            else { return Err("unsupported module route pattern".into()); }
+        }
+        let pattern = pattern.join("/");
+        let mut methods = BTreeSet::new();
+        for method in &route.methods {
+            if !matches!(method.as_str(), "GET" | "POST" | "PATCH" | "PUT" | "DELETE" | "HEAD" | "OPTIONS") || !methods.insert(method.as_str()) {
+                return Err("duplicate or unsupported route method".into());
+            }
+        }
+        if methods.contains("GET") { methods.insert("HEAD"); }
+        for method in methods {
+            if !keys.insert((method.into(), pattern.clone())) { return Err("module route conflict".into()); }
+        }
+    }
+    Ok(keys)
 }
+
 fn read_description(path: &Path) -> Result<ModuleDescription, String> {
     let mut child = Command::new(path).arg("--describe").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
     let stdout = child.stdout.take().ok_or("module description pipe missing")?;
@@ -234,7 +275,10 @@ fn read_description(path: &Path) -> Result<ModuleDescription, String> {
     serde_json::from_slice(&bytes).map_err(|e| format!("invalid module description: {e}"))
 }
 fn verify_frontend(directory: &Path, module: &ModuleDescription) -> Result<(), String> {
-    let script = directory.join("module.js");
+    let metadata = std::fs::symlink_metadata(directory).map_err(|e| e.to_string())?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() { return Err("module frontend must be an actual directory".into()); }
+    for name in ["module.js", "module.css"] {
+    let script = directory.join(name);
     let metadata = std::fs::symlink_metadata(&script).map_err(|e| e.to_string())?;
     if !metadata.is_file() || metadata.file_type().is_symlink() { return Err("module frontend must be a regular file".into()); }
     let text = std::fs::read_to_string(script).map_err(|e| e.to_string())?;
@@ -242,6 +286,7 @@ fn verify_frontend(directory: &Path, module: &ModuleDescription) -> Result<(), S
     let json = line.strip_prefix("/*onchina:").and_then(|v| v.strip_suffix("*/")).ok_or("module frontend header invalid")?;
     let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     if value["id"] != module.id || value["version"] != module.version || value["interface_version"] != module.interface_version { return Err("module backend/frontend versions mismatch".into()); }
+    }
     Ok(())
 }
 pub(crate) async fn forward_request(state: &AppState, owner: &str, request: Request, limit: usize) -> Response {
@@ -254,7 +299,7 @@ pub(crate) async fn forward_request(state: &AppState, owner: &str, request: Requ
     match remote.client.request(parts.method, target).headers(headers).body(bytes).send().await {
         Ok(response) => {
             let status = response.status(); let mut headers = response.headers().clone();
-            for name in ["connection", "transfer-encoding", "content-length", "upgrade", "te", "trailer"] { headers.remove(name); }
+            for name in ["connection", "transfer-encoding", "upgrade", "te", "trailer"] { headers.remove(name); }
             match response.bytes().await {
                 Ok(bytes) => (status, headers, Body::from(bytes)).into_response(),
                 Err(error) => { tracing::warn!(module = %owner, error = %error, "module response failed"); api_error(StatusCode::BAD_GATEWAY, 1502, "module response unavailable") }
@@ -307,8 +352,76 @@ mod tests {
         assert!(route_keys(&[route.clone()]).is_ok()); assert!(route_keys(&[route.clone(), route]).is_err());
     }
     #[test]
+    fn implicit_head_and_parameter_names_cannot_bypass_conflicts() {
+        let get = RouteDescription { group:"admin".into(), path:"/api/example/{id}".into(), methods:vec!["GET".into()], body_limit:1 };
+        let head = RouteDescription { methods:vec!["HEAD".into()], path:"/api/example/{cid_number}".into(), ..get.clone() };
+        assert!(route_keys(&[get.clone(), head]).is_err());
+        let invalid = RouteDescription { path:"/api/example/{*all}".into(), ..get.clone() };
+        assert!(route_keys(&[invalid]).is_err());
+        let too_large = RouteDescription { body_limit:crate::documents::MAX_REQUEST_BYTES + 1, ..get };
+        assert!(route_keys(&[too_large]).is_err());
+    }
+    #[test]
+    fn incompatible_metadata_and_core_action_replacement_are_rejected() {
+        let mut description = ModuleDescription { id:"example".into(),version:"1.0.0".into(),interface_version:model::MODULE_INTERFACE_VERSION,
+            frontend_source:"frontend/Workspace.tsx".into(),frontend_exports:vec!["Workspace".into()],frontend_workspace:Some("Workspace".into()),
+            instance_workspace:false,routes:Vec::new(),purposes:Vec::new(),actions:Vec::new(),capabilities:BTreeMap::new(),workspaces:BTreeMap::new() };
+        assert!(validate_description(&description).is_ok());
+        description.interface_version += 1; assert!(validate_description(&description).is_err()); description.interface_version -= 1;
+        description.frontend_workspace = Some("Missing".into()); assert!(validate_description(&description).is_err()); description.frontend_workspace = None;
+        description.actions.push("NODE_BINDING_UNBIND".into()); assert!(validate_description(&description).is_err());
+        description.actions = vec!["EXAMPLE_OPERATION".into()]; assert!(validate_description(&description).is_ok());
+        description.capabilities.insert("FRG".into(), capability::EMPTY); assert!(validate_description(&description).is_err()); description.capabilities.clear();
+        description.frontend_source = "../frontend/Workspace.tsx".into(); assert!(validate_description(&description).is_err());
+    }
+    #[test]
     fn identifiers_reject_paths() {
         for id in ["registry", "legislation", "private", "judicial"] { assert!(valid_id(id)); }
         for id in ["", "../registry", "/tmp/module", "Registry", "a-b"] { assert!(!valid_id(id)); }
+    }
+}
+
+/// 测试金标只用于输入夹具；各二进制另核验真实模块输出，不能把夹具当生产声明。
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    pub(crate) fn fixture_description() -> ModuleDescription {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("layout.fixture.json")).unwrap();
+        let mut capabilities = BTreeMap::new();
+        let mut workspaces = BTreeMap::new();
+        for case in fixture["capabilityCases"].as_array().unwrap() {
+            let mut value = serde_json::to_value(capability::EMPTY).unwrap();
+            for flag in case["flags"].as_array().unwrap() { value[flag.as_str().unwrap()] = serde_json::Value::Bool(true); }
+            let code = case["code"].as_str().unwrap().to_string();
+            capabilities.insert(code.clone(), serde_json::from_value(value).unwrap());
+            if !case["kind"].is_null() {
+                workspaces.insert(code, WorkspaceDeclaration { kind: serde_json::from_value(case["kind"].clone()).unwrap(), sections: Vec::new() });
+            }
+        }
+        ModuleDescription {
+            id: "fixture".into(), version: "1.0.0".into(), interface_version: model::MODULE_INTERFACE_VERSION,
+            frontend_source: "frontend/Fixture.tsx".into(), frontend_exports: vec!["Fixture".into()], frontend_workspace: None,
+            instance_workspace: false, routes: Vec::new(), purposes: Vec::new(), actions: Vec::new(), capabilities, workspaces,
+        }
+    }
+    struct FixtureModule;
+    #[async_trait::async_trait]
+    impl ModuleBusiness for FixtureModule {
+        fn describe(&self) -> ModuleDescription { fixture_description() }
+        fn routes(&self) -> Vec<ModuleRoute> { Vec::new() }
+    }
+    pub(crate) fn fixture_catalog() -> ModuleCatalog { ModuleCatalog::new(Some(Arc::new(FixtureModule))) }
+
+    pub(crate) fn assert_actual_module(module: &dyn ModuleBusiness) {
+        let description = module.describe();
+        validate_description(&description).unwrap();
+        assert_eq!(description.routes, module.routes().into_iter().map(|route| route.description).collect::<Vec<_>>());
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("layout.fixture.json")).unwrap();
+        let expected = fixture_description();
+        for case in fixture["capabilityCases"].as_array().unwrap().iter().filter(|case| case["owner"].as_str() == Some(description.id.as_str())) {
+            let code = case["code"].as_str().unwrap();
+            assert_eq!(serde_json::to_value(description.capabilities.get(code).unwrap()).unwrap(), serde_json::to_value(expected.capabilities[code]).unwrap(), "{code}");
+            assert_eq!(serde_json::to_value(description.workspaces.get(code).unwrap().kind).unwrap(), case["kind"]);
+        }
     }
 }

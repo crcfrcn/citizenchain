@@ -1,7 +1,7 @@
 //! 既有司法工作台分区，文字、顺序及能力条件保持不变。
 use crate::modules::capability::CapabilitySet;
 use crate::workspace::manifest::{action, section};
-use crate::workspace::model::{WorkspaceAction, WorkspaceSection, WorkspaceSectionKind};
+use crate::workspace::model::{WorkspaceSection, WorkspaceSectionKind};
 #[path = "operations.rs"]
 mod operations;
 
@@ -35,4 +35,3 @@ pub(crate) fn judicial_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSec
         ),
     ]
 }
-

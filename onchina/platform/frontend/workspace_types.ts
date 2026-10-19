@@ -9,24 +9,11 @@ export type WorkspaceKind =
   | 'unincorporated';
 
 /** 由后端按准确机构 CID 下发的实例级模块，前端不得按机构码自行推断。 */
-export type WorkspaceModule = 'platform_membership_price';
+export type WorkspaceModule = string;
 
 export type WorkspaceSectionKind = 'operations' | 'display' | 'records';
 
-export type WorkspaceAction =
-  | 'register_citizen'
-  | 'register_institution'
-  | 'register_private'
-  | 'register_education'
-  | 'manage_registry_admins'
-  | 'manage_own_admins'
-  | 'view_own_admins'
-  | 'view_legislation'
-  | 'propose_legislation'
-  | 'cast_representative_vote'
-  | 'sign_legislation'
-  | 'view_institution_profile'
-  | 'view_operation_records';
+export type WorkspaceAction = string;
 
 export type WorkspaceActionItem = {
   action: WorkspaceAction;

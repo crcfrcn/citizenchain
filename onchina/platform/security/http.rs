@@ -217,8 +217,8 @@ pub(crate) async fn health(State(state): State<AppState>) -> impl IntoResponse {
             status: if db_ok { "UP" } else { "DEGRADED" },
             checked_at: Utc::now().timestamp(),
             modules: state.modules.assets(),
-            module_id: state.modules.local.as_ref().map(|m| m.describe().id),
-            module_version: state.modules.local.as_ref().map(|m| m.describe().version),
+            module_id: state.modules.local_description().map(|m| m.id.clone()),
+            module_version: state.modules.local_description().map(|m| m.version.clone()),
         },
     })
 }

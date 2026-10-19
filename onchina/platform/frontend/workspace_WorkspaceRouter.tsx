@@ -5,10 +5,8 @@ import type { AdminAuth } from './authentication_types';
 import type { CapabilitySet } from './authentication_AuthContext';
 import type { CidMetaResult } from './china_api';
 import { GenericWorkspace } from './workspace_GenericWorkspace';
-import { JudicialWorkspace } from '../../judicial/frontend/judicial_JudicialWorkspace';
-import { PrivateInstitutionWorkspace } from '../../private/frontend/Workspace';
-import { RegistryWorkspace } from '../../registry/frontend/Workspace';
 
+import { workspaceView } from './platform_capabilityMap';
 export type WorkspaceRouterProps = {
   auth: AdminAuth;
   capabilities: CapabilitySet;
@@ -28,11 +26,10 @@ export function WorkspaceRouter({
     return <Alert type="error" showIcon message="后端未返回机构工作台，已拒绝加载页面" />;
   }
   const authWithWorkspace = auth;
-  const workspaceKind = auth.workspace.workspace_kind;
-
-  if (workspaceKind === 'registry') {
+  const RegisteredWorkspace = workspaceView<WorkspaceRouterProps>(authWithWorkspace);
+  if (RegisteredWorkspace) {
     return (
-      <RegistryWorkspace
+      <RegisteredWorkspace
         auth={authWithWorkspace}
         capabilities={capabilities}
         passkeyRegistered={passkeyRegistered}
@@ -41,11 +38,9 @@ export function WorkspaceRouter({
       />
     );
   }
-  if (workspaceKind === 'judicial') {
-    return <JudicialWorkspace auth={authWithWorkspace} />;
-  }
-  if (workspaceKind === 'private') {
-    return <PrivateInstitutionWorkspace auth={authWithWorkspace} />;
+  // 原专属工作台缺失时继续拒绝加载，不能静默改为别的机构页面。
+  if (['registry', 'judicial', 'private'].includes(auth.workspace.workspace_kind)) {
+    throw new Error('所需模块未装载');
   }
   return <GenericWorkspace auth={authWithWorkspace} />;
 }

@@ -141,3 +141,95 @@ fn duplicate_admin_account_error(institution_code: &str) -> String {
 fn response_to_string(_resp: axum::response::Response) -> String {
     "http:bad_request:invalid request".to_string()
 }
+
+// 原安全动作业务分支归所属模块，共用哈希和挑战协议仍在平台。
+use crate::authentication::actions::{ActionPreview, preview_security_action, preview_node_binding_unbind_conn, precheck_institution_target_scope_conn, hash_serialized, apply_node_binding_unbind_conn};
+use crate::authentication::action_sign::hash_json;
+use crate::authentication::operation_auth::{AdminActionType, parse_action_type};
+use crate::authentication::security_model::AdminActionChallenge;
+use crate::registry::institutions::registration::precheck_institution_create_scope;
+pub(crate) fn preview_action_conn(
+    conn: &mut impl postgres::GenericClient,
+    ctx: &AdminAuthContext,
+    action_type: &AdminActionType,
+    payload: &serde_json::Value,
+) -> Result<ActionPreview, String> {
+    match action_type {
+        AdminActionType::CreateCityRegistry => {
+            let input: CreateCityRegistryAdminInput = serde_json::from_value(payload.clone())
+                .map_err(|_| "http:bad_request:invalid create payload".to_string())?;
+            let (account_id, family_name, given_name, city, creator_account_id) =
+                validate_create_city_registry_conn(conn, ctx, &input)?;
+            let after = json!({
+                "institution_code": "CREG",
+                "account_id": account_id,
+                "family_name": family_name,
+                "given_name": given_name,
+                "city_name": city,
+                "creator_account_id": creator_account_id,
+            });
+            let after_hash = hash_json(&after);
+            Ok(ActionPreview {
+                before_hash: "none".to_string(),
+                after_hash: after_hash.clone(),
+                target: account_id.clone(),
+                auth_type: action_type.auth_type(),
+            })
+        }
+        AdminActionType::DeleteCityRegistry => {
+            let input: CityRegistryIdPayload = serde_json::from_value(payload.clone())
+                .map_err(|_| "http:bad_request:invalid delete payload".to_string())?;
+            let city_registry = require_manageable_city_registry_conn(conn, ctx, input.id)?;
+            let before = city_registry_row_from_user_conn(conn, &city_registry)?;
+            let after =
+                json!({ "deleted": true, "id": input.id, "account_id": city_registry.account_id });
+            let before_hash = hash_serialized(&before);
+            let after_hash = hash_json(&after);
+            Ok(ActionPreview {
+                before_hash,
+                after_hash,
+                target: city_registry.account_id,
+                auth_type: action_type.auth_type(),
+            })
+        }
+        AdminActionType::NodeBindingUnbind => preview_node_binding_unbind_conn(conn, action_type),
+        AdminActionType::InstitutionCreate => {
+            precheck_institution_create_scope(ctx, payload)?;
+            preview_security_action(action_type, payload)
+        }
+        AdminActionType::InstitutionCreateAccount
+        | AdminActionType::InstitutionDeleteAccount
+        | AdminActionType::InstitutionDeleteDocument => {
+            precheck_institution_target_scope_conn(conn, ctx, payload)?;
+            preview_security_action(action_type, payload)
+        }
+        _ => preview_security_action(action_type, payload),
+    }
+}
+pub(crate) fn apply_action_conn(
+    conn: &mut impl postgres::GenericClient,
+    ctx: &AdminAuthContext,
+    challenge: &AdminActionChallenge,
+) -> Result<serde_json::Value, String> {
+    let action_type = parse_action_type(challenge.action_type.as_str())
+        .map_err(|_| "http:bad_request:unknown action_type".to_string())?;
+    match action_type {
+        AdminActionType::CreateCityRegistry => {
+            let input: CreateCityRegistryAdminInput =
+                serde_json::from_value(challenge.request_payload.clone())
+                    .map_err(|_| "http:bad_request:invalid create payload".to_string())?;
+            apply_create_city_registry_conn(conn, ctx, &input)
+        }
+        AdminActionType::DeleteCityRegistry => {
+            let input: CityRegistryIdPayload =
+                serde_json::from_value(challenge.request_payload.clone())
+                    .map_err(|_| "http:bad_request:invalid delete payload".to_string())?;
+            apply_delete_city_registry_conn(conn, ctx, &input)
+        }
+        AdminActionType::NodeBindingUnbind => apply_node_binding_unbind_conn(conn),
+        _ => Err(
+            "http:bad_request:business action cannot be applied by admin governance endpoint"
+                .to_string(),
+        ),
+    }
+}

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "npm run build && vite preview --host localhost --port 5179 --strictPort",
     "dev:raw": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node ../../../scripts/onchina.mjs frontend",
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "preview": "vite preview"
