@@ -2694,4 +2694,4 @@ Runtime的正式候选及测试依赖WASM统一归scripts/runtime.mjs，节点�
 
 正式候选从可信HTTPS/WSS JSON-RPC读取冻结链身份及准确finalized块的两个版本，各加1后只写临时编译输入；原Runtime和Node目录不写。WASM派发先复用同一个readRuntimeTarget取得整数目标，GitHub再核对链基线及输入，三件实际产物验真后以同一目标spec_version发布，禁止另套X.Y.Z。地址通过仓库变量CITIZENCHAIN_RUNTIME_RPC_URL交付，派发调用方现有授权需可读该变量，调用方和Runner均需可达；不新增产品配置页、不依赖控制台Keychain、不把本机回环地址用于GitHub。历史公民服务端GET尚不返回transaction_version，本轮不修改该接口、Access或其它授权；构建输入必须提供完整双版本。缺失配置或读取失败直接中止，不伪造部署版本、不自动扩权。正式三WASM产物及版本记录验真、临时源码清理/退出未确认保留遵循CitizenChainRuntime.md。
 
-现有QR协议repo_guard仅将WASM编译入口断言切换至runtime.mjs build，保留阶段/依赖/收尾拒绝用例；不修改QR协议。新增脚本与现有配置内嵌测试维护版本、夹具和断言。当前仅完成源码与文档维护，未执行测试、类型检查、编译、安装或升级，不宣称本机或GitHub验收通过。
+现有QR协议repo_guard维护WASM唯一编译入口、整数版本和发布记录连通断言，保留阶段/依赖/收尾拒绝用例；不修改QR协议。runtime.mjs与现有配置内嵌测试维护版本、夹具和断言，清理失败夹具核对具体错误原因。源码及回归合同不代表GitHub编译、安装或升级验收通过，各阶段以实际执行记录为准。

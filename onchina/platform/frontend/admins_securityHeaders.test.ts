@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, normalize } from 'node:path';
 
 // 三档鉴权在前端的头部组装 + 与 Rust 后端的 header 名跨端锁。
 //
@@ -254,8 +254,10 @@ describe('跨目录前端项目配置', () => {
     const node = parse(nodePath);
     expect(node.errors).toEqual([]);
     expect(node.options.types).toContain('node');
-    expect(node.fileNames).toContain(join(import.meta.dirname, 'admins_securityHeaders.test.ts'));
-    expect(node.fileNames).toContain(join(import.meta.dirname, 'vitest.config.ts'));
+    // TypeScript返回斜线路径，先转为当前平台格式再核对完整文件身份。
+    const nodeFiles = node.fileNames.map(normalize);
+    expect(nodeFiles).toContain(join(import.meta.dirname, 'admins_securityHeaders.test.ts'));
+    expect(nodeFiles).toContain(join(import.meta.dirname, 'vitest.config.ts'));
     const root = ts.readConfigFile(join(import.meta.dirname, '../../tsconfig.json'), ts.sys.readFile);
     expect(root.config.files).toEqual([]);
     expect(root.config.references.map((entry: { path: string }) => entry.path)).toEqual(['./platform/frontend/tsconfig.json', './platform/frontend/tsconfig.node.json']);
