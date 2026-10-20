@@ -3214,11 +3214,11 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 
 ## Runtime 自身版本与 WASM 自动化
 
-Runtime 协议版本仅归 runtime/src/lib.rs 的 VERSION，源码与对应业务测试由 Runtime 自己维护。交付的 X.Y.Z 只用于本平台 Run、Job、Artifact、Tag、Release，不映射或改写 spec_version、transaction_version 等协议值。编译不查询线上链来生成协议版本，也不修改本轮工程副本的 Runtime 版本。
+Runtime正式候选的唯一GitHub构建入口为 scripts/runtime.mjs build；读取可信链上同一finalized块的spec_version与transaction_version，分别加1后构建。交付的X.Y.Z仍只用于本平台Run、Job、Artifact、Tag、Release，与两个协议版本分开。仓库Runtime及Node源码不写入，只有本轮临时编译输入替换VERSION内两个数字字面量；不修改升级模块、授权、表决或宪法冻结规则。
 
-公民链统一采用最简单的升级政策：每次正式Runtime升级，spec_version和transaction_version分别以此前实际部署值加1，不再按本次改动种类决定是否递增。两者不要求数值相等；同一次升级的开发、测试、重复编译和交付只使用同一组确定值，不重复加号。由升级准备在现有VERSION字段中填写，钱包chain_constants.dart同步支持该次transaction_version；不新增计数器、版本生成器或编译自动写回机制。升级前核对真实部署基线，不能拿源码中的0代替已运行节点版本，也不重建或改写创世数据。
+每轮正式构建从实际链版本各加1，两者不要求数值相等；同一基线重复构建仍得到同一组目标值，不从上次编译结果累加。脚本在编译前复核链上版本基线，变化即失败；实际升级仍需原授权流程。GitHub仓库变量CITIZENCHAIN_RUNTIME_RPC_URL提供Runner可访问的可信HTTPS/WSS JSON-RPC地址，正常校验证书与主机名，不依赖本机Keychain、回环节点或控制台；缺失、不可达、错链、缺字段、非法数值或溢出均失败，不猜版本、不默认0。历史公开runtime-target GET仅有spec_version，不可当作完整双版本输入；本轮不修改公民服务端接口或授权。钱包后续按实际升级版本同步支持，本轮不修改钱包。
 
-既有 .github/workflows/wasm.yml 调用 scripts/build.mjs，使用本仓 Cargo 原锁及固定 SDK，从源码生成 citizenchain.wasm、citizenchain.compact.wasm、citizenchain.compact.compressed.wasm。RuntimeVersion由现有源码和官方WasmBuilder生成，交付命名不参与协议版本写入。生产Job及Release按三件文件的原始字节SHA-256、大小和来源Run逐件核对，不使用目录摘要。正式附件回读后发布；整个原Run completed后由既有Workflow的repository_dispatch收尾模式处理历史，不依赖本机观察进程，恢复只补原Run收尾。完整调用与终态边界归 CitizenChainNode.md 当前合同。
+既有 .github/workflows/wasm.yml只调用scripts/runtime.mjs test及build，使用原Cargo锁和固定SDK生成citizenchain.wasm、citizenchain.compact.wasm、citizenchain.compact.compressed.wasm。四个节点平台的测试WASM也只由同一文件test子命令调度，原真实测试及版本0等测试金标不改；测试夹具不作为正式升级候选发布。build.mjs仅保留节点/模块构建，旧build.mjs wasm命令拒绝，不转发。测试不跳过，正式编译只在其后进行。正式构建仅复制Git已跟踪普通文件至target/build/wasm/source，排除产物/机密和临时目录，使用官方WasmBuilder编译，不在产物上补丁改号。
 
 Runtime开发升级的候选消费、冷签及实际链交易不属于本轮编译入口重建，本轮不改其授权和执行链，也不宣称升级验收通过。正式WASM交付不等同实际升级；后续升级必须核对实际协议版本并按准确授权执行，不能用交付SemVer代替Runtime版本。
 
@@ -3229,4 +3229,9 @@ Runtime开发升级的候选消费、冷签及实际链交易不属于本轮编�
 
 宪法/国家地域的显式NATIONAL编码为00 00 00 00，与原u32=0逐字节相同，不是解析失败默认值。Laws和LawsByScope存储名称、前缀、哈希算法、宪法原键/值、Law字段顺序及后续偏移不变；创世宪法law_id=0、国家立法院归属、众议会发起、众参两院表决和全部冻结条款保持。节点守卫继续按原u32=0冻结布局读取，无需修改。当前只有创世宪法，不增加普通法律迁移、兼容分支或第二套索引，不重建创世数据。
 
-原始u32=0法律记录金标和独立拼装的宪法索引键断言保留，并覆盖不同省同市号隔离、非法地域、CID与地域不符、最终写入回调复校验及第1001部法律。transaction_version是框架RuntimeVersion原生字段，交易使用框架CheckTxVersion；本次参数类型变化按上述统一升级政策处理，不再单独询问是否提高两个版本。地域源码和配套维护已完成，正式升级时再依据真实部署基线填写该次版本。本轮保留版本数值，不根据仓库值推断运行节点版本；未执行测试、类型检查、编译、守卫验收、安装或链升级。
+原始u32=0法律记录金标和独立拼装的宪法索引键断言保留，并覆盖不同省同市号隔离、非法地域、CID与地域不符、最终写入回调复校验及第1001部法律。transaction_version是框架RuntimeVersion原生字段，交易使用框架CheckTxVersion；本次参数类型变化按上述统一升级政策处理，不再单独询问是否提高两个版本。地域源码和配套维护已完成，候选由scripts/runtime.mjs构建时依据真实部署基线派生该次版本。本轮保留版本数值，不根据仓库值推断运行节点版本；未执行测试、类型检查、编译、守卫验收、安装或链升级。
+
+
+Runtime产物验收由runtime.mjs读取三份实际WASM的runtime_version段，支持SDK原压缩格式并沿用其50MiB解压边界。三个产物必须属于citizenchain且双版本均与本轮目标一致；缺失、损坏、重复版本段、版本不符等失败，不从文件名或Tag推断。现有构建输出及Release记录登记source_sha、genesis_hash、base_block_hash、spec_name、基线及候选两个版本，原三资产文件名/摘要/来源Run和发布回读保持。正常退出清理本轮临时源码；工具被信号中止或退出未确认时保留现场并阻止Workflow清理。
+
+配套回归位于runtime.mjs、config.mjs原内嵌测试及协议所有者repo_guard.rs现有入口断言，覆盖分别加1、0、溢出、同基线重试、声明唯一性、实际原始/压缩WASM、错误链/缺字段、原源码不变、旧入口拒绝、GitHub限定和工作流顺序。本节描述源码实现，尚未运行测试、类型检查、语法检查、编译、GitHub自动化、安装或链升级，不构成验收通过。

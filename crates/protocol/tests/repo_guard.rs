@@ -80,8 +80,59 @@ fn tracked_source_scope_rejects_repository_parent() -> Result<(), Box<dyn Error>
     Ok(())
 }
 
+// 四端只有一个原编译Run；最后Job不能再派发、重编、取消或吞掉清理失败。
+fn validate_native_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(), Box<dyn Error>> {
+    let jobs = document["jobs"].as_mapping().ok_or("Workflow缺少jobs映射")?;
+    let names = ["prepare", "build", "release", "cleanup"];
+    let triggers = document["on"].as_mapping().ok_or("缺少触发声明")?;
+    let cleanup = &document["jobs"]["cleanup"];
+    let dependencies = cleanup["needs"].as_sequence().ok_or("清理缺少依赖")?;
+    if jobs.len() != names.len() || names.iter().any(|name| !document["jobs"][*name].is_mapping())
+        || jobs.keys().last().and_then(serde_yaml::Value::as_str) != Some("cleanup")
+        || triggers.len() != 1 || !document["on"]["workflow_dispatch"].is_mapping()
+        || document["jobs"]["build"]["needs"].as_str() != Some("prepare")
+        || document["jobs"]["release"]["needs"].as_str() != Some("build")
+        || dependencies.iter().map(serde_yaml::Value::as_str).collect::<Vec<_>>()
+            != vec![Some("prepare"), Some("build"), Some("release")]
+        || cleanup["if"].as_str() != Some("${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}")
+        || !(cleanup["continue-on-error"].is_null() || cleanup["continue-on-error"].as_bool() == Some(false))
+        || cleanup["permissions"]["actions"].as_str() != Some("write")
+        || cleanup["permissions"]["contents"].as_str() != Some("write")
+    {
+        return Err("四端必须在同一原Run中执行准备、编译、发布及末尾清理".into());
+    }
+    let command = format!("node scripts/build.mjs {platform}");
+    let mut calls = 0;
+    let mut cleanup_script = false;
+    for name in names {
+        let steps = document["jobs"][name]["steps"].as_sequence().ok_or("Job缺少步骤")?;
+        for step in steps {
+            let run = step["run"].as_str().unwrap_or("");
+            let script = step["with"]["script"].as_str().unwrap_or("");
+            if run.contains("scripts/build.mjs") || script.contains("scripts/build.mjs") {
+                if name != "build" || !run.lines().any(|line| line.trim() == command) {
+                    return Err("只有build Job可调用本平台编译入口".into());
+                }
+                calls += 1;
+            }
+            if name == "cleanup" {
+                if !(step["continue-on-error"].is_null() || step["continue-on-error"].as_bool() == Some(false))
+                    || ["createDispatchEvent", "createWorkflowDispatch", "dispatches", "/rerun", "reRunWorkflow", "reRunJob", "reRunFailedJobs", "/cancel", "cancelWorkflowRun", "forceCancelWorkflowRun"]
+                        .iter().any(|value| run.contains(value) || script.contains(value))
+                {
+                    return Err("清理不能派发、重跑、取消或忽略失败".into());
+                }
+                cleanup_script |= script.contains("cfg.nativeCleanupPlan") && script.contains("deleteWorkflowRun");
+            }
+        }
+    }
+    if calls != 1 || !cleanup_script { return Err("编译或真实清理入口缺失".into()); }
+    Ok(())
+}
+
 // 按实际YAML映射验证职责与依赖，不依赖Job的文本排列顺序。
 fn validate_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(), Box<dyn Error>> {
+    if platform != "wasm" { return validate_native_workflow(document, platform); }
     let jobs = document["jobs"].as_mapping().ok_or("Workflow缺少jobs映射")?;
     let names = ["prepare", "build", "release", "request-finalize", "finalize"];
     if jobs.len() != names.len() || names.iter().any(|name| !document["jobs"][*name].is_mapping())
@@ -92,14 +143,21 @@ fn validate_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(),
     {
         return Err("Workflow阶段或编译发布依赖不符".into());
     }
-    let command = format!("node scripts/build.mjs {platform}");
+    let command = if platform == "wasm" {
+        "node scripts/runtime.mjs build".to_string()
+    } else {
+        format!("node scripts/build.mjs {platform}")
+    };
     let mut compiler_calls = 0;
     for name in names {
         let steps = document["jobs"][name]["steps"].as_sequence().ok_or("Job缺少步骤")?;
         for step in steps {
             let run = step["run"].as_str().unwrap_or("");
             let script = step["with"]["script"].as_str().unwrap_or("");
-            if run.contains("scripts/build.mjs") || script.contains("scripts/build.mjs") {
+            if run.contains("scripts/build.mjs") || script.contains("scripts/build.mjs")
+                || run.contains("scripts/runtime.mjs build")
+                || script.contains("scripts/runtime.mjs build")
+            {
                 if name != "build" || !run.lines().any(|line| line.trim() == command) {
                     return Err("只有build Job可调用本平台编译入口".into());
                 }
@@ -133,6 +191,7 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
         [".tata", "-flow"].concat(),
         [".publish", "'"].concat(),
     ];
+    let mut native_cleanup: Option<String> = None;
     for entry in entries {
         assert!(entry.ends_with(".yml") && entry != "repository.yml");
         let workflow = fs::read_to_string(workflow_root.join(&entry))
@@ -153,6 +212,22 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
         };
         let document: serde_yaml::Value = serde_yaml::from_str(&workflow)?;
         validate_workflow(&document, platform)?;
+        if platform != "wasm" {
+            let steps = document["jobs"]["cleanup"]["steps"].as_sequence().ok_or("清理缺少步骤")?;
+            let script = steps.last().and_then(|step| step["with"]["script"].as_str()).ok_or("清理缺少正文")?;
+            if let Some(expected) = &native_cleanup { assert_eq!(script, expected, "四端清理正文必须相同"); }
+            else { native_cleanup = Some(script.to_string()); }
+            let mut detached = document.clone();
+            detached["on"].as_mapping_mut().ok_or("缺少触发映射")?
+                .insert(serde_yaml::Value::String("repository_dispatch".into()), serde_yaml::Value::Mapping(Default::default()));
+            assert!(validate_workflow(&detached, platform).is_err());
+            let mut ignored = document.clone();
+            ignored["jobs"]["cleanup"]["continue-on-error"] = serde_yaml::Value::Bool(true);
+            assert!(validate_workflow(&ignored, platform).is_err());
+            let mut missing_need = document.clone();
+            missing_need["jobs"]["cleanup"]["needs"] = serde_yaml::Value::Sequence(vec![serde_yaml::Value::String("build".into())]);
+            assert!(validate_workflow(&missing_need, platform).is_err());
+        }
         // 缺阶段、发布绕过编译、收尾误编译都必须继续被守卫拒绝。
         let mut missing = document.clone();
         missing["jobs"].as_mapping_mut().ok_or("缺少jobs映射")?
@@ -162,9 +237,23 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
         bypass["jobs"]["release"]["needs"] = serde_yaml::Value::String("prepare".into());
         assert!(validate_workflow(&bypass, platform).is_err());
         let mut recompile = document.clone();
-        recompile["jobs"]["finalize"]["steps"][0]["run"] =
-            serde_yaml::Value::String(format!("node scripts/build.mjs {platform}"));
+        let cleanup_name = if platform == "wasm" { "finalize" } else { "cleanup" };
+        recompile["jobs"][cleanup_name]["steps"][0]["run"] =
+            serde_yaml::Value::String(if platform == "wasm" {
+                "node scripts/runtime.mjs build".to_string()
+            } else {
+                format!("node scripts/build.mjs {platform}")
+            });
         assert!(validate_workflow(&recompile, platform).is_err());
+        if platform == "wasm" {
+            let mut old_entry = document.clone();
+            let steps = old_entry["jobs"]["build"]["steps"].as_sequence_mut().ok_or("缺少build步骤")?;
+            let compile = steps.iter_mut().find(|step| {
+                step["run"].as_str().unwrap_or("").contains("node scripts/runtime.mjs build")
+            }).ok_or("缺少Runtime编译步骤")?;
+            compile["run"] = serde_yaml::Value::String("node scripts/build.mjs wasm".into());
+            assert!(validate_workflow(&old_entry, platform).is_err());
+        }
     }
     Ok(())
 }

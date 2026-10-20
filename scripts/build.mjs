@@ -51,8 +51,8 @@ export function platformCargoEnvironment(platform, work, environment) {
     CARGO_TARGET_DIR: join(work, 'cargo-target'), CITIZENCHAIN_SOURCE_ROOT: root, CITIZENCHAIN_WORK_DIR: work,
     CITIZENCHAIN_BUILD_PLATFORM: platform};
   for (const key of Object.keys(env)) if (key.startsWith('APPLE_') || /(?:^|_)(?:TOKEN|PASSWORD|PRIVATE_KEY|SECRET)$/u.test(key) || ['GH_TOKEN', 'GITHUB_TOKEN', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_TEST_CONTEXT', 'WASM_FILE', 'DOCS_RS', 'SKIP_WASM_BUILD', 'WASM_BUILD_FROM_SOURCE', 'CITIZENCHAIN_PRODUCTION_WASM_BUILD'].includes(key) || /^SKIP_.+_WASM_BUILD$/u.test(key)) delete env[key];
-  if (platform === 'wasm') Object.assign(env, {WASM_BUILD_FROM_SOURCE: '1', CITIZENCHAIN_PRODUCTION_WASM_BUILD: '1'});
-  else env.SKIP_WASM_BUILD = '1';
+  // 节点/模块构建不自行编译WASM；Runtime专属入口按其模式显式开启。
+  env.SKIP_WASM_BUILD = '1';
   if(platform==='windows'){
     const searchPath=environment.PATH||environment.Path;
     for(const key of Object.keys(env))if(key.toUpperCase()==='PATH')delete env[key];
@@ -132,6 +132,7 @@ async function signResources(files, work, env) {
   }
 }
 async function compile(platform) {
+  if (platform === 'wasm') fail('Runtime请使用 scripts/runtime.mjs build');
   const work = join(root, 'target/build', platform), declared = product.platforms[platform];
   assertBuildWork(work, platform);
   if (process.platform !== declared.host || process.arch !== declared.arch) fail('必须在声明对应的原生 Runner 编译');
@@ -144,10 +145,7 @@ async function compile(platform) {
   const artifact = join(work, 'artifact');
   if (existsSync(artifact)) fail('本轮产物目录已存在，禁止混用旧包');
   mkdirSync(artifact);
-  if (platform === 'wasm') {
-    await run(env.CARGO, ['--config', join(root, 'config.toml'), 'build', '--locked', '--release', '-p', 'citizenchain', '--no-default-features', '--features', 'std']);
-    for (const name of declared.files) copyFileSync(join(env.CARGO_TARGET_DIR, 'release/wbuild/citizenchain', name), join(artifact, name));
-  } else {
+  {
     const {buildPreparedOnChina} = await import('./onchina.mjs');
     const onchina = await buildPreparedOnChina({project: root, platform, work, environment: env, prepareDependencies: false});
     const resources = join(work, 'resources'), pgOs = platform === 'macos' ? 'macos' : platform === 'windows' ? 'windows' : 'linux';

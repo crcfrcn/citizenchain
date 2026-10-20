@@ -30,14 +30,14 @@ export const manifest=Object.freeze({
 });
 export function describeConfiguration(){return JSON.parse(JSON.stringify(manifest));}
 
-// 产品交付声明归本仓；运行时协议版本只读取 runtime/src/lib.rs，不在此复制。
+// 产品交付声明归本仓；Runtime候选版本只由runtime.mjs从实际链版本派生，不复制固定版本。
 export const product=Object.freeze({id:'citizenchain',title:'公民链',repository:'crcfrcn/citizenchain',entry:'scripts/build.mjs',
   platforms:Object.freeze({
     macos:{name:'macOS',workflow:'macos.yml',host:'darwin',arch:'arm64',target:'aarch64-apple-darwin',bundle:'dmg',extension:'.dmg'},
     windows:{name:'Windows',workflow:'windows.yml',host:'win32',arch:'x64',target:'x86_64-pc-windows-msvc',bundle:'nsis',extension:'.exe'},
     'linux-arm':{name:'LinuxARM',workflow:'linuxarm.yml',host:'linux',arch:'arm64',target:'aarch64-unknown-linux-gnu',bundle:'deb',extension:'.deb'},
     'linux-amd':{name:'LinuxAMD',workflow:'linuxamd.yml',host:'linux',arch:'x64',target:'x86_64-unknown-linux-gnu',bundle:'deb',extension:'.deb'},
-    wasm:{name:'WASM',workflow:'wasm.yml',host:'linux',arch:'x64',target:'wasm32v1-none',files:['citizenchain.wasm','citizenchain.compact.wasm','citizenchain.compact.compressed.wasm']},
+    wasm:{name:'WASM',entry:'scripts/runtime.mjs',workflow:'wasm.yml',host:'linux',arch:'x64',target:'wasm32v1-none',files:['citizenchain.wasm','citizenchain.compact.wasm','citizenchain.compact.compressed.wasm']},
   }),
   tools:Object.freeze({node:'25.2.1',rust:'1.97.1',protoc:'35.0',postgres:'17.11',xcode:'27.0'}),
   locks:Object.freeze(['Cargo.lock','crates/protocol/Cargo.lock','crates/scanner/package-lock.json','node/frontend/package-lock.json','onchina/platform/frontend/package-lock.json']),
@@ -50,9 +50,15 @@ export function deliveryVersion(value){
     &&value.split('.').every(part=>BigInt(part)<2n**64n),'交付版本必须是规范 X.Y.Z');
   return value;
 }
+// WASM显示号就是目标spec_version；双版本加1只由runtime.mjs按链状态计算。
+export function runtimeVersion(value){
+  requireValue(typeof value==='string'&&value.trim()===value&&/^(0|[1-9][0-9]*)$/u.test(value)
+    &&Number(value)<=0xffffffff,'Runtime版本必须是规范u32十进制整数');
+  return value;
+}
 export function releaseName(platform,value){
   requireValue(Object.hasOwn(product.platforms,platform),'产品平台无效');
-  return product.title+'·'+product.platforms[platform].name+'·v'+deliveryVersion(value);
+  return product.title+'·'+product.platforms[platform].name+'·v'+(platform==='wasm'?runtimeVersion(value):deliveryVersion(value));
 }
 export function artifactNames(platform,value){
   const declared=product.platforms[platform];releaseName(platform,value);
@@ -79,6 +85,47 @@ export function retainedBuildRuns(platform,runs){
   const failure=terminal.find(run=>run.conclusion!=='success')||null;
   return {success,failure,obsolete:terminal.filter(run=>run.id!==success?.id&&run.id!==failure?.id)};
 }
+// 四端最后Job只计算暂定保留项；当前Run仍是in_progress，不伪造GitHub最终终态。
+export function nativeCleanupPlan(platform,current,results,runs){
+  requireValue(['macos','windows','linux-arm','linux-amd'].includes(platform),'清理仅限公民链四端');
+  assertRun(platform,current);
+  requireValue(current.status==='in_progress'&&current.conclusion===null,'本轮不是正在执行的原编译Run');
+  const jobs=['prepare','build','release'],states=['success','failure','cancelled','skipped'];
+  requireValue(results&&jobs.every(job=>states.includes(results[job])),'前置Job结果不完整');
+  const outcome=jobs.every(job=>results[job]==='success')?'success':'failure';
+  const terminal=[],maintenance=[],protectedIds=new Set([current.id]),seen=new Set();
+  for(const run of runs){
+    if(run.repository?.full_name!==product.repository||run.path!==current.path||run.head_branch!=='main'){
+      protectedIds.add(run.id);continue;
+    }
+    requireValue(!seen.has(run.id),'原Run查询出现重复身份');seen.add(run.id);
+    requireValue(Number.isSafeInteger(run.id)&&run.id>0&&Number.isSafeInteger(run.run_number)&&run.run_number>0
+      &&Number.isSafeInteger(run.run_attempt)&&run.run_attempt>0&&/^[a-f0-9]{40}$/u.test(run.head_sha||'')
+      &&run.html_url===`https://github.com/${product.repository}/actions/runs/${run.id}`,'历史Run身份无效');
+    requireValue(run.run_number<=current.run_number,'存在更晚的同平台Run，禁止旧任务清理');
+    requireValue(['workflow_dispatch','repository_dispatch'].includes(run.event),'历史Run事件归属不明');
+    if(run.id===current.id){
+      requireValue(run.event===current.event&&run.run_attempt===current.run_attempt&&run.head_sha===current.head_sha
+        &&run.run_number===current.run_number&&run.status===current.status&&run.conclusion===null,'本轮身份或状态发生变化');
+      continue;
+    }
+    if(run.status!=='completed'){protectedIds.add(run.id);continue;}
+    requireValue(typeof run.conclusion==='string'&&run.conclusion.length>0,'历史Run没有真实终态');
+    if(run.event==='workflow_dispatch'){assertRun(platform,run);terminal.push(run);}
+    else{
+      const prefix=product.title+'·'+product.platforms[platform].name+'·v';
+      requireValue(run.display_title?.startsWith(prefix),'旧收尾记录没有本平台身份');
+      deliveryVersion(run.display_title.slice(prefix.length));maintenance.push(run);
+    }
+  }
+  const latest=terminal.toSorted((a,b)=>b.run_number-a.run_number||b.id-a.id);
+  const success=outcome==='success'?current:latest.find(run=>run.conclusion==='success')||null;
+  const failure=outcome==='failure'?current:latest.find(run=>run.conclusion!=='success')||null;
+  // 旧成功Run最后删除以缩小异常窗口；删除后本轮再失败仍无法恢复旧Run，必须如实报错。
+  const obsolete=[...maintenance,...latest.filter(run=>run.id!==success?.id&&run.id!==failure?.id)]
+    .toSorted((a,b)=>Number(a.event==='workflow_dispatch'&&a.conclusion==='success')-Number(b.event==='workflow_dispatch'&&b.conclusion==='success')||a.run_number-b.run_number);
+  return {outcome,success,failure,obsolete,protectedIds:[...protectedIds]};
+}
 export function readReleaseProof(platform,release){
   const lines=String(release.body||'').split(/\r?\n/u).filter(line=>line.startsWith('<!-- automation:')&&line.endsWith(' -->'));
   requireValue(lines.length===1,'正式版本来源证明必须唯一');
@@ -88,6 +135,14 @@ export function readReleaseProof(platform,release){
     &&proof.tag===releaseName(platform,proof.version)&&release.tag_name===proof.tag&&release.name===proof.tag
     &&/^[a-f0-9]{40}$/u.test(proof.source_sha||'')&&release.target_commitish===proof.source_sha
     &&Number.isSafeInteger(proof.run_id)&&proof.run_id>0&&Number.isSafeInteger(proof.run_attempt)&&proof.run_attempt>0,'正式版本来源不符');
+  if(platform==='wasm'){
+    const runtime=proof.runtime;
+    requireValue(runtime&&runtime.source_sha===proof.source_sha&&runtime.spec_name===product.id
+      &&/^0x[a-f0-9]{64}$/u.test(runtime.genesis_hash||'')&&/^0x[a-f0-9]{64}$/u.test(runtime.base_block_hash||'')
+      &&[runtime.base_spec_version,runtime.base_transaction_version].every(value=>Number.isInteger(value)&&value>=0&&value<0xffffffff)
+      &&runtime.spec_version===runtime.base_spec_version+1&&runtime.transaction_version===runtime.base_transaction_version+1
+      &&String(runtime.spec_version)===proof.version,'WASM来源双版本与显示号不符');
+  }
   return proof;
 }
 export function assertRelease(platform,release,run,{partial=false,draft=false}={}){
@@ -95,6 +150,7 @@ export function assertRelease(platform,release,run,{partial=false,draft=false}={
   requireValue(proof.run_id===run.id&&proof.run_attempt===run.run_attempt&&proof.source_sha===run.head_sha
     &&Number.isSafeInteger(release.id)&&release.id>0&&release.prerelease===false
     &&(draft||release.draft===false&&Boolean(release.published_at)),'正式版本与原编译 Run 不符');
+  if(platform==='wasm')requireValue(run.display_title===releaseName(platform,proof.version),'WASM原Run名称与实际版本不符');
   requireValue(Array.isArray(proof.assets)&&JSON.stringify(proof.assets.map(asset=>asset.name).sort())===JSON.stringify(expected.sort())
     &&Array.isArray(release.assets)&&(partial?release.assets.length<=expected.length:release.assets.length===expected.length),'正式附件集合不完整');
   const seen=new Set();
@@ -109,6 +165,7 @@ export function assertRelease(platform,release,run,{partial=false,draft=false}={
   return proof;
 }
 export function nextDeliveryVersion(platform,runs,releases,initial){
+  requireValue(platform!=='wasm','WASM版本只能读取链上Runtime后加1');
   const latest=retainedBuildRuns(platform,runs).success;
   if(!latest)return deliveryVersion(initial);
   const matching=releases.filter(release=>{
@@ -118,7 +175,7 @@ export function nextDeliveryVersion(platform,runs,releases,initial){
   const proof=assertRelease(platform,matching[0],latest),parts=proof.version.split('.').map(BigInt);
   parts[2]++;return deliveryVersion(parts.join('.'));
 }
-// 调用方只传输这些公开请求；恢复描述只能请求原Run收尾，不能派发编译或rerun。
+// 调用方只传输公开请求；四端清理归原Run最后Job，不另外派发收尾或rerun。
 export function automationRequest(platform,operation,input={}){
   requireValue(Object.hasOwn(product.platforms,platform),'产品平台无效');
   const workflow=product.platforms[platform].workflow;
@@ -126,17 +183,20 @@ export function automationRequest(platform,operation,input={}){
   if(operation==='releases')return {path:'releases'};
   if(operation==='launch'){
     requireValue(/^[a-f0-9]{40}$/u.test(input.sha||''),'派发源码无效');
-    return {path:`actions/workflows/${workflow}/dispatches`,method:'POST',body:{ref:'main',inputs:{version:deliveryVersion(input.version),source_sha:input.sha}}};
+    const inputs={version:platform==='wasm'?runtimeVersion(input.version):deliveryVersion(input.version),source_sha:input.sha};
+    if(platform==='wasm')inputs.transaction_version=runtimeVersion(input.transactionVersion);
+    return {path:`actions/workflows/${workflow}/dispatches`,method:'POST',body:{ref:'main',inputs}};
   }
   if(operation==='run'||operation==='cancel'){
     requireValue(Number.isSafeInteger(input.runId)&&input.runId>0,'原RunID无效');
     return {path:'actions/runs/'+input.runId+(operation==='cancel'?'/cancel':''),...(operation==='cancel'?{method:'POST'}:{})};
   }
   if(operation==='settle'){
+    requireValue(!['macos','windows','linux-arm','linux-amd'].includes(platform),'四端清理由原Run最后Job执行，禁止另派收尾');
     const run=assertRun(platform,input.run),prefix=product.title+'·'+product.platforms[platform].name+'·v';
     requireValue(run.display_title?.startsWith(prefix),'原Run没有准确交付版本');
     return {path:'dispatches',method:'POST',body:{event_type:'citizenchain-finalize-'+platform,client_payload:{platform,
-      version:deliveryVersion(run.display_title.slice(prefix.length)),run_id:run.id,run_attempt:run.run_attempt,source_sha:run.head_sha}}};
+      version:platform==='wasm'?runtimeVersion(run.display_title.slice(prefix.length)):deliveryVersion(run.display_title.slice(prefix.length)),run_id:run.id,run_attempt:run.run_attempt,source_sha:run.head_sha}}};
   }
   throw Error('产品未声明该自动化请求');
 }
@@ -166,6 +226,18 @@ export async function describeAction({flow,platform}){
   const rows=[],releases=[];
   for(let page=1;;page++){const data=await read(automationRequest(platform,'runs').path+'&per_page=100&page='+page);rows.push(...data.workflow_runs);if(data.workflow_runs.length<100)break;}
   for(let page=1;;page++){const data=await read('releases?per_page=100&page='+page);releases.push(...data);if(data.length<100)break;}
+  if(platform==='wasm'){
+    // 同一产品入口在派发前确定Run名称；只复用runtime.mjs的链身份和加1实现。
+    const {readRuntimeTarget}=await import('./runtime.mjs');
+    const configuration=await read('actions/variables/CITIZENCHAIN_RUNTIME_RPC_URL');
+    const {target}=await readRuntimeTarget(configuration.value),version=String(target.specVersion);
+    requireValue(!rows.some(run=>run.status!=='completed'),'WASM已有活动编译Run');
+    requireValue(!releases.some(release=>release.tag_name===releaseName(platform,version)),'该Runtime版本已有交付或未收尾资产，禁止重复发布');
+    const head=await read('git/ref/heads/main');
+    const request=automationRequest(platform,'launch',{version,transactionVersion:String(target.transactionVersion),sha:head.object.sha});
+    const receipt=await dispatch({workflow:product.platforms[platform].workflow,...request.body});
+    return {runID:receipt.workflow_run_id};
+  }
   const {readFile}=await import('node:fs/promises');
   const initial=JSON.parse(await readFile(new URL('../node/frontend/package.json',import.meta.url),'utf8')).version;
   const version=nextDeliveryVersion(platform,rows,releases,initial),head=await read('git/ref/heads/main');
@@ -182,17 +254,19 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv[1]===import.meta.filename&&proces
   const run=(id,conclusion='success')=>({id,run_number:id,run_attempt:1,event:'workflow_dispatch',head_branch:'main',
     repository:{full_name:product.repository},path:'.github/workflows/linuxarm.yml',head_sha:'a'.repeat(40),
     html_url:`https://github.com/${product.repository}/actions/runs/${id}`,status:'completed',conclusion,display_title:releaseName('linux-arm','1.0.0')});
-  function release(source){
-    const name=artifactNames('linux-arm','1.0.0')[0],label=artifactLabel('linux-arm','1.0.0',name),hash='f'.repeat(64);
+  function release(source,version='1.0.0',id=100){
+    const name=artifactNames('linux-arm',version)[0],label=artifactLabel('linux-arm',version,name),hash='f'.repeat(64);
     const proof={schema:1,repository:product.repository,product_id:product.id,platform:'linux-arm',workflow:source.path,
-      version:'1.0.0',tag:source.display_title,run_id:source.id,run_attempt:source.run_attempt,source_sha:source.head_sha,assets:[{name,label,size:3,sha256:hash}]};
-    return {id:100,tag_name:proof.tag,name:proof.tag,target_commitish:source.head_sha,draft:false,prerelease:false,published_at:'2026-10-19T00:00:00Z',
+      version,tag:source.display_title,run_id:source.id,run_attempt:source.run_attempt,source_sha:source.head_sha,assets:[{name,label,size:3,sha256:hash}]};
+    return {id,tag_name:proof.tag,name:proof.tag,target_commitish:source.head_sha,draft:false,prerelease:false,published_at:'2026-10-19T00:00:00Z',
       body:'<!-- automation:'+JSON.stringify(proof)+' -->',assets:[{id:200,name,label,size:3,digest:'sha256:'+hash,state:'uploaded',url:`https://api.github.com/repos/${product.repository}/releases/assets/200`}]};
   }
   test('交付版本和五个平台完整产物声明拒绝歧义',()=>{
     for(const value of ['1','01.0.0','1.0.0-rc','1.0.0\n',null])assert.throws(()=>deliveryVersion(value));
-    assert.equal(releaseName('wasm','2.3.4'),'公民链·WASM·v2.3.4');
-    assert.equal(artifactNames('wasm','2.3.4').length,3);assert.equal(Object.keys(product.platforms).length,5);
+    assert.equal(releaseName('wasm','2'),'公民链·WASM·v2');
+    assert.equal(artifactNames('wasm','2').length,3);assert.equal(Object.keys(product.platforms).length,5);
+    assert.equal(product.platforms.wasm.entry,'scripts/runtime.mjs');
+    assert.equal(product.entry,'scripts/build.mjs');
   });
   test('最新成功失败与活动Run隔离，收尾Run不消费编译版本',()=>{
     const rows=[run(1),run(2,'failure'),run(3),{...run(4),status:'in_progress'}, {...run(99),event:'repository_dispatch'}];
@@ -209,16 +283,172 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv[1]===import.meta.filename&&proces
     assert.throws(()=>nextDeliveryVersion('linux-arm',[source],[],'1.0.0'));
     assert.throws(()=>assertRun('windows',source));
   });
-  test('恢复描述只绑定原Run收尾，取消也不走编译dispatch或rerun',()=>{
-    const source=run(42),request=automationRequest('linux-arm','settle',{run:source});
-    assert.equal(request.path,'dispatches');assert.equal(request.body.event_type,'citizenchain-finalize-linux-arm');
-    assert.equal(request.body.client_payload.run_id,42);assert.equal(request.body.client_payload.run_attempt,1);
+  test('四端恢复不再派发收尾，取消描述仍只定位原Run',()=>{
+    for(const platform of ['macos','windows','linux-arm','linux-amd'])assert.throws(()=>automationRequest(platform,'settle',{run:run(42)}));
     assert.equal(automationRequest('linux-arm','cancel',{runId:42}).path,'actions/runs/42/cancel');
     assert.throws(()=>automationRequest('linux-arm','launch',{version:'1.0.0',sha:'invalid'}));
+  });
+  test('四端暂定保留正常收敛、缺失类别、旧收尾清空且保护所有活动和异平台记录',()=>{
+    const good={prepare:'success',build:'success',release:'success'};
+    for(const platform of ['macos','windows','linux-arm','linux-amd']){
+      const own=id=>({...run(id),path:'.github/workflows/'+product.platforms[platform].workflow,display_title:releaseName(platform,'1.0.0')});
+      const current={...own(10),status:'in_progress',conclusion:null};
+      const rows=[own(1),{...own(2),conclusion:'failure'},own(3),{...own(4),status:'in_progress',conclusion:null},
+        {...own(8),event:'repository_dispatch'},{...own(9),event:'repository_dispatch',conclusion:'failure'},current,
+        {...own(11),path:'.github/workflows/wasm.yml'},{...own(12),repository:{full_name:'foreign/repo'}}];
+      const success=nativeCleanupPlan(platform,current,good,rows);
+      assert.equal(success.success.id,10);assert.equal(success.failure.id,2);
+      assert.deepEqual(new Set(success.obsolete.map(row=>row.id)),new Set([1,3,8,9]));
+      for(const id of [4,10,11,12])assert.ok(success.protectedIds.includes(id));
+      const failed=nativeCleanupPlan(platform,current,{...good,build:'failure',release:'skipped'},rows);
+      assert.equal(failed.outcome,'failure');assert.equal(failed.success.id,3);assert.equal(failed.failure.id,10);
+      assert.ok(failed.obsolete.some(row=>row.id===2));assert.equal(current.conclusion,null);
+      assert.equal(nativeCleanupPlan(platform,current,good,[current]).failure,null);
+      assert.equal(nativeCleanupPlan(platform,current,{...good,prepare:'failure'},[current]).success,null);
+      assert.throws(()=>nativeCleanupPlan(platform,current,good,[...rows,own(13)]));
+      assert.throws(()=>nativeCleanupPlan(platform,current,good,[own(1),own(1)]));
+      assert.throws(()=>nativeCleanupPlan(platform,current,{},rows));
+      assert.throws(()=>nativeCleanupPlan(platform,current,good,[{...current,run_attempt:2}]));
+      assert.throws(()=>nativeCleanupPlan(platform,current,good,[{...own(1),event:'push'}]));
+    }
+    assert.throws(()=>nativeCleanupPlan('wasm',run(1),good,[]));
+  });
+  // 执行既有Workflow中的真实清理正文；GitHub替身仅在内存模拟，不领取授权或访问远端。
+  async function cleanupFixture(options={}){
+    const {readFileSync}=await import('node:fs'),{fileURLToPath}=await import('node:url');
+    const text=readFileSync(new URL('../.github/workflows/linuxarm.yml',import.meta.url),'utf8');
+    const marker='        script: |\n',at=text.lastIndexOf(marker);
+    assert.ok(at>text.indexOf('\n  cleanup:\n'));
+    const script=text.slice(at+marker.length).split('\n').map(line=>line.startsWith('          ')?line.slice(10):line).join('\n');
+    const current={...run(10),status:'in_progress',conclusion:null};
+    const oldSuccess={...run(1),display_title:releaseName('linux-arm','0.9.0')};
+    const rows=[oldSuccess,run(2,'failure'),run(3,'failure'),{...run(4),status:'in_progress',conclusion:null},
+      {...run(8),event:'repository_dispatch'},{...run(9,'failure'),event:'repository_dispatch'},current];
+    const releases=[release(oldSuccess,'0.9.0',101),...(options.failed||options.missingRelease?[]:[release(current)])];
+    const tags=new Map(releases.map(value=>[value.tag_name,{object:{type:'commit',sha:current.head_sha}}]));
+    const calls=[],results={prepare:'success',build:options.failed?'failure':'success',release:options.failed?'skipped':'success'};
+    let writes=0,deletedSuccess=false;
+    const absent=()=>{throw Object.assign(Error('合成404'),{status:404});};
+    const actions={listWorkflowRuns:()=>{},getWorkflowRun:async({run_id})=>{
+      if(options.afterSuccessDelete&&deletedSuccess&&run_id===10)throw Error('合成删除旧成功后断网');
+      const value=rows.find(row=>row.id===run_id);if(!value)return absent();
+      return {data:structuredClone(options.drift&&run_id===2?{...value,run_attempt:2}:value)};
+    },deleteWorkflowRun:async({run_id})=>{
+      calls.push(['deleteRun',run_id]);assert.notEqual(run_id,10);assert.notEqual(run_id,4);
+      if(options.failDelete)throw Object.assign(Error('合成403'),{status:403});
+      if(!options.unchangedDelete)rows.splice(rows.findIndex(row=>row.id===run_id),1);
+      if(run_id===1&&!options.unchangedDelete)deletedSuccess=true;
+    }};
+    const repos={listReleases:()=>{},getRelease:async({release_id})=>{
+      const value=releases.find(row=>row.id===release_id);return value?{data:structuredClone(value)}:absent();
+    },deleteRelease:async({release_id})=>{calls.push(['deleteRelease',release_id]);releases.splice(releases.findIndex(row=>row.id===release_id),1);}};
+    const git={getRef:async({ref})=>{const value=tags.get(ref.slice(5));return value?{data:structuredClone(value)}:absent();},
+      deleteRef:async({ref})=>{calls.push(['deleteTag',ref]);tags.delete(ref.slice(5));}};
+    const github={rest:{actions,repos,git},paginate:async method=>structuredClone(method===actions.listWorkflowRuns?rows:releases)};
+    const summary={addHeading(){return this;},addRaw(){return this;},async write(){writes++;}};
+    const env={PLATFORM:'linux-arm',CITIZENCHAIN_RELEASE_VERSION:'1.0.0',CITIZENCHAIN_SOURCE_SHA:current.head_sha,
+      GITHUB_RUN_ATTEMPT:'1',GITHUB_WORKSPACE:fileURLToPath(new URL('../',import.meta.url)),JOB_RESULTS:JSON.stringify(results)};
+    let error;
+    try{const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+      await new AsyncFunction('github','context','core','process',script)(github,{repo:{owner:'crcfrcn',repo:'citizenchain'},runId:10,sha:current.head_sha},{summary},{env});
+    }catch(value){error=value;}
+    return {error,calls,rows,writes,current};
+  }
+  test('真实清理正文正常删除旧Run和全部旧收尾，编译失败仍保持失败候选',async()=>{
+    for(const failed of [false,true]){
+      const result=await cleanupFixture({failed});assert.ifError(result.error);assert.equal(result.writes,1);
+      assert.deepEqual(result.rows.map(row=>row.id).sort((a,b)=>a-b),failed?[1,4,10]:[3,4,10]);
+      assert.equal(result.current.status,'in_progress');assert.equal(result.current.conclusion,null);
+    }
+  });
+  test('真实清理正文拒绝API失败、删除未确认、attempt漂移和成功交付缺失',async()=>{
+    for(const options of [{failDelete:true},{unchangedDelete:true},{drift:true},{missingRelease:true}]){
+      const result=await cleanupFixture(options);assert.ok(result.error);assert.equal(result.writes,0);
+      assert.ok(result.rows.some(row=>row.id===4));assert.ok(result.rows.some(row=>row.id===10));
+    }
+  });
+  test('旧成功删除后再失败明确报错，不虚报两条终态或恢复已删除Run',async()=>{
+    const result=await cleanupFixture({afterSuccessDelete:true});assert.match(result.error?.message||'',/删除旧成功后断网/);
+    assert.equal(result.writes,0);assert.equal(result.rows.some(row=>row.id===1),false);
+    assert.equal(result.current.status,'in_progress');assert.equal(result.current.conclusion,null);
   });
   test('编译模块只公开编译辅助接口，不重新加入产品流程执行器',async()=>{
     const build=await import('./build.mjs');
     assert.deepEqual(Object.keys(build).sort(),['assertBuildWork','checkWork','npmCLI','platformCargoEnvironment','runBuildProcess','stageWindowsOpenSsl'].sort());
+  });
+  // WASM夹具独立于节点软件版本，目标2/1来自链基线1/0，不强求两个数字相等。
+  const wasmRun=(id,conclusion='success')=>({...run(id,conclusion),path:'.github/workflows/wasm.yml',display_title:releaseName('wasm','2')});
+  function wasmRelease(source){
+    const hash='f'.repeat(64),assets=artifactNames('wasm','2').map((name,index)=>({id:200+index,name,
+      label:artifactLabel('wasm','2',name),size:3,state:'uploaded',digest:'sha256:'+hash,
+      url:`https://api.github.com/repos/${product.repository}/releases/assets/${200+index}`}));
+    const runtime={source_sha:source.head_sha,genesis_hash:'0x'+'11'.repeat(32),base_block_hash:'0x'+'22'.repeat(32),
+      spec_name:product.id,base_spec_version:1,base_transaction_version:0,spec_version:2,transaction_version:1};
+    const proof={schema:1,repository:product.repository,product_id:product.id,platform:'wasm',workflow:source.path,
+      version:'2',tag:source.display_title,run_id:source.id,run_attempt:source.run_attempt,source_sha:source.head_sha,runtime,
+      assets:assets.map(({name,label,size})=>({name,label,size,sha256:hash}))};
+    return {...release(run(source.id)),name:proof.tag,tag_name:proof.tag,target_commitish:source.head_sha,
+      body:'<!-- automation:'+JSON.stringify(proof)+' -->',assets};
+  }
+  test('WASM只接受整数版本，名称、附件及原Run收尾不走SemVer',()=>{
+    assert.equal(runtimeVersion('0'),'0');assert.equal(runtimeVersion('4294967295'),'4294967295');
+    for(const value of ['2.3.4','02','2\n',' 2','-1','1.5','4294967296',2,null]){
+      assert.throws(()=>releaseName('wasm',value));
+      assert.throws(()=>automationRequest('wasm','launch',{version:value,transactionVersion:'1',sha:'a'.repeat(40)}));
+    }
+    assert.throws(()=>nextDeliveryVersion('wasm',[],[],'1.0.0'));
+    const launch=automationRequest('wasm','launch',{version:'2',transactionVersion:'1',sha:'a'.repeat(40)});
+    assert.deepEqual(launch.body.inputs,{version:'2',transaction_version:'1',source_sha:'a'.repeat(40)});
+    assert.throws(()=>automationRequest('wasm','launch',{version:'2',sha:'a'.repeat(40)}));
+    const settle=automationRequest('wasm','settle',{run:wasmRun(42,'failure')});
+    assert.deepEqual(settle.body.client_payload,{platform:'wasm',version:'2',run_id:42,run_attempt:1,source_sha:'a'.repeat(40)});
+    assert.equal(artifactLabel('wasm','2','citizenchain.compact.compressed.wasm'),'公民链·WASM·v2.compact.compressed.wasm');
+  });
+  test('WASM正式交付绑定显示号、双版本、源码、原Run及完整三附件',()=>{
+    const source=wasmRun(42),value=wasmRelease(source);
+    assert.equal(assertRelease('wasm',value,source).version,'2');
+    const rewrite=mutate=>{const changed=structuredClone(value),proof=readReleaseProof('wasm',changed);mutate(proof);
+      changed.body='<!-- automation:'+JSON.stringify(proof)+' -->';return changed;};
+    for(const mutate of [proof=>delete proof.runtime,proof=>{proof.version='2.0.0';},
+      proof=>{proof.runtime.spec_version=3;},proof=>{proof.runtime.transaction_version=2;},
+      proof=>{proof.runtime.base_transaction_version=-1;},proof=>{proof.runtime.base_spec_version=0xffffffff;},
+      proof=>{proof.runtime.source_sha='b'.repeat(40);},proof=>{proof.runtime.spec_name='wrong-chain';},
+      proof=>{proof.runtime.genesis_hash='invalid';}])assert.throws(()=>assertRelease('wasm',rewrite(mutate),source));
+    assert.throws(()=>assertRelease('wasm',value,{...source,run_attempt:2}));
+    assert.throws(()=>assertRelease('wasm',value,{...source,display_title:'公民链·WASM·v3'}));
+    assert.throws(()=>assertRelease('wasm',{...value,assets:value.assets.slice(1)},source));
+    const rows=[wasmRun(1),wasmRun(2,'failure'),source,{...wasmRun(43),status:'in_progress'},
+      {...wasmRun(99),event:'repository_dispatch'}];
+    const keep=retainedBuildRuns('wasm',rows);
+    assert.equal(keep.success.id,42);assert.equal(keep.failure.id,2);assert.deepEqual(keep.obsolete.map(row=>row.id),[1]);
+    assert.equal(workflowRecords('wasm',rows).length,3);
+  });
+  test('WASM派发复用读链加1，只传目标双版本，不读取节点交付版本',async()=>{
+    const {readFile}=await import('node:fs/promises');
+    const frozen=(await readFile(new URL('../runtime/primitives/src/genesis.rs',import.meta.url),'utf8'))
+      .match(/pub const GENESIS_HASH:\s*\[u8;\s*32\]\s*=\s*hex_literal::hex!\("([a-f0-9]{64})"\)/u);
+    assert.ok(frozen);const previous=globalThis.fetch,calls=[];let missing=false;
+    globalThis.fetch=async(url,options)=>{
+      assert.equal(String(url),'https://fixture.invalid/');const rpc=JSON.parse(options.body);calls.push(rpc.method);
+      const result=rpc.method==='chain_getBlockHash'?'0x'+frozen[1]:rpc.method==='chain_getFinalizedHead'?'0x'+'22'.repeat(32)
+        :{specName:product.id,specVersion:7,...(missing?{}:{transactionVersion:3})};
+      return Response.json({jsonrpc:'2.0',id:1,result});
+    };
+    try{
+      const target=await describeAction({flow:'release',platform:'wasm'}),requests=[];
+      const read=async path=>{
+        if(path.startsWith('actions/workflows/wasm.yml/runs'))return {workflow_runs:[]};
+        if(path.startsWith('releases?'))return [];
+        if(path==='actions/variables/CITIZENCHAIN_RUNTIME_RPC_URL')return {value:'https://fixture.invalid'};
+        if(path==='git/ref/heads/main')return {object:{sha:'a'.repeat(40)}};
+        throw Error('未预期读取：'+path);
+      };
+      const dispatch=async request=>{requests.push(request);return {workflow_run_id:42};};
+      assert.deepEqual(await target.launch({read,dispatch}),{runID:42});
+      assert.deepEqual(requests[0],{workflow:'wasm.yml',ref:'main',inputs:{version:'8',transaction_version:'4',source_sha:'a'.repeat(40)}});
+      missing=true;await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
+      assert.deepEqual(calls.slice(0,3),['chain_getBlockHash','chain_getFinalizedHead','state_getRuntimeVersion']);
+    }finally{globalThis.fetch=previous;}
   });
 }
 // END INLINE TESTS

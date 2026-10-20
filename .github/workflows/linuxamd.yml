@@ -1,7 +1,7 @@
-# 产品编译与正式交付归本工作流；repository_dispatch只收尾原编译Run。
+# 四端准备、测试、编译、正式交付及历史清理均在同一Run内完成。
 ---
 name: 公民链·LinuxAMD
-run-name: 公民链·LinuxAMD·v${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version || inputs.version }}
+run-name: 公民链·LinuxAMD·v${{ inputs.version }}
 'on':
   workflow_dispatch:
     inputs:
@@ -13,9 +13,6 @@ run-name: 公民链·LinuxAMD·v${{ github.event_name == 'repository_dispatch' &
         description: 批准的main完整提交
         required: true
         type: string
-  repository_dispatch:
-    types:
-    - citizenchain-finalize-linux-amd
 concurrency:
   group: "${{ github.repository }}-linux-amd-${{ github.event_name }}"
   cancel-in-progress: false
@@ -135,7 +132,7 @@ jobs:
       run: |
         set -euo pipefail
         mkdir -p "$CITIZENCHAIN_WORK_DIR"
-        node --test scripts/config.mjs
+        node --test scripts/config.mjs scripts/runtime.mjs
         npm ci --prefix crates/scanner --include=dev
         npm ci --prefix node/frontend --include=dev
         npm ci --prefix onchina/platform/frontend --include=dev
@@ -147,11 +144,8 @@ jobs:
         npm run typecheck --prefix onchina/platform/frontend
         npm test --prefix onchina/platform/frontend
         export TAURI_CONFIG="$(node -e 'console.log(JSON.stringify({build:{beforeBuildCommand:null,frontendDist:process.env.GITHUB_WORKSPACE+"/node/frontend"}}))')"
-        # 节点真实服务和费用守卫测试必须内置本轮源码WASM，不能走缺件跳过。
-        cargo --config "$GITHUB_WORKSPACE/config.toml" clean -p citizenchain --locked
-        export WASM_BUILD_FROM_SOURCE=1
-        export CITIZENCHAIN_PRODUCTION_WASM_BUILD=1
-        cargo --config "$GITHUB_WORKSPACE/config.toml" test --locked --release --workspace --all-targets
+        # 唯一Runtime入口提供测试依赖WASM，原测试和金标不跳过。
+        node scripts/runtime.mjs test
     - name: 编译及核对完整产物
       shell: bash
       run: |
@@ -198,7 +192,7 @@ jobs:
     - name: 清理本轮编译现场
       if: always()
       shell: bash
-      run: node --input-type=module -e "import {rmSync} from 'node:fs'; import {resolve} from 'node:path'; const work=resolve('target/build/linux-amd'); if(work!==resolve(process.env.CITIZENCHAIN_WORK_DIR))throw Error('现场不符'); rmSync(work,{recursive:true,force:true});"
+      run: node --input-type=module -e "import {rmSync,existsSync} from 'node:fs'; import {resolve} from 'node:path'; const work=resolve('target/build/linux-amd'); if(work!==resolve(process.env.CITIZENCHAIN_WORK_DIR))throw Error('现场不符'); if(existsSync(resolve(work,'.retain-runtime-work')))throw Error('Runtime工具退出未确认，保留现场'); rmSync(work,{recursive:true,force:true});"
   release:
     name: 公民链·LinuxAMD·v${{ inputs.version }}
     needs: build
@@ -257,43 +251,10 @@ jobs:
           if(ref.object.type!=='commit'||ref.object.sha!==context.sha)throw Error('正式Tag提交不符');
           for(const asset of published.assets)if(new URL(asset.browser_download_url).href!=='https://github.com/'+cfg.product.repository+'/releases/download/'+encodeURIComponent(tag)+'/'+encodeURIComponent(asset.name))throw Error('正式附件下载地址不符');
           core.info('正式Tag、Release及完整附件已确认：'+tag);
-  request-finalize:
+  cleanup:
     name: 公民链·LinuxAMD·v${{ inputs.version }}
-    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    needs:
-    - prepare
-    - build
-    - release
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-      actions: read
-    env:
-      PLATFORM: linux-amd
-      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
-    steps:
-    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      with:
-        ref: "${{ github.sha }}"
-        persist-credentials: false
-    - name: 请求本平台原Run收尾
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-      with:
-        retries: 0
-        script: |
-          const {pathToFileURL}=await import('node:url');
-          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
-          const p=process.env.PLATFORM,repo=context.repo;
-          cfg.deliveryVersion(process.env.CITIZENCHAIN_RELEASE_VERSION);
-          // 只请求本平台收尾，不派发另一次编译；POST 不自动重试。
-          await github.rest.repos.createDispatchEvent({...repo,event_type:'citizenchain-finalize-'+p,
-           client_payload:{platform:p,version:process.env.CITIZENCHAIN_RELEASE_VERSION,run_id:context.runId,
-           run_attempt:Number(process.env.GITHUB_RUN_ATTEMPT),source_sha:context.sha}});
-          core.info('已请求原Run终态收尾；结果由独立收尾Run如实记录');
-  finalize:
-    name: 公民链·LinuxAMD·v${{ github.event.client_payload.version }}
-    if: github.event_name == 'repository_dispatch' && github.ref == 'refs/heads/main'
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    needs: [prepare, build, release]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -301,64 +262,63 @@ jobs:
       actions: write
     env:
       PLATFORM: linux-amd
+      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
+      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
+      JOB_RESULTS: '{"prepare":"${{ needs.prepare.result }}","build":"${{ needs.build.result }}","release":"${{ needs.release.result }}"}'
     steps:
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       with:
         ref: "${{ github.sha }}"
         persist-credentials: false
-    - name: 只收尾原Run，不测试、不重编、不分配版本
+    - name: 清理本平台历史，不派发、不重编、不取消
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
       with:
         retries: 0
         script: |
           const {pathToFileURL}=await import('node:url');
           const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
-          const p=process.env.PLATFORM,repo=context.repo;
-          const input=context.payload.client_payload;
-          if(!input||input.platform!==p||!Number.isSafeInteger(input.run_id)||!Number.isSafeInteger(input.run_attempt))throw Error('收尾输入无效');
-          cfg.deliveryVersion(input.version);
-          const original=async()=>{const run=(await github.rest.actions.getWorkflowRun({...repo,run_id:input.run_id})).data;cfg.assertRun(p,run,input.run_id);
-           if(run.head_sha!==input.source_sha||run.run_attempt!==input.run_attempt||run.display_title!==cfg.releaseName(p,input.version))throw Error('原Run、attempt或版本变化');return run;};
-          let source=await original();
-          for(let count=0;source.status!=='completed'&&count<120;count++){await new Promise(done=>setTimeout(done,5000));source=await original();}
-          if(source.status!=='completed')throw Error('原Run尚未completed，禁止替换终态历史');
-          const rows=()=>github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:cfg.product.platforms[p].workflow,branch:'main',event:'workflow_dispatch',per_page:100});
+          const p=process.env.PLATFORM,repo=context.repo,results=JSON.parse(process.env.JOB_RESULTS);
+          const getRun=id=>github.rest.actions.getWorkflowRun({...repo,run_id:id}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
+          const original=async()=>{const run=await getRun(context.runId);cfg.assertRun(p,run,context.runId);
+           if(run.head_sha!==context.sha||run.head_sha!==process.env.CITIZENCHAIN_SOURCE_SHA||run.run_attempt!==Number(process.env.GITHUB_RUN_ATTEMPT)
+            ||run.display_title!==cfg.releaseName(p,process.env.CITIZENCHAIN_RELEASE_VERSION))throw Error('本轮源码、attempt或交付版本变化');return run;};
+          const rows=()=>github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:cfg.product.platforms[p].workflow,branch:'main',per_page:100});
+          const plan=async()=>cfg.nativeCleanupPlan(p,await original(),results,await rows());
           const getRelease=id=>github.rest.repos.getRelease({...repo,release_id:id}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
           const getTag=tag=>github.rest.git.getRef({...repo,ref:'tags/'+tag}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
-          const keep=cfg.retainedBuildRuns(p,await rows());
-          const releases=await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100});
-          const owned=releases.filter(value=>value.tag_name.startsWith(cfg.product.title+'·'+cfg.product.platforms[p].name+'·v'));
-          const proven=owned.map(value=>({release:value,proof:cfg.readReleaseProof(p,value)}));
+          const initial=await plan(),releases=await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100});
+          const prefix=cfg.product.title+'·'+cfg.product.platforms[p].name+'·v';
+          const proven=releases.filter(value=>value.tag_name.startsWith(prefix)).map(release=>({release,proof:cfg.readReleaseProof(p,release)}));
+          // 成功保留项可以是当前仍在运行的候选，但必须已有完整正式交付；不伪造最终conclusion。
           let latest;
-          if(keep.success){const matches=proven.filter(value=>value.proof.run_id===keep.success.id);if(matches.length!==1)throw Error('最新成功没有唯一正式交付，保留旧记录');
-           latest=matches[0];cfg.assertRelease(p,latest.release,keep.success);
-           const ref=await getTag(latest.proof.tag);if(!ref||ref.object.type!=='commit'||ref.object.sha!==keep.success.head_sha)throw Error('最新成功Tag不符，保留旧记录');}
+          if(initial.success){const matches=proven.filter(value=>value.proof.run_id===initial.success.id);if(matches.length!==1)throw Error('成功保留项没有唯一完整正式交付');
+           latest=matches[0];cfg.assertRelease(p,latest.release,initial.success);
+           const ref=await getTag(latest.proof.tag);if(!ref||ref.object.type!=='commit'||ref.object.sha!==initial.success.head_sha)throw Error('成功保留项Tag提交不符');}
           for(const item of proven){
            if(item.release.id===latest?.release.id)continue;
-           const run=(await github.rest.actions.getWorkflowRun({...repo,run_id:item.proof.run_id})).data;cfg.assertRun(p,run,item.proof.run_id);
-           if(run.status!=='completed')continue;
+           const fresh=await plan();if(fresh.success?.id!==initial.success?.id||fresh.failure?.id!==initial.failure?.id)throw Error('保留集合变化，停止删除');
+           const run=await getRun(item.proof.run_id);cfg.assertRun(p,run,item.proof.run_id);
+           // 本轮发布Job已失败时允许撤除其准确部分交付；其他活动Run的任何资产都保护。
+           const ownFailedRelease=run.id===context.runId&&results.release==='failure';
+           if(run.status!=='completed'&&!ownFailedRelease)continue;
            const current=await getRelease(item.release.id);if(!current)continue;
-           const proof=cfg.assertRelease(p,current,run,{partial:run.conclusion!=='success',draft:true});
+           const proof=cfg.assertRelease(p,current,run,{partial:ownFailedRelease||run.conclusion!=='success',draft:true});
            if(current.immutable)throw Error('旧Release不可变，未修改仓库设置');
            const ref=await getTag(proof.tag);
            if(ref){if(ref.object.type!=='commit'||ref.object.sha!==run.head_sha)throw Error('旧Tag提交变化');
             await github.rest.git.deleteRef({...repo,ref:'tags/'+proof.tag});if(await getTag(proof.tag))throw Error('Tag删除未确认');}
            await github.rest.repos.deleteRelease({...repo,release_id:current.id});if(await getRelease(current.id))throw Error('Release删除未确认');
           }
-          for(const old of keep.obsolete){
-           const fresh=cfg.retainedBuildRuns(p,await rows());if(!fresh.obsolete.some(run=>run.id===old.id))continue;
-           let current;try{current=(await github.rest.actions.getWorkflowRun({...repo,run_id:old.id})).data;}catch(error){if(error.status===404)continue;throw error;}
-           cfg.assertRun(p,current,old.id);if(current.status!=='completed'||current.run_attempt!==old.run_attempt||current.head_sha!==old.head_sha||current.conclusion!==old.conclusion)throw Error('删除前旧Run终态变化');
-           await github.rest.actions.deleteWorkflowRun({...repo,run_id:old.id});
-           try{await github.rest.actions.getWorkflowRun({...repo,run_id:old.id});throw Error('旧Run删除未确认');}catch(error){if(error.status!==404)throw error;}
+          // 全部旧收尾和多余编译Run一起清理；当前Run及任何活动Run都不是删除目标。
+          for(const old of initial.obsolete){
+           const fresh=await plan(),candidate=fresh.obsolete.find(run=>run.id===old.id);
+           const current=await getRun(old.id);if(!current)continue;
+           if(!candidate||current.status!=='completed'||current.run_attempt!==old.run_attempt||current.head_sha!==old.head_sha
+            ||current.path!==old.path||current.event!==old.event||current.head_branch!=='main'||current.repository?.full_name!==cfg.product.repository
+            ||current.run_number!==old.run_number||current.conclusion!==old.conclusion)throw Error('删除前旧Run身份或终态变化');
+           await github.rest.actions.deleteWorkflowRun({...repo,run_id:old.id});if(await getRun(old.id))throw Error('旧Run删除未确认');
           }
-          const remaining=await rows();if(cfg.retainedBuildRuns(p,remaining).obsolete.length)throw Error('编译终态集合尚未收口，需要恢复原Run收尾');
-          // 收尾Run不参与编译版本；这里只处理已经completed的旧收尾，保护当前活动Run。
-          const maintenance=await github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:cfg.product.platforms[p].workflow,event:'repository_dispatch',per_page:100});
-          const terminal=maintenance.filter(run=>run.status==='completed').sort((a,b)=>b.run_number-a.run_number),retained=new Set();
-          for(const outcome of [true,false]){const last=terminal.find(run=>(run.conclusion==='success')===outcome);if(last)retained.add(last.id);}
-          for(const run of terminal)if(!retained.has(run.id)){const current=(await github.rest.actions.getWorkflowRun({...repo,run_id:run.id})).data;
-           if(current.event!=='repository_dispatch'||current.path!=='.github/workflows/'+cfg.product.platforms[p].workflow||current.head_branch!=='main'||current.status!=='completed'||current.run_attempt!==run.run_attempt||current.head_sha!==run.head_sha||current.conclusion!==run.conclusion)throw Error('旧收尾Run状态变化');
-           await github.rest.actions.deleteWorkflowRun({...repo,run_id:run.id});
-           try{await github.rest.actions.getWorkflowRun({...repo,run_id:run.id});throw Error('旧收尾Run删除未确认');}catch(error){if(error.status!==404)throw error;}}
-          await core.summary.addHeading('原编译Run终态清理完成').addLink(String(input.run_id),'https://github.com/'+cfg.product.repository+'/actions/runs/'+input.run_id).addRaw('\n已保留最新成功、最新失败编译Run；活动Run保持。').write();
+          const remaining=await plan();if(remaining.obsolete.length)throw Error('历史尚未收口，清理失败；不自动重派或rerun');
+          await core.summary.addHeading('原Run内四端历史清理').addRaw('本轮编译交付候选：'+initial.outcome+'；清理操作及删除回读已确认。\n')
+           .addRaw('本轮最终conclusion仍由GitHub在Job结束后确定；异常中断可能无法保持两条记录，不能恢复已删除Run。\n')
+           .addRaw('其他活动任务保持；没有派发收尾、重编或取消请求。').write();

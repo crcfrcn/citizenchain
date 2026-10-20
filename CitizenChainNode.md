@@ -26,21 +26,23 @@
 
 交付版本是X.Y.Z，首次使用节点配置基准值，后续只在最新已确认成功编译及正式交付上patch加一。失败、取消和收尾Run不消费版本。调用者使用产品纯规则取得输入，工作流重新核对。Run、Job、Artifact、Tag、Release显示名为公民链·平台·vX.Y.Z；附件实际文件名为明确ASCII名称，label保留中文显示名。
 
-## 无控制台的终态清理
+## 四端原编译Run内的历史清理
 
-每份原Workflow同时声明自己平台唯一的 `citizenchain-finalize-<平台>` repository_dispatch 类型。编译Run结束前请求该收尾模式；后者先核对原Run ID、attempt、源码SHA、平台和交付版本，等待整个原Run真正completed后才操作历史。收尾模式没有测试、编译、版本分配或再次派发步骤，因此不递归。无需本机观察进程或控制台继续在线。
+本节仅适用于macOS、Windows、LinuxARM、LinuxAMD，其他流程保持其独立合同。四份既有Workflow只接收原编译workflow_dispatch，不再派发repository_dispatch收尾。每个原Run依次完成prepare、build、release，最后cleanup明确依赖这三个Job并使用!cancelled()；前置失败仍尝试清理，取消时不继续删除。四端任务独立并行，清理不调用取消、重跑或另派Run接口。
 
-编译记录严格只保留该平台最新成功、最新非成功终态及所有活动编译Run。删除旧记录前，必须确认最新成功正式Tag、Release和完整附件；随后先删除准确旧Tag并回读，再删除旧Release并回读，最后删除已经completed且身份未变的旧编译Run并回读。Run删除会同时清除其日志和Artifact。来源证明保留在Release正文，Tag已删而Release仍在时可以继续。不可变Release、权限或回读失败明确保留为未收尾，不更改仓库保护或假装完成。
+cleanup根据前置Job真实结果计算当前Run的暂定成功或失败保留项，但当前Run仍为in_progress，不能伪造completed或conclusion。最新顺序沿用run_number及Run ID；失败类包括超时、取消等非成功终态。只处理本仓、main、准确平台Workflow的已完成历史，保护当前及全部活动Run、其他平台和其他仓库。归属不明、更晚同平台Run、重复身份、attempt或SHA漂移都停止删除并报错。
 
-收尾Run使用repository_dispatch事件，与workflow_dispatch编译Run明确区分，不能冒充编译成功、增加交付版本或进入编译版本记录。后续收尾对已经completed的旧收尾Run保留其最近成功与失败，当前活动Run始终保护；所以GitHub全部事件类型的Run总数并非严格只有两条。此执行边界已在实施方案明确披露，不能隐藏额外Run来宣称达标。
+成功保留项必须具备准确正式Tag、Release及完整附件证明，然后按准确旧Tag、旧Release、旧Run的顺序删除和回查。全部已完成历史收尾Run均删除，不再保留收尾成功或失败；当前Run与任何活动Run不得成为删除目标。旧成功Run排在其他旧Run之后删除，以缩小异常窗口。Run删除同时清除所属日志及Artifact。API失败、删除回查仍存在、不可变Release或身份变化都令cleanup失败，不用continue-on-error吞掉错误。
 
-强制终止或平台故障可能使收尾请求尚未发出。恢复只查询原Run；需要补清理时，向同一既有工作流交付原Run ID、原attempt、原SHA和原版本的收尾请求。不重新派发编译、不调用rerun、不改变attempt、不重新测试或编译。找不到或无法唯一确认原Run时停止。派发响应不确定时只查证原请求，禁止自动再次POST编译。
+当编译交付及清理正常结束时，保留当前候选所属类别和另一类别的最新记录，某类从未出现则不人为补足两条；全部旧收尾记录归零，活动任务另行保持。编译失败加清理成功仍是失败，清理失败也会使原Run失败。最后Job执行时整体Run尚未终态，因此取消、中断及API故障不能保证严格两条；旧成功Run删除后当前Run再失败，也不能恢复已删除记录。这是已接受的异常边界，不得报告为严格收口或编译成功。
+
+恢复只核对原Run及真实失败，不自动重新派发编译、收尾或rerun；后续另获授权的正常原编译任务可以再次清理遗留记录。没有Webhook、常驻清理服务、本机后台观察或新增辅助文件。纯保留规则及内存GitHub替身回归归scripts/config.mjs，四端实际YAML边界归既有QR仓库守卫；测试包含真实清理正文的正常删除、API拒绝、删除未确认、attempt漂移、成功证明缺失及旧成功已删后中断，不把模拟接口当远端验收。
 
 ## Runtime及控制台边界
 
 Runtime VERSION唯一真源为runtime/src/lib.rs，spec_version、transaction_version等由Runtime自己维护。本次不修改Runtime源码或测试预期、不查询线上链来生成协议版本、不将协议值映射为交付SemVer。WASM沿用runtime/build.rs和官方WasmBuilder从当前源码编译，不在JavaScript中建立另一套Runtime版本读写器。
 
-控制台tata/citizenchain.mjs只读取产品公开声明和纯规则、传输发起请求、保存准确Run回执与展示GitHub真实状态。取消只针对原Run，恢复不重派。正式Tag/Release、产物和清理由产品Workflow独立执行。收尾错误不改写原编译结论，原编译成功也不等于收尾已成功；结果分别如实展示。Runtime升级和服务器部署不属于本编译入口，其既有授权及执行链不在本轮重建。
+控制台tata/citizenchain.mjs只读取产品公开声明和纯规则、传输发起请求、保存准确Run回执与展示GitHub真实状态。取消只针对原Run，恢复不重派。正式Tag/Release、产物和清理由产品Workflow独立执行。四端原Run包含最后cleanup结果，清理错误会使该Run失败，清理成功不会覆盖前置编译失败；不得把清理成功单独显示为编译成功。Runtime升级和服务器部署不属于本编译入口，其既有授权及执行链不在本轮重建。
 
 实际测试、远端编译、签名、公证、发布与部署结果只记录于既有统一构建任务卡，源码和静态检查不代表验收通过。
 
@@ -1183,7 +1185,7 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 - 远程管理 Tunnel `nrcgch-rpc` 健康，运行 1 个 connector。
 - 唯一链入口为 `chain.crcfrcn.com` 的 Access 保护路径，Tunnel 转发到 `127.0.0.1:18080` 的现有Nginx，再代理本机`127.0.0.1:9944`。2026年10月10日SSH只读核对现网Nginx仅限制HTTP POST，没有JSON-RPC方法白名单；公民服务端新增的固定只读响应才构成WASM Release对外方法边界。
 - Access 使用 `chain` 自托管应用、`CitizenChain` Service Auth 策略和唯一链服务令牌；Worker 的 `CHAIN_URL`、`CF_ACCESS_CLIENT_ID` 是公民服务端公开运行变量，`CHAIN_SECRET` 是公民服务端 Worker Secret。这三项需求归 CitizenServe 声明和保管授权，不由本链仓重复登记；现有国储会 Tunnel 不变。
-- 本仓 GitHub WASM Release 只读取公民服务端既有公共域下固定的链身份GET响应；公民服务端Worker使用自身Access服务身份经同一Tunnel调用块0、finalized头与该头的RuntimeVersion，并只返回固定字段。GitHub不持有Access凭据，也不依赖本机Keychain、浏览器会话或P2P `30333`。
+- 历史WASM Release链身份GET响应由公民服务端经原Tunnel读取，只返回固定字段；当前接口不含transaction_version，不能作为完整双版本构建基线。新的scripts/runtime.mjs从GitHub本轮配置的可信HTTPS/WSS JSON-RPC读取块0、finalized头及该头的RuntimeVersion；地址必须从Runner可达且满足现有访问要求。GitHub不读取本机Keychain、浏览器会话或P2P `30333`，脚本不绕过Access、不关闭证书验证；缺少可用完整接口即失败。公民服务端和Tunnel本轮保持。
 - 不增加 `Everyone`、交互式 `Allow` 或 `Bypass`，也不把令牌、Tunnel token 或完整私有 URL 写入仓库、安装包、日志或命令文档。
 
 本仓 `scripts/config.mjs` 只声明软件产品需求：`rtupg:NRC_PUBLIC_KEY` 是国储会现任管理员公钥，作为开发升级和节点实例部署批准的同一受保护信任锚，只存控制台 Touch ID Keychain；创世块哈希仍为公开配置。权威与权益节点是使用本产品的部署实例，不作为产品配置需求；控制台节点管理从本仓既有机构目录读取节点身份，按准确节点ID管理服务器地址、节点身份、验证和SSH运维输入，值由控制台安全层保管与授权。本仓Build不声明节点配置字段。控制台编译任务先按本仓 `scripts/build.mjs` 公开清单执行既有Build与发布Node回归，通过后才进入产品构建。
@@ -2682,3 +2684,12 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 ## 外部调用入口
 
 本仓现有 scripts/config.mjs 的 describeAction({flow,platform}) 声明流程入口。自动化启动逻辑、版本输入与平台选择归本仓；调用方交付已授权令牌和标准 read/dispatch 传输能力，接收准确 Run 编号。既有独立自动化接口继续由本仓实现。未提供的安装或发布入口明确报产品侧未声明，不错接到编译，也不产生成功回执。
+
+
+### Runtime独立GitHub构建入口
+
+Runtime的正式候选及测试依赖WASM统一归scripts/runtime.mjs，节点安装包构建仍归scripts/build.mjs。五个平台原工作流保留阶段、任务名、工具和锁；原分散的WASM_BUILD_FROM_SOURCE和Cargo测试调用改为runtime.mjs test，原测试目标和金标保持，测试WASM不作为升级候选发布。WASM工作流在测试之后调用runtime.mjs build；build.mjs wasm旧入口拒绝，不保留转发或第二套实现。Node源码、协议升级入口、链上升级模块、权限、表决与UI不改。
+
+正式候选从GitHub本轮可信HTTPS/WSS JSON-RPC地址读取冻结链身份及准确finalized块的两个版本，各加1后只写临时编译输入；原Runtime和Node目录不写。地址通过仓库变量CITIZENCHAIN_RUNTIME_RPC_URL交付，不新增产品配置页、不依赖控制台Keychain、不把本机回环地址用于GitHub。历史公民服务端GET尚不返回transaction_version，本轮不修改该接口、Access或其它授权；构建输入必须提供完整双版本。缺失配置或读取失败直接中止，不伪造部署版本。正式三WASM产物及版本记录验真、临时源码清理/退出未确认保留遵循CitizenChainRuntime.md。
+
+现有QR协议repo_guard仅将WASM编译入口断言切换至runtime.mjs build，保留阶段/依赖/收尾拒绝用例；不修改QR协议。新增脚本与现有配置内嵌测试维护版本、夹具和断言。当前仅完成源码与文档维护，未执行测试、类型检查、编译、安装或升级，不宣称本机或GitHub验收通过。
