@@ -3214,6 +3214,8 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 
 ## Runtime 自身版本与 WASM 自动化
 
+本机RPC公开证书交付只涉及node/src/desktop/mod.rs，证书生成模块仅同步注释；WASM构建仍不回写原仓Runtime或Node源码。当前macOS正式节点把本次公开DER十六进制交付到既有正式数据目录的rpc-certificate.hex，runtime.mjs按固定位置只读消费，不新增配置项、不读取私钥、不改控制台、Runtime、UI或交互。脚本核对目录及祖先的所有者、权限、链接和ACL，通过O_NOFOLLOW/O_NONBLOCK打开普通单链接文件，以同一文件描述符检查、读取、前后复核；元数据或路径身份变化立即停止。每轮读链固定一份证书快照，仅装入127.0.0.1本机HTTPS请求的ca，保留有效期及主机名校验、超时与64KiB响应边界，不修改全局信任、不重定向、不降级、不自动换证书重试。证书缺失、损坏、过期、旧会话或权限异常均停止派发；同一finalized块双版本读取与分别加1规则不变。GitHub只接收既有版本基线，不读取公开证书文件。该边界信任当前系统用户，不能防御同用户恶意程序或root。本次仅更新源码、中文注释和同文件回归，不代表测试、构建、安装或真实读链验收已通过。
+
 Runtime正式候选的唯一GitHub构建入口为 scripts/runtime.mjs build。读链、双版本分别加1、派发、基线校验、WASM构建和产物验真都只在该文件实现；scripts/config.mjs的WASM入口仅转调，既有Workflow仅准备工具、声明权限和阶段顺序、传递数据并调用Runtime函数。WASM没有另一套交付版本：Run、Job、Artifact、Tag、Release统一显示“公民链·WASM·v<目标spec_version>”，固定Workflow名称为“公民链·WASM”。例如本机链上1/0生成目标2/1，显示公民链·WASM·v2，不读取节点软件版本或套用X.Y.Z。原仓库Runtime及Node源码不写入，仅本轮临时编译输入的VERSION替换两个数字；升级模块、授权、表决与宪法冻结规则保持。
 
 每轮WASM派发前，runtime.mjs的describeAction返回原launch({read,dispatch})接口；控制台只交付GitHub传输能力，不读链、不计算版本。runtime.mjs复用readRuntimeTarget，通过本机既有https://127.0.0.1:9944读取冻结链身份、同一finalized块的spec_version及transaction_version，分别加1；同一基线重试不累加，两者不强求相等。version、transaction_version和source_sha沿用现有输入，runtime_base携带本轮观察到的genesisHash、blockHash、specName、specVersion、transactionVersion，仅为任务数据，不是持久配置。prepare与build都在runtime.mjs中校验原冻结链身份及基线加1关系，拒绝缺字段、非法值、溢出和目标漂移；Runner不连接本机或远端RPC，不读取GitHub RPC地址变量。已有同号交付或未收尾资产则拒绝重复发布；失败资产仍按原Run恢复清理。源码不新增配置项、证书管理或控制台依赖，不绕过现有TLS验证；本机节点未运行、握手失败、错链或读取不完整均在派发前失败，不猜值、不默认0。runtime_base代表本机读取时的版本快照，不能证明GitHub编译期间链上版本一直未变；后续实际升级仍走原授权流程。本轮不修改公民服务端、Tunnel、Access或钱包。

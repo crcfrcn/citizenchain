@@ -54,7 +54,7 @@ struct DesktopRpcTls {
     certificate: Vec<u8>,
 }
 
-/// 只在桌面启动路径调用，生成材料始终留在内存，不复用 P2P 或生产回源证书。
+/// 只在桌面启动路径调用；私钥留在进程内存，公开证书由桌面入口受控交付，不复用 P2P 或生产回源证书。
 pub(crate) fn prepare_desktop_rpc_tls() -> Result<(), String> {
     if DESKTOP_RPC_TLS.get().is_some() {
         return Ok(());

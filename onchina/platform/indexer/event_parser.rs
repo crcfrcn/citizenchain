@@ -409,7 +409,7 @@ mod tests {
         for bytes in [Vec::new(), vec![0u8]] {
             let events = subxt::events::Events::decode_from(bytes, metadata.clone());
             assert!(parse_block_events(&events, 7, None).unwrap().is_empty());
-            assert_eq!(collect_entity_projection_cids(&events).unwrap(), (Vec::new(), Vec::new()));
+            assert_eq!(collect_entity_projection_cids(&events).unwrap(), (Vec::<String>::new(), Vec::<String>::new()));
         }
         for bytes in [vec![1u8], vec![2u8], vec![3u8], vec![0xffu8, 0xffu8]] {
             let events = subxt::events::Events::decode_from(bytes, metadata.clone());

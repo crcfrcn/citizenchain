@@ -2690,6 +2690,8 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 
 ### Runtime独立GitHub构建入口
 
+当前macOS正式节点在桌面RPC证书初始化成功后，仅将本次公开DER的十六进制原子写入既有正式数据目录的rpc-certificate.hex（本机为~/Library/Application Support/gmb/rpc-certificate.hex）。不输出私钥，不新增配置项、Keychain条目或UI；交付失败只报告诊断，不改变原节点启停。目录0700、文件0600，所有者必须为当前用户；拒绝链接、硬链接、异常类型及附加ACL，祖先目录不得向其他用户授予写入或替换权限。每次完整应用启动更新，手动重启沿用同会话证书；旧文件遇到新会话TLS时失败，退出不增加固定文件删除。公开证书不交给GitHub，不改变RPC回环监听、授权或表决。文件权限不能防御同用户恶意程序或root；创世哈希检查也不能替代证书来源校验。其它平台现有流程保持。
+
 Runtime正式候选及测试依赖WASM的唯一实现归scripts/runtime.mjs，节点安装包仍归scripts/build.mjs。config.mjs的WASM分支只转调；WASM工作流保留工具、原锁、权限及阶段顺序，五个业务步骤只调用runtime.mjs对应函数，原test及build命令保持。其他四端测试调用和金标不改；测试WASM不发布。build.mjs wasm旧入口继续拒绝。Node源码、协议升级入口、链上升级模块、权限、表决与UI保持。
 
 正式WASM派发由runtime.mjs读取本机既有https://127.0.0.1:9944的冻结链身份及同一finalized块双版本，分别加1，并通过现有输入和本轮runtime_base JSON交给GitHub。prepare、build和发布前校验均归同一脚本；Runner只核对快照、目标及实际三份产物，不再次连接本机，不套X.Y.Z，也不要求新增RPC地址或证书配置。快照只对应读取时刻，不能保证构建期间链上版本不变；实际升级仍走原流程。缺少节点、现有可信连接不可用或字段异常即停止，不猜值、不降级；本轮不修改控制台、公民服务端、Runtime及Node源码。临时输入和现场保护遵循CitizenChainRuntime.md。
