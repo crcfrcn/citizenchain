@@ -2,7 +2,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,existsSync,statSync,realpathSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
-import {resolve,dirname,join,relative,isAbsolute} from 'node:path';
+import {resolve,dirname,join,relative,isAbsolute,sep} from 'node:path';
 import {execFileSync} from 'node:child_process';
 
 const root=resolve(import.meta.dirname,'../../..');
@@ -30,7 +30,8 @@ const routeSource=owner=>owner==='platform'?'platform/communication/routes.rs':o
 const ordered=routes=>routes.toSorted((a,b)=>(a.group+' '+a.path).localeCompare(b.group+' '+b.path));
 function definitionOwners(kind,name){
  const pattern=new RegExp('\\b'+kind+'\\s+'+name+'\\b','u');
- return files(onchina).filter(file=>file.endsWith('.rs')&&pattern.test(readFileSync(file,'utf8'))).map(file=>relative(onchina,file));
+ // 夹具使用统一斜线；源码读取仍保留原生平台路径。
+ return files(onchina).filter(file=>file.endsWith('.rs')&&pattern.test(readFileSync(file,'utf8'))).map(file=>relative(onchina,file).split(sep).join('/'));
 }
 
 test('五个部分、功能目录和真实入口与结构夹具一致',()=>{
@@ -42,7 +43,7 @@ test('五个部分、功能目录和真实入口与结构夹具一致',()=>{
  for(const path of layout.requiredFiles)assert.ok(existsSync(join(onchina,path)),path);
  for(const path of layout.absentFiles)assert.equal(existsSync(join(onchina,path)),false,path);
  for(const file of files(onchina)){
-  const parts=relative(root,file).split('/');
+  const parts=relative(root,file).split(sep);
   assert.equal(parts.slice(1,-1).includes('src'),false,file);
   assert.equal(parts.slice(1,-1).includes('backend'),false,file);
   assert.ok(parts.length<=4,file);
@@ -92,7 +93,7 @@ test('显式Rust模块、include及前端相对导入都指向实际文件',()=>
 
 test('公共机构信息面板只定义在平台且原有消费者引用同一实现',()=>{
  const candidates=files(onchina).filter(file=>/\.(?:ts|tsx)$/u.test(file)&&/export function OwnInstitutionInfoPanel\b/u.test(readFileSync(file,'utf8')));
- assert.deepEqual(candidates.map(file=>relative(onchina,file)),[layout.commonPanel]);
+ assert.deepEqual(candidates.map(file=>relative(onchina,file).split(sep).join('/')),[layout.commonPanel]);
  for(const file of layout.commonPanelConsumers){
   const text=source(file);assert.match(text,/import[^;]*OwnInstitutionInfoPanel[^;]*institutions_OwnInstitutionInfoPanel['"]/u,file);
   assert.doesNotMatch(text,/import[^;]*OwnInstitutionInfoPanel[^;]*judicial_JudicialDisplay/u,file);

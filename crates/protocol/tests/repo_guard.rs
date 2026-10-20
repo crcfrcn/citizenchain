@@ -80,8 +80,43 @@ fn tracked_source_scope_rejects_repository_parent() -> Result<(), Box<dyn Error>
     Ok(())
 }
 
+// 按实际YAML映射验证职责与依赖，不依赖Job的文本排列顺序。
+fn validate_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(), Box<dyn Error>> {
+    let jobs = document["jobs"].as_mapping().ok_or("Workflow缺少jobs映射")?;
+    let names = ["prepare", "build", "release", "request-finalize", "finalize"];
+    if jobs.len() != names.len() || names.iter().any(|name| !document["jobs"][*name].is_mapping())
+        || !document["on"]["workflow_dispatch"].is_mapping()
+        || !document["on"]["repository_dispatch"].is_mapping()
+        || document["jobs"]["build"]["needs"].as_str() != Some("prepare")
+        || document["jobs"]["release"]["needs"].as_str() != Some("build")
+    {
+        return Err("Workflow阶段或编译发布依赖不符".into());
+    }
+    let command = format!("node scripts/build.mjs {platform}");
+    let mut compiler_calls = 0;
+    for name in names {
+        let steps = document["jobs"][name]["steps"].as_sequence().ok_or("Job缺少步骤")?;
+        for step in steps {
+            let run = step["run"].as_str().unwrap_or("");
+            let script = step["with"]["script"].as_str().unwrap_or("");
+            if run.contains("scripts/build.mjs") || script.contains("scripts/build.mjs") {
+                if name != "build" || !run.lines().any(|line| line.trim() == command) {
+                    return Err("只有build Job可调用本平台编译入口".into());
+                }
+                compiler_calls += 1;
+            }
+        }
+    }
+    if compiler_calls != 1
+        || !document["jobs"]["finalize"]["if"].as_str().unwrap_or("").contains("repository_dispatch")
+    {
+        return Err("编译入口必须唯一，收尾必须只接收所属事件".into());
+    }
+    Ok(())
+}
+
 #[test]
-fn github_platform_workflows_only_run_product_release() -> Result<(), Box<dyn Error>> {
+fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn Error>> {
     let root = repository_root()?;
     let workflow_root = root.join(".github/workflows");
     let entries = fs::read_dir(&workflow_root)
@@ -108,9 +143,28 @@ fn github_platform_workflows_only_run_product_release() -> Result<(), Box<dyn Er
                 "Workflow包含禁止边界：{value}"
             );
         }
-        // 五个平台各由本仓唯一 release Job 调用产品 Build。
-        assert!(workflow.contains("jobs:\n  release:"));
-        assert!(workflow.contains("workflow_dispatch:"));
+        let platform = match entry.as_str() {
+            "macos.yml" => "macos",
+            "windows.yml" => "windows",
+            "linuxarm.yml" => "linux-arm",
+            "linuxamd.yml" => "linux-amd",
+            "wasm.yml" => "wasm",
+            _ => return Err("出现未声明平台Workflow".into()),
+        };
+        let document: serde_yaml::Value = serde_yaml::from_str(&workflow)?;
+        validate_workflow(&document, platform)?;
+        // 缺阶段、发布绕过编译、收尾误编译都必须继续被守卫拒绝。
+        let mut missing = document.clone();
+        missing["jobs"].as_mapping_mut().ok_or("缺少jobs映射")?
+            .remove(&serde_yaml::Value::String("build".into()));
+        assert!(validate_workflow(&missing, platform).is_err());
+        let mut bypass = document.clone();
+        bypass["jobs"]["release"]["needs"] = serde_yaml::Value::String("prepare".into());
+        assert!(validate_workflow(&bypass, platform).is_err());
+        let mut recompile = document.clone();
+        recompile["jobs"]["finalize"]["steps"][0]["run"] =
+            serde_yaml::Value::String(format!("node scripts/build.mjs {platform}"));
+        assert!(validate_workflow(&recompile, platform).is_err());
     }
     Ok(())
 }

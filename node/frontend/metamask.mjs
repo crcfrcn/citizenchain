@@ -133,6 +133,7 @@ if (directEntry && !inlineTestEntry) {
 if(inlineTestEntry){
   const { default: assert } = await import('node:assert/strict');
   const { readFileSync } = await import('node:fs');
+  const { resolve, join } = await import('node:path');
   const { execFileSync } = await import('node:child_process');
   const { default: test } = await import('node:test');
   const { default: vm } = await import('node:vm');
@@ -367,10 +368,10 @@ if(inlineTestEntry){
 
   // 文本只展示 Runtime 真源的制度，不在页面维护第二套收费实现。
   test('链号、EVM 精度、固定费率与最低手续费仍与 Runtime 真源一致', () => {
-    const root = new URL(process.env.CITIZENCHAIN_SOURCE_ROOT
-      ? `${process.env.CITIZENCHAIN_SOURCE_ROOT}/` : '../../', import.meta.url);
-    const policy = readFileSync(new URL('runtime/primitives/src/fee_policy.rs', root), 'utf8');
-    const units = readFileSync(new URL('runtime/primitives/src/core_const.rs', root), 'utf8');
+    // 环境变量是原生文件路径；Windows盘符不能直接作为URL的base。
+    const root = resolve(process.env.CITIZENCHAIN_SOURCE_ROOT || resolve(import.meta.dirname, '../..'));
+    const policy = readFileSync(join(root, 'runtime/primitives/src/fee_policy.rs'), 'utf8');
+    const units = readFileSync(join(root, 'runtime/primitives/src/core_const.rs'), 'utf8');
     assert.match(policy, /ONCHAIN_FEE_RATE[^;]*1_000_000/);
     assert.match(policy, /ONCHAIN_MIN_FEE[^;]*10/);
     assert.match(units, /NATIVE_TO_ETH_RATIO == 10_000_000_000_000_000/);

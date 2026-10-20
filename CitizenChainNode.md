@@ -18,6 +18,8 @@
 
 本轮输出位于 `target/build/<平台>/artifact`。每个平台的 GitHub 工作现场彼此独立；Runner管理工具进程及取消，工作流在上传产物后清理该轮编译现场。官方 actions/cache 只恢复和保存本平台Cargo中间物及npm下载缓存，按平台、系统、架构及原锁隔离，限时且continue-on-error；不缓存安装包、附件、任务状态或机密。缓存失败不能掩盖真实测试、编译或完整产物失败。
 
+测试读取源码使用Node原生文件路径API，不能把Windows盘符作为URL；结构夹具的路径统一使用斜线，实际读取沿用平台分隔符。QR仓库守卫使用既有serde_yaml按Job映射核对prepare、build、release及收尾边界，不要求Job文本顺序；缺失编译阶段、发布绕过编译和收尾误编译均由同文件负例拒绝。
+
 ## 正式Tag、Release必须由既有工作流创建
 
 生产Job记录每件实际产物的大小和原始字节SHA-256。Release Job只消费同一Run的完整Artifact，先核对生产Job输出，再用官方gh创建草稿及准确源码Tag，下载附件逐件比较，转正式后再次核对Tag提交、Release状态、完整附件、大小和摘要。发布步骤不调用build.mjs，不让控制台代做。任一项未确认，原编译交付Run失败；正式Release不是另行链升级或服务器部署授权。
