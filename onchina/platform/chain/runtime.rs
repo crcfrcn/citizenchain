@@ -1817,6 +1817,7 @@ pub(crate) async fn fetch_active_admins_onchain_at(
 mod tests {
     use super::{
         decode_scale_u128, is_production_mode, parse_hex_hash32, trusted_production_chain_by_hash,
+        ActiveAdminMembership, FRG_CODE, one_frg_province,
     };
 
     #[test]

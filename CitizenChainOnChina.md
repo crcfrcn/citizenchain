@@ -1046,3 +1046,6 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 法律只读 DTO 的 region 为 provinceCode/cityNumber 展示投影；全国 provinceCode 为空、cityNumber 为0，仅按层级解释。前端只发送层级和原业务字段；后端核对原会话范围，链端入口和执行回调均复核授权机构 CID 的地域。Runtime 查询 API v2 接收相同四字节地域，非法参数返回空列表；不同省相同市号分别索引。UI布局、操作顺序、Passkey及钱包扫码交互保持。
 
 当前只有创世宪法，不设计普通法律存量迁移，不改宪法字节、索引、国家立法院归属、众议会发起和两院表决规则，不改节点守卫。Runtime升级统一遵循CitizenChainRuntime.md的版本政策：每次正式升级两个版本各自加1，钱包同步交易版本；OnChina不生成或写回版本号，不以spec_version代替transaction_version。地域源码和配套维护已完成，本轮没有执行升级，保留版本数值。本节为源码合同，相关回归已编写但未运行；不表示类型检查、编译、节点守卫或链上部署已经通过。
+
+
+公共机构治理通过platform/institutions/model.rs的GovernanceCitizen与platform/database/records.rs的只读查询取得CID、姓、名及可空账户。查询沿用原修剪、空输入、created_at倒序及未找到语义，真实数据库失败原样返回；不静态编入注册局完整档案、写入或投影业务。Passkey一次性断言消费使用PostgreSQL官方GenericClient，连接与事务共用原SQL；事务回滚恢复可消费状态，提交后仍只消费一次。既有真实数据库回归覆盖查询字段、顺序、缺失与故障和断言事务语义，仍需控制台提供隔离测试数据库后显式执行，不以普通编译代替集成验收。

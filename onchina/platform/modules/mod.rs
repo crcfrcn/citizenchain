@@ -478,7 +478,8 @@ mod tests {
         let close = handle.clone();
         let parent = crate::parent_shutdown();
         tokio::spawn(async move { crate::shutdown_signal(parent).await; close.graceful_shutdown(Some(Duration::from_millis(100))); });
-        axum_server::bind_rustls(std::env::var("ONCHINA_TEST_BIND").unwrap().parse().unwrap(), config)
+        // 明确TCP地址类型，避免axum-server同时支持Unix地址时无法推断。
+        axum_server::bind_rustls(std::env::var("ONCHINA_TEST_BIND").unwrap().parse::<std::net::SocketAddr>().unwrap(), config)
             .handle(handle).serve(app.into_make_service()).await.unwrap();
     }
 

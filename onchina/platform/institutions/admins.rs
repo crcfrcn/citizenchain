@@ -153,7 +153,7 @@ pub(crate) fn parse_admin_inputs(
         }
         let citizen = state
             .db
-            .find_citizen_by_account_id(admin.account_id.trim())
+            .find_governance_citizen_by_account_id(admin.account_id.trim())
             .map_err(|err| api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, &err))?;
         let supplied_cid = admin
             .cid_number
@@ -527,7 +527,7 @@ fn legal_representative_change(
     let Some(cid_number) = cid_number.map(str::trim).filter(|v| !v.is_empty()) else {
         return Ok(None);
     };
-    let record = match state.db.find_citizen_by_cid(cid_number) {
+    let record = match state.db.find_governance_citizen_by_cid(cid_number) {
         Ok(Some(record)) => record,
         Ok(None) => {
             return Err(api_error(

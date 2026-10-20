@@ -452,6 +452,18 @@ mod tests {
             assert!(!store::consume_assertion_conn(conn, "expired", &actor, now)?);
             assert!(store::consume_assertion_conn(conn, "live", &actor, now)?);
             assert!(!store::consume_assertion_conn(conn, "live", &actor, now)?);
+            store::insert_assertion_conn(conn, "transaction", &actor, now + Duration::seconds(120))?;
+            {
+                let mut tx = conn.transaction().map_err(|e| e.to_string())?;
+                assert!(store::consume_assertion_conn(&mut tx, "transaction", &actor, now)?);
+                assert!(!store::consume_assertion_conn(&mut tx, "transaction", &actor, now)?);
+                // 上层治理失败回滚后，断言必须仍可由后续合法事务消费。
+                tx.rollback().map_err(|e| e.to_string())?;
+            }
+            let mut tx = conn.transaction().map_err(|e| e.to_string())?;
+            assert!(store::consume_assertion_conn(&mut tx, "transaction", &actor, now)?);
+            tx.commit().map_err(|e| e.to_string())?;
+            assert!(!store::consume_assertion_conn(conn, "transaction", &actor, now)?);
             Ok(())
         }).unwrap();
     }

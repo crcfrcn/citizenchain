@@ -1,5 +1,14 @@
 //! 本机构管理员展示 DTO；字段及序列化规则保持不变。
 use serde::Serialize;
+
+/// 公共机构治理只读的身份字段；完整公民档案与投影仍由注册局维护。
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct GovernanceCitizen {
+    pub(crate) cid_number: String,
+    pub(crate) family_name: String,
+    pub(crate) given_name: String,
+    pub(crate) account_id: Option<String>,
+}
 #[derive(Serialize)]
 pub(crate) struct OwnInstitutionAdminRow {
     pub(crate) account_id: String,

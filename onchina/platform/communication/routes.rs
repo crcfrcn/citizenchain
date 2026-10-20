@@ -75,7 +75,7 @@ fn build_routes(state: AppState) -> Router {
                     _ => panic!("unsupported module route method"),
                 }).reduce(axum::routing::MethodFilter::or).expect("validated module route requires a method");
             let limit = route.body_limit;
-            let handler = axum::routing::on(methods, move |State(state): State<AppState>, request: axum::extract::Request| {
+            let handler = axum::routing::on(methods, move |axum::extract::State(state): axum::extract::State<AppState>, request: axum::extract::Request| {
                 let owner = owner.clone();
                 async move { modules::forward_request(&state, &owner, request, limit).await }
             });

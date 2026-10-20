@@ -124,9 +124,9 @@ pub(super) fn admin_has_credential_conn(
     Ok(row.get(0))
 }
 
-/// 一次性消费断言令牌(校验 admin / 未过期 + 删除);成功返回 true。
+/// 一次性消费断言令牌；接受官方连接或事务，随调用方事务一起提交或回滚。
 pub(super) fn consume_assertion_conn(
-    conn: &mut Client,
+    conn: &mut impl postgres::GenericClient,
     assertion_id: &str,
     account_id: &str,
     now: DateTime<Utc>,
