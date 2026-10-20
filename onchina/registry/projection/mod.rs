@@ -719,7 +719,8 @@ mod tests {
         assert_eq!(out.family_name, "李");
         assert_eq!(out.given_name, "四");
         assert_eq!(out.citizen_sex, "MALE");
-        assert_eq!(out.citizen_birth_date, "20000101");
+        // 链上日期已映射为标准日历格式，投影保持该格式。
+        assert_eq!(out.citizen_birth_date, "2000-01-01");
     }
 
     #[test]
