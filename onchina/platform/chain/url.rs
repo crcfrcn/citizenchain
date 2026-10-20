@@ -152,6 +152,8 @@ mod tests {
                 match listener.accept() {
                     Ok((socket, _)) => {
                         accepted += 1;
+                        // macOS接受的连接会继承非阻塞模式；同步TLS读写前恢复阻塞，仍保留原超时。
+                        socket.set_nonblocking(false).unwrap();
                         socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
                         socket.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
                         let mut tls = rustls::StreamOwned::new(rustls::ServerConnection::new(config.clone()).unwrap(), socket);
