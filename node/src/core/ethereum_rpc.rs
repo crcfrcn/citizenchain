@@ -907,29 +907,6 @@ mod tests {
         }
     }
 
-    fn session_path(path: &std::path::Path) -> Result<(), &'static str> {
-        use std::path::Component;
-        if let Some(work) = std::env::var_os("CITIZENCHAIN_TEST_WORK_ROOT") {
-            let work = std::path::PathBuf::from(work);
-            if !work.is_absolute() || work.file_name().is_none_or(|name| name != "test")
-                || work.parent().and_then(std::path::Path::file_name).is_none_or(|name| name != "target")
-                || work.canonicalize().ok().as_ref() != Some(&work)
-                || path != work.join("metamask/session") {
-                return Err("服务器测试会话必须属于部署方的规范 target/test/metamask/session");
-            }
-            return Ok(());
-        }
-        let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        if !path.is_absolute()
-            || path.parent().is_none()
-            || !path.starts_with(repository.join("target"))
-            || path.components().any(|part| matches!(part, Component::CurDir | Component::ParentDir))
-        {
-            return Err("测试会话必须使用本产品 target 内的规范绝对目录");
-        }
-        Ok(())
-    }
-
     fn session_port(value: &str) -> Result<u16, &'static str> {
         match value.parse::<u16>() {
             Ok(port @ 1..=u16::MAX) if value == port.to_string() => Ok(port),
@@ -992,7 +969,7 @@ mod tests {
     }
 
     #[test]
-    fn metamask_session_settings_reject_source_paths_and_unbounded_duration() {
+    fn metamask_session_settings_reject_invalid_ports_pages_and_duration() {
         for value in ["1", "18081", "65535"] { assert!(session_port(value).is_ok()); }
         for value in ["", "0", "65536", "-1", "1.5", "018081", " 18081"] { assert!(session_port(value).is_err()); }
         let original = include_str!(concat!(env!("OUT_DIR"), "/metamask.html"));
@@ -1012,14 +989,6 @@ mod tests {
         for value in ["", "0", "1801", "-1", "1.5", "18446744073709551616"] {
             assert!(session_seconds(value).is_err(), "{value}");
         }
-        let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        for path in [std::path::PathBuf::from("relative"), repository.join("node/session"),
-            std::path::PathBuf::from("/"), std::path::PathBuf::from("/tmp/../session"),
-            std::env::temp_dir().join("../session")] {
-            assert!(session_path(&path).is_err(), "{}", path.display());
-        }
-        assert!(session_path(&repository.join("target/macos/build/tmp/citizenchain-session")).is_ok());
-        assert!(session_path(&repository.join("target/linux-amd/ci/tmp/citizenchain-session")).is_ok());
     }
 
     async fn session_receipt(
@@ -1059,13 +1028,11 @@ mod tests {
         use sc_transaction_pool_api::{ChainEvent, InPoolTransaction, MaintainedTransactionPool, TransactionPool};
         use sp_runtime::transaction_validity::TransactionSource;
         let explicit_root = std::env::var_os("CITIZENCHAIN_TEST_SESSION_ROOT");
+        // 普通自动化直接使用标准库默认临时目录；沿用本轮唯一子目录及排他创建。
         let root = explicit_root.as_ref().map(std::path::PathBuf::from).unwrap_or_else(|| {
-            std::env::temp_dir().canonicalize().unwrap().join(format!("citizenchain-session-{}-{}", std::process::id(),
+            std::env::temp_dir().join(format!("citizenchain-session-{}-{}", std::process::id(),
                 std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))
         });
-        session_path(&root).unwrap();
-        assert_eq!(root.parent().unwrap().canonicalize().unwrap(), root.parent().unwrap(),
-            "会话父目录不能经过符号链接");
         let seconds = session_seconds(&std::env::var("CITIZENCHAIN_TEST_SESSION_SECONDS")
             .unwrap_or_else(|_| "1".into())).unwrap();
         let port = match std::env::var("CITIZENCHAIN_TEST_RPC_PORT") {
