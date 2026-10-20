@@ -1538,9 +1538,8 @@ mod finalize_issuance_tests {
         // SDK 的 new_temp_dir 在同一进程复用目录；服务测试必须各自持有独立数据库。
         // 子目录归调用方的本轮临时现场，工具退出且结果消费后由产品生命周期统一清场。
         static NEXT_BASE: AtomicUsize = AtomicUsize::new(0);
+        // 标准库默认临时目录保持本机路径表示，避免Windows扩展前缀传入RocksDB。
         let root = std::env::temp_dir()
-            .canonicalize()
-            .expect("resolve node guard test temporary root")
             .join(format!(
                 "node-guard-bad-block-{}-{}",
                 std::process::id(),

@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 // Runtime 唯一 GitHub 构建入口。正式候选按链上版本各加1，原源码和测试金标不回写。
-import {copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, appendFileSync} from 'node:fs';
+import {copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, appendFileSync,
+  openSync, closeSync, fstatSync, readSync, constants as fileConstants} from 'node:fs';
 import {dirname, isAbsolute, join, relative, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {zstdDecompressSync} from 'node:zlib';
+import {homedir} from 'node:os';
+import {execFileSync} from 'node:child_process';
+import {X509Certificate} from 'node:crypto';
+import {request as httpsRequest} from 'node:https';
 import * as cfg from './config.mjs';
 import {assertBuildWork, checkWork, platformCargoEnvironment, runBuildProcess} from './build.mjs';
 
@@ -26,6 +31,109 @@ export function nextRuntimeVersion(current) {
 
 // 本机现有RPC入口只归Runtime文件；不是新增配置项，也不交给GitHub连接。
 const localRpc = 'https://127.0.0.1:9944';
+const certificateName = 'rpc-certificate.hex', maximumRpcBytes = 64 * 1024;
+const certificateFiles = {lstatSync, realpathSync, openSync, closeSync, fstatSync, readSync};
+
+// 固定读取当前macOS正式节点的公开交付，不搜索开发目录、不新增环境或配置项。
+function runtimeCertificateDirectory() {
+  if (process.platform !== 'darwin') fail('本机公开证书取数入口仅适用于macOS正式节点');
+  return join(homedir(), 'Library/Application Support/gmb');
+}
+
+function assertCertificateAcl(output, privatePath) {
+  const lines = output.trimEnd().split('\n');
+  if (!lines[0]) fail('公开证书路径ACL无法确认');
+  for (const line of lines.slice(1)) {
+    const match = /^\s*[0-9]+: (.+)$/u.exec(line);
+    if (!match || privatePath) fail('公开证书目录或文件存在附加ACL');
+    const entry = /^((?:user|group):.+) (allow|deny) ([a-z_,]+)$/u.exec(match[1]);
+    if (!entry) fail('公开证书路径ACL身份或权限无法确认');
+    if (entry[2] === 'deny') continue;
+    if (!entry[3].split(',').every(value =>
+      ['read', 'list', 'execute', 'search', 'readattr', 'readextattr', 'readsecurity', 'synchronize'].includes(value.trim()))) {
+      fail('公开证书祖先目录允许额外写入');
+    }
+  }
+}
+
+function inspectCertificateAcl(path, privatePath) {
+  if (process.platform !== 'darwin') fail('无法检查macOS公开证书ACL');
+  let output;
+  try { output = execFileSync('/bin/ls', ['-lde', path], {env: {LC_ALL: 'C'}, encoding: 'utf8',
+    maxBuffer: maximumRpcBytes, timeout: 2500, stdio: ['ignore', 'pipe', 'pipe']}); }
+  catch { fail('无法检查公开证书ACL'); }
+  assertCertificateAcl(output, privatePath);
+}
+
+function certificateFileMetadata(value, uid) {
+  if (!value.isFile() || value.uid !== BigInt(uid) || (value.mode & 0o7777n) !== 0o600n
+      || value.nlink !== 1n || value.size === 0n || value.size > BigInt(maximumRpcBytes)) {
+    fail('公开证书文件类型、所有者或权限无效');
+  }
+}
+
+function sameCertificateFile(left, right) {
+  return ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].every(key => left[key] === right[key]);
+}
+
+function certificateDirectory(directory, files, inspectAcl, uid) {
+  if (!isAbsolute(directory) || resolve(directory) !== directory || files.realpathSync(directory) !== directory) {
+    fail('公开证书目录不能经过链接');
+  }
+  let path = directory, identity;
+  for (;;) {
+    const value = files.lstatSync(path, {bigint: true});
+    if (!value.isDirectory() || ![0n, BigInt(uid)].includes(value.uid) || (value.mode & 0o022n) !== 0n
+        || path === directory && (value.uid !== BigInt(uid) || (value.mode & 0o7777n) !== 0o700n)) {
+      fail('公开证书目录所有者或权限无效');
+    }
+    inspectAcl(path, path === directory);
+    if (path === directory) identity = value;
+    const parent = dirname(path); if (parent === path) return identity;
+    path = parent;
+  }
+}
+
+// 公开的只读入口便于同仓TLS回归消费；注入只用于临时夹具，生产始终使用固定路径及真实文件操作。
+export function readRuntimeCertificate(directory = runtimeCertificateDirectory(), {files = certificateFiles, inspectAcl = inspectCertificateAcl} = {}) {
+  if (typeof process.geteuid !== 'function' || !fileConstants.O_NOFOLLOW || !fileConstants.O_NONBLOCK) {
+    fail('公开证书文件安全校验不可用');
+  }
+  const uid = process.geteuid(), identity = certificateDirectory(directory, files, inspectAcl, uid);
+  const path = join(directory, certificateName);
+  let fd;
+  try {
+    fd = files.openSync(path, fileConstants.O_RDONLY | fileConstants.O_NOFOLLOW | fileConstants.O_NONBLOCK);
+    const before = files.fstatSync(fd, {bigint: true}); certificateFileMetadata(before, uid);
+    inspectAcl(path, true);
+    const named = files.lstatSync(path, {bigint: true}); certificateFileMetadata(named, uid);
+    if (!sameCertificateFile(before, named)) fail('公开证书打开期间文件已变化');
+    const bytes = Buffer.alloc(Number(before.size) + 1);
+    let size = 0;
+    for (;;) {
+      const count = files.readSync(fd, bytes, size, bytes.length - size, size);
+      if (!count) break;
+      size += count; if (size === bytes.length) fail('公开证书读取期间大小已变化');
+    }
+    const after = files.fstatSync(fd, {bigint: true}), current = files.lstatSync(path, {bigint: true});
+    certificateFileMetadata(after, uid); certificateFileMetadata(current, uid);
+    const parent = certificateDirectory(directory, files, inspectAcl, uid);
+    if (identity.dev !== parent.dev || identity.ino !== parent.ino || size !== Number(before.size)
+        || !sameCertificateFile(before, after) || !sameCertificateFile(before, current)) {
+      fail('公开证书读取期间文件已变化');
+    }
+    inspectAcl(path, true);
+    const text = bytes.subarray(0, size).toString('ascii');
+    if (size % 2 || !/^[0-9a-f]+$/u.test(text)) fail('公开证书必须是完整DER十六进制');
+    // ascii解码不能丢弃高位后把非法字节当作十六进制。
+    if (!Buffer.from(text, 'ascii').equals(bytes.subarray(0, size))) fail('公开证书编码无效');
+    let certificate;
+    const der = Buffer.from(text, 'hex');
+    try { certificate = new X509Certificate(der); } catch { fail('公开证书不是有效X.509'); }
+    if (!certificate.raw.equals(der)) fail('公开证书只能包含一张完整X.509');
+    return certificate.toString();
+  } finally { if (fd !== undefined) files.closeSync(fd); }
+}
 
 export function runtimeVersion(value) {
   if (typeof value !== 'string' || value.trim() !== value || !/^(0|[1-9][0-9]*)$/u.test(value)
@@ -83,7 +191,7 @@ export function runtimeSettleRequest(source) {
 }
 
 // 控制台沿用原launch({read,dispatch})公开接口，只提供传输；本文件独立拥有WASM流程。
-export async function describeAction({flow, platform}) {
+export async function describeAction({flow, platform}, {readTarget = readRuntimeTarget} = {}) {
   if (flow !== 'release' || platform !== 'wasm') fail('Runtime入口只接受WASM流程');
   return {repository: cfg.product.repository, launch: async({read, dispatch}) => {
     const rows = [], releases = [];
@@ -96,7 +204,7 @@ export async function describeAction({flow, platform}) {
       releases.push(...data); if (data.length < 100) break;
     }
     if (rows.some(run => run.status !== 'completed')) fail('WASM已有活动编译Run');
-    const {base, target} = await readRuntimeTarget(), version = String(target.specVersion);
+    const {base, target} = await readTarget(), version = String(target.specVersion);
     if (releases.some(release => release.tag_name === cfg.releaseName('wasm', version))) fail('该Runtime版本已有交付或未收尾资产，禁止重复发布');
     const head = await read('git/ref/heads/main');
     const request = runtimeLaunchRequest({version, transactionVersion: String(target.transactionVersion), sha: head.object.sha, base});
@@ -199,14 +307,45 @@ export function verifyRuntimeWasm(input, target) {
   return actual;
 }
 
-// HTTPS/WSS只使用平台正常证书验证；失败不重试、不降级，也不输出连接配置。
-async function rpcRequest(endpoint, method, params, {fetchImpl = fetch, WebSocketType = WebSocket} = {}) {
+// 本机请求只装载本轮公开证书；不使用全局Agent、代理、客户端私钥或关闭身份校验。
+function requestLocalRuntime(url, body, certificate, requestImpl) {
+  if (url.protocol !== 'https:' || url.hostname !== '127.0.0.1' || url.pathname !== '/' || url.search) {
+    fail('本机公开证书只允许回环HTTPS RPC');
+  }
+  return new Promise((accept, reject) => {
+    const request = requestImpl(url, {method: 'POST', agent: false, ca: certificate,
+      rejectUnauthorized: true, signal: AbortSignal.timeout(15000),
+      headers: {'content-type': 'application/json'}}, response => {
+      void (async() => {
+        try {
+          if (response.statusCode !== 200) fail('本机Runtime RPC状态无效');
+          const parts = []; let size = 0;
+          for await (const part of response) {
+            size += part.length; if (size > maximumRpcBytes) fail('Runtime链RPC响应过大');
+            parts.push(part);
+          }
+          accept(Buffer.concat(parts).toString('utf8'));
+        } catch (error) { response.destroy(); reject(error); }
+      })();
+    });
+    request.on('error', reject);
+    request.end(body);
+  });
+}
+
+// 远端HTTPS/WSS仍沿用系统信任；本机使用明确交付的公开证书，失败不重试、不降级。
+export async function rpcRequest(endpoint, method, params, {fetchImpl = fetch, WebSocketType = WebSocket,
+  certificate, httpsImpl = httpsRequest} = {}) {
   let url;
   try { url = new URL(endpoint); } catch { fail('缺少有效的Runtime链RPC地址'); }
   if (!['https:', 'wss:'].includes(url.protocol) || url.username || url.password || url.hash) fail('Runtime RPC只允许可信HTTPS/WSS地址');
   const request = JSON.stringify({jsonrpc: '2.0', id: 1, method, params});
   let raw;
-  if (url.protocol === 'https:') {
+  if (certificate !== undefined) {
+    raw = await requestLocalRuntime(url, request, certificate, httpsImpl);
+  } else if (url.origin === localRpc || url.hostname === '127.0.0.1') {
+    fail('本机Runtime RPC缺少本轮公开证书');
+  } else if (url.protocol === 'https:') {
     const response = await fetchImpl(url, {method: 'POST', redirect: 'error', credentials: 'omit',
       headers: {'content-type': 'application/json'}, body: request, signal: AbortSignal.timeout(15000)});
     if (!response.ok || !response.body) fail('Runtime链RPC读取失败');
@@ -251,10 +390,12 @@ export async function fetchRuntimeBase(rpc, expectedGenesis) {
   return {genesisHash, blockHash, specName: value.specName, specVersion, transactionVersion};
 }
 
-// 只在本机派发前读取；GitHub构建消费基线快照，导入本文件不读链或创建现场。
-export async function readRuntimeTarget(endpoint = localRpc, {request = rpcRequest} = {}) {
+// 只在本机派发前读取一次证书并固定到本轮三个RPC；导入不读文件，Runner仅消费版本基线。
+export async function readRuntimeTarget(endpoint = localRpc, {request, readCertificate = readRuntimeCertificate, httpsImpl = httpsRequest} = {}) {
+  const certificate = request ? undefined : readCertificate();
+  const send = request || ((url, method, params) => rpcRequest(url, method, params, {certificate, httpsImpl}));
   const rpc = async(method, params) => {
-    try { return await request(endpoint, method, params); }
+    try { return await send(endpoint, method, params); }
     catch { fail('无法读取本机Runtime RPC，请确认节点运行及现有可信连接可用'); }
   };
   const base = await fetchRuntimeBase(rpc, frozenGenesis());
@@ -545,6 +686,126 @@ if (testFile) {
     const name = Buffer.from('runtime_version'), section = Buffer.concat([length(name.length), name, body]);
     return Buffer.concat([Buffer.from([0, 97, 115, 109, 1, 0, 0, 0, 0]), length(section.length), section]);
   };
+  // 夹具只保存Node自带的公开根证书；不在源码或临时文件中放入任何私钥。
+  const publicFixture = new X509Certificate((await import('node:tls')).rootCertificates[0]);
+  const {chmodSync, renameSync, symlinkSync, linkSync, unlinkSync} = await import('node:fs');
+  function certificateFixture(t) {
+    mkdirSync(join(root, 'target'), {recursive: true});
+    const directory = realpathSync(mkdtempSync(join(root, 'target/runtime-certificate-')));
+    chmodSync(directory, 0o700);
+    t.after(() => rmSync(directory, {recursive: true, force: true}));
+    const path = join(directory, certificateName);
+    writeFileSync(path, publicFixture.raw.toString('hex'), {mode: 0o600});
+    // 跨平台纯回归只模拟ACL查询；真实macOS ACL与TLS另由桌面同文件回归覆盖。
+    return {directory, path, options: {inspectAcl: () => {}}};
+  }
+  function httpsFixture(reply, observed = []) {
+    return (url, options, callback) => {
+      const listeners = new Map();
+      return {on: (name, action) => listeners.set(name, action), end: body => {
+        observed.push({url: String(url), options, body: JSON.parse(body)});
+        queueMicrotask(() => {
+          const value = reply(JSON.parse(body));
+          if (value instanceof Error) { listeners.get('error')(value); return; }
+          const {statusCode = 200, bytes = Buffer.from(JSON.stringify(value))} = value;
+          callback({statusCode, destroy() {}, async *[Symbol.asyncIterator]() {yield bytes;}});
+        });
+      }};
+    };
+  }
+  // Windows不具备这次macOS合同所需的POSIX原语，验证明确拒绝；不让新增夹具破坏其原编译流程。
+  if (process.platform !== 'win32') {
+  test('公开证书通过同一句柄读取并关闭', t => {
+    const {directory, options} = certificateFixture(t);
+    let opens = 0, closes = 0;
+    const files = {...certificateFiles, openSync: (...args) => {opens++; return openSync(...args);},
+      closeSync: fd => {closes++; closeSync(fd);}};
+    assert.equal(readRuntimeCertificate(directory, {...options, files}), publicFixture.toString());
+    assert.equal(opens, 1); assert.equal(closes, 1);
+  });
+  test('公开证书拒绝缺失、链接、硬链接、目录、权限及非法内容', t => {
+    const {directory, path, options} = certificateFixture(t);
+    const read = () => readRuntimeCertificate(directory, options);
+    for (const value of ['', '0', '00zz', '00', publicFixture.raw.toString('hex') + '00', 'a'.repeat(maximumRpcBytes + 1)]) {
+      writeFileSync(path, value); assert.throws(read);
+    }
+    writeFileSync(path, publicFixture.raw.toString('hex'));
+    chmodSync(path, 0o644); assert.throws(read); chmodSync(path, 0o600);
+    chmodSync(directory, 0o755); assert.throws(read); chmodSync(directory, 0o700);
+    const original = path + '.original'; renameSync(path, original);
+    assert.throws(read); symlinkSync(original, path); assert.throws(read); unlinkSync(path);
+    linkSync(original, path); assert.throws(read); unlinkSync(path);
+    mkdirSync(path); assert.throws(read); rmSync(path, {recursive: true});
+    renameSync(original, path);
+    const linked = join(directory, 'linked'); symlinkSync(directory, linked);
+    assert.throws(() => readRuntimeCertificate(linked, options));
+    assert.throws(() => readRuntimeCertificate(directory, {inspectAcl: () => {throw Error('ACL查询失败');}}));
+  });
+  test('公开证书拒绝错误UID和读取过程替换，失败仍关闭句柄', t => {
+    for (const phase of ['uid', 'open', 'read', 'directory']) {
+      const {directory, path, options} = certificateFixture(t);
+      let closes = 0, changed = false, directories = 0;
+      const replace = () => {
+        if (changed) return; changed = true;
+        renameSync(path, path + '.old'); writeFileSync(path, publicFixture.raw.toString('hex'), {mode: 0o600});
+      };
+      const files = {...certificateFiles,
+        openSync: (...args) => {const fd = openSync(...args); if (phase === 'open') replace(); return fd;},
+        fstatSync: (...args) => {
+          const value = fstatSync(...args);
+          return phase === 'uid' ? {...value, uid: value.uid + 1n, isFile: () => true} : value;
+        },
+        readSync: (...args) => {const size = readSync(...args); if (phase === 'read') replace(); return size;},
+        lstatSync: (name, settings) => {
+          const value = lstatSync(name, settings);
+          return phase === 'directory' && name === directory && directories++ > 0
+            ? {...value, ino: value.ino + 1n, isDirectory: () => true} : value;
+        },
+        closeSync: fd => {closes++; closeSync(fd);}};
+      assert.throws(() => readRuntimeCertificate(directory, {...options, files}), phase === 'uid' ? /所有者或权限/ : /期间文件已变化/);
+      assert.equal(closes, 1);
+    }
+  });
+  } else {
+    test('缺少POSIX安全文件原语时明确拒绝且不打开证书', () => {
+      let opened = false;
+      assert.throws(() => readRuntimeCertificate('fixture', {files: {
+        ...certificateFiles, openSync: () => {opened = true; throw Error('禁止打开');}}}), /安全校验不可用/);
+      assert.equal(opened, false);
+    });
+  }
+  test('公开证书ACL拒绝未知格式及写入授权，不把祖先deny delete误判为写入', () => {
+    assert.doesNotThrow(() => assertCertificateAcl('directory\n', true));
+    assert.doesNotThrow(() => assertCertificateAcl('directory\n 0: group:everyone deny delete\n', false));
+    assert.doesNotThrow(() => assertCertificateAcl('directory\n 0: user:fixture allow read,search\n', false));
+    for (const [output, privatePath] of [['', false], ['directory\nunknown\n', false],
+      ['directory\n 0: user:fixture allow write\n', false], ['directory\n 0: group:everyone deny delete\n', true]]) {
+      assert.throws(() => assertCertificateAcl(output, privatePath));
+    }
+    assert.throws(() => assertCertificateAcl('directory\n 0: user:fixture deny name allow write\n', false));
+  });
+  test('本机HTTPS仅装本轮ca，拒绝重定向、超限、超时及证书错误', async () => {
+    const calls = [], certificate = publicFixture.toString();
+    const httpsImpl = httpsFixture(() => ({jsonrpc: '2.0', id: 1, result: head}), calls);
+    assert.equal(await rpcRequest(localRpc, 'chain_getFinalizedHead', [], {certificate, httpsImpl}), head);
+    const options = calls[0].options;
+    assert.equal(options.ca, certificate); assert.equal(options.rejectUnauthorized, true);
+    assert.equal(options.agent, false); assert.ok(options.signal instanceof AbortSignal);
+    assert.ok(!['key', 'cert', 'pfx', 'checkServerIdentity'].some(key => Object.hasOwn(options, key)));
+    for (const reply of [{statusCode: 302}, {bytes: Buffer.alloc(maximumRpcBytes + 1)},
+      {bytes: Buffer.from('invalid')}, {jsonrpc: '2.0', id: 2, result: head},
+      Object.assign(Error('fixture'), {code: 'CERT_HAS_EXPIRED'}),
+      Object.assign(Error('fixture'), {code: 'DEPTH_ZERO_SELF_SIGNED_CERT'}),
+      Object.assign(Error('fixture'), {code: 'ERR_TLS_CERT_ALTNAME_INVALID'}),
+      Object.assign(Error('fixture'), {code: 'ABORT_ERR'})]) {
+      await assert.rejects(rpcRequest(localRpc, 'chain_getFinalizedHead', [], {certificate, httpsImpl: httpsFixture(() => reply)}));
+    }
+    await assert.rejects(rpcRequest(localRpc, 'chain_getFinalizedHead', []));
+    for (const endpoint of ['https://remote.invalid', 'wss://127.0.0.1:9944', localRpc + '/other', localRpc + '/?query=1']) {
+      await assert.rejects(rpcRequest(endpoint, 'chain_getFinalizedHead', [], {certificate, httpsImpl}));
+    }
+    assert.equal(calls.length, 1);
+  });
   test('以链上各自版本加1，0有效，非法值和溢出拒绝', () => {
     assert.deepEqual(nextRuntimeVersion({specVersion: 7, transactionVersion: 3}), {specVersion: 8, transactionVersion: 4});
     assert.deepEqual(nextRuntimeVersion({specVersion: 0, transactionVersion: 0}), {specVersion: 1, transactionVersion: 1});
@@ -749,33 +1010,37 @@ if (testFile) {
     const {readFile}=await import('node:fs/promises');
     const frozen=(await readFile(new URL('../runtime/primitives/src/genesis.rs',import.meta.url),'utf8'))
       .match(/pub const GENESIS_HASH:\s*\[u8;\s*32\]\s*=\s*hex_literal::hex!\("([a-f0-9]{64})"\)/u);
-    assert.ok(frozen);const previous=globalThis.fetch,calls=[];let missing=false,releases=[],runs=[];
-    globalThis.fetch=async(url,options)=>{
-      assert.equal(String(url),localRpc+'/');const rpc=JSON.parse(options.body);calls.push(rpc.method);
+    assert.ok(frozen);const calls=[],observed=[];let missing=false,releases=[],runs=[],certificateReads=0,certificateFailure=false;
+    const httpsImpl=httpsFixture(rpc=>{
+      calls.push(rpc.method);
       const result=rpc.method==='chain_getBlockHash'?'0x'+frozen[1]:rpc.method==='chain_getFinalizedHead'?'0x'+'22'.repeat(32)
         :{specName:product.id,specVersion:7,...(missing?{}:{transactionVersion:3})};
-      return Response.json({jsonrpc:'2.0',id:1,result});
+      return {jsonrpc:'2.0',id:1,result};
+    },observed);
+    const target=await describeAction({flow:'release',platform:'wasm'},{readTarget:()=>readRuntimeTarget(localRpc,{
+      readCertificate:()=>{certificateReads++;if(certificateFailure)throw Error('fixture certificate failure');return publicFixture.toString();},httpsImpl})}),requests=[];
+    const read=async path=>{
+      if(path.startsWith('actions/workflows/wasm.yml/runs'))return {workflow_runs:runs};
+      if(path.startsWith('releases?'))return releases;
+      if(path==='git/ref/heads/main')return {object:{sha:'a'.repeat(40)}};
+      throw Error('未预期读取：'+path);
     };
-    try{
-      const target=await describeAction({flow:'release',platform:'wasm'}),requests=[];
-      const read=async path=>{
-        if(path.startsWith('actions/workflows/wasm.yml/runs'))return {workflow_runs:runs};
-        if(path.startsWith('releases?'))return releases;
-        if(path==='git/ref/heads/main')return {object:{sha:'a'.repeat(40)}};
-        throw Error('未预期读取：'+path);
-      };
-      const dispatch=async request=>{requests.push(request);return {workflow_run_id:42};};
-      assert.deepEqual(await target.launch({read,dispatch}),{runID:42});
-      const {runtime_base,...inputs}=requests[0].inputs;
-      assert.deepEqual({...requests[0],inputs},{workflow:'wasm.yml',ref:'main',inputs:{version:'8',transaction_version:'4',source_sha:'a'.repeat(40)}});
-      assert.deepEqual(JSON.parse(runtime_base),{genesisHash:'0x'+frozen[1],blockHash:'0x'+'22'.repeat(32),specName:product.id,specVersion:7,transactionVersion:3});
-      missing=true;await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-      missing=false;releases=[{tag_name:'公民链·WASM·v8'}];
-      await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-      releases=[];runs=[{status:'in_progress'}];
-      await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-      assert.deepEqual(calls.slice(0,3),['chain_getBlockHash','chain_getFinalizedHead','state_getRuntimeVersion']);
-    }finally{globalThis.fetch=previous;}
+    const dispatch=async request=>{requests.push(request);return {workflow_run_id:42};};
+    assert.deepEqual(await target.launch({read,dispatch}),{runID:42});
+    const {runtime_base,...inputs}=requests[0].inputs;
+    assert.deepEqual({...requests[0],inputs},{workflow:'wasm.yml',ref:'main',inputs:{version:'8',transaction_version:'4',source_sha:'a'.repeat(40)}});
+    assert.deepEqual(JSON.parse(runtime_base),{genesisHash:'0x'+frozen[1],blockHash:'0x'+'22'.repeat(32),specName:product.id,specVersion:7,transactionVersion:3});
+    assert.equal(certificateReads,1);assert.equal(observed.length,3);
+    assert.ok(observed.every(value=>value.options.ca===publicFixture.toString()));
+    assert.deepEqual(observed[2].body.params,['0x'+'22'.repeat(32)]);
+    certificateFailure=true;await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
+    assert.equal(observed.length,3);certificateFailure=false;
+    missing=true;await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
+    missing=false;releases=[{tag_name:'公民链·WASM·v8'}];
+    await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
+    releases=[];runs=[{status:'in_progress'}];
+    await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
+    assert.deepEqual(calls.slice(0,3),['chain_getBlockHash','chain_getFinalizedHead','state_getRuntimeVersion']);
   });
   // 直接调用WASM收尾函数的内存替身；不读真实GitHub、不派发、不构建、不删除真实记录。
   async function wasmCleanupFixture(options={}){

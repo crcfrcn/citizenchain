@@ -654,11 +654,21 @@ mod tests {
     }
 
     impl TestNode {
+        // 消费节点并保留官方任务登记表，调用方继续核对Backend真正释放。
+        fn stop(self) -> sc_service::TaskRegistry {
+            self._task_manager.into_task_registry()
+        }
+
         fn start_finality(&mut self) {
             self.pending_finality
                 .take()
                 .expect("每个节点只启动一次 GRANDPA")();
         }
+    }
+
+    // 未启动网络的重开验收同样先释放全部Service持有者，再等待后台任务退出。
+    fn stop_partial(service: Service) -> sc_service::TaskRegistry {
+        service.task_manager.into_task_registry()
     }
 
     fn start_test_network(config: &mut Configuration, partial: Service, voter: bool) -> TestNode {
@@ -1283,10 +1293,18 @@ mod tests {
         stop_authoring.send(()).unwrap();
         (&mut authoring.0).await.unwrap().unwrap();
         for task in &mut rpc_tasks { task.0.abort(); let _ = (&mut task.0).await; }
-        drop(peers);
-        drop(primary);
+        // 出块任务已持有并释放importer；这里释放外部交易池和客户端持有者。
         drop(pool);
         drop(client);
+        for node in peers.into_iter().chain([primary]) {
+            let backend = Arc::downgrade(&node.backend);
+            let tasks = node.stop();
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while !tasks.running_tasks().is_empty() || backend.upgrade().is_some() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }).await.expect("三节点测试任务及数据库必须释放后才能清理会话");
+        }
         let port = url.rsplit_once(':').unwrap().1.parse::<u16>().unwrap();
         let released = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
             .await.expect("停止后必须释放原 RPC 端口");
@@ -1860,9 +1878,9 @@ mod tests {
         peer_server.abort();
         let _ = peer_server.await;
         let peer_backend = Arc::downgrade(&peer.backend);
-        drop(peer);
+        let tasks = peer.stop();
         tokio::time::timeout(Duration::from_secs(10), async {
-            while peer_backend.upgrade().is_some() {
+            while !tasks.running_tasks().is_empty() || peer_backend.upgrade().is_some() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
@@ -1948,9 +1966,9 @@ mod tests {
             peer_server.abort();
             let _ = peer_server.await;
             let backend = Arc::downgrade(&peer.backend);
-            drop(peer);
+            let tasks = peer.stop();
             tokio::time::timeout(Duration::from_secs(10), async {
-                while backend.upgrade().is_some() {
+                while !tasks.running_tasks().is_empty() || backend.upgrade().is_some() {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
             })
@@ -1969,9 +1987,9 @@ mod tests {
         let _ = server.await;
         drop(importer);
         let backend = Arc::downgrade(&partial.backend);
-        drop(partial);
+        let tasks = partial.stop();
         tokio::time::timeout(Duration::from_secs(10), async {
-            while backend.upgrade().is_some() {
+            while !tasks.running_tasks().is_empty() || backend.upgrade().is_some() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
@@ -2025,9 +2043,9 @@ mod tests {
         restarted_server.abort();
         let _ = restarted_server.await;
         let backend = Arc::downgrade(&restarted.backend);
-        drop(restarted);
+        let tasks = stop_partial(restarted);
         tokio::time::timeout(Duration::from_secs(10), async {
-            while backend.upgrade().is_some() {
+            while !tasks.running_tasks().is_empty() || backend.upgrade().is_some() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })

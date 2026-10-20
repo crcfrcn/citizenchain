@@ -65,9 +65,17 @@ impl BlockImport<Block> for CountingImport {
 struct TestNode {
     config: Configuration,
     client: Arc<FullClient>,
+    backend: std::sync::Weak<FullBackend>,
     network: Arc<dyn NetworkService>,
     sync: Arc<sc_network_sync::SyncingService<Block>>,
     _task_manager: TaskManager,
+}
+
+impl TestNode {
+    // 消费节点时释放全部持有者；官方登记表仍可核对后台任务是否真正退出。
+    fn stop(self) -> sc_service::TaskRegistry {
+        self._task_manager.into_task_registry()
+    }
 }
 
 fn skip_without_wasm_binary(test_name: &str) -> bool {
@@ -458,6 +466,7 @@ fn start_test_node(
         TestNode {
             config,
             client,
+            backend: Arc::downgrade(&backend),
             network,
             sync,
             _task_manager: task_manager,
@@ -531,6 +540,7 @@ fn constitution_guard_rejects_manifest_delta_and_then_accepts_legal_delta() {
     } = new_partial_for_test(&config).expect("create partial service");
     let inner = CountingImport::default();
     let imports = inner.imports.clone();
+    let backend_released = Arc::downgrade(&backend);
     let guard = crate::core::constitution::ConstitutionGuard::new(inner, client.clone(), backend)
         .expect("create constitution guard from valid block zero");
 
@@ -553,9 +563,13 @@ fn constitution_guard_rejects_manifest_delta_and_then_accepts_legal_delta() {
     assert_eq!(imports.load(Ordering::SeqCst), 1);
     assert_eq!(client.info().best_number, 0);
 
+    let released = Arc::downgrade(&client);
     drop(guard);
     drop(client);
-    drop(task_manager);
+    let tasks = task_manager.into_task_registry();
+    runtime.block_on(wait_until("守卫测试任务及数据库释放", Duration::from_secs(10), || {
+        tasks.running_tasks().is_empty() && released.upgrade().is_none() && backend_released.upgrade().is_none()
+    }));
     std::fs::remove_dir_all(base_path).expect("remove constitution guard test temp base");
 }
 
@@ -628,8 +642,14 @@ fn p2p_sync_rejects_self_consistent_bad_node_guard_block() {
         );
         let malicious_base = malicious.config.base_path.path().to_path_buf();
         let honest_base = honest.config.base_path.path().to_path_buf();
-        drop(honest);
-        drop(malicious);
+        for node in [honest, malicious] {
+            let released = Arc::downgrade(&node.client);
+            let backend_released = node.backend.clone();
+            let tasks = node.stop();
+            wait_until("P2P测试任务及数据库释放", Duration::from_secs(10), || {
+                tasks.running_tasks().is_empty() && released.upgrade().is_none() && backend_released.upgrade().is_none()
+            }).await;
+        }
         std::fs::remove_dir_all(honest_base).expect("remove honest test temp base");
         std::fs::remove_dir_all(malicious_base).expect("remove malicious test temp base");
     });

@@ -347,7 +347,8 @@ mod tests {
         use clap::Parser;
         use sc_cli::CliConfiguration;
         let runtime = lifecycle_runtime();
-        let work = std::fs::canonicalize(std::env::var_os("CITIZENCHAIN_WORK_DIR")
+        // 只取普通绝对路径，不把canonicalize产生的Windows扩展路径交给RocksDB。
+        let work = std::path::absolute(std::env::var_os("CITIZENCHAIN_WORK_DIR")
             .expect("生命周期测试必须归本轮产品现场")).unwrap();
         let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let path = work.join(format!("node-lifecycle-db-{}-{unique}", std::process::id()));

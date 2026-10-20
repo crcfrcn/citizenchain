@@ -1187,7 +1187,7 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 - 远程管理 Tunnel `nrcgch-rpc` 健康，运行 1 个 connector。
 - 唯一链入口为 `chain.crcfrcn.com` 的 Access 保护路径，Tunnel 转发到 `127.0.0.1:18080` 的现有Nginx，再代理本机`127.0.0.1:9944`。2026年10月10日SSH只读核对现网Nginx仅限制HTTP POST，没有JSON-RPC方法白名单；公民服务端新增的固定只读响应才构成WASM Release对外方法边界。
 - Access 使用 `chain` 自托管应用、`CitizenChain` Service Auth 策略和唯一链服务令牌；Worker 的 `CHAIN_URL`、`CF_ACCESS_CLIENT_ID` 是公民服务端公开运行变量，`CHAIN_SECRET` 是公民服务端 Worker Secret。这三项需求归 CitizenServe 声明和保管授权，不由本链仓重复登记；现有国储会 Tunnel 不变。
-- 历史WASM Release链身份GET响应由公民服务端经原Tunnel读取，不含transaction_version，不能作为完整双版本构建基线。当前WASM由本仓runtime.mjs在派发前直接读取本机节点的块0、finalized头及该头的完整RuntimeVersion，基线随本轮任务交给GitHub；Runner不连接本机RPC，不依赖远端RPC地址配置或Keychain。正常TLS验证保持，读取失败即停止派发；本轮不新增证书管理、公开节点服务或修改公民服务端及Tunnel。
+- 历史WASM Release链身份GET响应由公民服务端经原Tunnel读取，不含transaction_version，不能作为完整双版本构建基线。当前WASM由本仓runtime.mjs在派发前装载节点交付的公开证书，读取本机节点的块0、finalized头及该头的完整RuntimeVersion，基线随本轮任务交给GitHub；Runner不连接本机RPC，不依赖远端RPC地址配置或Keychain。正常TLS验证保持，读取失败即停止派发；不新增系统证书管理或公开节点服务，不修改公民服务端及Tunnel。
 - 不增加 `Everyone`、交互式 `Allow` 或 `Bypass`，也不把令牌、Tunnel token 或完整私有 URL 写入仓库、安装包、日志或命令文档。
 
 本仓 `scripts/config.mjs` 只声明软件产品需求：`rtupg:NRC_PUBLIC_KEY` 是国储会现任管理员公钥，作为开发升级和节点实例部署批准的同一受保护信任锚，只存控制台 Touch ID Keychain；创世块哈希仍为公开配置。权威与权益节点是使用本产品的部署实例，不作为产品配置需求；控制台节点管理从本仓既有机构目录读取节点身份，按准确节点ID管理服务器地址、节点身份、验证和SSH运维输入，值由控制台安全层保管与授权。本仓Build不声明节点配置字段。控制台编译任务先按本仓 `scripts/build.mjs` 公开清单执行既有Build与发布Node回归，通过后才进入产品构建。
@@ -2690,11 +2690,13 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 
 ### Runtime独立GitHub构建入口
 
-当前macOS正式节点在桌面RPC证书初始化成功后，仅将本次公开DER的十六进制原子写入既有正式数据目录的rpc-certificate.hex（本机为~/Library/Application Support/gmb/rpc-certificate.hex）。不输出私钥，不新增配置项、Keychain条目或UI；交付失败只报告诊断，不改变原节点启停。目录0700、文件0600，所有者必须为当前用户；拒绝链接、硬链接、异常类型及附加ACL，祖先目录不得向其他用户授予写入或替换权限。每次完整应用启动更新，手动重启沿用同会话证书；旧文件遇到新会话TLS时失败，退出不增加固定文件删除。公开证书不交给GitHub，不改变RPC回环监听、授权或表决。文件权限不能防御同用户恶意程序或root；创世哈希检查也不能替代证书来源校验。其它平台现有流程保持。
+当前macOS正式节点在桌面RPC证书初始化成功后，仅将本次公开DER的十六进制原子写入既有正式数据目录的rpc-certificate.hex（本机为~/Library/Application Support/gmb/rpc-certificate.hex）。不输出私钥，不新增配置项、Keychain条目或UI；交付失败只报告诊断，不改变原节点启停。目录0700、文件0600，所有者必须为当前用户；拒绝链接、硬链接、异常类型及附加ACL，祖先目录不得向其他用户授予写入或替换权限。固定/bin/ls -lde以C语言环境只读检查ACL，不经过shell；未知结果拒绝，祖先deny delete不视为写入。每次完整应用启动更新，手动重启沿用同会话证书；旧文件遇到新会话TLS时失败，退出不增加固定文件删除。公开证书不交给GitHub，不改变RPC回环监听、授权或表决。文件权限不能防御同用户恶意程序或root；创世哈希检查也不能替代证书来源校验。其它平台现有流程保持。桌面同文件回归覆盖公开DER一致、更新、目录及文件权限、链接、异常类型、大小及ACL；WASM同文件回归覆盖描述符读取、替换竞态、关闭、HTTPS参数及读链失败不派发。以上描述交付实现与回归合同；测试、正式构建、安装及真实连接须分别取得实际阶段回执，脚本回归通过不能替代桌面真实TLS验收。
 
-Runtime正式候选及测试依赖WASM的唯一实现归scripts/runtime.mjs，节点安装包仍归scripts/build.mjs。config.mjs的WASM分支只转调；WASM工作流保留工具、原锁、权限及阶段顺序，五个业务步骤只调用runtime.mjs对应函数，原test及build命令保持。其他四端测试调用和金标不改；测试WASM不发布。build.mjs wasm旧入口继续拒绝。Node源码、协议升级入口、链上升级模块、权限、表决与UI保持。
+交付端先按既有CITIZENCHAIN_DATA_PROFILE及编译模式确认正式命名空间；开发身份不写正式证书。先只读校验候选目录（首次创建则检查父级）再调用既有目录与原子写入工具，不沿异常链接设权，不自动修复既有不安全目录；最终目录必须与节点现有解析结果一致。同文件通过同一交付函数的写入依赖替身验证明确写失败不回报交付成功，不制造真实磁盘故障。桌面夹具从CARGO_MANIFEST_DIR确定产品根target，不随Cargo的包工作目录写入node源码目录，结束只删除各自独立夹具。TLS夹具子进程仅接收公开证书与临时端点，失败保留其错误诊断，不以通用失败或预期拒绝掩盖衔接错误。
 
-正式WASM派发由runtime.mjs读取本机既有https://127.0.0.1:9944的冻结链身份及同一finalized块双版本，分别加1，并通过现有输入和本轮runtime_base JSON交给GitHub。prepare、build和发布前校验均归同一脚本；Runner只核对快照、目标及实际三份产物，不再次连接本机，不套X.Y.Z，也不要求新增RPC地址或证书配置。快照只对应读取时刻，不能保证构建期间链上版本不变；实际升级仍走原流程。缺少节点、现有可信连接不可用或字段异常即停止，不猜值、不降级；本轮不修改控制台、公民服务端、Runtime及Node源码。临时输入和现场保护遵循CitizenChainRuntime.md。
+Runtime正式候选及测试依赖WASM的唯一实现归scripts/runtime.mjs，节点安装包仍归scripts/build.mjs。config.mjs的WASM分支只转调；WASM工作流保留工具、原锁、权限及阶段顺序，五个业务步骤只调用runtime.mjs对应函数，原test及build命令保持。其他四端测试调用和金标不改；测试WASM不发布。build.mjs wasm旧入口继续拒绝。节点启动仅增加上述公开证书交付；协议升级入口、链上升级模块、权限、表决与UI保持。
+
+正式WASM派发由runtime.mjs装载节点公开证书后读取本机既有https://127.0.0.1:9944的冻结链身份及同一finalized块双版本，分别加1，并通过现有输入和本轮runtime_base JSON交给GitHub。prepare、build和发布前校验均归同一脚本；Runner只核对快照、目标及实际三份产物，不再次连接本机，不套X.Y.Z，也不要求新增RPC地址或证书配置。快照只对应读取时刻，不能保证构建期间链上版本不变；实际升级仍走原流程。缺少节点、公开证书不可用、可信连接失败或字段异常即停止，不猜值、不降级；不修改控制台、公民服务端或Runtime。原仓Node/Runtime源码不被WASM构建回写，节点交付源码修改仅限上述启动入口。临时输入和现场保护遵循CitizenChainRuntime.md。
 
 QR协议repo_guard保留WASM唯一编译入口、阶段依赖、整数名称及发布记录连通断言，补runtime_base和转调边界负例；QR协议不改。WASM专属测试、夹具和实际收尾函数的内存替身集中到runtime.mjs，配置保留通用回归。源码及回归合同不代表已通过测试、GitHub编译、安装或升级，各阶段以实际执行记录为准。
 
@@ -2713,3 +2715,6 @@ macOS原编译Job通过Cargo官方CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=non
 OnChina管理动作的JSON反序列化通过Serde官方Deserialize接口委托既有parse_action_type，公开调度与JSON使用同一动作解析规则；两个已撤销的CITY_REGISTRY动作名统一拒绝，合法SUBORDINATE_REGISTRY名称、模块字符串格式及后续实际登记/授权沿用原实现。序列化名称不变，原拒绝断言及全部既有动作往返断言保留，补两入口的合法模块、格式边界和废弃名回归。
 
 OnChina事件交易投影与实体CID收集均使用既有SCALE codec::Decode解码原始Compact<u32>长度前缀，并按实际消费字节计数，禁止把Subxt长度解码错误后的零事件回退当成合法空块。官方空输入与合法零事件向量保持；原逐事件解码、总数/尾随字节、金额及数据库边界规则和负例不变，补坏前缀/合法空向量回归，不增加手写SCALE协议或依赖。
+
+
+跨平台原生测试的节点守卫临时库直接使用std::env::temp_dir，桌面生命周期验收以std::path::absolute读取既有本轮工作目录；不把Windows canonicalize的扩展路径传入会拼接路径的RocksDB。P2P、Ethereum三节点及同库重开验收消费真实TaskManager取得官方TaskRegistry，在原有超时内确认running_tasks为空且客户端/Backend持有者释放后，再删除或重新打开实际数据库。真实签名交易、PoW/TLS/GRANDPA、坏块拒绝、端口释放和原数据库重开断言保留；未退出仍失败，不用固定延时或忽略目录删除错误。OnChina坏长度前缀断言改用标准matches!同时断言Err及原错误前缀，不为成功数据类型额外要求Debug，不改变业务结构或原解析规则。
