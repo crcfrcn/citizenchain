@@ -115,9 +115,13 @@ jobs:
         mkdir -p "$RUNNER_TEMP/protoc"
         unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
         developer="$(cd "$(xcode-select -p)" && pwd -P)"
+        libclang="$developer/Toolchains/XcodeDefault.xctoolchain/usr/lib"
+        test -f "$libclang/libclang.dylib"
+        # 编译期发现与构建程序运行时加载分别交付，保留已有搜索路径或Cargo官方默认目录。
         {
           echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc"
-          echo "LIBCLANG_PATH=$developer/Toolchains/XcodeDefault.xctoolchain/usr/lib"
+          echo "LIBCLANG_PATH=$libclang"
+          echo "DYLD_FALLBACK_LIBRARY_PATH=$libclang:${DYLD_FALLBACK_LIBRARY_PATH:-$HOME/lib:/usr/local/lib:/usr/lib}"
           echo "DEVELOPER_DIR=$developer"
           echo "CC=$developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
         } >> "$GITHUB_ENV"
