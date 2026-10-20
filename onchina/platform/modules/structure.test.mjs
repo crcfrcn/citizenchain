@@ -1,7 +1,7 @@
 // 结构回归复用产品既有测试流程；源码定位不启动业务服务。
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,readdirSync,existsSync,statSync,realpathSync,mkdirSync,mkdtempSync,rmSync,writeFileSync,symlinkSync,lstatSync} from 'node:fs';
+import {readFileSync,readdirSync,existsSync,statSync,realpathSync,mkdirSync,mkdtempSync,rmSync,writeFileSync,symlinkSync,lstatSync,cpSync} from 'node:fs';
 import {resolve,dirname,join,relative,isAbsolute,sep} from 'node:path';
 import {execFileSync} from 'node:child_process';
 
@@ -306,6 +306,38 @@ test('两Linux失败资源诊断保留原编译退出码且只读取链接', {sk
    assert.ok(!output.includes('nested-link'));assert.ok(!output.includes(join(resources,'regular')));
    assert.equal(readFileSync(join(outside,'target'),'utf8'),'target');assert.ok(lstatSync(join(resources,'file-link')).isSymbolicLink());
    rmSync(work,{recursive:true});rmSync(outside,{recursive:true});
+  }
+ }finally{rmSync(directory,{recursive:true,force:true});}
+});
+
+
+// 执行实际工作流物理复制命令，再用既有编译API复制，验证别名链不会进入资源包。
+test('两Linux PostgreSQL物理副本保留内容且坏链接仍失败', {skip: process.platform === 'win32'}, ()=>{
+ const base=join(root,'target/test');mkdirSync(base,{recursive:true});
+ const directory=mkdtempSync(join(base,'pg-physical-'));
+ try{
+  for(const workflow of ['linuxarm.yml','linuxamd.yml']){
+   const text=readFileSync(join(root,'.github/workflows',workflow),'utf8');
+   const preparation=text.split('    - name: 准备 Linux 节点依赖和官方 protoc\n')[1].split('    - name: ')[0];
+   const copy=preparation.split('\n').find(line=>line.trimStart().startsWith('cp -RL ')).trim();
+   assert.ok(preparation.includes('echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-runtime" >> "$GITHUB_ENV"'));
+   const original=join(directory,'pg-dist'),physical=join(directory,'pg-runtime'),resources=join(directory,'resources');
+   for(const name of ['bin','lib','share'])mkdirSync(join(original,name),{recursive:true});
+   writeFileSync(join(original,'bin/postgres'),'fixture-binary');writeFileSync(join(original,'share/catalog'),'fixture-catalog');
+   writeFileSync(join(original,'lib/libpq.so.5.17'),'fixture-library');
+   symlinkSync('libpq.so.5.17',join(original,'lib/libpq.so.5'));symlinkSync('libpq.so.5',join(original,'lib/libpq.so'));
+   execFileSync('bash',['-e','-c',copy],{env:{...process.env,RUNNER_TEMP:directory}});
+   for(const name of ['bin','lib','share'])cpSync(join(physical,name),join(resources,name),{recursive:true,dereference:true});
+   for(const name of ['libpq.so','libpq.so.5','libpq.so.5.17']){
+    assert.ok(lstatSync(join(physical,'lib',name)).isFile());assert.ok(lstatSync(join(resources,'lib',name)).isFile());
+    assert.equal(readFileSync(join(resources,'lib',name),'utf8'),'fixture-library');
+   }
+   assert.equal(readFileSync(join(resources,'bin/postgres'),'utf8'),'fixture-binary');
+   assert.equal(readFileSync(join(resources,'share/catalog'),'utf8'),'fixture-catalog');
+   assert.ok(lstatSync(join(original,'lib/libpq.so')).isSymbolicLink());
+   rmSync(physical,{recursive:true});symlinkSync('missing',join(original,'lib/broken'));
+   assert.throws(()=>execFileSync('bash',['-e','-c',copy],{env:{...process.env,RUNNER_TEMP:directory},stdio:'pipe'}),error=>error.status!==0);
+   for(const path of [original,physical,resources])rmSync(path,{recursive:true,force:true});
   }
  }finally{rmSync(directory,{recursive:true,force:true});}
 });

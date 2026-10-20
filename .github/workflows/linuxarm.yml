@@ -103,7 +103,9 @@ jobs:
           make install
           cp COPYRIGHT "$RUNNER_TEMP/pg-dist/COPYRIGHT"
         )
-        echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-dist" >> "$GITHUB_ENV"
+        # 系统cp跟随上游库别名生成物理副本，编译输入不带指向临时原件的链接。
+        cp -RL "$RUNNER_TEMP/pg-dist" "$RUNNER_TEMP/pg-runtime"
+        echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-runtime" >> "$GITHUB_ENV"
         echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
         curl --fail --location --proto =https --proto-redir =https --retry 3 --output "$RUNNER_TEMP/protoc.zip" "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-aarch_64.zip"
         mkdir -p "$RUNNER_TEMP/protoc"

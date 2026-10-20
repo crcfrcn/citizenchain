@@ -2727,3 +2727,5 @@ OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直
 链RPC的HTTPS信任回归保留非阻塞监听器以遵守原收尾时限，接受连接后通过std::net::TcpStream::set_nonblocking(false)恢复阻塞，再执行同步Rustls读写，避免macOS继承的非阻塞状态提前结束握手。原2秒读写超时、3秒请求超时、10秒监听时限以及精确信任证书、错误证书和主机名拒绝断言全部保留；仅调整既有测试夹具，不改变生产TLS客户端或依赖。
 
 两Linux正式编译在原步骤失败后，使用GitHub官方failure()与steps.compile.outcome条件运行独立资源诊断步骤；仅列出本轮resources中符号链接的路径和目标，不跟随目录链接、不修改输入、不新建诊断文件。原编译命令及失败退出码、完整产物与发布门禁、既有缓存及终态清理保持；诊断成功不代表编译成功。资源目录尚未生成时不输出链接，后续依据实际路径再决定修复。
+
+两Linux工作流在PostgreSQL原make install完成后，以系统cp -RL把Runner临时pg-dist复制为pg-runtime普通文件树，CITIZENCHAIN_PG_DIST只交付该物理副本。原安装原件、PostgreSQL/Node锁定版本和依赖保持；坏链接复制失败仍立即终止。此步骤避免Node25.2.1递归cpSync的dereference回归把绝对库链接带入资源包，既有build.mjs的链接拒绝、完整产物验收和失败诊断均保留，不新增仓库辅助文件。
