@@ -599,7 +599,7 @@ pub(crate) mod test_support {
     }
     pub(crate) fn fixture_catalog() -> ModuleCatalog { ModuleCatalog::new(Some(Arc::new(FixtureModule))) }
 
-    // 真实HTTPS/父管道测试夹具：临时证书和程序只归本用例，不连接数据库或链。
+    // 真实HTTPS/父管道测试夹具：临时证书和输入只归本用例，不连接数据库或链。
     pub(crate) struct HttpsFixture {
         pub(crate) catalog: Arc<ModuleCatalog>,
         pub(crate) address: std::net::SocketAddr,
@@ -610,10 +610,8 @@ pub(crate) mod test_support {
     impl HttpsFixture {
         pub(crate) async fn restart(&mut self, version: &str, slow: bool) {
             self.catalog.stop_all().unwrap();
-            // 必须先回收进程才能替换同一个程序，Windows在进程未退出时会拒绝复制。
-            let executable = self.directory.join(format!("onchina-{}{}", self.id, std::env::consts::EXE_SUFFIX));
-            std::fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
-            let mut child = ModuleProcess(Command::new(executable)
+            // 直接复用当前测试程序；每次子进程仍有独立输入、父管道和退出回收。
+            let mut child = ModuleProcess(Command::new(std::env::current_exe().unwrap())
                 .args(["--ignored", "--exact", "modules::tests::https_child"])
                 .env("ONCHINA_HTTPS_CHILD_TEST", "1").env("ONCHINA_PARENT_PIPE", "1").env("ONCHINA_TEST_MODULE_ID", &self.id)
                 .env("ONCHINA_TEST_BIND", self.address.to_string()).env("ONCHINA_TEST_VERSION", version)

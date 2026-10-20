@@ -2718,3 +2718,6 @@ OnChina事件交易投影与实体CID收集均使用既有SCALE codec::Decode解
 
 
 跨平台原生测试的节点守卫临时库直接使用std::env::temp_dir，桌面生命周期验收以std::path::absolute读取既有本轮工作目录；不把Windows canonicalize的扩展路径传入会拼接路径的RocksDB。P2P、Ethereum三节点及同库重开验收消费真实TaskManager取得官方TaskRegistry，在原有超时内确认running_tasks为空且客户端/Backend持有者释放后，再删除或重新打开实际数据库。真实签名交易、PoW/TLS/GRANDPA、坏块拒绝、端口释放和原数据库重开断言保留；未退出仍失败，不用固定延时或忽略目录删除错误。OnChina坏长度前缀断言改用标准matches!同时断言Err及原错误前缀，不为成功数据类型额外要求Debug，不改变业务结构或原解析规则。
+
+
+OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直接启动当前测试程序，不复制、重写或替换临时可执行副本。每个夹具的UUID目录继续隔离证书、前端输入和会话参数；重启前仍等待旧进程退出，保留PID变化、版本回读、健康模块并发、超时、证书信任/主机名拒绝及进程/目录清理断言。此变更仅限cfg(test)夹具，正式模块发现与启动器、依赖和Runtime均保持。
