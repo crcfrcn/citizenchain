@@ -170,6 +170,34 @@ fn validate_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(),
     {
         return Err("编译入口必须唯一，收尾必须只接收所属事件".into());
     }
+    // WASM的显示号来自派发前读链加1；跳过的Job也必须使用所属事件的版本字段。
+    let display = document["run-name"].as_str().ok_or("WASM缺少Run名称")?;
+    if !display.starts_with("公民链·WASM·v")
+        || !display.contains("inputs.version")
+        || !display.contains("github.event.client_payload.version")
+        || document["on"]["workflow_dispatch"]["inputs"]["transaction_version"]["required"].as_bool() != Some(true)
+        || names.iter().any(|name| document["jobs"][*name]["name"].as_str() != Some(display))
+        || document["jobs"]["release"]["env"]["RUNTIME_BUILD"].as_str() != Some("${{ needs.build.outputs.runtime }}")
+        || document["jobs"]["release"]["env"]["BUILT_VERSION"].as_str() != Some("${{ needs.build.outputs.version }}")
+    {
+        return Err("WASM整数版本、双版本输入或GitHub名称未连通".into());
+    }
+    for name in names {
+        for step in document["jobs"][name]["steps"].as_sequence().ok_or("WASM缺少步骤")? {
+            let script = step["with"]["script"].as_str().unwrap_or("");
+            if script.contains("nextDeliveryVersion") || script.contains("deliveryVersion(")
+                || script.contains("node/tauri.conf.json")
+            {
+                return Err("WASM不能使用节点软件版本或SemVer推算".into());
+            }
+            let action = step["uses"].as_str().unwrap_or("");
+            if (action.starts_with("actions/upload-artifact@") || action.starts_with("actions/download-artifact@"))
+                && step["with"]["name"].as_str() != Some(display)
+            {
+                return Err("WASM Artifact名称与Runtime版本不一致".into());
+            }
+        }
+    }
     Ok(())
 }
 
@@ -253,6 +281,20 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
             }).ok_or("缺少Runtime编译步骤")?;
             compile["run"] = serde_yaml::Value::String("node scripts/build.mjs wasm".into());
             assert!(validate_workflow(&old_entry, platform).is_err());
+            // 仅WASM增加负例，四端既有阶段及夹具保持。
+            let mut missing_transaction = document.clone();
+            missing_transaction["on"]["workflow_dispatch"]["inputs"].as_mapping_mut().ok_or("缺少inputs")?
+                .remove(&serde_yaml::Value::String("transaction_version".into()));
+            assert!(validate_workflow(&missing_transaction, platform).is_err());
+            let mut wrong_name = document.clone();
+            wrong_name["jobs"]["finalize"]["name"] = serde_yaml::Value::String("公民链·WASM·v${{ inputs.version }}".into());
+            assert!(validate_workflow(&wrong_name, platform).is_err());
+            let mut missing_runtime = document.clone();
+            missing_runtime["jobs"]["release"]["env"]["RUNTIME_BUILD"] = serde_yaml::Value::String("{}".into());
+            assert!(validate_workflow(&missing_runtime, platform).is_err());
+            let mut semver = document.clone();
+            semver["jobs"]["prepare"]["steps"][0]["with"]["script"] = serde_yaml::Value::String("cfg.nextDeliveryVersion('wasm', [], [], '1.0.0')".into());
+            assert!(validate_workflow(&semver, platform).is_err());
         }
     }
     Ok(())

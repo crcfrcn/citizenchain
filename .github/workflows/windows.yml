@@ -76,6 +76,9 @@ jobs:
     outputs:
       assets: "${{ steps.assets.outputs.assets }}"
     steps:
+    - name: 保留仓库原始换行，避免检出改写生成物
+      shell: pwsh
+      run: git config --global core.autocrlf false
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       with:
         ref: "${{ github.sha }}"

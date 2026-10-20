@@ -5,7 +5,7 @@ import {dirname, isAbsolute, join, relative, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {zstdDecompressSync} from 'node:zlib';
 import {product, artifactNames, runtimeVersion} from './config.mjs';
-import {assertBuildWork, platformCargoEnvironment, runBuildProcess} from './build.mjs';
+import {assertBuildWork, checkWork, platformCargoEnvironment, runBuildProcess} from './build.mjs';
 
 const root = realpathSync(resolve(import.meta.dirname, '..'));
 const maximumVersion = 0xffffffff;
@@ -181,6 +181,17 @@ export function assertRuntimeTarget(target, spec, transaction) {
   return target;
 }
 
+// WASM使用自己的整数双版本，不能经过节点构建入口的SemVer守卫；目录安全检查仍复用原实现。
+export function assertRuntimeWork(work, env = process.env) {
+  if (env.PLATFORM !== 'wasm' || env.GITHUB_ACTIONS !== 'true' || env.GITHUB_REPOSITORY !== product.repository
+      || env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.GITHUB_REF !== 'refs/heads/main'
+      || env.GITHUB_WORKFLOW_REF !== `${product.repository}/.github/workflows/${product.platforms.wasm.workflow}@refs/heads/main`
+      || !/^[a-f0-9]{40}$/u.test(env.GITHUB_SHA || '') || env.CITIZENCHAIN_SOURCE_SHA !== env.GITHUB_SHA
+      || work !== join(root, 'target/build/wasm')) fail('Runtime编译只接受本产品准确WASM的GitHub main任务');
+  runtimeVersion(env.CITIZENCHAIN_RELEASE_VERSION); runtimeVersion(env.CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION);
+  return checkWork(work);
+}
+
 // 只复制Git已跟踪的普通文件；产物、凭据、node_modules和临时现场不进入编译输入。
 export function copyRuntimeSource(project, destination, files) {
   if (existsSync(destination)) fail('Runtime临时源码目录已存在');
@@ -196,7 +207,8 @@ export function copyRuntimeSource(project, destination, files) {
 async function runtime(action) {
   if (!['test', 'build'].includes(action)) fail('Runtime入口仅接受test或build');
   const platform = process.env.PLATFORM, work = join(root, 'target/build', platform || '');
-  assertBuildWork(work, platform);
+  if (platform === 'wasm') assertRuntimeWork(work);
+  else assertBuildWork(work, platform);
   const declared = product.platforms[platform];
   if (action === 'build' && platform !== 'wasm') fail('正式Runtime候选只由WASM工作流构建');
   if (process.platform !== declared.host || process.arch !== declared.arch || process.versions.node !== product.tools.node) fail('Runtime构建宿主或Node版本不符');
@@ -339,6 +351,20 @@ if (testFile) {
     for (const [spec, transaction] of [['9', '4'], ['8', '5'], ['8.0.0', '4'], ['08', '4'], ['8', undefined]]) {
       assert.throws(() => assertRuntimeTarget(first.target, spec, transaction));
     }
+  });
+  test('WASM整数双版本通过自身GitHub身份守卫，错误任务、目录和SemVer仍拒绝', () => {
+    const work = join(root, 'target/build/wasm'), sha = 'a'.repeat(40);
+    const env = {PLATFORM: 'wasm', GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: product.repository,
+      GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
+      GITHUB_WORKFLOW_REF: `${product.repository}/.github/workflows/wasm.yml@refs/heads/main`,
+      GITHUB_SHA: sha, CITIZENCHAIN_SOURCE_SHA: sha, CITIZENCHAIN_RELEASE_VERSION: '2', CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION: '1'};
+    assert.equal(assertRuntimeWork(work, env), work);
+    for (const changed of [{GITHUB_ACTIONS: ''}, {GITHUB_EVENT_NAME: 'repository_dispatch'}, {GITHUB_REF: 'refs/heads/other'},
+      {GITHUB_REPOSITORY: 'foreign/repository'}, {GITHUB_WORKFLOW_REF: 'foreign/workflow'}, {CITIZENCHAIN_SOURCE_SHA: 'b'.repeat(40)},
+      {CITIZENCHAIN_RELEASE_VERSION: '2.0.0'}, {CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION: undefined}]) {
+      assert.throws(() => assertRuntimeWork(work, {...env, ...changed}));
+    }
+    assert.throws(() => assertRuntimeWork(join(root, 'target/build/other'), env));
   });
   test('准确finalized块绑定双版本，错误链、缺字段与网络失败不填默认值', async () => {
     const calls = [], rpc = async(method, params) => {

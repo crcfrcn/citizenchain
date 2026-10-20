@@ -15,7 +15,7 @@ import {
   GENERATED_QR_KIND_CODE,
   type GeneratedQrKind,
   validateGeneratedQrV1,
-} from './core_qrBodies.g.ts';
+} from './core_qrBodies.g';
 
 export const QR_V1 = 'QR_V1' as const;
 

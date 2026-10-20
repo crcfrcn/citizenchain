@@ -62,8 +62,8 @@ jobs:
           const expected=String(target.specVersion);
           if(run.display_title!==cfg.releaseName(p,expected))throw Error('WASM Run名称偏离链上加1版本');
           const success=cfg.retainedBuildRuns(p,runs).success;
-          if(success){const release=releases.find(value=>{try{return cfg.readReleaseProof(p,value).run_id===success.id;}catch{return false;}});
-           if(!release)throw Error('最新成功没有准确正式交付');cfg.assertRelease(p,release,success);
+          if(success){const matches=releases.filter(value=>{try{return cfg.readReleaseProof(p,value).run_id===success.id;}catch{return false;}});
+           if(matches.length!==1)throw Error('最新成功没有唯一正式交付');const release=matches[0];cfg.assertRelease(p,release,success);
            const ref=(await github.rest.git.getRef({...repo,ref:'tags/'+release.tag_name})).data;
            if(ref.object.type!=='commit'||ref.object.sha!==success.head_sha)throw Error('最新成功Tag提交不符');}
           const tag=cfg.releaseName(p,expected);
@@ -266,7 +266,6 @@ jobs:
     env:
       PLATFORM: wasm
       CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION: "${{ inputs.transaction_version }}"
       CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
     steps:
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -333,6 +332,7 @@ jobs:
            if(item.release.id===latest?.release.id)continue;
            const run=(await github.rest.actions.getWorkflowRun({...repo,run_id:item.proof.run_id})).data;cfg.assertRun(p,run,item.proof.run_id);
            if(run.status!=='completed')continue;
+           if(cfg.retainedBuildRuns(p,await rows()).success?.id!==keep.success?.id)throw Error('最新成功已变化，需恢复最新原Run收尾');
            const current=await getRelease(item.release.id);if(!current)continue;
            const proof=cfg.assertRelease(p,current,run,{partial:run.conclusion!=='success',draft:true});
            if(current.immutable)throw Error('旧Release不可变，未修改仓库设置');
@@ -342,7 +342,8 @@ jobs:
            await github.rest.repos.deleteRelease({...repo,release_id:current.id});if(await getRelease(current.id))throw Error('Release删除未确认');
           }
           for(const old of keep.obsolete){
-           const fresh=cfg.retainedBuildRuns(p,await rows());if(!fresh.obsolete.some(run=>run.id===old.id))continue;
+           const fresh=cfg.retainedBuildRuns(p,await rows());if(fresh.success?.id!==keep.success?.id)throw Error('最新成功已变化，需恢复最新原Run收尾');
+           if(!fresh.obsolete.some(run=>run.id===old.id))continue;
            let current;try{current=(await github.rest.actions.getWorkflowRun({...repo,run_id:old.id})).data;}catch(error){if(error.status===404)continue;throw error;}
            cfg.assertRun(p,current,old.id);if(current.status!=='completed'||current.run_attempt!==old.run_attempt||current.head_sha!==old.head_sha||current.conclusion!==old.conclusion)throw Error('删除前旧Run终态变化');
            await github.rest.actions.deleteWorkflowRun({...repo,run_id:old.id});

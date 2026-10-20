@@ -1,6 +1,6 @@
 # CitizenChain 节点交付与塔塔自动化
 
-公民链没有本机正式编译。唯一编译命令为 `node scripts/build.mjs <平台>`，仅在本仓 GitHub main 的准确 Workflow、源码 SHA 与对应原生 Runner 执行。平台为 macos、windows、linux-arm、linux-amd、wasm。源码位置从实际检出解析，不写死开发者路径。
+公民链没有本机正式编译。节点编译命令为 `node scripts/build.mjs <平台>`，平台为 macos、windows、linux-arm、linux-amd；WASM唯一正式编译命令为 `node scripts/runtime.mjs build`。仅在本仓 GitHub main 的准确 Workflow、源码 SHA 与对应原生 Runner 执行。源码位置从实际检出解析，不写死开发者路径。
 
 ## 文件职责
 
@@ -8,7 +8,7 @@
 
 `scripts/onchina.mjs` 保留真实宿主、模块和前端编译实现，直接读取对应 Cargo 目标和模块 --describe。编译使用本仓准确检出，输出属于本轮 target/build/<平台>，不再复制整仓或准备资源回执。模块业务、VERSION、MODULE_INTERFACE_VERSION、协议、数据库和UI不由交付版本改写。
 
-`scripts/config.mjs` 只提供公开声明、版本/附件/保留规则和公开请求描述等纯函数；没有网络、进程、任务宿主或持久状态。纯规则回归归该现有文件，不在编译文件中加入测试执行器。原 Cargo 与前端锁继续由官方 Cargo、npm ci 消费，不建立工具库存、全树摘要或第二份依赖清单。旧编译入口专用的升级工具开发依赖已撤出节点前端。
+`scripts/config.mjs` 提供公开声明、版本/附件/保留规则和公开请求描述等纯函数；WASM的describeAction派发分支复用runtime.mjs读链取得目标版本，再传输既有GitHub请求，不创建编译进程、任务宿主或持久状态。纯规则回归归该现有文件，不在编译文件中加入测试执行器。原 Cargo 与前端锁继续由官方 Cargo、npm ci 消费，不建立工具库存、全树摘要或第二份依赖清单。旧编译入口专用的升级工具开发依赖已撤出节点前端。
 
 ## 五个平台的完整产物
 
@@ -24,7 +24,7 @@
 
 生产Job记录每件实际产物的大小和原始字节SHA-256。Release Job只消费同一Run的完整Artifact，先核对生产Job输出，再用官方gh创建草稿及准确源码Tag，下载附件逐件比较，转正式后再次核对Tag提交、Release状态、完整附件、大小和摘要。发布步骤不调用build.mjs，不让控制台代做。任一项未确认，原编译交付Run失败；正式Release不是另行链升级或服务器部署授权。
 
-交付版本是X.Y.Z，首次使用节点配置基准值，后续只在最新已确认成功编译及正式交付上patch加一。失败、取消和收尾Run不消费版本。调用者使用产品纯规则取得输入，工作流重新核对。Run、Job、Artifact、Tag、Release显示名为公民链·平台·vX.Y.Z；附件实际文件名为明确ASCII名称，label保留中文显示名。
+节点交付版本是X.Y.Z，首次使用节点配置基准值，后续只在最新已确认成功编译及正式交付上patch加一。失败、取消和收尾Run不消费版本。调用者使用产品纯规则取得输入，工作流重新核对。节点Run、Job、Artifact、Tag、Release显示名为公民链·平台·vX.Y.Z。WASM仅使用链上双版本各加1的结果，显示号取目标spec_version，例如公民链·WASM·v2；不从节点配置或历史交付推算版本。附件实际文件名为明确ASCII名称，label保留中文显示名。
 
 ## 四端原编译Run内的历史清理
 
@@ -40,9 +40,11 @@ cleanup根据前置Job真实结果计算当前Run的暂定成功或失败保留�
 
 ## Runtime及控制台边界
 
-Runtime VERSION唯一真源为runtime/src/lib.rs，spec_version、transaction_version等由Runtime自己维护。本次不修改Runtime源码或测试预期、不查询线上链来生成协议版本、不将协议值映射为交付SemVer。WASM沿用runtime/build.rs和官方WasmBuilder从当前源码编译，不在JavaScript中建立另一套Runtime版本读写器。
+WASM正式候选版本由scripts/runtime.mjs读取实际链上双版本分别加1，使用目标spec_version统一GitHub显示名；原仓库runtime/src/lib.rs和Node源码不写入，只有本轮临时编译输入的VERSION替换两个数字。WASM沿用runtime/build.rs和官方WasmBuilder，测试WASM及原测试预期保持；具体版本、发布与收尾规则以CitizenChainRuntime.md的“Runtime自身版本与WASM自动化”为准。
 
-控制台tata/citizenchain.mjs只读取产品公开声明和纯规则、传输发起请求、保存准确Run回执与展示GitHub真实状态。取消只针对原Run，恢复不重派。正式Tag/Release、产物和清理由产品Workflow独立执行。四端原Run包含最后cleanup结果，清理错误会使该Run失败，清理成功不会覆盖前置编译失败；不得把清理成功单独显示为编译成功。Runtime升级和服务器部署不属于本编译入口，其既有授权及执行链不在本轮重建。
+WASM保留原Workflow的repository_dispatch收尾入口，等待原编译Run完成后清理，沿用原整数版本及准确Run身份，不重新读链分配版本。编译历史只保留最新成功、最新非成功和活动Run；业务清理核验后删除旧成功收尾，保留最近非成功收尾及当前活动收尾。收尾失败明确保留未完成状态供恢复，不能当作编译成功。此WASM边界与上文四端原Run内cleanup相互独立。
+
+WASM外部调用方通过scripts/config.mjs的describeAction公开入口取得版本并传输请求，保存准确Run回执与展示GitHub真实状态，不复制读链和加1实现。取消只针对原Run，恢复不重派。正式Tag/Release、产物和清理由产品Workflow独立执行。四端原Run包含最后cleanup结果，清理错误会使该Run失败，清理成功不会覆盖前置编译失败；不得把清理成功单独显示为编译成功。Runtime升级和服务器部署不属于本编译入口，其既有授权及执行链不在本轮重建。
 
 实际测试、远端编译、签名、公证、发布与部署结果只记录于既有统一构建任务卡，源码和静态检查不代表验收通过。
 
@@ -2690,6 +2692,6 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 
 Runtime的正式候选及测试依赖WASM统一归scripts/runtime.mjs，节点安装包构建仍归scripts/build.mjs。五个平台原工作流保留阶段、任务名、工具和锁；原分散的WASM_BUILD_FROM_SOURCE和Cargo测试调用改为runtime.mjs test，原测试目标和金标保持，测试WASM不作为升级候选发布。WASM工作流在测试之后调用runtime.mjs build；build.mjs wasm旧入口拒绝，不保留转发或第二套实现。Node源码、协议升级入口、链上升级模块、权限、表决与UI不改。
 
-正式候选从GitHub本轮可信HTTPS/WSS JSON-RPC地址读取冻结链身份及准确finalized块的两个版本，各加1后只写临时编译输入；原Runtime和Node目录不写。地址通过仓库变量CITIZENCHAIN_RUNTIME_RPC_URL交付，不新增产品配置页、不依赖控制台Keychain、不把本机回环地址用于GitHub。历史公民服务端GET尚不返回transaction_version，本轮不修改该接口、Access或其它授权；构建输入必须提供完整双版本。缺失配置或读取失败直接中止，不伪造部署版本。正式三WASM产物及版本记录验真、临时源码清理/退出未确认保留遵循CitizenChainRuntime.md。
+正式候选从可信HTTPS/WSS JSON-RPC读取冻结链身份及准确finalized块的两个版本，各加1后只写临时编译输入；原Runtime和Node目录不写。WASM派发先复用同一个readRuntimeTarget取得整数目标，GitHub再核对链基线及输入，三件实际产物验真后以同一目标spec_version发布，禁止另套X.Y.Z。地址通过仓库变量CITIZENCHAIN_RUNTIME_RPC_URL交付，派发调用方现有授权需可读该变量，调用方和Runner均需可达；不新增产品配置页、不依赖控制台Keychain、不把本机回环地址用于GitHub。历史公民服务端GET尚不返回transaction_version，本轮不修改该接口、Access或其它授权；构建输入必须提供完整双版本。缺失配置或读取失败直接中止，不伪造部署版本、不自动扩权。正式三WASM产物及版本记录验真、临时源码清理/退出未确认保留遵循CitizenChainRuntime.md。
 
 现有QR协议repo_guard仅将WASM编译入口断言切换至runtime.mjs build，保留阶段/依赖/收尾拒绝用例；不修改QR协议。新增脚本与现有配置内嵌测试维护版本、夹具和断言。当前仅完成源码与文档维护，未执行测试、类型检查、编译、安装或升级，不宣称本机或GitHub验收通过。

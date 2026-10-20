@@ -3214,13 +3214,13 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 
 ## Runtime 自身版本与 WASM 自动化
 
-Runtime正式候选的唯一GitHub构建入口为 scripts/runtime.mjs build；读取可信链上同一finalized块的spec_version与transaction_version，分别加1后构建。交付的X.Y.Z仍只用于本平台Run、Job、Artifact、Tag、Release，与两个协议版本分开。仓库Runtime及Node源码不写入，只有本轮临时编译输入替换VERSION内两个数字字面量；不修改升级模块、授权、表决或宪法冻结规则。
+Runtime正式候选的唯一GitHub构建入口为 scripts/runtime.mjs build；读取可信链上同一finalized块的spec_version与transaction_version，分别加1后构建。WASM没有另一套交付版本：Run、Job、Artifact、Tag、Release统一显示“公民链·WASM·v<目标spec_version>”，固定Workflow名称为“公民链·WASM”。例如链上1/0生成目标2/1，显示名为公民链·WASM·v2，不使用节点软件版本或X.Y.Z。仓库Runtime及Node源码不写入，只有本轮临时编译输入替换VERSION内两个数字字面量；不修改升级模块、授权、表决或宪法冻结规则。
 
-每轮正式构建从实际链版本各加1，两者不要求数值相等；同一基线重复构建仍得到同一组目标值，不从上次编译结果累加。脚本在编译前复核链上版本基线，变化即失败；实际升级仍需原授权流程。GitHub仓库变量CITIZENCHAIN_RUNTIME_RPC_URL提供Runner可访问的可信HTTPS/WSS JSON-RPC地址，正常校验证书与主机名，不依赖本机Keychain、回环节点或控制台；缺失、不可达、错链、缺字段、非法数值或溢出均失败，不猜版本、不默认0。历史公开runtime-target GET仅有spec_version，不可当作完整双版本输入；本轮不修改公民服务端接口或授权。钱包后续按实际升级版本同步支持，本轮不修改钱包。
+每轮正式构建从实际链版本各加1，两者不要求数值相等；同一基线重复构建仍得到同一组目标值，不从上次编译结果累加。产品describeAction的WASM分支在派发前复用runtime.mjs的readRuntimeTarget，传入整数version、transaction_version及准确source_sha；prepare与build使用同一实现复核，链上双版本变化即失败，不能改号继续。已有同号正式交付时禁止重复发布或覆盖，失败资产只允许绑定原Run收尾。GitHub仓库变量CITIZENCHAIN_RUNTIME_RPC_URL提供派发调用方和Runner可访问的可信HTTPS/WSS JSON-RPC地址，调用方现有GitHub授权需能读取该变量，正常校验证书与主机名，不依赖本机Keychain、回环节点或控制台；缺失、不可达、错链、缺字段、非法数值或溢出均失败，不猜版本、不默认0，不自动扩权。历史公开runtime-target GET仅有spec_version，不可当作完整双版本输入；本轮不修改公民服务端接口或授权。实际升级仍需原授权流程；钱包后续按实际升级版本同步支持，本轮不修改钱包。
 
-既有 .github/workflows/wasm.yml只调用scripts/runtime.mjs test及build，使用原Cargo锁和固定SDK生成citizenchain.wasm、citizenchain.compact.wasm、citizenchain.compact.compressed.wasm。四个节点平台的测试WASM也只由同一文件test子命令调度，原真实测试及版本0等测试金标不改；测试夹具不作为正式升级候选发布。build.mjs仅保留节点/模块构建，旧build.mjs wasm命令拒绝，不转发。测试不跳过，正式编译只在其后进行。正式构建仅复制Git已跟踪普通文件至target/build/wasm/source，排除产物/机密和临时目录，使用官方WasmBuilder编译，不在产物上补丁改号。
+既有 .github/workflows/wasm.yml只调用scripts/runtime.mjs test及build，使用原Cargo锁和固定SDK生成citizenchain.wasm、citizenchain.compact.wasm、citizenchain.compact.compressed.wasm。WASM由runtime.mjs校验准确GitHub仓库、main分支、原Workflow、源码SHA和整数双版本，复用build.mjs的目录安全检查，不经过节点SemVer守卫。四个节点平台的测试WASM仍由同一文件test子命令调度，其原守卫、真实测试及版本0等测试金标不改；测试夹具不作为正式升级候选发布。build.mjs仅保留节点/模块构建，旧build.mjs wasm命令拒绝，不转发。测试不跳过，正式编译只在其后进行。正式构建仅复制Git已跟踪普通文件至target/build/wasm/source，排除产物/机密和临时目录，使用官方WasmBuilder编译，不在产物上补丁改号。
 
-Runtime开发升级的候选消费、冷签及实际链交易不属于本轮编译入口重建，本轮不改其授权和执行链，也不宣称升级验收通过。正式WASM交付不等同实际升级；后续升级必须核对实际协议版本并按准确授权执行，不能用交付SemVer代替Runtime版本。
+Runtime开发升级的候选消费、冷签及实际链交易不属于本轮编译入口重建，本轮不改其授权和执行链，也不宣称升级验收通过。正式WASM交付不等同实际升级；后续升级必须核对实际产物双版本并按准确授权执行。
 
 
 ### 法律地域固定布局
@@ -3232,6 +3232,8 @@ Runtime开发升级的候选消费、冷签及实际链交易不属于本轮编�
 原始u32=0法律记录金标和独立拼装的宪法索引键断言保留，并覆盖不同省同市号隔离、非法地域、CID与地域不符、最终写入回调复校验及第1001部法律。transaction_version是框架RuntimeVersion原生字段，交易使用框架CheckTxVersion；本次参数类型变化按上述统一升级政策处理，不再单独询问是否提高两个版本。地域源码和配套维护已完成，候选由scripts/runtime.mjs构建时依据真实部署基线派生该次版本。本轮保留版本数值，不根据仓库值推断运行节点版本；未执行测试、类型检查、编译、守卫验收、安装或链升级。
 
 
-Runtime产物验收由runtime.mjs读取三份实际WASM的runtime_version段，支持SDK原压缩格式并沿用其50MiB解压边界。三个产物必须属于citizenchain且双版本均与本轮目标一致；缺失、损坏、重复版本段、版本不符等失败，不从文件名或Tag推断。现有构建输出及Release记录登记source_sha、genesis_hash、base_block_hash、spec_name、基线及候选两个版本，原三资产文件名/摘要/来源Run和发布回读保持。正常退出清理本轮临时源码；工具被信号中止或退出未确认时保留现场并阻止Workflow清理。
+Runtime产物验收由runtime.mjs读取三份实际WASM的runtime_version段，支持SDK原压缩格式并沿用其50MiB解压边界。WASM段长接受规范允许的u32宽度内LEB128补零，保留超长、溢出、截断和段越界拒绝；不得把SCALE紧凑编码的规则套到WASM长度。三个产物必须属于citizenchain且双版本均与本轮目标一致；缺失、损坏、重复版本段、版本不符等失败，不从文件名或Tag推断。构建输出整数version和runtime记录；Release复核同一Run三份实际附件的双版本及原始字节，再创建草稿和正式交付。来源证明绑定source_sha、genesis_hash、base_block_hash、spec_name、基线及候选双版本，显示号必须等于候选spec_version，双版本必须分别为基线加1。原三资产文件名/摘要/来源Run和发布回读保持。正常退出清理本轮临时源码；工具被信号中止或退出未确认时保留现场并阻止Workflow清理。
 
-配套回归位于runtime.mjs、config.mjs原内嵌测试及协议所有者repo_guard.rs现有入口断言，覆盖分别加1、0、溢出、同基线重试、声明唯一性、实际原始/压缩WASM、错误链/缺字段、原源码不变、旧入口拒绝、GitHub限定和工作流顺序。本节描述源码实现，尚未运行测试、类型检查、语法检查、编译、GitHub自动化、安装或链升级，不构成验收通过。
+WASM收尾沿用原Workflow的repository_dispatch，只传原版本、Run ID、attempt及源码SHA；不再次读链分配版本。等待原编译Run真正completed后，保留最新成功、最新非成功及活动编译Run；核实最新成功完整交付后删除准确旧Tag、Release及旧Run并回读确认。来源不明、不可变资产或删除失败明确保留为未完成。业务清理核验后删除旧成功收尾，仅保留最近非成功收尾与当前活动收尾；若当前收尾失败，失败记录留待下次恢复，不声称已经收口。收尾成功不能冒充编译成功，所有事件的Run总数不等于两条。现存整数v2失败记录按最新失败规则保留，不因整数命名而删除。
+
+配套回归位于runtime.mjs、config.mjs原内嵌测试及协议所有者repo_guard.rs现有入口断言，覆盖分别加1、0、溢出、同基线重试、声明唯一性、实际原始/压缩WASM与合法补零/非法长度、错误链/缺字段、原源码不变、旧入口拒绝、整数派发和收尾、版本/原Run/附件来源不符、GitHub限定及工作流顺序。WASM既有收尾正文使用内存GitHub替身覆盖旧成功资产、失败草稿和旧Run清理，以及API拒绝、删除未确认、attempt漂移及未知来源；全部保留项和活动Run不得误删。WASM专属负例拒绝节点SemVer推算、缺少交易版本、事件名称取错字段及发布丢失构建版本记录。本节描述源码实现，尚未运行测试、类型检查、语法检查、编译、GitHub自动化、安装或链升级，不构成验收通过。
