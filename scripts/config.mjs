@@ -1,3 +1,4 @@
+import {runtimeVersion, assertRuntimeProof, assertRuntimeRunName, runtimeLaunchRequest, runtimeSettleRequest} from './runtime.mjs';
 // 本产品配置需求的公开入口；只登记名称、类型和规则，不保存配置值。
 export const manifest=Object.freeze({
   "schema": 1,
@@ -43,19 +44,15 @@ export const product=Object.freeze({id:'citizenchain',title:'公民链',reposito
   locks:Object.freeze(['Cargo.lock','crates/protocol/Cargo.lock','crates/scanner/package-lock.json','node/frontend/package-lock.json','onchina/platform/frontend/package-lock.json']),
 });
 
-// 同步规则保持纯函数；WASM派发前只复用runtime.mjs读链，编译、发布及清理仍归既有Workflow。
+// 公开声明和通用规则；WASM分支只转调runtime.mjs，不读取链或编排WASM流程。
 const requireValue=(condition,message)=>{if(!condition)throw Error(message);};
 export function deliveryVersion(value){
   requireValue(typeof value==='string'&&value.trim()===value&&/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(value)
     &&value.split('.').every(part=>BigInt(part)<2n**64n),'交付版本必须是规范 X.Y.Z');
   return value;
 }
-// WASM显示号就是目标spec_version；双版本加1只由runtime.mjs按链状态计算。
-export function runtimeVersion(value){
-  requireValue(typeof value==='string'&&value.trim()===value&&/^(0|[1-9][0-9]*)$/u.test(value)
-    &&Number(value)<=0xffffffff,'Runtime版本必须是规范u32十进制整数');
-  return value;
-}
+// WASM规则只有runtime.mjs一份实现；这里保持原公开调用名。
+export {runtimeVersion} from './runtime.mjs';
 export function releaseName(platform,value){
   requireValue(Object.hasOwn(product.platforms,platform),'产品平台无效');
   return product.title+'·'+product.platforms[platform].name+'·v'+(platform==='wasm'?runtimeVersion(value):deliveryVersion(value));
@@ -86,25 +83,25 @@ export function retainedBuildRuns(platform,runs){
   return {success,failure,obsolete:terminal.filter(run=>run.id!==success?.id&&run.id!==failure?.id)};
 }
 // 四端最后Job只计算暂定保留项；当前Run仍是in_progress，不伪造GitHub最终终态。
-export function nativeCleanupPlan(platform,current,results,runs){
+export function nativeCleanupPlan(platform,current,results,runs,{cleanupFailed=false}={}){
   requireValue(['macos','windows','linux-arm','linux-amd'].includes(platform),'清理仅限公民链四端');
-  assertRun(platform,current);
-  requireValue(current.status==='in_progress'&&current.conclusion===null,'本轮不是正在执行的原编译Run');
+  if(current)assertRun(platform,current);
+  requireValue(!current||(current.status==='in_progress'&&current.conclusion===null),'本轮不是正在执行的原编译Run');
   const jobs=['prepare','build','release'],states=['success','failure','cancelled','skipped'];
-  requireValue(results&&jobs.every(job=>states.includes(results[job])),'前置Job结果不完整');
-  const outcome=jobs.every(job=>results[job]==='success')?'success':'failure';
-  const terminal=[],maintenance=[],protectedIds=new Set([current.id]),seen=new Set();
+  requireValue(!current||results&&jobs.every(job=>states.includes(results[job])),'前置Job结果不完整');
+  const outcome=current?(!cleanupFailed&&jobs.every(job=>results[job]==='success')?'success':'failure'):null;
+  const terminal=[],maintenance=[],protectedIds=new Set(current?[current.id]:[]),seen=new Set();
   for(const run of runs){
-    if(run.repository?.full_name!==product.repository||run.path!==current.path||run.head_branch!=='main'){
+    if(run.repository?.full_name!==product.repository||run.path!=='.github/workflows/'+product.platforms[platform].workflow||run.head_branch!=='main'){
       protectedIds.add(run.id);continue;
     }
     requireValue(!seen.has(run.id),'原Run查询出现重复身份');seen.add(run.id);
     requireValue(Number.isSafeInteger(run.id)&&run.id>0&&Number.isSafeInteger(run.run_number)&&run.run_number>0
       &&Number.isSafeInteger(run.run_attempt)&&run.run_attempt>0&&/^[a-f0-9]{40}$/u.test(run.head_sha||'')
       &&run.html_url===`https://github.com/${product.repository}/actions/runs/${run.id}`,'历史Run身份无效');
-    requireValue(run.run_number<=current.run_number,'存在更晚的同平台Run，禁止旧任务清理');
+    requireValue(!current||run.run_number<=current.run_number,'存在更晚的同平台Run，禁止旧任务清理');
     requireValue(['workflow_dispatch','repository_dispatch'].includes(run.event),'历史Run事件归属不明');
-    if(run.id===current.id){
+    if(current&&run.id===current.id){
       requireValue(run.event===current.event&&run.run_attempt===current.run_attempt&&run.head_sha===current.head_sha
         &&run.run_number===current.run_number&&run.status===current.status&&run.conclusion===null,'本轮身份或状态发生变化');
       continue;
@@ -126,6 +123,24 @@ export function nativeCleanupPlan(platform,current,results,runs){
     .toSorted((a,b)=>Number(a.event==='workflow_dispatch'&&a.conclusion==='success')-Number(b.event==='workflow_dispatch'&&b.conclusion==='success')||a.run_number-b.run_number);
   return {outcome,success,failure,obsolete,protectedIds:[...protectedIds]};
 }
+// 原Run及显式维护共用同一删除实现；不派发、不取消，也不依赖Release清理成功。
+export async function cleanupNativeRuns(platform,{list,get,remove},current=null,results=null,cleanupFailed=false){
+  const plan=async()=>{
+    if(current){const actual=await get(current.id);assertRun(platform,actual,current.id);
+      requireValue(['head_sha','run_attempt','run_number','status','conclusion'].every(key=>actual[key]===current[key]),'当前Run身份或状态变化');}
+    return nativeCleanupPlan(platform,current,results,await list(),{cleanupFailed});
+  };
+  const initial=await plan(),deleted=[];
+  for(const old of initial.obsolete){
+    const fresh=await plan(),candidate=fresh.obsolete.find(run=>run.id===old.id),actual=await get(old.id);
+    if(!actual)continue;
+    requireValue(candidate&&actual.status==='completed'&&['run_attempt','head_sha','path','event','head_branch','run_number','conclusion'].every(key=>actual[key]===old[key])
+      &&actual.repository?.full_name===product.repository,'删除前旧Run身份或终态变化');
+    await remove(old.id);requireValue(!await get(old.id),'旧Run删除未确认');deleted.push(old.id);
+  }
+  const remaining=await plan();requireValue(!remaining.obsolete.length,'历史尚未收口，清理失败；不自动重派或rerun');
+  return {deleted,success:remaining.success?.id??null,failure:remaining.failure?.id??null,protected:remaining.protectedIds};
+}
 export function readReleaseProof(platform,release){
   const lines=String(release.body||'').split(/\r?\n/u).filter(line=>line.startsWith('<!-- automation:')&&line.endsWith(' -->'));
   requireValue(lines.length===1,'正式版本来源证明必须唯一');
@@ -135,14 +150,7 @@ export function readReleaseProof(platform,release){
     &&proof.tag===releaseName(platform,proof.version)&&release.tag_name===proof.tag&&release.name===proof.tag
     &&/^[a-f0-9]{40}$/u.test(proof.source_sha||'')&&release.target_commitish===proof.source_sha
     &&Number.isSafeInteger(proof.run_id)&&proof.run_id>0&&Number.isSafeInteger(proof.run_attempt)&&proof.run_attempt>0,'正式版本来源不符');
-  if(platform==='wasm'){
-    const runtime=proof.runtime;
-    requireValue(runtime&&runtime.source_sha===proof.source_sha&&runtime.spec_name===product.id
-      &&/^0x[a-f0-9]{64}$/u.test(runtime.genesis_hash||'')&&/^0x[a-f0-9]{64}$/u.test(runtime.base_block_hash||'')
-      &&[runtime.base_spec_version,runtime.base_transaction_version].every(value=>Number.isInteger(value)&&value>=0&&value<0xffffffff)
-      &&runtime.spec_version===runtime.base_spec_version+1&&runtime.transaction_version===runtime.base_transaction_version+1
-      &&String(runtime.spec_version)===proof.version,'WASM来源双版本与显示号不符');
-  }
+  if(platform==='wasm')assertRuntimeProof(proof);
   return proof;
 }
 export function assertRelease(platform,release,run,{partial=false,draft=false}={}){
@@ -150,7 +158,7 @@ export function assertRelease(platform,release,run,{partial=false,draft=false}={
   requireValue(proof.run_id===run.id&&proof.run_attempt===run.run_attempt&&proof.source_sha===run.head_sha
     &&Number.isSafeInteger(release.id)&&release.id>0&&release.prerelease===false
     &&(draft||release.draft===false&&Boolean(release.published_at)),'正式版本与原编译 Run 不符');
-  if(platform==='wasm')requireValue(run.display_title===releaseName(platform,proof.version),'WASM原Run名称与实际版本不符');
+  if(platform==='wasm')assertRuntimeRunName(proof,run);
   requireValue(Array.isArray(proof.assets)&&JSON.stringify(proof.assets.map(asset=>asset.name).sort())===JSON.stringify(expected.sort())
     &&Array.isArray(release.assets)&&(partial?release.assets.length<=expected.length:release.assets.length===expected.length),'正式附件集合不完整');
   const seen=new Set();
@@ -181,10 +189,10 @@ export function automationRequest(platform,operation,input={}){
   const workflow=product.platforms[platform].workflow;
   if(operation==='runs')return {path:`actions/workflows/${workflow}/runs?branch=main&event=workflow_dispatch`,field:'workflow_runs'};
   if(operation==='releases')return {path:'releases'};
+  if(operation==='launch'&&platform==='wasm')return runtimeLaunchRequest(input);
   if(operation==='launch'){
     requireValue(/^[a-f0-9]{40}$/u.test(input.sha||''),'派发源码无效');
-    const inputs={version:platform==='wasm'?runtimeVersion(input.version):deliveryVersion(input.version),source_sha:input.sha};
-    if(platform==='wasm')inputs.transaction_version=runtimeVersion(input.transactionVersion);
+    const inputs={version:deliveryVersion(input.version),source_sha:input.sha};
     return {path:`actions/workflows/${workflow}/dispatches`,method:'POST',body:{ref:'main',inputs}};
   }
   if(operation==='run'||operation==='cancel'){
@@ -193,10 +201,7 @@ export function automationRequest(platform,operation,input={}){
   }
   if(operation==='settle'){
     requireValue(!['macos','windows','linux-arm','linux-amd'].includes(platform),'四端清理由原Run最后Job执行，禁止另派收尾');
-    const run=assertRun(platform,input.run),prefix=product.title+'·'+product.platforms[platform].name+'·v';
-    requireValue(run.display_title?.startsWith(prefix),'原Run没有准确交付版本');
-    return {path:'dispatches',method:'POST',body:{event_type:'citizenchain-finalize-'+platform,client_payload:{platform,
-      version:runtimeVersion(run.display_title.slice(prefix.length)),run_id:run.id,run_attempt:run.run_attempt,source_sha:run.head_sha}}};
+    return runtimeSettleRequest(input.run);
   }
   throw Error('产品未声明该自动化请求');
 }
@@ -221,23 +226,30 @@ export const deployment=Object.freeze({platform:'linux-arm',repository:product.r
 
 // 本仓流程的公开入口声明；调用方只交付标准传输能力，不拥有产品规则或任务宿主。
 export async function describeAction({flow,platform}){
+ if(platform==='wasm')return (await import('./runtime.mjs')).describeAction({flow,platform});
+ if(flow==='cleanup'){
+  requireValue(['macos','windows','linux-arm','linux-amd'].includes(platform),'显式清理仅限四个节点平台');
+  return {repository:product.repository,launch:async({token})=>{
+   // 官方REST只访问本产品仓库；凭据只在本次产品调用内存中使用。
+   const request=async(path,method='GET')=>{
+    const response=await fetch('https://api.github.com/repos/'+product.repository+'/'+path,{method,redirect:'error',
+     headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2026-03-10'}});
+    if(response.status===404&&method==='GET')return null;
+    requireValue(response.ok,'公民链清理GitHub HTTP '+response.status);
+    return response.status===204?null:response.json();
+   };
+   const result=await cleanupNativeRuns(platform,{
+    list:async()=>{const rows=[];for(let page=1;;page++){const data=await request('actions/workflows/'+product.platforms[platform].workflow+'/runs?branch=main&per_page=100&page='+page);requireValue(data&&Array.isArray(data.workflow_runs),'清理列表无效');rows.push(...data.workflow_runs);if(data.workflow_runs.length<100)return rows;}},
+    get:id=>request('actions/runs/'+id),remove:id=>request('actions/runs/'+id,'DELETE')});
+   return {completed:true,...result};
+  }};
+ }
  if(flow!=='release')throw Error('本产品尚未声明该流程入口：'+flow+'·'+platform);
  return {repository:product.repository,launch:async({read,dispatch})=>{
   const rows=[],releases=[];
   for(let page=1;;page++){const data=await read(automationRequest(platform,'runs').path+'&per_page=100&page='+page);rows.push(...data.workflow_runs);if(data.workflow_runs.length<100)break;}
   for(let page=1;;page++){const data=await read('releases?per_page=100&page='+page);releases.push(...data);if(data.length<100)break;}
-  if(platform==='wasm'){
-    // 同一产品入口在派发前确定Run名称；只复用runtime.mjs的链身份和加1实现。
-    const {readRuntimeTarget}=await import('./runtime.mjs');
-    const configuration=await read('actions/variables/CITIZENCHAIN_RUNTIME_RPC_URL');
-    const {target}=await readRuntimeTarget(configuration.value),version=String(target.specVersion);
-    requireValue(!rows.some(run=>run.status!=='completed'),'WASM已有活动编译Run');
-    requireValue(!releases.some(release=>release.tag_name===releaseName(platform,version)),'该Runtime版本已有交付或未收尾资产，禁止重复发布');
-    const head=await read('git/ref/heads/main');
-    const request=automationRequest(platform,'launch',{version,transactionVersion:String(target.transactionVersion),sha:head.object.sha});
-    const receipt=await dispatch({workflow:product.platforms[platform].workflow,...request.body});
-    return {runID:receipt.workflow_run_id};
-  }
+
   const {readFile}=await import('node:fs/promises');
   const initial=JSON.parse(await readFile(new URL('../node/frontend/package.json',import.meta.url),'utf8')).version;
   const version=nextDeliveryVersion(platform,rows,releases,initial),head=await read('git/ref/heads/main');
@@ -324,6 +336,7 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv[1]===import.meta.filename&&proces
     const oldSuccess={...run(1),display_title:releaseName('linux-arm','0.9.0')};
     const rows=[oldSuccess,run(2,'failure'),run(3,'failure'),{...run(4),status:'in_progress',conclusion:null},
       {...run(8),event:'repository_dispatch'},{...run(9,'failure'),event:'repository_dispatch'},current];
+    if(options.orphanRelease)rows.splice(rows.indexOf(oldSuccess),1);
     const releases=[release(oldSuccess,'0.9.0',101),...(options.failed||options.missingRelease?[]:[release(current)])];
     const tags=new Map(releases.map(value=>[value.tag_name,{object:{type:'commit',sha:current.head_sha}}]));
     const calls=[],results={prepare:'success',build:options.failed?'failure':'success',release:options.failed?'skipped':'success'};
@@ -372,146 +385,29 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv[1]===import.meta.filename&&proces
     assert.equal(result.writes,0);assert.equal(result.rows.some(row=>row.id===1),false);
     assert.equal(result.current.status,'in_progress');assert.equal(result.current.conclusion,null);
   });
+  test('旧Release来源Run缺失仍实际清理旧失败和全部维护Run，最终保留异常报错',async()=>{
+    for(const failed of [false,true]){
+      const result=await cleanupFixture({failed,orphanRelease:true});
+      assert.match(result.error?.message||'',/原编译 Run 身份无效/);
+      assert.deepEqual(result.rows.map(row=>row.id).sort((a,b)=>a-b),[4,10]);
+      assert.equal(result.writes,0);
+    }
+  });
+  test('显式维护只处理真实终态，保留全部活动任务及异平台记录',async()=>{
+    const rows=[run(1),run(2,'failure'),run(3),run(4,'failure'),{...run(5),status:'in_progress',conclusion:null},
+      {...run(6),event:'repository_dispatch'},{...run(7),path:'.github/workflows/macos.yml'}];
+    const get=async id=>structuredClone(rows.find(row=>row.id===id)??null),deleted=[];
+    const result=await cleanupNativeRuns('linux-arm',{list:async()=>structuredClone(rows),get,
+      remove:async id=>{deleted.push(id);rows.splice(rows.findIndex(row=>row.id===id),1);}});
+    assert.deepEqual(deleted,[2,6,1]);assert.deepEqual(rows.map(row=>row.id),[3,4,5,7]);
+    assert.equal(result.success,3);assert.equal(result.failure,4);
+    assert.ok(result.protected.includes(5));assert.ok(result.protected.includes(7));
+    assert.equal((await cleanupNativeRuns('linux-arm',{list:async()=>structuredClone(rows),get,remove:()=>assert.fail('重复删除')})).deleted.length,0);
+  });
   test('编译模块只公开编译辅助接口，不重新加入产品流程执行器',async()=>{
     const build=await import('./build.mjs');
     assert.deepEqual(Object.keys(build).sort(),['assertBuildWork','checkWork','npmCLI','platformCargoEnvironment','runBuildProcess','stageWindowsOpenSsl'].sort());
   });
-  // WASM夹具独立于节点软件版本，目标2/1来自链基线1/0，不强求两个数字相等。
-  const wasmRun=(id,conclusion='success')=>({...run(id,conclusion),path:'.github/workflows/wasm.yml',display_title:releaseName('wasm','2')});
-  function wasmRelease(source,value='2',transaction=1){
-    const hash='f'.repeat(64),assets=artifactNames('wasm',value).map((name,index)=>({id:200+index,name,
-      label:artifactLabel('wasm',value,name),size:3,state:'uploaded',digest:'sha256:'+hash,
-      url:`https://api.github.com/repos/${product.repository}/releases/assets/${200+index}`}));
-    const runtime={source_sha:source.head_sha,genesis_hash:'0x'+'11'.repeat(32),base_block_hash:'0x'+'22'.repeat(32),
-      spec_name:product.id,base_spec_version:Number(value)-1,base_transaction_version:transaction-1,spec_version:Number(value),transaction_version:transaction};
-    const proof={schema:1,repository:product.repository,product_id:product.id,platform:'wasm',workflow:source.path,
-      version:value,tag:source.display_title,run_id:source.id,run_attempt:source.run_attempt,source_sha:source.head_sha,runtime,
-      assets:assets.map(({name,label,size})=>({name,label,size,sha256:hash}))};
-    return {...release(run(source.id)),id:100+source.id,name:proof.tag,tag_name:proof.tag,target_commitish:source.head_sha,
-      body:'<!-- automation:'+JSON.stringify(proof)+' -->',assets};
-  }
-  test('WASM只接受整数版本，名称、附件及原Run收尾不走SemVer',()=>{
-    assert.equal(runtimeVersion('0'),'0');assert.equal(runtimeVersion('4294967295'),'4294967295');
-    for(const value of ['2.3.4','02','2\n',' 2','-1','1.5','4294967296',2,null]){
-      assert.throws(()=>releaseName('wasm',value));
-      assert.throws(()=>automationRequest('wasm','launch',{version:value,transactionVersion:'1',sha:'a'.repeat(40)}));
-    }
-    assert.throws(()=>nextDeliveryVersion('wasm',[],[],'1.0.0'));
-    const launch=automationRequest('wasm','launch',{version:'2',transactionVersion:'1',sha:'a'.repeat(40)});
-    assert.deepEqual(launch.body.inputs,{version:'2',transaction_version:'1',source_sha:'a'.repeat(40)});
-    assert.throws(()=>automationRequest('wasm','launch',{version:'2',sha:'a'.repeat(40)}));
-    const settle=automationRequest('wasm','settle',{run:wasmRun(42,'failure')});
-    assert.deepEqual(settle.body.client_payload,{platform:'wasm',version:'2',run_id:42,run_attempt:1,source_sha:'a'.repeat(40)});
-    assert.equal(artifactLabel('wasm','2','citizenchain.compact.compressed.wasm'),'公民链·WASM·v2.compact.compressed.wasm');
-  });
-  test('WASM正式交付绑定显示号、双版本、源码、原Run及完整三附件',()=>{
-    const source=wasmRun(42),value=wasmRelease(source);
-    assert.equal(assertRelease('wasm',value,source).version,'2');
-    const rewrite=mutate=>{const changed=structuredClone(value),proof=readReleaseProof('wasm',changed);mutate(proof);
-      changed.body='<!-- automation:'+JSON.stringify(proof)+' -->';return changed;};
-    for(const mutate of [proof=>delete proof.runtime,proof=>{proof.version='2.0.0';},
-      proof=>{proof.runtime.spec_version=3;},proof=>{proof.runtime.transaction_version=2;},
-      proof=>{proof.runtime.base_transaction_version=-1;},proof=>{proof.runtime.base_spec_version=0xffffffff;},
-      proof=>{proof.runtime.source_sha='b'.repeat(40);},proof=>{proof.runtime.spec_name='wrong-chain';},
-      proof=>{proof.runtime.genesis_hash='invalid';}])assert.throws(()=>assertRelease('wasm',rewrite(mutate),source));
-    assert.throws(()=>assertRelease('wasm',value,{...source,run_attempt:2}));
-    assert.throws(()=>assertRelease('wasm',value,{...source,display_title:'公民链·WASM·v3'}));
-    assert.throws(()=>assertRelease('wasm',{...value,assets:value.assets.slice(1)},source));
-    const rows=[wasmRun(1),wasmRun(2,'failure'),source,{...wasmRun(43),status:'in_progress'},
-      {...wasmRun(99),event:'repository_dispatch'}];
-    const keep=retainedBuildRuns('wasm',rows);
-    assert.equal(keep.success.id,42);assert.equal(keep.failure.id,2);assert.deepEqual(keep.obsolete.map(row=>row.id),[1]);
-    assert.equal(workflowRecords('wasm',rows).length,3);
-  });
-  test('WASM派发复用读链加1，只传目标双版本，不读取节点交付版本',async()=>{
-    const {readFile}=await import('node:fs/promises');
-    const frozen=(await readFile(new URL('../runtime/primitives/src/genesis.rs',import.meta.url),'utf8'))
-      .match(/pub const GENESIS_HASH:\s*\[u8;\s*32\]\s*=\s*hex_literal::hex!\("([a-f0-9]{64})"\)/u);
-    assert.ok(frozen);const previous=globalThis.fetch,calls=[];let missing=false,releases=[],runs=[];
-    globalThis.fetch=async(url,options)=>{
-      assert.equal(String(url),'https://fixture.invalid/');const rpc=JSON.parse(options.body);calls.push(rpc.method);
-      const result=rpc.method==='chain_getBlockHash'?'0x'+frozen[1]:rpc.method==='chain_getFinalizedHead'?'0x'+'22'.repeat(32)
-        :{specName:product.id,specVersion:7,...(missing?{}:{transactionVersion:3})};
-      return Response.json({jsonrpc:'2.0',id:1,result});
-    };
-    try{
-      const target=await describeAction({flow:'release',platform:'wasm'}),requests=[];
-      const read=async path=>{
-        if(path.startsWith('actions/workflows/wasm.yml/runs'))return {workflow_runs:runs};
-        if(path.startsWith('releases?'))return releases;
-        if(path==='actions/variables/CITIZENCHAIN_RUNTIME_RPC_URL')return {value:'https://fixture.invalid'};
-        if(path==='git/ref/heads/main')return {object:{sha:'a'.repeat(40)}};
-        throw Error('未预期读取：'+path);
-      };
-      const dispatch=async request=>{requests.push(request);return {workflow_run_id:42};};
-      assert.deepEqual(await target.launch({read,dispatch}),{runID:42});
-      assert.deepEqual(requests[0],{workflow:'wasm.yml',ref:'main',inputs:{version:'8',transaction_version:'4',source_sha:'a'.repeat(40)}});
-      missing=true;await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-      missing=false;releases=[{tag_name:'公民链·WASM·v8'}];
-      await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-      releases=[];runs=[{status:'in_progress'}];
-      await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-      assert.deepEqual(calls.slice(0,3),['chain_getBlockHash','chain_getFinalizedHead','state_getRuntimeVersion']);
-    }finally{globalThis.fetch=previous;}
-  });
-  // 只执行WASM既有收尾正文的内存替身；不读真实GitHub、不派发、不构建、不删除真实记录。
-  async function wasmCleanupFixture(options={}){
-    const {readFileSync}=await import('node:fs');
-    const workflow=readFileSync(new URL('../.github/workflows/wasm.yml',import.meta.url),'utf8');
-    const marker='        script: |\n',at=workflow.lastIndexOf(marker);
-    assert.ok(at>workflow.indexOf('\n  finalize:\n'));
-    let body=workflow.slice(at+marker.length).split('\n').map(line=>line.startsWith('          ')?line.slice(10):line).join('\n');
-    body=body.replace("const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);",'const cfg=fixtureRules;')
-      .replace('const p=process.env.PLATFORM,repo=context.repo;',"const p='wasm',repo=context.repo;");
-    const old={...wasmRun(1),display_title:releaseName('wasm','1')},success=wasmRun(10),failed={...wasmRun(11,'failure'),display_title:releaseName('wasm','3')};
-    const builds=[old,wasmRun(2,'failure'),success,failed,{...wasmRun(12),status:'in_progress',conclusion:null}];
-    const maintenance=[{...wasmRun(20),event:'repository_dispatch'}, {...wasmRun(21,'failure'),event:'repository_dispatch'},
-      {...wasmRun(22),event:'repository_dispatch'}, {...wasmRun(30),event:'repository_dispatch',status:'in_progress',conclusion:null}];
-    const partial=wasmRelease(failed,'3',2);partial.draft=true;partial.assets=[];
-    const releases=[wasmRelease(old,'1'),wasmRelease(success),partial];
-    if(options.unknownRelease)releases[0].body='来源不明';
-    const tags=new Map(releases.map(value=>[value.tag_name,{object:{type:'commit',sha:success.head_sha}}])),calls=[];
-    const absent=()=>{throw Object.assign(Error('合成404'),{status:404});};
-    const actions={listWorkflowRuns:()=>{},getWorkflowRun:async({run_id})=>{
-      const row=[...builds,...maintenance].find(value=>value.id===run_id);if(!row)return absent();
-      return {data:structuredClone(options.drift&&run_id===2?{...row,run_attempt:2}:row)};
-    },deleteWorkflowRun:async({run_id})=>{
-      calls.push(['deleteRun',run_id]);assert.ok(![10,11,12,21,30].includes(run_id));
-      if(options.failDelete)throw Object.assign(Error('合成403'),{status:403});
-      if(!options.unconfirmedDelete){const rows=builds.some(row=>row.id===run_id)?builds:maintenance;rows.splice(rows.findIndex(row=>row.id===run_id),1);}
-    }};
-    const repos={listReleases:()=>{},getRelease:async({release_id})=>{
-      const row=releases.find(value=>value.id===release_id);return row?{data:structuredClone(row)}:absent();
-    },deleteRelease:async({release_id})=>{
-      calls.push(['deleteRelease',release_id]);assert.notEqual(release_id,110);
-      if(options.failRelease)throw Object.assign(Error('合成403'),{status:403});
-      releases.splice(releases.findIndex(row=>row.id===release_id),1);
-    }};
-    const git={getRef:async({ref})=>{const row=tags.get(ref.slice(5));return row?{data:structuredClone(row)}:absent();},
-      deleteRef:async({ref})=>{calls.push(['deleteTag',ref]);assert.notEqual(ref,'tags/'+success.display_title);tags.delete(ref.slice(5));}};
-    const github={rest:{actions,repos,git},paginate:async(method,parameters)=>structuredClone(method===actions.listWorkflowRuns
-      ?parameters.event==='repository_dispatch'?maintenance:builds:releases)};
-    let summaries=0;const summary={addHeading(){return this;},addLink(){return this;},addRaw(){return this;},async write(){summaries++;}};
-    const context={repo:{owner:'crcfrcn',repo:'citizenchain'},payload:{client_payload:{platform:'wasm',version:'3',run_id:11,run_attempt:1,source_sha:failed.head_sha}}};
-    const fixtureRules={product,runtimeVersion,releaseName,assertRun,retainedBuildRuns,readReleaseProof,assertRelease};
-    let error;try{await new (Object.getPrototypeOf(async()=>{}).constructor)('github','core','context','fixtureRules',body)(github,{summary},context,fixtureRules);}
-    catch(failure){error=failure;}
-    return {error,calls,builds,maintenance,releases,tags,summaries};
-  }
-  test('WASM真实收尾正文清除旧版本及失败草稿，保留成功失败、活动Run和最近失败收尾',async()=>{
-    const result=await wasmCleanupFixture();assert.equal(result.error,undefined);assert.equal(result.summaries,1);
-    assert.deepEqual(result.builds.map(row=>row.id),[10,11,12]);assert.deepEqual(result.maintenance.map(row=>row.id),[21,30]);
-    assert.deepEqual(result.releases.map(row=>row.id),[110]);assert.deepEqual([...result.tags.keys()],['公民链·WASM·v2']);
-    assert.deepEqual(result.calls.slice(0,3),[['deleteTag','tags/公民链·WASM·v1'],['deleteRelease',101],['deleteTag','tags/公民链·WASM·v3']]);
-  });
-  test('WASM收尾拒绝API失败、删除未确认、attempt漂移和未知来源，不误删保留项',async()=>{
-    for(const [options,expected] of [[{failDelete:true},/合成403/],[{unconfirmedDelete:true},/旧Run删除未确认/],
-      [{drift:true},/删除前旧Run终态变化/],[{unknownRelease:true},/正式版本来源证明必须唯一/],[{failRelease:true},/合成403/]]){
-      const result=await wasmCleanupFixture(options);assert.ok(result.error);assert.match(result.error.message,expected);assert.equal(result.summaries,0);
-      assert.ok(result.builds.some(row=>row.id===10));assert.ok(result.builds.some(row=>row.id===11));
-      assert.ok(result.releases.some(row=>row.id===110));assert.ok(result.tags.has('公民链·WASM·v2'));
-      if(options.unknownRelease)assert.equal(result.calls.length,0);
-    }
-  });
+
 }
 // END INLINE TESTS

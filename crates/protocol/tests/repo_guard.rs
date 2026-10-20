@@ -176,6 +176,8 @@ fn validate_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(),
         || !display.contains("inputs.version")
         || !display.contains("github.event.client_payload.version")
         || document["on"]["workflow_dispatch"]["inputs"]["transaction_version"]["required"].as_bool() != Some(true)
+        || document["on"]["workflow_dispatch"]["inputs"]["runtime_base"]["required"].as_bool() != Some(true)
+        || ["prepare", "build"].iter().any(|name| document["jobs"][*name]["env"]["CITIZENCHAIN_RUNTIME_BASE"].as_str() != Some("${{ inputs.runtime_base }}"))
         || names.iter().any(|name| document["jobs"][*name]["name"].as_str() != Some(display))
         || document["jobs"]["release"]["env"]["RUNTIME_BUILD"].as_str() != Some("${{ needs.build.outputs.runtime }}")
         || document["jobs"]["release"]["env"]["BUILT_VERSION"].as_str() != Some("${{ needs.build.outputs.version }}")
@@ -183,12 +185,30 @@ fn validate_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(),
         return Err("WASM整数版本、双版本输入或GitHub名称未连通".into());
     }
     for name in names {
+        // 原Workflow只调用所属Runtime函数；基线和校验实现在同一脚本，Runner不再读本机RPC。
+        let method = match name {
+            "prepare" => "prepare", "build" => "recordAssets", "release" => "publish",
+            "request-finalize" => "requestFinalize", "finalize" => "finalize", _ => unreachable!(),
+        };
+        let expected = format!("await runtime.{method}({{github,context,core}});");
+        let mut runtime_calls = 0;
+        if !document["jobs"][name]["env"]["CITIZENCHAIN_RUNTIME_RPC_URL"].is_null() {
+            return Err("WASM Runner不能依赖本机RPC地址".into());
+        }
         for step in document["jobs"][name]["steps"].as_sequence().ok_or("WASM缺少步骤")? {
             let script = step["with"]["script"].as_str().unwrap_or("");
             if script.contains("nextDeliveryVersion") || script.contains("deliveryVersion(")
                 || script.contains("node/tauri.conf.json")
             {
                 return Err("WASM不能使用节点软件版本或SemVer推算".into());
+            }
+            if !script.is_empty() {
+                if script.lines().count() != 3 || !script.contains("/scripts/runtime.mjs")
+                    || !script.lines().any(|line| line.trim() == expected)
+                {
+                    return Err("WASM工作流只能转调唯一Runtime实现".into());
+                }
+                runtime_calls += 1;
             }
             let action = step["uses"].as_str().unwrap_or("");
             if (action.starts_with("actions/upload-artifact@") || action.starts_with("actions/download-artifact@"))
@@ -197,6 +217,7 @@ fn validate_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(),
                 return Err("WASM Artifact名称与Runtime版本不一致".into());
             }
         }
+        if runtime_calls != 1 { return Err("WASM所属Runtime阶段调用缺失或重复".into()); }
     }
     Ok(())
 }
@@ -286,6 +307,13 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
             missing_transaction["on"]["workflow_dispatch"]["inputs"].as_mapping_mut().ok_or("缺少inputs")?
                 .remove(&serde_yaml::Value::String("transaction_version".into()));
             assert!(validate_workflow(&missing_transaction, platform).is_err());
+            let mut missing_base = document.clone();
+            missing_base["on"]["workflow_dispatch"]["inputs"].as_mapping_mut().ok_or("缺少inputs")?
+                .remove(&serde_yaml::Value::String("runtime_base".into()));
+            assert!(validate_workflow(&missing_base, platform).is_err());
+            let mut wrong_base = document.clone();
+            wrong_base["jobs"]["build"]["env"]["CITIZENCHAIN_RUNTIME_BASE"] = serde_yaml::Value::String("{}".into());
+            assert!(validate_workflow(&wrong_base, platform).is_err());
             let mut wrong_name = document.clone();
             wrong_name["jobs"]["finalize"]["name"] = serde_yaml::Value::String("公民链·WASM·v${{ inputs.version }}".into());
             assert!(validate_workflow(&wrong_name, platform).is_err());

@@ -286,6 +286,8 @@ jobs:
           const plan=async()=>cfg.nativeCleanupPlan(p,await original(),results,await rows());
           const getRelease=id=>github.rest.repos.getRelease({...repo,release_id:id}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
           const getTag=tag=>github.rest.git.getRef({...repo,ref:'tags/'+tag}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
+          let assetError;
+          try{
           const initial=await plan(),releases=await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100});
           const prefix=cfg.product.title+'·'+cfg.product.platforms[p].name+'·v';
           const proven=releases.filter(value=>value.tag_name.startsWith(prefix)).map(release=>({release,proof:cfg.readReleaseProof(p,release)}));
@@ -309,16 +311,10 @@ jobs:
             await github.rest.git.deleteRef({...repo,ref:'tags/'+proof.tag});if(await getTag(proof.tag))throw Error('Tag删除未确认');}
            await github.rest.repos.deleteRelease({...repo,release_id:current.id});if(await getRelease(current.id))throw Error('Release删除未确认');
           }
-          // 全部旧收尾和多余编译Run一起清理；当前Run及任何活动Run都不是删除目标。
-          for(const old of initial.obsolete){
-           const fresh=await plan(),candidate=fresh.obsolete.find(run=>run.id===old.id);
-           const current=await getRun(old.id);if(!current)continue;
-           if(!candidate||current.status!=='completed'||current.run_attempt!==old.run_attempt||current.head_sha!==old.head_sha
-            ||current.path!==old.path||current.event!==old.event||current.head_branch!=='main'||current.repository?.full_name!==cfg.product.repository
-            ||current.run_number!==old.run_number||current.conclusion!==old.conclusion)throw Error('删除前旧Run身份或终态变化');
-           await github.rest.actions.deleteWorkflowRun({...repo,run_id:old.id});if(await getRun(old.id))throw Error('旧Run删除未确认');
-          }
-          const remaining=await plan();if(remaining.obsolete.length)throw Error('历史尚未收口，清理失败；不自动重派或rerun');
-          await core.summary.addHeading('原Run内四端历史清理').addRaw('本轮编译交付候选：'+initial.outcome+'；清理操作及删除回读已确认。\n')
+          }catch(error){assetError=error;}
+          // 旧资产错误独立汇总，不能阻断多余终态Run的实际删除与回读。
+          const retained=await cfg.cleanupNativeRuns(p,{list:rows,get:getRun,remove:id=>github.rest.actions.deleteWorkflowRun({...repo,run_id:id})},await original(),results,Boolean(assetError));
+          if(assetError)throw assetError;
+          await core.summary.addHeading('原Run内四端历史清理').addRaw('本轮编译交付候选：'+(results.prepare==='success'&&results.build==='success'&&results.release==='success'?'success':'failure')+'；清理操作及删除回读已确认。\n')
            .addRaw('本轮最终conclusion仍由GitHub在Job结束后确定；异常中断可能无法保持两条记录，不能恢复已删除Run。\n')
            .addRaw('其他活动任务保持；没有派发收尾、重编或取消请求。').write();
