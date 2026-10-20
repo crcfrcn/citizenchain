@@ -41,7 +41,8 @@ fn actions() -> Vec<String> { Vec::new() }
             ]
         }
         async fn workspace_modules(&self, cid: &str) -> Vec<String> { workspace::workspace_modules_for(cid).await }
-        async fn recheck_submit(&self, state: &AppState, ctx: &authentication::login::AdminAuthContext, _session: &transactions::session::ChainSignSession) -> Result<(), axum::response::Response> { membership::handler::recheck_platform_admin(state, ctx).await }
+        // 回调只交付复查结果；保留原权限检查及错误响应，不向通用提交层传递会员快照。
+        async fn recheck_submit(&self, state: &AppState, ctx: &authentication::login::AdminAuthContext, _session: &transactions::session::ChainSignSession) -> Result<(), axum::response::Response> { membership::handler::recheck_platform_admin(state, ctx).await.map(|_| ()) }
 
     }
 

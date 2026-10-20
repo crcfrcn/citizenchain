@@ -1,11 +1,11 @@
-use crate::core::chain_submit::parse_hex32;
-use crate::authorization::rules::ensure_registry_admin;
 //! 注册局公民 CID 占号、换绑与吊销业务。
 //!
 //! 本文件保留原有业务校验、调用编码、公民账户回签和管理员签名准备。
 //! 通用冷签会话由平台 transactions/session.rs 持有，最终提交、确认与恢复由
 //! 平台 transactions/handler.rs 执行，再调用本模块的原有身份目标校验及业务投影。
 
+use crate::core::chain_submit::parse_hex32;
+use crate::authorization::rules::ensure_registry_admin;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},

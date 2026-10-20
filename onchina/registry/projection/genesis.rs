@@ -200,7 +200,7 @@ pub(crate) fn backfill_genesis_private_blocking(db: &Db) -> Result<bool, String>
     let now = Utc::now();
     // 私权列表 SQL 要求 private_type 非空;链上无此字段,按机构码确定性派生(基金会 SFGY → WELFARE)。
     let derived_private_type =
-        crate::registry::institutions::private::common::private_type_code_from_institution_code(
+        crate::institutions::model::private_type_code_from_institution_code(
             &parts.institution_code_text,
         )
         .map(str::to_string);
