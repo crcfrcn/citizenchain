@@ -1,8 +1,9 @@
 // 通用本机构管理员与机构治理 API；注册局专属名册 API 归注册局。
 
-import type, { AdminAuth } from './authentication_types';
-import type, { InstitutionDetail } from './subjects_api';
-import { adminHeaders, request } from './helpers_http';
+import type { AdminAuth } from './authentication_types';
+import type { InstitutionDetail } from './subjects_api';
+import { adminHeaders, adminRequest, request } from './helpers_http';
+import { passkeySubmitHeaders } from './admins_securityApi';
 
 export type OwnInstitutionAdminRow = {
   account_id: string;
@@ -91,16 +92,14 @@ export async function getOwnInstitution(auth: AdminAuth): Promise<InstitutionDet
   });
 }
 
+/** 链签名准备前完成一次现有Passkey认证，取消时不发送业务请求。 */
 export async function prepareInstitutionGovernance(
   auth: AdminAuth,
   input: PrepareInstitutionGovernanceInput,
 ): Promise<PrepareInstitutionChainOutput> {
-  return request<PrepareInstitutionChainOutput>('/api/admin/institution/governance/prepare', {
+  return adminRequest<PrepareInstitutionChainOutput>('/api/admin/institution/governance/prepare', auth, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...adminHeaders(auth),
-    },
+    headers: await passkeySubmitHeaders(auth, { 'content-type': 'application/json' }),
     body: JSON.stringify(input),
   });
 }

@@ -1,8 +1,8 @@
 import { type AdminAuth } from '../../platform/frontend/authentication_types';
-import { adminHeaders, request } from '../../platform/frontend/helpers_http';
+import { adminHeaders, adminRequest, request } from '../../platform/frontend/helpers_http';
 import { type FormInstance } from 'antd';
 import { type CidCityItem } from '../../platform/frontend/china_api';
-import { type AdminActionType } from '../../platform/frontend/admins_securityApi';
+import { passkeySubmitHeaders, type AdminActionType } from '../../platform/frontend/admins_securityApi';
 import { type InstitutionDetail } from '../../platform/frontend/subjects_api';
 import { type InstitutionGovernanceAdminInput, type PrepareInstitutionChainOutput } from '../../platform/frontend/admins_api';
 // 市注册局管理员 API。
@@ -122,16 +122,14 @@ export async function listFederalRegistryAdmins(auth: AdminAuth): Promise<Federa
   });
 }
 
+/** 登记管理员复用一次Passkey认证，原登记字段与钱包签名流程保持。 */
 export async function prepareRegisterInstitutionAdmins(
   auth: AdminAuth,
   input: PrepareRegisterInstitutionAdminsInput,
 ): Promise<PrepareInstitutionChainOutput> {
-  return request<PrepareInstitutionChainOutput>('/api/admin/institution/admins/register/prepare', {
+  return adminRequest<PrepareInstitutionChainOutput>('/api/admin/institution/admins/register/prepare', auth, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...adminHeaders(auth),
-    },
+    headers: await passkeySubmitHeaders(auth, { 'content-type': 'application/json' }),
     body: JSON.stringify(input),
   });
 }

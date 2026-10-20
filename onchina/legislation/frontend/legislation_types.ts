@@ -7,7 +7,7 @@ export type ProposalCategory = 'law' | 'personnel' | 'budget';
 /** 立法动作(对应 propose_enact/amend/repeal_law)。 */
 export type LawActionInput = 'enact' | 'amend' | 'repeal';
 
-/** 法律层级(对齐链 Tier::as_u8)。 */
+/** 法律层级(对齐链 Tier 枚举序号)。 */
 export const LAW_TIER = {
   CONSTITUTION: 0,
   NATIONAL: 1,
@@ -15,7 +15,7 @@ export const LAW_TIER = {
   MUNICIPAL: 3,
 } as const;
 
-/** 表决类型(对齐链 VoteType::as_u8)。 */
+/** 表决类型(对齐链 VoteType 枚举序号)。 */
 export const VOTE_TYPE = {
   REGULAR: 0,
   REGULAR_EDUCATION: 1,
@@ -95,7 +95,7 @@ export interface LawView {
   latestVersion: number;
   pendingVersion?: number | null;
   tier: number;
-  scopeCode: number;
+  region: { provinceCode: string; cityNumber: number };
   status: number;
   voteType: number;
   title: string;
@@ -116,7 +116,6 @@ export interface ProposeLawInput {
   /** 当前管理员用于发起该业务的机构岗位码。 */
   proposerRoleCode: string;
   tier: number;
-  scopeCode: number;
   voteType: number;
   title: string;
   titleEn?: string | null;
@@ -173,7 +172,6 @@ export interface PersonnelDecision {
 /** 发起任免案请求体(预留;houses 后端解析,不传前端)。 */
 export interface ProposePersonnelInput {
   tier: number;
-  scopeCode: number;
   voteType: number;
   decision: PersonnelDecision;
 }
@@ -219,7 +217,6 @@ export interface BudgetPlan {
 /** 发起预算案请求体(预留;houses 后端解析)。 */
 export interface ProposeBudgetInput {
   tier: number;
-  scopeCode: number;
   voteType: number;
   plan: BudgetPlan;
 }

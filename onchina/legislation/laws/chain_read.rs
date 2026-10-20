@@ -14,6 +14,7 @@ use super::model::{house_ref, to_law_chapters, LawView};
 use crate::core::chain_url;
 use crate::core::db::Db;
 use codec::Decode;
+use primitives::genesis::LawRegion;
 use subxt::dynamic;
 
 const TIER_CONSTITUTION: u8 = 0;
@@ -24,7 +25,7 @@ pub struct OnChainLaw {
     pub law_id: u64,
     /// Tier 单字节枚举(0 宪法 / 1 国家 / 2 省 / 3 市)。
     pub tier: u8,
-    pub scope_code: u32,
+    pub region: LawRegion,
     /// `BoundedVec<CidNumber>`；账户不得充当立法机构身份。
     pub houses: Vec<Vec<u8>>,
     /// 当前真正生效的版本。新法待生效时为 None。
@@ -70,7 +71,12 @@ struct OnChainImmutableManifest {
 
 /// 解码链上 `Law` 原始字节。
 pub fn decode_law(bytes: &[u8]) -> Result<OnChainLaw, String> {
-    OnChainLaw::decode(&mut &bytes[..]).map_err(|e| format!("decode Law failed: {e}"))
+    let mut input = bytes;
+    let law = OnChainLaw::decode(&mut input).map_err(|e| format!("decode Law failed: {e}"))?;
+    if !input.is_empty() || !law.region.matches_tier(law.tier) {
+        return Err("invalid law region or trailing bytes".into());
+    }
+    Ok(law)
 }
 
 /// 解码链上 `LawVersion` 原始字节。
@@ -106,7 +112,7 @@ pub fn build_law_view(
         latest_version: law.latest_version,
         pending_version: law.pending_version,
         tier: law.tier,
-        scope_code: law.scope_code,
+        region: law.region.into(),
         status: law.status,
         vote_type: version.vote_type,
         title: String::from_utf8_lossy(&version.title).into_owned(),
@@ -179,7 +185,7 @@ pub(crate) fn resolve_institution_cid_number(
 
 /// 读取链上全部 `Law`(iterate + 镜像 decode,复用 chain_runtime 读链范式)。
 ///
-/// ADR-018——整表扫描一次 + 客户端按已解码字段过滤(law_id/tier/scope_code 均在 value 内,
+/// ADR-018——整表扫描一次 + 客户端按已解码字段过滤(law_id/tier/region 均在 value 内,
 /// 无需 storage key 反解)。网络读取失败必须向调用方返回错误。
 async fn fetch_all_laws() -> Result<Vec<OnChainLaw>, String> {
     let ws_url = chain_url::chain_ws_url()?;
@@ -279,7 +285,9 @@ pub(crate) struct LawScope {
 
 pub(crate) fn law_matches_scope(law: &OnChainLaw, scope: &LawScope) -> bool {
     if law.tier != scope.tier { return false; }
-    if scope.tier <= 1 { return law.scope_code == 0; }
+    let Ok(region) = LawRegion::from_codes(scope.tier, scope.province_code.as_bytes(), scope.city_code.as_bytes()) else { return false; };
+    if law.region != region { return false; }
+    if scope.tier <= 1 { return true; }
     if scope.province_code.is_empty() || (scope.tier == 3 && scope.city_code.is_empty()) || law.houses.is_empty() { return false; }
     // 市号在省内唯一；按法律已有机构 CID 的原省码与市号共同匹配。
     law.houses.iter().all(|cid| primitives::cid::number::cid_scope_codes(cid).is_ok_and(|(province, city)| {
@@ -383,7 +391,7 @@ mod tests {
             },
         ).unwrap();
         OnChainLaw {
-            law_id: 1, tier, scope_code: 1, houses: vec![cid.into_bytes()],
+            law_id: 1, tier, region: LawRegion::from_codes(tier, province.as_bytes(), city.as_bytes()).unwrap(), houses: vec![cid.into_bytes()],
             effective_version: Some(1), latest_version: 1, pending_version: None, status: 1,
         }
     }
@@ -416,13 +424,21 @@ mod tests {
     fn constitution_scope_keeps_national_legislature_ownership() {
         let nlg = primitives::cid::china::china_lf::CHINA_LF[0].cid_number.as_bytes().to_vec();
         let law = OnChainLaw {
-            law_id: 0, tier: 0, scope_code: 0, houses: vec![nlg.clone()],
+            law_id: 0, tier: 0, region: LawRegion::NATIONAL, houses: vec![nlg.clone()],
             effective_version: Some(1), latest_version: 1, pending_version: None, status: 1,
         };
         let scope = LawScope { tier:0, province_code:String::new(), city_code:String::new() };
         assert!(law_matches_scope(&law, &scope));
         assert_eq!(law.houses, vec![nlg]);
         assert_eq!(primitives::cid::code::COUNTRY_CN, *b"CN");
+    }
+
+    #[test]
+    fn stored_region_must_agree_with_original_house_cids() {
+        let scope = LawScope { tier: 3, province_code: "GD".into(), city_code: "001".into() };
+        let mut law = scoped_law(3, "GD", "001");
+        law.region = LawRegion::from_codes(3, b"GZ", b"001").unwrap();
+        assert!(!law_matches_scope(&law, &scope));
     }
 
     /// 用链端现有 `Tier`/`LawStatus` 编码 golden，镜像解码字段保持一致。
@@ -435,7 +451,7 @@ mod tests {
         let mut golden = Vec::new();
         golden.extend(7u64.encode());
         golden.extend(Tier::National.encode());
-        golden.extend(100u32.encode());
+        golden.extend(0u32.encode()); // 合法全国地域固定四零字节
         golden.extend(houses.encode());
         golden.extend(Some(3u32).encode());
         golden.extend(3u32.encode());
@@ -445,13 +461,28 @@ mod tests {
         let law = decode_law(&golden).expect("decode Law");
         assert_eq!(law.law_id, 7);
         assert_eq!(law.tier, 1); // National
-        assert_eq!(law.scope_code, 100);
+        assert_eq!(law.region, LawRegion::NATIONAL);
         assert_eq!(law.houses.len(), 2);
         assert_eq!(law.houses[0], b"LN001-NRP0G-000000001-2026");
         assert_eq!(law.effective_version, Some(3));
         assert_eq!(law.latest_version, 3);
         assert_eq!(law.pending_version, None);
         assert_eq!(law.status, 1); // Effective
+        let mut trailing = golden.clone();
+        trailing.push(0);
+        assert!(decode_law(&trailing).is_err());
+        let mut invalid = golden.clone();
+        invalid[8] = 2; // 省级不能使用全国零地域。
+        assert!(decode_law(&invalid).is_err());
+        for (province, city) in [(b"GD", b"001"), (b"GZ", b"001")] {
+            let region = LawRegion::from_codes(3, province, city).unwrap();
+            let mut regional = golden.clone();
+            regional[8] = 3;
+            regional[9..13].copy_from_slice(&region.encode());
+            let law = decode_law(&regional).expect("regional law");
+            assert_eq!(law.region, region);
+            assert_eq!(law.latest_version, 3);
+        }
     }
 
     /// LawVersion 镜像解码 + 组装 LawView(章节字节→String、houses→CID、hash→0x hex)。
@@ -488,7 +519,7 @@ mod tests {
         let law = OnChainLaw {
             law_id: 7,
             tier: 1,
-            scope_code: 100,
+            region: LawRegion::NATIONAL,
             houses: vec![
                 b"LN001-NRP0G-000000001-2026".to_vec(),
                 b"LN001-NSN0G-000000001-2026".to_vec(),

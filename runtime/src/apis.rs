@@ -277,14 +277,16 @@ pallet_revive::impl_runtime_apis_plus_revive_traits!(Runtime, Revive, Executive,
     }
 
     impl primitives::genesis::LegislationApi<Block> for Runtime {
-        fn list_laws(tier: u8, scope_code: u32) -> Vec<u64> {
+        fn list_laws(tier: u8, region: primitives::genesis::LawRegion) -> Vec<u64> {
+            if !region.matches_tier(tier) { return Vec::new(); }
             let tier = match tier {
                 0 => legislation_yuan::Tier::Constitution,
                 1 => legislation_yuan::Tier::National,
                 2 => legislation_yuan::Tier::Provincial,
-                _ => legislation_yuan::Tier::Municipal,
+                3 => legislation_yuan::Tier::Municipal,
+                _ => return Vec::new(),
             };
-            LegislationYuan::list_laws(tier, scope_code)
+            LegislationYuan::list_laws(tier, region)
         }
 
         fn law(law_id: u64) -> Option<Vec<u8>> {

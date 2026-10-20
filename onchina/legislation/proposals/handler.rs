@@ -24,11 +24,10 @@ use crate::core::response::ApiResponse;
 use crate::{api_error, AppState};
 use primitives::cid::code::institution_code_from_str;
 
-/// 法律列表查询参数(层级 + 行政区码)。
+/// 法律列表查询参数；地域由已验证会话派生。
 #[derive(Debug, Deserialize)]
 pub(crate) struct LawListQuery {
     pub tier: u8,
-    pub scope_code: u32,
 }
 
 /// 代表机构表决请求体。
@@ -72,70 +71,31 @@ fn law_scope(ctx: &AdminAuthContext, tier: u8) -> Result<chain_read::LawScope, S
     Ok(chain_read::LawScope { tier, province_code, city_code })
 }
 
-/// 仅供新法沿用既有数值参数派生；数字解析失败行为保持，真实地域使用原机构 CID。
-fn scope_codes(ctx: &AdminAuthContext) -> (u32, String, String) {
-    match ctx.admin_level.as_deref() {
-        Some("NATIONAL") => (0, String::new(), String::new()),
-        Some("PROVINCE") => {
-            let province = ctx
-                .scope_province_name
-                .as_deref()
-                .and_then(province_code_by_name)
-                .unwrap_or_default()
-                .to_string();
-            (
-                province.parse().unwrap_or(u32::MAX),
-                province,
-                String::new(),
-            )
-        }
-        Some("CITY") => {
-            let province_name = ctx.scope_province_name.as_deref().unwrap_or_default();
-            let province = province_code_by_name(province_name)
-                .unwrap_or_default()
-                .to_string();
-            let city = ctx
-                .scope_city_name
-                .as_deref()
-                .and_then(|c| city_code_by_name(province_name, c))
-                .unwrap_or_default()
-                .to_string();
-            (city.parse().unwrap_or(u32::MAX), province, city)
-        }
-        _ => (u32::MAX, String::new(), String::new()),
-    }
-}
-
-/// 新法沿用原数值参数；修法、废法先核对目标法律，再沿用该法律已有范围值。
+/// 新法地域由原机构 CID 派生并核对会话；修法、废法继续核对目标法律。
 fn proposal_scope(
     ctx: &AdminAuthContext,
-    input: &mut ProposeLawInput,
+    input: &ProposeLawInput,
     target_law: Option<&chain_read::OnChainLaw>,
 ) -> Result<chain_read::LawScope, String> {
     let scope = law_scope(ctx, input.tier)?;
     match input.law_action {
         LawActionInput::Enact => {
-            let (scope_code, _, _) = scope_codes(ctx);
-            input.scope_code = scope_code;
-            service::precheck_legislation_scope(
-                admin_tier(ctx).ok_or("admin level missing")?,
-                scope_code,
-                input.tier,
-                input.scope_code,
-            ).map_err(|error| error.code().to_string())?;
+            let region = primitives::genesis::LawRegion::from_cid(input.tier, ctx.institution_cid_number.as_bytes())?;
+            let expected = primitives::genesis::LawRegion::from_codes(input.tier,
+                scope.province_code.as_bytes(), scope.city_code.as_bytes())?;
+            if region != expected { return Err("law outside admin scope".into()); }
         }
         LawActionInput::Amend | LawActionInput::Repeal => {
             let law_id = input.law_id.ok_or(service::LegislationError::MissingLawId.code())?;
-            let law = target_law.filter(|law| {
+            target_law.filter(|law| {
                 law.law_id == law_id && chain_read::law_matches_scope(law, &scope)
             }).ok_or("law outside admin scope")?;
-            input.scope_code = law.scope_code;
         }
     }
     Ok(scope)
 }
 
-/// GET /api/legislation/laws?tier=&scope_code= —— 本级已生效/在册法律列表。
+/// GET /api/legislation/laws?tier= —— 本级已生效/在册法律列表。
 pub(crate) async fn list_laws(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -143,8 +103,6 @@ pub(crate) async fn list_laws(
 ) -> impl IntoResponse {
     let ctx = match require_admin_any(&state, &headers) { Ok(ctx) => ctx, Err(response) => return response };
     let scope = match law_scope(&ctx, query.tier) { Ok(scope) => scope, Err(error) => return api_error(StatusCode::FORBIDDEN, 1003, &error) };
-    // 保留请求字段形状；读取范围由会话省/市与链上 houses 共同确定，不能信任孤立市编号。
-    let _requested_scope_code = query.scope_code;
     let laws = match chain_read::list_laws_by_scope(&scope).await {
         Ok(v) => v,
         Err(err) => return api_error(StatusCode::BAD_GATEWAY, 5002, err.as_str()),
@@ -197,7 +155,7 @@ pub(crate) async fn list_proposable(
 /// GET /api/legislation/laws/mine —— 本节点绑定机构层级/辖区的全部法律(会话派生 scope,前端不传码)。
 ///
 /// 国家级并入宪法与国家法律；省/市用原省代码和省内市编号匹配机构 CID。
-/// (与 precheck/resolve 同口径,解掉前端拿不到 scope_code 的问题)。
+/// 范围始终取会话与机构 CID，不接受前端地域占位值。
 pub(crate) async fn list_my_laws(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -344,7 +302,6 @@ pub(crate) async fn propose_legislation(
     if admin_tier(&ctx).is_none() {
         return api_error(StatusCode::FORBIDDEN, 1003, "admin level missing");
     }
-    let mut input = input;
     // ② 本机构能否发起该表决类型；层级及目标法律地域由 proposal_scope 校验，
     //    故此处只判 vote_type 成员,放行国家级修宪(tier 0)。
     let can_propose = proposable_candidates(&ctx.institution_code)
@@ -370,7 +327,7 @@ pub(crate) async fn propose_legislation(
             }
         }
     };
-    let scope = match proposal_scope(&ctx, &mut input, target_law.as_ref()) {
+    let scope = match proposal_scope(&ctx, &input, target_law.as_ref()) {
         Ok(scope) => scope,
         Err(error) => return api_error(StatusCode::FORBIDDEN, 1003, &error),
     };
@@ -519,7 +476,6 @@ mod scope_tests {
             law_action: action,
             proposer_role_code: "REPRESENTATIVE".into(),
             tier,
-            scope_code: 900,
             vote_type: 2,
             title: "法律".into(),
             title_en: None,
@@ -533,7 +489,7 @@ mod scope_tests {
         chain_read::OnChainLaw {
             law_id: 7,
             tier,
-            scope_code: 73,
+            region: primitives::genesis::LawRegion::from_codes(tier, province.as_bytes(), city.as_bytes()).unwrap(),
             houses: vec![cid(institution, province, city).into_bytes()],
             effective_version: Some(1),
             latest_version: 1,
@@ -552,6 +508,34 @@ mod scope_tests {
     }
 
     #[test]
+    fn fixed_province_letters_are_preserved_without_numeric_conversion() {
+        for province in primitives::cid::code::PROVINCE_CODE_INFOS {
+            let code = primitives::cid::code::province_code_text(&province.province_code).unwrap();
+            assert_eq!(code.len(), 2);
+            assert!(code.bytes().all(|byte| byte.is_ascii_uppercase()));
+            let mut ctx = context("PROVINCE", "PRP", code, "001");
+            ctx.scope_province_name = Some(province.province_name.into());
+            let mut request = input(LawActionInput::Enact, 2);
+            request.law_id = None;
+            let scope = proposal_scope(&ctx, &request, None).unwrap();
+            let region = primitives::genesis::LawRegion::from_cid(2, ctx.institution_cid_number.as_bytes()).unwrap();
+            assert_eq!(region.province_code.as_slice(), code.as_bytes());
+            assert_eq!(region.city_number, 0);
+            assert_eq!(scope.province_code, code);
+            assert!(scope.city_code.is_empty());
+        }
+    }
+
+    #[test]
+    fn new_law_rejects_cid_region_different_from_session() {
+        let mut ctx = context("PROVINCE", "PRP", "GZ", "001");
+        let request = input(LawActionInput::Enact, 2);
+        assert!(proposal_scope(&ctx, &request, None).is_err());
+        ctx.institution_cid_number = "invalid-cid".into();
+        assert!(proposal_scope(&ctx, &request, None).is_err());
+    }
+
+    #[test]
     fn missing_session_scope_and_wrong_tier_are_rejected() {
         let mut ctx = context("PROVINCE", "PRP", "GD", "001");
         ctx.scope_province_name = None;
@@ -563,14 +547,13 @@ mod scope_tests {
     }
 
     #[test]
-    fn amend_and_repeal_reuse_checked_law_scope_without_new_law_number_derivation() {
+    fn amend_and_repeal_validate_target_id_and_original_cid_scope() {
         let ctx = context("PROVINCE", "PRP", "GD", "001");
         let target = law(2, "PRP", "GD", "002");
         for action in [LawActionInput::Amend, LawActionInput::Repeal] {
-            let mut request = input(action, 2);
-            let scope = proposal_scope(&ctx, &mut request, Some(&target)).unwrap();
+            let request = input(action, 2);
+            let scope = proposal_scope(&ctx, &request, Some(&target)).unwrap();
             assert_eq!(scope.province_code, "GD");
-            assert_eq!(request.scope_code, target.scope_code);
             assert_eq!(request.law_id, Some(7));
         }
     }
@@ -579,20 +562,18 @@ mod scope_tests {
     fn target_law_requires_same_id_tier_province_and_city() {
         let ctx = city_context();
         for action in [LawActionInput::Amend, LawActionInput::Repeal] {
-            let mut request = input(action, 3);
+            let request = input(action, 3);
             let same_city = law(3, "CLEG", "GD", "001");
-            assert!(proposal_scope(&ctx, &mut request, Some(&same_city)).is_ok());
-            request.scope_code = 900;
+            assert!(proposal_scope(&ctx, &request, Some(&same_city)).is_ok());
             let mut target = law(3, "CLEG", "GZ", "001");
-            assert!(proposal_scope(&ctx, &mut request, Some(&target)).is_err());
+            assert!(proposal_scope(&ctx, &request, Some(&target)).is_err());
             target = law(3, "CLEG", "GD", "002");
-            assert!(proposal_scope(&ctx, &mut request, Some(&target)).is_err());
+            assert!(proposal_scope(&ctx, &request, Some(&target)).is_err());
             target = law(2, "PRP", "GD", "001");
-            assert!(proposal_scope(&ctx, &mut request, Some(&target)).is_err());
+            assert!(proposal_scope(&ctx, &request, Some(&target)).is_err());
             target = law(3, "CLEG", "GD", "001");
             target.law_id = 8;
-            assert!(proposal_scope(&ctx, &mut request, Some(&target)).is_err());
-            assert_eq!(request.scope_code, 900);
+            assert!(proposal_scope(&ctx, &request, Some(&target)).is_err());
         }
     }
 
@@ -601,20 +582,21 @@ mod scope_tests {
         let ctx = context("PROVINCE", "PRP", "GD", "001");
         for action in [LawActionInput::Amend, LawActionInput::Repeal] {
             let mut request = input(action, 2);
-            assert!(proposal_scope(&ctx, &mut request, None).is_err());
+            assert!(proposal_scope(&ctx, &request, None).is_err());
             request.law_id = None;
-            assert_eq!(proposal_scope(&ctx, &mut request, None).unwrap_err(),
+            assert_eq!(proposal_scope(&ctx, &request, None).unwrap_err(),
                 service::LegislationError::MissingLawId.code());
         }
     }
 
     #[test]
-    fn new_law_keeps_existing_numeric_parameters_and_national_scope() {
+    fn new_law_derives_original_cid_region_and_keeps_cn() {
         let national = context("NATIONAL", "NRP", "ZS", "001");
         let mut request = input(LawActionInput::Enact, 1);
         request.law_id = None;
-        let scope = proposal_scope(&national, &mut request, None).unwrap();
-        assert_eq!(request.scope_code, 0);
+        let scope = proposal_scope(&national, &request, None).unwrap();
+        assert_eq!(primitives::genesis::LawRegion::from_cid(1, national.institution_cid_number.as_bytes()).unwrap(),
+            primitives::genesis::LawRegion::NATIONAL);
         assert!(scope.province_code.is_empty() && scope.city_code.is_empty());
         assert_eq!(primitives::cid::code::COUNTRY_CN, *b"CN");
         assert!(law_scope(&national, 0).is_ok());
@@ -622,8 +604,8 @@ mod scope_tests {
         let city = city_context();
         let mut request = input(LawActionInput::Enact, 3);
         request.law_id = None;
-        let scope = proposal_scope(&city, &mut request, None).unwrap();
-        assert_eq!(request.scope_code, 1);
+        let scope = proposal_scope(&city, &request, None).unwrap();
+        assert_eq!(primitives::genesis::LawRegion::from_cid(3, city.institution_cid_number.as_bytes()).unwrap().city_number, 1);
         assert_eq!(scope.province_code, "GD");
         assert_eq!(scope.city_code, "001");
     }

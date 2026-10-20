@@ -2,6 +2,7 @@
 
 import type { AdminAuth } from '../../platform/frontend/authentication_types';
 import { adminRequest } from '../../platform/frontend/helpers_http';
+import { passkeySubmitHeaders } from '../../platform/frontend/admins_securityApi';
 import type {
   PlatformMembershipLevel,
   PlatformPrices,
@@ -12,7 +13,8 @@ export function getPlatformPrices(auth: AdminAuth): Promise<PlatformPrices> {
   return adminRequest<PlatformPrices>('/api/membership/platform-prices', auth);
 }
 
-export function proposePlatformPrice(
+/** 调价提案先完成一次现有Passkey认证，原金额字段与钱包签名流程保持。 */
+export async function proposePlatformPrice(
   auth: AdminAuth,
   proposerRoleCode: string,
   membershipLevel: PlatformMembershipLevel,
@@ -23,7 +25,7 @@ export function proposePlatformPrice(
     auth,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: await passkeySubmitHeaders(auth, { 'content-type': 'application/json' }),
       body: JSON.stringify({
         proposer_role_code: proposerRoleCode,
         membership_level: membershipLevel,

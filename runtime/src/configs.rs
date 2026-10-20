@@ -2578,7 +2578,6 @@ parameter_types! {
     pub const LegislationMaxArticlesPerSection: u32 = 200;
     pub const LegislationMaxSectionsPerChapter: u32 = 50;
     pub const LegislationMaxChaptersPerLaw: u32 = 50;
-    pub const LegislationMaxLawsPerScope: u32 = 1000;
     pub const LegislationMaxPendingActivations: u32 = 100;
 }
 
@@ -2596,7 +2595,6 @@ impl legislation_yuan::Config for Runtime {
     type MaxArticlesPerSection = LegislationMaxArticlesPerSection;
     type MaxSectionsPerChapter = LegislationMaxSectionsPerChapter;
     type MaxChaptersPerLaw = LegislationMaxChaptersPerLaw;
-    type MaxLawsPerScope = LegislationMaxLawsPerScope;
     type MaxPendingActivations = LegislationMaxPendingActivations;
     type WeightInfo = ();
 }

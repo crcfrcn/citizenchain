@@ -90,7 +90,6 @@ export function LawEditorModal({ open, auth, lawAction, tier, voteType, onClose 
     lawAction,
     proposerRoleCode: proposerRoleCode.trim(),
     tier,
-    scopeCode: 0, // 后端会话派生本节点 scope(2D-2 起后端覆盖),前端占位
     voteType,
     title,
     titleEn: titleEn || null,

@@ -30,11 +30,65 @@ pub const GENESIS_LAW_VERSION_LABELS: &[GenesisLawVersionLabel] = &[GenesisLawVe
 
 use sp_std::vec::Vec;
 
+/// 法律地域：省码保留原两位大写字母，市号沿用原省内三位十进制编号。
+/// SCALE 固定为两字节省码 + 两字节小端市号；全国四零字节保持创世宪法原布局。
+/// 全国值只用于宪法/国家层级，不是解析失败时的默认值，也不是国家代码 CN。
+#[derive(
+    codec::Encode, codec::Decode, codec::DecodeWithMemTracking, Clone, Copy,
+    PartialEq, Eq, Debug, scale_info::TypeInfo, codec::MaxEncodedLen,
+)]
+pub struct LawRegion {
+    pub province_code: [u8; 2],
+    pub city_number: u16,
+}
+
+impl LawRegion {
+    pub const NATIONAL: Self = Self { province_code: [0; 2], city_number: 0 };
+
+    /// 只消费现有省市解析结果；不重新定义 CID 或区划编码。
+    pub fn from_codes(tier: u8, province: &[u8], city: &[u8]) -> Result<Self, &'static str> {
+        match tier {
+            0 | 1 => Ok(Self::NATIONAL),
+            2 | 3 => {
+                let province_code: [u8; 2] = province.try_into().map_err(|_| "invalid law province")?;
+                if !province_code.iter().all(u8::is_ascii_uppercase) {
+                    return Err("invalid law province");
+                }
+                let city_number = if tier == 3 {
+                    if city.len() != 3 || !city.iter().all(u8::is_ascii_digit) {
+                        return Err("invalid law city");
+                    }
+                    city.iter().fold(0u16, |value, byte| value * 10 + u16::from(*byte - b'0'))
+                } else { 0 };
+                Ok(Self { province_code, city_number })
+            }
+            _ => Err("invalid law tier"),
+        }
+    }
+
+    /// 唯一机构地域来源仍为原 cid_scope_codes；国家机构的所在地不改变全国法律范围。
+    pub fn from_cid(tier: u8, cid: &[u8]) -> Result<Self, &'static str> {
+        let (province, city) = crate::cid::number::cid_scope_codes(cid)?;
+        Self::from_codes(tier, &province, &city)
+    }
+
+    /// 解码后的形状检查；写入时还必须与已授权机构 CID 派生值相等。
+    pub fn matches_tier(self, tier: u8) -> bool {
+        match tier {
+            0 | 1 => self == Self::NATIONAL,
+            2 => self.province_code.iter().all(u8::is_ascii_uppercase) && self.city_number == 0,
+            3 => self.province_code.iter().all(u8::is_ascii_uppercase) && self.city_number <= 999,
+            _ => false,
+        }
+    }
+}
+
 // 立法院 Runtime API:供客户端浏览链上法律。
 sp_api::decl_runtime_apis! {
+    #[api_version(2)]
     pub trait LegislationApi {
         /// 列出指定层级和行政区的法律 ID。
-        fn list_laws(tier: u8, scope_code: u32) -> Vec<u64>;
+        fn list_laws(tier: u8, region: LawRegion) -> Vec<u64>;
 
         /// 读取 SCALE 编码的法律主体。
         fn law(law_id: u64) -> Option<Vec<u8>>;
@@ -65,8 +119,32 @@ sp_api::decl_runtime_apis! {
 }
 
 #[cfg(test)]
+// 测试仅使用固定公开夹具；断言解包不进入生产派生路径。
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn law_region_keeps_letters_city_numbers_and_frozen_national_bytes() {
+        use codec::{Decode, Encode};
+        assert_eq!(LawRegion::NATIONAL.encode(), 0u32.encode());
+        assert_eq!(LawRegion::from_codes(2, b"GD", b"001").unwrap().encode(), [b'G', b'D', 0, 0]);
+        let city = LawRegion::from_codes(3, b"GD", b"001").unwrap();
+        assert_eq!(city.encode(), [b'G', b'D', 1, 0]);
+        assert_ne!(city, LawRegion::from_codes(3, b"GZ", b"001").unwrap());
+        assert_eq!(LawRegion::decode(&mut &city.encode()[..]).unwrap(), city);
+        assert_eq!(LawRegion::from_codes(3, b"GD", b"999").unwrap().city_number, 999);
+        // 不新增“市号必须大于零”的编号规则；合法性仍由原 CID/字典入口负责。
+        assert_eq!(LawRegion::from_codes(3, b"GD", b"000").unwrap().city_number, 0);
+        for (tier, province, city) in [(4, &b"GD"[..], &b"001"[..]), (2, b"gd", b""),
+            (2, b"G", b""), (3, b"GD", b"1"), (3, b"GD", b"0a1")] {
+            assert!(LawRegion::from_codes(tier, province, city).is_err());
+        }
+        assert!(!LawRegion::NATIONAL.matches_tier(2));
+        assert!(!(LawRegion { province_code: *b"GD", city_number: 1000 }).matches_tier(3));
+        assert!(LawRegion::from_cid(2, b"invalid").is_err());
+        assert_eq!(crate::cid::code::COUNTRY_CN, *b"CN");
+    }
 
     #[test]
     fn genesis_issuance_matches_population() {

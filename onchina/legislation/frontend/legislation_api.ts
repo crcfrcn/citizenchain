@@ -6,6 +6,7 @@
 import type { AdminAuth } from '../../platform/frontend/authentication_types';
 import type { ChainSignPrepare } from '../../platform/frontend/core_useChainSign';
 import { adminRequest } from '../../platform/frontend/helpers_http';
+import { passkeySubmitHeaders } from '../../platform/frontend/admins_securityApi';
 import type {
   LawView,
   LegProposalState,
@@ -18,14 +19,13 @@ export async function getProposable(auth: AdminAuth): Promise<ProposableCandidat
   return adminRequest<ProposableCandidate[]>('/api/legislation/proposable', auth);
 }
 
-/** GET 本级已生效/在册法律列表(按层级 + 行政区码)。 */
+/** GET 本级已生效/在册法律列表(层级由调用方传入，地域取会话)。 */
 export async function listLaws(
   auth: AdminAuth,
   tier: number,
-  scopeCode: number,
 ): Promise<LawView[]> {
   return adminRequest<LawView[]>(
-    `/api/legislation/laws?tier=${tier}&scope_code=${scopeCode}`,
+    `/api/legislation/laws?tier=${tier}`,
     auth,
   );
 }
@@ -48,19 +48,19 @@ export async function getProposalState(
   return adminRequest<LegProposalState>(`/api/legislation/proposals/${proposalId}`, auth);
 }
 
-/** POST 发起法律案，返回统一链签名准备结果。 */
+/** POST 发起法律案，先完成一次Passkey，再返回原统一链签名准备结果。 */
 export async function proposeLegislation(
   auth: AdminAuth,
   input: ProposeLawInput,
 ): Promise<ChainSignPrepare> {
   return adminRequest<ChainSignPrepare>('/api/legislation/propose', auth, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: await passkeySubmitHeaders(auth, { 'content-type': 'application/json' }),
     body: JSON.stringify(input),
   });
 }
 
-/** POST 当前代表机构表决，返回统一链签名准备结果。 */
+/** POST 当前代表机构表决，先完成一次Passkey，再返回原统一链签名准备结果。 */
 export async function castRepresentativeVote(
   auth: AdminAuth,
   proposalId: number,
@@ -69,7 +69,7 @@ export async function castRepresentativeVote(
 ): Promise<ChainSignPrepare> {
   return adminRequest<ChainSignPrepare>('/api/legislation/representative-vote', auth, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: await passkeySubmitHeaders(auth, { 'content-type': 'application/json' }),
     body: JSON.stringify({ proposalId, voterRoleCode, approve }),
   });
 }

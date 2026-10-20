@@ -15,6 +15,7 @@ pub mod weights;
 
 pub use pallet::*;
 pub use types::{LawAction, LawStatus, Tier, VoteType};
+use primitives::genesis::LawRegion;
 
 /// 模块标识前缀,用于在 votingengine `ProposalData` 中区分本模块提案,防止跨模块误解码。
 pub const MODULE_TAG: &[u8] = b"leg-yuan";
@@ -182,10 +183,10 @@ pub mod pallet {
     pub struct Law {
         pub law_id: u64,
         pub tier: Tier,
-        /// 行政区 code(0 = 全国;省/市用 china.sqlite code,遵守 ADR-021)
-        pub scope_code: u32,
-        /// 归属立法机构院序列(houses[0] = 发起院,其 admins = 现任议员/委员)。
-        /// 单院(市立法会)= 1 项;两院(国家/省立法院)= [众议会, 参议会]。
+        /// 原两字母省码与省内市号；宪法/全国四零字节保持冻结布局。
+        pub region: LawRegion,
+        /// 法律归属机构序列；创世宪法固定归属国家立法院，不等于修宪发起院。
+        /// 普通法律保留原院序列；实际发起机构和表决路由另按既有规则校验。
         pub houses: Houses,
         /// 当前真正生效的版本。新法通过但未到生效时间时为 None。
         pub effective_version: Option<u32>,
@@ -263,8 +264,8 @@ pub mod pallet {
         /// Enact 时为 0(执行时分配);Amend/Repeal 为目标 law_id
         pub law_id: u64,
         pub tier: Tier,
-        pub scope_code: u32,
-        /// 归属立法机构院序列(houses[0] = 发起院)。
+        pub region: LawRegion,
+        /// 原法律院序列；实际发起机构单独保存在 actor_cid_number。
         pub houses: Houses,
         /// 实际发起机构。与表决院分离，市教育案等场景不一定等于 houses[0]。
         pub actor_cid_number: votingengine::types::CidNumber,
@@ -312,8 +313,6 @@ pub mod pallet {
         type MaxSectionsPerChapter: Get<u32>;
         #[pallet::constant]
         type MaxChaptersPerLaw: Get<u32>;
-        #[pallet::constant]
-        type MaxLawsPerScope: Get<u32>;
         #[pallet::constant]
         type MaxPendingActivations: Get<u32>;
 
@@ -364,15 +363,17 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// 列表索引:(tier, scope_code) → [law_id]。供客户端按层级/行政区列出法律。
+    /// 列表索引:(tier, region) → [law_id]，不设每范围法律总量上限。
+    /// 前缀、哈希及列表编码保持；宪法地域键仍为原四零字节。
     #[pallet::storage]
+    #[pallet::unbounded]
     pub type LawsByScope<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         Tier,
         Blake2_128Concat,
-        u32,
-        BoundedVec<u64, <T as Config>::MaxLawsPerScope>,
+        LawRegion,
+        Vec<u64>,
         ValueQuery,
     >;
 
@@ -510,7 +511,7 @@ pub mod pallet {
             let law = Law {
                 law_id,
                 tier: Tier::Constitution,
-                scope_code: 0,
+                region: LawRegion::NATIONAL,
                 houses: self.constitution_houses.clone(),
                 effective_version: Some(version),
                 latest_version: version,
@@ -518,7 +519,7 @@ pub mod pallet {
                 status: LawStatus::Effective,
             };
             Laws::<T>::insert(law_id, law);
-            let _ = LawsByScope::<T>::try_mutate(Tier::Constitution, 0, |v| v.try_push(law_id));
+            LawsByScope::<T>::append(Tier::Constitution, LawRegion::NATIONAL, law_id);
         }
     }
 
@@ -598,9 +599,9 @@ pub mod pallet {
         VoteEngineCreateFailed,
         /// votingengine 提案载荷缺失或解码失败
         ProposalPayloadInvalid,
-        /// 该 (tier, scope) 下法律数量超上限
-        TooManyLawsInScope,
         /// 待生效版本队列超上限
+        // 保留原错误编码；已删除的法律数量限制不导致其余错误重新编号。
+        #[codec(index = 27)]
         TooManyActivations,
     }
 
@@ -642,7 +643,7 @@ pub mod pallet {
         pub fn propose_enact_law(
             origin: OriginFor<T>,
             tier: Tier,
-            scope_code: u32,
+            region: LawRegion,
             houses: Houses,
             actor_cid_number: votingengine::types::CidNumber,
             proposer_role_code: votingengine::types::RoleCode,
@@ -671,7 +672,7 @@ pub mod pallet {
             Self::ensure_tier_vote_type(tier, vote_type)?;
             Self::ensure_routing(
                 tier,
-                scope_code,
+                region,
                 &actor_cid_number,
                 &houses,
                 &executive_cid_number,
@@ -683,7 +684,7 @@ pub mod pallet {
                 action: LawAction::Enact,
                 law_id: 0,
                 tier,
-                scope_code,
+                region,
                 houses: houses.clone(),
                 actor_cid_number,
                 proposer_role_code,
@@ -744,7 +745,7 @@ pub mod pallet {
             Self::ensure_tier_vote_type(law.tier, vote_type)?;
             Self::ensure_routing(
                 law.tier,
-                law.scope_code,
+                law.region,
                 &actor_cid_number,
                 &law.houses,
                 &executive_cid_number,
@@ -771,7 +772,7 @@ pub mod pallet {
                 action: LawAction::Amend,
                 law_id,
                 tier: law.tier,
-                scope_code: law.scope_code,
+                region: law.region,
                 houses: law.houses.clone(),
                 actor_cid_number,
                 proposer_role_code,
@@ -825,7 +826,7 @@ pub mod pallet {
             Self::ensure_tier_vote_type(law.tier, vote_type)?;
             Self::ensure_routing(
                 law.tier,
-                law.scope_code,
+                law.region,
                 &actor_cid_number,
                 &law.houses,
                 &executive_cid_number,
@@ -837,7 +838,7 @@ pub mod pallet {
                 action: LawAction::Repeal,
                 law_id,
                 tier: law.tier,
-                scope_code: law.scope_code,
+                region: law.region,
                 houses: law.houses.clone(),
                 actor_cid_number,
                 proposer_role_code,
@@ -954,7 +955,7 @@ pub mod pallet {
         /// 防止把不同省市的院、政府或提案机构拼进同一法律案。
         fn ensure_routing(
             tier: Tier,
-            scope_code: u32,
+            region: LawRegion,
             actor_cid_number: &votingengine::types::CidNumber,
             houses: &Houses,
             executive_cid_number: &votingengine::types::CidNumber,
@@ -997,11 +998,10 @@ pub mod pallet {
                 Error::<T>::RoutingMismatch
             );
             let regional = matches!(tier, Tier::Provincial | Tier::Municipal);
-            if regional {
-                ensure!(scope_code != 0, Error::<T>::RoutingMismatch);
-            } else {
-                ensure!(scope_code == 0, Error::<T>::RoutingMismatch);
-            }
+            // 授权与机构路由规则不变；地域必须等于原机构 CID 的唯一派生值。
+            let expected_region = LawRegion::from_cid(tier as u8, actor_cid_number)
+                .map_err(|_| Error::<T>::RoutingMismatch)?;
+            ensure!(region == expected_region, Error::<T>::RoutingMismatch);
 
             let route_scope =
                 Self::ensure_route_institution_one_of(actor_cid_number, expected_proposers)?;
@@ -1591,7 +1591,7 @@ pub mod pallet {
                     Self::ensure_tier_vote_type(summary.tier, summary.vote_type)?;
                     Self::ensure_routing(
                         summary.tier,
-                        summary.scope_code,
+                        summary.region,
                         &summary.actor_cid_number,
                         &summary.houses,
                         &summary.executive_cid_number,
@@ -1613,14 +1613,14 @@ pub mod pallet {
                     );
                     ensure!(
                         summary.tier == law.tier
-                            && summary.scope_code == law.scope_code
+                            && summary.region == law.region
                             && summary.houses == law.houses,
                         Error::<T>::RoutingMismatch
                     );
                     Self::ensure_tier_vote_type(law.tier, summary.vote_type)?;
                     Self::ensure_routing(
                         summary.tier,
-                        summary.scope_code,
+                        summary.region,
                         &summary.actor_cid_number,
                         &summary.houses,
                         &summary.executive_cid_number,
@@ -1654,14 +1654,14 @@ pub mod pallet {
                     );
                     ensure!(
                         summary.tier == law.tier
-                            && summary.scope_code == law.scope_code
+                            && summary.region == law.region
                             && summary.houses == law.houses,
                         Error::<T>::RoutingMismatch
                     );
                     Self::ensure_tier_vote_type(law.tier, summary.vote_type)?;
                     Self::ensure_routing(
                         summary.tier,
-                        summary.scope_code,
+                        summary.region,
                         &summary.actor_cid_number,
                         &summary.houses,
                         &summary.executive_cid_number,
@@ -1744,7 +1744,7 @@ pub mod pallet {
                     let law = Law {
                         law_id,
                         tier: summary.tier,
-                        scope_code: summary.scope_code,
+                        region: summary.region,
                         houses: summary.houses,
                         effective_version: None,
                         latest_version: version,
@@ -1752,10 +1752,7 @@ pub mod pallet {
                         status: LawStatus::Pending,
                     };
                     Laws::<T>::insert(law_id, law);
-                    LawsByScope::<T>::try_mutate(summary.tier, summary.scope_code, |v| {
-                        v.try_push(law_id)
-                    })
-                    .map_err(|_| Error::<T>::TooManyLawsInScope)?;
+                    LawsByScope::<T>::append(summary.tier, summary.region, law_id);
                     Self::deposit_event(Event::<T>::LawEnacted { law_id, version });
                     Self::activate_or_schedule(law_id, version, summary.effective_at)?;
                 }
@@ -1827,8 +1824,8 @@ pub mod pallet {
         }
 
         /// 列出某层级 + 行政区下的法律 ID。
-        pub fn list_laws(tier: Tier, scope_code: u32) -> sp_runtime::sp_std::vec::Vec<u64> {
-            LawsByScope::<T>::get(tier, scope_code).into_inner()
+        pub fn list_laws(tier: Tier, region: LawRegion) -> sp_runtime::sp_std::vec::Vec<u64> {
+            LawsByScope::<T>::get(tier, region)
         }
     }
 }

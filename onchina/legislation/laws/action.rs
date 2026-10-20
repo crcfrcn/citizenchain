@@ -74,7 +74,6 @@ pub(crate) async fn prepare_propose_law_sign(
             chain,
             operation_context: json!({
                 "tier": input.tier,
-                "scope_code": input.scope_code,
                 "vote_type": input.vote_type,
             }),
         },

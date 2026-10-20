@@ -1,6 +1,6 @@
 //! 法律案 HTTP DTO + 转换为链编码器入参。
 //!
-//! 前端提交的法律案请求体 = 章节条款 + 标量(tier/scope_code/vote_type/标题/生效时间)。
+//! 前端提交的法律案请求体 = 章节条款 + 标量(tier/vote_type/标题/生效时间)。
 //! **houses / executive / legislature 由后端按宪法路由 + 链上账户解析,不收前端**(防越权伪造表决院)。
 //! 字段命名对齐链端 `legislation-yuan` 与 CitizenApp `law_models`。
 //!
@@ -69,10 +69,8 @@ pub struct ProposeLawInput {
     pub law_action: LawActionInput,
     /// 发起账户在当前机构内实际任职的岗位码。
     pub proposer_role_code: String,
-    /// 层级(0 宪法 / 1 国家 / 2 省 / 3 市,对齐链 Tier::as_u8)。
+    /// 层级(0 宪法 / 1 国家 / 2 省 / 3 市,对齐链 Tier 枚举序号)。
     pub tier: u8,
-    /// 层级行政区码(0 = 全国)。
-    pub scope_code: u32,
     /// 表决类型(0 常规 / 1 常规教育 / 2 重要 / 3 重要教育 / 4 特别)。
     pub vote_type: u8,
     /// 法律标题(中文)。
@@ -143,6 +141,25 @@ pub struct HouseRef {
     pub cid_number: String,
 }
 
+/// 共享 LawRegion 的 HTTP 展示投影；省码直接显示原字母，省级/全国不携市号。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LawRegionView {
+    pub province_code: String,
+    pub city_number: u16,
+}
+
+impl From<primitives::genesis::LawRegion> for LawRegionView {
+    fn from(region: primitives::genesis::LawRegion) -> Self {
+        Self {
+            province_code: if region == primitives::genesis::LawRegion::NATIONAL {
+                String::new()
+            } else { String::from_utf8_lossy(&region.province_code).into_owned() },
+            city_number: region.city_number,
+        }
+    }
+}
+
 /// 法律只读视图(Law 主体 + 办理端展示版本全文,供操作端列表/详情与大屏展示)。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,7 +178,7 @@ pub struct LawView {
     pub pending_version: Option<u32>,
     /// 层级(0 宪法 / 1 国家 / 2 省 / 3 市)。
     pub tier: u8,
-    pub scope_code: u32,
+    pub region: LawRegionView,
     /// 法律状态(0 待生效 / 1 生效 / 2 废止)。
     pub status: u8,
     /// 表决类型(0 常规 / 1 常规教育 / 2 重要 / 3 重要教育 / 4 特别)。
@@ -251,7 +268,7 @@ mod tests {
     #[test]
     fn proposal_request_deserializes_camel_case() {
         let json = r#"{
-            "lawAction":"enact","tier":1,"scopeCode":0,"voteType":2,
+            "lawAction":"enact","tier":1,"voteType":2,
             "proposerRoleCode":"REPRESENTATIVE",
             "title":"道路交通安全法","titleEn":"Road Traffic Safety Law",
             "chapters":[{"number":1,"title":"总则","sections":[]}],
@@ -262,6 +279,15 @@ mod tests {
         assert_eq!(input.tier, 1);
         assert_eq!(input.chapters.len(), 1);
         assert_eq!(input.chapters[0].title, "总则");
+    }
+
+    #[test]
+    fn region_view_serializes_original_letters_without_numeric_province() {
+        let region = primitives::genesis::LawRegion::from_codes(3, b"GD", b"001").expect("city region");
+        assert_eq!(serde_json::to_value(LawRegionView::from(region)).expect("serialize"),
+            serde_json::json!({"provinceCode":"GD", "cityNumber":1}));
+        assert_eq!(serde_json::to_value(LawRegionView::from(primitives::genesis::LawRegion::NATIONAL)).expect("serialize"),
+            serde_json::json!({"provinceCode":"", "cityNumber":0}));
     }
 
     #[test]

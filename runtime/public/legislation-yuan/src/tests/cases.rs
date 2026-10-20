@@ -16,7 +16,7 @@ fn enact_writes_law_and_schedules_future_activation() {
     new_test_ext().execute_with(|| {
         let mut summary = enact_summary(
             Tier::Municipal,
-            1001,
+            municipal_region(),
             VoteType::Major,
             b"\xe5\xb8\x82\xe9\x95\xbf\xe9\x80\x89\xe4\xb8\xbe\xe6\xb3\x95",
         );
@@ -32,7 +32,7 @@ fn enact_writes_law_and_schedules_future_activation() {
         assert_eq!(law.status, LawStatus::Pending); // 未到生效时间
         assert!(LawVersions::<Test>::get(0, 1).is_some());
         assert_eq!(NextLawId::<Test>::get(), 1);
-        assert_eq!(Lib::list_laws(Tier::Municipal, 1001), vec![0]);
+        assert_eq!(Lib::list_laws(Tier::Municipal, municipal_region()), vec![0]);
         assert_eq!(
             PendingActivations::<Test>::get().into_inner(),
             vec![(0u64, 1u32)]
@@ -60,7 +60,7 @@ fn enact_writes_law_and_schedules_future_activation() {
 #[test]
 fn enact_with_past_effective_is_immediately_effective() {
     new_test_ext().execute_with(|| {
-        let summary = enact_summary(Tier::National, 0, VoteType::Regular, b"law");
+        let summary = enact_summary(Tier::National, LawRegion::NATIONAL, VoteType::Regular, b"law");
         // effective_at = 0 <= 当前链上时间戳 → 立即生效
         assert_ok!(Lib::write_law_version(
             1,
@@ -76,9 +76,135 @@ fn enact_with_past_effective_is_immediately_effective() {
 }
 
 #[test]
+fn legacy_scope_index_accepts_law_1001_without_changing_constitution() {
+    use codec::Encode;
+    use frame_support::traits::BuildGenesisConfig;
+
+    new_test_ext().execute_with(|| {
+        crate::pallet::GenesisConfig::<Test>::default().build();
+        // 使用真实创世宪法；新增普通法律不能改变节点守卫读取的原始存储。
+        let frozen: Vec<_> = [
+            Laws::<Test>::hashed_key_for(0u64),
+            LawVersions::<Test>::hashed_key_for(0u64, 1u32),
+            LawsByScope::<Test>::hashed_key_for(Tier::Constitution, LawRegion::NATIONAL),
+            ConstitutionImmutableManifest::<Test>::hashed_key().to_vec(),
+        ]
+        .into_iter()
+        .map(|key| {
+            let bytes = sp_io::storage::get(&key).expect("创世宪法存储必须存在");
+            (key, bytes.to_vec())
+        })
+        .collect();
+        for law_id in 1..=1000u64 {
+            assert_ok!(Lib::write_law_version(
+                law_id,
+                enact_summary(Tier::National, LawRegion::NATIONAL, VoteType::Regular, b"law"),
+                one_chapter(),
+                Timestamp::now(),
+            ));
+        }
+        // 旧容量只用于存量字节夹具；新索引必须直接读取并在其后追加。
+        let old: BoundedVec<u64, frame_support::traits::ConstU32<1000>> =
+            Lib::list_laws(Tier::National, LawRegion::NATIONAL).try_into().expect("旧列表恰好1000项");
+        let key = LawsByScope::<Test>::hashed_key_for(Tier::National, LawRegion::NATIONAL);
+        assert_eq!(sp_io::storage::get(&key).unwrap().to_vec(), old.encode());
+        sp_io::storage::set(&key, &old.encode());
+        assert_ok!(Lib::write_law_version(
+            1001,
+            enact_summary(Tier::National, LawRegion::NATIONAL, VoteType::Regular, b"law"),
+            one_chapter(),
+            Timestamp::now(),
+        ));
+        assert_eq!(Lib::list_laws(Tier::National, LawRegion::NATIONAL), (1..=1001u64).collect::<Vec<_>>());
+        assert_eq!(NextLawId::<Test>::get(), 1002);
+        assert_eq!(Laws::<Test>::get(1001).unwrap().status, LawStatus::Effective);
+        assert!(LawVersions::<Test>::get(1001, 1).is_some());
+        assert!(PendingActivations::<Test>::get().is_empty());
+        assert!(Lib::list_laws(Tier::Municipal, municipal_region()).is_empty());
+        for (key, bytes) in frozen {
+            assert_eq!(sp_io::storage::get(&key).unwrap().to_vec(), bytes);
+        }
+        assert_eq!(Lib::list_laws(Tier::Constitution, LawRegion::NATIONAL), vec![0]);
+    });
+}
+
+#[test]
+fn constitution_law_bytes_and_scope_key_match_original_frozen_layout() {
+    use codec::Encode;
+    use frame_support::traits::BuildGenesisConfig;
+    new_test_ext().execute_with(|| {
+        crate::pallet::GenesisConfig::<Test>::default().build();
+        let law = Laws::<Test>::get(0).expect("genesis constitution");
+        // 旧布局单独保留 u32=0 金标；不以新类型自编码充当冻结依据。
+        let original_law = (law.law_id, law.tier, 0u32, law.houses.clone(),
+            law.effective_version, law.latest_version, law.pending_version, law.status).encode();
+        assert_eq!(law.encode(), original_law);
+        assert_eq!(sp_io::storage::get(&Laws::<Test>::hashed_key_for(0)).unwrap().to_vec(), original_law);
+        let mut original_key = sp_io::hashing::twox_128(b"LegislationYuan").to_vec();
+        original_key.extend(sp_io::hashing::twox_128(b"LawsByScope"));
+        original_key.extend(sp_io::hashing::blake2_128(&[0]));
+        original_key.push(0);
+        original_key.extend(sp_io::hashing::blake2_128(&0u32.encode()));
+        original_key.extend(0u32.encode());
+        assert_eq!(LawsByScope::<Test>::hashed_key_for(Tier::Constitution, LawRegion::NATIONAL), original_key);
+        assert_eq!(sp_io::storage::get(&original_key).unwrap().to_vec(), vec![0u64].encode());
+        assert_eq!(law.houses, crate::pallet::GenesisConfig::<Test>::default().constitution_houses);
+    });
+}
+
+#[test]
+fn enact_rejects_region_different_from_original_actor_cid() {
+    new_test_ext().execute_with(|| {
+        for region in [LawRegion { province_code: *b"GZ", city_number: 2 },
+            LawRegion { province_code: *b"GD", city_number: 1 }, LawRegion::NATIONAL] {
+            assert_noop!(Lib::propose_enact_law(
+                RuntimeOrigin::signed(legislator()), Tier::Municipal, region,
+                municipal_houses(), municipal_actor_cid_number(), proposer_role_code(),
+                municipal_executive_cid_number(), None, VoteType::Regular,
+                title(b"law"), None, one_chapter(), 100), Error::<Test>::RoutingMismatch);
+        }
+    });
+}
+
+#[test]
+fn execution_rechecks_region_before_writing_any_law_or_index() {
+    new_test_ext().execute_with(|| {
+        let mut summary = enact_summary(Tier::Municipal, municipal_region(), VoteType::Regular, b"law");
+        summary.region.province_code = *b"GZ";
+        assert_noop!(Lib::write_law_version(7, summary, one_chapter(), Timestamp::now()),
+            Error::<Test>::RoutingMismatch);
+        assert_eq!(NextLawId::<Test>::get(), 0);
+        assert!(Laws::<Test>::get(0).is_none());
+        assert!(Lib::list_laws(Tier::Municipal, municipal_region()).is_empty());
+    });
+}
+
+#[test]
+fn same_local_city_number_in_different_provinces_has_distinct_index() {
+    new_test_ext().execute_with(|| {
+        let gd = LawRegion::from_codes(3, b"GD", b"001").unwrap();
+        let gz = LawRegion::from_codes(3, b"GZ", b"001").unwrap();
+        LawsByScope::<Test>::append(Tier::Municipal, gd, 7u64);
+        LawsByScope::<Test>::append(Tier::Municipal, gz, 8u64);
+        assert_ne!(LawsByScope::<Test>::hashed_key_for(Tier::Municipal, gd),
+            LawsByScope::<Test>::hashed_key_for(Tier::Municipal, gz));
+        assert_eq!(Lib::list_laws(Tier::Municipal, gd), vec![7]);
+        assert_eq!(Lib::list_laws(Tier::Municipal, gz), vec![8]);
+    });
+}
+
+#[test]
+fn removing_scope_capacity_preserves_remaining_error_codes() {
+    use codec::Encode;
+    assert_eq!(Error::<Test>::ImmutableArticleViolation.encode(), vec![10u8]);
+    assert_eq!(Error::<Test>::CannotEnactConstitution.encode(), vec![19u8]);
+    assert_eq!(Error::<Test>::TooManyActivations.encode(), vec![27u8]);
+}
+
+#[test]
 fn amend_bumps_version_and_resets_pending() {
     new_test_ext().execute_with(|| {
-        let s0 = enact_summary(Tier::National, 0, VoteType::Regular, b"law");
+        let s0 = enact_summary(Tier::National, LawRegion::NATIONAL, VoteType::Regular, b"law");
         assert_ok!(Lib::write_law_version(
             1,
             s0,
@@ -86,7 +212,7 @@ fn amend_bumps_version_and_resets_pending() {
             Timestamp::now()
         ));
 
-        let mut s1 = enact_summary(Tier::National, 0, VoteType::Regular, b"amended-law");
+        let mut s1 = enact_summary(Tier::National, LawRegion::NATIONAL, VoteType::Regular, b"amended-law");
         s1.action = LawAction::Amend;
         s1.law_id = 0;
         s1.effective_at = 2_000;
@@ -110,7 +236,7 @@ fn amend_bumps_version_and_resets_pending() {
 #[test]
 fn repeal_sets_status_repealed() {
     new_test_ext().execute_with(|| {
-        let s0 = enact_summary(Tier::National, 0, VoteType::Regular, b"law");
+        let s0 = enact_summary(Tier::National, LawRegion::NATIONAL, VoteType::Regular, b"law");
         assert_ok!(Lib::write_law_version(
             1,
             s0,
@@ -118,7 +244,7 @@ fn repeal_sets_status_repealed() {
             Timestamp::now()
         ));
 
-        let mut sr = enact_summary(Tier::National, 0, VoteType::Regular, b"");
+        let mut sr = enact_summary(Tier::National, LawRegion::NATIONAL, VoteType::Regular, b"");
         sr.action = LawAction::Repeal;
         sr.law_id = 0;
         assert_ok!(Lib::write_law_version(2, sr, chapters_of(vec![]), 1));
@@ -141,7 +267,7 @@ fn propose_enact_by_legislator_reaches_engine_notconfigured() {
             Lib::propose_enact_law(
                 RuntimeOrigin::signed(legislator()),
                 Tier::Municipal,
-                1001,
+                municipal_region(),
                 municipal_houses(),
                 municipal_actor_cid_number(),
                 proposer_role_code(),
@@ -165,7 +291,7 @@ fn municipal_education_route_reaches_engine_notconfigured() {
             Lib::propose_enact_law(
                 RuntimeOrigin::signed(legislator()),
                 Tier::Municipal,
-                1001,
+                municipal_region(),
                 municipal_houses(),
                 municipal_education_actor_cid_number(),
                 proposer_role_code(),
@@ -192,7 +318,7 @@ fn routing_rejects_cid_code_mismatch() {
             Lib::propose_enact_law(
                 RuntimeOrigin::signed(legislator()),
                 Tier::Municipal,
-                1001,
+                municipal_region(),
                 forged_houses,
                 municipal_actor_cid_number(),
                 proposer_role_code(),
@@ -216,7 +342,7 @@ fn propose_enact_by_non_legislator_rejected() {
             Lib::propose_enact_law(
                 RuntimeOrigin::signed(outsider()),
                 Tier::Municipal,
-                1001,
+                municipal_region(),
                 municipal_houses(),
                 municipal_actor_cid_number(),
                 proposer_role_code(),
@@ -241,7 +367,7 @@ fn propose_enact_constitution_rejected() {
             Lib::propose_enact_law(
                 RuntimeOrigin::signed(legislator()),
                 Tier::Constitution,
-                0,
+                LawRegion::NATIONAL,
                 houses(),
                 actor_cid_number(),
                 proposer_role_code(),
@@ -281,7 +407,7 @@ fn propose_enact_empty_title_and_articles_rejected() {
             Lib::propose_enact_law(
                 RuntimeOrigin::signed(legislator()),
                 Tier::Municipal,
-                1001,
+                municipal_region(),
                 municipal_houses(),
                 municipal_actor_cid_number(),
                 proposer_role_code(),
@@ -299,7 +425,7 @@ fn propose_enact_empty_title_and_articles_rejected() {
             Lib::propose_enact_law(
                 RuntimeOrigin::signed(legislator()),
                 Tier::Municipal,
-                1001,
+                municipal_region(),
                 municipal_houses(),
                 municipal_actor_cid_number(),
                 proposer_role_code(),
@@ -342,7 +468,7 @@ fn seed_constitution() {
         Law {
             law_id,
             tier: Tier::Constitution,
-            scope_code: 0,
+            region: LawRegion::NATIONAL,
             houses: houses(),
             effective_version: Some(version),
             latest_version: version,
@@ -350,7 +476,7 @@ fn seed_constitution() {
             status: LawStatus::Effective,
         },
     );
-    let _ = LawsByScope::<Test>::try_mutate(Tier::Constitution, 0, |v| v.try_push(law_id));
+    LawsByScope::<Test>::append(Tier::Constitution, LawRegion::NATIONAL, law_id);
     NextLawId::<Test>::put(1);
 }
 
@@ -412,7 +538,7 @@ fn seed_constitution_tiered() {
         Law {
             law_id,
             tier: Tier::Constitution,
-            scope_code: 0,
+            region: LawRegion::NATIONAL,
             houses: houses(),
             effective_version: Some(version),
             latest_version: version,
@@ -420,7 +546,7 @@ fn seed_constitution_tiered() {
             status: LawStatus::Effective,
         },
     );
-    let _ = LawsByScope::<Test>::try_mutate(Tier::Constitution, 0, |v| v.try_push(law_id));
+    LawsByScope::<Test>::append(Tier::Constitution, LawRegion::NATIONAL, law_id);
     NextLawId::<Test>::put(1);
 }
 
@@ -586,7 +712,7 @@ fn write_core_amend_without_referendum_proof_rejected() {
         seed_constitution_tiered();
         let mut summary = enact_summary(
             Tier::Constitution,
-            0,
+            LawRegion::NATIONAL,
             VoteType::Special,
             b"amended-constitution",
         );
@@ -614,7 +740,7 @@ fn write_amend_without_guard_proof_rejected() {
         seed_constitution_tiered();
         let mut summary = enact_summary(
             Tier::Constitution,
-            0,
+            LawRegion::NATIONAL,
             VoteType::Major,
             b"amended-constitution",
         );
@@ -639,7 +765,7 @@ fn write_amend_without_guard_proof_rejected() {
 fn rejects_amend_while_pending() {
     // 待生效(Pending)期间不得再次修订(P3:保证至多一个待生效版本)。
     new_test_ext().execute_with(|| {
-        let mut summary = enact_summary(Tier::Municipal, 1001, VoteType::Major, b"law");
+        let mut summary = enact_summary(Tier::Municipal, municipal_region(), VoteType::Major, b"law");
         summary.effective_at = 2_000; // 未来生效 → 写入后 status=Pending
         assert_ok!(Lib::write_law_version(
             7,
@@ -671,7 +797,7 @@ fn rejects_amend_while_pending() {
 fn write_rejects_enact_constitution_directly() {
     // 最终写入层也拒绝新立第二部宪法,不能只依赖 propose_enact_law 入口。
     new_test_ext().execute_with(|| {
-        let summary = enact_summary(Tier::Constitution, 0, VoteType::Special, b"constitution");
+        let summary = enact_summary(Tier::Constitution, LawRegion::NATIONAL, VoteType::Special, b"constitution");
         assert_noop!(
             Lib::write_law_version(9, summary, one_chapter(), 1),
             Error::<Test>::CannotEnactConstitution
@@ -687,7 +813,7 @@ fn write_rejects_amend_constitution_immutable_article_directly() {
         seed_constitution();
         let mut summary = enact_summary(
             Tier::Constitution,
-            0,
+            LawRegion::NATIONAL,
             VoteType::Special,
             b"amended-constitution",
         );
@@ -709,7 +835,7 @@ fn write_rejects_amend_constitution_immutable_article_directly() {
 fn write_rejects_amend_while_pending_directly() {
     // Pending 单飞规则在写入层复查,防多个待生效版本互相覆盖。
     new_test_ext().execute_with(|| {
-        let mut summary = enact_summary(Tier::Municipal, 1001, VoteType::Major, b"law");
+        let mut summary = enact_summary(Tier::Municipal, municipal_region(), VoteType::Major, b"law");
         summary.effective_at = 2_000;
         assert_ok!(Lib::write_law_version(
             7,
@@ -718,7 +844,7 @@ fn write_rejects_amend_while_pending_directly() {
             Timestamp::now()
         ));
 
-        let mut amend = enact_summary(Tier::Municipal, 1001, VoteType::Major, b"amended-law");
+        let mut amend = enact_summary(Tier::Municipal, municipal_region(), VoteType::Major, b"amended-law");
         amend.action = LawAction::Amend;
         amend.law_id = 0;
         assert_noop!(
@@ -733,7 +859,7 @@ fn write_rejects_repeal_constitution_directly() {
     // 最终写入层也拒绝废止宪法,不能只依赖 propose_repeal_law 入口。
     new_test_ext().execute_with(|| {
         seed_constitution();
-        let mut summary = enact_summary(Tier::Constitution, 0, VoteType::Special, b"");
+        let mut summary = enact_summary(Tier::Constitution, LawRegion::NATIONAL, VoteType::Special, b"");
         summary.action = LawAction::Repeal;
         summary.law_id = 0;
         assert_noop!(
@@ -941,7 +1067,7 @@ fn write_constitution_rechecks_duplicate_section_before_storage() {
         seed_constitution_tiered();
         let mut summary = enact_summary(
             Tier::Constitution,
-            0,
+            LawRegion::NATIONAL,
             VoteType::Major,
             b"amended-constitution",
         );
@@ -1064,7 +1190,7 @@ fn genesis_seeds_constitution_as_law_zero() {
             .map(|s| s.articles.len())
             .sum();
         assert_eq!(articles, 141, "141 条");
-        assert_eq!(Lib::list_laws(Tier::Constitution, 0), vec![0]);
+        assert_eq!(Lib::list_laws(Tier::Constitution, LawRegion::NATIONAL), vec![0]);
 
         // 不可修改条款 manifest 已冻结:清单 = 单源常量,逐条摘要 = 实际条文(L3 创世锚)。
         use codec::Encode as _;

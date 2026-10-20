@@ -91,15 +91,13 @@ pub struct BudgetPlan {
 
 /// 发起预算案请求体。
 ///
-/// 表决院(houses)由后端按 `tier` + `scope_code` 解析(立法机关单院),不收前端;
-/// `scope_code` 由会话派生覆盖(对齐 `ProposeLawInput` 纪律)。
+/// 表决院(houses)由后端按层级与原机构 CID 解析(立法机关单院),不收前端;
+/// 地域由后端原机构 CID 派生，不接收前端数字占位值。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposeBudgetInput {
     /// 层级(1 国家 / 2 省 / 3 市)。
     pub tier: u8,
-    /// 行政区码(后端会话派生覆盖)。
-    pub scope_code: u32,
     /// 表决类型(预算案为常规案 0)。
     pub vote_type: u8,
     /// 预算总案。
@@ -172,6 +170,10 @@ mod tests {
             back.categories[0].sections[0].items[0].subitems[0].expenditure,
             10_000_000_000_000_000u128
         );
+        let request = serde_json::json!({ "tier": 1, "voteType": 0, "plan": sample_plan() });
+        let input: ProposeBudgetInput = serde_json::from_value(request).expect("request without region placeholder");
+        assert_eq!(input.tier, 1);
+        assert_eq!(input.plan.total_expenditure, back.total_expenditure);
         assert_eq!(ProposeBudgetInput::category(), ProposalCategory::Budget);
         assert_eq!(ProposeBudgetInput::category().as_u8(), 2);
     }

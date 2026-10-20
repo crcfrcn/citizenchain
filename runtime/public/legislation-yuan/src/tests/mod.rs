@@ -291,7 +291,6 @@ parameter_types! {
     pub const MaxArticlesPerSection: u32 = 200;
     pub const MaxSectionsPerChapter: u32 = 50;
     pub const MaxChaptersPerLaw: u32 = 50;
-    pub const MaxLawsPerScope: u32 = 1000;
     pub const MaxPendingActivations: u32 = 100;
 }
 
@@ -307,7 +306,6 @@ impl crate::pallet::Config for Test {
     type MaxArticlesPerSection = MaxArticlesPerSection;
     type MaxSectionsPerChapter = MaxSectionsPerChapter;
     type MaxChaptersPerLaw = MaxChaptersPerLaw;
-    type MaxLawsPerScope = MaxLawsPerScope;
     type MaxPendingActivations = MaxPendingActivations;
     type WeightInfo = ();
 }
@@ -441,10 +439,15 @@ pub fn municipal_executive_cid_number() -> votingengine::types::CidNumber {
     TestInstitutionCidQuery::bounded_cid(*b"CGOV")
 }
 
+/// 从测试机构的原 CID 取得地域；不使用旧复合数字夹具。
+pub fn municipal_region() -> LawRegion {
+    LawRegion::from_cid(3, &municipal_actor_cid_number()).expect("valid municipal CID")
+}
+
 /// 直接构造一个 Enact 提案摘要(用于直调 write_law_version 预置法律)。
 pub fn enact_summary(
     tier: Tier,
-    scope_code: u32,
+    region: LawRegion,
     vote_type: VoteType,
     title_bytes: &[u8],
 ) -> LawProposalSummary<Test> {
@@ -466,7 +469,7 @@ pub fn enact_summary(
         action: LawAction::Enact,
         law_id: 0,
         tier,
-        scope_code,
+        region,
         houses,
         actor_cid_number,
         proposer_role_code: proposer_role_code(),

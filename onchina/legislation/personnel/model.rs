@@ -49,15 +49,13 @@ pub struct PersonnelDecision {
 
 /// 发起任免案请求体。
 ///
-/// 表决院(houses)由后端按 `tier` + `scope_code` 解析(参议会/市立法会单院),
-/// 不收前端;`scope_code` 亦由会话派生覆盖,不信前端(对齐 `ProposeLawInput` 纪律)。
+/// 表决院(houses)由后端按层级与原机构 CID 解析(参议会/市立法会单院),
+/// 不收前端；地域由后端原机构 CID 派生。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposePersonnelInput {
     /// 层级(1 国家 / 2 省 / 3 市)。
     pub tier: u8,
-    /// 行政区码(后端会话派生覆盖)。
-    pub scope_code: u32,
     /// 表决类型(默认常规案 0;升级重要案 2 随链路上线)。
     pub vote_type: u8,
     /// 任免职书正文。
@@ -108,10 +106,16 @@ mod tests {
     fn propose_personnel_input_roundtrips_and_categorizes() {
         let input = ProposePersonnelInput {
             tier: 1,
-            scope_code: 0,
             vote_type: 0,
             decision: sample_decision(),
         };
+        // 原请求夹具不再携数字地域；完整 DTO 仍能按原业务字段反序列化。
+        let request = serde_json::json!({
+            "tier": input.tier, "voteType": input.vote_type, "decision": &input.decision,
+        });
+        let parsed: ProposePersonnelInput = serde_json::from_value(request).expect("request");
+        assert_eq!(parsed.tier, 1);
+        assert_eq!(parsed.decision.action, PersonnelAction::Appoint);
         let json = serde_json::to_value(&input.decision).expect("value");
         let back: PersonnelDecision =
             serde_json::from_value(json).expect("deserialize decision back");

@@ -2,7 +2,7 @@
 //!
 //! onchina 只「组织数据 + 调编码器」,不计票、不提交。发起机构直接使用登录绑定的
 //! 现有 CID；其他路由机构由调用方注入的唯一查询解析，保持本层纯函数可测。
-//! 合法性最终裁决在链端 `ensure_routing`;本层 + `precheck_legislation_scope` 只做越权前置拦截(fail-closed)。
+//! 合法性最终裁决在链端 `ensure_routing`;本层派生同一 LawRegion，授权前置检查仍按原层级与机构 CID 执行。
 //!
 
 use super::chain_propose::{
@@ -28,9 +28,7 @@ pub enum LegislationError {
     MissingLawId,
     /// 发起岗位码为空或超过链上岗位码上限。
     InvalidProposerRoleCode,
-    /// 提案层级超出本管理员管辖(越权)。
-    TierNotAllowedForAdmin,
-    /// 新法数值范围参数与会话派生值不一致。
+    /// 机构 CID 不能派生合法法律地域。
     ScopeMismatch,
 }
 
@@ -44,7 +42,6 @@ impl LegislationError {
             Self::EmptyChapters => "LEGISLATION_EMPTY_CHAPTERS",
             Self::MissingLawId => "LEGISLATION_MISSING_LAW_ID",
             Self::InvalidProposerRoleCode => "LEGISLATION_INVALID_PROPOSER_ROLE_CODE",
-            Self::TierNotAllowedForAdmin => "LEGISLATION_TIER_NOT_ALLOWED",
             Self::ScopeMismatch => "LEGISLATION_SCOPE_MISMATCH",
         }
     }
@@ -74,33 +71,6 @@ fn resolve_institution_cid_number(
     let cid_number = resolve_cid_number(&code)
         .ok_or(LegislationError::InstitutionCidUnresolved)?;
     institution_cid_number(code, &cid_number)
-}
-
-/// 新法现有数值参数的前置校验；真实地域另由 handler 按机构 CID 检查。
-///
-/// `admin_tier` = 管理员层级(1 国家 / 2 省 / 3 市);`admin_scope_code` = 管理员所辖
-/// 既有数值范围值(全国布局值 = 0)，不是国家或省代码定义。
-/// 国家管理员可发起国家法律(tier 1)与修宪(tier 0)；省/市只能发起本级。
-/// 修法、废法的地域由目标法律及原机构 CID 校验，不经过新法数值派生。
-pub fn precheck_legislation_scope(
-    admin_tier: u8,
-    admin_scope_code: u32,
-    proposal_tier: u8,
-    proposal_scope_code: u32,
-) -> Result<(), LegislationError> {
-    let tier_allowed = match admin_tier {
-        1 => proposal_tier == 1 || proposal_tier == 0, // 国家级:国家法律 + 修宪
-        2 => proposal_tier == 2,
-        3 => proposal_tier == 3,
-        _ => false,
-    };
-    if !tier_allowed {
-        return Err(LegislationError::TierNotAllowedForAdmin);
-    }
-    if proposal_scope_code != admin_scope_code {
-        return Err(LegislationError::ScopeMismatch);
-    }
-    Ok(())
 }
 
 /// 组织一次法律案发起 → 裸 SCALE call-data。
@@ -146,7 +116,8 @@ pub fn build_propose_law_call(
             let chapters = to_chapter_args(&input.chapters);
             Ok(encode_propose_enact_law(
                 input.tier,
-                input.scope_code,
+                primitives::genesis::LawRegion::from_cid(input.tier, &actor_cid_number)
+                    .map_err(|_| LegislationError::ScopeMismatch)?,
                 &houses,
                 &actor_cid_number,
                 proposer_role_code,
@@ -242,7 +213,6 @@ mod tests {
             law_action: LawActionInput::Enact,
             proposer_role_code: "REPRESENTATIVE".to_string(),
             tier,
-            scope_code: 0,
             vote_type,
             title: "道路交通安全法".to_string(),
             title_en: Some("Road Traffic Safety Law".to_string()),
@@ -271,7 +241,8 @@ mod tests {
         assert_eq!(call.action, 0x1900);
         let mut bytes = &call.call_data[2..];
         assert_eq!(u8::decode(&mut bytes).unwrap(), 1);
-        assert_eq!(u32::decode(&mut bytes).unwrap(), input.scope_code);
+        assert_eq!(primitives::genesis::LawRegion::decode(&mut bytes).unwrap(),
+            primitives::genesis::LawRegion::NATIONAL);
         let houses = Vec::<Vec<u8>>::decode(&mut bytes).unwrap();
         assert_eq!(houses, vec![actor.as_bytes().to_vec(), fixture_cid(b"NSN\0").into_bytes()]);
         assert_eq!(Vec::<u8>::decode(&mut bytes).unwrap(), actor.as_bytes());
@@ -295,7 +266,8 @@ mod tests {
         let call = build_propose_law_call(&input, *b"CEDU", &actor, fixture_resolver).unwrap();
         let mut bytes = &call.call_data[2..];
         let _ = u8::decode(&mut bytes).unwrap();
-        let _ = u32::decode(&mut bytes).unwrap();
+        assert_eq!(primitives::genesis::LawRegion::decode(&mut bytes).unwrap(),
+            primitives::genesis::LawRegion::from_codes(3, b"GD", b"001").unwrap());
         assert_eq!(Vec::<Vec<u8>>::decode(&mut bytes).unwrap(),
             vec![fixture_cid(b"CLEG").into_bytes()]);
         assert_eq!(Vec::<u8>::decode(&mut bytes).unwrap(), actor.as_bytes());
@@ -329,14 +301,9 @@ mod tests {
             let mut input = enact_input(1, 2);
             input.law_action = action;
             input.law_id = Some(42);
-            input.scope_code = 73;
-            let first = build_propose_law_call(&input, *b"NRP\0", &actor, fixture_resolver).unwrap();
-            input.scope_code = 900;
-            let second = build_propose_law_call(&input, *b"NRP\0", &actor, fixture_resolver).unwrap();
-            assert_eq!(first.call_data, second.call_data,
-                "修法、废法调用不携带新法范围参数");
-            assert_eq!(&first.call_data[..2], &[25, call_index]);
-            let mut bytes = &first.call_data[2..];
+            let call = build_propose_law_call(&input, *b"NRP\0", &actor, fixture_resolver).unwrap();
+            assert_eq!(&call.call_data[..2], &[25, call_index]);
+            let mut bytes = &call.call_data[2..];
             assert_eq!(u64::decode(&mut bytes).unwrap(), 42);
             assert_eq!(Vec::<u8>::decode(&mut bytes).unwrap(), actor.as_bytes());
         }
@@ -371,17 +338,11 @@ mod tests {
     }
 
     #[test]
-    fn scope_precheck_enforces_existing_numeric_field_and_tier() {
-        assert!(precheck_legislation_scope(1, 0, 1, 0).is_ok());
-        assert!(precheck_legislation_scope(1, 0, 0, 0).is_ok());
-        assert_eq!(precheck_legislation_scope(1, 0, 2, 100),
-            Err(LegislationError::TierNotAllowedForAdmin));
-        // 数值一致性不替代原省码与市号的 CID 地域校验。
-        assert!(precheck_legislation_scope(2, 100, 2, 100).is_ok());
-        assert_eq!(precheck_legislation_scope(2, 100, 2, 200),
-            Err(LegislationError::ScopeMismatch));
-        assert_eq!(precheck_legislation_scope(3, 500, 1, 0),
-            Err(LegislationError::TierNotAllowedForAdmin));
+    fn enact_province_keeps_letters_in_four_byte_slot() {
+        let input = enact_input(2, 2);
+        let actor = fixture_cid(b"PRP\0");
+        let call = build_propose_law_call(&input, *b"PRP\0", &actor, fixture_resolver).unwrap();
+        assert_eq!(&call.call_data[3..7], &[b'G', b'D', 0, 0]);
     }
 
     #[test]

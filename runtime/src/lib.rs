@@ -84,6 +84,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // square-post。
     // square-post 订阅采用 runtime 真实公历时间戳协议：只执行扣款、最小状态和时间戳比较；
     // 平台三档价由创世播种，平台机构 CID 为创世固定常量，开发期零用户不设迁移。
+    // 公民链版本政策：每次正式 Runtime 升级，spec_version 与 transaction_version
+    // 分别在此前实际部署值上加1，钱包同步支持该次交易版本。
+    // 编辑、测试或重复编译不递增；源码值不能替代升级前核对的实际链上版本。
     spec_version: 0,
     impl_version: 0,
     apis: apis::RUNTIME_API_VERSIONS,

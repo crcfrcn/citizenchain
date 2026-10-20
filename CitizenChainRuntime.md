@@ -2736,6 +2736,7 @@ OnChina 本地数据库只能用于注册局录入和界面提示，不能作为
 - 当前创世只强制创建各机构唯一 LR；NRP/NSN/NED/PRP/PSN/CLEG/CEDU/CSLF 的成员岗位不在创世预造，必须由机构以后依法创建。建案时业务模块从链上岗位权限中解析准确代表岗位并写入 VotePlan。
 - 行政签署和国家/省级三人会签固定使用相关机构 LR，护宪终审固定使用 NJD `CONSTITUTION_GUARD`；全部按建案时岗位任职快照判定，不按机构全体管理员快照判定。护宪岗位不是 LR，且必须在建案时恰好冻结 7 个不重复账户。
 - `legislation-yuan` 在创建提案和投票通过写入前分别复核一次法定路由：固定院序、发起机构、行政签署机构、会签机构、active 账户和 CID 行政区必须全部一致。客户端携带的路由字段不是授权真源。
+- 法律范围索引不设置每组1000部法律的固定数量上限。`LawsByScope` 保留原存储前缀、`tier + LawRegion` 键与原哈希及列表SCALE编码，使用普通列表与官方存储追加接口；列表值编码保持。宪法 `Laws[0]`、版本、不可修改条款manifest及 `LawsByScope[宪法][0] == [0]` 保持，剩余错误编码不因删除超量错误而移动。
 
 ##### 固定框架
 
@@ -3215,6 +3216,17 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 
 Runtime 协议版本仅归 runtime/src/lib.rs 的 VERSION，源码与对应业务测试由 Runtime 自己维护。交付的 X.Y.Z 只用于本平台 Run、Job、Artifact、Tag、Release，不映射或改写 spec_version、transaction_version 等协议值。编译不查询线上链来生成协议版本，也不修改本轮工程副本的 Runtime 版本。
 
+公民链统一采用最简单的升级政策：每次正式Runtime升级，spec_version和transaction_version分别以此前实际部署值加1，不再按本次改动种类决定是否递增。两者不要求数值相等；同一次升级的开发、测试、重复编译和交付只使用同一组确定值，不重复加号。由升级准备在现有VERSION字段中填写，钱包chain_constants.dart同步支持该次transaction_version；不新增计数器、版本生成器或编译自动写回机制。升级前核对真实部署基线，不能拿源码中的0代替已运行节点版本，也不重建或改写创世数据。
+
 既有 .github/workflows/wasm.yml 调用 scripts/build.mjs，使用本仓 Cargo 原锁及固定 SDK，从源码生成 citizenchain.wasm、citizenchain.compact.wasm、citizenchain.compact.compressed.wasm。RuntimeVersion由现有源码和官方WasmBuilder生成，交付命名不参与协议版本写入。生产Job及Release按三件文件的原始字节SHA-256、大小和来源Run逐件核对，不使用目录摘要。正式附件回读后发布；整个原Run completed后由既有Workflow的repository_dispatch收尾模式处理历史，不依赖本机观察进程，恢复只补原Run收尾。完整调用与终态边界归 CitizenChainNode.md 当前合同。
 
 Runtime开发升级的候选消费、冷签及实际链交易不属于本轮编译入口重建，本轮不改其授权和执行链，也不宣称升级验收通过。正式WASM交付不等同实际升级；后续升级必须核对实际协议版本并按准确授权执行，不能用交付SemVer代替Runtime版本。
+
+
+### 法律地域固定布局
+
+法律主体、提案摘要、新法调用、LawsByScope第二键与LegislationApi v2统一复用primitives::genesis::LawRegion。字段按原顺序占四字节：province_code:[u8;2]原两位大写字母，city_number:u16小端原省内三位市号的数值；省级city_number=0表示不限定市。不把省码转换为数值，不改变原CID/省市解析。写入入口及投票完成回调将地域与已授权发起机构原CID派生结果核对，路由机构码、归属与表决规则不变。查询只接受0—3层级和匹配地域形状，不将非法层级视为市级。
+
+宪法/国家地域的显式NATIONAL编码为00 00 00 00，与原u32=0逐字节相同，不是解析失败默认值。Laws和LawsByScope存储名称、前缀、哈希算法、宪法原键/值、Law字段顺序及后续偏移不变；创世宪法law_id=0、国家立法院归属、众议会发起、众参两院表决和全部冻结条款保持。节点守卫继续按原u32=0冻结布局读取，无需修改。当前只有创世宪法，不增加普通法律迁移、兼容分支或第二套索引，不重建创世数据。
+
+原始u32=0法律记录金标和独立拼装的宪法索引键断言保留，并覆盖不同省同市号隔离、非法地域、CID与地域不符、最终写入回调复校验及第1001部法律。transaction_version是框架RuntimeVersion原生字段，交易使用框架CheckTxVersion；本次参数类型变化按上述统一升级政策处理，不再单独询问是否提高两个版本。地域源码和配套维护已完成，正式升级时再依据真实部署基线填写该次版本。本轮保留版本数值，不根据仓库值推断运行节点版本；未执行测试、类型检查、编译、守卫验收、安装或链升级。

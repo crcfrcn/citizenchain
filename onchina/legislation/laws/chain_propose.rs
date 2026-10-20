@@ -11,7 +11,7 @@
 //! - `legislature_cid_number` = `Option<CidNumber>`;
 //! - `title` / `title_en` = `Vec<u8>` / `Option<Vec<u8>>`(`Compact<u32>` 长度前缀);
 //! - `chapters` = 章>节>条>款 嵌套(链端 `BoundedVec` 与 `Vec` 的 SCALE 同布局,由 `ChapterArg` 派生 `Encode`);
-//! - `scope_code` = u32 小端;`effective_at` = 生效时间戳毫秒(u64 小端);`law_id` = u64 小端。
+//! - `region` = 原两字母省码 + u16 小端市号(固定四字节);`effective_at` = 生效时间戳毫秒(u64 小端);`law_id` = u64 小端。
 //!
 //! `tests` 用链端真实 `legislation_yuan::{Tier,VoteType}` 与 codec `.encode()` 逐字节交叉校验,杜绝静默漂移。
 //!
@@ -19,6 +19,7 @@
 
 use crate::core::institution_call::{chain_action_code, ChainCall};
 use codec::{Compact, Decode, Encode};
+use primitives::genesis::LawRegion;
 
 /// LegislationYuan pallet 在 construct_runtime 的索引。
 pub const LEGISLATION_YUAN_PALLET_INDEX: u8 = 25;
@@ -102,7 +103,7 @@ fn encode_chapters(out: &mut Vec<u8>, chapters: &[ChapterArg]) {
 #[allow(clippy::too_many_arguments)]
 pub fn encode_propose_enact_law(
     tier: u8,
-    scope_code: u32,
+    region: LawRegion,
     houses: &[Vec<u8>],
     actor_cid_number: &[u8],
     proposer_role_code: &[u8],
@@ -116,7 +117,7 @@ pub fn encode_propose_enact_law(
 ) -> ChainCall {
     let mut out = vec![LEGISLATION_YUAN_PALLET_INDEX, PROPOSE_ENACT_LAW_CALL_INDEX];
     out.push(tier);
-    out.extend(scope_code.to_le_bytes());
+    out.extend(region.encode());
     encode_houses(&mut out, houses);
     encode_bytes(&mut out, actor_cid_number);
     encode_bytes(&mut out, proposer_role_code);
@@ -133,7 +134,7 @@ pub fn encode_propose_enact_law(
     }
 }
 
-/// 修法:pallet 25 call 1(`law_id` 取代 `tier`/`scope_code`)。
+/// 修法:pallet 25 call 1(`law_id` 取代 `tier`/`region`)。
 #[allow(clippy::too_many_arguments)]
 pub fn encode_propose_amend_law(
     law_id: u64,
@@ -242,6 +243,21 @@ mod tests {
         }]
     }
 
+    #[test]
+    fn regional_call_keeps_literal_province_and_existing_house_offset() {
+        let houses = vec![cid("NRP")];
+        for (tier, region, raw) in [
+            (2, LawRegion::from_codes(2, b"GD", b"001").unwrap(), [b'G', b'D', 0, 0]),
+            (3, LawRegion::from_codes(3, b"GD", b"001").unwrap(), [b'G', b'D', 1, 0]),
+            (3, LawRegion::from_codes(3, b"GZ", b"001").unwrap(), [b'G', b'Z', 1, 0]),
+        ] {
+            let call = encode_propose_enact_law(tier, region, &houses, &cid("NRP"),
+                b"REPRESENTATIVE", &cid("PRS"), None, 2, b"law", None, &[], 0);
+            assert_eq!(&call.call_data[3..7], &raw);
+            assert_eq!(Vec::<Vec<u8>>::decode(&mut &call.call_data[7..]).unwrap(), houses);
+        }
+    }
+
     /// 完整 `propose_enact_law` 编码:用链端真实 `Tier`/`VoteType` + codec 逐参数拼 golden,逐字节比对。
     #[test]
     fn enact_law_call_matches_codec_golden_and_prefix() {
@@ -256,7 +272,7 @@ mod tests {
 
         let chain = encode_propose_enact_law(
             1, // tier=National
-            0, // scope_code 全国
+            LawRegion::NATIONAL, // 全国仍为四零字节
             &houses,
             &actor_cid_number,
             proposer_role_code,

@@ -159,6 +159,22 @@ export const deployment=Object.freeze({platform:'linux-arm',repository:product.r
   helper:'/usr/local/sbin/citizenchain-deploy',unit:'citizenchain-deploy',data:'/opt/citizenchain/data',
   serviceFile:'/etc/systemd/system/citizenchain-node.service',architecture:'arm64',sshUser:'ubuntu',ready:'deploy-ready:arm64:release'});
 
+// 本仓流程的公开入口声明；调用方只交付标准传输能力，不拥有产品规则或任务宿主。
+export async function describeAction({flow,platform}){
+ if(flow!=='release')throw Error('本产品尚未声明该流程入口：'+flow+'·'+platform);
+ return {repository:product.repository,launch:async({read,dispatch})=>{
+  const rows=[],releases=[];
+  for(let page=1;;page++){const data=await read(automationRequest(platform,'runs').path+'&per_page=100&page='+page);rows.push(...data.workflow_runs);if(data.workflow_runs.length<100)break;}
+  for(let page=1;;page++){const data=await read('releases?per_page=100&page='+page);releases.push(...data);if(data.length<100)break;}
+  const {readFile}=await import('node:fs/promises');
+  const initial=JSON.parse(await readFile(new URL('../node/frontend/package.json',import.meta.url),'utf8')).version;
+  const version=nextDeliveryVersion(platform,rows,releases,initial),head=await read('git/ref/heads/main');
+  const request=automationRequest(platform,'launch',{version,sha:head.object.sha});
+  const receipt=await dispatch({workflow:product.platforms[platform].workflow,...request.body});
+  return {runID:receipt.workflow_run_id};
+ }};
+}
+
 // BEGIN INLINE TESTS
 // 产品纯规则回归不访问网络、凭据、链或真实历史；编译文件中不放测试执行器。
 if(process.env.NODE_TEST_CONTEXT&&process.argv[1]===import.meta.filename&&process.argv.length===2){
