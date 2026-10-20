@@ -4,6 +4,7 @@
 //! 转换为 `TxRecordInsert` 写入数据库。
 
 use chrono::{DateTime, TimeZone, Utc};
+use codec::Decode;
 use subxt::events::{EventDetails, Phase};
 use subxt::ext::scale_value::{At, Composite, Value};
 use subxt::PolkadotConfig;
@@ -67,7 +68,12 @@ pub(crate) fn collect_entity_projection_cids(
     let mut citizen_cids = Vec::new();
     let mut institution_cids = Vec::new();
     let mut decoded = 0u32;
-    let mut consumed = if events.bytes().is_empty() { 0 } else { codec::Encode::encode(&codec::Compact(events.len())).len() };
+    // 从真实字节解码长度前缀；Subxt的零事件回退不能吞掉损坏前缀。
+    let mut cursor = events.bytes();
+    if !cursor.is_empty() {
+        codec::Compact::<u32>::decode(&mut cursor).map_err(|e| format!("decode event count failed: {e}"))?;
+    }
+    let mut consumed = events.bytes().len() - cursor.len();
     for event_result in events.iter() {
         decoded += 1;
         let event = event_result.map_err(|e| format!("decode entity event failed: {e}"))?;
@@ -110,7 +116,12 @@ pub(crate) fn parse_block_events(
     let mut records = Vec::new();
 
     let mut decoded = 0u32;
-    let mut consumed = if events.bytes().is_empty() { 0 } else { codec::Encode::encode(&codec::Compact(events.len())).len() };
+    // 从真实字节解码长度前缀；Subxt的零事件回退不能吞掉损坏前缀。
+    let mut cursor = events.bytes();
+    if !cursor.is_empty() {
+        codec::Compact::<u32>::decode(&mut cursor).map_err(|e| format!("decode event count failed: {e}"))?;
+    }
+    let mut consumed = events.bytes().len() - cursor.len();
     for (event_index, event_result) in events.iter().enumerate() {
         decoded += 1;
         let event = event_result.map_err(|error| format!(
@@ -389,6 +400,21 @@ mod tests {
             assert_eq!(record.amount_fen, 123);
             assert_eq!(record.extrinsic_index, Some(3));
             assert_eq!(record.event_index, 0);
+        }
+    }
+
+    #[test]
+    fn empty_event_vectors_and_invalid_count_prefixes_follow_scale_decode() {
+        let metadata = subxt::Metadata::decode(&mut citizenchain::Runtime::metadata().encode().as_slice()).unwrap();
+        for bytes in [Vec::new(), vec![0u8]] {
+            let events = subxt::events::Events::decode_from(bytes, metadata.clone());
+            assert!(parse_block_events(&events, 7, None).unwrap().is_empty());
+            assert_eq!(collect_entity_projection_cids(&events).unwrap(), (Vec::new(), Vec::new()));
+        }
+        for bytes in [vec![1u8], vec![2u8], vec![3u8], vec![0xffu8, 0xffu8]] {
+            let events = subxt::events::Events::decode_from(bytes, metadata.clone());
+            assert!(parse_block_events(&events, 7, None).unwrap_err().starts_with("decode event count failed:"));
+            assert!(collect_entity_projection_cids(&events).unwrap_err().starts_with("decode event count failed:"));
         }
     }
 

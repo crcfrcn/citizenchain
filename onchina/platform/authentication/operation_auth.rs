@@ -31,7 +31,7 @@ pub(crate) enum AdminOperationAuth {
 /// 注册局动作按分层命名——Governing = Tier1 创世注册局自身(本期 = 联邦注册局),
 /// Subordinate = 其供给的 Tier2 下级注册局(本期 = 市注册局)。命名与具体机构码解耦,
 /// 鉴权边界经 `is_tier1_registry` 谓词裁决,不再字面绑定 FRG/CREG。
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum AdminActionType {
     /// Tier1 创世注册局新增一名 Tier2 下级注册局管理员。
@@ -76,6 +76,14 @@ pub(crate) enum AdminActionType {
     /// 模块扩展动作必须有实际登记及所属模块授权；不能自行降为只会话写入。
     #[serde(untagged)]
     Module(String),
+}
+
+// JSON与公开调度共用原解析器；模块字符串不能绕过已撤销动作名的拒绝规则。
+impl<'de> Deserialize<'de> for AdminActionType {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let action = String::deserialize(deserializer)?;
+        parse_action_type(&action).map_err(|_| serde::de::Error::custom("unknown action_type"))
+    }
 }
 
 impl AdminActionType {
@@ -191,7 +199,10 @@ pub(crate) fn parse_action_type(
         "PROPOSE_PERSONNEL" => Ok(AdminActionType::ProposePersonnel),
         "PROPOSE_BUDGET" => Ok(AdminActionType::ProposeBudget),
         "CITIZEN_ONCHAIN_PUSH" => Ok(AdminActionType::CitizenOnchainPush),
-        other if !other.is_empty() && other.len() <= 128 && other.bytes().all(|v| v.is_ascii_uppercase() || v.is_ascii_digit() || v == b'_') => Ok(AdminActionType::Module(other.to_string())),
+        // 旧注册局名不是模块扩展动作，也不作为新名称的兼容别名。
+        other if !matches!(other, "CREATE_CITY_REGISTRY" | "DELETE_CITY_REGISTRY")
+            && !other.is_empty() && other.len() <= 128
+            && other.bytes().all(|v| v.is_ascii_uppercase() || v.is_ascii_digit() || v == b'_') => Ok(AdminActionType::Module(other.to_string())),
         _ => Err(api_error(
             StatusCode::BAD_REQUEST,
             1001,
@@ -241,9 +252,26 @@ mod tests {
             let json = serde_json::to_value(&action).unwrap();
             assert_eq!(json.as_str(), Some(action.as_str()));
             assert_eq!(serde_json::from_value::<AdminActionType>(json).unwrap(), action);
+            assert_eq!(parse_action_type(action.as_str()).unwrap(), action);
         }
         assert!(serde_json::from_str::<AdminActionType>("\"CREATE_CITY_REGISTRY\"").is_err());
         assert!(serde_json::from_str::<AdminActionType>("\"DELETE_CITY_REGISTRY\"").is_err());
+    }
+
+    #[test]
+    fn module_action_json_and_dispatch_share_valid_names_and_rejections() {
+        for name in ["MODULE_ACTION_1".to_string(), "A".repeat(128)] {
+            let action = AdminActionType::Module(name.clone());
+            assert_eq!(parse_action_type(&name).unwrap(), action);
+            assert_eq!(serde_json::from_value::<AdminActionType>(serde_json::json!(name)).unwrap(), action);
+            assert_eq!(serde_json::to_value(&action).unwrap(), serde_json::json!(name));
+        }
+        for name in ["CREATE_CITY_REGISTRY".to_string(), "DELETE_CITY_REGISTRY".to_string(),
+            String::new(), "lowercase".to_string(), "HAS SPACE".to_string(), "A".repeat(129)] {
+            assert!(parse_action_type(&name).is_err(), "{name}");
+            assert!(serde_json::from_value::<AdminActionType>(serde_json::json!(name)).is_err(), "{name}");
+        }
+        assert!(serde_json::from_value::<AdminActionType>(serde_json::json!(7)).is_err());
     }
 
     #[test]
