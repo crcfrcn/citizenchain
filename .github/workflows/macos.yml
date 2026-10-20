@@ -49,12 +49,9 @@ jobs:
           const releases=await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100});
           const {readFileSync}=await import('node:fs');
           const initial=JSON.parse(readFileSync(process.env.GITHUB_WORKSPACE+'/node/tauri.conf.json','utf8')).version;
+          await cfg.assertNativePublishedTags(p,releases,tag=>github.rest.git.getRef({...repo,ref:'tags/'+tag}).then(value=>value.data));
           const expected=cfg.nextDeliveryVersion(p,runs.filter(row=>row.id!==context.runId),releases,initial);
-          if(process.env.CITIZENCHAIN_RELEASE_VERSION!==expected)throw Error('候选不是最新成功交付的补丁加一');
-          const success=cfg.retainedBuildRuns(p,runs).success;
-          if(success){const release=releases.find(value=>{try{return cfg.readReleaseProof(p,value).run_id===success.id;}catch{return false;}});
-           const ref=(await github.rest.git.getRef({...repo,ref:'tags/'+release.tag_name})).data;
-           if(ref.object.type!=='commit'||ref.object.sha!==success.head_sha)throw Error('最新成功Tag提交不符');}
+          if(process.env.CITIZENCHAIN_RELEASE_VERSION!==expected)throw Error('候选不是已发布交付之后的准确补丁版本');
           const tag=cfg.releaseName(p,expected);
           if(releases.some(release=>release.tag_name===tag))throw Error('候选版本仍有未收尾资产，请恢复原Run清理');
           try{await github.rest.git.getRef({...repo,ref:'tags/'+tag});throw Error('候选Tag已存在，请先核对原Run');}catch(error){if(error.status!==404)throw error;}
@@ -320,7 +317,24 @@ jobs:
           for(const item of proven){
            if(item.release.id===latest?.release.id)continue;
            const fresh=await plan();if(fresh.success?.id!==initial.success?.id||fresh.failure?.id!==initial.failure?.id)throw Error('保留集合变化，停止删除');
-           const run=await getRun(item.proof.run_id);cfg.assertRun(p,run,item.proof.run_id);
+           const run=await getRun(item.proof.run_id);
+           if(!run){
+            // 旧Run已删除时只核对真实交付；没有本轮完整替代就保留旧正式产物。
+            const current=await getRelease(item.release.id);if(!current)continue;
+            const proof=cfg.assertReleaseAssets(p,current),ref=await getTag(proof.tag);
+            if(JSON.stringify(proof)!==JSON.stringify(item.proof))throw Error('旧正式交付来源变化');
+            if(!ref||ref.object.type!=='commit'||ref.object.sha!==proof.source_sha)throw Error('旧正式Tag提交变化');
+            if(initial.success?.id!==context.runId||results.release!=='success'){core.warning('旧Run已缺失，保留尚无本轮替代的正式交付：'+proof.tag);continue;}
+            const replacement=await getRelease(latest.release.id);if(!replacement)throw Error('替代正式交付不存在');
+            const newer=cfg.assertRelease(p,replacement,await original()),newRef=await getTag(newer.tag);
+            if(!newRef||newRef.object.type!=='commit'||newRef.object.sha!==newer.source_sha)throw Error('替代正式Tag提交变化');
+            if(cfg.compareDeliveryVersions(newer.version,proof.version)<=0)throw Error('替代正式版本没有递增');
+            if(current.immutable)throw Error('旧Release不可变，未修改仓库设置');
+            await github.rest.git.deleteRef({...repo,ref:'tags/'+proof.tag});if(await getTag(proof.tag))throw Error('Tag删除未确认');
+            await github.rest.repos.deleteRelease({...repo,release_id:current.id});if(await getRelease(current.id))throw Error('Release删除未确认');
+            continue;
+           }
+           cfg.assertRun(p,run,item.proof.run_id);
            // 本轮发布Job已失败时允许撤除其准确部分交付；其他活动Run的任何资产都保护。
            const ownFailedRelease=run.id===context.runId&&results.release==='failure';
            if(run.status!=='completed'&&!ownFailedRelease)continue;
