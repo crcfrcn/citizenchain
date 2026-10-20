@@ -144,10 +144,19 @@ jobs:
         # 唯一Runtime入口提供测试依赖WASM，原测试和金标不跳过。
         node scripts/runtime.mjs test
     - name: 编译及核对完整产物
+      id: compile
       shell: bash
       run: |
         set -euo pipefail
         node scripts/build.mjs linux-amd
+    - name: 输出失败资源链接
+      if: ${{ failure() && steps.compile.outcome == 'failure' }}
+      shell: bash
+      run: |
+        # 独立诊断只读取路径及目标，原编译步骤的失败退出码保持。
+        if [ -d "$CITIZENCHAIN_WORK_DIR/resources" ]; then
+          find "$CITIZENCHAIN_WORK_DIR/resources" -type l -exec ls -ld {} +
+        fi
     - name: 记录实际产物原始字节
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
       id: assets

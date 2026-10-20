@@ -1,7 +1,7 @@
 // 结构回归复用产品既有测试流程；源码定位不启动业务服务。
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,readdirSync,existsSync,statSync,realpathSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {readFileSync,readdirSync,existsSync,statSync,realpathSync,mkdirSync,mkdtempSync,rmSync,writeFileSync,symlinkSync,lstatSync} from 'node:fs';
 import {resolve,dirname,join,relative,isAbsolute,sep} from 'node:path';
 import {execFileSync} from 'node:child_process';
 
@@ -275,5 +275,37 @@ test('宿主产物验收读取真实资源并拒绝缺失、越界和覆盖工�
    await assert.rejects(verifyPreparedOnChina({...input,result:{targets:['platform'],frontend:join(work,'source')}}),/不能覆盖工程/);
   });
   assert.equal(existsSync(work),false);
+ }finally{rmSync(directory,{recursive:true,force:true});}
+});
+
+
+// 直接执行既有工作流脚本，覆盖失败码、无资源及文件/目录链接诊断，不跟随链接。
+test('两Linux失败资源诊断保留原编译退出码且只读取链接', {skip: process.platform === 'win32'}, ()=>{
+ const base=join(root,'target/test');mkdirSync(base,{recursive:true});
+ const directory=mkdtempSync(join(base,'linux-diagnostics-')),work=join(directory,'work');
+ try{
+  for(const [platform,workflow]of [['linux-arm','linuxarm.yml'],['linux-amd','linuxamd.yml']]){
+   const text=readFileSync(join(root,'.github/workflows',workflow),'utf8');
+   const block=name=>text.split('    - name: '+name+'\n')[1].split('    - name: ')[0];
+   const script=value=>value.split('      run: |\n')[1].split('\n').filter(line=>line.startsWith('        ')).map(line=>line.slice(8)).join('\n');
+   const compile=block('编译及核对完整产物'),diagnostic=block('输出失败资源链接');
+   assert.match(compile,/^      id: compile$/mu);
+   assert.equal(script(compile),'set -euo pipefail\nnode scripts/build.mjs '+platform);
+   assert.throws(()=>execFileSync('bash',['-e','-c','node(){ return 23; };\n'+script(compile)],{stdio:'pipe'}),error=>error.status===23);
+   assert.match(diagnostic,/if: \$\{\{ failure\(\) && steps\.compile\.outcome == 'failure' \}\}/u);
+   const run=()=>execFileSync('bash',['-e','-c',script(diagnostic)],{encoding:'utf8',env:{...process.env,CITIZENCHAIN_WORK_DIR:work}});
+   assert.equal(run(),'');
+   const resources=join(work,'resources'),outside=join(directory,'outside');
+   mkdirSync(resources,{recursive:true});mkdirSync(outside,{recursive:true});
+   writeFileSync(join(resources,'regular'),'owned');writeFileSync(join(outside,'target'),'target');
+   symlinkSync(outside,join(resources,'directory-link'));symlinkSync(join(outside,'target'),join(resources,'file-link'));
+   symlinkSync(join(outside,'missing'),join(outside,'nested-link'));
+   const output=run();
+   for(const name of ['directory-link','file-link'])assert.ok(output.includes(join(resources,name)+' -> '));
+   assert.ok(output.includes(outside));assert.ok(output.includes(join(outside,'target')));
+   assert.ok(!output.includes('nested-link'));assert.ok(!output.includes(join(resources,'regular')));
+   assert.equal(readFileSync(join(outside,'target'),'utf8'),'target');assert.ok(lstatSync(join(resources,'file-link')).isSymbolicLink());
+   rmSync(work,{recursive:true});rmSync(outside,{recursive:true});
+  }
  }finally{rmSync(directory,{recursive:true,force:true});}
 });
