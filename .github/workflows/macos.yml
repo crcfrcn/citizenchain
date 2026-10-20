@@ -69,6 +69,8 @@ jobs:
       CITIZENCHAIN_SOURCE_ROOT: "${{ github.workspace }}"
       CITIZENCHAIN_WORK_DIR: "${{ github.workspace }}/target/build/macos"
       CARGO_INCREMENTAL: '1'
+      # Cargo官方构建依赖覆盖：macOS宏动态库保留符号，避免strip破坏LINKEDIT对齐。
+      CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP: 'none'
       npm_config_cache: "${{ github.workspace }}/target/cache/macos/npm"
     outputs:
       assets: "${{ steps.assets.outputs.assets }}"

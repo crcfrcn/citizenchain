@@ -307,6 +307,21 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv[1]===import.meta.filename&&proces
     assert.equal(product.platforms.wasm.entry,'scripts/runtime.mjs');
     assert.equal(product.entry,'scripts/build.mjs');
   });
+  test('macOS仅对release构建依赖关闭strip，真实编译环境完整透传',async()=>{
+    const {readFileSync}=await import('node:fs'),{platformCargoEnvironment}=await import('./build.mjs');
+    const text=readFileSync(new URL('../.github/workflows/macos.yml',import.meta.url),'utf8');
+    const build=text.slice(text.indexOf('\n  build:'),text.indexOf('\n  release:'));
+    const key='CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP';
+    const value=new RegExp('^      '+key+": '([^']+)'$",'m').exec(build)?.[1];
+    assert.equal(value,'none','仅关闭宿主构建脚本/宏依赖的strip，保留交付目标原profile');
+    const input={[key]:value,PATH:'/usr/bin:/bin'};
+    assert.equal(platformCargoEnvironment('macos','/product/target/build/macos',input)[key],'none');
+    assert.deepEqual(input,{[key]:'none',PATH:'/usr/bin:/bin'},'既有环境交付不修改调用输入');
+    assert.equal(text.match(new RegExp(key,'g'))?.length,1);
+    assert.equal(text.includes('CARGO_PROFILE_RELEASE_STRIP'),false);
+    for(const name of ['windows.yml','linuxarm.yml','linuxamd.yml','wasm.yml'])
+      assert.equal(readFileSync(new URL('../.github/workflows/'+name,import.meta.url),'utf8').includes(key),false,'不扩大到其它平台');
+  });
   test('最新成功失败与活动Run隔离，收尾Run不消费编译版本',()=>{
     const rows=[run(1),run(2,'failure'),run(3),{...run(4),status:'in_progress'}, {...run(99),event:'repository_dispatch'}];
     const selected=retainedBuildRuns('linux-arm',rows);
