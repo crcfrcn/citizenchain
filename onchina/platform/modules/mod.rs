@@ -611,12 +611,13 @@ pub(crate) mod test_support {
         pub(crate) async fn restart(&mut self, version: &str, slow: bool) {
             self.catalog.stop_all().unwrap();
             // 直接复用当前测试程序；每次子进程仍有独立输入、父管道和退出回收。
+            // 标准stderr直接交给测试日志，不隐藏子进程的启动诊断。
             let mut child = ModuleProcess(Command::new(std::env::current_exe().unwrap())
                 .args(["--ignored", "--exact", "modules::tests::https_child"])
                 .env("ONCHINA_HTTPS_CHILD_TEST", "1").env("ONCHINA_PARENT_PIPE", "1").env("ONCHINA_TEST_MODULE_ID", &self.id)
                 .env("ONCHINA_TEST_BIND", self.address.to_string()).env("ONCHINA_TEST_VERSION", version)
                 .env("ONCHINA_TEST_TLS_DIRECTORY", &self.directory).env("ONCHINA_TEST_SLOW_WORKSPACE", if slow { "1" } else { "0" })
-                .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+                .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::inherit()).spawn().unwrap());
             let client = reqwest::Client::builder().no_proxy().https_only(true)
                 .redirect(reqwest::redirect::Policy::none())
                 .add_root_certificate(reqwest::Certificate::from_pem(self.ca.as_bytes()).unwrap())
@@ -625,9 +626,14 @@ pub(crate) mod test_support {
             let start = Instant::now();
             loop {
                 assert!(child.try_wait().unwrap().is_none(), "HTTPS test child exited");
-                if let Ok(response) = client.get(format!("{endpoint}/api/health")).timeout(Duration::from_millis(250)).send().await {
-                    if let Ok(value) = response.json::<serde_json::Value>().await {
+                // 只报告本夹具健康请求的失败；原重试、超时、证书与主机名校验不变。
+                if let Ok(response) = client.get(format!("{endpoint}/api/health")).timeout(Duration::from_millis(250)).send().await
+                    .inspect_err(|error| eprintln!("HTTPS test health request failed: {error:?}")) {
+                    let status = response.status();
+                    if let Ok(value) = response.json::<serde_json::Value>().await
+                        .inspect_err(|error| eprintln!("HTTPS test health JSON failed ({status}): {error:?}")) {
                         if value.pointer("/data/module_version").and_then(|v| v.as_str()) == Some(version) { break; }
+                        eprintln!("HTTPS test health version mismatch ({status}): expected {version}, received {:?}", value.pointer("/data/module_version").and_then(|v| v.as_str()));
                     }
                 }
                 assert!(start.elapsed() < Duration::from_secs(10), "HTTPS test child readiness");
