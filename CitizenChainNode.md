@@ -2728,7 +2728,7 @@ OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直
 
 两Linux正式编译在原步骤失败后，使用GitHub官方failure()与steps.compile.outcome条件运行独立资源诊断步骤；仅列出本轮resources中符号链接的路径和目标，不跟随目录链接、不修改输入、不新建诊断文件。原编译命令及失败退出码、完整产物与发布门禁、既有缓存及终态清理保持；诊断成功不代表编译成功。资源目录尚未生成时不输出链接，后续依据实际路径再决定修复。
 
-两Linux工作流在PostgreSQL原make install完成后，以系统cp -RL把Runner临时pg-dist复制为pg-runtime普通文件树，CITIZENCHAIN_PG_DIST只交付该物理副本。原安装原件、PostgreSQL/Node锁定版本和依赖保持；坏链接复制失败仍立即终止。此步骤避免Node25.2.1递归cpSync的dereference回归把绝对库链接带入资源包，既有build.mjs的链接拒绝、完整产物验收和失败诊断均保留，不新增仓库辅助文件。
+macOS和两Linux工作流在PostgreSQL原make install完成后，以系统cp -RL把Runner临时pg-dist复制为pg-runtime普通文件树，CITIZENCHAIN_PG_DIST只交付该物理副本。原安装原件、PostgreSQL/Node锁定版本和依赖保持；坏链接复制失败仍立即终止。此步骤避免Node25.2.1递归cpSync的dereference回归把绝对库链接带入资源包，macOS的四种dylib别名与Linux多级库别名均由既有回归验证物理副本、资源复制内容及坏链接失败；既有build.mjs的链接拒绝、完整产物验收和Linux失败诊断均保留，不新增仓库辅助文件。
 
 ### 原生构建精简与能力边界
 

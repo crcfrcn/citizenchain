@@ -312,13 +312,14 @@ test('两Linux失败资源诊断保留原编译退出码且只读取链接', {sk
 
 
 // 执行实际工作流物理复制命令，再用既有编译API复制，验证别名链不会进入资源包。
-test('两Linux PostgreSQL物理副本保留内容且坏链接仍失败', {skip: process.platform === 'win32'}, ()=>{
+test('macOS和两Linux PostgreSQL物理副本保留内容且坏链接仍失败', {skip: process.platform === 'win32'}, ()=>{
  const base=join(root,'target/test');mkdirSync(base,{recursive:true});
  const directory=mkdtempSync(join(base,'pg-physical-'));
  try{
-  for(const workflow of ['linuxarm.yml','linuxamd.yml']){
+  for(const workflow of ['linuxarm.yml','linuxamd.yml','macos.yml']){
    const text=readFileSync(join(root,'.github/workflows',workflow),'utf8');
-   const preparation=text.split('    - name: 准备 Linux 节点依赖和官方 protoc\n')[1].split('    - name: ')[0];
+   const name=workflow==='macos.yml'?'准备 macOS 原生依赖、官方 protoc 与签名身份':'准备 Linux 节点依赖和官方 protoc';
+   const preparation=text.split('    - name: '+name+'\n')[1].split('    - name: ')[0];
    const copy=preparation.split('\n').find(line=>line.trimStart().startsWith('cp -RL ')).trim();
    assert.ok(preparation.includes('echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-runtime" >> "$GITHUB_ENV"'));
    const original=join(directory,'pg-dist'),physical=join(directory,'pg-runtime'),resources=join(directory,'resources');
@@ -326,11 +327,24 @@ test('两Linux PostgreSQL物理副本保留内容且坏链接仍失败', {skip: 
    writeFileSync(join(original,'bin/postgres'),'fixture-binary');writeFileSync(join(original,'share/catalog'),'fixture-catalog');
    writeFileSync(join(original,'lib/libpq.so.5.17'),'fixture-library');
    symlinkSync('libpq.so.5.17',join(original,'lib/libpq.so.5'));symlinkSync('libpq.so.5',join(original,'lib/libpq.so'));
+   // macOS安装的四种dylib别名同样必须物理复制，原Linux多级别名断言保持。
+   const libraries=[['pq','5'],['pgtypes','3'],['ecpg','6'],['ecpg_compat','3']];
+   for(const [name,version]of libraries){
+    writeFileSync(join(original,'lib','lib'+name+'.'+version+'.dylib'),'fixture-'+name);
+    symlinkSync('lib'+name+'.'+version+'.dylib',join(original,'lib','lib'+name+'.dylib'));
+   }
    execFileSync('bash',['-e','-c',copy],{env:{...process.env,RUNNER_TEMP:directory}});
    for(const name of ['bin','lib','share'])cpSync(join(physical,name),join(resources,name),{recursive:true,dereference:true});
    for(const name of ['libpq.so','libpq.so.5','libpq.so.5.17']){
     assert.ok(lstatSync(join(physical,'lib',name)).isFile());assert.ok(lstatSync(join(resources,'lib',name)).isFile());
     assert.equal(readFileSync(join(resources,'lib',name),'utf8'),'fixture-library');
+   }
+   for(const [name,version]of libraries){
+    for(const file of ['lib'+name+'.dylib','lib'+name+'.'+version+'.dylib']){
+     assert.ok(lstatSync(join(physical,'lib',file)).isFile());assert.ok(lstatSync(join(resources,'lib',file)).isFile());
+     assert.equal(readFileSync(join(resources,'lib',file),'utf8'),'fixture-'+name);
+    }
+    assert.ok(lstatSync(join(original,'lib','lib'+name+'.dylib')).isSymbolicLink());
    }
    assert.equal(readFileSync(join(resources,'bin/postgres'),'utf8'),'fixture-binary');
    assert.equal(readFileSync(join(resources,'share/catalog'),'utf8'),'fixture-catalog');
