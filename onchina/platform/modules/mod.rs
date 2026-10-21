@@ -672,10 +672,17 @@ pub(crate) mod test_support {
         }
         let ca_key = rcgen::KeyPair::generate().unwrap();
         let mut ca_params = rcgen::CertificateParams::default();
+        // 沿用rcgen官方CA签发示例，名称与密钥标识明确区分颁发者和服务器。
+        ca_params.distinguished_name.push(rcgen::DnType::CommonName, "OnChina test CA");
         ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        ca_params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature, rcgen::KeyUsagePurpose::KeyCertSign, rcgen::KeyUsagePurpose::CrlSign];
         let ca = ca_params.self_signed(&ca_key).unwrap();
         let key = rcgen::KeyPair::generate().unwrap();
-        let params = rcgen::CertificateParams::new(vec!["onchina.local".into()]).unwrap();
+        let mut params = rcgen::CertificateParams::new(vec!["onchina.local".into()]).unwrap();
+        params.distinguished_name.push(rcgen::DnType::CommonName, "onchina.local");
+        params.use_authority_key_identifier_extension = true;
+        params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
+        params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
         let certificate = params.signed_by(&key, &ca, &ca_key).unwrap();
         std::fs::write(fixture.directory.join("server.crt"), certificate.pem()).unwrap();
         std::fs::write(fixture.directory.join("server.key"), key.serialize_pem()).unwrap();
