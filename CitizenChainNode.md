@@ -2730,6 +2730,8 @@ OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直
 
 macOS和两Linux工作流在PostgreSQL原make install完成后，以系统cp -RL把Runner临时pg-dist复制为pg-runtime普通文件树，CITIZENCHAIN_PG_DIST只交付该物理副本。原安装原件、PostgreSQL/Node锁定版本和依赖保持；坏链接复制失败仍立即终止。此步骤避免Node25.2.1递归cpSync的dereference回归把绝对库链接带入资源包，macOS的四种dylib别名与Linux多级库别名均由既有回归验证物理副本、资源复制内容及坏链接失败；既有build.mjs的链接拒绝、完整产物验收和Linux失败诊断均保留，不新增仓库辅助文件。
 
+macOS使用Tauri官方`--bundles app,dmg`一次打包，保留App供原有codesign身份、团队、时间戳与stapler校验，DMG仍通过hdiutil验证。只请求dmg时Tauri会清除中间App，不能再对已清除的App做完整产物核对；显式请求app不会重复编译节点。最终artifact及正式Release仍只交付唯一DMG，App随本轮现场清理，不新增交付类型或放宽原检查。
+
 ### 原生构建精简与能力边界
 
 节点默认Cargo特性仅std；custom-protocol仍可显式启用，正式Tauri CLI按官方实现自动启用tauri/custom-protocol，桌面正式包继续嵌入已构建前端。普通cargo test不再把前端源码及node_modules作为生产资源嵌入。benchmark模块、CLI入口与依赖仅在既有runtime-benchmarks特性下编译；生产Runtime升级安全检查仍使用frame-benchmarking的API标识，原防护不变。

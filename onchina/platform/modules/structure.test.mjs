@@ -228,7 +228,7 @@ test('专属现场互斥、普通失败清理、退出未确认保留',async()=>
 
 test('npm入口、平台隔离与四端前置验收登记保持闭环',async()=>{
  const {argumentsOf,buildPaths}=await import('../../../scripts/onchina.mjs');
- const {product}=await import('../../../scripts/config.mjs');
+ const {product,artifactNames}=await import('../../../scripts/config.mjs');
  const pkg=JSON.parse(source('platform/frontend/package.json'));
  assert.equal(pkg.scripts.build,'node ../../../scripts/onchina.mjs build');
  assert.equal(pkg.scripts.dev,'npm run build && npm run preview');
@@ -248,6 +248,8 @@ test('npm入口、平台隔离与四端前置验收登记保持闭环',async()=>
    const index=workflow.indexOf(command);assert.ok(index>=0&&index<compile,id+': '+command);
   }
  }
+ // App仅供macOS核对，正式交付集合仍只有一个DMG。
+ assert.deepEqual(artifactNames('macos','1.0.0'),['citizenchain-macOS-v1.0.0.dmg']);
  assert.throws(()=>buildPaths('wasm'),/目标无效/);
  assert.throws(()=>buildPaths('macos','../escape'),/目标无效/);
 });

@@ -178,7 +178,8 @@ async function compile(platform) {
       if (readFileSync(file).subarray(0, 4).equals(Buffer.from([127, 69, 76, 70]))) await run('patchelf', ['--set-rpath', '$ORIGIN:$ORIGIN/..:$ORIGIN/../lib', file], {capture: true});
     }
     await run(join(resources, 'postgres', pgOs, 'bin', platform === 'windows' ? 'initdb.exe' : 'initdb'), ['-D', join(work, 'pg-probe'), '-U', 'citizenchain', '--auth-local=trust', '--auth-host=trust', '--encoding=UTF8', '--no-locale']);
-    await runBuildProcess(process.execPath, [tauri, 'bundle', '--config', JSON.stringify(config), '--bundles', declared.bundle, '--ci'], platform === 'macos' ? signing : env, join(root, 'node'));
+    // 按Tauri官方目标保留macOS App用于签名、公证核对，最终仅交付DMG。
+    await runBuildProcess(process.execPath, [tauri, 'bundle', '--config', JSON.stringify(config), '--bundles', platform === 'macos' ? 'app,dmg' : declared.bundle, '--ci'], platform === 'macos' ? signing : env, join(root, 'node'));
     const installer = oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle', declared.bundle), declared.extension);
     if (platform === 'macos') {
       const app = oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle/macos'), '.app');
