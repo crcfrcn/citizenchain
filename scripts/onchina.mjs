@@ -121,16 +121,18 @@ export async function buildPreparedOnChina({
   const modules = ownedPath(work, moduleDestination || env.ONCHINA_MODULE_DIST || join(work, 'onchina-modules'), '模块输出');
   const targets = selectTargets(project, selection);
   if (prepareDependencies) await prepareFrontend(project, env);
+  // Cargo官方支持重复--bin；一次编译所选全部目标，仍交付每个独立程序。
+  if (!frontendOnly) {
+    await runBuildProcess(cargo, ['--config', join(project, 'config.toml'), 'build', '--locked', '--release', '-p', 'onchina', ...targets.flatMap(target => ['--bin', target.name])], env, project);
+  }
   for (const target of targets) {
-    if (!frontendOnly) {
-      await runBuildProcess(cargo, ['--config', join(project, 'config.toml'), 'build', '--locked', '--release', '-p', 'onchina', '--bin', target.name], env, project);
-    }
     const executable = join(targetDirectory, 'release', target.name + (platform === 'windows' ? '.exe' : ''));
     if (target.id !== 'platform' && (!existsSync(executable) || !lstatSync(executable).isFile())) fail('模块声明必须来自已构建的对应程序：' + target.name);
     const description = target.id === 'platform' ? null : await describe(executable, env, project, target);
     const destination = description ? join(modules, target.id, 'frontend') : output;
     mkdirSync(destination, {recursive: true});
-    const job = {project, work, frontend, destination, description};
+    // 公共工具配置仅首个worker检查；单模块构建同样检查一次。
+    const job = {project, work, frontend, destination, description, checkNode: target === targets[0]};
     await runBuildProcess(node, [fileURLToPath(import.meta.url), 'frontend-worker'], {...env, ONCHINA_BUILD_JOB: JSON.stringify(job)}, project);
     if (description) {
       const header = marker(description);
@@ -171,15 +173,18 @@ async function frontendWorker() {
   const program = ts.createProgram({rootNames: roots, options: {...parsed.options, incremental: false, noEmit: true}});
   const diagnostics = ts.getPreEmitDiagnostics(program);
   if (diagnostics.length) fail(ts.formatDiagnosticsWithColorAndContext(diagnostics, diagnosticHost(ts)));
-  // 构建只核对原Node工具配置；原测试仍由既有完整typecheck/test流程核对，避免单模块依赖别的业务测试。
-  const nodeConfigPath = join(job.frontend, 'tsconfig.node.json');
-  const nodeConfig = ts.readConfigFile(nodeConfigPath, ts.sys.readFile);
-  if (nodeConfig.error) fail(ts.flattenDiagnosticMessageText(nodeConfig.error.messageText, '\n'));
-  const nodeParsed = ts.parseJsonConfigFileContent(nodeConfig.config, ts.sys, job.frontend);
-  if (nodeParsed.errors.length) fail(ts.formatDiagnosticsWithColorAndContext(nodeParsed.errors, diagnosticHost(ts)));
-  const nodeProgram = ts.createProgram({rootNames: nodeParsed.fileNames.filter(file => !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(file)), options: {...nodeParsed.options, incremental: false, noEmit: true}});
-  const nodeDiagnostics = ts.getPreEmitDiagnostics(nodeProgram);
-  if (nodeDiagnostics.length) fail(ts.formatDiagnosticsWithColorAndContext(nodeDiagnostics, diagnosticHost(ts)));
+  // 每个入口的类型检查保持；同次构建的公共工具配置只检查一次。
+  if (job.checkNode !== false) {
+    // 构建只核对原Node工具配置；原测试仍由既有完整typecheck/test流程核对，避免单模块依赖别的业务测试。
+    const nodeConfigPath = join(job.frontend, 'tsconfig.node.json');
+    const nodeConfig = ts.readConfigFile(nodeConfigPath, ts.sys.readFile);
+    if (nodeConfig.error) fail(ts.flattenDiagnosticMessageText(nodeConfig.error.messageText, '\n'));
+    const nodeParsed = ts.parseJsonConfigFileContent(nodeConfig.config, ts.sys, job.frontend);
+    if (nodeParsed.errors.length) fail(ts.formatDiagnosticsWithColorAndContext(nodeParsed.errors, diagnosticHost(ts)));
+    const nodeProgram = ts.createProgram({rootNames: nodeParsed.fileNames.filter(file => !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(file)), options: {...nodeParsed.options, incremental: false, noEmit: true}});
+    const nodeDiagnostics = ts.getPreEmitDiagnostics(nodeProgram);
+    if (nodeDiagnostics.length) fail(ts.formatDiagnosticsWithColorAndContext(nodeDiagnostics, diagnosticHost(ts)));
+  }
   if (job.description) process.env.ONCHINA_MODULE_DESCRIPTION = JSON.stringify(job.description);
   else delete process.env.ONCHINA_MODULE_DESCRIPTION;
   process.env.ONCHINA_FRONTEND_DIST = job.destination;

@@ -2,6 +2,8 @@
 //!
 //! 收口原生节点 CLI、chain spec、RPC、服务工厂、benchmark 与网络证书能力。
 
+// 基准工具不进入默认生产编译；显式特性保留原有能力。
+#[cfg(feature = "runtime-benchmarks")]
 pub(crate) mod benchmarking;
 pub(crate) mod chain_spec;
 pub(crate) mod cli;

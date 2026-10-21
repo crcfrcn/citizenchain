@@ -2,17 +2,22 @@
 #![allow(clippy::result_large_err)]
 
 use super::{
-    benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferWithRemarkBuilder},
     chain_spec,
     cli::{Cli, Subcommand},
     service,
 };
-use citizenchain::{Block, EXISTENTIAL_DEPOSIT};
+use citizenchain::Block;
+#[cfg(feature = "runtime-benchmarks")]
+use citizenchain::EXISTENTIAL_DEPOSIT;
+#[cfg(feature = "runtime-benchmarks")]
+use super::benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferWithRemarkBuilder};
+#[cfg(feature = "runtime-benchmarks")]
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use primitives::core_const::{SS58_FORMAT, SUPPORT_URL};
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
 use sp_core::crypto::{set_default_ss58_version, Ss58AddressFormat};
+#[cfg(feature = "runtime-benchmarks")]
 use sp_keyring::Sr25519Keyring;
 
 impl SubstrateCli for Cli {
@@ -139,6 +144,7 @@ pub fn run() -> sc_cli::Result<()> {
                 Ok((cmd.run(client, backend, None), task_manager))
             })
         }
+        #[cfg(feature = "runtime-benchmarks")]
         Some(Subcommand::Benchmark(cmd)) => {
             let runner = cli.create_runner(cmd)?;
 
@@ -147,14 +153,6 @@ pub fn run() -> sc_cli::Result<()> {
                 // which sub-commands it wants to support.
                 match cmd {
                     BenchmarkCmd::Pallet(cmd) => {
-                        if !cfg!(feature = "runtime-benchmarks") {
-                            return Err(
-                                "Runtime benchmarking wasn't enabled when building the node. \
-							You can enable it with `--features runtime-benchmarks`."
-                                    .into(),
-                            );
-                        }
-
                         cmd.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ()>(Some(
                             config.chain_spec,
                         ))
@@ -163,12 +161,6 @@ pub fn run() -> sc_cli::Result<()> {
                         let PartialComponents { client, .. } = service::new_partial(&config)?;
                         cmd.run(client)
                     }
-                    #[cfg(not(feature = "runtime-benchmarks"))]
-                    BenchmarkCmd::Storage(_) => Err(
-                        "Storage benchmarking can be enabled with `--features runtime-benchmarks`."
-                            .into(),
-                    ),
-                    #[cfg(feature = "runtime-benchmarks")]
                     BenchmarkCmd::Storage(cmd) => {
                         let PartialComponents {
                             client, backend, ..

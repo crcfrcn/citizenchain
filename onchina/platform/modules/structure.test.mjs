@@ -341,3 +341,74 @@ test('两Linux PostgreSQL物理副本保留内容且坏链接仍失败', {skip: 
   }
  }finally{rmSync(directory,{recursive:true,force:true});}
 });
+
+// 用官方Node模块mock执行真实编排，不编译Rust或安装依赖；所有夹具退出后清空。
+test('合并Cargo仍交付五目标、单模块独立检查且失败原样终止',()=>{
+ const script = String.raw`
+ import {mock} from 'node:test';
+ import assert from 'node:assert/strict';
+ import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+ import {join,dirname} from 'node:path';
+ import {pathToFileURL} from 'node:url';
+ const root=process.cwd(),base=join(root,'target/test');mkdirSync(base,{recursive:true});
+ const work=mkdtempSync(join(base,'onchina-batch-')),calls=[],jobs=[];
+ let failure='';
+ const stop=new Error('原始构建失败');
+ const put=(path,text='fixture')=>{mkdirSync(dirname(path),{recursive:true});writeFileSync(path,text);};
+ await mock.module(pathToFileURL(join(root,'scripts/build.mjs')).href,{namedExports:{
+  assertBuildWork:()=>{},checkWork:()=>{},npmCLI:()=>'',stageWindowsOpenSsl:()=>{},
+  platformCargoEnvironment:(_platform,_work,env)=>({...env}),
+  runBuildProcess:async(command,args,env)=>{
+   if(command==='fixture-cargo'){
+    calls.push(args);
+    if(failure==='cargo')throw stop;
+    for(let i=0;i<args.length;i++)if(args[i]==='--bin')put(join(work,'cargo/release',args[i+1]+(process.platform==='win32'?'.exe':'')));
+   }else if(args[0]==='--describe'){
+    const id=command.split(/[\\/]/u).at(-1).replace(/\.exe$/u,'').slice(8);
+    return {stdout:JSON.stringify({id,version:'1.0.0',interface_version:1,frontend_source:'frontend/Workspace.tsx',frontend_exports:['Workspace']})};
+   }else if(args[1]==='frontend-worker'){
+    const job=JSON.parse(env.ONCHINA_BUILD_JOB);jobs.push(job);
+    if(failure==='frontend')throw stop;
+    if(job.description)put(join(job.destination,'module.js'),'module fixture');
+    else{put(join(job.destination,'index.html'),'<script src="main.js"></script>');put(join(job.destination,'main.js'));}
+   }
+   return {stdout:''};
+  }
+ }});
+ try{
+  const {buildPreparedOnChina,nativePlatform}=await import(pathToFileURL(join(root,'scripts/onchina.mjs')).href);
+  const request={project:root,platform:nativePlatform(),work,environment:{CARGO:'fixture-cargo',NODE:process.execPath,CARGO_TARGET_DIR:join(work,'cargo')},prepareDependencies:false};
+  const all=await buildPreparedOnChina(request);
+  assert.deepEqual(all.targets,['platform','registry','legislation','private','judicial']);
+  assert.equal(calls.length,1);
+  assert.deepEqual(calls[0].filter((_v,i,a)=>a[i-1]==='--bin'),['onchina','onchina-registry','onchina-legislation','onchina-private','onchina-judicial']);
+  assert.deepEqual(jobs.map(job=>job.checkNode),[true,false,false,false,false]);
+  calls.length=0;jobs.length=0;
+  const single=await buildPreparedOnChina({...request,selection:'registry'});
+  assert.deepEqual(single.targets,['registry']);assert.equal(calls.length,1);
+  assert.deepEqual(calls[0].slice(-2),['--bin','onchina-registry']);assert.deepEqual(jobs.map(job=>job.checkNode),[true]);
+  calls.length=0;jobs.length=0;
+  await buildPreparedOnChina({...request,selection:'registry',frontendOnly:true});
+  assert.equal(calls.length,0);assert.deepEqual(jobs.map(job=>job.checkNode),[true]);
+  for(const phase of ['cargo','frontend']){
+   calls.length=0;jobs.length=0;failure=phase;
+   await assert.rejects(buildPreparedOnChina(request),error=>error===stop);
+   assert.equal(calls.length,1);assert.equal(jobs.length,phase==='cargo'?0:1);
+  }
+ }finally{rmSync(work,{recursive:true,force:true});mock.restoreAll();}
+ `;
+ execFileSync(process.execPath,['--experimental-test-module-mocks','--input-type=module','-e',script],{cwd:root,stdio:'pipe'});
+});
+
+test('默认节点编译排除前端嵌入和基准CLI并保留显式能力及生产防护',()=>{
+ const manifest=readFileSync(join(root,'node/Cargo.toml'),'utf8');
+ assert.match(manifest,/^default = \["std"\]$/mu);
+ assert.match(manifest,/^custom-protocol = \["tauri\/custom-protocol"\]$/mu);
+ assert.match(manifest,/^frame-benchmarking-cli = .*optional = true/mu);
+ assert.match(manifest,/"frame-benchmarking-cli\/runtime-benchmarks"/u);
+ assert.match(readFileSync(join(root,'node/src/core/mod.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*pub\(crate\) mod benchmarking;/u);
+ assert.match(readFileSync(join(root,'node/src/core/cli.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*#\[command\(subcommand\)\]\s*Benchmark\(/u);
+ assert.match(readFileSync(join(root,'node/src/core/command.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*Some\(Subcommand::Benchmark/u);
+ assert.match(manifest,/^frame-benchmarking = /mu);
+ assert.match(readFileSync(join(root,'node/src/guard/runtime_policy.rs'),'utf8'),/dyn frame_benchmarking::Benchmark<citizenchain::Block>/u);
+});

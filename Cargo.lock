@@ -9711,7 +9711,6 @@ name = "node"
 version = "1.0.0"
 dependencies = [
  "admin-primitives",
- "async-channel 1.9.0",
  "async-trait",
  "blake2b_simd",
  "blockchain-harness",
@@ -9726,7 +9725,6 @@ dependencies = [
  "frame-benchmarking",
  "frame-benchmarking-cli",
  "frame-metadata",
- "frame-metadata-hash-extension",
  "frame-support",
  "frame-system",
  "frame-system-rpc-runtime-api",
@@ -9793,7 +9791,6 @@ dependencies = [
  "sp-consensus-pow",
  "sp-core",
  "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
- "sp-genesis-builder",
  "sp-inherents",
  "sp-io",
  "sp-keyring",
@@ -9804,7 +9801,6 @@ dependencies = [
  "sp-timestamp",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
- "sysinfo 0.34.2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -9815,7 +9811,6 @@ dependencies = [
  "tower 0.4.13",
  "tower-http 0.6.11",
  "twox-hash 2.1.4",
- "unicode-normalization",
  "votingengine",
  "zeroize",
 ]
@@ -10416,7 +10411,6 @@ name = "onchina"
 version = "1.0.0"
 dependencies = [
  "admin-primitives",
- "aes-gcm",
  "async-trait",
  "axum",
  "axum-server",
@@ -10428,16 +10422,12 @@ dependencies = [
  "citizenchain",
  "dashmap 6.2.1",
  "entity-primitives",
- "frame-metadata-hash-extension",
  "frame-support",
  "frame-system",
  "hex",
- "hex-literal",
- "hkdf",
  "legislation-yuan",
  "libc",
  "mdns-sd",
- "pallet-transaction-payment",
  "parity-scale-codec",
  "postgres",
  "primitives",
@@ -10452,7 +10442,6 @@ dependencies = [
  "sha2 0.10.9",
  "sp-core",
  "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
- "sp-runtime",
  "subxt 0.43.1",
  "time",
  "tokio",
@@ -10465,7 +10454,6 @@ dependencies = [
  "webauthn-authenticator-rs",
  "webauthn-rs",
  "x509-parser 0.16.0",
- "zeroize",
 ]
 
 [[package]]
@@ -16278,7 +16266,7 @@ dependencies = [
  "sp-state-machine",
  "sp-trie",
  "substrate-prometheus-endpoint",
- "sysinfo 0.30.13",
+ "sysinfo",
 ]
 
 [[package]]
@@ -20375,19 +20363,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sysinfo"
-version = "0.34.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4b93974b3d3aeaa036504b8eefd4c039dced109171c1ae973f1dc63b2c7e4b2"
-dependencies = [
- "libc",
- "memchr",
- "ntapi",
- "objc2-core-foundation",
- "windows 0.57.0",
-]
-
-[[package]]
 name = "system-configuration"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -22749,8 +22724,8 @@ dependencies = [
  "webview2-com-sys",
  "windows 0.61.3",
  "windows-core 0.61.2",
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
+ "windows-implement",
+ "windows-interface",
 ]
 
 [[package]]
@@ -22909,16 +22884,6 @@ dependencies = [
 
 [[package]]
 name = "windows"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12342cb4d8e3b046f3d80effd474a7a02447231330ef77d71daa6fbc40681143"
-dependencies = [
- "windows-core 0.57.0",
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows"
 version = "0.61.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
@@ -22971,24 +22936,12 @@ dependencies = [
 
 [[package]]
 name = "windows-core"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ed2439a290666cd67ecce2b0ffaad89c2a56b976b736e6ece670297897832d"
-dependencies = [
- "windows-implement 0.57.0",
- "windows-interface 0.57.0",
- "windows-result 0.1.2",
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-core"
 version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3"
 dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
+ "windows-implement",
+ "windows-interface",
  "windows-link 0.1.3",
  "windows-result 0.3.4",
  "windows-strings 0.4.2",
@@ -23000,8 +22953,8 @@ version = "0.62.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
 dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
+ "windows-implement",
+ "windows-interface",
  "windows-link 0.2.1",
  "windows-result 0.4.1",
  "windows-strings 0.5.1",
@@ -23031,31 +22984,9 @@ dependencies = [
 
 [[package]]
 name = "windows-implement"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9107ddc059d5b6fbfbffdfa7a7fe3e22a226def0b2608f72e9d552763d3e1ad7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "windows-implement"
 version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "windows-interface"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29bee4b38ea3cde66011baa44dba677c432a78593e202392d1e9070cf2a7fca7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -23114,15 +23045,6 @@ dependencies = [
  "windows-link 0.2.1",
  "windows-result 0.4.1",
  "windows-strings 0.5.1",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
-dependencies = [
- "windows-targets 0.52.6",
 ]
 
 [[package]]

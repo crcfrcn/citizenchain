@@ -70,7 +70,8 @@ pub enum Subcommand {
     /// Revert the chain to a previous state.
     Revert(sc_cli::RevertCmd),
 
-    /// Sub-commands concerned with benchmarking.
+    /// 显式启用runtime-benchmarks后提供完整基准子命令。
+    #[cfg(feature = "runtime-benchmarks")]
     #[command(subcommand)]
     Benchmark(frame_benchmarking_cli::BenchmarkCmd),
 

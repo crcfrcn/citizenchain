@@ -23,7 +23,6 @@ targets = ["x86_64-unknown-linux-gnu"]
 workspace = true
 
 [dependencies]
-async-channel = "1.9"
 hex = "=0.4.3"
 qr-protocol = { path = "../crates/protocol" } # 仓库级 QR_V1 协议真源：registry + 载荷编解码
 hex-literal = "0.4"
@@ -66,7 +65,6 @@ sp-consensus-pow = { workspace = true, default-features = true }
 sp-consensus-grandpa = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 sp-crypto-hashing = { workspace = true, default-features = true }
-sp-genesis-builder = { workspace = true, default-features = true }
 sp-keystore = { workspace = true, default-features = true }
 
 # substrate primitives
@@ -84,7 +82,6 @@ sp-timestamp = { workspace = true, default-features = true }
 async-trait = { workspace = true }
 
 # frame and pallets
-frame-metadata-hash-extension = { workspace = true, default-features = true }
 frame-metadata = "=23.0.1"
 scale-value = "=0.18.2"
 scale-info = { workspace = true, default-features = true }
@@ -106,8 +103,8 @@ joint-vote = { path = "../runtime/votingengine/joint-vote", default-features = t
 election-vote = { path = "../runtime/votingengine/election-vote", default-features = true }
 legislation-vote = { path = "../runtime/votingengine/legislation-vote", default-features = true }
 
-# These dependencies are used for runtime benchmarking
-frame-benchmarking-cli = { workspace = true, default-features = true }
+# 基准CLI仅由runtime-benchmarks启用；frame-benchmarking仍供生产Runtime API安全检查使用。
+frame-benchmarking-cli = { workspace = true, default-features = true, optional = true }
 frame-benchmarking = { workspace = true, default-features = true }
 
 # Local Dependencies
@@ -135,10 +132,8 @@ ed25519-dalek = "=2.2.0"
 sha2 = "=0.10.9"
 rand = { workspace = true, default-features = true }
 reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "json", "query", "rustls"] }
-sysinfo = "0.34"
 thiserror = { workspace = true }
 twox-hash = "=2.1.4"
-unicode-normalization = "=0.1.25"
 zeroize = "=1.9.0"
 tokio = { workspace = true, default-features = true, features = ["time"] }
 
@@ -160,11 +155,12 @@ substrate-build-script-utils = { workspace = true, default-features = true }
 tauri-build = { version = "=2.6.3", features = [] }
 
 [features]
-default = ["std", "custom-protocol"]
+# 普通Cargo测试不嵌入前端源码；正式Tauri CLI自动启用tauri/custom-protocol。
+default = ["std"]
 std = ["citizenchain/std"]
 custom-protocol = ["tauri/custom-protocol"]
 gpu-mining = ["ocl"]
-# Dependencies that are only required if runtime benchmarking should be build.
+# 显式启用时仍提供完整基准命令与Runtime基准功能。
 runtime-benchmarks = [
     "frame-benchmarking-cli/runtime-benchmarks",
 	"citizenchain/runtime-benchmarks",

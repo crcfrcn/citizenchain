@@ -2729,3 +2729,13 @@ OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直
 两Linux正式编译在原步骤失败后，使用GitHub官方failure()与steps.compile.outcome条件运行独立资源诊断步骤；仅列出本轮resources中符号链接的路径和目标，不跟随目录链接、不修改输入、不新建诊断文件。原编译命令及失败退出码、完整产物与发布门禁、既有缓存及终态清理保持；诊断成功不代表编译成功。资源目录尚未生成时不输出链接，后续依据实际路径再决定修复。
 
 两Linux工作流在PostgreSQL原make install完成后，以系统cp -RL把Runner临时pg-dist复制为pg-runtime普通文件树，CITIZENCHAIN_PG_DIST只交付该物理副本。原安装原件、PostgreSQL/Node锁定版本和依赖保持；坏链接复制失败仍立即终止。此步骤避免Node25.2.1递归cpSync的dereference回归把绝对库链接带入资源包，既有build.mjs的链接拒绝、完整产物验收和失败诊断均保留，不新增仓库辅助文件。
+
+### 原生构建精简与能力边界
+
+节点默认Cargo特性仅std；custom-protocol仍可显式启用，正式Tauri CLI按官方实现自动启用tauri/custom-protocol，桌面正式包继续嵌入已构建前端。普通cargo test不再把前端源码及node_modules作为生产资源嵌入。benchmark模块、CLI入口与依赖仅在既有runtime-benchmarks特性下编译；生产Runtime升级安全检查仍使用frame-benchmarking的API标识，原防护不变。
+
+逐项核对源码、测试、构建脚本和特性后，删除Node未用的async-channel、sp-genesis-builder、frame-metadata-hash-extension、sysinfo、unicode-normalization直接声明；删除OnChina未用的hex-literal、aes-gcm、hkdf、zeroize、pallet-transaction-payment、frame-metadata-hash-extension、sp-runtime直接声明。其它组件实际引用的传递依赖继续由原锁保留，不删除chain-signing的签名实现依赖。QR独立workspace仅保留实际继承的serde、serde_json、thiserror三项目录；删除其余56项未继承目录不代表减少已参与编译的依赖。
+
+OnChina按真实Cargo入口用一次cargo build和重复--bin选项编译所选目标，完整构建仍保留宿主及四个模块共五个程序。每个前端入口保留原类型检查、真实声明和产物验收；共享tsconfig.node.json工具配置每次构建仅检查一次，单模块构建也独立检查一次，原全量typecheck和业务测试保持。仅合并调用次数，不宣称省去必要二进制编译。
+
+上述精简不修改Runtime、build.mjs、Node锁定版本、PostgreSQL与系统工具链依赖，不放宽原业务断言、证书及主机名检查。锁文件由Cargo维护，只删除无引用项，不升级保留的版本或来源；真实原生编译和测试由产品GitHub工作流验收。
