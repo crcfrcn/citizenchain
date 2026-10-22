@@ -57,6 +57,10 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [unlockPassword, setUnlockPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // 状态更新前也可能重复点击或扫码；提交成功后保持锁定至关闭，失败才允许重试。
+  const inFlight = useRef(false);
 
   const signRequestRef = useRef(signRequest);
   signRequestRef.current = signRequest;
@@ -76,7 +80,11 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
   }, [step, countdown]);
 
   const handleConfirm = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
     setError(null);
+    let submitted = false;
     try {
       switch (wallet.signMode) {
         case 'hot': {
@@ -95,6 +103,7 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
           setUnlockPassword('');
           setTxHash(result.txHash);
           setStep('done');
+          submitted = true;
           return;
         }
         case 'cold': {
@@ -116,10 +125,14 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
     } catch (e) {
       setError(sanitizeError(e));
       setStep('error');
+    } finally {
+      inFlight.current = submitted;
+      setBusy(false);
     }
   }, [wallet.accountId, wallet.signMode, toAddress, amountYuan, remark, unlockPassword]);
 
   const handleScanResult = useCallback(async (responseText: string) => {
+    if (inFlight.current) return;
     if (wallet.signMode !== 'cold') {
       setError('只有 Cold 钱包可以提交离线扫码签名');
       setStep('error');
@@ -131,6 +144,7 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
       setStep('error');
       return;
     }
+    inFlight.current = true;
     setStep('submit');
     try {
       const result = await api.submitColdTransfer(
@@ -145,6 +159,7 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
       setTxHash(result.txHash);
       setStep('done');
     } catch (e) {
+      inFlight.current = false;
       setError(sanitizeError(e));
       setStep('error');
     }
@@ -206,7 +221,7 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
               <button
                 className="transfer-signing-confirm"
                 onClick={handleConfirm}
-                disabled={isHot && !unlockPassword.trim()}
+                disabled={busy || (isHot && !unlockPassword.trim())}
               >
                 {confirmButtonLabel(wallet.signMode)}
               </button>

@@ -585,6 +585,133 @@ fn now_secs() -> u64 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn transfer_amounts_fees_and_cold_call_match_runtime() {
+        use codec::Encode;
+
+        let destination = [0xAA; 32];
+        for (yuan, fen, fee) in [
+            (1.0, 100u128, 10u128),
+            (104.99, 10_499, 10),
+            (105.0, 10_500, 11),
+            (1000.0, 100_000, 100),
+        ] {
+            assert_eq!(amount_yuan_to_fen(yuan).unwrap(), fen);
+            assert_eq!(calculate_transfer_fee(fen), fee);
+            let bytes = build_transfer_with_remark_call(&destination, fen, "转账").unwrap();
+            let call = citizenchain::RuntimeCall::OnchainTransaction(
+                ::onchain::pallet::Call::transfer_with_remark {
+                    beneficiary_account_id: destination.into(),
+                    amount: fen,
+                    remark: "转账".as_bytes().to_vec().try_into().unwrap(),
+                },
+            );
+            // 冷签二维码中的调用必须是当前 Runtime 的真实调用编码，不只比较自制字节偏移。
+            assert_eq!(bytes, call.encode());
+            let material =
+                chain_signing::build_signing_material(&bytes, &[0; 32], 7, 1, 0).unwrap();
+            assert_eq!(material.call.encode(), bytes);
+            let request = signing::QrSignRequest {
+                proto: signing::QR_V1.into(),
+                kind: signing::QR_KIND_SIGN_REQUEST,
+                id: format!("transfer-test-{fen}"),
+                expires_at: signing::now_secs().unwrap() + signing::DEFAULT_TTL_SECS,
+                body: signing::SignRequestBody {
+                    action: signing::chain_action_code(&bytes).unwrap(),
+                    sig_alg: 1,
+                    signer_public_key: signing::public_key_b64(&[0x11; 32]).unwrap(),
+                    payload: signing::payload_b64(&material.payload),
+                },
+            };
+            let envelope = serde_json::to_value(request).unwrap();
+            assert!(qr_protocol::validate_qr_value(&envelope).is_ok());
+        }
+    }
+
+    #[test]
+    fn transfer_amount_rejects_nonfinite_and_below_one_fen() {
+        for amount in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0, 0.0, 0.009] {
+            assert!(amount_yuan_to_fen(amount).is_err());
+        }
+        assert_eq!(amount_yuan_to_fen(0.01).unwrap(), 1);
+    }
+
+    #[test]
+    fn cold_transfer_rejects_changed_expired_and_consumed_sessions_before_rpc() {
+        let signer = format!("0x{}", "11".repeat(32));
+        let payload_hash = "11".repeat(32);
+        let call = build_transfer_with_remark_call(&[0xAA; 32], 10_500, "转账").unwrap();
+        // 这些已登记会话必须在接触RPC前拒绝；测试不连接生产节点或读取私钥。
+        for scenario in [
+            "call",
+            "nonce",
+            "hash",
+            "signer",
+            "expiry",
+            "response-expiry",
+        ] {
+            let request_id = signing::generate_request_id("transfer-test");
+            let now = signing::now_secs().unwrap();
+            let expires_at = if scenario == "expiry" {
+                now - 1
+            } else {
+                now + 90
+            };
+            signing::remember_chain_sign_request_session(
+                &request_id,
+                &signer,
+                &call,
+                &payload_hash,
+                &"22".repeat(32),
+                7,
+                expires_at,
+            )
+            .unwrap();
+            let response = serde_json::json!({
+                "p":signing::QR_V1,"k":signing::QR_KIND_SIGN_RESPONSE,"i":request_id,
+                "e":if scenario == "response-expiry" { expires_at + 1 } else { expires_at },
+                "b":{"u":signing::public_key_b64(&[0x11;32]).unwrap(),
+                    "s":qr_protocol::bytes_to_b64(&[0;64])}
+            })
+            .to_string();
+            let mut supplied_call = call.clone();
+            if scenario == "call" {
+                supplied_call.push(0);
+            }
+            let supplied_signer = if scenario == "signer" {
+                format!("0x{}", "33".repeat(32))
+            } else {
+                signer.clone()
+            };
+            let supplied_hash = if scenario == "hash" {
+                "33".repeat(32)
+            } else {
+                payload_hash.clone()
+            };
+            let result = signing::verify_and_submit(
+                &request_id,
+                &supplied_signer,
+                &supplied_hash,
+                &supplied_call,
+                if scenario == "nonce" { 8 } else { 7 },
+                0,
+                &response,
+            );
+            assert!(result.is_err(), "被修改或过期的会话必须拒绝: {scenario}");
+            let replay = signing::verify_and_submit(
+                &request_id,
+                &signer,
+                &payload_hash,
+                &call,
+                7,
+                0,
+                &response,
+            )
+            .unwrap_err();
+            assert!(replay.contains("未找到本地签名 session"));
+        }
+    }
+
     fn test_wallet(fill: u8, sign_mode: SignMode) -> Wallet {
         let account_id_bytes = [fill; 32];
         Wallet {

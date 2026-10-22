@@ -57,7 +57,8 @@ export function TransactionPanel() {
 
   const handleTransferSuccess = useCallback((txHash: string) => {
     setSigningFlow(null);
-    setSuccessMsg(`转账成功，哈希: ${txHash.slice(0, 16)}...`);
+    // 此处只有交易池提交哈希，不能把提交成功显示为已上链成功。
+    setSuccessMsg(`转账已提交，哈希: ${txHash.slice(0, 16)}...`);
     if (successTimer.current) clearTimeout(successTimer.current);
     successTimer.current = setTimeout(() => setSuccessMsg(null), 5000);
   }, []);

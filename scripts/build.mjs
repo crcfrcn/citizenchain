@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// 仅供公民链 GitHub Runner 编译、组装及核对完整产物；不负责自动化管理或发布。
+// 公民链本机与GitHub的唯一编译实现；本机只交付App，签名和安装归控制台。
 import {spawnSync} from 'node:child_process';
-import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
+import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep, delimiter} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {product, artifactNames, deliveryVersion} from './config.mjs';
@@ -131,10 +131,10 @@ async function signResources(files, work, env) {
     if (existsSync(keychain)) await security(['delete-keychain', keychain]);
   }
 }
-async function compile(platform) {
+async function buildPlatform(platform,{work=join(root,'target/build',platform),local=false,consume}={}) {
   if (platform === 'wasm') fail('Runtime请使用 scripts/runtime.mjs build');
-  const work = join(root, 'target/build', platform), declared = product.platforms[platform];
-  assertBuildWork(work, platform);
+  const declared = product.platforms[platform];
+  if(local)checkWork(work);else assertBuildWork(work, platform);
   if (process.platform !== declared.host || process.arch !== declared.arch) fail('必须在声明对应的原生 Runner 编译');
   if (process.versions.node !== product.tools.node) fail('Node 版本不符合产品声明');
   mkdirSync(work, {recursive: true});
@@ -147,7 +147,7 @@ async function compile(platform) {
   mkdirSync(artifact);
   {
     const {buildPreparedOnChina} = await import('./onchina.mjs');
-    const onchina = await buildPreparedOnChina({project: root, platform, work, environment: env, prepareDependencies: false});
+    const onchina = await buildPreparedOnChina({project: root, platform, work, environment: env, prepareDependencies: local});
     const resources = join(work, 'resources'), pgOs = platform === 'macos' ? 'macos' : platform === 'windows' ? 'windows' : 'linux';
     mkdirSync(join(resources, 'onchina-bin'), {recursive: true});
     copyFileSync(onchina.host, join(resources, 'onchina-bin', basename(onchina.host)));
@@ -164,7 +164,7 @@ async function compile(platform) {
     await runBuildProcess(process.execPath, [npmCLI(), 'run', 'build'], env, join(root, 'node/frontend'));
     const config = {version: process.env.CITIZENCHAIN_RELEASE_VERSION, build: {beforeBuildCommand: null, frontendDist: env.CITIZENCHAIN_FRONTEND_DIST},
       bundle: {resources: {[resources + sep]: '', [join(root, 'icons') + sep]: 'icons/', [join(root, 'onchina/platform/codes/china.sqlite')]: 'china.sqlite'}}};
-    if (platform === 'macos') {
+    if (platform === 'macos' && !local) {
       if (!process.env.APPLE_PROFILE_BASE64 || !process.env.APPLE_SIGNING_IDENTITY || !process.env.APPLE_ID || !process.env.APPLE_PASSWORD || !process.env.APPLE_TEAM_ID) fail('缺少 macOS 正式签名、公证输入');
       const profile = join(work, 'embedded.provisionprofile');
       writeFileSync(profile, Buffer.from(process.env.APPLE_PROFILE_BASE64, 'base64'), {mode: 0o600, flag: 'wx'});
@@ -173,7 +173,14 @@ async function compile(platform) {
     const tauri = join(root, 'node/frontend/node_modules/@tauri-apps/cli/tauri.js');
     await runBuildProcess(process.execPath, [tauri, 'build', '--config', JSON.stringify(config), '--no-bundle', '--ci', '--', '--locked', '--config', join(root, 'config.toml')], env, join(root, 'node'));
     const signing = {...env, ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith('APPLE_')))};
-    if (platform === 'macos') await signResources(await macLibraries(resources, join(env.CARGO_TARGET_DIR, 'release/citizenchain'), env), work, signing);
+    if (platform === 'macos' && !local) await signResources(await macLibraries(resources, join(env.CARGO_TARGET_DIR, 'release/citizenchain'), env), work, signing);
+    if(local){
+      if(platform!=='macos')fail('当前本机编译只支持macOS');
+      config.bundle.macOS={hardenedRuntime:true,signingIdentity:null};
+      await runBuildProcess(process.execPath,[tauri,'bundle','--config',JSON.stringify(config),'--bundles','app','--ci'],env,join(root,'node'));
+      const app=oneBundle(join(env.CARGO_TARGET_DIR,'release/bundle/macos'),'.app');
+      await consume({schema:1,product_id:product.id,platform,work,artifact:app,tools:{}});return;
+    }
     if (platform.startsWith('linux-')) for (const file of walk(join(resources, 'postgres/linux'))) {
       if (readFileSync(file).subarray(0, 4).equals(Buffer.from([127, 69, 76, 70]))) await run('patchelf', ['--set-rpath', '$ORIGIN:$ORIGIN/..:$ORIGIN/../lib', file], {capture: true});
     }
@@ -207,7 +214,44 @@ async function compile(platform) {
   }
   process.stdout.write('完整编译产物：' + artifact + '\n');
 }
+// 本机编译使用真实本机环境；GitHub身份校验仍只用于原GitHub入口。
+async function compile(platform){
+ if(platform!=='macos'||process.platform!=='darwin'||process.arch!=='arm64'||process.env.GITHUB_ACTIONS==='true')fail('本机公民链编译只支持ARM64 macOS');
+ const parent=join(root,'target/build');mkdirSync(parent,{recursive:true});checkWork(join(parent,'candidate'));
+ const work=mkdtempSync(join(parent,'local-'));
+ const environment={...process.env,PATH:process.env.HOME+'/.cargo/bin:/opt/homebrew/bin:'+(process.env.PATH||'/usr/bin:/bin'),
+  CARGO:'cargo',CARGO_HOME:process.env.HOME+'/.cargo',RUSTUP_TOOLCHAIN:product.tools.rust,
+  CITIZENCHAIN_RELEASE_VERSION:/^version\s*=\s*"([^"]+)"/mu.exec(readFileSync(join(root,'Cargo.toml'),'utf8'))?.[1]};
+ deliveryVersion(environment.CITIZENCHAIN_RELEASE_VERSION);
+ let safe=true;
+ try{
+  const run=(file,args,options)=>runBuildProcess(file,args,environment,work,options);
+  const developer=(await run('/usr/bin/xcode-select',['-p'],{capture:true})).stdout.trim();
+  environment.DEVELOPER_DIR=developer;environment.LIBCLANG_PATH=join(developer,'Toolchains/XcodeDefault.xctoolchain/usr/lib');
+  environment.DYLD_FALLBACK_LIBRARY_PATH=environment.LIBCLANG_PATH+':/usr/lib';
+  // 沿用本产品GitHub已经使用的官方来源、版本和编译选项；不安装替代版本。
+  const openssl=(await run('/opt/homebrew/bin/brew',['--prefix','openssl@3'],{capture:true})).stdout.trim();
+  environment.CPPFLAGS='-I'+join(openssl,'include');environment.LDFLAGS='-L'+join(openssl,'lib');
+  for(const name of ['bison','flex'])environment.PATH=(await run('/opt/homebrew/bin/brew',['--prefix',name],{capture:true})).stdout.trim()+'/bin:'+environment.PATH;
+  const archive=join(work,'postgres.tar.bz2'),pg=product.tools.postgres;
+  await run('/usr/bin/curl',['--fail','--location','--proto','=https','--proto-redir','=https','--output',archive,'https://ftp.postgresql.org/pub/source/v'+pg+'/postgresql-'+pg+'.tar.bz2']);
+  await run('/usr/bin/tar',['-xjf',archive,'-C',work]);
+  const pgSource=join(work,'postgresql-'+pg),pgDist=join(work,'pg-dist');
+  await runBuildProcess(join(pgSource,'configure'),['--prefix='+pgDist,'--without-readline','--without-icu','--without-zlib','--with-openssl'],environment,pgSource);
+  await runBuildProcess('/usr/bin/make',['-j4'],environment,pgSource);await runBuildProcess('/usr/bin/make',['install'],environment,pgSource);
+  copyFileSync(join(pgSource,'COPYRIGHT'),join(pgDist,'COPYRIGHT'));environment.CITIZENCHAIN_PG_DIST=pgDist;
+  const proto=join(work,'protoc.zip');await run('/usr/bin/curl',['--fail','--location','--proto','=https','--proto-redir','=https','--output',proto,'https://github.com/protocolbuffers/protobuf/releases/download/v'+product.tools.protoc+'/protoc-'+product.tools.protoc+'-osx-aarch_64.zip']);
+  const protoRoot=join(work,'protoc');mkdirSync(protoRoot);await run('/usr/bin/unzip',['-q',proto,'-d',protoRoot]);environment.PROTOC=join(protoRoot,'bin/protoc');
+  await runBuildProcess(process.execPath,[npmCLI(),'ci','--ignore-scripts','--no-audit','--no-fund'],environment,join(root,'node/frontend'));
+  const previous=process.env;process.env=environment;
+  try{await buildPlatform(platform,{work,local:true,consume:async value=>{
+    process.stdout.write('TATA_COMPILE '+JSON.stringify(value)+'\n');
+    for await(const part of process.stdin)if(part.length)fail('编译消费通道只接受EOF');
+  }});}finally{process.env=previous;}
+ }catch(error){safe=!error.retainWork;throw error;}finally{if(safe)rmSync(work,{recursive:true,force:true});}
+}
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  if (process.argv.length !== 3) fail('仅接受一个 GitHub 编译平台参数');
-  compile(process.argv[2]).catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 1; });
+ const args=process.argv.slice(2);
+ const operation=args.length===2&&args[0]==='compile'?compile(args[1]):args.length===1?buildPlatform(args[0]):Promise.reject(Error('编译参数无效'));
+ operation.catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 1; });
 }
