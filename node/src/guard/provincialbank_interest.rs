@@ -288,15 +288,6 @@ where
     Ok(())
 }
 
-/// 节点启动和 block#0 完整导入时验证固定本金与规范空审计状态。
-pub fn check_genesis<F>(read: F) -> Result<(), GuardError>
-where
-    F: Fn(&[u8]) -> Option<Vec<u8>>,
-{
-    check_audit_state(0, &read)?;
-    check_all_stake_accounts(&read)
-}
-
 /// 普通区块校验：年度审计只能在 finalize 原子推进，年度利息逐户登记到共享发行计划。
 pub fn check_transition<FParent, FPre, FPost>(
     block: u32,
@@ -342,7 +333,7 @@ where
     Ok(())
 }
 
-/// runtime 升级全检时重新读取全部固定本金和当前年度审计。
+/// 创世启动、完整状态导入及 runtime 升级全检共用实际高度的固定本金和年度审计检查。
 pub fn check_full_state<F>(block: u32, read: &F) -> Result<(), GuardError>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
@@ -351,8 +342,8 @@ where
     check_all_stake_accounts(read)
 }
 
-/// 完整状态导入只接受 block#0；调用方已统一拒绝非创世 CID 状态导入。
-pub fn check_imported_genesis<'a, I>(pairs: I) -> Result<(), GuardError>
+/// 按导入区块的实际高度核对年度审计和固定本金；启动创世检查显式传入 0。
+pub fn check_imported_state<'a, I>(block: u32, pairs: I) -> Result<(), GuardError>
 where
     I: IntoIterator<Item = (&'a Vec<u8>, &'a Vec<u8>)>,
 {
@@ -361,7 +352,7 @@ where
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     reject_unknown_pallet_keys(state.keys())?;
-    check_genesis(|key| state.get(key).cloned())
+    check_full_state(block, &|key| state.get(key).cloned())
 }
 
 /// 完整状态单遍分区只保留本 pallet 和 43 个永久质押账户。
@@ -423,7 +414,7 @@ mod tests {
     #[test]
     fn genesis_allows_stake_topup_but_rejects_principal_spend() {
         let state = genesis_state();
-        assert_eq!(check_imported_genesis(state.iter()), Ok(()));
+        assert_eq!(check_imported_state(0, state.iter()), Ok(()));
 
         let first = &CHINA_CH[0];
 
@@ -433,7 +424,7 @@ mod tests {
             storage_key::system_account(&first.stake_account),
             account(first.stake_amount + 1),
         );
-        assert_eq!(check_imported_genesis(topped_up.iter()), Ok(()));
+        assert_eq!(check_imported_state(0, topped_up.iter()), Ok(()));
 
         // 支出/减少（free < 本金）拒绝:本金被动用即违规。
         let mut spent = state.clone();
@@ -442,7 +433,7 @@ mod tests {
             account(first.stake_amount - 1),
         );
         assert_eq!(
-            check_imported_genesis(spent.iter()),
+            check_imported_state(0, spent.iter()),
             Err(GuardError::StakeAccountChanged(first.stake_account))
         );
     }
@@ -454,7 +445,7 @@ mod tests {
         unknown.extend_from_slice(&twox_128(b"ShadowInterest"));
         state.insert(unknown.clone(), 1u32.encode());
         assert_eq!(
-            check_imported_genesis(state.iter()),
+            check_imported_state(0, state.iter()),
             Err(GuardError::UnknownStorageKey(unknown))
         );
     }
@@ -470,6 +461,99 @@ mod tests {
             .map(|year| expected_annual_audit(year).unwrap().total_interest)
             .sum();
         assert_eq!(expected_total(100), Ok(iterative));
+    }
+
+    fn settled_state(year: u32) -> BTreeMap<Vec<u8>, Vec<u8>> {
+        let mut state = genesis_state();
+        if year > 0 {
+            state.insert(storage_key::last_settled_year(), year.encode());
+            state.insert(
+                storage_key::total_interest_issued(),
+                expected_total(year).unwrap().encode(),
+            );
+            state.insert(
+                storage_key::last_interest_audit(),
+                expected_annual_audit(year).unwrap().encode(),
+            );
+        }
+        state
+    }
+
+    #[test]
+    fn imported_state_uses_actual_height_at_annual_boundaries_and_final_year() {
+        let year = BLOCKS_PER_YEAR as u32;
+        for (block, settled) in [
+            (0, 0),
+            (1, 0),
+            (year - 1, 0),
+            (year, 1),
+            (year + 1, 1),
+            (100 * year - 1, 99),
+            (100 * year, 100),
+            (100 * year + 1, 100),
+            (101 * year, 100),
+            (u32::MAX, 100),
+        ] {
+            assert_eq!(
+                check_imported_state(block, settled_state(settled).iter()),
+                Ok(()),
+                "block {block}"
+            );
+        }
+        let state = settled_state(1);
+        for block in [0, year - 1, 2 * year] {
+            assert!(matches!(
+                check_imported_state(block, state.iter()),
+                Err(GuardError::LastSettledYearInvalid { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn imported_running_state_rejects_wrong_audit_principal_and_unknown_key() {
+        let block = BLOCKS_PER_YEAR as u32;
+        let valid = settled_state(1);
+        let mut state = valid.clone();
+        state.insert(
+            storage_key::total_interest_issued(),
+            (expected_total(1).unwrap() + 1).encode(),
+        );
+        assert!(matches!(
+            check_imported_state(block, state.iter()),
+            Err(GuardError::TotalInterestIssuedInvalid { .. })
+        ));
+        let mut state = valid.clone();
+        state.remove(&storage_key::last_interest_audit());
+        assert_eq!(
+            check_imported_state(block, state.iter()),
+            Err(GuardError::LastAuditMissing)
+        );
+        let mut state = valid.clone();
+        let mut audit = expected_annual_audit(1).unwrap();
+        audit.bank_count -= 1;
+        state.insert(storage_key::last_interest_audit(), audit.encode());
+        assert_eq!(
+            check_imported_state(block, state.iter()),
+            Err(GuardError::LastAuditInvalid)
+        );
+        let first = &CHINA_CH[0];
+        let mut state = valid.clone();
+        state.insert(
+            storage_key::system_account(&first.stake_account),
+            account(first.stake_amount - 1),
+        );
+        assert_eq!(
+            check_imported_state(block, state.iter()),
+            Err(GuardError::StakeAccountChanged(first.stake_account))
+        );
+        let mut state = valid;
+        let mut unknown = storage_key::pallet_prefix().to_vec();
+        unknown.extend_from_slice(&twox_128(b"ShadowInterest"));
+        state.insert(unknown.clone(), 1u32.encode());
+        assert_eq!(
+            check_imported_state(block, state.iter()),
+            Err(GuardError::UnknownStorageKey(unknown))
+        );
     }
 
     #[test]

@@ -854,7 +854,7 @@ where
     Ok(())
 }
 
-/// 从 warp/状态导入的完整下载态中抽出立法院模块键,在提交前执行同一套宪法不变式校验。
+/// 只从 SDK 定义的主状态抽出立法院模块键，子 trie 同名键不能覆盖宪法主状态。
 fn check_imported_state_immutable(
     imported: &ImportedState<Block>,
     reference: &ImmutableReference,
@@ -864,6 +864,7 @@ fn check_imported_state_immutable(
             .state
             .0
             .iter()
+            .filter(|level| level.parent_storage_keys.is_empty() && level.state_root.is_empty())
             .flat_map(|level| level.key_values.iter()),
         reference,
     )
@@ -1324,6 +1325,59 @@ mod tests {
             check_imported_state_key_values(entries.iter(), &reference),
             Err("ConstitutionLawMissing".to_string())
         );
+    }
+
+    #[test]
+    fn imported_state_checks_main_constitution_independently_of_child_storage() {
+        let reference = ImmutableReference::from_raw_reader(reader(genesis_state())).unwrap();
+        let valid = valid_current_state(2, amended_articles(immutable_intact));
+        let bad = valid_current_state(
+            2,
+            amended_articles(|n| {
+                if n == 1 {
+                    "第一条被子状态掩盖".to_string()
+                } else {
+                    immutable_intact(n)
+                }
+            }),
+        );
+        for (root, parents) in [
+            (vec![1], vec![b":child_storage:default:test".to_vec()]),
+            (vec![1], Vec::new()),
+            (Vec::new(), vec![b":child_storage:default:test".to_vec()]),
+        ] {
+            for child_first in [false, true] {
+                for (main, child, expected) in [
+                    (valid.clone(), bad.clone(), Ok(())),
+                    (
+                        bad.clone(),
+                        valid.clone(),
+                        Err("ImmutableArticleMutated(1)".to_string()),
+                    ),
+                    (
+                        Vec::new(),
+                        valid.clone(),
+                        Err("ConstitutionLawMissing".to_string()),
+                    ),
+                ] {
+                    let mut state = sc_client_api::KeyValueStates::from([
+                        (Vec::new(), (main, Vec::new())),
+                        (root.clone(), (child, parents.clone())),
+                    ]);
+                    if child_first {
+                        state.0.reverse();
+                    }
+                    let imported = ImportedState::<Block> {
+                        block: Default::default(),
+                        state,
+                    };
+                    assert_eq!(
+                        check_imported_state_immutable(&imported, &reference),
+                        expected
+                    );
+                }
+            }
+        }
     }
 
     #[test]

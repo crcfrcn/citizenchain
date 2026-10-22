@@ -47,9 +47,10 @@ struct VotingIdentity {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum GuardError {
-    #[cfg(test)]
     StorageKeyMalformed(&'static str),
     StorageValueDecodeFailed(&'static str),
+    StorageVersionInvalid(u16),
+    UnknownStorageKey(Vec<u8>),
     GenesisStateNotEmpty(Vec<u8>),
     PendingCountChangedOutsideExtrinsic,
     PendingCountExceedsExtrinsics,
@@ -384,6 +385,79 @@ where
     Ok(())
 }
 
+/// 完整导入的非创世后状态允许永久领奖记录；累计数须与两张防重表一致，临时队列必须清空。
+/// 永久记录不依赖当前 CID 绑定，换绑或撤销身份不能抹掉历史领奖事实。
+pub fn check_imported_state_key_values<'a, I>(block: u32, pairs: I) -> Result<(), GuardError>
+where
+    I: IntoIterator<Item = (&'a Vec<u8>, &'a Vec<u8>)>,
+{
+    if block == 0 {
+        return check_genesis_key_values(pairs);
+    }
+    let prefix = |name: &[u8]| crate::shared::storage_keys::prefix(CITIZEN_ISSUANCE_PALLET, name);
+    let identity_prefix = prefix(b"IdentityRewardClaimed");
+    let account_prefix = prefix(b"AccountRewarded");
+    let rewarded_count_key = storage_key::rewarded_count();
+    let storage_version_key = storage_key::storage_version();
+    let pending_count_key = storage_key::pending_count();
+    let pending_prefixes = [
+        prefix(b"PendingRewards"),
+        prefix(b"PendingIdentityRewardClaimed"),
+        prefix(b"PendingAccountRewarded"),
+    ];
+    let mut rewarded = 0u64;
+    let mut identities = 0u64;
+    let mut accounts = 0u64;
+    for (key, value) in pairs {
+        if key == &rewarded_count_key {
+            rewarded = decode_exact(value, "RewardedCount")?;
+            if rewarded > CITIZEN_ISSUANCE_MAX_COUNT {
+                return Err(GuardError::RewardLimitExceeded);
+            }
+        } else if key == &storage_version_key {
+            let version = decode_exact::<u16>(value, "StorageVersion")?;
+            if version != 0 {
+                return Err(GuardError::StorageVersionInvalid(version));
+            }
+        } else if key.starts_with(&identity_prefix) {
+            let encoded = key
+                .get(identity_prefix.len() + 16..)
+                .ok_or(GuardError::StorageKeyMalformed("IdentityRewardClaimed"))?;
+            let cid = decode_exact::<citizen_identity::CidNumberBound>(
+                encoded,
+                "IdentityRewardClaimed key",
+            )?;
+            if *key != storage_key::identity_claimed(&cid) {
+                return Err(GuardError::StorageKeyMalformed("IdentityRewardClaimed"));
+            }
+            decode_exact::<()>(value, "IdentityRewardClaimed")?;
+            identities += 1;
+        } else if key.starts_with(&account_prefix) {
+            let encoded = key
+                .get(account_prefix.len() + 16..)
+                .ok_or(GuardError::StorageKeyMalformed("AccountRewarded"))?;
+            let account = decode_exact::<[u8; 32]>(encoded, "AccountRewarded key")?;
+            if *key != storage_key::account_rewarded(&account) {
+                return Err(GuardError::StorageKeyMalformed("AccountRewarded"));
+            }
+            decode_exact::<()>(value, "AccountRewarded")?;
+            accounts += 1;
+        } else if key == &pending_count_key
+            || pending_prefixes
+                .iter()
+                .any(|prefix| key.starts_with(prefix))
+        {
+            return Err(GuardError::PendingQueueNotCleared);
+        } else {
+            return Err(GuardError::UnknownStorageKey(key.clone()));
+        }
+    }
+    if identities != rewarded || accounts != rewarded {
+        return Err(GuardError::RewardedCountInvalid);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -637,6 +711,154 @@ mod tests {
             Err(GuardError::GenesisStateNotEmpty(
                 storage_key::pending_count()
             ))
+        );
+    }
+
+    fn rewarded_state() -> BTreeMap<Vec<u8>, Vec<u8>> {
+        // 使用既有普通区块夹具的 finalize 后状态，保留真实永久防重格式。
+        valid_transition()
+            .2
+            .into_iter()
+            .filter(|(key, _)| key.starts_with(&storage_key::pallet_prefix()))
+            .collect()
+    }
+
+    #[test]
+    fn imported_state_accepts_completed_reward_but_genesis_remains_empty() {
+        let empty = BTreeMap::<Vec<u8>, Vec<u8>>::new();
+        assert_eq!(check_imported_state_key_values(1, empty.iter()), Ok(()));
+        let state = rewarded_state();
+        assert_eq!(check_imported_state_key_values(1, state.iter()), Ok(()));
+        assert_eq!(
+            check_imported_state_key_values(u32::MAX, state.iter()),
+            Ok(())
+        );
+        assert!(matches!(
+            check_imported_state_key_values(0, state.iter()),
+            Err(GuardError::GenesisStateNotEmpty(_))
+        ));
+        let zeros = BTreeMap::from([
+            (storage_key::rewarded_count(), 0u64.encode()),
+            (storage_key::pending_count(), 0u32.encode()),
+            (storage_key::storage_version(), 0u16.encode()),
+        ]);
+        assert_eq!(check_imported_state_key_values(0, zeros.iter()), Ok(()));
+    }
+
+    #[test]
+    fn imported_state_rejects_wrong_counts_limit_and_pending_residue() {
+        for count in [0u64, 2, CITIZEN_ISSUANCE_MAX_COUNT] {
+            let mut state = rewarded_state();
+            put(&mut state, storage_key::rewarded_count(), count);
+            assert_eq!(
+                check_imported_state_key_values(1, state.iter()),
+                Err(GuardError::RewardedCountInvalid)
+            );
+        }
+        let mut state = rewarded_state();
+        put(
+            &mut state,
+            storage_key::rewarded_count(),
+            CITIZEN_ISSUANCE_MAX_COUNT + 1,
+        );
+        assert_eq!(
+            check_imported_state_key_values(1, state.iter()),
+            Err(GuardError::RewardLimitExceeded)
+        );
+        for key in [
+            storage_key::identity_claimed(b"GD001-CTZN1-TEST"),
+            storage_key::account_rewarded(&[7u8; 32]),
+        ] {
+            let mut state = rewarded_state();
+            state.remove(&key);
+            assert_eq!(
+                check_imported_state_key_values(1, state.iter()),
+                Err(GuardError::RewardedCountInvalid)
+            );
+        }
+        for (key, value) in [
+            (storage_key::pending_count(), 0u32.encode()),
+            (storage_key::pending_reward(0), Vec::new()),
+            (
+                storage_key::pending_identity(b"GD001-CTZN1-TEST"),
+                ().encode(),
+            ),
+            (storage_key::pending_account(&[7u8; 32]), ().encode()),
+        ] {
+            let mut state = rewarded_state();
+            state.insert(key, value);
+            assert_eq!(
+                check_imported_state_key_values(1, state.iter()),
+                Err(GuardError::PendingQueueNotCleared)
+            );
+        }
+    }
+
+    #[test]
+    fn imported_state_rejects_malformed_markers_values_and_unknown_keys() {
+        for (key, label) in [
+            (
+                storage_key::identity_claimed(b"GD001-CTZN1-TEST"),
+                "IdentityRewardClaimed",
+            ),
+            (storage_key::account_rewarded(&[7u8; 32]), "AccountRewarded"),
+        ] {
+            let mut state = rewarded_state();
+            let mut truncated = key.clone();
+            truncated.truncate(32);
+            let value = state.remove(&key).unwrap();
+            state.insert(truncated, value);
+            assert_eq!(
+                check_imported_state_key_values(1, state.iter()),
+                Err(GuardError::StorageKeyMalformed(label))
+            );
+            let mut state = rewarded_state();
+            let mut bad_key = key.clone();
+            bad_key[32] ^= 1;
+            let value = state.remove(&key).unwrap();
+            state.insert(bad_key, value);
+            assert_eq!(
+                check_imported_state_key_values(1, state.iter()),
+                Err(GuardError::StorageKeyMalformed(label))
+            );
+            let mut state = rewarded_state();
+            state.insert(key, vec![0]);
+            assert_eq!(
+                check_imported_state_key_values(1, state.iter()),
+                Err(GuardError::StorageValueDecodeFailed(label))
+            );
+        }
+        let mut state = rewarded_state();
+        let oversized_cid = vec![b'A'; 33];
+        state.remove(&storage_key::identity_claimed(b"GD001-CTZN1-TEST"));
+        state.insert(storage_key::identity_claimed(&oversized_cid), ().encode());
+        assert_eq!(
+            check_imported_state_key_values(1, state.iter()),
+            Err(GuardError::StorageValueDecodeFailed(
+                "IdentityRewardClaimed key"
+            ))
+        );
+        let mut state = rewarded_state();
+        state
+            .get_mut(&storage_key::rewarded_count())
+            .unwrap()
+            .push(0);
+        assert_eq!(
+            check_imported_state_key_values(1, state.iter()),
+            Err(GuardError::StorageValueDecodeFailed("RewardedCount"))
+        );
+        let mut state = rewarded_state();
+        put(&mut state, storage_key::storage_version(), 1u16);
+        assert_eq!(
+            check_imported_state_key_values(1, state.iter()),
+            Err(GuardError::StorageVersionInvalid(1))
+        );
+        let mut state = rewarded_state();
+        let unknown = storage_key::pallet_prefix().to_vec();
+        state.insert(unknown.clone(), Vec::new());
+        assert_eq!(
+            check_imported_state_key_values(1, state.iter()),
+            Err(GuardError::UnknownStorageKey(unknown))
         );
     }
 

@@ -520,11 +520,11 @@ where
         .map_err(|e| format!("国家机构组成:{e:?}"))?;
     fullnode_issuance::check_imported_state_key_values(block, state.fullnode_issuance.iter())
         .map_err(|e| format!("全节点发行:{e:?}"))?;
-    citizen_issuance::check_genesis_key_values(state.citizen_issuance.iter())
+    citizen_issuance::check_imported_state_key_values(block, state.citizen_issuance.iter())
         .map_err(|e| format!("公民认证发行:{e:?}"))?;
     genesis_pallet::check_imported_state(state.genesis_pallet.iter())
         .map_err(|e| format!("创世模块:{e:?}"))?;
-    provincialbank_interest::check_imported_genesis(state.provincialbank_interest.iter())
+    provincialbank_interest::check_imported_state(block, state.provincialbank_interest.iter())
         .map_err(|e| format!("省储行固定发行:{e:?}"))?;
     runtime_policy::check_imported_state(state.runtime_policy.iter())
         .map_err(|e| format!("手续费制度:{e}"))?;
@@ -778,7 +778,7 @@ impl<I> NodeGuard<I> {
             }
         }
         if let Err(reason) =
-            provincialbank_interest::check_imported_genesis(provincialbank_state.iter())
+            provincialbank_interest::check_imported_state(0, provincialbank_state.iter())
         {
             startup_issues.push(format!("省储行固定发行校验失败:{reason:?}"));
         }
@@ -1347,13 +1347,15 @@ fn verify_imported_state_params(
         _ => return Err("warp 状态非 ApplyChanges(Import) 形态,无法提交前校验".into()),
     };
     let cid_reference = cid_reference.ok_or("CID 生命周期启动基准不可用，拒绝完整状态导入")?;
-    // 所有策略复用同一遍 imported state 扫描，禁止为单项永久规则再新增包装器。
+    // 与 SDK 实际写入 storage.top 的条件一致；子 trie 的同名键不能替代主状态。
+    // 所有策略仍复用同一遍主状态扫描，完整原始状态包继续交给 SDK 校验状态根。
     verify_imported_policy_state(
         *params.header.number(),
         imported
             .state
             .0
             .iter()
+            .filter(|level| level.parent_storage_keys.is_empty() && level.state_root.is_empty())
             .flat_map(|level| level.key_values.iter())
             .map(|(key, value)| (key, value)),
         cid_reference,
@@ -1990,6 +1992,152 @@ mod finalize_issuance_tests {
             .expect("legal imported state should delegate");
         assert_eq!(result, ImportResult::AlreadyInChain);
         assert_eq!(inner.imports.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn imported_running_reward_and_annual_state_pass_all_policies() {
+        use primitives::pow_const::{BLOCKS_PER_YEAR, FULLNODE_BLOCK_REWARD};
+
+        let genesis = full_runtime_genesis_storage().top;
+        let reference = cid_genesis_reference(&genesis);
+        for block in [1, BLOCKS_PER_YEAR as u32] {
+            let mut state = genesis.clone();
+            let miner = [7u8; 32];
+            let issued = u128::from(block) * FULLNODE_BLOCK_REWARD;
+            state.insert(
+                fullnode_issuance::storage_key::rewarded_block_count(),
+                block.encode(),
+            );
+            state.insert(
+                fullnode_issuance::storage_key::total_fullnode_issued(),
+                issued.encode(),
+            );
+            state.insert(
+                fullnode_issuance::storage_key::last_reward_audit(),
+                (block, miner, miner, FULLNODE_BLOCK_REWARD).encode(),
+            );
+            state.insert(
+                fullnode_issuance::storage_key::last_authored(&miner),
+                block.encode(),
+            );
+            state.insert(
+                fullnode_issuance::storage_key::system_account(&miner),
+                account(issued, 1, NEW_BALANCES_FLAGS),
+            );
+            let cid = b"GD001-CTZN1-TEST";
+            state.insert(
+                citizen_issuance::storage_key::rewarded_count(),
+                1u64.encode(),
+            );
+            state.insert(
+                citizen_issuance::storage_key::identity_claimed(cid),
+                ().encode(),
+            );
+            state.insert(
+                citizen_issuance::storage_key::account_rewarded(&miner),
+                ().encode(),
+            );
+            if u64::from(block) == BLOCKS_PER_YEAR {
+                let total: u128 = primitives::cid::china::china_ch::CHINA_CH
+                    .iter()
+                    .map(|bank| bank.stake_amount / 10_000 * 100)
+                    .sum();
+                state.insert(
+                    provincialbank_interest::storage_key::last_settled_year(),
+                    1u32.encode(),
+                );
+                state.insert(
+                    provincialbank_interest::storage_key::total_interest_issued(),
+                    total.encode(),
+                );
+                state.insert(
+                    provincialbank_interest::storage_key::last_interest_audit(),
+                    (1u32, 43u32, total).encode(),
+                );
+            }
+            let inner = CountingImport::default();
+            let params = import_params_with_state(block, state);
+            let verdict = verify_imported_state_params(&params, Some(&reference));
+            verdict.as_ref().expect("运行中完整状态须通过全部策略");
+            let result = futures::executor::block_on(import_if_verified(
+                &inner,
+                params,
+                verdict.map(|_| ()),
+            ))
+            .unwrap();
+            assert_eq!(result, ImportResult::AlreadyInChain);
+            assert_eq!(inner.imports.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[test]
+    fn imported_state_uses_main_storage_and_never_child_overrides() {
+        let top = full_runtime_genesis_storage().top;
+        let reference = cid_genesis_reference(&top);
+        let key = genesis_pallet::storage_key::citizen_max();
+        let original = top[&key].clone();
+        // 两个字段必须同时为空才是主状态；另覆盖导出态和单字段非空情况。
+        for (root, parents) in [
+            (vec![1], vec![b":child_storage:default:test".to_vec()]),
+            (vec![1], Vec::new()),
+            (Vec::new(), vec![b":child_storage:default:test".to_vec()]),
+        ] {
+            for child_first in [false, true] {
+                for case in 0..3 {
+                    let mut main = top.clone();
+                    let child_value = if case == 0 {
+                        1u64.encode()
+                    } else {
+                        original.clone()
+                    };
+                    if case == 1 {
+                        main.insert(key.clone(), 1u64.encode());
+                    }
+                    if case == 2 {
+                        main.remove(&key);
+                    }
+                    let main_len = main.len();
+                    let mut params = import_params_with_state(0, main);
+                    if let StateAction::ApplyChanges(StorageChanges::Import(imported)) =
+                        &mut params.state_action
+                    {
+                        imported.state.0.extend(
+                            sc_client_api::KeyValueStates::from([(
+                                root.clone(),
+                                (vec![(key.clone(), child_value)], parents.clone()),
+                            )])
+                            .0,
+                        );
+                        if child_first {
+                            imported.state.0.reverse();
+                        }
+                        assert_eq!(imported.state.len(), main_len + 1);
+                    }
+                    let inner = CountingImport::default();
+                    let verdict = verify_imported_state_params(&params, Some(&reference));
+                    if case == 0 {
+                        assert_eq!(verdict.as_ref().unwrap().scanned, main_len);
+                    } else {
+                        assert!(verdict.as_ref().unwrap_err().starts_with("创世模块:"));
+                    }
+                    let result = futures::executor::block_on(import_if_verified(
+                        &inner,
+                        params,
+                        verdict.map(|_| ()),
+                    ))
+                    .unwrap();
+                    assert_eq!(
+                        result,
+                        if case == 0 {
+                            ImportResult::AlreadyInChain
+                        } else {
+                            ImportResult::KnownBad
+                        }
+                    );
+                    assert_eq!(inner.imports.load(Ordering::SeqCst), usize::from(case == 0));
+                }
+            }
+        }
     }
 
     #[test]
