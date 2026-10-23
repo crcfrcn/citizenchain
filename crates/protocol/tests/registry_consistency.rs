@@ -93,7 +93,9 @@ fn node_deploy_is_offchain_and_has_distinct_review_fields() {
     assert_eq!(action.kind, qr_protocol::registry::ActionKind::OffchainSign);
     assert_eq!(action.signing_category, SigningCategory::NodeDeploy);
     assert!(!action.hash_only_allowed);
-    for field in ["deployment_kind", "node_id", "server_ip", "task_id", "artifact_sha256"] {
+    assert!(!action.required_fields.contains(&"source_sha".to_string()));
+    assert!(!action.required_fields.contains(&"version_tag".to_string()));
+    for field in ["deployment_kind", "node_id", "server_ip", "platform", "version", "task_id", "artifact_sha256"] {
         assert!(action.required_fields.contains(&field.to_string()));
     }
 }
@@ -280,7 +282,7 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "7ff954e2eaef11c44240f3e01da8bcc88ffd6fcbf97d221325e9bdc61ecf9017",
+        "bd87109e2be4d6651f266e60ee785eff6da77dc3c46635a8a3c3fffa95e43ba3",
         "Dart registry 与保留的原消费者完整字节不一致"
     );
 }

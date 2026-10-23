@@ -74,7 +74,10 @@ fn decode_account_balance(data: &[u8]) -> Result<Option<u128>, String> {
     // nonce(4) + consumers(4) + providers(4) + sufficients(4) = 16 字节偏移
     let free_offset = 16;
     if data.len() < free_offset + 16 {
-        return Ok(None);
+        return Err(format!(
+            "System::Account 数据长度无效：{} 字节，至少需要 32 字节",
+            data.len()
+        ));
     }
     let mut buf = [0u8; 16];
     buf.copy_from_slice(&data[free_offset..free_offset + 16]);
@@ -94,5 +97,13 @@ mod tests {
         data.extend_from_slice(&[0u8; 32]); // reserved + frozen
         let result = decode_account_balance(&data).unwrap();
         assert_eq!(result, Some(1_000_000));
+    }
+
+    #[test]
+    fn malformed_account_is_not_an_absent_or_zero_balance() {
+        for length in [0, 16, 31] {
+            assert!(decode_account_balance(&vec![0; length]).is_err());
+        }
+        assert_eq!(decode_account_balance(&[0; 80]).unwrap(), Some(0));
     }
 }

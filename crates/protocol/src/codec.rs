@@ -31,8 +31,8 @@ pub struct NodeDeployIntent {
     pub kind: NodeDeployKind,
     pub node_id: String,
     pub server_ip: String,
-    pub version_tag: String,
-    pub source_sha: [u8; 20],
+    pub platform: String,
+    pub version: String,
     pub artifact_sha256: [u8; 32],
     pub task_id: String,
     pub expires_at: u64,
@@ -65,28 +65,30 @@ fn push_node_deploy_text(out: &mut Vec<u8>, value: &str, limit: usize) -> Result
 /// 固定版本与长度前缀编码；身份、目标、版本、资产和一次性任务共同进入签名字节。
 pub fn encode_node_deploy_intent(intent: &NodeDeployIntent) -> Result<Vec<u8>, CodecError> {
     node_deploy_text(&intent.node_id, 64, true)?;
-    node_deploy_text(&intent.version_tag, 64, true)?;
+    node_deploy_text(&intent.platform, 32, true)?;
+    if intent.version.is_empty() || intent.version.len() > 255 || intent.version.chars().any(char::is_control) {
+        return Err(node_deploy_error());
+    }
     let ip: IpAddr = intent.server_ip.parse().map_err(|_| node_deploy_error())?;
     if ip.to_string() != intent.server_ip
         || intent.task_id.len() != 9
         || intent.task_id.as_bytes()[0] == b'0'
         || !intent.task_id.bytes().all(|b| b.is_ascii_digit())
         || intent.expires_at == 0
-        || intent.source_sha.iter().all(|b| *b == 0)
-        || intent.artifact_sha256.iter().all(|b| *b == 0)
         || intent.nonce.iter().all(|b| *b == 0)
     {
         return Err(node_deploy_error());
     }
     let mut out = Vec::with_capacity(256);
-    out.push(1);
+    out.push(2);
     out.extend_from_slice(NODE_DEPLOY_PRODUCT);
     out.push(match intent.kind { NodeDeployKind::Authority => 1, NodeDeployKind::Stake => 2 });
     push_node_deploy_text(&mut out, &intent.node_id, 64)?;
     out.push(u8::try_from(intent.server_ip.len()).map_err(|_| node_deploy_error())?);
     out.extend_from_slice(intent.server_ip.as_bytes());
-    push_node_deploy_text(&mut out, &intent.version_tag, 64)?;
-    out.extend_from_slice(&intent.source_sha);
+    push_node_deploy_text(&mut out, &intent.platform, 32)?;
+    out.push(u8::try_from(intent.version.len()).map_err(|_| node_deploy_error())?);
+    out.extend_from_slice(intent.version.as_bytes());
     out.extend_from_slice(&intent.artifact_sha256);
     out.extend_from_slice(intent.task_id.as_bytes());
     out.extend_from_slice(&intent.expires_at.to_le_bytes());
@@ -111,7 +113,7 @@ fn read_node_deploy_text(bytes: &[u8], pos: &mut usize, limit: usize) -> Result<
 /// 离线审阅端必须消费全部字节，拒绝尾随数据与非规范 IP 文本。
 pub fn decode_node_deploy_intent(bytes: &[u8]) -> Result<NodeDeployIntent, CodecError> {
     let mut pos = 0;
-    if take_node_deploy(bytes, &mut pos, 1)? != [1]
+    if take_node_deploy(bytes, &mut pos, 1)? != [2]
         || take_node_deploy(bytes, &mut pos, NODE_DEPLOY_PRODUCT.len())? != NODE_DEPLOY_PRODUCT {
         return Err(node_deploy_error());
     }
@@ -122,14 +124,14 @@ pub fn decode_node_deploy_intent(bytes: &[u8]) -> Result<NodeDeployIntent, Codec
     };
     let node_id = read_node_deploy_text(bytes, &mut pos, 64)?;
     let server_ip = read_node_deploy_text(bytes, &mut pos, 45)?;
-    let version_tag = read_node_deploy_text(bytes, &mut pos, 64)?;
-    let source_sha: [u8; 20] = take_node_deploy(bytes, &mut pos, 20)?.try_into().map_err(|_| node_deploy_error())?;
+    let platform = read_node_deploy_text(bytes, &mut pos, 32)?;
+    let version = read_node_deploy_text(bytes, &mut pos, 255)?;
     let artifact_sha256: [u8; 32] = take_node_deploy(bytes, &mut pos, 32)?.try_into().map_err(|_| node_deploy_error())?;
     let task_id = std::str::from_utf8(take_node_deploy(bytes, &mut pos, 9)?).map_err(|_| node_deploy_error())?.to_string();
     let expires_at = u64::from_le_bytes(take_node_deploy(bytes, &mut pos, 8)?.try_into().map_err(|_| node_deploy_error())?);
     let nonce: [u8; 32] = take_node_deploy(bytes, &mut pos, 32)?.try_into().map_err(|_| node_deploy_error())?;
     if pos != bytes.len() { return Err(node_deploy_error()); }
-    let result = NodeDeployIntent { kind, node_id, server_ip, version_tag, source_sha,
+    let result = NodeDeployIntent { kind, node_id, server_ip, platform, version,
         artifact_sha256, task_id, expires_at, nonce };
     if encode_node_deploy_intent(&result)? != bytes { return Err(node_deploy_error()); }
     Ok(result)

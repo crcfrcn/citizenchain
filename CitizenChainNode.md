@@ -8,7 +8,6 @@
 
 `scripts/onchina.mjs` 保留真实宿主、模块和前端编译实现，直接读取对应 Cargo 目标和模块 --describe。编译使用本仓准确检出，输出属于本轮 target/build/<平台>，不再复制整仓或准备资源回执。模块业务、VERSION、MODULE_INTERFACE_VERSION、协议、数据库和UI不由交付版本改写。
 
-`scripts/config.mjs` 保留公开声明、通用版本/附件/保留规则及请求描述；WASM的describeAction分支只转调scripts/runtime.mjs，不实现读链、加1或WASM流程。WASM实现和专属回归归runtime.mjs，通用规则回归仍归config.mjs。原Cargo与前端锁继续由官方Cargo、npm ci消费，不建立工具库存、第二份依赖清单或持久任务状态。旧编译入口专用的升级工具开发依赖已撤出节点前端。
 
 ## 五个平台的完整产物
 
@@ -18,7 +17,7 @@
 
 本轮输出位于 `target/build/<平台>/artifact`。每个平台的 GitHub 工作现场彼此独立；Runner管理工具进程及取消，工作流在上传产物后清理该轮编译现场。官方 actions/cache 只恢复和保存本平台Cargo中间物及npm下载缓存，按平台、系统、架构及原锁隔离，限时且continue-on-error；不缓存安装包、附件、任务状态或机密。缓存失败不能掩盖真实测试、编译或完整产物失败。
 
-测试读取源码使用Node原生文件路径API，不能把Windows盘符作为URL；结构夹具的路径统一使用斜线，实际读取沿用平台分隔符。QR仓库守卫使用既有serde_yaml按Job映射核对prepare、build、release及收尾边界，不要求Job文本顺序；缺失编译阶段、发布绕过编译和收尾误编译均由同文件负例拒绝。
+测试读取源码使用Node原生文件路径API，不能把Windows盘符作为URL；结构夹具的路径统一使用斜线，实际读取沿用平台分隔符。QR仓库守卫使用既有serde_yaml按Job映射核对prepare、build、release及收尾边界，不要求Job文本顺序；四端release直接依赖[prepare, build]，分别消费准备阶段版本与编译产物，缺少任一依赖均拒绝。缺失编译阶段、发布绕过编译和收尾误编译均由同文件负例拒绝。
 
 ## 正式Tag、Release必须由既有工作流创建
 
@@ -1208,79 +1207,34 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 
 ##### 11.1 创建服务文件
 
+本仓 `node/citizenchain.service` 是权威节点服务的唯一模板，服务器固定安装为 `/etc/systemd/system/citizenchain-node.service`。本节不保留第二份内联模板。
+
 ```bash
-sudo nano /etc/systemd/system/citizenchain.service
+sudo install -o root -g root -m 0644 node/citizenchain.service /etc/systemd/system/citizenchain-node.service
 ```
 
-写入：
+服务以 `citizenchain` 运行，使用 `NoNewPrivileges`、空 `CapabilityBoundingSet`/`AmbientCapabilities`、`PrivateDevices`、`ProtectSystem=strict` 和 `UMask=0077`；只允许写既有 `/opt/citizenchain/data`。维护不修改该目录的数据、权限、节点身份或验证密钥。WASM/JIT仍需动态执行内存，不启用 `MemoryDenyWriteExecute`。
 
-```ini
-[Unit]
-Description=CitizenChain Node
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=citizenchain
-### 权威引导节点只公开 P2P；RPC 保持回环监听。
-ExecStart=/usr/bin/citizenchain \
-  --chain citizenchain \
-  --base-path /opt/citizenchain/data \
-  --node-key-file /opt/citizenchain/data/node-key/secret_ed25519 \
-  --rpc-port 9944 \
-  --rpc-methods Safe \
-  --no-prometheus \
-  --state-pruning archive \
-  --trie-cache-size 268435456 \
-  --listen-addr /ip4/0.0.0.0/tcp/30333/wss \
-  --in-peers 32 \
-  --in-peers-light 100 \
-  --out-peers 8 \
-  --max-parallel-downloads 5 \
-  --no-mdns
-Restart=always
-RestartSec=5
-LimitNOFILE=65536
-UMask=0077
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/citizenchain/data
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-
-[Install]
-WantedBy=multi-user.target
-```
-
-说明：
-- 安装前创建 `citizenchain` 专用系统账户和 `/opt/citizenchain/data` 数据目录。
-- 把编译产物安装为 `/usr/bin/citizenchain`；节点只允许写入自己的数据目录。
-- 禁止在 `ExecStart` 中恢复 `--rpc-external`、`--unsafe-rpc-external` 或 `--rpc-cors all`。
-- 仓库中的标准模板为 `citizenchain/node/citizenchain.service`，服务器配置必须与其保持一致。
+节点通过 `CITIZENCHAIN_RPC_TLS_CERTIFICATE` 和 `CITIZENCHAIN_RPC_TLS_PRIVATE_KEY` 读取TLS材料，服务账户必须具有读取权限。本公开程序及服务模板不定义某一组服务器的SSH、防火墙、审计规则或私钥运维归属。
 
 ##### 11.2 重新加载并启动服务
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable citizenchain
-sudo systemctl start citizenchain
+sudo systemctl enable citizenchain-node.service
+sudo systemctl start citizenchain-node.service
 ```
 
 ##### 11.3 查看服务状态
 
 ```bash
-sudo systemctl status citizenchain
+sudo systemctl status citizenchain-node.service
 ```
 
 ##### 11.4 查看实时日志
 
 ```bash
-journalctl -u citizenchain -f
+journalctl -u citizenchain-node.service -f
 ```
 
 ##### 12.1 检查进程是否存活
@@ -1344,8 +1298,8 @@ ss -lntp | grep 30333
 优先检查：
 
 ```bash
-sudo systemctl status citizenchain
-journalctl -u citizenchain -n 100 --no-pager
+sudo systemctl status citizenchain-node.service
+journalctl -u citizenchain-node.service -n 100 --no-pager
 ```
 
 ##### 12.6 常见问题四：同步慢或资源占用高
@@ -1388,9 +1342,9 @@ cargo build --release -p node
 sudo useradd --system --user-group --home-dir /opt/citizenchain --shell /usr/sbin/nologin citizenchain
 sudo install -m 0755 "$CARGO_TARGET_DIR/release/citizenchain" /usr/bin/citizenchain
 sudo install -d -o citizenchain -g citizenchain -m 0700 /opt/citizenchain/data
-sudo install -m 0644 node/citizenchain.service /etc/systemd/system/citizenchain.service
+sudo install -m 0644 node/citizenchain.service /etc/systemd/system/citizenchain-node.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now citizenchain
+sudo systemctl enable --now citizenchain-node.service
 ```
 
 若 `citizenchain` 系统账户已经存在，跳过 `useradd`，不得删除或重建现有账户。
@@ -2689,7 +2643,6 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 
 ## 外部调用入口
 
-本仓现有 scripts/config.mjs 的 describeAction({flow,platform}) 声明流程入口。自动化启动逻辑、版本输入与平台选择归本仓；调用方交付已授权令牌和标准 read/dispatch 传输能力，接收准确 Run 编号。既有独立自动化接口继续由本仓实现。未提供的安装或发布入口明确报产品侧未声明，不错接到编译，也不产生成功回执。
 
 
 ### Runtime独立GitHub构建入口
@@ -2749,10 +2702,18 @@ OnChina按真实Cargo入口用一次cargo build和重复--bin选项编译所选�
 
 本机入口为scripts/build.mjs compile macos，使用本产品既有官方依赖版本、原锁及同一完整资源编译实现，输出当前源码App并持有现场至调用方关闭stdin。签名、安装和安装回读唯一归塔塔控制台app/source/Installer.swift；GitHub原准确来源校验与正式DMG签名公证入口保留。
 
-compile macos作为公开CLI保留，模块只导出原有编译辅助接口，不扩大模块导出闭集。
+compile macos作为公开CLI保留；模块公开实际宿主编译及资源装配接口，任务派发与观察由配置声明交付给通用调用方。
 
 第4步客户端开发验收：原生转账提交接口只返回交易池接受的交易哈希，界面必须表述为已提交，不能据此宣称已入块或最终成功。确认按钮和扫码回调共用当前界面防重入状态，异步提交成功后保持至关闭，避免迟到的扫码回调再次提交；失败后允许重新操作；该状态不替代既有签名、nonce、到期与单次会话消费。四档原生金额编码和费用按当前Runtime调用及唯一fee_policy核对，Ethereum侧沿用已有真实三节点验收；生产钱包确认页与真实交易另行人工终验。
 客户端新增transfer.test.tsx只用于隔离组件回归，正式前端tsconfig排除该测试文件，避免把测试工具加入应用依赖；测试复用本产品scanner声明的Vitest3.2.7、jsdom26.1.0及Testing Library16.3.2，应用依赖继续按原node/frontend锁准备，不改变声明和锁文件。
 冷签回归同时验证四档真实Runtime调用可装入现有QR_V1请求，并在原提交函数中逐项拒绝被替换的call、nonce、载荷摘要、公钥及到期字段，拒绝已到期和已消费会话；这些检查沿用原实现，不增加新的安全模块或验证规则。
 原生交易表单的余额来自finalized System.Account.data.free，标签统一为钱包余额；Ethereum eth_getBalance按既有Runtime返回扣除111分账户保留金后的可用金额。该差额不是手续费，不修改余额接口或保留金规则，也不强行把两端读数改成相同。
 本轮第4步开发验收实际通过72项：客户端组件16、MetaMask接入页25、原生钱包/转账16、通用签名10、真实Ethereum服务5；前端应用及测试类型检查均通过。Ethereum服务使用源码WASM、独立数据库和TLS三节点完成四档转账、费用/余额/nonce/回执/历史及已有合约、分叉、最终性、迟到节点和同库重启，不代表生产钱包人工确认页或生产交易已验收。
+
+## 节点部署冷签公开协议
+
+节点部署是QR_V1动作16的链下授权。唯一编解码归crates/protocol/src/codec.rs，动作及中文字段声明归同crate的registry。载荷仅接受格式2：版本字节2、固定产品citizenchain、节点类别、单字节UTF-8长度前缀的节点编号/IP/平台/安装包实际版本、32字节安装包SHA-256、9位任务编号、8字节小端期限、32字节本次挑战。保留GMB\0TATA_NODE_DEPLOY_V1\0独立签名域；删除节点旧格式、源码摘要及中文Tag准入，不改变Runtime升级和其它发布动作。
+
+fixtures/sign_request.json提供格式2公开样例；golden_fixtures.rs逐字节核验真实Rust编解码，控制台读取同一夹具，钱包使用相同样例及签名摘要金标覆盖真实解码、中文审阅与签名。正式Release安装包的业务核验仅为哈希、平台和版本，签名身份、目标绑定、期限和防重放仍须有效。协议生成器export_registry的公开输出继续是钱包中文字段表的来源。
+
+本产品scripts/config.mjs的describeAction仅返回repository、workflow、ref、inputs，或既有本地进程命令声明；不导入构建实现、不派发GitHub请求、不处理令牌、版本或历史。控制台使用统一数据接口直接派发并只读观察准确Run；产品GitHub业务归所属既有YAML。本次自动化Run名称使用运行编号，正式构建及产物保持版本名称。已有工具和依赖复用，缺少时才按原声明准备。

@@ -250,41 +250,7 @@ export const deployment=Object.freeze({platform:'linux-arm',repository:product.r
   helper:'/usr/local/sbin/citizenchain-deploy',unit:'citizenchain-deploy',data:'/opt/citizenchain/data',
   serviceFile:'/etc/systemd/system/citizenchain-node.service',architecture:'arm64',sshUser:'ubuntu',ready:'deploy-ready:arm64:release'});
 
-// 本仓流程的公开入口声明；调用方只交付标准传输能力，不拥有产品规则或任务宿主。
-export async function describeAction({flow,platform}){
- if(platform==='wasm')return (await import('./runtime.mjs')).describeAction({flow,platform});
- if(flow==='cleanup'){
-  requireValue(['macos','windows','linux-arm','linux-amd'].includes(platform),'显式清理仅限四个节点平台');
-  return {repository:product.repository,launch:async({token})=>{
-   // 官方REST只访问本产品仓库；凭据只在本次产品调用内存中使用。
-   const request=async(path,method='GET')=>{
-    const response=await fetch('https://api.github.com/repos/'+product.repository+'/'+path,{method,redirect:'error',
-     headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2026-03-10'}});
-    if(response.status===404&&method==='GET')return null;
-    requireValue(response.ok,'公民链清理GitHub HTTP '+response.status);
-    return response.status===204?null:response.json();
-   };
-   const result=await cleanupNativeRuns(platform,{
-    list:async()=>{const rows=[];for(let page=1;;page++){const data=await request('actions/workflows/'+product.platforms[platform].workflow+'/runs?branch=main&per_page=100&page='+page);requireValue(data&&Array.isArray(data.workflow_runs),'清理列表无效');rows.push(...data.workflow_runs);if(data.workflow_runs.length<100)return rows;}},
-    get:id=>request('actions/runs/'+id),remove:id=>request('actions/runs/'+id,'DELETE')});
-   return {completed:true,...result};
-  }};
- }
- if(flow!=='release')throw Error('本产品尚未声明该流程入口：'+flow+'·'+platform);
- return {repository:product.repository,launch:async({read,dispatch})=>{
-  const rows=[],releases=[];
-  for(let page=1;;page++){const data=await read(automationRequest(platform,'runs').path+'&per_page=100&page='+page);rows.push(...data.workflow_runs);if(data.workflow_runs.length<100)break;}
-  for(let page=1;;page++){const data=await read('releases?per_page=100&page='+page);releases.push(...data);if(data.length<100)break;}
 
-  const {readFile}=await import('node:fs/promises');
-  const initial=JSON.parse(await readFile(new URL('../node/frontend/package.json',import.meta.url),'utf8')).version;
-  await assertNativePublishedTags(platform,releases,tag=>read('git/ref/tags/'+encodeURIComponent(tag)));
-  const version=nextDeliveryVersion(platform,rows,releases,initial),head=await read('git/ref/heads/main');
-  const request=automationRequest(platform,'launch',{version,sha:head.object.sha});
-  const receipt=await dispatch({workflow:product.platforms[platform].workflow,...request.body});
-  return {runID:receipt.workflow_run_id};
- }};
-}
 
 // BEGIN INLINE TESTS
 // 产品纯规则回归不访问网络、凭据、链或真实历史；编译文件中不放测试执行器。
@@ -306,6 +272,19 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv[1]===import.meta.filename&&proces
     assert.equal(artifactNames('wasm','2').length,3);assert.equal(Object.keys(product.platforms).length,5);
     assert.equal(product.platforms.wasm.entry,'scripts/runtime.mjs');
     assert.equal(product.entry,'scripts/build.mjs');
+  });
+  test('权威节点服务只公开TCP P2P并使用无capabilities的隔离账户',async()=>{
+    const {readFileSync}=await import('node:fs');
+    const text=readFileSync(new URL('../node/citizenchain.service',import.meta.url),'utf8');
+    const fields=new Map(text.split('\n').flatMap(line=>{const match=/^(\w+)=(.*)$/u.exec(line);return match?[[match[1],match[2]]]:[];}));
+    for(const [name,value] of Object.entries({User:'citizenchain',NoNewPrivileges:'true',CapabilityBoundingSet:'',
+      AmbientCapabilities:'',PrivateTmp:'true',PrivateDevices:'true',ProtectSystem:'strict',ProtectHome:'true',
+      ReadWritePaths:'/opt/citizenchain/data',UMask:'0077'}))assert.equal(fields.get(name),value,name);
+    assert.ok(text.includes('--listen-addr /ip4/0.0.0.0/tcp/30333/wss'));
+    assert.ok(text.includes('--rpc-methods Safe'));
+    assert.ok(text.includes('--no-prometheus'));
+    for(const flag of ['--rpc-external','--unsafe-rpc-external','--rpc-cors all','MemoryDenyWriteExecute='])
+      assert.equal(text.includes(flag),false,'不得扩大RPC暴露或阻断WASM/JIT：'+flag);
   });
   test('macOS仅对release构建依赖关闭strip，真实编译环境完整透传',async()=>{
     const {readFileSync}=await import('node:fs'),{platformCargoEnvironment}=await import('./build.mjs');
@@ -351,40 +330,7 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv[1]===import.meta.filename&&proces
     const draft={...published,draft:true,published_at:null};
     assert.equal(nextDeliveryVersion('linux-arm',rows,[draft],'1.0.0'),'1.0.0','草稿仍交由原候选冲突检查拒绝');
   });
-  test('公开发起入口验证真实正式Tag后交付1.0.1，坏Tag不派发',async()=>{
-    for(const bad of [false,true]){
-      const source=run(1),published=release(source),calls=[];
-      const target=await describeAction({flow:'release',platform:'linux-arm'});
-      const operation=()=>target.launch({read:async path=>{
-        if(path.startsWith('actions/workflows/'))return {workflow_runs:[run(2,'failure')]};
-        if(path.startsWith('releases?'))return [published];
-        if(path.startsWith('git/ref/tags/'))return {object:{type:'commit',sha:bad?'b'.repeat(40):source.head_sha}};
-        if(path==='git/ref/heads/main')return {object:{sha:source.head_sha}};
-        throw Error('未预期读取：'+path);
-      },dispatch:async spec=>{calls.push(spec);return {workflow_run_id:42};}});
-      if(bad){await assert.rejects(operation(),/Tag提交不符/);assert.equal(calls.length,0);}
-      else{assert.deepEqual(await operation(),{runID:42});assert.equal(calls[0].inputs.version,'1.0.1');assert.equal(calls.length,1);}
-    }
-  });
-  test('Runner真实候选正文与公开入口一致，草稿、坏Tag及半成品拒绝',async()=>{
-    const {readFileSync}=await import('node:fs'),{fileURLToPath}=await import('node:url');
-    const text=readFileSync(new URL('../.github/workflows/linuxarm.yml',import.meta.url),'utf8'),marker='        script: |\n',at=text.indexOf(marker)+marker.length;
-    const script=text.slice(at,text.indexOf('\n  build:',at)).split('\n').map(line=>line.startsWith('          ')?line.slice(10):line).join('\n');
-    const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-    for(const kind of ['valid','draft','badTag','incomplete']){
-      const old=run(1),published=release(old),current={...run(10),status:'in_progress',conclusion:null},messages=[];
-      if(kind==='draft')Object.assign(published,{draft:true,published_at:null});
-      if(kind==='incomplete')published.assets=[];
-      const absent=()=>{throw Object.assign(Error('合成404'),{status:404});};
-      const github={rest:{actions:{getWorkflowRun:async()=>({data:current}),listWorkflowRuns:()=>{}},repos:{listReleases:()=>{}},git:{getRef:async({ref})=>
-        ref==='tags/'+published.tag_name?{data:{object:{type:'commit',sha:kind==='badTag'?'b'.repeat(40):old.head_sha}}}:absent()}},
-        paginate:async method=>method===github.rest.actions.listWorkflowRuns?[run(2,'failure'),current]:[published]};
-      const operation=()=>new AsyncFunction('github','context','core','process',script)(github,{repo:{owner:'crcfrcn',repo:'citizenchain'},runId:10,sha:current.head_sha},
-        {info:message=>messages.push(message)},{env:{PLATFORM:'linux-arm',GITHUB_WORKSPACE:fileURLToPath(new URL('../',import.meta.url)),
-          CITIZENCHAIN_SOURCE_SHA:current.head_sha,CITIZENCHAIN_RELEASE_VERSION:kind==='draft'?'1.0.0':'1.0.1'}});
-      if(kind==='valid'){await operation();assert.ok(messages[0].endsWith('v1.0.1'));}else await assert.rejects(operation());
-    }
-  });
+
   test('四端恢复不再派发收尾，取消描述仍只定位原Run',()=>{
     for(const platform of ['macos','windows','linux-arm','linux-amd'])assert.throws(()=>automationRequest(platform,'settle',{run:run(42)}));
     assert.equal(automationRequest('linux-arm','cancel',{runId:42}).path,'actions/runs/42/cancel');
@@ -514,8 +460,15 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv[1]===import.meta.filename&&proces
   });
   test('编译模块只公开编译辅助接口，不重新加入产品流程执行器',async()=>{
     const build=await import('./build.mjs');
-    assert.deepEqual(Object.keys(build).sort(),['assertBuildWork','checkWork','npmCLI','platformCargoEnvironment','runBuildProcess','stageWindowsOpenSsl'].sort());
+    assert.deepEqual(Object.keys(build).sort(),['assertBuildWork','buildPlatform','checkWork','npmCLI','platformCargoEnvironment','runBuildProcess','stagePostgresResources','stageWindowsOpenSsl'].sort());
   });
 
 }
 // END INLINE TESTS
+
+// 只返回声明数据；派发与观察归通用调用方，版本及交付归本仓YAML。
+export function describeAction({flow,platform,inputs={}}){
+ const workflow=product.platforms[platform]?.workflow;
+ if(flow==='release'&&workflow)return {repository:"crcfrcn/citizenchain",workflow,ref:'main',inputs};
+ throw Error('本产品未声明该流程：'+flow+'·'+platform);
+}

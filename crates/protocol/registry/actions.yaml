@@ -147,8 +147,8 @@
     - deployment_kind
     - node_id
     - server_ip
-    - version_tag
-    - source_sha
+    - platform
+    - version
     - artifact_sha256
     - task_id
     - expires_at

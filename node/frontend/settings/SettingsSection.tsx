@@ -104,6 +104,9 @@ export function SettingsSection({
               <span className="settings-version-value">{chainStatus.nodeVersion}</span>
             </span>
           </div>
+          {desktopUpdateInfo.status === 'available' && (
+            <p>安装前请完全退出公民链，安装完成后重新启动程序。</p>
+          )}
           {desktopUpdateInfo.error ? <p role="alert">{desktopUpdateInfo.error}</p> : null}
           <div className="settings-version-row">
             <span className="settings-version-label">Runtime 版本</span>

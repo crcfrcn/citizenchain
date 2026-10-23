@@ -1,10 +1,10 @@
 //! 本机同步守护：检测底层 P2P 已连接但 block sync peer 表为空的脱钩状态。
 //!
-//! 守护器只访问本机 `127.0.0.1` RPC，不定时请求公网参考节点，也不把区块高度
+//! 守护器只访问本机进程内网络只读入口，不定时请求公网参考节点，也不把区块高度
 //! 是否增长作为故障条件。检测到脱钩后只进入降级状态，不做进程内自动重启，
 //! 避免 Substrate/RocksDB 释放滞后时把本机节点带入同进程 LOCK 占用状态。
 
-use crate::shared::{constants::RPC_RESPONSE_LIMIT_LARGE, rpc, security};
+use crate::{desktop::node_runner::local_network_reader, shared::security};
 use serde::Serialize;
 use serde_json::Value;
 use std::{
@@ -92,15 +92,6 @@ where
     status.last_updated_unix_secs = Some(unix_secs_now());
 }
 
-fn rpc_post_local(method: &str, params: Value) -> Result<Value, String> {
-    rpc::rpc_post(
-        method,
-        params,
-        rpc::RPC_REQUEST_TIMEOUT,
-        RPC_RESPONSE_LIMIT_LARGE,
-    )
-}
-
 fn parse_bool(value: Option<&Value>) -> bool {
     match value {
         Some(Value::Bool(v)) => *v,
@@ -109,10 +100,11 @@ fn parse_bool(value: Option<&Value>) -> bool {
     }
 }
 
-fn sample_local_sync() -> Result<LocalSyncSample, String> {
-    let health = rpc_post_local("system_health", Value::Array(vec![]))?;
-    let peers = rpc_post_local("system_peers", Value::Array(vec![]))?;
-    let network_state = rpc_post_local("system_unstable_networkState", Value::Array(vec![]))?;
+fn sample_local_sync(app: &AppHandle) -> Result<LocalSyncSample, String> {
+    let snapshot = local_network_reader(app)?.sync_snapshot()?;
+    let health = snapshot.health;
+    let peers = snapshot.peers;
+    let network_state = snapshot.network_state;
 
     let health_peers = health.get("peers").and_then(Value::as_u64).unwrap_or(0) as usize;
     let should_have_peers = parse_bool(health.get("shouldHavePeers"));
@@ -239,7 +231,7 @@ fn guard_loop(app: AppHandle, stop_rx: mpsc::Receiver<()>) {
         let now = Instant::now();
         prune_degraded_window(&mut degraded_times, now);
 
-        let sample = match sample_local_sync() {
+        let sample = match sample_local_sync(&app) {
             Ok(sample) => sample,
             Err(err) => {
                 consecutive_suspects = 0;

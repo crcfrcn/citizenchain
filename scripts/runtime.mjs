@@ -190,28 +190,7 @@ export function runtimeSettleRequest(source) {
     run_id: run.id, run_attempt: run.run_attempt, source_sha: run.head_sha}}};
 }
 
-// 控制台沿用原launch({read,dispatch})公开接口，只提供传输；本文件独立拥有WASM流程。
-export async function describeAction({flow, platform}, {readTarget = readRuntimeTarget} = {}) {
-  if (flow !== 'release' || platform !== 'wasm') fail('Runtime入口只接受WASM流程');
-  return {repository: cfg.product.repository, launch: async({read, dispatch}) => {
-    const rows = [], releases = [];
-    for (let page = 1;; page++) {
-      const data = await read(cfg.automationRequest('wasm', 'runs').path + '&per_page=100&page=' + page);
-      rows.push(...data.workflow_runs); if (data.workflow_runs.length < 100) break;
-    }
-    for (let page = 1;; page++) {
-      const data = await read('releases?per_page=100&page=' + page);
-      releases.push(...data); if (data.length < 100) break;
-    }
-    if (rows.some(run => run.status !== 'completed')) fail('WASM已有活动编译Run');
-    const {base, target} = await readTarget(), version = String(target.specVersion);
-    if (releases.some(release => release.tag_name === cfg.releaseName('wasm', version))) fail('该Runtime版本已有交付或未收尾资产，禁止重复发布');
-    const head = await read('git/ref/heads/main');
-    const request = runtimeLaunchRequest({version, transactionVersion: String(target.transactionVersion), sha: head.object.sha, base});
-    const receipt = await dispatch({workflow: cfg.product.platforms.wasm.workflow, ...request.body});
-    return {runID: receipt.workflow_run_id};
-  }};
-}
+
 
 function assertWorkflow(context, event) {
   if (context?.repo?.owner + '/' + context?.repo?.repo !== cfg.product.repository || context.ref !== 'refs/heads/main'
@@ -1006,42 +985,7 @@ if (testFile) {
     assert.equal(keep.success.id,42);assert.equal(keep.failure.id,2);assert.deepEqual(keep.obsolete.map(row=>row.id),[1]);
     assert.equal(workflowRecords('wasm',rows).length,3);
   });
-  test('WASM派发复用本机读链加1，传递完整基线及目标双版本',async()=>{
-    const {readFile}=await import('node:fs/promises');
-    const frozen=(await readFile(new URL('../runtime/primitives/src/genesis.rs',import.meta.url),'utf8'))
-      .match(/pub const GENESIS_HASH:\s*\[u8;\s*32\]\s*=\s*hex_literal::hex!\("([a-f0-9]{64})"\)/u);
-    assert.ok(frozen);const calls=[],observed=[];let missing=false,releases=[],runs=[],certificateReads=0,certificateFailure=false;
-    const httpsImpl=httpsFixture(rpc=>{
-      calls.push(rpc.method);
-      const result=rpc.method==='chain_getBlockHash'?'0x'+frozen[1]:rpc.method==='chain_getFinalizedHead'?'0x'+'22'.repeat(32)
-        :{specName:product.id,specVersion:7,...(missing?{}:{transactionVersion:3})};
-      return {jsonrpc:'2.0',id:1,result};
-    },observed);
-    const target=await describeAction({flow:'release',platform:'wasm'},{readTarget:()=>readRuntimeTarget(localRpc,{
-      readCertificate:()=>{certificateReads++;if(certificateFailure)throw Error('fixture certificate failure');return publicFixture.toString();},httpsImpl})}),requests=[];
-    const read=async path=>{
-      if(path.startsWith('actions/workflows/wasm.yml/runs'))return {workflow_runs:runs};
-      if(path.startsWith('releases?'))return releases;
-      if(path==='git/ref/heads/main')return {object:{sha:'a'.repeat(40)}};
-      throw Error('未预期读取：'+path);
-    };
-    const dispatch=async request=>{requests.push(request);return {workflow_run_id:42};};
-    assert.deepEqual(await target.launch({read,dispatch}),{runID:42});
-    const {runtime_base,...inputs}=requests[0].inputs;
-    assert.deepEqual({...requests[0],inputs},{workflow:'wasm.yml',ref:'main',inputs:{version:'8',transaction_version:'4',source_sha:'a'.repeat(40)}});
-    assert.deepEqual(JSON.parse(runtime_base),{genesisHash:'0x'+frozen[1],blockHash:'0x'+'22'.repeat(32),specName:product.id,specVersion:7,transactionVersion:3});
-    assert.equal(certificateReads,1);assert.equal(observed.length,3);
-    assert.ok(observed.every(value=>value.options.ca===publicFixture.toString()));
-    assert.deepEqual(observed[2].body.params,['0x'+'22'.repeat(32)]);
-    certificateFailure=true;await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-    assert.equal(observed.length,3);certificateFailure=false;
-    missing=true;await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-    missing=false;releases=[{tag_name:'公民链·WASM·v8'}];
-    await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-    releases=[];runs=[{status:'in_progress'}];
-    await assert.rejects(target.launch({read,dispatch}));assert.equal(requests.length,1);
-    assert.deepEqual(calls.slice(0,3),['chain_getBlockHash','chain_getFinalizedHead','state_getRuntimeVersion']);
-  });
+
   // 直接调用WASM收尾函数的内存替身；不读真实GitHub、不派发、不构建、不删除真实记录。
   async function wasmCleanupFixture(options={}){
     const old={...wasmRun(1),display_title:releaseName('wasm','1')},success=wasmRun(10),failed={...wasmRun(11,'failure'),display_title:releaseName('wasm','3')};
@@ -1104,13 +1048,13 @@ if (testFile) {
     }
     assert.throws(()=>runtimeLaunchRequest({version:'3',transactionVersion:'1',sha:'a'.repeat(40),base:observedBase}));
   });
-  test('配置入口只转调Runtime，创建声明不读链或派发', async () => {
+  test('配置只返回WASM工作流数据，创建声明不读链或派发', async () => {
     const previous=globalThis.fetch;
     globalThis.fetch=async()=>{throw Error('声明阶段不能访问网络');};
     try{
       const action=await cfg.describeAction({flow:'release',platform:'wasm'});
-      assert.equal(action.repository,product.repository);assert.equal(typeof action.launch,'function');
-      await assert.rejects(cfg.describeAction({flow:'invalid',platform:'wasm'}));
+      assert.deepEqual(action,{repository:product.repository,workflow:'wasm.yml',ref:'main',inputs:{}});
+      assert.throws(()=>cfg.describeAction({flow:'invalid',platform:'wasm'}));
     }finally{globalThis.fetch=previous;}
   });
   test('Runner准备只消费本轮基线，输入变化拒绝且不查询RPC', async () => {

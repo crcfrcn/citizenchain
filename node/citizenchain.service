@@ -28,9 +28,12 @@ RestartSec=5
 LimitNOFILE=65536
 UMask=0077
 
-# 节点只允许写入自己的数据目录，禁止提权和修改系统关键区域。
+# 权威节点只写自己的数据目录；不授予Linux capabilities或物理设备访问。
 NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/citizenchain/data

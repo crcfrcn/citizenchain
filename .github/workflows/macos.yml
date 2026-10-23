@@ -1,18 +1,9 @@
 # 四端准备、测试、编译、正式交付及历史清理均在同一Run内完成。
 ---
 name: 公民链·macOS
-run-name: 公民链·macOS·v${{ inputs.version }}
+run-name: 公民链·macOS·${{ github.run_number }}
 'on':
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 已确定的交付版本 X.Y.Z，与Runtime协议版本独立
-        required: true
-        type: string
-      source_sha:
-        description: 批准的main完整提交
-        required: true
-        type: string
+  workflow_dispatch: {}
 concurrency:
   group: "${{ github.repository }}-macos-${{ github.event_name }}"
   cancel-in-progress: false
@@ -21,50 +12,49 @@ permissions:
   actions: read
 jobs:
   prepare:
-    name: 公民链·macOS·v${{ inputs.version }}
+    name: 公民链·macOS·版本
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    env:
-      PLATFORM: macos
-      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       with:
-        ref: "${{ github.sha }}"
+        ref: ${{ github.sha }}
         persist-credentials: false
-    - name: 核对产品候选及准确源码
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+    - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
       with:
-        retries: 0
-        script: |
-          const {pathToFileURL}=await import('node:url');
-          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
-          const p=process.env.PLATFORM,repo=context.repo;
-          const run=(await github.rest.actions.getWorkflowRun({...repo,run_id:context.runId})).data;
-          cfg.assertRun(p,run,context.runId);
-          if(run.head_sha!==process.env.CITIZENCHAIN_SOURCE_SHA||run.head_sha!==context.sha)throw Error('检出源码偏离批准');
-          const runs=await github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:cfg.product.platforms[p].workflow,branch:'main',event:'workflow_dispatch',per_page:100});
-          if(runs.some(row=>row.id<context.runId&&row.status!=='completed'))throw Error('本平台已有原编译任务，禁止重复编译');
-          const releases=await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100});
-          const {readFileSync}=await import('node:fs');
-          const initial=JSON.parse(readFileSync(process.env.GITHUB_WORKSPACE+'/node/tauri.conf.json','utf8')).version;
-          await cfg.assertNativePublishedTags(p,releases,tag=>github.rest.git.getRef({...repo,ref:'tags/'+tag}).then(value=>value.data));
-          const expected=cfg.nextDeliveryVersion(p,runs.filter(row=>row.id!==context.runId),releases,initial);
-          if(process.env.CITIZENCHAIN_RELEASE_VERSION!==expected)throw Error('候选不是已发布交付之后的准确补丁版本');
-          const tag=cfg.releaseName(p,expected);
-          if(releases.some(release=>release.tag_name===tag))throw Error('候选版本仍有未收尾资产，请恢复原Run清理');
-          try{await github.rest.git.getRef({...repo,ref:'tags/'+tag});throw Error('候选Tag已存在，请先核对原Run');}catch(error){if(error.status!==404)throw error;}
-          core.info('候选已确认：'+tag);
+        node-version: '25.2.1'
+        check-latest: false
+    - id: version
+      name: 计算本Run版本
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        gh api "repos/$GITHUB_REPOSITORY/actions/workflows/macos.yml/runs?branch=main&event=workflow_dispatch&status=success&per_page=1" > "$RUNNER_TEMP/previous.json"
+        node --input-type=module >> "$GITHUB_OUTPUT" <<'NODE'
+        import {readFileSync} from 'node:fs';
+        import {execFileSync} from 'node:child_process';
+        let version=JSON.parse(readFileSync('node/tauri.conf.json','utf8')).version;
+        const previous=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/previous.json','utf8')).workflow_runs[0];
+        if(previous){
+          const data=JSON.parse(execFileSync('gh',['api','repos/'+process.env.GITHUB_REPOSITORY+'/actions/runs/'+previous.id+'/artifacts?per_page=100'],{encoding:'utf8'}));
+          const prefix="公民链·macOS·v";
+          const artifact=data.artifacts.find(value=>value.name.startsWith(prefix)&&/^\d+\.\d+\.\d+$/u.test(value.name.slice(prefix.length)));
+          const parts=artifact.name.slice(prefix.length).split('.');parts[2]=String(BigInt(parts[2])+1n);version=parts.join('.');
+        }
+        console.log('version='+version);
+        NODE
   build:
-    name: 公民链·macOS·v${{ inputs.version }}
+    name: 公民链·macOS·v${{ needs.prepare.outputs.version }}
     needs: prepare
     runs-on: xcode-27
     timeout-minutes: 360
     env:
       PLATFORM: macos
-      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
+      CITIZENCHAIN_RELEASE_VERSION: "${{ needs.prepare.outputs.version }}"
+      CITIZENCHAIN_SOURCE_SHA: "${{ github.sha }}"
       CARGO_TARGET_DIR: "${{ github.workspace }}/target/build/macos/cargo-target"
       CITIZENCHAIN_SOURCE_ROOT: "${{ github.workspace }}"
       CITIZENCHAIN_WORK_DIR: "${{ github.workspace }}/target/build/macos"
@@ -208,7 +198,7 @@ jobs:
     - name: 上传完整Artifact
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:
-        name: 公民链·macOS·v${{ inputs.version }}
+        name: 公民链·macOS·v${{ needs.prepare.outputs.version }}
         path: target/build/macos/artifact
         if-no-files-found: error
     - name: 清理本轮编译现场
@@ -216,16 +206,16 @@ jobs:
       shell: bash
       run: node --input-type=module -e "import {rmSync,existsSync} from 'node:fs'; import {resolve} from 'node:path'; const work=resolve('target/build/macos'); if(work!==resolve(process.env.CITIZENCHAIN_WORK_DIR))throw Error('现场不符'); if(existsSync(resolve(work,'.retain-runtime-work')))throw Error('Runtime工具退出未确认，保留现场'); rmSync(work,{recursive:true,force:true});"
   release:
-    name: 公民链·macOS·v${{ inputs.version }}
-    needs: build
+    name: 公民链·macOS·v${{ needs.prepare.outputs.version }}
+    needs: [prepare, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: read
     env:
       PLATFORM: macos
-      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
+      CITIZENCHAIN_RELEASE_VERSION: "${{ needs.prepare.outputs.version }}"
+      CITIZENCHAIN_SOURCE_SHA: "${{ github.sha }}"
       GH_TOKEN: "${{ github.token }}"
       SOURCE_ASSETS: "${{ needs.build.outputs.assets }}"
     steps:
@@ -235,7 +225,7 @@ jobs:
         persist-credentials: false
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
-        name: 公民链·macOS·v${{ inputs.version }}
+        name: 公民链·macOS·v${{ needs.prepare.outputs.version }}
         path: "${{ runner.temp }}/artifact"
     - name: 创建并回读正式Tag与Release
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
@@ -274,7 +264,7 @@ jobs:
           for(const asset of published.assets)if(new URL(asset.browser_download_url).href!=='https://github.com/'+cfg.product.repository+'/releases/download/'+encodeURIComponent(tag)+'/'+encodeURIComponent(asset.name))throw Error('正式附件下载地址不符');
           core.info('正式Tag、Release及完整附件已确认：'+tag);
   cleanup:
-    name: 公民链·macOS·v${{ inputs.version }}
+    name: 公民链·macOS·v${{ needs.prepare.outputs.version }}
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
     needs: [prepare, build, release]
     runs-on: ubuntu-24.04
@@ -284,8 +274,8 @@ jobs:
       actions: write
     env:
       PLATFORM: macos
-      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
+      CITIZENCHAIN_RELEASE_VERSION: "${{ needs.prepare.outputs.version }}"
+      CITIZENCHAIN_SOURCE_SHA: "${{ github.sha }}"
       JOB_RESULTS: '{"prepare":"${{ needs.prepare.result }}","build":"${{ needs.build.result }}","release":"${{ needs.release.result }}"}'
     steps:
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -303,7 +293,7 @@ jobs:
           const getRun=id=>github.rest.actions.getWorkflowRun({...repo,run_id:id}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
           const original=async()=>{const run=await getRun(context.runId);cfg.assertRun(p,run,context.runId);
            if(run.head_sha!==context.sha||run.head_sha!==process.env.CITIZENCHAIN_SOURCE_SHA||run.run_attempt!==Number(process.env.GITHUB_RUN_ATTEMPT)
-            ||run.display_title!==cfg.releaseName(p,process.env.CITIZENCHAIN_RELEASE_VERSION))throw Error('本轮源码、attempt或交付版本变化');return run;};
+            )throw Error('本轮源码、attempt或交付版本变化');return run;};
           const rows=()=>github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:cfg.product.platforms[p].workflow,branch:'main',per_page:100});
           const plan=async()=>cfg.nativeCleanupPlan(p,await original(),results,await rows());
           const getRelease=id=>github.rest.repos.getRelease({...repo,release_id:id}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});

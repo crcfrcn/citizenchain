@@ -87,11 +87,14 @@ fn validate_native_workflow(document: &serde_yaml::Value, platform: &str) -> Res
     let triggers = document["on"].as_mapping().ok_or("缺少触发声明")?;
     let cleanup = &document["jobs"]["cleanup"];
     let dependencies = cleanup["needs"].as_sequence().ok_or("清理缺少依赖")?;
+    // 发布直接消费prepare的版本和build的产物，两个前置阶段必须同时保留。
+    let release_dependencies = document["jobs"]["release"]["needs"].as_sequence().ok_or("发布缺少依赖")?;
     if jobs.len() != names.len() || names.iter().any(|name| !document["jobs"][*name].is_mapping())
         || jobs.keys().last().and_then(serde_yaml::Value::as_str) != Some("cleanup")
         || triggers.len() != 1 || !document["on"]["workflow_dispatch"].is_mapping()
         || document["jobs"]["build"]["needs"].as_str() != Some("prepare")
-        || document["jobs"]["release"]["needs"].as_str() != Some("build")
+        || release_dependencies.iter().map(serde_yaml::Value::as_str).collect::<Vec<_>>()
+            != vec![Some("prepare"), Some("build")]
         || dependencies.iter().map(serde_yaml::Value::as_str).collect::<Vec<_>>()
             != vec![Some("prepare"), Some("build"), Some("release")]
         || cleanup["if"].as_str() != Some("${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}")
@@ -276,6 +279,14 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
             let mut missing_need = document.clone();
             missing_need["jobs"]["cleanup"]["needs"] = serde_yaml::Value::Sequence(vec![serde_yaml::Value::String("build".into())]);
             assert!(validate_workflow(&missing_need, platform).is_err());
+            // 不能只等待编译而丢失版本依赖，也不能只取版本而绕过编译。
+            for missing in ["prepare", "build"] {
+                let mut missing_release_need = document.clone();
+                missing_release_need["jobs"]["release"]["needs"].as_sequence_mut()
+                    .ok_or("发布缺少依赖序列")?
+                    .retain(|value| value.as_str() != Some(missing));
+                assert!(validate_workflow(&missing_release_need, platform).is_err(), "{platform}发布缺少{missing}依赖必须拒绝");
+            }
         }
         // 缺阶段、发布绕过编译、收尾误编译都必须继续被守卫拒绝。
         let mut missing = document.clone();

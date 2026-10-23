@@ -461,6 +461,17 @@ mod tests {
                 sc_rpc_api::check_if_safe(extensions).map(|_| true)
             })
             .unwrap();
+        module.register_method("system_health", |_, _, _| serde_json::json!({"peers":0})).unwrap();
+        for method in ["system_peers", "system_unstable_networkState"] {
+            module.register_method(method, move |_, _, extensions| {
+                sc_rpc_api::check_if_safe(extensions).map(|_| {
+                    if method == "system_peers" { serde_json::json!([]) }
+                    else { serde_json::json!({"connectedPeers":{}}) }
+                })
+            }).unwrap();
+        }
+        let internal = crate::core::service::LocalNetworkReader::new();
+        internal.attach(Arc::new(module.clone()), tokio::runtime::Handle::current()).unwrap();
         let endpoint = RpcEndpoint {
             listen_addr: address,
             batch_config: jsonrpsee::server::BatchRequestConfig::Unlimited,
@@ -611,18 +622,24 @@ mod tests {
         assert!(preflight
             .headers()
             .contains_key("access-control-allow-methods"));
-        let denied: serde_json::Value = client
-            .post(&url)
-            .json(&serde_json::json!({
-                "jsonrpc":"2.0","id":2,"method":"unsafe","params":[],
-            }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert!(denied.get("error").is_some());
+        for method in ["unsafe", "system_peers", "system_unstable_networkState"] {
+            let denied: serde_json::Value = client
+                .post(&url)
+                .json(&serde_json::json!({
+                    "jsonrpc":"2.0","id":2,"method":method,"params":[],
+                }))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert_eq!(denied["error"]["code"], -32601);
+            assert_eq!(denied["error"]["message"], "RPC call is unsafe to be called externally");
+        }
+        let local_reader = internal.clone();
+        let snapshot = tokio::task::spawn_blocking(move || local_reader.sync_snapshot()).await.unwrap().unwrap();
+        assert_eq!(snapshot.peers, serde_json::json!([]));
         let localhost_response = client
             .post(format!("https://localhost:{}", address.port()))
             .json(&request)
@@ -738,7 +755,24 @@ mod tests {
         wss.read_exact(&mut payload).await.unwrap();
         let response: serde_json::Value = serde_json::from_slice(&payload).unwrap();
         assert_eq!(response["result"], "0x7eb");
+        for method in ["system_peers", "system_unstable_networkState"] {
+            let payload = serde_json::json!({"jsonrpc":"2.0","id":3,"method":method,"params":[]}).to_string();
+            assert!(payload.len() < 126);
+            let mut frame = vec![0x81, 0x80 | payload.len() as u8];
+            frame.extend_from_slice(&mask);
+            frame.extend(payload.bytes().enumerate().map(|(index, byte)| byte ^ mask[index % 4]));
+            wss.write_all(&frame).await.unwrap();
+            assert_eq!(wss.read_u8().await.unwrap(), 0x81);
+            let length = wss.read_u8().await.unwrap();
+            let length = if length == 126 { wss.read_u16().await.unwrap() as usize } else { length as usize };
+            assert!(length < 4096);
+            let mut response = vec![0; length];
+            wss.read_exact(&mut response).await.unwrap();
+            let response: serde_json::Value = serde_json::from_slice(&response).unwrap();
+            assert_eq!(response["error"]["code"], -32601);
+        }
         drop(wss);
+        internal.close();
         server.abort();
         let _ = server.await;
         assert!(tokio::net::TcpStream::connect(address).await.is_err());

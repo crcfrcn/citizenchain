@@ -98,6 +98,82 @@ describe('现有四档金额和费用', () => {
   });
 });
 
+describe('钱包余额查询状态', () => {
+  it('链上无账户记录时显示零余额，钱包列表也不再显示加载中', async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_wallets') return { wallets: [wallet], activeAccountId: wallet.accountId };
+      if (command === 'get_wallet_balance') return null;
+      throw new Error(`非预期调用：${command}`);
+    });
+    const view = render(<TransactionPanel />);
+    await waitFor(() => expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('0.00 元'));
+    expect(screen.queryByText('查询中...')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '钱包管理' }));
+    await waitFor(() => expect(view.container.querySelector('.wallet-row-balance')?.textContent).toBe('0.00 元'));
+    expect(screen.queryByText('查询中...')).toBeNull();
+  });
+
+  it('RPC错误显示原因，手动重试期间显示加载，成功后恢复余额', async () => {
+    const pending = deferred<string>();
+    let requests = 0;
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_wallets') return { wallets: [wallet], activeAccountId: wallet.accountId };
+      if (command === 'get_wallet_balance') {
+        if (++requests === 1) throw new Error('合成RPC连接失败');
+        return pending.promise;
+      }
+      throw new Error(`非预期调用：${command}`);
+    });
+    render(<TransactionPanel />);
+    await screen.findByRole('alert');
+    expect(screen.getByRole('alert').textContent).toContain('合成RPC连接失败');
+    expect(screen.queryByText('查询中...')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '重试查询' }));
+    await screen.findByText('查询中...');
+    await act(async () => pending.resolve('12345'));
+    await screen.findByText('123.45 元');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('钱包列表明确显示查询错误，不将RPC失败当成零余额', async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_wallets') return { wallets: [wallet], activeAccountId: wallet.accountId };
+      if (command === 'get_wallet_balance') throw new Error('合成RPC超时');
+      throw new Error(`非预期调用：${command}`);
+    });
+    const view = render(<TransactionPanel />);
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: '钱包管理' }));
+    await waitFor(() => expect(view.container.querySelector('.wallet-row-balance')?.textContent).toBe('查询失败'));
+    expect(view.container.querySelector('.wallet-row-balance')?.getAttribute('title')).toBe('合成RPC超时');
+  });
+
+  it('切换钱包后，旧账户迟到的查询结果不能覆盖当前余额', async () => {
+    const oldRequest = deferred<string>();
+    const otherWallet: Wallet = { ...wallet, name: '另一钱包', accountId: `0x${'44'.repeat(32)}`,
+      ss58Address: accountIdToSs58(`0x${'44'.repeat(32)}`) };
+    const wallets = [wallet, otherWallet];
+    let oldRequests = 0;
+    mocks.invoke.mockImplementation(async (command: string, args?: { account_id: string }) => {
+      if (command === 'get_wallets') return { wallets, activeAccountId: wallet.accountId };
+      if (command === 'set_active_wallet') return { wallets, activeAccountId: otherWallet.accountId };
+      if (command === 'get_wallet_balance') {
+        if (args?.account_id === wallet.accountId && ++oldRequests === 1) return oldRequest.promise;
+        return args?.account_id === wallet.accountId ? '10000' : '20000';
+      }
+      throw new Error(`非预期调用：${command}`);
+    });
+    const view = render(<TransactionPanel />);
+    await waitFor(() => expect(oldRequests).toBe(1));
+    fireEvent.click(screen.getByRole('button', { name: '钱包管理' }));
+    await screen.findByText('另一钱包 · Cold');
+    fireEvent.click(screen.getByText('另一钱包 · Cold'));
+    await waitFor(() => expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('200.00 元'));
+    await act(async () => oldRequest.resolve('999999'));
+    expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('200.00 元');
+  });
+});
+
 describe('现有确认、扫码与提交', () => {
   it('取消确认不构建请求、不签名、不提交', () => {
     const callbacks = flow();

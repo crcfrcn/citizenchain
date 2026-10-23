@@ -7,6 +7,8 @@ import type { Wallet } from './types';
 type Props = {
   activeWallet: Wallet | null;
   balance: string | null;
+  balanceError?: string | null;
+  onRetryBalance?: () => void;
   onSubmit: (toAddress: string, amountYuan: number, remark: string) => void;
   disabled?: boolean;
 };
@@ -56,7 +58,7 @@ function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
-export function TransferForm({ activeWallet, balance, onSubmit, disabled }: Props) {
+export function TransferForm({ activeWallet, balance, balanceError, onRetryBalance, onSubmit, disabled }: Props) {
   const [toAddress, setToAddress] = useState('');
   // 金额用字符串存储，显示带千分位
   const [amountText, setAmountText] = useState('');
@@ -91,12 +93,19 @@ export function TransferForm({ activeWallet, balance, onSubmit, disabled }: Prop
         {/* 后端返回 finalized 的 free 余额，不能把账户保留金也称为可用金额。 */}
         <span className="transfer-form-balance-label">钱包余额</span>
         <span className="transfer-form-balance-value">
-          {activeWallet && balance != null
+          {activeWallet && balanceError != null ? '查询失败' : activeWallet && balance != null
             ? `${fenToYuan(balance)} 元`
             : (activeWallet ? '查询中...' : '-')
           }
         </span>
       </div>
+
+      {activeWallet && balanceError != null && (
+        <div className="error" role="alert">
+          余额查询失败：{balanceError}
+          {onRetryBalance && <button type="button" onClick={onRetryBalance}>重试查询</button>}
+        </div>
+      )}
 
       {!activeWallet && (
         <p className="transfer-form-status-hint">请先在钱包管理中添加钱包</p>
@@ -114,7 +123,7 @@ export function TransferForm({ activeWallet, balance, onSubmit, disabled }: Prop
             disabled={formDisabled}
           />
           <button type="button" className="scan-icon-btn" onClick={() => setShowScan(true)} disabled={formDisabled} title="扫码填入">
-            <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url(${scanIcon})`,WebkitMaskImage:`url(${scanIcon})`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
+            <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url("${scanIcon}")`,WebkitMaskImage:`url("${scanIcon}")`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
           </button>
         </div>
       </div>

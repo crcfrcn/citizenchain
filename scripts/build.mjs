@@ -1,5 +1,5 @@
-#!/usr/bin/env node
-// 公民链本机与GitHub的唯一编译实现；本机只交付App，签名和安装归控制台。
+// 按官方要求或推荐实现；必需的工具依赖有就复用，没有就下载；使用最简单的实现方式；本脚本只允许放编译构建代码和注释，禁止增加无关内容，禁止增加复杂的校验阻断。
+// config.mjs：只负责配置声明；build.mjs：只负责编译构建实现和必要注释；*.yml：负责全部GitHub流程，包括版本、作业编排、发布及历史清理。
 import {spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep, delimiter} from 'node:path';
@@ -53,6 +53,8 @@ export function platformCargoEnvironment(platform, work, environment) {
   for (const key of Object.keys(env)) if (key.startsWith('APPLE_') || /(?:^|_)(?:TOKEN|PASSWORD|PRIVATE_KEY|SECRET)$/u.test(key) || ['GH_TOKEN', 'GITHUB_TOKEN', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_TEST_CONTEXT', 'WASM_FILE', 'DOCS_RS', 'SKIP_WASM_BUILD', 'WASM_BUILD_FROM_SOURCE', 'CITIZENCHAIN_PRODUCTION_WASM_BUILD'].includes(key) || /^SKIP_.+_WASM_BUILD$/u.test(key)) delete env[key];
   // 节点/模块构建不自行编译WASM；Runtime专属入口按其模式显式开启。
   env.SKIP_WASM_BUILD = '1';
+  // rust-lang/rust#157750：macOS 27 会拒绝 Rust 剥离调试信息后未对齐的过程宏 dylib。
+  if (platform === 'macos') env.CARGO_PROFILE_RELEASE_STRIP = 'none';
   if(platform==='windows'){
     const searchPath=environment.PATH||environment.Path;
     for(const key of Object.keys(env))if(key.toUpperCase()==='PATH')delete env[key];
@@ -69,6 +71,25 @@ export function stageWindowsOpenSsl(_resources, env, directories) {
     if (bytes.toString('ascii', 0, 2) !== 'MZ' || at < 0 || at > bytes.length - 24 || bytes.readUInt32LE(at) !== 0x4550 || bytes.readUInt16LE(at + 4) !== 0x8664) fail('OpenSSL DLL 架构无效');
     for (const directory of directories) copyFileSync(source, join(directory, name));
   }
+}
+// Node 25.2.1 的目录 cpSync 即使启用 dereference 仍会保留部分 dylib 链接。
+// 显式解析官方 PostgreSQL 产物内的链接并复制文件，禁止越界与目录循环。
+export function stagePostgresResources(source, destination) {
+  const sourceRoot = realpathSync(source);
+  function copy(path, output, ancestors = new Set()) {
+    const resolved = realpathSync(path);
+    if (resolved !== sourceRoot && !inside(sourceRoot, resolved)) fail('PostgreSQL运行资源链接越界');
+    const info = lstatSync(resolved);
+    if (info.isDirectory()) {
+      if (ancestors.has(resolved)) fail('PostgreSQL运行资源存在目录循环');
+      const parents = new Set([...ancestors, resolved]);
+      mkdirSync(output, {recursive: true});
+      for (const name of readdirSync(resolved)) copy(join(resolved, name), join(output, name), parents);
+    } else if (info.isFile()) {
+      copyFileSync(resolved, output);
+    } else fail('PostgreSQL运行资源必须是普通文件或目录');
+  }
+  for (const name of ['bin', 'lib', 'share']) copy(join(sourceRoot, name), join(destination, name));
 }
 function walk(path) {
   return readdirSync(path).flatMap(name => {
@@ -131,7 +152,7 @@ async function signResources(files, work, env) {
     if (existsSync(keychain)) await security(['delete-keychain', keychain]);
   }
 }
-async function buildPlatform(platform,{work=join(root,'target/build',platform),local=false,consume}={}) {
+export async function buildPlatform(platform,{work=join(root,'target/build',platform),local=false,consume}={}) {
   if (platform === 'wasm') fail('Runtime请使用 scripts/runtime.mjs build');
   const declared = product.platforms[platform];
   if(local)checkWork(work);else assertBuildWork(work, platform);
@@ -156,7 +177,7 @@ async function buildPlatform(platform,{work=join(root,'target/build',platform),l
     const pg = process.env.CITIZENCHAIN_PG_DIST;
     if (!isAbsolute(pg || '')) fail('缺少完整 PostgreSQL 原件');
     if ((await run(join(pg, 'bin', platform === 'windows' ? 'postgres.exe' : 'postgres'), ['--version'], {capture: true})).stdout.trim() !== 'postgres (PostgreSQL) ' + product.tools.postgres) fail('PostgreSQL 版本不符');
-    for(const name of ['bin','lib','share'])cpSync(join(pg,name),join(resources,'postgres',pgOs,name),{recursive:true,dereference:true});
+    stagePostgresResources(pg, join(resources, 'postgres', pgOs));
     for(const name of ['COPYRIGHT','LICENSE','license.txt'])if(existsSync(join(pg,name)))copyFileSync(join(pg,name),join(resources,'postgres',pgOs,name));
     if (platform === 'windows') stageWindowsOpenSsl(resources, env, [resources, join(resources, 'onchina-bin'), join(resources,'postgres/windows/bin')]);
     else for (const file of walk(resources)) chmodSync(file, lstatSync(file).mode & 0o111 ? 0o755 : 0o644);
@@ -173,7 +194,10 @@ async function buildPlatform(platform,{work=join(root,'target/build',platform),l
     const tauri = join(root, 'node/frontend/node_modules/@tauri-apps/cli/tauri.js');
     await runBuildProcess(process.execPath, [tauri, 'build', '--config', JSON.stringify(config), '--no-bundle', '--ci', '--', '--locked', '--config', join(root, 'config.toml')], env, join(root, 'node'));
     const signing = {...env, ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith('APPLE_')))};
-    if (platform === 'macos' && !local) await signResources(await macLibraries(resources, join(env.CARGO_TARGET_DIR, 'release/citizenchain'), env), work, signing);
+    if (platform === 'macos') {
+      const binaries = await macLibraries(resources, join(env.CARGO_TARGET_DIR, 'release/citizenchain'), env);
+      if (!local) await signResources(binaries, work, signing);
+    }
     if(local){
       if(platform!=='macos')fail('当前本机编译只支持macOS');
       config.bundle.macOS={hardenedRuntime:true,signingIdentity:null};
@@ -248,7 +272,7 @@ async function compile(platform){
     process.stdout.write('TATA_COMPILE '+JSON.stringify(value)+'\n');
     for await(const part of process.stdin)if(part.length)fail('编译消费通道只接受EOF');
   }});}finally{process.env=previous;}
- }catch(error){safe=!error.retainWork;throw error;}finally{if(safe)rmSync(work,{recursive:true,force:true});}
+ }catch(error){safe=!(error.retainWork || process.env.CITIZENCHAIN_RETAIN_FAILED_BUILD==='1');throw error;}finally{if(safe)rmSync(work,{recursive:true,force:true});}
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
  const args=process.argv.slice(2);

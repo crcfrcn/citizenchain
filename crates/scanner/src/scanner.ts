@@ -301,7 +301,7 @@ function mapDeviceFailure(error: unknown, message: string): ScannerFailure {
   if (name === 'NotAllowedError' || name === 'SecurityError') {
     return new ScannerFailure(
       'permission-denied',
-      '摄像头访问被系统或用户拒绝',
+      '无法取得摄像头访问权限。请检查系统授权；若刚安装或更新程序，请完全退出后重新打开。',
       error,
     );
   }

@@ -15,11 +15,12 @@ use std::sync::{
 use std::thread::JoinHandle;
 use std::time::Duration;
 use tokio::sync::oneshot;
+use crate::core::service::LocalNetworkReader;
 
 const NODE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 const NODE_SERVICE_START_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
-struct NodeThreadAliveGuard(Arc<AtomicBool>);
+struct NodeThreadAliveGuard(Arc<AtomicBool>, LocalNetworkReader);
 
 fn startup_disconnect_error(exit_error: &Arc<Mutex<Option<String>>>) -> String {
     exit_error
@@ -107,6 +108,7 @@ fn run_node_tasks(
 
 impl Drop for NodeThreadAliveGuard {
     fn drop(&mut self) {
+        self.1.close();
         self.0.store(false, Ordering::Release);
     }
 }
@@ -117,9 +119,11 @@ pub struct NodeHandle {
     thread: Option<JoinHandle<()>>,
     alive: Arc<AtomicBool>,
     exit_error: Arc<Mutex<Option<String>>>,
+    network: LocalNetworkReader,
 }
 
 impl NodeHandle {
+    pub(crate) fn network_reader(&self) -> LocalNetworkReader { self.network.clone() }
     /// 返回后台 Substrate 线程是否仍存活，用于把异常退出同步到首页状态。
     pub fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Acquire)
@@ -136,6 +140,7 @@ impl NodeHandle {
 
 impl Drop for NodeHandle {
     fn drop(&mut self) {
+        self.network.close();
         // 发送停机信号；接收端可能已被 task_manager 退出路径丢弃，忽略错误。
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
@@ -149,6 +154,15 @@ impl Drop for NodeHandle {
         }
         self.alive.store(false, Ordering::Release);
     }
+}
+
+/// 仅给 Rust 内部调用者返回固定查询入口，释放 AppState 锁后再执行查询。
+pub(crate) fn local_network_reader(app: &tauri::AppHandle) -> Result<LocalNetworkReader, String> {
+    use tauri::Manager;
+    let state = app.state::<crate::home::AppState>();
+    let state = state.0.lock().map_err(|_| "节点运行状态锁异常")?;
+    state.node_handle.as_ref().filter(|node| node.is_alive())
+        .map(NodeHandle::network_reader).ok_or_else(|| "本机节点未运行".into())
 }
 
 /// 在进程内启动 Substrate 节点。
@@ -203,12 +217,14 @@ pub fn start_node_in_process(
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let alive = Arc::new(AtomicBool::new(true));
     let thread_alive = Arc::clone(&alive);
+    let network = LocalNetworkReader::new();
+    let thread_network = network.clone();
 
     let thread = std::thread::Builder::new()
         .name("substrate-node".into())
         .spawn(move || {
             // 存活标记必须在线程最终退出时才清除，确保 panic 原因先写入通道。
-            let _alive_guard = NodeThreadAliveGuard(thread_alive);
+            let _alive_guard = NodeThreadAliveGuard(thread_alive, thread_network.clone());
             let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 use clap::Parser;
                 use sc_cli::CliConfiguration;
@@ -260,7 +276,7 @@ pub fn start_node_in_process(
                 // 通过 CLI 的 `--clearing-bank` 进入无 UI 模式启动清算行节点。
                 let service = {
                     let _entered = tokio_runtime.enter();
-                    crate::core::service::new_full(
+                    crate::core::service::new_full_with_network_reader(
                         config,
                         mining_threads,
                         gpu_device,
@@ -270,6 +286,7 @@ pub fn start_node_in_process(
                         None,
                         None,
                         None,
+                        Some(thread_network),
                     )
                 };
                 match service {
@@ -303,6 +320,7 @@ pub fn start_node_in_process(
             thread: Some(thread),
             alive,
             exit_error,
+            network,
         }),
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             let _ = shutdown_tx.send(());
@@ -323,6 +341,34 @@ pub fn start_node_in_process(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stopping_node_revokes_network_reader_before_shutdown_notification() {
+        let network = LocalNetworkReader::new();
+        let observer = network.clone();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let worker = std::thread::spawn(move || {
+            shutdown_rx.blocking_recv().unwrap();
+            assert!(observer.peers().unwrap_err().contains("已关闭"));
+        });
+        let alive = Arc::new(AtomicBool::new(true));
+        let handle = NodeHandle {
+            shutdown_tx: Some(shutdown_tx), thread: Some(worker), alive: alive.clone(),
+            exit_error: Arc::new(Mutex::new(None)), network: network.clone(),
+        };
+        drop(handle);
+        assert!(!alive.load(Ordering::Acquire));
+        assert!(network.peers().unwrap_err().contains("已关闭"));
+    }
+
+    #[test]
+    fn unexpected_thread_exit_also_revokes_network_reader() {
+        let alive = Arc::new(AtomicBool::new(true));
+        let network = LocalNetworkReader::new();
+        drop(NodeThreadAliveGuard(alive.clone(), network.clone()));
+        assert!(!alive.load(Ordering::Acquire));
+        assert!(network.peers().unwrap_err().contains("已关闭"));
+    }
 
     #[test]
     fn startup_disconnect_reports_saved_thread_failure() {

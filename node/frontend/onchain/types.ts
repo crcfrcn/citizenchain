@@ -19,6 +19,11 @@ export type WalletStore = {
   activeAccountId: string | null;
 };
 
+export type WalletBalanceState =
+  | { status: 'loading' }
+  | { status: 'ready'; balance: string }
+  | { status: 'error'; message: string };
+
 export type TransferSignRequestResult = {
   requestJson: string;
   requestId: string;

@@ -28,13 +28,20 @@ fn node_deploy_intent_round_trip_and_rejects_cross_target_or_suffix() {
         node_deploy_signing_preimage, NodeDeployIntent, NodeDeployKind, NODE_DEPLOY_SIGNING_DOMAIN};
     let intent = NodeDeployIntent {
         kind: NodeDeployKind::Authority,
-        node_id: "prczss".into(), server_ip: "192.0.2.10".into(),
-        version_tag: "citizenchain-v1".into(), source_sha: [0x11; 20],
+        node_id: "node-01".into(), server_ip: "192.0.2.10".into(),
+        platform: "arm64".into(), version: "1.0.0".into(),
         artifact_sha256: [0x22; 32], task_id: "123456789".into(),
         expires_at: 1_800_000_000, nonce: [0x33; 32],
     };
     let encoded = encode_node_deploy_intent(&intent).expect("准确节点批准可编码");
-    assert_eq!(encoded.len(), 149);
+    assert_eq!(encoded.len(), 126);
+    // 五种码型中的签名请求同时作为Swift、Dart与Rust的节点格式2公开金标。
+    use base64::Engine as _;
+    let sample = load("sign_request.json");
+    let expected = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(sample["b"]["d"].as_str().expect("公开签名载荷存在")).expect("规范base64url");
+    assert_eq!(sample["b"]["a"], 16);
+    assert_eq!(encoded, expected);
     assert_eq!(decode_node_deploy_intent(&encoded).expect("可回读"), intent);
     let preimage = node_deploy_signing_preimage(&encoded).expect("可构造独立签名域");
     assert!(preimage.starts_with(NODE_DEPLOY_SIGNING_DOMAIN));
@@ -45,6 +52,21 @@ fn node_deploy_intent_round_trip_and_rejects_cross_target_or_suffix() {
     assert!(decode_node_deploy_intent(&wrong_kind).is_err());
     let mut wrong_product = encoded.clone(); wrong_product[1] = b'x';
     assert!(decode_node_deploy_intent(&wrong_product).is_err());
+    let mut legacy = encoded.clone(); legacy[0] = 1;
+    assert!(decode_node_deploy_intent(&legacy).is_err());
+    for length in 0..encoded.len() { assert!(decode_node_deploy_intent(&encoded[..length]).is_err()); }
+    for version in ["1:2.0-1".to_string(), "1.0.0-beta".to_string(), "安装包版本".to_string(), "v".repeat(255)] {
+        let mut valid = intent.clone(); valid.version = version;
+        assert_eq!(decode_node_deploy_intent(&encode_node_deploy_intent(&valid).expect("实际包版本可编码")).expect("可解码"), valid);
+    }
+    for version in [String::new(), "1.0\n".to_string(), "v".repeat(256)] {
+        let mut invalid = intent.clone(); invalid.version = version;
+        assert!(encode_node_deploy_intent(&invalid).is_err());
+    }
+    let mut wrong_platform = intent.clone(); wrong_platform.platform = "arm 64".into();
+    assert!(encode_node_deploy_intent(&wrong_platform).is_err());
+    let mut missing_challenge = intent.clone(); missing_challenge.nonce = [0; 32];
+    assert!(encode_node_deploy_intent(&missing_challenge).is_err());
     let mut wrong_ip = intent.clone(); wrong_ip.server_ip = "192.0.2.11".into();
     assert_ne!(encode_node_deploy_intent(&wrong_ip).expect("另一目标也可编码"), encoded);
 }

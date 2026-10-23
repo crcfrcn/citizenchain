@@ -43,6 +43,101 @@ use std::{
 /// CPU 全线程合计哈希率（hashes/sec），以 f64 bits 存入 AtomicU64。
 static CPU_HASHRATE: AtomicU64 = AtomicU64::new(0);
 
+/// 每次启动独有的桌面网络只读入口；不接受来自前端的方法名或参数。
+#[derive(Clone, Default)]
+pub(crate) struct LocalNetworkReader(Arc<Mutex<LocalNetworkSession>>);
+
+#[derive(Default)]
+struct LocalNetworkSession {
+    closed: bool,
+    rpc: Option<(Arc<jsonrpsee::RpcModule<()>>, tokio::runtime::Handle)>,
+}
+
+#[derive(Clone, Copy)]
+enum NetworkRead {
+    Health,
+    Peers,
+    State,
+}
+
+impl NetworkRead {
+    fn method(self) -> &'static str {
+        match self {
+            Self::Health => "system_health",
+            Self::Peers => "system_peers",
+            Self::State => "system_unstable_networkState",
+        }
+    }
+}
+
+pub(crate) struct LocalNetworkSnapshot {
+    pub health: serde_json::Value,
+    pub peers: serde_json::Value,
+    pub network_state: serde_json::Value,
+}
+
+impl LocalNetworkReader {
+    pub(crate) fn new() -> Self { Self::default() }
+
+    pub(super) fn attach(&self, rpc: Arc<jsonrpsee::RpcModule<()>>, runtime: tokio::runtime::Handle) -> Result<(), String> {
+        let mut session = self.0.lock().map_err(|_| "本机网络查询状态锁异常")?;
+        if session.closed || session.rpc.is_some() {
+            return Err("本机网络查询入口已关闭或已经绑定".into());
+        }
+        session.rpc = Some((rpc, runtime));
+        Ok(())
+    }
+
+    pub(crate) fn close(&self) {
+        let mut session = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        session.closed = true;
+        session.rpc = None;
+    }
+
+    fn read(&self, query: NetworkRead) -> Result<serde_json::Value, String> {
+        let (rpc, runtime) = {
+            let session = self.0.lock().map_err(|_| "本机网络查询状态锁异常")?;
+            if session.closed { return Err("本机节点网络查询入口已关闭".into()); }
+            session.rpc.clone().ok_or("本机节点网络查询入口尚未就绪")?
+        };
+        let method = query.method();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        // 在节点自己的 Runtime 执行，调用方不持有节点状态锁，也不嵌套 block_on。
+        runtime.spawn(async move {
+            let result = tokio::time::timeout(Duration::from_secs(4),
+                rpc.call::<_, serde_json::Value>(method, Vec::<serde_json::Value>::new())).await
+                .map_err(|_| format!("本机 {method} 查询超时"))
+                .and_then(|result| result.map_err(|error| format!("本机 {method} 查询失败: {error}")));
+            let _ = sender.send(result);
+        });
+        let result = receiver.recv_timeout(Duration::from_secs(5))
+            .map_err(|error| format!("本机 {method} 查询未完成: {error}"))?;
+        // 停机期间返回的旧响应不能被交给新一轮界面或同步诊断。
+        if self.0.lock().map_err(|_| "本机网络查询状态锁异常")?.closed {
+            return Err("本机节点网络查询入口已关闭".into());
+        }
+        let value = result?;
+        let valid = match query {
+            NetworkRead::Peers => value.is_array(),
+            NetworkRead::Health | NetworkRead::State => value.is_object(),
+        };
+        if !valid { return Err(format!("本机 {method} 返回格式无效")); }
+        Ok(value)
+    }
+
+    pub(crate) fn peers(&self) -> Result<serde_json::Value, String> {
+        self.read(NetworkRead::Peers)
+    }
+
+    pub(crate) fn sync_snapshot(&self) -> Result<LocalNetworkSnapshot, String> {
+        Ok(LocalNetworkSnapshot {
+            health: self.read(NetworkRead::Health)?,
+            peers: self.peers()?,
+            network_state: self.read(NetworkRead::State)?,
+        })
+    }
+}
+
 // 空块 proposal 防护由 mining worker 的 should_propose 与 CPU/GPU 交易池门控共同实现。
 
 /// 获取当前 CPU 哈希率（hashes/sec）。
@@ -529,6 +624,22 @@ type NetworkBackend = sc_network::NetworkWorker<Block, <Block as sp_runtime::tra
 
 /// Builds a new service for a full client.
 pub(crate) fn new_full(
+    config: Configuration,
+    mining_threads: usize,
+    gpu_device: Option<usize>,
+    desktop_rpc_tls: Option<crate::core::rpc_tls::RpcTls>,
+    desktop_rpc_failure: Option<Arc<Mutex<Option<String>>>>,
+    clearing_bank_cid_number: Option<String>,
+    clearing_bank_role_code: Option<String>,
+    clearing_bank_password: Option<String>,
+    clearing_reserve_monitor_interval_secs: Option<u64>,
+) -> Result<TaskManager, ServiceError> {
+    new_full_with_network_reader(config, mining_threads, gpu_device, desktop_rpc_tls,
+        desktop_rpc_failure, clearing_bank_cid_number, clearing_bank_role_code,
+        clearing_bank_password, clearing_reserve_monitor_interval_secs, None)
+}
+
+pub(crate) fn new_full_with_network_reader(
     mut config: Configuration,
     mining_threads: usize,
     gpu_device: Option<usize>,
@@ -542,6 +653,7 @@ pub(crate) fn new_full(
     clearing_bank_password: Option<String>,
     // offchain::settlement::reserve 对账周期(秒),None=默认 300,Some(0)=关闭
     clearing_reserve_monitor_interval_secs: Option<u64>,
+    local_network: Option<LocalNetworkReader>,
 ) -> Result<TaskManager, ServiceError> {
     // 先装载可信 RPC 证书并取走端点，禁止上游 spawn_tasks 同时开启明文监听。
     // 进程内 RpcHandlers 仍正常创建，CLI 和桌面共用本服务入口。
@@ -715,6 +827,11 @@ pub(crate) fn new_full(
         telemetry: telemetry.as_mut(),
         tracing_execute_block: None,
     })?;
+
+    if let Some(reader) = local_network {
+        reader.attach(rpc_handlers.handle(), tokio::runtime::Handle::current())
+            .map_err(ServiceError::Other)?;
+    }
 
     if let Some(rpc_tls) = rpc_tls {
         // 原生后端仅在进程内使用；公开副本显式覆盖为 Safe，防止 Unsafe 扩展泄漏。
@@ -989,6 +1106,88 @@ mod p2p_bad_block_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn network_module(peers: serde_json::Value) -> Arc<jsonrpsee::RpcModule<()>> {
+        let mut module = jsonrpsee::RpcModule::new(());
+        module.extensions_mut().insert(sc_rpc_api::DenyUnsafe::No);
+        module.register_method("system_health", |_, _, _| serde_json::json!({
+            "peers": 1, "isSyncing": false, "shouldHavePeers": true,
+        })).unwrap();
+        module.register_method("system_peers", move |_, _, extensions| {
+            sc_rpc_api::check_if_safe(extensions).map(|_| peers.clone())
+        }).unwrap();
+        module.register_method("system_unstable_networkState", |_, _, extensions| {
+            sc_rpc_api::check_if_safe(extensions).map(|_| serde_json::json!({"connectedPeers": {}}))
+        }).unwrap();
+        Arc::new(module)
+    }
+
+    #[test]
+    fn local_network_reader_reads_fixed_native_methods_including_zero_peers() {
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let reader = LocalNetworkReader::new();
+        assert!(reader.peers().unwrap_err().contains("尚未就绪"));
+        reader.attach(network_module(serde_json::json!([])), runtime.handle().clone()).unwrap();
+        let snapshot = reader.sync_snapshot().unwrap();
+        assert_eq!(snapshot.peers, serde_json::json!([]));
+        assert_eq!(snapshot.health["shouldHavePeers"], true);
+        assert!(snapshot.network_state["connectedPeers"].is_object());
+        reader.close();
+    }
+
+    #[test]
+    fn local_network_reader_close_releases_rpc_and_restart_does_not_revive_old_handles() {
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let reader = LocalNetworkReader::new();
+        let old = reader.clone();
+        let rpc = network_module(serde_json::json!([]));
+        let weak = Arc::downgrade(&rpc);
+        reader.attach(rpc, runtime.handle().clone()).unwrap();
+        reader.close();
+        assert!(weak.upgrade().is_none());
+        assert!(old.peers().unwrap_err().contains("已关闭"));
+        assert!(old.attach(network_module(serde_json::json!([])), runtime.handle().clone()).is_err());
+        let restarted = LocalNetworkReader::new();
+        restarted.attach(network_module(serde_json::json!([{"peerId":"new-session"}])), runtime.handle().clone()).unwrap();
+        assert_eq!(restarted.peers().unwrap().as_array().unwrap().len(), 1);
+        assert!(old.sync_snapshot().is_err());
+        restarted.close();
+    }
+
+    #[test]
+    fn local_network_reader_discards_late_response_after_close() {
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let started = entered.clone();
+        let finish = release.clone();
+        let mut module = jsonrpsee::RpcModule::new(());
+        module.register_async_method("system_peers", move |_, _, _| {
+            let started = started.clone(); let finish = finish.clone();
+            async move {
+                started.notify_one();
+                finish.notified().await;
+                serde_json::json!([{"peerId":"stale"}])
+            }
+        }).unwrap();
+        let reader = LocalNetworkReader::new();
+        reader.attach(Arc::new(module), runtime.handle().clone()).unwrap();
+        let pending = reader.clone();
+        let query = thread::spawn(move || pending.peers());
+        runtime.block_on(async { tokio::time::timeout(Duration::from_secs(2), entered.notified()).await.unwrap(); });
+        reader.close();
+        release.notify_one();
+        assert!(query.join().unwrap().unwrap_err().contains("已关闭"));
+    }
+
+    #[test]
+    fn local_network_reader_does_not_turn_malformed_peer_response_into_zero() {
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let reader = LocalNetworkReader::new();
+        reader.attach(network_module(serde_json::Value::Null), runtime.handle().clone()).unwrap();
+        assert!(reader.peers().unwrap_err().contains("返回格式无效"));
+        reader.close();
+    }
 
     #[test]
     fn cpu_miner_shutdown_joins_idle_and_busy_threads_and_releases_resources() {

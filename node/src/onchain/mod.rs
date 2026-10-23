@@ -343,7 +343,8 @@ pub fn get_wallet_balance(account_id: String) -> Result<Option<String>, String> 
     let account_id = normalize_account_id(&account_id)?;
     match institution::fetch_balance(&account_id)? {
         Some(fen) => Ok(Some(fen.to_string())),
-        None => Ok(None),
+        // 成功读取但链上尚无账户记录时，余额为零；RPC/解码错误由 ? 保留。
+        None => Ok(Some("0".to_string())),
     }
 }
 

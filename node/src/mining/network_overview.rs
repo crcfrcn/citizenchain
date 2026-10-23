@@ -1,4 +1,5 @@
 use crate::{
+    desktop::node_runner::local_network_reader,
     home,
     settings::bootnodes_address,
     shared::{constants, rpc},
@@ -136,6 +137,43 @@ fn extract_light_role(roles_value: &Value) -> bool {
     false
 }
 
+fn collect_local_peers(peers: &Value) -> Result<(HashSet<String>, HashSet<String>, u64), String> {
+    let peers = peers.as_array().ok_or("system_peers 返回格式无效")?;
+    let mut full = HashSet::new();
+    let mut light = HashSet::new();
+    let mut invalid = 0;
+    for peer in peers {
+        let Some(id) = peer.get("peerId").and_then(Value::as_str).and_then(normalize_peer_id) else {
+            invalid += 1;
+            continue;
+        };
+        if peer.get("roles").map(extract_light_role).unwrap_or(false) {
+            light.insert(id);
+        } else {
+            full.insert(id);
+        }
+    }
+    Ok((full, light, invalid))
+}
+
+fn count_observed_institutions(
+    full: &HashSet<String>,
+    light: &HashSet<String>,
+    roles: &HashMap<String, String>,
+) -> (u64, u64, u64, u64) {
+    let (mut nrc, mut prc, mut prb, mut unknown) = (0u64, 0u64, 0u64, 0u64);
+    for id in full.iter().chain(light.iter()) {
+        match roles.get(id).map(String::as_str) {
+            Some("nrc") => nrc = nrc.saturating_add(1),
+            Some("prc") => prc = prc.saturating_add(1),
+            Some("prb") => prb = prb.saturating_add(1),
+            Some(_) => unknown = unknown.saturating_add(1),
+            None => {}
+        }
+    }
+    (nrc, prc, prb, unknown)
+}
+
 /// 获取网络总览数据（在线节点、治理节点状态、全节点与轻节点统计）。
 /// 前端定期轮询此命令；内部通过 spawn_blocking 避免阻塞 Tauri 主线程。
 #[tauri::command]
@@ -148,8 +186,8 @@ pub async fn get_network_overview(app: AppHandle) -> Result<NetworkOverview, Str
 fn get_network_overview_blocking(app: AppHandle) -> Result<NetworkOverview, String> {
     // 网络总览是一个"尽量返回"的聚合接口：
     // 只要能确认当前 RPC 属于目标链，就尽量返回当前可观测在线节点和本机角色状态。
-    let bootnodes = bootnodes_address::genesis_bootnode_options()?;
-    let bootnode_role_map: HashMap<String, String> = bootnodes
+    let institution_catalog = bootnodes_address::genesis_bootnode_options()?;
+    let institution_roles: HashMap<String, String> = institution_catalog
         .iter()
         .map(|n| (n.peer_id.clone(), n.role.clone()))
         .collect();
@@ -176,7 +214,7 @@ fn get_network_overview_blocking(app: AppHandle) -> Result<NetworkOverview, Stri
         }
     };
 
-    // 全网节点按角色分成两个互斥集合，都以 peerId 去重。
+    // 本机实际观测到的节点按角色分类，以 PeerId 去重。
     //
     // full 集合大小就是对外的全节点数；light 集合只用于把轻节点 peer 排除在全节点之外，
     // 不再直接对外显示（轻节点数改由链上 `CidCount` 提供）。两个集合必须保持互斥：
@@ -184,114 +222,24 @@ fn get_network_overview_blocking(app: AppHandle) -> Result<NetworkOverview, Stri
     // 轻节点每多一个就少算一个全节点，减到负数还被 saturating_sub 压成 0。
     let mut network_full_ids: HashSet<String> = HashSet::new();
     let mut network_light_ids: HashSet<String> = HashSet::new();
-    // 治理节点计数只认引导节点，按本机与全网汇总到的全部 peerId 匹配。
+    // 机构目录只用于身份匹配；是否计入统计由本机实际观测到的 PeerId 决定。
     let mut local_role_known = false;
     let mut local_is_light = false;
     let mut invalid_peer_count: u64 = 0;
 
     if rpc_ready {
-        match rpc_post("system_peers", Value::Array(vec![])) {
-            Ok(peers) => {
-                if let Some(arr) = peers.as_array() {
-                    for p in arr {
-                        if let Some(pid_raw) = p.get("peerId").and_then(Value::as_str) {
-                            if let Some(pid) = normalize_peer_id(pid_raw) {
-                                // 本机直连到的 peer 同样是全网的一部分，与远程汇总合并去重。
-                                let is_light =
-                                    p.get("roles").map(extract_light_role).unwrap_or(false);
-                                if is_light {
-                                    let _ = network_light_ids.insert(pid);
-                                } else {
-                                    let _ = network_full_ids.insert(pid);
-                                }
-                            } else {
-                                invalid_peer_count = invalid_peer_count.saturating_add(1);
-                            }
-                        } else {
-                            invalid_peer_count = invalid_peer_count.saturating_add(1);
-                        }
-                    }
-                } else {
-                    warnings.push("system_peers 返回格式无效".to_string());
-                }
+        match local_network_reader(&app).and_then(|reader| reader.peers())
+            .and_then(|peers| collect_local_peers(&peers)) {
+            Ok((full, light, invalid)) => {
+                network_full_ids = full;
+                network_light_ids = light;
+                invalid_peer_count = invalid;
             }
             Err(err) => warnings.push(format!("读取 system_peers 失败: {err}")),
         }
     }
 
-    // 遍历所有引导节点远程查询 system_peers，按 peerId 去重汇总全网 full/light 节点。
-    // 使用多线程并行查询，总超时 5 秒，避免阻塞 UI。
-    // 探测不到的引导节点，其视野内的节点不会进入本次汇总。
-    {
-        const REMOTE_RPC_TIMEOUT: Duration = Duration::from_secs(3);
-        const REMOTE_RPC_PORT: u16 = 9944;
-        let bootnode_domains: Vec<String> = bootnodes
-            .iter()
-            .filter(|n| !n.domain.is_empty())
-            .map(|n| n.domain.clone())
-            .collect();
-
-        // 一次遍历同时收 full 与 light：响应里本就带 roles，不必为 full 再发一轮 RPC。
-        struct BootnodeProbe {
-            full: HashSet<String>,
-            light: HashSet<String>,
-        }
-
-        let (tx, rx) = std::sync::mpsc::channel::<BootnodeProbe>();
-
-        for domain in bootnode_domains {
-            let tx = tx.clone();
-            std::thread::spawn(move || {
-                let url = format!("https://{}:{}/", domain, REMOTE_RPC_PORT);
-                let mut probe = BootnodeProbe {
-                    full: HashSet::new(),
-                    light: HashSet::new(),
-                };
-                if let Ok(peers) = rpc::rpc_post_url(
-                    &url,
-                    "system_peers",
-                    Value::Array(vec![]),
-                    REMOTE_RPC_TIMEOUT,
-                    RPC_RESPONSE_LIMIT_LARGE,
-                ) {
-                    if let Some(arr) = peers.as_array() {
-                        for p in arr {
-                            let Some(pid) = p
-                                .get("peerId")
-                                .and_then(Value::as_str)
-                                .and_then(normalize_peer_id)
-                            else {
-                                continue;
-                            };
-                            if p.get("roles").map(extract_light_role).unwrap_or(false) {
-                                probe.light.insert(pid);
-                            } else {
-                                probe.full.insert(pid);
-                            }
-                        }
-                    }
-                }
-                let _ = tx.send(probe);
-            });
-        }
-        drop(tx); // 关闭发送端，让 rx 在所有线程结束后自然终止
-
-        // 最多等 5 秒收集所有线程的结果
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while let Ok(probe) =
-            rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
-        {
-            for pid in probe.full {
-                let _ = network_full_ids.insert(pid);
-            }
-            for pid in probe.light {
-                let _ = network_light_ids.insert(pid);
-            }
-        }
-    }
-
-    // 本机自身：拿到 PeerId 与角色后并入对应集合。本机可能已被某个引导节点看到并
-    // 汇总进来，HashSet 去重保证不会重复计数。
+    // 本机身份与本机实际连接到的 peer 合并，按 PeerId 去重。
     let mut local_peer_id: Option<String> = None;
     if rpc_ready {
         match rpc_post("system_localPeerId", Value::Array(vec![])) {
@@ -352,21 +300,9 @@ fn get_network_overview_blocking(app: AppHandle) -> Result<NetworkOverview, Stri
     };
     let online_nodes = full_nodes.saturating_add(light_nodes);
 
-    let mut nrc_nodes = 0u64;
-    let mut prc_nodes = 0u64;
-    let mut prb_nodes = 0u64;
-    let mut uncategorized_bootnodes = 0u64;
-    // 治理节点是引导节点里已在线的那部分；遍历两个实测集合的并集，与全节点数同源。
-    for pid in network_full_ids.iter().chain(network_light_ids.iter()) {
-        if let Some(role) = bootnode_role_map.get(pid) {
-            match role.as_str() {
-                "nrc" => nrc_nodes = nrc_nodes.saturating_add(1),
-                "prc" => prc_nodes = prc_nodes.saturating_add(1),
-                "prb" => prb_nodes = prb_nodes.saturating_add(1),
-                _ => uncategorized_bootnodes = uncategorized_bootnodes.saturating_add(1),
-            }
-        }
-    }
+    // 治理节点仅按本机实际观测到的两个 peer 集合匹配机构身份。
+    let (nrc_nodes, prc_nodes, prb_nodes, uncategorized_bootnodes) =
+        count_observed_institutions(&network_full_ids, &network_light_ids, &institution_roles);
     if uncategorized_bootnodes > 0 {
         warnings.push(format!(
             "{} 个引导节点角色未命中\u{201c}国家储委会/省储委会/省储行\u{201d}，按全节点口径处理",
@@ -395,6 +331,45 @@ mod tests {
 
     // 合法 PeerId 示例：以 "12D3KooW" 开头 + 至少 46 字符 + 纯 ASCII 字母数字
     const VALID_PEER_ID: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+
+    #[test]
+    fn local_peers_are_deduplicated_and_classified_by_their_actual_roles() {
+        let light_id = VALID_PEER_ID.replace("XTN", "XTM");
+        let (full, light, invalid) = collect_local_peers(&serde_json::json!([
+            {"peerId": VALID_PEER_ID, "roles": "FULL"},
+            {"peerId": VALID_PEER_ID, "roles": ["FULL"]},
+            {"peerId": light_id, "roles": "LIGHT"},
+            {"peerId": light_id, "roles": ["LIGHT"]},
+            {"peerId": "invalid", "roles": "FULL"},
+            {"roles": "FULL"}
+        ])).unwrap();
+        assert_eq!(full, HashSet::from([VALID_PEER_ID.to_string()]));
+        assert_eq!(light, HashSet::from([light_id]));
+        assert_eq!(invalid, 2);
+    }
+
+    #[test]
+    fn zero_local_connections_are_valid_but_malformed_results_are_errors() {
+        let (full, light, invalid) = collect_local_peers(&serde_json::json!([])).unwrap();
+        assert!(full.is_empty() && light.is_empty());
+        assert_eq!(invalid, 0);
+        assert!(collect_local_peers(&Value::Null).is_err());
+        assert!(collect_local_peers(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn institution_catalog_is_only_an_identity_map_not_an_online_node_list() {
+        let province = VALID_PEER_ID.replace("XTN", "XTM");
+        let bank = VALID_PEER_ID.replace("XTN", "XTL");
+        let roles = HashMap::from([
+            (VALID_PEER_ID.to_string(), "nrc".to_string()),
+            (province.clone(), "prc".to_string()),
+            (bank.clone(), "prb".to_string()),
+        ]);
+        let full = HashSet::from([VALID_PEER_ID.to_string(), "ordinary-full-node".to_string()]);
+        assert_eq!(count_observed_institutions(&full, &HashSet::new(), &roles), (1, 0, 0, 0));
+        assert_eq!(count_observed_institutions(&full, &HashSet::from([province, bank]), &roles), (1, 1, 1, 0));
+    }
 
     /// 存储键必须与链端 `CitizenIdentity::CidCount` 逐字节一致。
     ///

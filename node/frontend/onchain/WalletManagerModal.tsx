@@ -3,15 +3,15 @@ import { useState, useEffect } from 'react';
 import { sanitizeError } from '../tauri';
 import { AddressScanModal } from '../protocol/AddressScanModal';
 import { transactionApi as api } from './api';
-import type { SignMode, Wallet, WalletStore } from './types';
+import type { SignMode, Wallet, WalletStore, WalletBalanceState } from './types';
 
 type Props = {
   wallets: Wallet[];
   activeAccountId: string | null;
   onClose: () => void;
   onUpdate: (store: WalletStore) => void;
-  /** 选中钱包后回调，传回钱包和余额（分字符串） */
-  onSelect: (wallet: Wallet, balanceFen: string | null) => void;
+  /** 选中钱包后回调，传回该账户的余额状态。 */
+  onSelect: (wallet: Wallet, balance: WalletBalanceState) => void;
 };
 
 function signModeLabel(signMode: SignMode): string {
@@ -45,22 +45,29 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
   const [confirmDeleteAccountId, setConfirmDeleteAccountId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 每个钱包的余额缓存以唯一 account_id 为键。
-  const [balances, setBalances] = useState<Record<string, string | null>>({});
+  const [balances, setBalances] = useState<Record<string, WalletBalanceState>>({});
 
   // 加载所有钱包余额
   useEffect(() => {
+    let cancelled = false;
+    setBalances({});
     for (const w of wallets) {
       api.getWalletBalance(w.accountId)
-        .then((b) => setBalances((prev) => ({ ...prev, [w.accountId]: b })))
-        .catch(() => setBalances((prev) => ({ ...prev, [w.accountId]: null })));
+        .then((b) => {
+          if (!cancelled) setBalances((prev) => ({ ...prev, [w.accountId]: { status: 'ready', balance: b ?? '0' } }));
+        })
+        .catch((e) => {
+          if (!cancelled) setBalances((prev) => ({ ...prev, [w.accountId]: { status: 'error', message: sanitizeError(e) } }));
+        });
     }
+    return () => { cancelled = true; };
   }, [wallets]);
 
   const handleSelectWallet = async (wallet: Wallet) => {
     try {
       const store = await api.setActiveWallet(wallet.accountId);
       onUpdate(store);
-      onSelect(wallet, balances[wallet.accountId] ?? null);
+      onSelect(wallet, balances[wallet.accountId] ?? { status: 'loading' });
       onClose();
     } catch (e) {
       setError(sanitizeError(e));
@@ -126,7 +133,7 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
               className="wallet-add-input"
             />
             <button type="button" className="scan-icon-btn" onClick={() => setShowScan(true)} title="扫码填入">
-              <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url(${scanIcon})`,WebkitMaskImage:`url(${scanIcon})`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
+              <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url("${scanIcon}")`,WebkitMaskImage:`url("${scanIcon}")`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
             </button>
           </div>
           {showScan && (
@@ -168,8 +175,9 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
                 />
                 <span className="wallet-row-name">{w.name} · {signModeLabel(w.signMode)}</span>
                 <span className="wallet-row-address">{w.ss58Address}</span>
-                <span className="wallet-row-balance">
-                  {bal != null ? `${fenToYuan(bal)} 元` : '-'}
+                <span className="wallet-row-balance" title={bal?.status === 'error' ? bal.message : undefined}>
+                  {bal?.status === 'ready' ? `${fenToYuan(bal.balance)} 元`
+                    : bal?.status === 'error' ? '查询失败' : '查询中...'}
                 </span>
                 {w.signMode === 'cold' && (
                   <button

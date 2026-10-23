@@ -41,6 +41,14 @@ fn path_within(path: &Path, root: &Path) -> bool {
     comparison_path(path).starts_with(comparison_path(root))
 }
 
+fn local_build_work(original: &Path, task: &Path, platform: &str) -> bool {
+    platform == "macos"
+        && task.parent().is_some_and(|parent| same_path(parent, &original.join("target/build")))
+        && task.file_name().and_then(|name| name.to_str())
+            .and_then(|name| name.strip_prefix("local-"))
+            .is_some_and(|suffix| suffix.len() == 6 && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+}
+
 fn main() {
     generate_cargo_keys();
     rerun_if_git_head_changed();
@@ -65,6 +73,7 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
             let original = std::path::PathBuf::from(original).canonicalize()?;
             let task = std::path::PathBuf::from(task).canonicalize()?;
             if !platforms.iter().any(|platform| same_path(&task, &original.join("target/build").join(platform)))
+                && !local_build_work(&original, &task, &env::var("CITIZENCHAIN_BUILD_PLATFORM").unwrap_or_default())
                 && !same_path(&task, &original.join("target/test")) {
                 return Err("Tauri 任务只能使用公民链固定工作根".into());
             }
@@ -213,7 +222,7 @@ fn write_if_changed(path: &Path, contents: &[u8]) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod path_tests {
-    use super::{comparison_path, path_within, same_path};
+    use super::{comparison_path, path_within, same_path, local_build_work};
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -223,6 +232,19 @@ mod path_tests {
         assert!(!path_within(&root.with_file_name("windows-other").join("out"), &root));
         assert!(!same_path(&root.join("work/../out"), &root.join("out")));
         assert!(!same_path(&root.join("link/out"), &root.join("real/out")));
+    }
+
+    #[test]
+    fn local_macos_work_is_limited_to_the_compiler_generated_directory() {
+        let root = PathBuf::from(if cfg!(windows) { r"C:\repo" } else { "/repo" });
+        let build = root.join("target/build");
+        assert!(local_build_work(&root, &build.join("local-Abc123"), "macos"));
+        assert!(!local_build_work(&root, &build.join("local-Abc123"), "windows"));
+        assert!(!local_build_work(&root, &build.join("local-Abc123/nested"), "macos"));
+        assert!(!local_build_work(&root, &root.join("target/build-other/local-Abc123"), "macos"));
+        for name in ["local-", "local-short", "local-toolong", "local-中文汉字", "other-Abc123"] {
+            assert!(!local_build_work(&root, &build.join(name), "macos"));
+        }
     }
 
     #[cfg(windows)]
