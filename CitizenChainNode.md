@@ -965,7 +965,7 @@ prepare 与 complete 前各需一次 WebAuthn passkey 断言 + 管理员冷钱�
 - 本机入口：RPC `9944` 只监听 `127.0.0.1`；Prometheus 默认关闭；OnChina、数据库和管理端口不向公网开放。
 - Cloudflare 链连接：首期 Worker 和 外部调用方 协议行「Release」只通过 Access + 独立
   Tunnel 访问国储会节点的本机 RPC，不需要另建独立 RPC 节点。两者复用 外部调用方
-  管理的 `CHAIN_URL / CF_ACCESS_CLIENT_ID / CHAIN_SECRET` 单一生产配置；缺失任一项时关闭链读取。
+  管理的 `CHAIN_URL / CFACCESS_CLIENTID / CHAIN_SECRET` 单一生产配置；缺失任一项时关闭链读取。
   当前代码不接受公网 HTTP、回环 HTTP、非 `chain.crcfrcn.com` 上游或无 Access 凭据的请求。
 - 后续容灾：最多选择少量不同地区的权威引导节点作为 Worker 私有 RPC 备用，每个节点使用独立 Tunnel 和凭证，不连接全部 44 个节点。
 
@@ -1189,11 +1189,11 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 
 - 远程管理 Tunnel `nrcgch-rpc` 健康，运行 1 个 connector。
 - 唯一链入口为 `chain.crcfrcn.com` 的 Access 保护路径，Tunnel 转发到 `127.0.0.1:18080` 的现有Nginx，再代理本机`127.0.0.1:9944`。2026年10月10日SSH只读核对现网Nginx仅限制HTTP POST，没有JSON-RPC方法白名单；公民服务端新增的固定只读响应才构成WASM Release对外方法边界。
-- Access 使用 `chain` 自托管应用、`CitizenChain` Service Auth 策略和唯一链服务令牌；Worker 的 `CHAIN_URL`、`CF_ACCESS_CLIENT_ID` 是公民服务端公开运行变量，`CHAIN_SECRET` 是公民服务端 Worker Secret。这三项需求归 CitizenServe 声明和保管授权，不由本链仓重复登记；现有国储会 Tunnel 不变。
+- Access 使用 `chain` 自托管应用、`CitizenChain` Service Auth 策略和唯一链服务令牌；Worker 的 `CHAIN_URL`、`CFACCESS_CLIENTID` 是公民服务端公开运行变量，`CHAIN_SECRET` 是公民服务端 Worker Secret。这三项需求归 CitizenServe 声明和保管授权，不由本链仓重复登记；现有国储会 Tunnel 不变。
 - 历史WASM Release链身份GET响应由公民服务端经原Tunnel读取，不含transaction_version，不能作为完整双版本构建基线。当前WASM由本仓runtime.mjs在派发前装载节点交付的公开证书，读取本机节点的块0、finalized头及该头的完整RuntimeVersion，基线随本轮任务交给GitHub；Runner不连接本机RPC，不依赖远端RPC地址配置或Keychain。正常TLS验证保持，读取失败即停止派发；不新增系统证书管理或公开节点服务，不修改公民服务端及Tunnel。
 - 不增加 `Everyone`、交互式 `Allow` 或 `Bypass`，也不把令牌、Tunnel token 或完整私有 URL 写入仓库、安装包、日志或命令文档。
 
-本仓 `scripts/config.mjs` 只声明软件产品需求：`rtupg:NRC_PUBLIC_KEY` 是国储会现任管理员公钥，作为开发升级和节点实例部署批准的同一受保护信任锚，只存控制台 Touch ID Keychain；创世块哈希仍为公开配置。权威与权益节点是使用本产品的部署实例，不作为产品配置需求；控制台节点管理从本仓既有机构目录读取节点身份，按准确节点ID管理服务器地址、节点身份、验证和SSH运维输入，值由控制台安全层保管与授权。本仓Build不声明节点配置字段。控制台编译任务先按本仓 `scripts/build.mjs` 公开清单执行既有Build与发布Node回归，通过后才进入产品构建。
+本仓 `scripts/config.mjs` 只声明软件产品需求：`rtupg:NRC_PUBLICKEY` 是国储会现任管理员公钥，作为开发升级和节点实例部署批准的同一受保护信任锚，只存控制台 Touch ID Keychain；创世块哈希仍为公开配置。权威与权益节点是使用本产品的部署实例，不作为产品配置需求；控制台节点管理从本仓既有机构目录读取节点身份，按准确节点ID管理服务器地址、节点身份、验证和SSH运维输入，值由控制台安全层保管与授权。本仓Build不声明节点配置字段。控制台编译任务先按本仓 `scripts/build.mjs` 公开清单执行既有Build与发布Node回归，通过后才进入产品构建。
 
 服务器部署顺序：
 
@@ -2262,7 +2262,7 @@ CidByAccountId[account_id] -> cid_number
 - 第 8 步已完成 Cloudflare Worker、D1、KV、R2、Queues 和边缘协议统一，staging/production 旧业务数据按用户确认删除重建，并以真实 HTTP 和运行状态验收。
 - 第 9 步已完成当时的 外部调用方 协议升级公钥命名、严格校验、WASM 版本职责隔离和验收；
   只有本机状态、依赖、日志、产物和机密继续忽略。旧 Keychain target 已经单独确认后删除，
-  当前统一的 `NRC_PUBLIC_KEY` 由用户在受保护配置中另行录入。
+  当前统一的 `NRC_PUBLICKEY` 由用户在受保护配置中另行录入。
 - 第 10 步已完成正式创世运行态总验收：节点、CitizenApp、Cloudflare 使用同一创世哈希
   和状态根，账户标识继续按本 ADR 执行；本次无资金回归没有产生交易或业务数据。
 
@@ -2609,7 +2609,7 @@ registry与Git的目录源按原锁准确来源隔离，同名同版本不会混
 
 ## 节点部署离线批准
 
-权威和权益节点实例的部署批准使用本仓独立 `crates/protocol` 的 QR_V1 `node_deploy=16` 链下动作；它不进入 Runtime WASM，不借用软件发布动作或链交易签名。载荷固定包含公民链产品、节点类别与编号、目标服务器 IP、版本、源码提交、产物摘要、控制台任务编号、期限和随机挑战，钱包必须完整解码并显示目标。签名消息使用独立 `GMB\0TATA_NODE_DEPLOY_V1\0` 前缀，控制台只接受受保护的 `rtupg:NRC_PUBLIC_KEY`；同一个国储会管理员公钥也是开发升级签名者，且只存 Touch ID Keychain，离线私钥不进入产品或控制台。节点部署是使用公民链的实例操作，由控制台节点管理维护，不等同于发布公民链软件。`scripts/build.mjs` 将独立 QR Cargo 锁纳入本轮受控资源供给，并在节点平台编译前测试该协议；本机受控供给使用离线原件，原生CI按原锁准备。失败即不编译。此协议准备阶段不执行节点部署，正式接线仍归控制台三级权限第④步。
+权威和权益节点实例的部署批准使用本仓独立 `crates/protocol` 的 QR_V1 `node_deploy=16` 链下动作；它不进入 Runtime WASM，不借用软件发布动作或链交易签名。载荷固定包含公民链产品、节点类别与编号、目标服务器 IP、版本、源码提交、产物摘要、控制台任务编号、期限和随机挑战，钱包必须完整解码并显示目标。签名消息使用独立 `GMB\0TATA_NODE_DEPLOY_V1\0` 前缀，控制台只接受受保护的 `rtupg:NRC_PUBLICKEY`；同一个国储会管理员公钥也是开发升级签名者，且只存 Touch ID Keychain，离线私钥不进入产品或控制台。节点部署是使用公民链的实例操作，由控制台节点管理维护，不等同于发布公民链软件。`scripts/build.mjs` 将独立 QR Cargo 锁纳入本轮受控资源供给，并在节点平台编译前测试该协议；本机受控供给使用离线原件，原生CI按原锁准备。失败即不编译。此协议准备阶段不执行节点部署，正式接线仍归控制台三级权限第④步。
 
 ## 独立执行与外部接入边界
 
@@ -2717,3 +2717,5 @@ compile macos作为公开CLI保留；模块公开实际宿主编译及资源装�
 fixtures/sign_request.json提供格式2公开样例；golden_fixtures.rs逐字节核验真实Rust编解码，控制台读取同一夹具，钱包使用相同样例及签名摘要金标覆盖真实解码、中文审阅与签名。正式Release安装包的业务核验仅为哈希、平台和版本，签名身份、目标绑定、期限和防重放仍须有效。协议生成器export_registry的公开输出继续是钱包中文字段表的来源。
 
 本产品scripts/config.mjs的describeAction仅返回repository、workflow、ref、inputs，或既有本地进程命令声明；不导入构建实现、不派发GitHub请求、不处理令牌、版本或历史。控制台使用统一数据接口直接派发并只读观察准确Run；产品GitHub业务归所属既有YAML。本次自动化Run名称使用运行编号，正式构建及产物保持版本名称。已有工具和依赖复用，缺少时才按原声明准备。
+
+本产品配置项统一为name、description、accessLevel、kind、format五个必填字段；不适用规则明确填写“不适用”。name严格使用两组大写字母和一个下划线，同名共用控制台唯一值，当前页仅汇总实际声明的使用产品。操作列固定写入/更换、查看、删除；保密查看保留生物识别。现有配置消费者随声明同步改名，官方工具/API字段保持官方名称，不新增旧名兼容或配置副本。

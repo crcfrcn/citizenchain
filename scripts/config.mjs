@@ -9,22 +9,25 @@ export const manifest=Object.freeze({
     "title": "公民链配置",
     "items": [
       {
-        "environment": "rtupg",
-        "name": "NRC_PUBLIC_KEY",
-        "title": "NRC_PUBLIC_KEY",
-        "description": "国储会现任管理员公钥；开发升级与节点实例部署共用的冷签信任锚",
-        "revealable": true,
+        "name": "NRC_PUBLICKEY",
+        "description": "国储会管理员冷签公钥",
         "accessLevel": "protected",
         "kind": "authorization",
         "format": "hex32"
       },
       {
-        "environment": "rtupg",
-        "name": "CHAIN_GENESIS_HASH",
-        "title": "CHAIN_GENESIS_HASH",
-        "description": "公民链固定创世块哈希",
-        "revealable": true,
-        "accessLevel": "public"
+        "name": "CHAIN_GENESISHASH",
+        "description": "公民链创世块哈希",
+        "accessLevel": "public",
+        "kind": "不适用",
+        "format": "不适用"
+      },
+      {
+        "name": "APPLE_PASSWORD",
+        "description": "苹果公证专用密码",
+        "accessLevel": "protected",
+        "kind": "不适用",
+        "format": "不适用"
       }
     ]
   }
@@ -244,7 +247,7 @@ export function workflowRecords(platform,runs){
 
 // 节点及 Runtime 发布的公开合同；连接地址和所有机密只由本轮授权输入交付。
 export const runtimeUpgrade=Object.freeze({platform:'wasm',files:product.platforms.wasm.files,compressed:'citizenchain.compact.compressed.wasm',
-  secretRefs:[{environment:'rtupg',name:'NRC_PUBLIC_KEY'},{environment:'topup',name:'NODE_WS'}]});
+  secretRefs:[{name:'NRC_PUBLICKEY'},{name:'NODE_WSS'}]});
 export const deployment=Object.freeze({platform:'linux-arm',repository:product.repository,product:product.id,workflow:'linuxarm.yml',
   work:'/var/lib/citizenchain-deploy',service:'citizenchain-node.service',package:'citizenchain',executable:'/usr/bin/citizenchain',
   helper:'/usr/local/sbin/citizenchain-deploy',unit:'citizenchain-deploy',data:'/opt/citizenchain/data',
