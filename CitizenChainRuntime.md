@@ -3121,27 +3121,20 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 
 #### 12. Cloudflare/D1
 
-- CID 是所有用户订阅镜像的业务主键：平台订阅主键为 `cid_number`，创作者档位主键为
-  `(creator_cid_number, tier_id)`，创作者订阅主键为
-  `(subscriber_cid_number, creator_cid_number)`。
-- confirm 请求固定携带 `tx_hash`、`block_hash`、`signed_extrinsic_hex` 和业务动作；订阅或换档
-  携带目标档位，创作者订阅同时携带 `creator_cid_number`、`tier_id`、
-  `billing_period`，创作者套餐保存同时携带展示档位数组。
-- Worker 重新计算 extrinsic 哈希，严格解码签名者、pallet/call index 与 SCALE 参数，校验签名者等于 Bearer 会话钱包、指定区块属于 finalized 主链且确实包含该完整 extrinsic，再读取同一区块 `Timestamp.Now`、`Subscriptions` 或 `CreatorPlans`。请求中的价格、状态和期限从不作为真源。
-- `chain_transaction_confirmations` 将一笔 finalized 交易首次绑定到钱包、区块、extrinsic 序号、动作和规范化请求哈希；完全相同的 HTTP 重试幂等成功，同一交易换钱包、换动作或换展示资料一律冲突拒绝。
-- `square_memberships` 和 `square_creator_subscriptions` 镜像完整链上状态、finalized 锚点及最近一次交易哈希；`last_charged_price_fen` 只是已发生扣款的审计镜像，不能作为下一次扣款价格真源。
-- `square_creator_tiers` 按档位规范化保存展示名称和 finalized `CreatorPlans` 镜像；覆盖保存使用 D1 batch 原子替换，不保留退役档位残行。
-- `chain_clock` 只接受更高 finalized 区块，保存同一区块链时间戳和本地观测时刻。门禁统一要求状态为 `Active` 或尚在已付期内的 `Cancelled`、`chain_timestamp < paid_until` 且链时钟未陈旧；`Terminated`、未知状态、缺时钟、未来观测、陈旧时钟和到期全部 fail-closed。
-- Cron 每轮只读取一次 finalized 头和时间戳，只查询 `Active AND paid_until <= chain_timestamp` 的到期候选，按固定上限逐行纠偏；不扫描未到期全表，不计算公历，不触发扣款或续费。
-- 平台发布、上传预留、平台用量与创作者管理等 Cloudflare 资源入口都调用同一平台门禁；创作者订阅专属资源必须在签发数据或短效资源地址前调用创作者订阅门禁。仓库当前没有创作者专属内容路由，因此本步骤不虚构该产品功能。
-- CitizenApp 按钱包保存最近 finalized 证明和有界镜像待重试队列；App 再次运行时只重试 Bearer HTTP，不再次签名或提交链上交易。Cloudflare 不可用不阻断链上订阅操作。
-- 直接端到端 P2P 媒体不占用 Cloudflare 存储或中转，App 的发送端与接收端仍执行本地大小门禁；这类端到端数据不应被表述为 Cloudflare 可集中强制的订阅权益。Cloudflare 承载的上传、存储、中转和签名 URL 则全部由服务端门禁强制执行。
+- 服务端HTTP、授权、存储和恢复合同唯一归 /Users/rhett/citizenserve/CitizenServe.md。会员公开路径为/api/membergate，注册门禁归logingate；运行模块不改变本runtime的SCALE字段或交易编码。
+- 会员/创作者确认仅提交tx_hash与block_hash；平台确认可选include_state。Worker从canonical finalized交易与同块storage核对真实主体和用途，不接受客户端提供的签名字节、价格、状态、档位或展示数组作为确认事实。
+- 平台镜像表为square_membergates，创作者订阅为square_creator_subscriptions，档位为square_creator_tiers；chain_transaction_confirmations绑定准确主体、区块及入口/动作，拒绝跨用途复用，不保留旧裸动作兼容。
+- 日常业务使用D1的一次身份/设备/会话及会员快照，经唯一Permit授权；普通请求不查链、不因失败分支触发投影重建。缺检查点、未来时间、撤销、换绑、会话及会员到期仍拒绝。
+- 原六分钟Cron直接读取当前最终块H的身份、会员与创作者状态，将真实三档展示价格和原检查点同批提交；同H且价格完整时不写，缺价可补齐，失败整体回滚。没有chain_clock年龄门禁、逐块追赶或仅到期候选纠偏流程。
+- 展示价格只读D1，R2保存对象，Durable Objects只负责实时聊天；不使用Workers KV，宪法由App轻节点读取并本地保存。破坏性存储清理仍核验当前同块身份/订阅及原宽限、提醒和期限，复用同次身份与链时间，不读取无关报价。
+- CitizenApp保留真实finalized证明及有界待确认记录，服务端不可用时只重试原确认，不再次签名、广播或付款。runtime仍是扣款、公历续费和状态变更的唯一执行者。
+- P2P媒体不占用Cloudflare存储；Cloudflare上传、存储、中转及媒体交付仍由服务端当前门禁和额度合同约束，不虚构尚无的创作者专属路由。
 
 #### 13. 重新创世
 
 - 开发期全网重新创世直接生成 CID 键布局，不读取、转换或保留任何 AccountId 旧键。
 - SquarePost 不提供 storage migration、兼容枚举、旧 call 或双轨查询。
-- 同批重建 Worker D1 与 KV；边缘镜像全部由新链 finalized 状态重新生成。
+- 新链的边缘投影必须来源于其真实finalized状态。任何既有D1结构或数据变更须单独审核授权；不包含KV重建、自动迁移或默认清空数据。
 - 创世后必须以真实本地链验证：CID A 绑定账户 1 完成订阅，换绑到账户 2 后关系不变，
   自动续费只扣账户 2；CID 或双向绑定不可用时不得扣账户 1。
 
