@@ -2750,3 +2750,5 @@ Rust调用统一为`crate::multisig/offchain/onchain`及主入口进程函数；
 ## 本机编译资源与版本来源
 
 本机compile macos复用环境PROTOC或PATH中已安装的protoc35.0，不再从GitHub下载protoc；缺件或版本不符直接报告所需工具。Cargo、npm按原锁离线执行，Git仅允许本地资源。现有自动化的GitHub身份、版本及正式交付保持，控制台任务号不传入本产品。
+
+GitHub macOS自动化依据product.tools.xcode选择官方Runner内已安装的对应Xcode，解析其实际Developer目录并设置本轮DEVELOPER_DIR，再回读、打印和核对版本；Clang与libclang复用同一目录。Runner默认Xcode切换不改变产品声明，缺少指定版本时保持失败，不下载Xcode或修改系统选择。

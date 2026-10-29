@@ -81,9 +81,13 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
+        # 按产品声明选择Runner内已安装的Xcode，仅设置本轮编译环境。
+        xcode_expected="$(node --input-type=module -e "import {product} from './scripts/config.mjs'; console.log(product.tools.xcode)")"
+        developer="$(cd "/Applications/Xcode_$xcode_expected.app/Contents/Developer" && pwd -P)"
+        export DEVELOPER_DIR="$developer"
         # 完整收取版本输出，避免grep提前关闭管道令xcodebuild写入Broken pipe。
         xcode_version="$(xcodebuild -version)"
-        xcode_expected="$(node --input-type=module -e "import {product} from './scripts/config.mjs'; console.log(product.tools.xcode)")"
+        printf '%s\n' "$xcode_version"
         test "${xcode_version%%$'\n'*}" = "Xcode $xcode_expected"
         brew install bash openssl@3 bison flex
         export PATH="$(brew --prefix bison)/bin:$(brew --prefix flex)/bin:$PATH"
@@ -105,7 +109,6 @@ jobs:
         curl --fail --location --proto =https --proto-redir =https --retry 3 --output "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-aarch_64.zip
         mkdir -p "$RUNNER_TEMP/protoc"
         unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
-        developer="$(cd "$(xcode-select -p)" && pwd -P)"
         libclang="$developer/Toolchains/XcodeDefault.xctoolchain/usr/lib"
         test -f "$libclang/libclang.dylib"
         # 编译期发现与构建程序运行时加载分别交付，保留已有搜索路径或Cargo官方默认目录。
