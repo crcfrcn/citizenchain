@@ -3,6 +3,7 @@
 use serde::Serialize;
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ApiResponse<T: Serialize> {
     pub(crate) code: u32,
     pub(crate) message: String,
@@ -10,6 +11,7 @@ pub(crate) struct ApiResponse<T: Serialize> {
 }
 
 #[derive(Serialize)]
+// CitizenApp 与管理端共用的既有分页合同保持 snake_case。
 pub(crate) struct PageResult<T: Serialize> {
     pub(crate) items: Vec<T>,
     pub(crate) page_size: usize,
@@ -24,6 +26,7 @@ pub(crate) struct PageResult<T: Serialize> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ApiError {
     pub(crate) code: u32,
     /// 稳定业务错误码给前端判断逻辑使用;message 只给用户展示。

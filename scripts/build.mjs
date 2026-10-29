@@ -245,6 +245,7 @@ async function compile(platform){
  const work=mkdtempSync(join(parent,'local-'));
  const environment={...process.env,PATH:process.env.HOME+'/.cargo/bin:/opt/homebrew/bin:'+(process.env.PATH||'/usr/bin:/bin'),
   CARGO:'cargo',CARGO_HOME:process.env.HOME+'/.cargo',RUSTUP_TOOLCHAIN:product.tools.rust,
+  CARGO_NET_OFFLINE:'true',GIT_ALLOW_PROTOCOL:'file',
   CITIZENCHAIN_RELEASE_VERSION:/^version\s*=\s*"([^"]+)"/mu.exec(readFileSync(join(root,'Cargo.toml'),'utf8'))?.[1]};
  deliveryVersion(environment.CITIZENCHAIN_RELEASE_VERSION);
  let safe=true;
@@ -264,9 +265,10 @@ async function compile(platform){
   await runBuildProcess(join(pgSource,'configure'),['--prefix='+pgDist,'--without-readline','--without-icu','--without-zlib','--with-openssl'],environment,pgSource);
   await runBuildProcess('/usr/bin/make',['-j4'],environment,pgSource);await runBuildProcess('/usr/bin/make',['install'],environment,pgSource);
   copyFileSync(join(pgSource,'COPYRIGHT'),join(pgDist,'COPYRIGHT'));environment.CITIZENCHAIN_PG_DIST=pgDist;
-  const proto=join(work,'protoc.zip');await run('/usr/bin/curl',['--fail','--location','--proto','=https','--proto-redir','=https','--output',proto,'https://github.com/protocolbuffers/protobuf/releases/download/v'+product.tools.protoc+'/protoc-'+product.tools.protoc+'-osx-aarch_64.zip']);
-  const protoRoot=join(work,'protoc');mkdirSync(protoRoot);await run('/usr/bin/unzip',['-q',proto,'-d',protoRoot]);environment.PROTOC=join(protoRoot,'bin/protoc');
-  await runBuildProcess(process.execPath,[npmCLI(),'ci','--ignore-scripts','--no-audit','--no-fund'],environment,join(root,'node/frontend'));
+  // 本机复用已安装的声明版本，不从GitHub取得工具。
+  environment.PROTOC=process.env.PROTOC||'protoc';
+  if((await run(environment.PROTOC,['--version'],{capture:true})).stdout.trim()!=='libprotoc '+product.tools.protoc)fail('本机需要已安装的protoc '+product.tools.protoc);
+  await runBuildProcess(process.execPath,[npmCLI(),'ci','--offline','--ignore-scripts','--no-audit','--no-fund'],environment,join(root,'node/frontend'));
   const previous=process.env;process.env=environment;
   try{await buildPlatform(platform,{work,local:true,consume:async value=>{
     process.stdout.write('TATA_COMPILE '+JSON.stringify(value)+'\n');

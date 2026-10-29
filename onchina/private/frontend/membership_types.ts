@@ -3,14 +3,14 @@
 export type PlatformMembershipLevel = 'freedom' | 'democracy' | 'spark';
 
 export type PlatformPrices = {
-  platform_cid_number: string;
-  freedom_price_fen: string;
-  democracy_price_fen: string;
-  spark_price_fen: string;
-  finalized_block_hash: string;
+  platformCidNumber: string;
+  freedomPriceFen: string;
+  democracyPriceFen: string;
+  sparkPriceFen: string;
+  finalizedBlockHash: string;
 };
 
 export type ProposePlatformPriceResult = {
-  request_id: string;
-  sign_request: string;
+  requestId: string;
+  signRequest: string;
 };

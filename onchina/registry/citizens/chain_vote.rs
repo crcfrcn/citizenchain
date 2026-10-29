@@ -1,7 +1,7 @@
 //! 投票资格查询 handler。
 //!
 //! 本接口只返回 OnChina 本地公民档案的即时状态,方便 CitizenApp 在提交交易前提示用户。
-//! 链端投票资格以 runtime `citizen-identity` 的链上状态为唯一真源,交易执行时再次校验。
+//! 链端投票资格以 runtime `identity` 的链上状态为唯一真源,交易执行时再次校验。
 //!
 //! 无 token 鉴权：只按规范账户 ID 返回本人档案摘要，不签发链端可消费凭证。
 
@@ -17,12 +17,15 @@ use crate::core::chain_runtime::normalize_account_id;
 use crate::*;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AppVoteEligibilityInput {
     pub(crate) account_id: String,
     pub(crate) proposal_id: u64,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct AppVoteEligibilityOutput {
     account_id: String,
     proposal_id: u64,
@@ -76,10 +79,10 @@ pub(crate) async fn app_vote_eligibility(
         "app",
         Some(account_id.clone()),
         serde_json::json!({
-            "proposal_id": proposal_id,
-            "cid_number": record.cid_number,
+            "proposalId": proposal_id,
+            "cidNumber": record.cid_number,
             "eligible": eligible,
-            "actor_ip": actor_ip_from_headers(&headers),
+            "actorIp": actor_ip_from_headers(&headers),
         }),
     );
 

@@ -24,12 +24,12 @@ export function createCorporationInstitution(
 export function listCorporationInstitutions(
   auth: AdminAuth,
   query: {
-    province_name: string;
-    city_name?: string;
-    private_type: PrivateType;
+    provinceName: string;
+    cityName?: string;
+    privateType: PrivateType;
     q: string;
     cursor?: string | null;
-    page_size?: number;
+    pageSize?: number;
   },
 ): Promise<PageResult<InstitutionListRow>> {
   return listPrivateInstitutions(auth, CORPORATION_ROUTE_SEGMENT, query);

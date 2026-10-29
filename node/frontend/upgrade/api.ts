@@ -19,22 +19,22 @@ export const runtimeUpgradeApi = {
   getPowDifficultyParams: () =>
     invoke<PowDifficultyParams>('get_pow_difficulty_params'),
   buildProposeUpgradeRequest: (
-    signer_public_key: string,
+    signerPublicKey: string,
     actorCidNumber: string,
     wasmPath: string,
     reason: string,
     powParams: PowDifficultyParams,
   ) =>
     invoke<ProposeUpgradeRequestResult>('build_propose_upgrade_request', {
-      signer_public_key,
-      actor_cid_number: actorCidNumber,
-      wasm_path: wasmPath,
+      signerPublicKey,
+      actorCidNumber: actorCidNumber,
+      wasmPath: wasmPath,
       reason,
-      pow_params: powParams,
+      powParams: powParams,
     }),
   submitProposeUpgrade: (
     requestId: string,
-    expected_signer_public_key: string,
+    expectedPublicKey: string,
     expectedPayloadHash: string,
     actorCidNumber: string,
     wasmPath: string,
@@ -45,15 +45,15 @@ export const runtimeUpgradeApi = {
     responseJson: string,
   ) =>
     invoke<VoteSubmitResult>('submit_propose_upgrade', {
-      request_id: requestId,
-      expected_signer_public_key,
-      expected_payload_hash: expectedPayloadHash,
-      actor_cid_number: actorCidNumber,
-      wasm_path: wasmPath,
+      requestId: requestId,
+      expectedPublicKey,
+      expectedPayloadHash: expectedPayloadHash,
+      actorCidNumber: actorCidNumber,
+      wasmPath: wasmPath,
       reason,
-      pow_params: powParams,
-      sign_nonce: signNonce,
-      sign_block_number: signBlockNumber,
-      response_json: responseJson,
+      powParams: powParams,
+      signNonce: signNonce,
+      signBlockNumber: signBlockNumber,
+      responseJson: responseJson,
     }),
 };

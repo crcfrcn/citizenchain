@@ -10,17 +10,17 @@ import { type InstitutionGovernanceAdminInput, type PrepareInstitutionChainOutpu
 
 export type CityRegistryAdminRow = {
   id: number;
-  account_id: string;
-  family_name: string;
-  given_name: string;
-  balance_fen?: string | null;
-  institution_code: string;
-  built_in: boolean;
-  creator_account_id: string;
-  creator_family_name: string;
-  creator_given_name: string;
-  created_at: string;
-  city_name: string;
+  accountId: string;
+  familyName: string;
+  givenName: string;
+  balanceFen?: string | null;
+  institutionCode: string;
+  builtIn: boolean;
+  creatorAccountId: string;
+  creatorFamilyName: string;
+  creatorGivenName: string;
+  createdAt: string;
+  cityName: string;
 };
 
 export async function listCityRegistryAdmins(auth: AdminAuth): Promise<CityRegistryAdminRow[]> {
@@ -73,9 +73,9 @@ export interface RegistryAdminsSharedState {
   accountScanTarget: AccountScanTarget;
   setAccountScanTarget: (v: AccountScanTarget) => void;
 
-  addCityRegistryForm: FormInstance<{ city_registry_account: string; family_name: string; given_name: string; city_scope_city_name: string }>;
+  addCityRegistryForm: FormInstance<{ cityRegistryAccount: string; familyName: string; givenName: string; cityScopeCityName: string }>;
 
-  onCreateCityRegistry: (values: { city_registry_account: string; family_name: string; given_name: string; city_name?: string; creator_account_id?: string }) => Promise<void>;
+  onCreateCityRegistry: (values: { cityRegistryAccount: string; familyName: string; givenName: string; cityName?: string; creatorAccountId?: string }) => Promise<void>;
   onDeleteCityRegistry: (row: CityRegistryAdminRow) => void;
   runSecuredAction: <T = unknown>(actionType: AdminActionType, payload: unknown) => Promise<T>;
 
@@ -89,30 +89,30 @@ export interface RegistryAdminsSharedState {
 
 export type FederalRegistryAdminRow = {
   id: number;
-  province_name: string;
-  account_id: string;
-  family_name: string;
-  given_name: string;
-  role_code: string;
-  role_name: string;
-  term_required: boolean;
-  term_start: number;
-  term_end: number;
-  assignment_source: number;
-  assignment_source_label: string;
-  assignment_source_ref: string;
-  balance_fen?: string | null;
-  built_in: boolean;
-  created_at: string;
+  provinceName: string;
+  accountId: string;
+  familyName: string;
+  givenName: string;
+  roleCode: string;
+  roleName: string;
+  termRequired: boolean;
+  termStart: number;
+  termEnd: number;
+  assignmentSource: number;
+  assignmentSourceLabel: string;
+  assignmentSourceRef: string;
+  balanceFen?: string | null;
+  builtIn: boolean;
+  createdAt: string;
   /** 最近一次更新时间,null 表示从未更新。 */
-  updated_at?: string | null;
+  updatedAt?: string | null;
 };
 
 export type PrepareRegisterInstitutionAdminsInput = {
-  cid_number: string;
+  cidNumber: string;
   admins: InstitutionGovernanceAdminInput[];
   /** 当前操作注册局管理员的岗位码，不是目标机构岗位。 */
-  actor_role_code: string;
+  actorRoleCode: string;
 };
 
 export async function listFederalRegistryAdmins(auth: AdminAuth): Promise<FederalRegistryAdminRow[]> {

@@ -15,15 +15,17 @@ use axum::{
 };
 
 use crate::authentication::login::require_admin_any;
+use crate::authorization::get_visible_scope;
 use crate::cid::china::{city_code_by_name, province_code_by_name, town_code_by_name};
 use crate::core::response::ApiResponse;
 use crate::institutions::subjects::model::InstitutionListRow;
-use crate::authorization::get_visible_scope;
 use crate::*;
 
 // 注册局原辖区查询参数。
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ListOfficialInstitutionQuery {
     pub province_name: Option<String>,
     pub city_name: Option<String>,
@@ -139,5 +141,13 @@ pub(crate) async fn list_official_institutions(
         None => 0,
     };
 
-    super::service::list_official(&state, &query, province_code, city_code, town_code, offset, page_size)
+    super::service::list_official(
+        &state,
+        &query,
+        province_code,
+        city_code,
+        town_code,
+        offset,
+        page_size,
+    )
 }

@@ -18,10 +18,10 @@ export const settingsApi = {
   startOnChinaPlatform: () => invoke<OnChinaPlatformState>('start_onchina_platform'),
   stopOnChinaPlatform: () => invoke<OnChinaPlatformState>('stop_onchina_platform'),
   getRewardAccount: () => invoke<RewardAccount>('get_reward_account'),
-  setRewardAccount: (ss58_address: string, unlockPassword: string) =>
+  setRewardAccount: (ss58Address: string, unlockPassword: string) =>
     invoke<RewardAccount>('set_reward_account', {
-      ss58_address,
-      unlock_password: unlockPassword,
+      ss58Address,
+      unlockPassword: unlockPassword,
     }),
   getLocalMinerSs58Address: () =>
     invoke<string | null>('get_local_miner_ss58_address'),

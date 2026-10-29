@@ -1,7 +1,7 @@
 //! 立法与表决域数据类型(ADR-027 / 卡 20260630-onchina-legislation-console-framework)。
 //!
 //! 本文件放 onchina 侧的提案分类维度与通用枚举,字段/取值与链端
-//! `legislation-yuan::types`(Tier / VoteType)、`legislation-vote`(STAGE_LEG_*)逐字段对齐
+//! `legislation::types`(Tier / VoteType)、`legislationvote`(STAGE_LEG_*)逐字段对齐
 //! (全仓字段同名)。提案统一信封读模型(HouseRef / LegProposalState)随 Phase 1 链读落地,
 //! 避免无消费方的悬空结构。
 

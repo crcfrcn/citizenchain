@@ -11,10 +11,7 @@ use crate::{
     shared::{constants::RPC_RESPONSE_LIMIT_SMALL, rpc, security},
 };
 use serde::Serialize;
-use std::{
-    collections::HashSet,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{collections::HashSet, time::Duration};
 use wallet_store::{SignMode, Wallet, WalletStore};
 
 const TRANSFER_RPC_TIMEOUT: Duration = Duration::from_secs(45);
@@ -57,7 +54,12 @@ fn amount_yuan_to_fen(amount_yuan: f64) -> Result<u128, String> {
     if amount_yuan < 0.01 {
         return Err("转账金额不能小于 0.01 元".to_string());
     }
-    let amount_fen = (amount_yuan * 100.0).round() as u128;
+    let rounded_fen = (amount_yuan * 100.0).round();
+    // u128::MAX 转为 f64 会舍入到 2^128，上界必须排除等号，避免饱和转换。
+    if !rounded_fen.is_finite() || rounded_fen >= u128::MAX as f64 {
+        return Err("转账金额超出允许范围".to_string());
+    }
+    let amount_fen = rounded_fen as u128;
     if amount_fen == 0 {
         return Err("转账金额不能为零".to_string());
     }
@@ -83,12 +85,18 @@ fn ensure_spendable_balance(
     amount_fen: u128,
     fee_fen: u128,
 ) -> Result<(), String> {
+    // 在读取链数据前拒绝金额溢出；手续费公式及账户保留金规则保持原值。
+    let total_needed = amount_fen
+        .checked_add(fee_fen)
+        .ok_or("转账金额与手续费之和超出范围")?;
+    let minimum_balance = total_needed
+        .checked_add(EXISTENTIAL_DEPOSIT_FEN)
+        .ok_or("转账所需余额超出范围")?;
     // 桌面端金额显示统一以 finalized 为准；余额不足文案也使用同一口径，
     // 真正能否入块仍由 runtime 在交易执行时最终校验。
     let balance_fen =
         institution::fetch_balance(sender_account_id)?.ok_or("发送方账户不存在或余额为零")?;
-    let total_needed = amount_fen + fee_fen;
-    if balance_fen < total_needed + EXISTENTIAL_DEPOSIT_FEN {
+    if balance_fen < minimum_balance {
         let available = if balance_fen > EXISTENTIAL_DEPOSIT_FEN {
             (balance_fen - EXISTENTIAL_DEPOSIT_FEN) as f64 / 100.0
         } else {
@@ -109,18 +117,11 @@ fn local_miner_wallet(app: &tauri::AppHandle) -> Result<Option<Wallet>, String> 
         return Ok(None);
     };
     let account_id = normalize_account_id(&account_id)?;
-    let account_id_bytes: [u8; 32] = hex::decode(account_id.trim_start_matches("0x"))
-        .map_err(|e| format!("矿工账户 ID 解码失败: {e}"))?
-        .try_into()
-        .map_err(|_| "矿工账户 ID 必须为 32 字节".to_string())?;
-    let ss58_address = signing::account_id_to_ss58(&account_id_bytes)?;
 
     Ok(Some(Wallet {
         name: "矿工热钱包".to_string(),
         sign_mode: SignMode::Hot,
-        ss58_address,
         account_id,
-        created_at: 0,
     }))
 }
 
@@ -140,11 +141,6 @@ fn validate_persisted_store(store: &WalletStore) -> Result<(), String> {
         let account_id = normalize_account_id(&wallet.account_id)?;
         if account_id != wallet.account_id {
             return Err("account_id 必须使用规范小写格式，请清理后重新导入".to_string());
-        }
-        let ss58_account_id = signing::account_id_from_ss58_address(&wallet.ss58_address)?;
-        let expected_account_id = format!("0x{}", hex::encode(ss58_account_id));
-        if expected_account_id != wallet.account_id {
-            return Err("ss58_address 与 account_id 不匹配，请清理后重新导入".to_string());
         }
         if !account_ids.insert(wallet.account_id.as_str()) {
             return Err(format!("钱包账户重复: {}", wallet.account_id));
@@ -234,13 +230,13 @@ fn require_wallet_sign_mode(
 
 // ──── 钱包管理命令 ────
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn get_wallets(app: tauri::AppHandle) -> Result<WalletStore, String> {
     let store = wallet_store::load(&app)?;
     wallet_store_for_frontend(&app, store)
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn add_wallet(
     app: tauri::AppHandle,
     name: String,
@@ -251,7 +247,6 @@ pub fn add_wallet(
         return Err("钱包名称不能为空".to_string());
     }
     let account_id_bytes = signing::account_id_from_ss58_address(ss58_address.trim())?;
-    let ss58_address = signing::account_id_to_ss58(&account_id_bytes)?;
     let account_id = format!("0x{}", hex::encode(account_id_bytes));
 
     let mut store = wallet_store::load(&app)?;
@@ -276,9 +271,7 @@ pub fn add_wallet(
     let wallet = Wallet {
         name,
         sign_mode: SignMode::Cold,
-        ss58_address,
         account_id,
-        created_at: now_secs(),
     };
 
     store.wallets.push(wallet.clone());
@@ -289,7 +282,7 @@ pub fn add_wallet(
     Ok(wallet)
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn remove_wallet(app: tauri::AppHandle, account_id: String) -> Result<WalletStore, String> {
     let account_id = normalize_account_id(&account_id)?;
     let miner_wallet = local_miner_wallet(&app)?;
@@ -320,7 +313,7 @@ pub fn remove_wallet(app: tauri::AppHandle, account_id: String) -> Result<Wallet
     wallet_store_for_frontend(&app, store)
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn set_active_wallet(app: tauri::AppHandle, account_id: String) -> Result<WalletStore, String> {
     let account_id = normalize_account_id(&account_id)?;
     let mut store = wallet_store::load(&app)?;
@@ -338,7 +331,7 @@ pub fn set_active_wallet(app: tauri::AppHandle, account_id: String) -> Result<Wa
     wallet_store_for_frontend(&app, store)
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn get_wallet_balance(account_id: String) -> Result<Option<String>, String> {
     let account_id = normalize_account_id(&account_id)?;
     match institution::fetch_balance(&account_id)? {
@@ -353,7 +346,7 @@ pub fn get_wallet_balance(account_id: String) -> Result<Option<String>, String> 
 /// 为 Cold 钱包构建 OnchainTransaction::transfer_with_remark 签名请求。
 ///
 /// 返回 QR 签名请求 JSON，前端显示 QR 码供离线设备扫码签名。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn build_cold_transfer_request(
     app: tauri::AppHandle,
     account_id: String,
@@ -408,7 +401,7 @@ pub fn build_cold_transfer_request(
 /// 提交 CitizenWallet 返回的 Cold 签名交易。
 // Tauri IPC 必须逐字段对应前端已签名会话，聚合参数会改变公开命令载荷。
 #[allow(clippy::too_many_arguments)]
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn submit_cold_transfer(
     app: tauri::AppHandle,
     account_id: String,
@@ -439,7 +432,7 @@ pub fn submit_cold_transfer(
 }
 
 /// 使用本机 Hot 钱包直接签名并提交转账。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn submit_hot_transfer(
     app: tauri::AppHandle,
     account_id: String,
@@ -575,13 +568,6 @@ fn encode_compact_u32(value: u32) -> Vec<u8> {
     }
 }
 
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,7 +586,7 @@ mod tests {
             assert_eq!(amount_yuan_to_fen(yuan).unwrap(), fen);
             assert_eq!(calculate_transfer_fee(fen), fee);
             let bytes = build_transfer_with_remark_call(&destination, fen, "转账").unwrap();
-            let call = citizenchain::RuntimeCall::OnchainTransaction(
+            let call = runtime::RuntimeCall::OnchainTransaction(
                 ::onchain::pallet::Call::transfer_with_remark {
                     beneficiary_account_id: destination.into(),
                     amount: fen,
@@ -635,6 +621,33 @@ mod tests {
             assert!(amount_yuan_to_fen(amount).is_err());
         }
         assert_eq!(amount_yuan_to_fen(0.01).unwrap(), 1);
+    }
+
+    #[test]
+    fn transfer_amount_rejects_finite_values_outside_u128() {
+        for amount in [1.0e40, f64::MAX, (u128::MAX as f64) / 100.0] {
+            assert!(amount.is_finite());
+            assert_eq!(
+                amount_yuan_to_fen(amount),
+                Err("转账金额超出允许范围".to_string())
+            );
+        }
+        // 金额边界拒绝不引入新的业务上限，原有普通金额仍按分舍入。
+        assert_eq!(amount_yuan_to_fen(104.99).unwrap(), 10_499);
+        assert!(amount_yuan_to_fen(1.0e30).is_ok());
+    }
+
+    #[test]
+    fn transfer_balance_overflow_is_rejected_before_rpc() {
+        // 空账户不具备RPC查询条件；准确的溢出错误证明先拒绝本地算术溢出。
+        assert_eq!(
+            ensure_spendable_balance("", u128::MAX, 1),
+            Err("转账金额与手续费之和超出范围".to_string())
+        );
+        assert_eq!(
+            ensure_spendable_balance("", u128::MAX - EXISTENTIAL_DEPOSIT_FEN, 1),
+            Err("转账所需余额超出范围".to_string())
+        );
     }
 
     #[test]
@@ -718,9 +731,7 @@ mod tests {
         Wallet {
             name: "测试钱包".to_string(),
             sign_mode,
-            ss58_address: signing::account_id_to_ss58(&account_id_bytes).unwrap(),
             account_id: format!("0x{}", hex::encode(account_id_bytes)),
-            created_at: 1,
         }
     }
 
@@ -758,9 +769,9 @@ mod tests {
     }
 
     #[test]
-    fn persisted_store_rejects_account_and_address_mismatch() {
+    fn persisted_store_rejects_invalid_account_identity() {
         let mut wallet = test_wallet(5, SignMode::Cold);
-        wallet.ss58_address = test_wallet(6, SignMode::Cold).ss58_address;
+        wallet.account_id = "0x11".to_string();
         let store = WalletStore {
             wallets: vec![wallet],
             active_account_id: None,

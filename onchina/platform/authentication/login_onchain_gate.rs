@@ -57,7 +57,7 @@ fn classify_state_error(message: String) -> GateError {
 pub(super) enum GateOutcome {
     Session {
         access_token: String,
-        expire_at: DateTime<Utc>,
+        expires_at: DateTime<Utc>,
         // 会话输出远大于绑定提示，装箱避免每个枚举值都按最大变体占用栈空间。
         admin: Box<AdminIdentifyOutput>,
     },
@@ -211,7 +211,7 @@ pub(super) async fn issue_session_after_onchain_gate(
             binding_challenge_id: binding_challenge_id.clone(),
             account_id: normalized,
             candidates: candidates.clone(),
-            expire_at: now + Duration::minutes(10),
+            expires_at: now + Duration::minutes(10),
             consumed: false,
         };
         state
@@ -231,11 +231,11 @@ pub(super) async fn issue_session_after_onchain_gate(
     else {
         return Err(GateError::NotOnchainAdmin);
     };
-    let (access_token, expire_at, admin) =
+    let (access_token, expires_at, admin) =
         issue_session_for_candidate(state, normalized.as_str(), &candidate, now).await?;
     Ok(GateOutcome::Session {
         access_token,
-        expire_at,
+        expires_at,
         admin: Box::new(admin),
     })
 }
@@ -266,7 +266,7 @@ pub(super) async fn confirm_node_binding_after_onchain_gate(
             "node binding challenge already consumed".to_string(),
         ));
     }
-    if now > challenge.expire_at {
+    if now > challenge.expires_at {
         return Err(GateError::BindingExpired);
     }
     let Some(selected) = challenge
@@ -313,16 +313,27 @@ pub(super) async fn confirm_node_binding_after_onchain_gate(
     state
         .db
         .with_client(move |conn| {
-            let mut tx = conn.transaction().map_err(|e| format!("begin binding transaction failed: {e}"))?;
+            let mut tx = conn
+                .transaction()
+                .map_err(|e| format!("begin binding transaction failed: {e}"))?;
             repo::lock_node_binding_conn(&mut tx)?;
-            let fresh = repo::get_node_binding_challenge_conn(&mut tx, &challenge_for_consume.binding_challenge_id)?
-                .ok_or_else(|| "node binding challenge no longer exists".to_string())?;
-            if fresh.consumed || Utc::now() > fresh.expire_at || repo::get_active_node_binding_conn(&mut tx)?.is_some() {
-                return Err("node binding challenge consumed, expired or node already bound".into());
+            let fresh = repo::get_node_binding_challenge_conn(
+                &mut tx,
+                &challenge_for_consume.binding_challenge_id,
+            )?
+            .ok_or_else(|| "node binding challenge no longer exists".to_string())?;
+            if fresh.consumed
+                || Utc::now() > fresh.expires_at
+                || repo::get_active_node_binding_conn(&mut tx)?.is_some()
+            {
+                return Err(
+                    "node binding challenge consumed, expired or node already bound".into(),
+                );
             }
             repo::upsert_active_node_binding_conn(&mut tx, &binding_for_db)?;
             repo::consume_node_binding_challenge_conn(&mut tx, &challenge_for_consume)?;
-            tx.commit().map_err(|e| format!("commit node binding failed: {e}"))?;
+            tx.commit()
+                .map_err(|e| format!("commit node binding failed: {e}"))?;
             Ok(())
         })
         .map_err(GateError::Db)?;
@@ -345,7 +356,10 @@ async fn issue_session_for_candidate(
         .institution_cid_number
         .clone()
         .ok_or_else(|| GateError::BindingInvalid("institution CID is required".to_string()))?;
-    let identity = chain_runtime::identity_from_binding_parts(&institution_code, Some(&institution_cid_number))
+    let identity = chain_runtime::identity_from_binding_parts(
+        &institution_code,
+        Some(&institution_cid_number),
+    )
     .map_err(GateError::BindingInvalid)?;
     let chain_admins = chain_runtime::fetch_active_admins_onchain(&identity)
         .await
@@ -406,7 +420,7 @@ async fn issue_session_for_candidate(
             });
 
             let access_token = Uuid::new_v4().to_string();
-            let expire_at = now + Duration::hours(8);
+            let expires_at = now + Duration::hours(8);
             repo::insert_admin_session_conn(
                 conn,
                 &AdminSession {
@@ -414,15 +428,16 @@ async fn issue_session_for_candidate(
                     account_id: admin.account_id.clone(),
                     institution_code: institution_code.clone(),
                     candidate_id: candidate_id.clone(),
-                    expire_at,
+                    expires_at,
                     last_active_at: now,
                 },
             )?;
 
             let admin_level = chain_runtime::admin_level_label_for(&institution_code);
-            let capabilities = crate::modules::capability::capabilities_for(&state.modules, &institution_code);
+            let capabilities =
+                crate::modules::capability::capabilities_for(&state.modules, &institution_code);
             let workspace = crate::workspace::build_institution_workspace(
-        &state.modules,
+                &state.modules,
                 &institution_code,
                 cid_short_name.as_deref(),
                 capabilities,
@@ -430,7 +445,7 @@ async fn issue_session_for_candidate(
             );
             Ok((
                 access_token,
-                expire_at,
+                expires_at,
                 AdminIdentifyOutput {
                     account_id: admin.account_id,
                     institution_cid_number,
@@ -449,8 +464,13 @@ async fn issue_session_for_candidate(
         })
         .map_err(GateError::Db)?;
 
-    let workspace_modules =
-        state.modules.workspace_modules(&result.2.institution_cid_number, &crate::modules::session_headers(&result.0)).await;
+    let workspace_modules = state
+        .modules
+        .workspace_modules(
+            &result.2.institution_cid_number,
+            &crate::modules::session_headers(&result.0),
+        )
+        .await;
     result.2.workspace.workspace_modules = workspace_modules;
 
     Ok(result)
@@ -479,7 +499,10 @@ async fn revoke_stale_admin_sessions_once(db: &Db) -> Result<(), String> {
     let Some(binding) = repo::active_node_binding(db)? else {
         return Ok(());
     };
-    let identity = chain_runtime::identity_from_binding_parts(&binding.institution_code, Some(binding.institution_cid_number.as_str()))?;
+    let identity = chain_runtime::identity_from_binding_parts(
+        &binding.institution_code,
+        Some(binding.institution_cid_number.as_str()),
+    )?;
     let Some(onchain_admins) = chain_runtime::fetch_active_admins_onchain(&identity).await? else {
         // 账户暂不存在(链未就绪/未配),不冒然清退本地会话。
         return Ok(());

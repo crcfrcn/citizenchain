@@ -41,7 +41,7 @@ export const product=Object.freeze({id:'citizenchain',title:'公民链',reposito
     windows:{name:'Windows',workflow:'windows.yml',host:'win32',arch:'x64',target:'x86_64-pc-windows-msvc',bundle:'nsis',extension:'.exe'},
     'linux-arm':{name:'LinuxARM',workflow:'linuxarm.yml',host:'linux',arch:'arm64',target:'aarch64-unknown-linux-gnu',bundle:'deb',extension:'.deb'},
     'linux-amd':{name:'LinuxAMD',workflow:'linuxamd.yml',host:'linux',arch:'x64',target:'x86_64-unknown-linux-gnu',bundle:'deb',extension:'.deb'},
-    wasm:{name:'WASM',entry:'scripts/runtime.mjs',workflow:'wasm.yml',host:'linux',arch:'x64',target:'wasm32v1-none',files:['citizenchain.wasm','citizenchain.compact.wasm','citizenchain.compact.compressed.wasm']},
+    wasm:{name:'WASM',entry:'scripts/runtime.mjs',workflow:'wasm.yml',host:'linux',arch:'x64',target:'wasm32v1-none',files:['runtime.wasm','runtime.compact.wasm','runtime.compact.compressed.wasm']},
   }),
   tools:Object.freeze({node:'25.2.1',rust:'1.97.1',protoc:'35.0',postgres:'17.11',xcode:'27.0'}),
   locks:Object.freeze(['Cargo.lock','crates/protocol/Cargo.lock','crates/scanner/package-lock.json','node/frontend/package-lock.json','onchina/platform/frontend/package-lock.json']),
@@ -66,7 +66,7 @@ export function artifactNames(platform,value){
 }
 export function artifactLabel(platform,value,name){
   requireValue(artifactNames(platform,value).includes(name),'附件不属于该平台');
-  return releaseName(platform,value)+(platform==='wasm'?name.slice('citizenchain'.length):product.platforms[platform].extension);
+  return releaseName(platform,value)+(platform==='wasm'?name.slice('runtime'.length):product.platforms[platform].extension);
 }
 export function assertRun(platform,run,id=run?.id){
   const declared=product.platforms[platform];
@@ -246,7 +246,7 @@ export function workflowRecords(platform,runs){
 }
 
 // 节点及 Runtime 发布的公开合同；连接地址和所有机密只由本轮授权输入交付。
-export const runtimeUpgrade=Object.freeze({platform:'wasm',files:product.platforms.wasm.files,compressed:'citizenchain.compact.compressed.wasm',
+export const runtimeUpgrade=Object.freeze({platform:'wasm',files:product.platforms.wasm.files,compressed:'runtime.compact.compressed.wasm',
   secretRefs:[{name:'NRC_PUBLICKEY'},{name:'NODE_WSS'}]});
 export const deployment=Object.freeze({platform:'linux-arm',repository:product.repository,product:product.id,workflow:'linuxarm.yml',
   work:'/var/lib/citizenchain-deploy',service:'citizenchain-node.service',package:'citizenchain',executable:'/usr/bin/citizenchain',

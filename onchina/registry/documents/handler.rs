@@ -28,11 +28,11 @@ impl Db {
         self.with_client(move |conn| {
             let rows = conn
                 .query(
-                    "SELECT id, cid_number, file_name, document_type, file_size, file_hash,
-                            uploader_account_id, uploaded_at
-                     FROM citizen_documents
+                    "SELECT row_id, cid_number, file_name, document_type, file_size, file_hash,
+                            uploader_account, uploaded_at
+                     FROM document
                      WHERE province_code = $1 AND cid_number = $2
-                     ORDER BY uploaded_at DESC, id DESC",
+                     ORDER BY uploaded_at DESC, row_id DESC",
                     &[&province_code, &cid_number],
                 )
                 .map_err(|e| format!("query citizen documents failed: {e}"))?;
@@ -71,11 +71,11 @@ impl Db {
                 .map_err(|_| "citizen document file size too large".to_string())?;
             let row = conn
                 .query_one(
-                    "INSERT INTO citizen_documents (
+                    "INSERT INTO document (
                         cid_number, province_code, city_code, file_name, document_type,
-                        file_size, file_path, file_hash, uploader_account_id, uploaded_at
+                        file_size, file_path, file_hash, uploader_account, uploaded_at
                      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                     RETURNING id",
+                     RETURNING row_id",
                     &[
                         &doc.cid_number,
                         &province_code,
@@ -111,10 +111,10 @@ impl Db {
         self.with_client(move |conn| {
             let row = conn
                 .query_opt(
-                    "SELECT id, cid_number, file_name, document_type, file_size, file_path,
-                            file_hash, uploader_account_id, uploaded_at
-                     FROM citizen_documents
-                     WHERE province_code = $1 AND cid_number = $2 AND id = $3",
+                    "SELECT row_id, cid_number, file_name, document_type, file_size, file_path,
+                            file_hash, uploader_account, uploaded_at
+                     FROM document
+                     WHERE province_code = $1 AND cid_number = $2 AND row_id = $3",
                     &[&province_code, &cid_number, &doc_id],
                 )
                 .map_err(|e| format!("query citizen document failed: {e}"))?;
@@ -151,7 +151,7 @@ impl Db {
         self.with_client(move |conn| {
             let affected = conn
                 .execute(
-                    "DELETE FROM citizen_documents WHERE province_code = $1 AND cid_number = $2 AND id = $3",
+                    "DELETE FROM document WHERE province_code = $1 AND cid_number = $2 AND row_id = $3",
                     &[&province_code, &cid_number, &doc_id],
                 )
                 .map_err(|e| format!("delete citizen document failed: {e}"))?;
@@ -281,12 +281,10 @@ pub(crate) async fn upload_citizen_document(
                     }
                 }
             }
-            "document_type" => {
-                match field.text().await {
-                    Ok(text) => document_type = Some(text.trim().to_string()),
-                    Err(error) => return api_error(error.status(), 1001, "资料类型字段读取失败"),
-                }
-            }
+            "document_type" => match field.text().await {
+                Ok(text) => document_type = Some(text.trim().to_string()),
+                Err(error) => return api_error(error.status(), 1001, "资料类型字段读取失败"),
+            },
             _ => {}
         }
     }
@@ -318,7 +316,9 @@ pub(crate) async fn upload_citizen_document(
     if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
         return resp;
     }
-    if let Err(resp) = crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id) {
+    if let Err(resp) =
+        crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id)
+    {
         return resp;
     }
     let mut hasher = Sha256::new();
@@ -342,7 +342,9 @@ pub(crate) async fn upload_citizen_document(
     let stored_path = format!("{doc_dir}/{stored_name}");
     if let Err(e) = std::fs::write(&stored_path, &file_data) {
         if let Err(cleanup) = std::fs::remove_file(&stored_path) {
-            if cleanup.kind() != std::io::ErrorKind::NotFound { tracing::error!(error = %cleanup, "remove partial upload failed"); }
+            if cleanup.kind() != std::io::ErrorKind::NotFound {
+                tracing::error!(error = %cleanup, "remove partial upload failed");
+            }
         }
         tracing::error!(error = %e, "write citizen document file failed");
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "write file failed");
@@ -385,13 +387,13 @@ pub(crate) async fn upload_citizen_document(
         &ctx.account_id,
         Some(record.cid_number.clone()),
         serde_json::json!({
-            "cid_number": record.cid_number,
-            "document_type": doc.document_type,
-            "file_name": doc.file_name,
-            "file_size": doc.file_size,
-            "file_hash": doc.file_hash,
-            "request_id": request_id_from_headers(&headers),
-            "actor_ip": actor_ip_from_headers(&headers),
+            "cidNumber": record.cid_number,
+            "documentType": doc.document_type,
+            "fileName": doc.file_name,
+            "fileSize": doc.file_size,
+            "fileHash": doc.file_hash,
+            "requestId": request_id_from_headers(&headers),
+            "actorIp": actor_ip_from_headers(&headers),
         }),
     );
     Json(ApiResponse {
@@ -478,7 +480,9 @@ pub(crate) async fn delete_citizen_document(
     if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
         return resp;
     }
-    if let Err(resp) = crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id) {
+    if let Err(resp) =
+        crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id)
+    {
         return resp;
     }
     match state.db.delete_citizen_document(
@@ -504,13 +508,13 @@ pub(crate) async fn delete_citizen_document(
         &ctx.account_id,
         Some(record.cid_number.clone()),
         serde_json::json!({
-            "cid_number": record.cid_number,
-            "doc_id": doc_id,
-            "document_type": doc.meta.document_type,
-            "file_name": doc.meta.file_name,
-            "file_hash": doc.meta.file_hash,
-            "request_id": request_id_from_headers(&headers),
-            "actor_ip": actor_ip_from_headers(&headers),
+            "cidNumber": record.cid_number,
+            "docId": doc_id,
+            "documentType": doc.meta.document_type,
+            "fileName": doc.meta.file_name,
+            "fileHash": doc.meta.file_hash,
+            "requestId": request_id_from_headers(&headers),
+            "actorIp": actor_ip_from_headers(&headers),
         }),
     );
     Json(ApiResponse {
@@ -520,4 +524,3 @@ pub(crate) async fn delete_citizen_document(
     })
     .into_response()
 }
-

@@ -2,7 +2,7 @@
 //!
 //! 复用 onchina 既有读链范式——`kv.value.encoded()` 原始字节 → 本地 `#[derive(Decode)]`
 //! 镜像结构解码(见 `onchina/platform/chain/runtime.rs::OnChainAdminAccount`)。镜像字段顺序锁死链端
-//! `legislation-yuan` 的 `Law` / `LawVersion`;`Tier`/`LawStatus`/`VoteType`
+//! `legislation` 的 `Law` / `LawVersion`;`Tier`/`LawStatus`/`VoteType`
 //! 作单字节枚举解码为 u8(取值已在 `chain_propose` 交叉校验)。章节复用 `chain_propose::ChapterArg`(同
 //! SCALE 双向 Encode/Decode)。
 //!
@@ -19,7 +19,7 @@ use subxt::dynamic;
 
 const TIER_CONSTITUTION: u8 = 0;
 
-/// 链上 `Law<T>` 解码镜像(字段顺序锁死 legislation-yuan::Law)。
+/// 链上 `Law<T>` 解码镜像(字段顺序锁死 legislation::Law)。
 #[derive(Debug, Decode)]
 pub struct OnChainLaw {
     pub law_id: u64,
@@ -38,7 +38,7 @@ pub struct OnChainLaw {
     pub status: u8,
 }
 
-/// 链上 `LawVersion<T>` 解码镜像(字段顺序锁死 legislation-yuan::LawVersion)。
+/// 链上 `LawVersion<T>` 解码镜像(字段顺序锁死 legislation::LawVersion)。
 #[derive(Debug, Decode)]
 pub struct OnChainLawVersion {
     pub law_id: u64,
@@ -165,7 +165,7 @@ pub(crate) fn resolve_institution_cid_number(
         .with_client(move |conn| {
             let rows = conn
                 .query(
-                    "SELECT cid_number FROM subjects \
+                    "SELECT cid_number FROM subject \
                      WHERE institution_code = $1 AND province_code = $2 AND city_code = $3 \
                      ORDER BY cid_number LIMIT 2",
                     &[&institution_code, &province_code, &city_code],
@@ -284,19 +284,43 @@ pub(crate) struct LawScope {
 }
 
 pub(crate) fn law_matches_scope(law: &OnChainLaw, scope: &LawScope) -> bool {
-    if law.tier != scope.tier { return false; }
-    let Ok(region) = LawRegion::from_codes(scope.tier, scope.province_code.as_bytes(), scope.city_code.as_bytes()) else { return false; };
-    if law.region != region { return false; }
-    if scope.tier <= 1 { return true; }
-    if scope.province_code.is_empty() || (scope.tier == 3 && scope.city_code.is_empty()) || law.houses.is_empty() { return false; }
+    if law.tier != scope.tier {
+        return false;
+    }
+    let Ok(region) = LawRegion::from_codes(
+        scope.tier,
+        scope.province_code.as_bytes(),
+        scope.city_code.as_bytes(),
+    ) else {
+        return false;
+    };
+    if law.region != region {
+        return false;
+    }
+    if scope.tier <= 1 {
+        return true;
+    }
+    if scope.province_code.is_empty()
+        || (scope.tier == 3 && scope.city_code.is_empty())
+        || law.houses.is_empty()
+    {
+        return false;
+    }
     // 市号在省内唯一；按法律已有机构 CID 的原省码与市号共同匹配。
-    law.houses.iter().all(|cid| primitives::cid::number::cid_scope_codes(cid).is_ok_and(|(province, city)| {
-        province.as_slice() == scope.province_code.as_bytes() && (scope.tier == 2 || city.as_slice() == scope.city_code.as_bytes())
-    }))
+    law.houses.iter().all(|cid| {
+        primitives::cid::number::cid_scope_codes(cid).is_ok_and(|(province, city)| {
+            province.as_slice() == scope.province_code.as_bytes()
+                && (scope.tier == 2 || city.as_slice() == scope.city_code.as_bytes())
+        })
+    })
 }
 
 pub(crate) async fn list_laws_by_scope(scope: &LawScope) -> Result<Vec<OnChainLaw>, String> {
-    Ok(fetch_all_laws().await?.into_iter().filter(|law| law_matches_scope(law, scope)).collect())
+    Ok(fetch_all_laws()
+        .await?
+        .into_iter()
+        .filter(|law| law_matches_scope(law, scope))
+        .collect())
 }
 
 /// 按 (law_id, version) 取单个法律版本全文。
@@ -349,7 +373,7 @@ mod tests {
     use super::super::chain_propose::{ArticleArg, ClauseArg, SectionArg};
     use super::*;
     use codec::Encode;
-    use legislation_yuan::{LawStatus, Tier, VoteType};
+    use legislation::{LawStatus, Tier, VoteType};
 
     fn sample_chapters() -> Vec<ChapterArg> {
         vec![ChapterArg {
@@ -389,32 +413,53 @@ mod tests {
                 year: "2026",
                 institution: if tier == 2 { "PRP" } else { "CLEG" },
             },
-        ).unwrap();
+        )
+        .unwrap();
         OnChainLaw {
-            law_id: 1, tier, region: LawRegion::from_codes(tier, province.as_bytes(), city.as_bytes()).unwrap(), houses: vec![cid.into_bytes()],
-            effective_version: Some(1), latest_version: 1, pending_version: None, status: 1,
+            law_id: 1,
+            tier,
+            region: LawRegion::from_codes(tier, province.as_bytes(), city.as_bytes()).unwrap(),
+            houses: vec![cid.into_bytes()],
+            effective_version: Some(1),
+            latest_version: 1,
+            pending_version: None,
+            status: 1,
         }
     }
 
     #[test]
     fn province_and_local_city_numbers_remain_distinct_and_unmodified() {
-        let scope = LawScope { tier:3,province_code:"GD".into(),city_code:"001".into() };
+        let scope = LawScope {
+            tier: 3,
+            province_code: "GD".into(),
+            city_code: "001".into(),
+        };
         assert!(law_matches_scope(&scoped_law(3, "GD", "001"), &scope));
         assert!(!law_matches_scope(&scoped_law(3, "GZ", "001"), &scope));
         assert!(!law_matches_scope(&scoped_law(3, "GD", "002"), &scope));
-        assert_eq!(scope.province_code,"GD"); assert_eq!(scope.city_code,"001");
+        assert_eq!(scope.province_code, "GD");
+        assert_eq!(scope.city_code, "001");
         let mut malformed = scoped_law(3, "GD", "001");
         malformed.houses = vec![b"invalid-cid".to_vec()];
-        assert!(!law_matches_scope(&malformed,&scope));
-        let province = LawScope { tier:2,province_code:"GD".into(),city_code:String::new() };
+        assert!(!law_matches_scope(&malformed, &scope));
+        let province = LawScope {
+            tier: 2,
+            province_code: "GD".into(),
+            city_code: String::new(),
+        };
         let mut law = scoped_law(2, "GD", "002");
-        assert!(law_matches_scope(&law,&province));
-        law.houses.clear(); assert!(!law_matches_scope(&law,&province));
+        assert!(law_matches_scope(&law, &province));
+        law.houses.clear();
+        assert!(!law_matches_scope(&law, &province));
     }
 
     #[test]
     fn all_saved_house_cids_must_match_the_requested_region() {
-        let scope = LawScope { tier:3, province_code:"GD".into(), city_code:"001".into() };
+        let scope = LawScope {
+            tier: 3,
+            province_code: "GD".into(),
+            city_code: "001".into(),
+        };
         let mut law = scoped_law(3, "GD", "001");
         law.houses.extend(scoped_law(3, "GZ", "001").houses);
         assert!(!law_matches_scope(&law, &scope));
@@ -422,12 +467,25 @@ mod tests {
 
     #[test]
     fn constitution_scope_keeps_national_legislature_ownership() {
-        let nlg = primitives::cid::china::china_lf::CHINA_LF[0].cid_number.as_bytes().to_vec();
+        let nlg = primitives::cid::china::china_lf::CHINA_LF[0]
+            .cid_number
+            .as_bytes()
+            .to_vec();
         let law = OnChainLaw {
-            law_id: 0, tier: 0, region: LawRegion::NATIONAL, houses: vec![nlg.clone()],
-            effective_version: Some(1), latest_version: 1, pending_version: None, status: 1,
+            law_id: 0,
+            tier: 0,
+            region: LawRegion::NATIONAL,
+            houses: vec![nlg.clone()],
+            effective_version: Some(1),
+            latest_version: 1,
+            pending_version: None,
+            status: 1,
         };
-        let scope = LawScope { tier:0, province_code:String::new(), city_code:String::new() };
+        let scope = LawScope {
+            tier: 0,
+            province_code: String::new(),
+            city_code: String::new(),
+        };
         assert!(law_matches_scope(&law, &scope));
         assert_eq!(law.houses, vec![nlg]);
         assert_eq!(primitives::cid::code::COUNTRY_CN, *b"CN");
@@ -435,7 +493,11 @@ mod tests {
 
     #[test]
     fn stored_region_must_agree_with_original_house_cids() {
-        let scope = LawScope { tier: 3, province_code: "GD".into(), city_code: "001".into() };
+        let scope = LawScope {
+            tier: 3,
+            province_code: "GD".into(),
+            city_code: "001".into(),
+        };
         let mut law = scoped_law(3, "GD", "001");
         law.region = LawRegion::from_codes(3, b"GZ", b"001").unwrap();
         assert!(!law_matches_scope(&law, &scope));

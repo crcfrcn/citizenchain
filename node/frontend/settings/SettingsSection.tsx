@@ -28,8 +28,7 @@ export function SettingsSection({
   const [onChinaPlatform, setOnChinaPlatform] =
     useState<OnChinaPlatformState | null>(null);
   const [rewardAccount, setRewardAccount] = useState<RewardAccount>({
-    account_id: null,
-    ss58_address: null,
+    accountId: null,
   });
   const [nodeKey, setNodeKey] = useState<BootnodeKey>({
     nodeKey: null,

@@ -67,12 +67,12 @@ struct CachedBlockRecord {
 #[serde(deny_unknown_fields)]
 struct MiningComputationCache {
     chain_genesis_hash: Option<String>,
-    tracked_miner_account_id: Option<String>,
+    miner_account_id: Option<String>,
     last_processed_height: u64,
     last_processed_hash: Option<String>,
     total_fee_fen: u128,
     total_reward_fen: u128,
-    income_by_utc_day: HashMap<u64, u128>,
+    daily_income: HashMap<u64, u128>,
     recent_records: VecDeque<CachedBlockRecord>,
 }
 
@@ -565,30 +565,30 @@ fn process_block(height: u64, ts_key: &str) -> Result<ProcessedBlock, String> {
 fn reset_cache_for_chain(
     cache: &mut MiningComputationCache,
     chain_hash: String,
-    local_miner_account_id: Option<&str>,
+    miner_account_id: Option<&str>,
 ) {
     *cache = MiningComputationCache::default();
     cache.chain_genesis_hash = Some(chain_hash);
-    cache.tracked_miner_account_id = local_miner_account_id.map(|v| v.to_ascii_lowercase());
+    cache.miner_account_id = miner_account_id.map(|v| v.to_ascii_lowercase());
 }
 
 fn prune_old_income_days(cache: &mut MiningComputationCache, today_utc: u64) {
     let min_day = today_utc.saturating_sub(INCOME_DAY_KEEP);
-    cache.income_by_utc_day.retain(|day, _| *day >= min_day);
+    cache.daily_income.retain(|day, _| *day >= min_day);
 }
 
 fn refresh_cache(
     app: &AppHandle,
     finalized_height: u64,
     today_utc: u64,
-    local_miner_account_id: Option<&str>,
+    miner_account_id: Option<&str>,
 ) -> Result<RefreshStats, String> {
     // 采用“工作副本 -> 整体提交”的方式，避免处理中途失败时把半成品写回全局缓存。
     let mut working = {
         let cache = lock_or_reset(mining_cache(), "MINING_CACHE");
         cache.clone()
     };
-    let normalized_local_miner = local_miner_account_id.map(|v| v.to_ascii_lowercase());
+    let normalized_local_miner = miner_account_id.map(|v| v.to_ascii_lowercase());
     let local_miner = normalized_local_miner.as_deref();
     let mut stats = RefreshStats {
         local_miner_missing: local_miner.is_none(),
@@ -602,7 +602,7 @@ fn refresh_cache(
         cache_changed = true;
     }
 
-    if working.tracked_miner_account_id.as_deref() != local_miner {
+    if working.miner_account_id.as_deref() != local_miner {
         reset_cache_for_chain(&mut working, chain_hash.clone(), local_miner);
         cache_changed = true;
     }
@@ -674,7 +674,7 @@ fn refresh_cache(
                 if let Some(ms) = block.timestamp_ms {
                     let day = utc_day(ms);
                     let income = fee_income_fen.saturating_add(block.reward_fen);
-                    let entry = working.income_by_utc_day.entry(day).or_insert(0);
+                    let entry = working.daily_income.entry(day).or_insert(0);
                     *entry = entry.saturating_add(income);
                 }
 
@@ -765,11 +765,7 @@ fn dashboard_from_cache(
     warning: Option<String>,
     today_utc: u64,
 ) -> MiningDashboard {
-    let today_income_fen = cache
-        .income_by_utc_day
-        .get(&today_utc)
-        .copied()
-        .unwrap_or(0);
+    let today_income_fen = cache.daily_income.get(&today_utc).copied().unwrap_or(0);
     let records: Vec<MiningBlockRecord> = cache
         .recent_records
         .iter()
@@ -855,7 +851,7 @@ pub fn get_mining_dashboard(app: AppHandle) -> Result<MiningDashboard, String> {
         }
     };
 
-    let local_miner_account_id = match reward_account::local_powr_miner_account_id(&app) {
+    let miner_account_id = match reward_account::local_powr_miner_account_id(&app) {
         Ok(v) => v,
         Err(err) => {
             warnings.push(format!("读取本节点矿工账号失败：{err}"));
@@ -883,7 +879,7 @@ pub fn get_mining_dashboard(app: AppHandle) -> Result<MiningDashboard, String> {
         &app,
         finalized_height,
         today_utc,
-        local_miner_account_id.as_deref(),
+        miner_account_id.as_deref(),
     ) {
         Ok(stats) => warning_from_stats(&stats),
         Err(err) => {

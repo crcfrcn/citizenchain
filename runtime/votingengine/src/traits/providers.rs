@@ -6,24 +6,24 @@ use crate::types::InstitutionCode;
 /// 不再接收注册局链下签发的人口快照或投票凭证。
 pub trait CitizenIdentityReader<AccountId> {
     /// 读取 CID↔账户双向绑定、身份状态和 CID 状态全部有效的完整公民主体。
-    fn citizen_subject(_who: &AccountId) -> Option<citizen_identity::CitizenSubject<AccountId>> {
+    fn citizen_subject(_who: &AccountId) -> Option<identity::CitizenSubject<AccountId>> {
         None
     }
 
     fn voting_subject(
         who: &AccountId,
-        scope: &citizen_identity::PopulationScope,
-    ) -> Option<citizen_identity::CitizenSubject<AccountId>>;
+        scope: &identity::PopulationScope,
+    ) -> Option<identity::CitizenSubject<AccountId>>;
     fn candidate_subject(
         who: &AccountId,
-        scope: &citizen_identity::PopulationScope,
-    ) -> Option<citizen_identity::CitizenSubject<AccountId>>;
+        scope: &identity::PopulationScope,
+    ) -> Option<identity::CitizenSubject<AccountId>>;
 
     /// 读取投票引擎生成快照所需的四级人口数据；日期未完整推进时必须返回 `None`。
     /// 身份模块不得创建、保存或绑定任何投票快照。
     fn population_data(
-        scope: &citizen_identity::PopulationScope,
-    ) -> Option<citizen_identity::PopulationData> {
+        scope: &identity::PopulationScope,
+    ) -> Option<identity::PopulationData> {
         let _ = scope;
         None
     }
@@ -31,29 +31,29 @@ pub trait CitizenIdentityReader<AccountId> {
     /// 按投票引擎冻结的人口数据验证账户在建案时是否具备投票资格。
     fn voting_subject_at(
         _who: &AccountId,
-        _population_data: &citizen_identity::PopulationData,
-    ) -> Option<citizen_identity::CitizenSubject<AccountId>> {
+        _population_data: &identity::PopulationData,
+    ) -> Option<identity::CitizenSubject<AccountId>> {
         None
     }
 
     /// FRAME benchmark 专用：写入一个同时具备投票和参选资格的账户，
     /// 并同步人口分母。生产调用路径不会调用此函数。
     #[cfg(feature = "runtime-benchmarks")]
-    fn benchmark_seed_identity(_who: &AccountId, _scope: &citizen_identity::PopulationScope) {}
+    fn benchmark_seed_identity(_who: &AccountId, _scope: &identity::PopulationScope) {}
 }
 
 impl<AccountId> CitizenIdentityReader<AccountId> for () {
     fn voting_subject(
         _who: &AccountId,
-        _scope: &citizen_identity::PopulationScope,
-    ) -> Option<citizen_identity::CitizenSubject<AccountId>> {
+        _scope: &identity::PopulationScope,
+    ) -> Option<identity::CitizenSubject<AccountId>> {
         None
     }
 
     fn candidate_subject(
         _who: &AccountId,
-        _scope: &citizen_identity::PopulationScope,
-    ) -> Option<citizen_identity::CitizenSubject<AccountId>> {
+        _scope: &identity::PopulationScope,
+    ) -> Option<identity::CitizenSubject<AccountId>> {
         None
     }
 }

@@ -44,7 +44,7 @@ export function ProposeMenu({ auth }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [auth.access_token, auth.institution_code]);
+  }, [auth.accessToken, auth.institutionCode]);
 
   const lawCandidate = candidates.find((c) => c.category === 'law');
 

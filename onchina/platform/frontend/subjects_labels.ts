@@ -297,14 +297,14 @@ export function inheritedP1(parentSubjectProperty: string, parentP1: string): st
  */
 export function p1LocksForSubject(
   subjectProperty: string,
-  parent: { subject_property: string; p1: string } | null,
+  parent: { subjectProperty: string; p1: string } | null,
 ): { choices: ChoiceItem[]; value: string | undefined; locked: boolean } {
   if (subjectProperty === 'S') {
     return { choices: [P1_PROFIT, P1_NON_PROFIT], value: '1', locked: false };
   }
   if (subjectProperty === 'F') {
     if (!parent) return { choices: [], value: undefined, locked: true };
-    const v = inheritedP1(parent.subject_property, parent.p1);
+    const v = inheritedP1(parent.subjectProperty, parent.p1);
     return { choices: [v === '1' ? P1_PROFIT : P1_NON_PROFIT], value: v, locked: true };
   }
   // G:公法人恒非盈利

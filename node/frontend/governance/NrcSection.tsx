@@ -18,11 +18,11 @@ type NrcView =
   | { page: 'detail' }
   | { page: 'admin-list' }
   | { page: 'proposal-detail'; proposalId: number; adminSigners: AdminSignerMatch[]; cidNumber?: string }
-  | { page: 'create-proposal'; orgType: number; cidFullName: string; institution_account_id: string; adminSigners: AdminSignerMatch[] }
+  | { page: 'create-proposal'; orgType: number; cidFullName: string; institutionAccountId: string; adminSigners: AdminSignerMatch[] }
   | { page: 'protocol-upgrade'; adminSigners: AdminSignerMatch[] }
   | { page: 'grandpa-key'; adminSigners: AdminSignerMatch[] }
-  | { page: 'propose-safety-fund'; actorCidNumber: string; institution_account_id: string; adminSigners: AdminSignerMatch[] }
-  | { page: 'propose-sweep'; actorCidNumber: string; institution_account_id: string; cidFullName: string; adminSigners: AdminSignerMatch[] };
+  | { page: 'propose-safety-fund'; actorCidNumber: string; institutionAccountId: string; adminSigners: AdminSignerMatch[] }
+  | { page: 'propose-sweep'; actorCidNumber: string; institutionAccountId: string; cidFullName: string; adminSigners: AdminSignerMatch[] };
 
 export function NrcSection() {
   const [view, setView] = useState<NrcView>({ page: 'detail' });
@@ -55,7 +55,7 @@ export function NrcSection() {
       <CreateMultisigTransferPage
         cidNumber={NRC_CID_NUMBER}
         cidFullName={view.cidFullName}
-        institution_account_id={view.institution_account_id}
+        institutionAccountId={view.institutionAccountId}
         adminSigners={view.adminSigners}
         onBack={backToDetail}
         onSuccess={backToDetail}
@@ -90,7 +90,7 @@ export function NrcSection() {
     return (
       <SafetyFundProposalPage
         actorCidNumber={view.actorCidNumber}
-        institution_account_id={view.institution_account_id}
+        institutionAccountId={view.institutionAccountId}
         adminSigners={view.adminSigners}
         onBack={backToDetail}
         onSuccess={backToDetail}
@@ -102,7 +102,7 @@ export function NrcSection() {
     return (
       <SweepProposalPage
         actorCidNumber={view.actorCidNumber}
-        institution_account_id={view.institution_account_id}
+        institutionAccountId={view.institutionAccountId}
         cidFullName={view.cidFullName}
         adminSigners={view.adminSigners}
         onBack={backToDetail}
@@ -121,8 +121,8 @@ export function NrcSection() {
       onSelectProposal={(proposalId, adminSigners, sid) =>
         setView({ page: 'proposal-detail', proposalId, adminSigners, cidNumber: sid })
       }
-      onCreateProposal={(_sid, orgType, cidFullName, institution_account_id, aw) =>
-        setView({ page: 'create-proposal', orgType, cidFullName, institution_account_id, adminSigners: aw })
+      onCreateProposal={(_sid, orgType, cidFullName, institutionAccountId, aw) =>
+        setView({ page: 'create-proposal', orgType, cidFullName, institutionAccountId, adminSigners: aw })
       }
       onCreateProtocolUpgrade={(aw) =>
         setView({ page: 'protocol-upgrade', adminSigners: aw })
@@ -130,11 +130,11 @@ export function NrcSection() {
       onChangeGrandpaKey={(aw) =>
         setView({ page: 'grandpa-key', adminSigners: aw })
       }
-      onCreateSafetyFund={(actorCidNumber, institution_account_id, aw) =>
-        setView({ page: 'propose-safety-fund', actorCidNumber, institution_account_id, adminSigners: aw })
+      onCreateSafetyFund={(actorCidNumber, institutionAccountId, aw) =>
+        setView({ page: 'propose-safety-fund', actorCidNumber, institutionAccountId, adminSigners: aw })
       }
-      onCreateSweep={(actorCidNumber, institution_account_id, cidFullName, aw) =>
-        setView({ page: 'propose-sweep', actorCidNumber, institution_account_id, cidFullName, adminSigners: aw })
+      onCreateSweep={(actorCidNumber, institutionAccountId, cidFullName, aw) =>
+        setView({ page: 'propose-sweep', actorCidNumber, institutionAccountId, cidFullName, adminSigners: aw })
       }
     />
   );

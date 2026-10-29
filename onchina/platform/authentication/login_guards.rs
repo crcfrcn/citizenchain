@@ -30,7 +30,7 @@ pub(super) fn admin_auth(
     };
 
     let now = Utc::now();
-    let city_idle_timeout_minutes = std::env::var("ONCHINA_ADMIN_IDLE_TIMEOUT_MINUTES")
+    let idle_timeout_minutes = std::env::var("ONCHINA_ADMIN_IDLE_TIMEOUT_MINUTES")
         .ok()
         .and_then(|v| v.parse::<i64>().ok())
         .filter(|v| *v > 0)
@@ -47,7 +47,7 @@ pub(super) fn admin_auth(
 
     let result = state.db.with_client(move |conn| {
         if should_cleanup {
-            repo::cleanup_admin_sessions_conn(conn, now, city_idle_timeout_minutes)?;
+            repo::cleanup_admin_sessions_conn(conn, now, idle_timeout_minutes)?;
         }
         let Some(mut session) = repo::get_admin_session_conn(conn, token.as_str())? else {
             return Err("http:unauthorized:invalid access token".to_string());
@@ -55,15 +55,15 @@ pub(super) fn admin_auth(
 
         let idle_expired =
             crate::core::chain_runtime::is_subordinate_registry(&session.institution_code)
-                && now > session.last_active_at + Duration::minutes(city_idle_timeout_minutes);
-        if now > session.expire_at || idle_expired {
-            conn.execute("DELETE FROM admin_sessions WHERE token = $1", &[&token])
+                && now > session.last_active_at + Duration::minutes(idle_timeout_minutes);
+        if now > session.expires_at || idle_expired {
+            conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token])
                 .map_err(|e| format!("delete expired admin session failed: {e}"))?;
             return Err("http:unauthorized:access token expired".to_string());
         }
 
         let Some(binding) = repo::get_active_node_binding_conn(conn)? else {
-            conn.execute("DELETE FROM admin_sessions WHERE token = $1", &[&token])
+            conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token])
                 .map_err(|e| format!("delete unbound admin session failed: {e}"))?;
             return Err("http:unauthorized:invalid access token".to_string());
         };
@@ -71,15 +71,18 @@ pub(super) fn admin_auth(
         if session.candidate_id != binding.candidate_id
             || session.institution_code != binding.institution_code
         {
-            conn.execute("DELETE FROM admin_sessions WHERE token = $1", &[&token])
+            conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token])
                 .map_err(|e| format!("delete binding-mismatched admin session failed: {e}"))?;
             return Err("http:unauthorized:invalid access token".to_string());
         }
 
         let admin = repo::get_admin_by_account_id_conn(conn, &session.account_id)?
             .ok_or_else(|| "http:forbidden:admin not found".to_string())?;
-        if admin.institution_code != session.institution_code || admin.institution_cid_number.as_deref() != Some(binding.institution_cid_number.as_str()) {
-            conn.execute("DELETE FROM admin_sessions WHERE token = $1", &[&token])
+        if admin.institution_code != session.institution_code
+            || admin.institution_cid_number.as_deref()
+                != Some(binding.institution_cid_number.as_str())
+        {
+            conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token])
                 .map_err(|e| format!("delete institution-mismatched admin session failed: {e}"))?;
             return Err("http:unauthorized:invalid access token".to_string());
         }
@@ -95,7 +98,8 @@ pub(super) fn admin_auth(
 
         // 全国级机构(NATIONAL,联邦注册局除外)无省维度;其余(含 FRG)必须有省作用域。
         let national_no_province = !is_frg && admin_level.as_deref() == Some("NATIONAL");
-        if !is_frg && !national_no_province
+        if !is_frg
+            && !national_no_province
             && scope_province_name
                 .as_deref()
                 .map(str::trim)
@@ -129,13 +133,20 @@ pub(super) fn admin_auth(
     match result {
         Ok(mut ctx) => {
             if crate::core::chain_runtime::is_tier1_registry(&ctx.institution_code) {
-                ctx.scope_province_name = Some(crate::core::chain_runtime::current_frg_province_name_blocking(&ctx.institution_cid_number, &ctx.account_id)
-                    .map_err(|_| api_error(StatusCode::FORBIDDEN, 2002, "admin province scope missing"))?);
+                ctx.scope_province_name = Some(
+                    crate::core::chain_runtime::current_frg_province_name_blocking(
+                        &ctx.institution_cid_number,
+                        &ctx.account_id,
+                    )
+                    .map_err(|_| {
+                        api_error(StatusCode::FORBIDDEN, 2002, "admin province scope missing")
+                    })?,
+                );
                 ctx.scope_city_name = None;
                 ctx.scope_town_name = None;
             }
             Ok(ctx)
-        },
+        }
         Err(err) if err == "http:unauthorized:invalid access token" => Err(api_error(
             StatusCode::UNAUTHORIZED,
             1002,

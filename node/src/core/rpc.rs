@@ -10,7 +10,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use citizenchain::{self as runtime, opaque::Block, AccountId, Balance, Nonce};
+use runtime::{opaque::Block, AccountId, Balance, Nonce};
 use codec::{Decode, Encode};
 use jsonrpsee::RpcModule;
 use sc_client_api::StorageProvider;
@@ -75,7 +75,7 @@ pub struct FullDeps<C, P> {
     /// 清算行节点的 RPC 命名空间实现。
     /// None 表示本节点未以清算行角色启动,跳过 `offchain_*` RPC 注入。
     pub offchain_clearing_rpc:
-        Option<Arc<crate::transaction::offchain::rpc::OffchainClearingRpcImpl>>,
+        Option<Arc<crate::offchain::rpc::OffchainClearingRpcImpl>>,
 }
 
 /// 构造并签名一笔 powr 矿工交易，提交到交易池。
@@ -303,7 +303,7 @@ where
 
     // 若清算行组件已启动,合并 offchain_* RPC 命名空间。
     if let Some(impl_) = offchain_clearing_rpc {
-        use crate::transaction::offchain::rpc::OffchainClearingRpcServer;
+        use crate::offchain::rpc::OffchainClearingRpcServer;
         module
             .merge(OffchainClearingRpcServer::into_rpc((*impl_).clone()))
             .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
@@ -415,7 +415,7 @@ where
             let reward_account_id: String = params.one()?;
             let reward_account_id = parse_account_id(&reward_account_id)?;
             let call = runtime::RuntimeCall::FullnodeIssuance(
-                fullnode_issuance::pallet::Call::bind_reward_account { reward_account_id },
+                fullnodeissue::pallet::Call::bind_reward_account { reward_account_id },
             );
             let _tx_hash = submit_powr_signed_tx(&client, &pool, &keystore, call)?;
             Ok::<&str, jsonrpsee::types::ErrorObjectOwned>("ok")
@@ -432,7 +432,7 @@ where
             let new_reward_account_id: String = params.one()?;
             let new_reward_account_id = parse_account_id(&new_reward_account_id)?;
             let call = runtime::RuntimeCall::FullnodeIssuance(
-                fullnode_issuance::pallet::Call::rebind_reward_account {
+                fullnodeissue::pallet::Call::rebind_reward_account {
                     new_reward_account_id,
                 },
             );

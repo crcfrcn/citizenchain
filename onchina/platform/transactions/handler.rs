@@ -1,15 +1,22 @@
 //! 平台统一链交易提交与恢复；业务投影仍调用原所属业务实现。
-use axum::{extract::State, http::{HeaderMap, StatusCode}, response::IntoResponse, Json};
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use super::session::{ChainSignSession, SessionLease};
 use crate::authentication::login::AdminAuthContext;
 use crate::core::chain_submit;
 use crate::core::chain_submit::parse_hex32;
 use crate::crypto::pubkey::same_account_id;
-use super::session::{ChainSignSession, SessionLease};
 use crate::*;
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    Json,
+};
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ChainSubmitInput {
     pub(crate) request_id: String,
     /// 冷钱包扫码回签(前端已从响应 QR 解析);后端按会话签名字节重新验签。
@@ -18,6 +25,7 @@ pub(crate) struct ChainSubmitInput {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ChainSubmitOutput {
     pub(crate) purpose: String,
     pub(crate) cid_number: String,
@@ -40,33 +48,30 @@ pub(crate) fn delete_session_best_effort(state: &AppState, request_id: &str, rea
 fn stored_submission_attempt(
     session: &ChainSignSession,
 ) -> Option<chain_submit::SubmissionAttempt> {
-    let recovery_cursor_block_number = session
+    let recovery_block_number = session
         .context
-        .get("recovery_cursor_block_number")
+        .get("recovery_block_number")
         .and_then(|value| value.as_u64());
-    let recovery_cursor_block_hash = session
+    let recovery_block_hash = session
         .context
-        .get("recovery_cursor_block_hash")
+        .get("recovery_block_hash")
         .and_then(|value| value.as_str())
         .and_then(parse_hex32);
-    if recovery_cursor_block_number.is_some() != recovery_cursor_block_hash.is_some() {
+    if recovery_block_number.is_some() != recovery_block_hash.is_some() {
         return None;
     }
     let tx_hash = session.context.get("submitted_tx_hash")?.as_str()?;
     parse_hex32(tx_hash)?;
     Some(chain_submit::SubmissionAttempt {
         tx_hash: tx_hash.to_string(),
-        from_block_number: session
-            .context
-            .get("submitted_from_block_number")?
-            .as_u64()?,
+        from_block_number: session.context.get("submitted_block_number")?.as_u64()?,
         from_block_hash: session
             .context
-            .get("submitted_from_block_hash")?
+            .get("submitted_block_hash")?
             .as_str()
             .and_then(parse_hex32)?,
-        recovery_cursor_block_number,
-        recovery_cursor_block_hash,
+        recovery_block_number,
+        recovery_block_hash,
     })
 }
 
@@ -114,10 +119,10 @@ fn chain_resume_phase(session: &ChainSignSession) -> Result<ChainResumePhase, St
 
     let has_submission_marker = [
         "submitted_tx_hash",
-        "submitted_from_block_number",
-        "submitted_from_block_hash",
-        "recovery_cursor_block_number",
-        "recovery_cursor_block_hash",
+        "submitted_block_number",
+        "submitted_block_hash",
+        "recovery_block_number",
+        "recovery_block_hash",
     ]
     .iter()
     .any(|key| session.context.get(*key).is_some());
@@ -144,16 +149,16 @@ fn persist_submission_attempt(
         serde_json::Value::String(attempt.tx_hash.clone()),
     );
     map.insert(
-        "submitted_from_block_number".to_string(),
+        "submitted_block_number".to_string(),
         serde_json::Value::from(attempt.from_block_number),
     );
     map.insert(
-        "submitted_from_block_hash".to_string(),
+        "submitted_block_hash".to_string(),
         serde_json::Value::String(format!("0x{}", hex::encode(attempt.from_block_hash))),
     );
     // 每次真正重提都会建立新的 finalized 锚点；旧扫描游标必须清除。
-    map.remove("recovery_cursor_block_number");
-    map.remove("recovery_cursor_block_hash");
+    map.remove("recovery_block_number");
+    map.remove("recovery_block_hash");
     lease.update_context(&context)
 }
 
@@ -168,11 +173,11 @@ fn persist_recovery_cursor(
         .as_object_mut()
         .ok_or_else(|| "chain sign session context must be object".to_string())?;
     map.insert(
-        "recovery_cursor_block_number".to_string(),
+        "recovery_block_number".to_string(),
         serde_json::Value::from(cursor_block_number),
     );
     map.insert(
-        "recovery_cursor_block_hash".to_string(),
+        "recovery_block_hash".to_string(),
         serde_json::Value::String(format!("0x{}", hex::encode(cursor_block_hash))),
     );
     lease.update_context(&context)
@@ -183,8 +188,8 @@ fn clear_recovery_cursor(session: &ChainSignSession, lease: &SessionLease) -> Re
     let map = context
         .as_object_mut()
         .ok_or_else(|| "chain sign session context must be object".to_string())?;
-    map.remove("recovery_cursor_block_number");
-    map.remove("recovery_cursor_block_hash");
+    map.remove("recovery_block_number");
+    map.remove("recovery_block_hash");
     lease.update_context(&context)
 }
 
@@ -209,8 +214,8 @@ fn persist_finalized_submit(
         "finalized_block_hash".to_string(),
         serde_json::Value::String(format!("0x{}", hex::encode(finalized.block_hash))),
     );
-    map.remove("recovery_cursor_block_number");
-    map.remove("recovery_cursor_block_hash");
+    map.remove("recovery_block_number");
+    map.remove("recovery_block_hash");
     lease.update_context(&context)
 }
 
@@ -232,15 +237,37 @@ async fn submit_with_persisted_attempt(
 
 /// 首次提交和安全重提共用同一套应用层授权复查；finalized 恢复与投影补写不复查，
 /// 否则管理员在链交易成功后被撤权会导致本地投影永久无法完成。
-async fn recheck_chain_submit_authorization(state: &AppState, ctx: &AdminAuthContext, session: &ChainSignSession) -> Result<(), axum::response::Response> {
+async fn recheck_chain_submit_authorization(
+    state: &AppState,
+    ctx: &AdminAuthContext,
+    session: &ChainSignSession,
+) -> Result<(), axum::response::Response> {
     if let Some(owner) = state.modules.owner_of_purpose(&session.purpose) {
         if state.modules.local_owns(&owner) {
-            return state.modules.local.as_ref().ok_or_else(|| api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable"))?.recheck_submit(state, ctx, session).await;
+            return state
+                .modules
+                .local
+                .as_ref()
+                .ok_or_else(|| {
+                    api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable")
+                })?
+                .recheck_submit(state, ctx, session)
+                .await;
         }
-        return Err(api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable"));
+        return Err(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            1503,
+            "module unavailable",
+        ));
     }
-    if builtin_purposes().contains(&session.purpose.as_str()) && state.modules.local.is_none() { return Ok(()); }
-    Err(api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable"))
+    if builtin_purposes().contains(&session.purpose.as_str()) && state.modules.local.is_none() {
+        return Ok(());
+    }
+    Err(api_error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        1503,
+        "module unavailable",
+    ))
 }
 
 /// 统一链交易 submit:验签者一致 → 组装/dry-run/提交 → finalized 成功 → 按 purpose 落正式投影。
@@ -268,9 +295,18 @@ pub(crate) async fn submit_chain_sign(
     };
     if let Some(owner) = state.modules.owner_of_purpose(&session.purpose) {
         if !state.modules.local_owns(&owner) {
-            return crate::modules::forward_json(&state, &owner, "/api/admin/chain/submit", &headers, &input).await;
+            return crate::modules::forward_json(
+                &state,
+                &owner,
+                "/api/admin/chain/submit",
+                &headers,
+                &input,
+            )
+            .await;
         }
-    } else if !builtin_purposes().contains(&session.purpose.as_str()) || state.modules.local.is_some() {
+    } else if !builtin_purposes().contains(&session.purpose.as_str())
+        || state.modules.local.is_some()
+    {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable");
     }
     if session.consumed_at.is_some() {
@@ -279,7 +315,13 @@ pub(crate) async fn submit_chain_sign(
     }
     let lease = match SessionLease::acquire(&state.db, &input.request_id) {
         Ok(Some(lease)) => lease,
-        Ok(None) => return api_error(StatusCode::CONFLICT, 1005, "冷签会话不存在、已完成或正在处理中"),
+        Ok(None) => {
+            return api_error(
+                StatusCode::CONFLICT,
+                1005,
+                "冷签会话不存在、已完成或正在处理中",
+            )
+        }
         Err(_) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "冷签会话查询失败"),
     };
     let session = match state.db.find_chain_sign_session(&input.request_id) {
@@ -319,7 +361,10 @@ pub(crate) async fn submit_chain_sign(
         }
         return api_error(StatusCode::FORBIDDEN, 1003, "签名钱包与会话管理员不一致");
     }
-    let origin_cid = session.context.get("origin_institution_cid_number").and_then(|value| value.as_str());
+    let origin_cid = session
+        .context
+        .get("origin_institution_cid")
+        .and_then(|value| value.as_str());
     if origin_cid != Some(ctx.institution_cid_number.as_str()) {
         return api_error(StatusCode::FORBIDDEN, 1003, "冷签会话不属于当前机构");
     }
@@ -337,23 +382,35 @@ pub(crate) async fn submit_chain_sign(
     if let Some(module) = &state.modules.local {
         if let Err(err) = module.validate_submit_context(&session) {
             tracing::error!(error = %err, "finalized binding context invalid");
-            if !has_chain_attempt { delete_session_best_effort(&state, &session.request_id, "finalized binding context invalid"); }
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "CID 绑定会话数据损坏");
+            if !has_chain_attempt {
+                delete_session_best_effort(
+                    &state,
+                    &session.request_id,
+                    "finalized binding context invalid",
+                );
+            }
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                1004,
+                "CID 绑定会话数据损坏",
+            );
         }
     }
     let had_stored_finalized = matches!(resume_phase, ChainResumePhase::Project(_));
     let submit_result = match resume_phase {
-        ChainResumePhase::Project(finalized) => match chain_submit::verify_finalized_submit(&finalized).await {
-            Ok(()) => Ok(finalized),
-            Err(error) => return api_error(StatusCode::BAD_GATEWAY, 2004, &error),
-        },
+        ChainResumePhase::Project(finalized) => {
+            match chain_submit::verify_finalized_submit(&finalized).await {
+                Ok(()) => Ok(finalized),
+                Err(error) => return api_error(StatusCode::BAD_GATEWAY, 2004, &error),
+            }
+        }
         ChainResumePhase::Recover(attempt) => {
             match chain_submit::find_finalized_success(
                 attempt.tx_hash.as_str(),
                 attempt.from_block_number,
                 attempt.from_block_hash,
-                attempt.recovery_cursor_block_number,
-                attempt.recovery_cursor_block_hash,
+                attempt.recovery_block_number,
+                attempt.recovery_block_hash,
             )
             .await
             {
@@ -461,9 +518,9 @@ pub(crate) async fn submit_chain_sign(
                         .and_then(|value| value.as_str())
                         .map(str::to_string),
                     serde_json::json!({
-                        "request_id": session.request_id.clone(),
+                        "requestId": session.request_id.clone(),
                         "purpose": session.purpose.clone(),
-                        "tx_hash": tx_hash,
+                        "txHash": tx_hash,
                         "error": err.to_string(),
                     }),
                 );
@@ -487,17 +544,35 @@ pub(crate) async fn submit_chain_sign(
             return api_error(StatusCode::UNPROCESSABLE_ENTITY, 2004, detail.as_str());
         }
     };
-    finish_finalized_session(&state, &headers, &session, &finalized_submit, had_stored_finalized, &lease).await
+    finish_finalized_session(
+        &state,
+        &headers,
+        &session,
+        &finalized_submit,
+        had_stored_finalized,
+        &lease,
+    )
+    .await
 }
 
 /// 只消费已证实的链上结果；不读取当前成员权限、不重新签名或提交网络交易。
 async fn finish_finalized_session(
-    state: &AppState, headers: &HeaderMap, session: &ChainSignSession,
-    finalized_submit: &chain_submit::FinalizedChainSubmit, had_stored_finalized: bool, lease: &SessionLease,
+    state: &AppState,
+    headers: &HeaderMap,
+    session: &ChainSignSession,
+    finalized_submit: &chain_submit::FinalizedChainSubmit,
+    had_stored_finalized: bool,
+    lease: &SessionLease,
 ) -> axum::response::Response {
     let tx_hash = finalized_submit.tx_hash.clone();
     let finalized_cid_snapshot = match &state.modules.local {
-        Some(module) => match module.verify_finalized_binding(session, finalized_submit).await { Ok(value) => value, Err(response) => return response },
+        Some(module) => match module
+            .verify_finalized_binding(session, finalized_submit)
+            .await
+        {
+            Ok(value) => value,
+            Err(response) => return response,
+        },
         None => None,
     };
     if !had_stored_finalized {
@@ -530,17 +605,26 @@ async fn finish_finalized_session(
             api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "链上交易已完成，本地投影尚未完成，会话已保留")
         }),
     };
-    let citizen_output = match result { Ok(output) => output, Err(response) => return response };
+    let citizen_output = match result {
+        Ok(output) => output,
+        Err(response) => return response,
+    };
     // 已完成事务后才清理短期会话；清理失败也不会再次执行投影。
     delete_session_best_effort(state, &session.request_id, "completed");
     if let Some(citizen) = &citizen_output {
-        crate::core::runtime_ops::append_audit_log(state, "CITIZEN_CREATE", &session.account_id, Some(cid_number.clone()), serde_json::json!({
-            "cid_number":cid_number,"passport_no":citizen["passport_no"],"family_name":citizen["family_name"],"given_name":citizen["given_name"],
-            "province_code":citizen["province_code"],"city_code":citizen["city_code"],"town_code":citizen["town_code"],
-            "birth_province_code":citizen["birth_province_code"],"birth_city_code":citizen["birth_city_code"],"birth_town_code":citizen["birth_town_code"],
-            "voting_eligible":citizen["voting_eligible"],"onchain_tx_hash":tx_hash,
-            "request_id":request_id_from_headers(headers),"actor_ip":actor_ip_from_headers(headers),
-        }));
+        crate::core::runtime_ops::append_audit_log(
+            state,
+            "CITIZEN_CREATE",
+            &session.account_id,
+            Some(cid_number.clone()),
+            serde_json::json!({
+                "cidNumber":cid_number,"passportNo":citizen["passportNo"],"familyName":citizen["familyName"],"givenName":citizen["givenName"],
+                "provinceCode":citizen["provinceCode"],"cityCode":citizen["cityCode"],"townCode":citizen["townCode"],
+                "birthProvinceCode":citizen["birthProvinceCode"],"birthCityCode":citizen["birthCityCode"],"birthTownCode":citizen["birthTownCode"],
+                "votingEligible":citizen["votingEligible"],"onchainTxHash":tx_hash,
+                "requestId":request_id_from_headers(headers),"actorIp":actor_ip_from_headers(headers),
+            }),
+        );
     }
 
     crate::core::runtime_ops::append_audit_log(
@@ -550,11 +634,11 @@ async fn finish_finalized_session(
         Some(cid_number.clone()),
         serde_json::json!({
             "purpose": session.purpose,
-            "cid_number": cid_number,
-            "tx_hash": tx_hash,
-            "block_number": block_number,
-            "request_id": session.request_id,
-            "actor_ip": actor_ip_from_headers(&headers),
+            "cidNumber": cid_number,
+            "txHash": tx_hash,
+            "blockNumber": block_number,
+            "requestId": session.request_id,
+            "actorIp": actor_ip_from_headers(&headers),
         }),
     );
 
@@ -572,10 +656,13 @@ async fn finish_finalized_session(
     .into_response()
 }
 
-
 pub(crate) fn commit_projection(
-    db: &Db, session: &ChainSignSession, lease: &SessionLease, tx_hash: &str,
-    apply: impl FnOnce(&mut postgres::Transaction<'_>) -> Result<Option<serde_json::Value>, String> + Send,
+    db: &Db,
+    session: &ChainSignSession,
+    lease: &SessionLease,
+    tx_hash: &str,
+    apply: impl FnOnce(&mut postgres::Transaction<'_>) -> Result<Option<serde_json::Value>, String>
+        + Send,
 ) -> Result<Option<serde_json::Value>, String> {
     db.with_client(|conn| {
         let mut tx = conn.transaction().map_err(|e| format!("begin chain completion failed: {e}"))?;
@@ -584,7 +671,7 @@ pub(crate) fn commit_projection(
         let binding = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?.ok_or("chain completion requires original institution binding")?;
         if !origin_matches_binding(session, &binding) { return Err("chain session original institution does not match current binding".into()); }
         let output = apply(&mut tx)?;
-        let updated = tx.execute("UPDATE chain_sign_sessions SET consumed_at=now() WHERE request_id=$1 AND consumed_at IS NULL AND context->>'finalized_tx_hash'=$2", &[&session.request_id,&tx_hash]).map_err(|e| e.to_string())?;
+        let updated = tx.execute("UPDATE signing SET consumed_at=now() WHERE request_id=$1 AND consumed_at IS NULL AND context_json->>'finalized_tx_hash'=$2", &[&session.request_id,&tx_hash]).map_err(|e| e.to_string())?;
         if updated != 1 { return Err("chain completion did not consume exactly one session".into()); }
         tx.commit().map_err(|e| format!("commit chain completion failed: {e}"))?;
         Ok(output)
@@ -592,51 +679,107 @@ pub(crate) fn commit_projection(
 }
 
 pub(crate) fn builtin_purposes() -> Vec<&'static str> {
-    vec![crate::institutions::admins::PURPOSE_INSTITUTION_GOVERNANCE,
+    vec![
+        crate::institutions::admins::PURPOSE_INSTITUTION_GOVERNANCE,
         crate::institutions::accounts::handler::PURPOSE_INSTITUTION_ADD_ACCOUNT,
-        crate::institutions::accounts::handler::PURPOSE_INSTITUTION_CLOSE_ACCOUNT]
+        crate::institutions::accounts::handler::PURPOSE_INSTITUTION_CLOSE_ACCOUNT,
+    ]
 }
 
-
-pub(crate) fn origin_matches_binding(session: &ChainSignSession, binding: &crate::authentication::login::NodeInstitutionBinding) -> bool {
-    session.context.get("origin_binding_id").and_then(|value| value.as_str()).is_some_and(|id| !id.is_empty())
-        && session.context.get("origin_institution_cid_number").and_then(|value| value.as_str()) == Some(binding.institution_cid_number.as_str())
-        && session.context.get("origin_institution_code").and_then(|value| value.as_str()) == Some(binding.institution_code.as_str())
+pub(crate) fn origin_matches_binding(
+    session: &ChainSignSession,
+    binding: &crate::authentication::login::NodeInstitutionBinding,
+) -> bool {
+    session
+        .context
+        .get("origin_binding_id")
+        .and_then(|value| value.as_str())
+        .is_some_and(|id| !id.is_empty())
+        && session
+            .context
+            .get("origin_institution_cid")
+            .and_then(|value| value.as_str())
+            == Some(binding.institution_cid_number.as_str())
+        && session
+            .context
+            .get("origin_institution_code")
+            .and_then(|value| value.as_str())
+            == Some(binding.institution_code.as_str())
 }
 
 /// 后台只恢复已留有提交/最终确认锚点的会话；不需要原管理员仍在职，不会代替用户签名或重提。
 pub(crate) async fn recover_chain_sessions_loop(state: AppState) {
     loop {
-        if let Err(error) = recover_chain_sessions_once(&state).await { tracing::warn!(error = %error, "chain session recovery paused"); }
+        if let Err(error) = recover_chain_sessions_once(&state).await {
+            tracing::warn!(error = %error, "chain session recovery paused");
+        }
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 }
 
 async fn recover_chain_sessions_once(state: &AppState) -> Result<(), String> {
-    let purposes = if state.modules.local.is_some() { state.modules.local_purposes() } else { builtin_purposes().into_iter().map(str::to_string).collect() };
-    let ids = state.db.with_client(|conn| conn.query("SELECT request_id FROM chain_sign_sessions WHERE purpose=ANY($1) AND consumed_at IS NULL AND (context ? 'submitted_tx_hash' OR context ? 'finalized_tx_hash') ORDER BY recovery_checked_at NULLS FIRST,created_at LIMIT 32", &[&purposes])
+    let purposes = if state.modules.local.is_some() {
+        state.modules.local_purposes()
+    } else {
+        builtin_purposes().into_iter().map(str::to_string).collect()
+    };
+    let ids = state.db.with_client(|conn| conn.query("SELECT request_id FROM signing WHERE sign_purpose=ANY($1) AND consumed_at IS NULL AND (context_json ? 'submitted_tx_hash' OR context_json ? 'finalized_tx_hash') ORDER BY checked_at NULLS FIRST,created_at LIMIT 32", &[&purposes])
         .map(|rows| rows.iter().map(|row| row.get::<_, String>(0)).collect::<Vec<_>>()).map_err(|e| e.to_string()))?;
     for id in ids {
-        if let Err(error) = recover_one_chain_session(state, &id).await { tracing::warn!(request_id = %id, error = %error, "chain session recovery retained for retry"); }
+        if let Err(error) = recover_one_chain_session(state, &id).await {
+            tracing::warn!(request_id = %id, error = %error, "chain session recovery retained for retry");
+        }
     }
     Ok(())
 }
 
 async fn recover_one_chain_session(state: &AppState, id: &str) -> Result<(), String> {
-        let Some(lease) = SessionLease::acquire(&state.db, id)? else { return Ok(()); };
-        let Some(session) = state.db.find_chain_sign_session(id)? else { return Ok(()); };
-        let Some(binding) = crate::authentication::repo::active_node_binding(&state.db)? else { return Ok(()); };
-        if !origin_matches_binding(&session, &binding) { return Ok(()); }
-        let finalized = match chain_resume_phase(&session)? {
-            ChainResumePhase::Submit => return Ok(()),
-            ChainResumePhase::Project(finalized) => { chain_submit::verify_finalized_submit(&finalized).await?; finalized }
-            ChainResumePhase::Recover(attempt) => match chain_submit::find_finalized_success(&attempt.tx_hash, attempt.from_block_number, attempt.from_block_hash, attempt.recovery_cursor_block_number, attempt.recovery_cursor_block_hash).await? {
-                chain_submit::FinalizedRecoveryScan::Found(finalized) => { persist_finalized_submit(&session, &lease, &finalized)?; finalized }
-                chain_submit::FinalizedRecoveryScan::Continue { cursor_block_number, cursor_block_hash } => { persist_recovery_cursor(&session, &lease, cursor_block_number, cursor_block_hash)?; return Ok(()); }
-                chain_submit::FinalizedRecoveryScan::Exhausted => { clear_recovery_cursor(&session, &lease)?; return Ok(()); }
+    let Some(lease) = SessionLease::acquire(&state.db, id)? else {
+        return Ok(());
+    };
+    let Some(session) = state.db.find_chain_sign_session(id)? else {
+        return Ok(());
+    };
+    let Some(binding) = crate::authentication::repo::active_node_binding(&state.db)? else {
+        return Ok(());
+    };
+    if !origin_matches_binding(&session, &binding) {
+        return Ok(());
+    }
+    let finalized = match chain_resume_phase(&session)? {
+        ChainResumePhase::Submit => return Ok(()),
+        ChainResumePhase::Project(finalized) => {
+            chain_submit::verify_finalized_submit(&finalized).await?;
+            finalized
+        }
+        ChainResumePhase::Recover(attempt) => match chain_submit::find_finalized_success(
+            &attempt.tx_hash,
+            attempt.from_block_number,
+            attempt.from_block_hash,
+            attempt.recovery_block_number,
+            attempt.recovery_block_hash,
+        )
+        .await?
+        {
+            chain_submit::FinalizedRecoveryScan::Found(finalized) => {
+                persist_finalized_submit(&session, &lease, &finalized)?;
+                finalized
             }
-        };
-        let _ = finish_finalized_session(state, &HeaderMap::new(), &session, &finalized, true, &lease).await;
+            chain_submit::FinalizedRecoveryScan::Continue {
+                cursor_block_number,
+                cursor_block_hash,
+            } => {
+                persist_recovery_cursor(&session, &lease, cursor_block_number, cursor_block_hash)?;
+                return Ok(());
+            }
+            chain_submit::FinalizedRecoveryScan::Exhausted => {
+                clear_recovery_cursor(&session, &lease)?;
+                return Ok(());
+            }
+        },
+    };
+    let _ = finish_finalized_session(state, &HeaderMap::new(), &session, &finalized, true, &lease)
+        .await;
     Ok(())
 }
 

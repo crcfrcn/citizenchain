@@ -27,9 +27,9 @@ export function AddCityRegistryAdminModal({ state }: AddCityRegistryAdminModalPr
     accountScanTarget,
     setAccountScanTarget,
   } = state;
-  const selectedCityRegistryCity = Form.useWatch('city_scope_city_name', addCityRegistryForm);
+  const selectedCityRegistryCity = Form.useWatch('cityScopeCityName', addCityRegistryForm);
   // 新增弹窗只做提前拦截,单市 30 人上限最终以后端校验为准。
-  const cityCityRegistryCount = (city_name: string) => cityRegistryAdmins.filter((item) => item.city_name === city_name).length;
+  const cityCityRegistryCount = (cityName: string) => cityRegistryAdmins.filter((item) => item.cityName === cityName).length;
   const selectedCityLimitReached = selectedCityRegistryCity
     ? cityCityRegistryCount(selectedCityRegistryCity) >= MAX_CITY_REGISTRY_ADMINS_PER_CITY
     : false;
@@ -37,7 +37,7 @@ export function AddCityRegistryAdminModal({ state }: AddCityRegistryAdminModalPr
   // selectedCity 有值时预填城市字段
   useEffect(() => {
     if (addCityRegistryOpen && selectedCity) {
-      addCityRegistryForm.setFieldsValue({ city_scope_city_name: selectedCity });
+      addCityRegistryForm.setFieldsValue({ cityScopeCityName: selectedCity });
     }
   }, [addCityRegistryOpen, selectedCity, addCityRegistryForm]);
 
@@ -81,32 +81,32 @@ export function AddCityRegistryAdminModal({ state }: AddCityRegistryAdminModalPr
         <Form
           form={addCityRegistryForm}
           layout="vertical"
-          onFinish={(values: { family_name: string; given_name: string; city_registry_account: string; city_scope_city_name: string }) =>
+          onFinish={(values: { familyName: string; givenName: string; cityRegistryAccount: string; cityScopeCityName: string }) =>
             onCreateCityRegistry({
-              family_name: values.family_name,
-              given_name: values.given_name,
-              city_registry_account: values.city_registry_account,
-              city_name: values.city_scope_city_name,
+              familyName: values.familyName,
+              givenName: values.givenName,
+              cityRegistryAccount: values.cityRegistryAccount,
+              cityName: values.cityScopeCityName,
             })
           }
         >
           <Form.Item
             label="姓"
-            name="family_name"
+            name="familyName"
             rules={[{ required: true, message: '请输入市注册局管理员姓' }]}
           >
             <Input placeholder="请输入市注册局管理员姓" />
           </Form.Item>
           <Form.Item
             label="名"
-            name="given_name"
+            name="givenName"
             rules={[{ required: true, message: '请输入市注册局管理员名' }]}
           >
             <Input placeholder="请输入市注册局管理员名" />
           </Form.Item>
           <Form.Item
             label="市"
-            name="city_scope_city_name"
+            name="cityScopeCityName"
             rules={[
               { required: true, message: '请选择市' },
               {
@@ -124,12 +124,12 @@ export function AddCityRegistryAdminModal({ state }: AddCityRegistryAdminModalPr
               loading={cityRegistryAdminCitiesLoading}
               disabled={selectedCity !== null}
               options={cityRegistryAdminCities
-                .filter((c) => c.city_code !== '000')
+                .filter((c) => c.cityCode !== '000')
                 .map((c) => {
-                  const count = cityCityRegistryCount(c.city_name);
+                  const count = cityCityRegistryCount(c.cityName);
                   return {
-                    label: `${c.city_name} (${c.city_code}) ${count}/${MAX_CITY_REGISTRY_ADMINS_PER_CITY}`,
-                    value: c.city_name,
+                    label: `${c.cityName} (${c.cityCode}) ${count}/${MAX_CITY_REGISTRY_ADMINS_PER_CITY}`,
+                    value: c.cityName,
                     disabled: count >= MAX_CITY_REGISTRY_ADMINS_PER_CITY,
                   };
                 })}
@@ -137,7 +137,7 @@ export function AddCityRegistryAdminModal({ state }: AddCityRegistryAdminModalPr
           </Form.Item>
           <Form.Item
             label="账户"
-            name="city_registry_account"
+            name="cityRegistryAccount"
             rules={[
               { required: true, message: '请输入市注册局管理员账户' },
               {
@@ -173,7 +173,7 @@ export function AddCityRegistryAdminModal({ state }: AddCityRegistryAdminModalPr
         onClose={() => setAccountScanTarget(null)}
         onResolved={(addr) => {
           if (accountScanTarget === 'city_registry') {
-            addCityRegistryForm.setFieldsValue({ city_registry_account: addr });
+            addCityRegistryForm.setFieldsValue({ cityRegistryAccount: addr });
           }
           setAccountScanTarget(null);
         }}

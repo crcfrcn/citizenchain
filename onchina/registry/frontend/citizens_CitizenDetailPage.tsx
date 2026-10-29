@@ -1,3 +1,4 @@
+import { encodeSs58 } from '../../platform/frontend/helpers_ss58';
 // 公民详情页承接单个公民档案展示与链上身份推送。
 // 本地建档不要求钱包;只有本页推送链上身份时才录入钱包并要求目标钱包签名。
 
@@ -69,13 +70,13 @@ type Props = {
 };
 
 type OnchainForm = {
-  account_id: string;
-  actor_role_code: string;
-  identity_level: CitizenOnchainIdentityLevel;
+  accountId: string;
+  actorRoleCode: string;
+  identityLevel: CitizenOnchainIdentityLevel;
 };
 
-function makeCitizenName(row: Pick<CitizenRow, 'family_name' | 'given_name'>) {
-  return `${row.family_name ?? ''}${row.given_name ?? ''}`.trim() || '-';
+function makeCitizenName(row: Pick<CitizenRow, 'familyName' | 'givenName'>) {
+  return `${row.familyName ?? ''}${row.givenName ?? ''}`.trim() || '-';
 }
 
 function formatDate(value?: string) {
@@ -170,12 +171,12 @@ export function CitizenDetailPage({
   const [rebindRoleCode, setRebindRoleCode] = useState('');
   const [rebinding, setRebinding] = useState(false);
 
-  const ageYears = useMemo(() => calculateAgeYears(current.citizen_birth_date), [current.citizen_birth_date]);
+  const ageYears = useMemo(() => calculateAgeYears(current.citizenBirthDate), [current.citizenBirthDate]);
   const canPushOnchain =
     canWrite &&
-    current.citizen_status === 'NORMAL' &&
-    current.identity_status === 'NORMAL' &&
-    current.voting_eligible &&
+    current.citizenStatus === 'NORMAL' &&
+    current.identityStatus === 'NORMAL' &&
+    current.votingEligible &&
     typeof ageYears === 'number' &&
     ageYears >= 16;
 
@@ -183,11 +184,11 @@ export function CitizenDetailPage({
 
   const loadDocuments = useCallback(() => {
     setDocumentsLoading(true);
-    listCitizenDocuments(auth, current.cid_number)
+    listCitizenDocuments(auth, current.cidNumber)
       .then(setDocuments)
       .catch((err) => notice.error(err, '公民资料库加载失败'))
       .finally(() => setDocumentsLoading(false));
-  }, [auth, current.cid_number]);
+  }, [auth, current.cidNumber]);
 
   useEffect(() => {
     loadDocuments();
@@ -195,29 +196,27 @@ export function CitizenDetailPage({
 
   const applyFinalizedBinding = useCallback(
     (binding: FinalizedCitizenBinding) => {
-      const account_id = binding.binding_active ? binding.account_id ?? null : null;
-      const ss58_address = binding.binding_active ? binding.ss58_address ?? null : null;
+      const accountId = binding.bindingActive ? binding.accountId ?? null : null;
       const next: CitizenRow = {
         ...currentRef.current,
-        account_id,
-        ss58_address,
-        binding_revision: binding.binding_revision ?? 0,
-        binding_finalized_block_number: binding.finalized_block_number,
-        binding_finalized_block_hash: binding.finalized_block_hash,
+        accountId,
+        bindingRevision: binding.bindingRevision ?? 0,
+        bindingBlockNumber: binding.finalizedBlockNumber,
+        bindingBlockHash: binding.finalizedBlockHash,
       };
       currentRef.current = next;
       setCurrent(next);
       onUpdated(next);
-      form.setFieldValue('account_id', account_id ?? '');
+      form.setFieldValue('accountId', accountId ?? '');
     },
     [form, onUpdated],
   );
 
   const loadFinalizedBinding = useCallback(async () => {
-    const binding = await fetchFinalizedCitizenBinding(auth, current.cid_number);
+    const binding = await fetchFinalizedCitizenBinding(auth, current.cidNumber);
     applyFinalizedBinding(binding);
     return binding;
-  }, [applyFinalizedBinding, auth, current.cid_number]);
+  }, [applyFinalizedBinding, auth, current.cidNumber]);
 
   useEffect(() => {
     void loadFinalizedBinding().catch((err) =>
@@ -232,10 +231,10 @@ export function CitizenDetailPage({
     try {
       const output = await prepareCitizenOnchainSignature(
         auth,
-        current.cid_number,
-        values.account_id.trim(),
-        values.actor_role_code.trim(),
-        values.identity_level,
+        current.cidNumber,
+        values.accountId.trim(),
+        values.actorRoleCode.trim(),
+        values.identityLevel,
       );
       setPrepared(output);
       notice.success('公民钱包签名二维码已生成');
@@ -248,17 +247,17 @@ export function CitizenDetailPage({
 
   const completeOnchainSignature = async (raw: string) => {
     const values = form.getFieldsValue();
-    const account_id = values.account_id?.trim();
-    if (!account_id) {
+    const accountId = values.accountId?.trim();
+    if (!accountId) {
       notice.warning('请先录入账户 ID');
       return;
     }
-    const identityLevel = values.identity_level;
+    const identityLevel = values.identityLevel;
     if (!identityLevel) {
       notice.warning('请先选择身份类型');
       return;
     }
-    const actorRoleCode = values.actor_role_code?.trim();
+    const actorRoleCode = values.actorRoleCode?.trim();
     if (!actorRoleCode) {
       notice.warning('请先输入注册局岗位码');
       return;
@@ -267,8 +266,8 @@ export function CitizenDetailPage({
     try {
       const output = await completeCitizenOnchainSignature(
         auth,
-        current.cid_number,
-        account_id,
+        current.cidNumber,
+        accountId,
         actorRoleCode,
         identityLevel,
         raw,
@@ -276,16 +275,16 @@ export function CitizenDetailPage({
       setPrepared(null);
       notice.success('公民钱包签名已验证，请用注册局管理员公民钱包签名并提交上链');
       // D7：身份上链交易由 OnChina 组装提交，注册局管理员 CitizenWallet 只签名一次并显示响应二维码。
-      const signed = await signChain(output.request_id, output.citizen_identity_chain_sign_request);
+      const signed = await signChain(output.requestId, output.identitySignRequest);
       setChainSubmitting(true);
       try {
         const submitted = await submitChainSign(
           auth,
-          output.request_id,
-          signed.account_id,
+          output.requestId,
+          signed.accountId,
           signed.signature,
         );
-        notice.success(`公民身份已上链,交易哈希：${submitted.tx_hash}`);
+        notice.success(`公民身份已上链,交易哈希：${submitted.txHash}`);
         // 页面只采用 finalized 六读闭环结果，不信任准备阶段或扫码响应中的账户。
         await loadFinalizedBinding();
       } finally {
@@ -300,9 +299,9 @@ export function CitizenDetailPage({
 
   const revokeOnchain = async () => {
     const values = form.getFieldsValue();
-    const account_id = values.account_id?.trim();
-    const actorRoleCode = values.actor_role_code?.trim();
-    if (!account_id) {
+    const accountId = values.accountId?.trim();
+    const actorRoleCode = values.actorRoleCode?.trim();
+    if (!accountId) {
       notice.warning('请先录入账户 ID');
       return;
     }
@@ -315,17 +314,17 @@ export function CitizenDetailPage({
       // 吊销同样只做一次 Passkey 和一次最终链签。
       const prep = await prepareCitizenRevoke(
         auth,
-        current.cid_number,
+        current.cidNumber,
         actorRoleCode,
       );
-      const signed = await signChain(prep.request_id, prep.sign_request);
+      const signed = await signChain(prep.requestId, prep.signRequest);
       const submitted = await submitChainSign(
         auth,
-        prep.request_id,
-        signed.account_id,
+        prep.requestId,
+        signed.accountId,
         signed.signature,
       );
-      notice.success(`公民身份已吊销,交易哈希：${submitted.tx_hash}`);
+      notice.success(`公民身份已吊销,交易哈希：${submitted.txHash}`);
       await loadFinalizedBinding();
     } catch (err) {
       notice.error(err, '公民身份吊销失败');
@@ -343,26 +342,26 @@ export function CitizenDetailPage({
     setRebinding(true);
     try {
       // 段1:发起换绑,返回给新钱包的域签名 QR。
-      const prep = await prepareCitizenRebind(auth, current.cid_number, roleCode);
+      const prep = await prepareCitizenRebind(auth, current.cidNumber, roleCode);
       // 段1→2:新钱包本人扫码换绑(占即绑,自填本账户)。
-      const newWalletSigned = await signNewWallet(prep.request_id, prep.new_wallet_sign_request);
+      const newWalletSigned = await signNewWallet(prep.requestId, prep.walletSignRequest);
       const admin = await submitCitizenRebind(
         auth,
-        prep.request_id,
-        newWalletSigned.account_id,
+        prep.requestId,
+        newWalletSigned.accountId,
         newWalletSigned.signature,
-        newWalletSigned.current_account_id,
-        newWalletSigned.current_account_signature,
+        newWalletSigned.currentAccountId,
+        newWalletSigned.currentAccountSignature,
       );
       // 段2→3:注册局管理员冷签换绑 extrinsic。
-      const adminSigned = await signChain(admin.request_id, admin.sign_request);
+      const adminSigned = await signChain(admin.requestId, admin.signRequest);
       const submitted = await submitChainSign(
         auth,
-        admin.request_id,
-        adminSigned.account_id,
+        admin.requestId,
+        adminSigned.accountId,
         adminSigned.signature,
       );
-      notice.success(`换绑上链成功,交易哈希：${submitted.tx_hash}`);
+      notice.success(`换绑上链成功,交易哈希：${submitted.txHash}`);
       // 新钱包签名只证明控制权；显示账户必须重新读取 finalized 链上闭环。
       await loadFinalizedBinding();
       setRebindRoleCode('');
@@ -378,7 +377,7 @@ export function CitizenDetailPage({
     if (!rawFile || !rawFile.name) return false;
     setDocumentUploading(true);
     try {
-      await uploadCitizenDocument(auth, current.cid_number, rawFile, selectedDocumentType);
+      await uploadCitizenDocument(auth, current.cidNumber, rawFile, selectedDocumentType);
       notice.success('公民资料上传成功');
       loadDocuments();
     } catch (err) {
@@ -391,7 +390,7 @@ export function CitizenDetailPage({
 
   const downloadDocument = async (doc: CitizenDocument) => {
     try {
-      await downloadCitizenDocument(auth, current.cid_number, doc.id, doc.file_name);
+      await downloadCitizenDocument(auth, current.cidNumber, doc.id, doc.fileName);
     } catch (err) {
       notice.error(err, '公民资料下载失败');
     }
@@ -399,7 +398,7 @@ export function CitizenDetailPage({
 
   const deleteDocument = async (doc: CitizenDocument) => {
     try {
-      await deleteCitizenDocument(auth, current.cid_number, doc.id);
+      await deleteCitizenDocument(auth, current.cidNumber, doc.id);
       notice.success('公民资料已删除');
       loadDocuments();
     } catch (err) {
@@ -439,31 +438,31 @@ export function CitizenDetailPage({
         </Typography.Title>
 
         <Descriptions column={1} size="small" bordered>
-          <Descriptions.Item label="护照号">{current.passport_no || '-'}</Descriptions.Item>
-          <Descriptions.Item label="身份CID">{current.cid_number || '-'}</Descriptions.Item>
+          <Descriptions.Item label="护照号">{current.passportNo || '-'}</Descriptions.Item>
+          <Descriptions.Item label="身份CID">{current.cidNumber || '-'}</Descriptions.Item>
           <Descriptions.Item label="姓名">{makeCitizenName(current)}</Descriptions.Item>
-          <Descriptions.Item label="性别">{sexText(current.citizen_sex)}</Descriptions.Item>
-          <Descriptions.Item label="出生日期">{formatDate(current.citizen_birth_date)}</Descriptions.Item>
+          <Descriptions.Item label="性别">{sexText(current.citizenSex)}</Descriptions.Item>
+          <Descriptions.Item label="出生日期">{formatDate(current.citizenBirthDate)}</Descriptions.Item>
           <Descriptions.Item label="年龄">{typeof ageYears === 'number' ? `${ageYears}周岁` : '-'}</Descriptions.Item>
-          <Descriptions.Item label="当前绑定钱包账户">{current.ss58_address || '-'}</Descriptions.Item>
-          <Descriptions.Item label="绑定版本">{current.binding_revision || '-'}</Descriptions.Item>
+          <Descriptions.Item label="当前绑定钱包账户">{current.accountId ? encodeSs58(current.accountId) : '-'}</Descriptions.Item>
+          <Descriptions.Item label="绑定版本">{current.bindingRevision || '-'}</Descriptions.Item>
           <Descriptions.Item label="绑定 finalized 区块">
-            {current.binding_finalized_block_number ?? '-'}
+            {current.bindingBlockNumber ?? '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="选举权利">{current.voting_eligible ? '有' : '无'}</Descriptions.Item>
-          <Descriptions.Item label="公民状态">{statusTag(current.citizen_status)}</Descriptions.Item>
-          <Descriptions.Item label="投票身份状态">{statusText(current.identity_status)}</Descriptions.Item>
+          <Descriptions.Item label="选举权利">{current.votingEligible ? '有' : '无'}</Descriptions.Item>
+          <Descriptions.Item label="公民状态">{statusTag(current.citizenStatus)}</Descriptions.Item>
+          <Descriptions.Item label="投票身份状态">{statusText(current.identityStatus)}</Descriptions.Item>
           <Descriptions.Item label="居住地">
-            {areaText(current.province_name, current.city_name, current.town_name)}
+            {areaText(current.provinceName, current.cityName, current.townName)}
           </Descriptions.Item>
           <Descriptions.Item label="出生地">
-            {areaText(current.birth_province_name, current.birth_city_name, current.birth_town_name)}
+            {areaText(current.birthProvinceName, current.birthCityName, current.birthTownName)}
           </Descriptions.Item>
           <Descriptions.Item label="有效期">
-            {formatDateRange(current.passport_valid_from, current.passport_valid_until)}
+            {formatDateRange(current.passportValidFrom, current.passportValidUntil)}
           </Descriptions.Item>
-          <Descriptions.Item label="档案哈希">{current.archive_hash || '-'}</Descriptions.Item>
-          <Descriptions.Item label="链上交易">{current.onchain_tx_hash || '-'}</Descriptions.Item>
+          <Descriptions.Item label="档案哈希">{current.archiveHash || '-'}</Descriptions.Item>
+          <Descriptions.Item label="链上交易">{current.onchainTxHash || '-'}</Descriptions.Item>
         </Descriptions>
 
         <div style={{ marginTop: 20, borderTop: '1px solid #e5e7eb', paddingTop: 18 }}>
@@ -483,14 +482,14 @@ export function CitizenDetailPage({
             form={form}
             layout="inline"
             initialValues={{
-              account_id: current.account_id ?? '',
-              actor_role_code: '',
-              identity_level: 'voting',
+              accountId: current.accountId ?? '',
+              actorRoleCode: '',
+              identityLevel: 'voting',
             }}
             style={{ rowGap: 12 }}
           >
             <Form.Item
-              name="identity_level"
+              name="identityLevel"
               rules={[{ required: canPushOnchain, message: '请选择身份类型' }]}
               style={{ minWidth: 180, marginBottom: 0 }}
             >
@@ -503,7 +502,7 @@ export function CitizenDetailPage({
               />
             </Form.Item>
             <Form.Item
-              name="actor_role_code"
+              name="actorRoleCode"
               rules={[{ required: canPushOnchain, message: '请输入注册局岗位码' }]}
               style={{ minWidth: 260, marginBottom: 0 }}
             >
@@ -514,7 +513,7 @@ export function CitizenDetailPage({
               />
             </Form.Item>
             <Form.Item
-              name="account_id"
+              name="accountId"
               rules={[{ required: canPushOnchain, message: '请输入账户 ID' }]}
               style={{ minWidth: 460, marginBottom: 0 }}
             >
@@ -550,7 +549,7 @@ export function CitizenDetailPage({
                 danger
                 icon={<CloudUploadOutlined />}
                 loading={chainSubmitting}
-                disabled={!canPushOnchain || current.citizen_status === 'REVOKED'}
+                disabled={!canPushOnchain || current.citizenStatus === 'REVOKED'}
                 onClick={revokeOnchain}
               >
                 吊销身份(墓碑)
@@ -579,7 +578,7 @@ export function CitizenDetailPage({
               allowClear
             />
             <Popconfirm
-              title={`确认换绑 ${current.cid_number} 的钱包账户?`}
+              title={`确认换绑 ${current.cidNumber} 的钱包账户?`}
               okText="换绑"
               cancelText="取消"
               disabled={!canWrite || rebinding}
@@ -635,27 +634,27 @@ export function CitizenDetailPage({
           pagination={documents.length > 10 ? { pageSize: 10 } : false}
           scroll={{ x: 860 }}
           columns={[
-            { title: '文件名', dataIndex: 'file_name', ellipsis: true },
+            { title: '文件名', dataIndex: 'fileName', ellipsis: true },
             {
               title: '资料类型',
-              dataIndex: 'document_type',
+              dataIndex: 'documentType',
               width: 130,
               render: (value: CitizenDocumentType) => <Tag color="blue">{value}</Tag>,
             },
             {
               title: '大小',
-              dataIndex: 'file_size',
+              dataIndex: 'fileSize',
               width: 100,
               render: (value: number) => formatFileSize(value),
             },
             {
               title: '上传人',
-              dataIndex: 'uploader_account_id',
+              dataIndex: 'uploaderAccountId',
               ellipsis: true,
             },
             {
               title: '上传时间',
-              dataIndex: 'uploaded_at',
+              dataIndex: 'uploadedAt',
               width: 180,
               render: (value: string) => formatDateTime(value),
             },
@@ -673,7 +672,7 @@ export function CitizenDetailPage({
                   />
                   {canWrite && (
                     <Popconfirm
-                      title={`确认删除 "${row.file_name}"?`}
+                      title={`确认删除 "${row.fileName}"?`}
                       okText="删除"
                       okButtonProps={{ danger: true }}
                       cancelText="取消"
@@ -703,19 +702,19 @@ export function CitizenDetailPage({
       <ScanAccountModal
         open={scanOpen}
         onClose={() => setScanOpen(false)}
-        onResolved={(account_id) => {
-          form.setFieldsValue({ account_id: account_id });
+        onResolved={(accountId) => {
+          form.setFieldsValue({ accountId: accountId });
           setScanOpen(false);
         }}
       />
 
 
       <CitizenSignatureModal
-        title={prepared?.action_label_zh ?? '公民签名确认'}
+        title={prepared?.actionLabelZh ?? '公民签名确认'}
         open={!!prepared}
         onCancel={() => setPrepared(null)}
         qrTitle="身份载荷签名二维码"
-        qrValue={prepared?.sign_request}
+        qrValue={prepared?.signRequest}
         qrHint="使用该公民本人的公民钱包扫码签名"
         scannerHint="扫描该公民钱包生成的签名响应二维码"
         scannerDisabled={completeLoading}

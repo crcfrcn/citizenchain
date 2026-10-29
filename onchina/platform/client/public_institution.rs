@@ -39,19 +39,19 @@ use crate::*;
 /// ② 上级为链上公法人的非法人。
 /// 参数 $1=province_code、$2=city_code。
 const GOV_FROM_WHERE: &str = "
-    FROM subjects s
-    LEFT JOIN gov g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
-    LEFT JOIN subjects par ON par.cid_number = s.parent_cid_number
-    LEFT JOIN gov pg ON pg.province_code = par.province_code AND pg.cid_number = par.cid_number
-    WHERE s.kind IN ('PUBLIC', 'PRIVATE')
+    FROM subject s
+    LEFT JOIN government g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
+    LEFT JOIN subject par ON par.cid_number = s.parent_cid
+    LEFT JOIN government pg ON pg.province_code = par.province_code AND pg.cid_number = par.cid_number
+    WHERE s.record_kind IN ('PUBLIC', 'PRIVATE')
       AND (
-            (s.kind = 'PUBLIC'
-             AND g.source = 'CHAIN'
-             AND s.category = 'GOV_INSTITUTION')
+            (s.record_kind = 'PUBLIC'
+             AND g.source_kind = 'CHAIN'
+             AND s.subject_kind = 'GOV_INSTITUTION')
             OR (s.institution_code IN ('SFGT', 'SFGP', 'UNIN')
-                AND par.kind = 'PUBLIC'
-                AND par.category = 'GOV_INSTITUTION'
-                AND pg.source = 'CHAIN')
+                AND par.record_kind = 'PUBLIC'
+                AND par.subject_kind = 'GOV_INSTITUTION'
+                AND pg.source_kind = 'CHAIN')
           )
       AND s.province_code = $1
       AND ($2::text IS NULL OR s.city_code = $2)
@@ -107,8 +107,8 @@ impl PublicInstitutionRow {
         let legal_representative = match (
             row.get::<_, Option<String>>("family_name"),
             row.get::<_, Option<String>>("given_name"),
-            row.get::<_, Option<String>>("legal_representative_cid_number"),
-            row.get::<_, Option<String>>("legal_representative_account_id"),
+            row.get::<_, Option<String>>("representative_cid"),
+            row.get::<_, Option<String>>("representative_account"),
         ) {
             (Some(family_name), Some(given_name), Some(cid_number), Some(account_id)) => {
                 Some(crate::institutions::subjects::model::LegalRepresentative {
@@ -123,16 +123,16 @@ impl PublicInstitutionRow {
         };
         Ok(Self {
             cid_number: row.get("cid_number"),
-            cid_full_name: row.get("cid_full_name"),
-            cid_short_name: row.get("cid_short_name"),
-            category: parse_category(row.get::<_, String>("category").as_str()),
-            p1: row.get("p1"),
+            cid_full_name: row.get("full_name"),
+            cid_short_name: row.get("short_name"),
+            category: parse_category(row.get::<_, String>("subject_kind").as_str()),
+            p1: row.get("profit_kind"),
             province_code: row.get("province_code"),
             city_code: row.get("city_code"),
             town_code: row.get("town_code"),
             institution_code: row.get("institution_code"),
-            parent_cid_number: row.get("parent_cid_number"),
-            has_legal_personality: row.get("has_legal_personality"),
+            parent_cid_number: row.get("parent_cid"),
+            has_legal_personality: row.get("legal_personality"),
             legal_representative,
             account_count,
             custom_account_names: Vec::new(),
@@ -142,6 +142,7 @@ impl PublicInstitutionRow {
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PublicInstitutionListQuery {
     pub province_name: Option<String>,
     pub city_name: Option<String>,
@@ -245,6 +246,7 @@ pub(crate) async fn list_public_institutions(
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PublicInstitutionVersionQuery {
     pub province_name: Option<String>,
     pub city_name: Option<String>,
@@ -349,15 +351,15 @@ fn query_public_institutions(
     // 全列显式 AS 别名,from_pg_row 按列名取;行政区只下发 code(province_code/city_code/town_code),不吐名字。
     let sql = format!(
         "SELECT s.cid_number,
-                s.cid_full_name, s.cid_short_name, s.category,
-                s.p1,
+                s.full_name, s.short_name, s.subject_kind,
+                s.profit_kind,
                 s.province_code AS province_code, s.city_code AS city_code,
                 COALESCE(s.town_code, '') AS town_code,
-                s.institution_code, s.parent_cid_number, s.has_legal_personality,
-                (SELECT COUNT(*) FROM accounts a
+                s.institution_code, s.parent_cid, s.legal_personality,
+                (SELECT COUNT(*) FROM account a
                    WHERE a.province_code = s.province_code AND a.cid_number = s.cid_number) AS account_count,
 	                s.created_at, s.family_name, s.given_name,
-	                s.legal_representative_cid_number, s.legal_representative_account_id
+	                s.representative_cid, s.representative_account
 	         {GOV_FROM_WHERE}
 	           AND ($3::text IS NULL OR s.cid_number > $3)
 	         ORDER BY s.cid_number ASC
@@ -430,7 +432,7 @@ fn custom_account_names_for(
         let rows = conn
             .query(
                 "SELECT cid_number, account_name
-                 FROM accounts
+                 FROM account
                  WHERE province_code = $1
                    AND cid_number = ANY($2)
                    AND account_name <> ALL($3)
@@ -456,7 +458,10 @@ mod tests {
 
     fn sample_row() -> PublicInstitutionRow {
         PublicInstitutionRow {
-            cid_number: format!("AH001-PGV0{}-123456789-2026", primitives::cid::number::checksum_char_mod36("AH001PGV01234567892026")),
+            cid_number: format!(
+                "AH001-PGV0{}-123456789-2026",
+                primitives::cid::number::checksum_char_mod36("AH001PGV01234567892026")
+            ),
             cid_full_name: Some("安徽省人民政府".to_string()),
             cid_short_name: Some("皖府".to_string()),
             category: InstitutionCategory::GovInstitution,
@@ -469,7 +474,10 @@ mod tests {
             legal_representative: Some(crate::institutions::subjects::model::LegalRepresentative {
                 family_name: "张".to_string(),
                 given_name: "三".to_string(),
-                cid_number: format!("CN000-CTZN{}-100000000-2026", primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)),
+                cid_number: format!(
+                    "CN000-CTZN{}-100000000-2026",
+                    primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)
+                ),
                 account_id: format!("0x{}", "11".repeat(32)),
             }),
             parent_cid_number: None,
@@ -477,6 +485,70 @@ mod tests {
             custom_account_names: vec!["业务专户A".to_string()],
             created_at: chrono::DateTime::from_timestamp(1_779_580_800, 0).unwrap(),
         }
+    }
+
+    #[test]
+    #[ignore = "由控制台交付本机 onchina_test 隔离数据库后执行"]
+    fn public_catalog_reads_real_columns_and_keeps_published_contract() {
+        let sandbox = crate::core::db::IsolatedTestDb::new();
+        let row = sample_row();
+        let representative = row.legal_representative.as_ref().unwrap();
+        let other = format!(
+            "AH001-PGV0{}-123456790-2026",
+            primitives::cid::number::checksum_char_mod36("AH001PGV01234567902026")
+        );
+        sandbox.db.with_client(|conn| {
+            for cid in [&row.cid_number, &other] {
+                conn.execute("INSERT INTO subject(cid_number,record_kind,province_code,city_code,subject_kind,profit_kind,institution_code,full_name,short_name,family_name,given_name,representative_cid,representative_account,created_at,updated_at) VALUES($1,'PUBLIC','AH','001','GOV_INSTITUTION','0','PGV',$2,$3,$4,$5,$6,$7,$8,now())",
+                    &[cid,&row.cid_full_name,&row.cid_short_name,&representative.family_name,&representative.given_name,&representative.cid_number,&representative.account_id,&row.created_at]).map_err(|e| e.to_string())?;
+                conn.execute("INSERT INTO government(cid_number,province_code,city_code,institution_code) VALUES($1,'AH','001','PGV')", &[cid]).map_err(|e| e.to_string())?;
+            }
+            conn.execute("INSERT INTO account(cid_number,province_code,city_code,account_name,created_at) VALUES($1,'AH','001','测试专户',now())", &[&row.cid_number]).map_err(|e| e.to_string())?;
+            conn.execute("INSERT INTO projection(projection_key,genesis_hash,block_hash,block_number,item_count,account_count,state_code) VALUES('public-gov','synthetic-genesis','synthetic-block',1,2,1,'OK')", &[]).map_err(|e| e.to_string())?;
+            Ok(())
+        }).unwrap();
+        let state = AppState {
+            db: sandbox.db.clone(),
+            rate_limiter: std::sync::Arc::new(LocalRateLimiter::new()),
+            modules: std::sync::Arc::new(crate::modules::ModuleCatalog::new(crate::local_module())),
+        };
+        let (items, more, next) =
+            query_public_institutions(&state, "AH", Some("001"), None, None, 1).unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(more);
+        assert_eq!(next.as_deref(), Some(items[0].cid_number.as_str()));
+        let json = serde_json::to_value(&items[0]).unwrap();
+        assert_eq!(json["legal_representative"]["family_name"], "张");
+        assert!(json.get("cidNumber").is_none());
+        assert!(json.get("creator_account_id").is_none());
+        let (last, more, next) =
+            query_public_institutions(&state, "AH", Some("001"), next, None, 1).unwrap();
+        assert_eq!(last.len(), 1);
+        assert!(!more);
+        assert!(next.is_none());
+        let version = current_chain_projection_version(&state.db).unwrap();
+        assert!(
+            query_public_institutions(&state, "AH", None, None, Some(version), 1)
+                .unwrap()
+                .0
+                .is_empty()
+        );
+        let names = custom_account_names_for(&state, "AH", &[row.cid_number.clone()]).unwrap();
+        assert_eq!(names[&row.cid_number], vec!["测试专户"]);
+        assert_eq!(
+            scope_version_and_count(&state, "AH", Some("001"))
+                .unwrap()
+                .1,
+            2
+        );
+        assert!(serde_json::from_value::<PublicInstitutionListQuery>(
+            serde_json::json!({"province_name":"安徽省","page_size":1})
+        )
+        .is_ok());
+        assert!(serde_json::from_value::<PublicInstitutionListQuery>(
+            serde_json::json!({"provinceName":"安徽省"})
+        )
+        .is_err());
     }
 
     #[test]
@@ -503,16 +575,19 @@ mod tests {
     fn public_dto_keeps_directory_fields() {
         let row = sample_row();
         assert!(crate::cid::validate_cid_number_format(&row.cid_number).is_ok());
-        assert!(crate::cid::validate_cid_number_format(&row.legal_representative.as_ref().unwrap().cid_number).is_ok());
+        assert!(crate::cid::validate_cid_number_format(
+            &row.legal_representative.as_ref().unwrap().cid_number
+        )
+        .is_ok());
         assert_eq!(row.account_count, 2);
         assert_eq!(row.institution_code, "PGV");
     }
 
     #[test]
     fn citizen_public_filter_keeps_all_public_institutions() {
-        assert!(GOV_FROM_WHERE.contains("s.category = 'GOV_INSTITUTION'"));
+        assert!(GOV_FROM_WHERE.contains("s.subject_kind = 'GOV_INSTITUTION'"));
         assert!(GOV_FROM_WHERE.contains("s.institution_code IN ('SFGT', 'SFGP', 'UNIN')"));
-        assert!(GOV_FROM_WHERE.contains("par.category = 'GOV_INSTITUTION'"));
+        assert!(GOV_FROM_WHERE.contains("par.subject_kind = 'GOV_INSTITUTION'"));
         assert!(!GOV_FROM_WHERE.contains("CITY_POLICE"));
         // 公民端公权视图不排除教育机构(教育也在此展示)。
         assert!(!GOV_FROM_WHERE.contains("institution_code NOT IN ('NED'"));

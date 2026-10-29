@@ -9,38 +9,38 @@ members = [
     "runtime",                               # 链上运行时
     "runtime/primitives",                    # 运行时共享常量与基础类型
 
-    "runtime/admins/admin-primitives",        # admins 模组-管理员共用类型与 trait
-    "runtime/admins/public-admins",           # admins 模组-公权机构管理员（含固定治理档运行期治理）
-    "runtime/admins/private-admins",          # admins 模组-私权机构管理员
-    "runtime/admins/personal-admins",         # admins 模组-个人多签管理员
-    "runtime/governance/grandpakey-change",         # 治理-GRANDPA 密钥治理模块 pallet
-    "runtime/governance/resolution-destroy",   # 治理-决议销毁模块 pallet
-    "runtime/governance/runtime-upgrade",    # 治理-协议升级模块 pallet
-    "runtime/public/legislation-yuan",       # 公权模组-立法院模块 pallet(法律结构化上链,ADR-027)
-    "runtime/public/citizen-election",       # 公权模组-公民选举模块 pallet（当前仅占位）
+    "runtime/admins/adminbase",        # admins 模组-管理员共用类型与 trait
+    "runtime/admins/publicadmin",           # admins 模组-公权机构管理员（含固定治理档运行期治理）
+    "runtime/admins/privateadmin",          # admins 模组-私权机构管理员
+    "runtime/admins/personaladmin",         # admins 模组-个人多签管理员
+    "runtime/governance/grandpakey",         # 治理-GRANDPA 密钥治理模块 pallet
+    "runtime/governance/destroy",   # 治理-决议销毁模块 pallet
+    "runtime/governance/upgrade",    # 治理-协议升级模块 pallet
+    "runtime/public/legislation",       # 公权模组-立法院模块 pallet(法律结构化上链,ADR-027)
+    "runtime/public/election",       # 公权模组-公民选举模块 pallet（当前仅占位）
     "runtime/votingengine",    # 投票引擎核心(共用基础设施:Proposals/反向索引/状态机/快照/锁/清理)
-    "runtime/votingengine/internal-vote",  # 内部投票 pallet(管理员一人一票)
-    "runtime/votingengine/joint-vote",     # 联合投票 pallet(管理员多签 + 全民兜底)
-    "runtime/votingengine/election-vote",   # 选举投票 pallet(普选+互选,Phase 3)
-    "runtime/votingengine/legislation-vote",  # 立法投票 pallet(立法机构专属:单院/两院/特别案公投,ADR-027)
+    "runtime/votingengine/internalvote",  # 内部投票 pallet(管理员一人一票)
+    "runtime/votingengine/jointvote",     # 联合投票 pallet(管理员多签 + 全民兜底)
+    "runtime/votingengine/electionvote",   # 选举投票 pallet(普选+互选,Phase 3)
+    "runtime/votingengine/legislationvote",  # 立法投票 pallet(立法机构专属:单院/两院/特别案公投,ADR-027)
 
-    "runtime/issuance/citizen-issuance", # 发行-公民发行模块 pallet
-    "runtime/issuance/fullnode-issuance",        # 发行-全节点发行模块 pallet
-    "runtime/issuance/onchain-issuance",         # 发行-链上发行代币(Plain FT, ADR-011) pallet
-    "runtime/issuance/resolution-issuance",        # 发行-决议发行完整流程模块 pallet
-    "runtime/issuance/provincialbank-interest",   # 发行-省储行利息模块 pallet
-    "runtime/misc/citizen-identity",    # 其他-链上公民身份模块 pallet
-    "runtime/misc/pow-difficulty",   # 其他-PoW 动态难度调整模块 pallet
-    "runtime/misc/address-registry",   # 其他-地址变更上链模块 pallet
-    "runtime/misc/square-post",   # 其他-广场动态链上发布索引模块 pallet
+    "runtime/issuance/citizenissue", # 发行-公民发行模块 pallet
+    "runtime/issuance/fullnodeissue",        # 发行-全节点发行模块 pallet
+    "runtime/issuance/onchainissue",         # 发行-链上发行代币(Plain FT, ADR-011) pallet
+    "runtime/issuance/resolutionissue",        # 发行-决议发行完整流程模块 pallet
+    "runtime/issuance/prbbankissue",   # 发行-省储行利息模块 pallet
+    "runtime/misc/identity",    # 其他-链上公民身份模块 pallet
+    "runtime/misc/difficulty",   # 其他-PoW 动态难度调整模块 pallet
+    "runtime/misc/address",   # 其他-地址变更上链模块 pallet
+    "runtime/misc/square",   # 其他-广场动态链上发布索引模块 pallet
     "runtime/genesis",                           # 创世模块 pallet
 
     "runtime/transaction/offchain", # 交易-链下交易手续费模块 pallet
     "runtime/transaction/onchain",  # 交易-链上交易手续费模块 pallet
-    "runtime/entity/entity-primitives",          # 实体模组-生命周期共用类型与 trait
-    "runtime/entity/public-manage",              # 实体模组-公权机构生命周期
-    "runtime/entity/private-manage",             # 实体模组-私权机构生命周期
-    "runtime/entity/personal-manage",            # 实体模组-个人多签账户生命周期
+    "runtime/entity/entitybase",          # 实体模组-生命周期共用类型与 trait
+    "runtime/entity/publicentity",              # 实体模组-公权机构生命周期
+    "runtime/entity/privateentity",             # 实体模组-私权机构生命周期
+    "runtime/entity/personalentity",            # 实体模组-个人多签账户生命周期
     "runtime/transaction/multisig",     # 交易-机构多签名地址转账模块 pallet
 
 ]
@@ -68,7 +68,7 @@ todo = "warn"
 
 [workspace.dependencies]
 # 本地
-citizenchain = { path = "runtime" }
+runtime = { path = "runtime" }
 
 # 工具
 codec      = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = ["derive"] }

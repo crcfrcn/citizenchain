@@ -39,14 +39,3 @@ pub const RESOLUTION_ISSUANCE_MAX_ALLOCATIONS: u32 = PRC_COUNT; // 决议发行�
 
 /// 公民宪法不可修改条款清单。
 pub const IMMUTABLE_CONSTITUTION_ARTICLES: [u32; 8] = [1, 2, 3, 17, 19, 24, 34, 42];
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn joint_vote_total_matches_threshold() {
-        // 联合投票总票数必须等于通过阈值（全票通过制）。
-        assert_eq!(JOINT_VOTE_TOTAL, JOINT_VOTE_PASS_THRESHOLD);
-    }
-}

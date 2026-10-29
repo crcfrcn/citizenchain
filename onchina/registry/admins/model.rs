@@ -2,6 +2,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CityRegistryAdminRow {
     pub(crate) id: u64,
     pub(crate) account_id: String,
@@ -19,6 +20,7 @@ pub(crate) struct CityRegistryAdminRow {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CityRegistryAdminListOutput {
     pub(crate) total: usize,
     pub(crate) limit: usize,
@@ -29,6 +31,7 @@ pub(crate) struct CityRegistryAdminListOutput {
 // 联邦注册局管理员对外行(API 序列化)。
 // 管理员只有存在/删除,不存在停用状态。
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct FederalRegistryAdminRow {
     pub(crate) id: u64,
     pub(crate) province_name: String,
@@ -53,6 +56,8 @@ pub(crate) struct FederalRegistryAdminRow {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CreateCityRegistryAdminInput {
     pub(crate) account_id: String,
     pub(crate) family_name: String,
@@ -67,6 +72,8 @@ pub(crate) struct CreateCityRegistryAdminInput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ListQuery {
     pub(crate) limit: Option<usize>,
     pub(crate) offset: Option<usize>,

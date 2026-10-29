@@ -62,7 +62,7 @@ struct CidEligibleRow {
     #[serde(default)]
     parent_cid_number: Option<String>,
     #[serde(default)]
-    parent_cid_full_name: Option<String>,
+    parent_full_name: Option<String>,
     #[serde(default)]
     parent_ref_property: Option<String>,
     province_name: String,
@@ -80,7 +80,7 @@ fn into_candidate(row: CidEligibleRow) -> EligibleClearingBankCandidate {
         ref_property: row.ref_property,
         sub_type: row.sub_type,
         parent_cid_number: row.parent_cid_number,
-        parent_cid_full_name: row.parent_cid_full_name,
+        parent_full_name: row.parent_full_name,
         parent_ref_property: row.parent_ref_property,
         province_name: row.province_name,
         city_name: row.city_name,
@@ -134,11 +134,14 @@ pub fn search_eligible_clearing_banks(
 
 // 公网使用系统受信根；局域网可显式补充受信CA，始终验证证书和主机名。
 fn onchina_client() -> Result<reqwest::blocking::ClientBuilder, String> {
-    let mut builder = reqwest::blocking::Client::builder().https_only(true)
+    let mut builder = reqwest::blocking::Client::builder()
+        .https_only(true)
         .redirect(reqwest::redirect::Policy::none());
     match std::env::var("ONCHINA_TLS_CA_FILE") {
         Ok(path) => {
-            if path.is_empty() { return Err("OnChina受信CA路径为空".to_string()); }
+            if path.is_empty() {
+                return Err("OnChina受信CA路径为空".to_string());
+            }
             let pem = std::fs::read(path).map_err(|_| "读取OnChina受信CA失败".to_string())?;
             let certificate = reqwest::Certificate::from_pem(&pem)
                 .map_err(|_| "OnChina受信CA格式无效".to_string())?;

@@ -21,7 +21,7 @@ type StatusTransitionOutcome<AccountId> =
     (u8, u8, sp_std::vec::Vec<ProposalSubject<AccountId>>, bool);
 
 impl<T: Config> Pallet<T> {
-    /// 根据 citizen-identity 已维护的四级人口数据生成提案人口快照。
+    /// 根据 identity 已维护的四级人口数据生成提案人口快照。
     pub fn create_population_snapshot(
         proposal_id: u64,
         scope: &PopulationScope,
@@ -51,14 +51,14 @@ impl<T: Config> Pallet<T> {
     pub fn voting_subject_at_population_snapshot(
         proposal_id: u64,
         who: &T::AccountId,
-    ) -> Option<citizen_identity::CitizenSubject<T::AccountId>> {
+    ) -> Option<identity::CitizenSubject<T::AccountId>> {
         ProposalPopulationSnapshots::<T>::get(proposal_id).and_then(|snapshot| {
             T::CitizenIdentityReader::voting_subject_at(who, &snapshot.population_data)
         })
     }
 
     /// 读取提案人口快照的公投选民总数；没有人口快照时返回 `None`。
-    /// 供立法业务壳在写入核心修宪版本时取永久公投凭据(见 legislation-vote `referendum_result`)。
+    /// 供立法业务壳在写入核心修宪版本时取永久公投凭据(见 legislationvote `referendum_result`)。
     /// 读已终结提案亦可(不校验 open 状态),故与 `ensure_open_proposal` 分开。
     pub fn population_eligible_total_of(proposal_id: u64) -> Option<u64> {
         ProposalPopulationSnapshots::<T>::get(proposal_id)
@@ -476,25 +476,5 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// 回调专用执行结果写入。
-    ///
-    /// 仅供单测验证回调作用域保护；生产业务回调应直接返回
-    /// `ProposalExecutionOutcome`，由异步执行队列统一收口状态、事件和清理。
-    #[cfg(test)]
-    pub fn set_callback_execution_result(proposal_id: u64, final_status: u8) -> DispatchResult {
-        ensure!(
-            CallbackExecutionScopes::<T>::contains_key(proposal_id),
-            Error::<T>::InvalidProposalStatus
-        );
-        ensure!(
-            matches!(final_status, STATUS_EXECUTED | STATUS_EXECUTION_FAILED),
-            Error::<T>::InvalidProposalStatus
-        );
-        Proposals::<T>::try_mutate(proposal_id, |maybe| {
-            let proposal = maybe.as_mut().ok_or(Error::<T>::ProposalNotFound)?;
-            Self::ensure_valid_status_transition(proposal.status, final_status)?;
-            proposal.status = final_status;
-            Ok(())
-        })
-    }
+
 }

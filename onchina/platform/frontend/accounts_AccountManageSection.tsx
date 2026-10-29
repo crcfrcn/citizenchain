@@ -41,9 +41,9 @@ export function AccountManageSection({ auth }: AccountManageSectionProps) {
     getOwnInstitution(auth)
       .then(async (detail) => {
         if (cancelled) return;
-        const cid = detail.institution.cid_number;
+        const cid = detail.institution.cidNumber;
         setCidNumber(cid);
-        setCidFullName(detail.institution.cid_full_name ?? '');
+        setCidFullName(detail.institution.cidFullName ?? '');
         // 账户明细一律从链上真源读取(/accounts 后端已改链读)。
         const list = await listAccounts(auth, cid);
         if (!cancelled) setAccounts(list);
@@ -57,7 +57,7 @@ export function AccountManageSection({ auth }: AccountManageSectionProps) {
     return () => {
       cancelled = true;
     };
-  }, [auth.access_token, refreshKey]);
+  }, [auth.accessToken, refreshKey]);
 
   const reload = () => setRefreshKey((v) => v + 1);
 
@@ -69,8 +69,8 @@ export function AccountManageSection({ auth }: AccountManageSectionProps) {
     }
     try {
       const prepared = await deleteAccount(auth, cidNumber, accountName, roleCode);
-      const signed = await signChain(prepared.request_id, prepared.sign_request);
-      await submitChainSign(auth, prepared.request_id, signed.account_id, signed.signature);
+      const signed = await signChain(prepared.requestId, prepared.signRequest);
+      await submitChainSign(auth, prepared.requestId, signed.accountId, signed.signature);
       notice.success(`账户 "${accountName}" 关闭提案已提交,机构内部投票通过后生效`);
       reload();
     } catch (err) {

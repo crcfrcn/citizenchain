@@ -1,4 +1,4 @@
-use admin_primitives::{Admin, InstitutionAdmins};
+use adminbase::{Admin, InstitutionAdmins};
 use codec::Decode;
 
 use super::types::{AdminDecoded, InstitutionAdminsDecoded};
@@ -119,13 +119,13 @@ mod tests {
             admins: vec![
                 Admin {
                     account_id: [0xaau8; 32],
-                    cid_number: admin_primitives::AdminCidNumber::truncate_from(
+                    cid_number: adminbase::AdminCidNumber::truncate_from(
                         b"CN220-CTZN2-198805200-2026".to_vec(),
                     ),
-                    family_name: admin_primitives::FamilyName::truncate_from(
+                    family_name: adminbase::FamilyName::truncate_from(
                         "张".as_bytes().to_vec(),
                     ),
-                    given_name: admin_primitives::GivenName::truncate_from(
+                    given_name: adminbase::GivenName::truncate_from(
                         "三".as_bytes().to_vec(),
                     ),
                 },
@@ -164,8 +164,8 @@ mod tests {
             admins: vec![Admin {
                 account_id: [0xaau8; 32],
                 cid_number: Default::default(),
-                family_name: admin_primitives::FamilyName::truncate_from(Vec::new()),
-                given_name: admin_primitives::GivenName::truncate_from("员".as_bytes().to_vec()),
+                family_name: adminbase::FamilyName::truncate_from(Vec::new()),
+                given_name: adminbase::GivenName::truncate_from("员".as_bytes().to_vec()),
             }],
         }
         .encode();
@@ -180,11 +180,11 @@ mod tests {
             institution_code: *b"SFGY",
             admins: vec![Admin {
                 account_id: [0x24u8; 32],
-                cid_number: admin_primitives::AdminCidNumber::truncate_from(
+                cid_number: adminbase::AdminCidNumber::truncate_from(
                     b"CN220-CTZN2-198805200-2026".to_vec(),
                 ),
-                family_name: admin_primitives::FamilyName::truncate_from("程".as_bytes().to_vec()),
-                given_name: admin_primitives::GivenName::truncate_from("伟".as_bytes().to_vec()),
+                family_name: adminbase::FamilyName::truncate_from("程".as_bytes().to_vec()),
+                given_name: adminbase::GivenName::truncate_from("伟".as_bytes().to_vec()),
             }],
         }
         .encode();
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn institution_role_permission_fixture_matches_shared_rust_types() {
-        use entity_primitives::{
+        use entitybase::{
             AuthorizationSubject, BusinessActionId, RoleBusinessPermission, RoleSubject,
         };
         use frame_support::pallet_prelude::{ConstU32, DecodeWithMemTracking};

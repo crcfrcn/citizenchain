@@ -2,7 +2,7 @@
 
 use crate::shared::proposal_business;
 use codec::Decode;
-use entity_primitives::AuthorizationSubject;
+use entitybase::AuthorizationSubject;
 use primitives::cid::code::InstitutionCode;
 use serde::Serialize;
 
@@ -29,7 +29,7 @@ const TAG_RUNTIME_UPGRADE: &[u8] = b"rt-upg";
 const TAG_RESOLUTION_ISSUANCE: &[u8] = b"res-iss";
 const TAG_RESOLUTION_DESTROY: &[u8] = b"res-dst";
 /// 机构管理提案 TAG — 不属于治理提案，在治理列表中过滤掉。
-/// 机构管理已拆分公权/私权两 pallet,各自 MODULE_TAG:public-manage=`pub-mgmt`、private-manage=`pri-mgmt`。
+/// 机构管理已拆分公权/私权两 pallet,各自 MODULE_TAG:publicentity=`pub-mgmt`、privateentity=`pri-mgmt`。
 const TAG_PUBLIC_MANAGE: &[u8] = b"pub-mgmt";
 const TAG_PRIVATE_MANAGE: &[u8] = b"pri-mgmt";
 
@@ -61,7 +61,6 @@ pub struct ProposalMeta {
     /// 发起机构唯一 CID；个人多签、公民个人或系统提案为空。
     pub actor_cid_number: Option<String>,
     /// 仅在具体资产账户或个人多签参与执行时存在。
-    #[serde(rename = "execution_account_id")]
     pub execution_account_id: Option<String>,
     /// 机构类提案关联的机构 CID 列表；个人多签提案为空。
     pub subject_cid_numbers: Vec<String>,
@@ -72,12 +71,12 @@ pub struct ProposalMeta {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeUpgradeDetail {
     pub proposal_id: u64,
-    #[serde(rename = "proposer_account_id")]
+
     pub proposer_account_id: String,
     pub reason: String,
     pub code_hash_hex: String,
-    pub expected_pow_params_hash_hex: String,
-    pub pow_params: pow_difficulty::PowDifficultyParams,
+    pub expected_pow_hash: String,
+    pub pow_params: difficulty::PowDifficultyParams,
 }
 
 /// 投票计数。
@@ -140,7 +139,6 @@ pub struct FeeRateProposalDetail {
     /// 发起机构唯一 CID。
     pub actor_cid_number: String,
     /// 承担该费率业务的机构账户。
-    #[serde(rename = "institution_account_id")]
     pub institution_account_id: String,
     pub new_rate_bp: u32,
 }
@@ -152,7 +150,7 @@ pub struct ResolutionIssuanceDetail {
     pub proposal_id: u64,
     pub actor_cid_number: String,
     pub proposer_role_code: String,
-    #[serde(rename = "proposer_account_id")]
+
     pub proposer_account_id: String,
     pub reason: String,
     pub total_amount_fen: String,
@@ -163,7 +161,6 @@ pub struct ResolutionIssuanceDetail {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuanceAllocationItem {
-    #[serde(rename = "recipient_account_id")]
     pub recipient_account_id: String,
     pub amount_fen: String,
 }
@@ -174,7 +171,7 @@ pub struct IssuanceAllocationItem {
 pub struct ResolutionDestroyDetail {
     pub proposal_id: u64,
     pub actor_cid_number: String,
-    #[serde(rename = "institution_account_id")]
+
     pub institution_account_id: String,
     pub amount_fen: String,
 }
@@ -840,12 +837,12 @@ fn decode_runtime_upgrade_action(proposal_id: u64, data: &[u8]) -> Option<Runtim
     if offset + 32 > data.len() {
         return None;
     }
-    let expected_pow_params_hash_hex = hex::encode(&data[offset..offset + 32]);
+    let expected_pow_hash = hex::encode(&data[offset..offset + 32]);
     offset += 32;
 
     // new_pow_params: 固定字段 SCALE 编码。
     let mut params_input = &data[offset..];
-    let pow_params = pow_difficulty::PowDifficultyParams::decode(&mut params_input).ok()?;
+    let pow_params = difficulty::PowDifficultyParams::decode(&mut params_input).ok()?;
     let consumed = data[offset..].len().saturating_sub(params_input.len());
     offset += consumed;
 
@@ -859,7 +856,7 @@ fn decode_runtime_upgrade_action(proposal_id: u64, data: &[u8]) -> Option<Runtim
         proposer_account_id,
         reason,
         code_hash_hex,
-        expected_pow_params_hash_hex,
+        expected_pow_hash,
         pow_params,
     })
 }
@@ -1464,8 +1461,8 @@ mod format_summary_tests {
             proposer_account_id: String::new(),
             reason: long,
             code_hash_hex: String::new(),
-            expected_pow_params_hash_hex: String::new(),
-            pow_params: pow_difficulty::PowDifficultyParams::genesis_default(),
+            expected_pow_hash: String::new(),
+            pow_params: difficulty::PowDifficultyParams::genesis_default(),
         };
         let summary = format_runtime_upgrade_summary(&d);
         assert!(summary.starts_with("协议升级："));
@@ -1480,7 +1477,7 @@ mod format_summary_tests {
         data.extend_from_slice(&compact_bytes_for_test("升级".as_bytes()));
         data.extend_from_slice(&[9u8; 32]);
         data.extend_from_slice(&[8u8; 32]);
-        data.extend_from_slice(&pow_difficulty::PowDifficultyParams::genesis_default().encode());
+        data.extend_from_slice(&difficulty::PowDifficultyParams::genesis_default().encode());
 
         let detail =
             decode_runtime_upgrade_action(10, &data).expect("current layout should decode");
@@ -1491,7 +1488,7 @@ mod format_summary_tests {
         data.push(0);
         assert!(
             decode_runtime_upgrade_action(10, &data).is_none(),
-            "old runtime-upgrade summary status field must not be accepted"
+            "old upgrade summary status field must not be accepted"
         );
     }
 
@@ -1576,8 +1573,8 @@ mod format_summary_tests {
             proposer_account_id: String::new(),
             reason: "升级".to_string(),
             code_hash_hex: String::new(),
-            expected_pow_params_hash_hex: String::new(),
-            pow_params: pow_difficulty::PowDifficultyParams::genesis_default(),
+            expected_pow_hash: String::new(),
+            pow_params: difficulty::PowDifficultyParams::genesis_default(),
         };
         let (dq, ru, ri, rd, fr) =
             split_action_into_details(ProposalAction::RuntimeUpgrade(Box::new(detail)));

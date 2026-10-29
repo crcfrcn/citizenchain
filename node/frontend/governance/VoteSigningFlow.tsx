@@ -1,3 +1,4 @@
+import { accountIdToSs58 } from '../shared/ss58';
 // 投票签名流程：选钱包 → 显示 QR → 摄像头扫描响应 → 提交。
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { sanitizeError } from '../tauri';
@@ -11,7 +12,7 @@ type Props = {
   adminSigners: AdminSignerMatch[];
   cidNumber?: string;
   onClose: () => void;
-  onSuccess: (txHash: string, account_id: string, voterRoleCode: string | null) => void;
+  onSuccess: (txHash: string, accountId: string, voterRoleCode: string | null) => void;
 };
 
 type FlowStep = 'select' | 'qr' | 'submit' | 'done' | 'error';
@@ -65,7 +66,7 @@ export function VoteSigningFlow({
       if (proposalKind === 1 && cidNumber) {
         result = await api.buildJointVoteRequest(
           proposalId,
-          selectedSigner.account_id,
+          selectedSigner.accountId,
           cidNumber,
           selectedRoleCode,
           approve,
@@ -74,7 +75,7 @@ export function VoteSigningFlow({
       } else {
         result = await api.buildVoteRequest(
           proposalId,
-          selectedSigner.account_id,
+          selectedSigner.accountId,
           institutionVote ? selectedRoleCode : null,
           approve,
         );
@@ -98,12 +99,12 @@ export function VoteSigningFlow({
     if (!req || !signer) { setError('签名请求数据丢失，请重试'); setStep('error'); return; }
     setStep('submit');
     try {
-      const result = await api.submitVote(req.requestId, signer.account_id, req.expectedPayloadHash, cdHex, req.signNonce, req.signBlockNumber, responseText);
+      const result = await api.submitVote(req.requestId, signer.accountId, req.expectedPayloadHash, cdHex, req.signNonce, req.signBlockNumber, responseText);
       setTxHash(result.txHash);
       setStep('done');
       onSuccess(
         result.txHash,
-        selectedSigner?.account_id ?? '',
+        selectedSigner?.accountId ?? '',
         cidNumber ? selectedRoleCode : null,
       );
     } catch (e) {
@@ -125,15 +126,15 @@ export function VoteSigningFlow({
             {adminSigners.length > 1 && (
               <div className="vote-signing-field">
                 <label>选择管理员账户</label>
-                <select value={selectedSigner?.account_id || ''} onChange={(e) => {
-                  const signer = adminSigners.find((item) => item.account_id === e.target.value) || null;
+                <select value={selectedSigner?.accountId || ''} onChange={(e) => {
+                  const signer = adminSigners.find((item) => item.accountId === e.target.value) || null;
                   setSelectedSigner(signer);
                   setSelectedRoleCode(signer?.roleAssignments?.length === 1 ? signer.roleAssignments[0].roleCode : '');
                 }}>
                   <option value="">请选择…</option>
                   {adminSigners.map((signer) => (
-                    <option key={signer.account_id} value={signer.account_id}>
-                      {signer.account_label || signer.ss58_address}
+                    <option key={signer.accountId} value={signer.accountId}>
+                      {signer.accountLabel || accountIdToSs58(signer.accountId)}
                     </option>
                   ))}
                 </select>

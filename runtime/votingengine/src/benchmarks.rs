@@ -54,10 +54,10 @@ fn setup<T: Config>(status: u8) -> (u64, T::AccountId) {
     .expect("benchmark role snapshot");
     let owner: frame_support::BoundedVec<
         u8,
-        frame_support::traits::ConstU32<{ entity_primitives::BUSINESS_MODULE_TAG_MAX_BYTES }>,
+        frame_support::traits::ConstU32<{ entitybase::BUSINESS_MODULE_TAG_MAX_BYTES }>,
     > = b"benchmark".to_vec().try_into().expect("benchmark owner");
     let plan = crate::types::VotePlanOf::try_new(
-        entity_primitives::BusinessActionId {
+        entitybase::BusinessActionId {
             module_tag: owner.clone(),
             action_code: 0,
         },

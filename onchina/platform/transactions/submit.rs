@@ -30,8 +30,8 @@ pub(crate) struct SubmissionAttempt {
     pub(crate) tx_hash: String,
     pub(crate) from_block_number: u64,
     pub(crate) from_block_hash: [u8; 32],
-    pub(crate) recovery_cursor_block_number: Option<u64>,
-    pub(crate) recovery_cursor_block_hash: Option<[u8; 32]>,
+    pub(crate) recovery_block_number: Option<u64>,
+    pub(crate) recovery_block_hash: Option<[u8; 32]>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -180,7 +180,7 @@ pub(crate) async fn assemble_and_submit<F>(
     account_id: &str,
     signature_hex: &str,
     nonce: u32,
-    expected_signing_hash_hex: &str,
+    expected_signing_hash: &str,
     before_submit: F,
 ) -> Result<FinalizedChainSubmit, ChainSubmitError>
 where
@@ -196,7 +196,7 @@ where
         tx_version,
     )?;
     // 会话期间 runtime 版本/创世哈希不得漂移,否则签名对不上载荷。
-    if chain_signing::sha256_hex(&material.signing_bytes) != expected_signing_hash_hex {
+    if chain_signing::sha256_hex(&material.signing_bytes) != expected_signing_hash {
         return Err(
             "签名载荷与会话不一致(runtime 版本或创世哈希已变化),请重新发起"
                 .to_string()
@@ -257,8 +257,8 @@ where
         tx_hash: tx_hash.clone(),
         from_block_number: u64::from(from_block.number()),
         from_block_hash: from_block.hash().0,
-        recovery_cursor_block_number: None,
-        recovery_cursor_block_hash: None,
+        recovery_block_number: None,
+        recovery_block_hash: None,
     };
     // 在任何网络提交前先持久化 tx_hash 与 finalized 扫描锚点；DB 失败时绝不提交。
     before_submit(&attempt)?;
@@ -318,10 +318,10 @@ pub(crate) async fn find_finalized_success(
     tx_hash_hex: &str,
     from_block_number: u64,
     from_block_hash: [u8; 32],
-    recovery_cursor_block_number: Option<u64>,
-    recovery_cursor_block_hash: Option<[u8; 32]>,
+    recovery_block_number: Option<u64>,
+    recovery_block_hash: Option<[u8; 32]>,
 ) -> Result<FinalizedRecoveryScan, String> {
-    if recovery_cursor_block_number.is_some() != recovery_cursor_block_hash.is_some() {
+    if recovery_block_number.is_some() != recovery_block_hash.is_some() {
         return Err("finalized recovery cursor is incomplete".to_string());
     }
     let raw = hex::decode(tx_hash_hex.strip_prefix("0x").unwrap_or(tx_hash_hex))
@@ -334,7 +334,7 @@ pub(crate) async fn find_finalized_success(
     let client = online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for finalized recovery failed: {e}"))?;
-    let mut block = match (recovery_cursor_block_number, recovery_cursor_block_hash) {
+    let mut block = match (recovery_block_number, recovery_block_hash) {
         (Some(cursor_number), Some(cursor_hash)) => {
             let block = client
                 .blocks()
@@ -361,7 +361,11 @@ pub(crate) async fn find_finalized_success(
             return Err("finalized recovery cursor moved below submission anchor".to_string());
         }
         if block_has_successful_extrinsic(&block, &target_hash).await? {
-            return Ok(FinalizedRecoveryScan::Found(FinalizedChainSubmit { tx_hash: tx_hash_hex.to_string(), block_number, block_hash: block_hash.0 }));
+            return Ok(FinalizedRecoveryScan::Found(FinalizedChainSubmit {
+                tx_hash: tx_hash_hex.to_string(),
+                block_number,
+                block_hash: block_hash.0,
+            }));
         }
         if block_number == from_block_number {
             if block_hash.0 != from_block_hash {
@@ -383,18 +387,47 @@ pub(crate) async fn find_finalized_success(
 }
 
 /// 只核对已持久化的最终结果，不提交交易；拒绝非 canonical/finalized 区块和失败 extrinsic。
-pub(crate) async fn verify_finalized_submit(finalized: &FinalizedChainSubmit) -> Result<(), String> {
+pub(crate) async fn verify_finalized_submit(
+    finalized: &FinalizedChainSubmit,
+) -> Result<(), String> {
     let view = crate::core::chain_runtime::FinalizedChainView::connect().await?;
-    if finalized.block_number > u64::from(view.block_number) { return Err("stored result is not finalized".into()); }
+    if finalized.block_number > u64::from(view.block_number) {
+        return Err("stored result is not finalized".into());
+    }
     let rpc_url = chain_ws_url()?;
-    let rpc = subxt::backend::legacy::LegacyRpcMethods::<subxt::PolkadotConfig>::new(super::chain_url::rpc_client(&rpc_url).await?);
-    let number = u32::try_from(finalized.block_number).map_err(|_| "finalized block number exceeds runtime capacity")?;
-    let hash = rpc.chain_get_block_hash(Some(number.into())).await.map_err(|e| e.to_string())?.ok_or("finalized block missing")?;
-    if hash.0 != finalized.block_hash { return Err("stored result has noncanonical block hash".into()); }
-    let block = view.client.blocks().at(hash).await.map_err(|e| e.to_string())?;
-    let raw = hex::decode(finalized.tx_hash.strip_prefix("0x").ok_or("invalid finalized transaction hash")?).map_err(|e| e.to_string())?;
-    let target = subxt::utils::H256(<[u8;32]>::try_from(raw.as_slice()).map_err(|_| "invalid finalized transaction hash length")?);
-    if !block_has_successful_extrinsic(&block, &target).await? { return Err("stored finalized transaction missing".into()); }
+    let rpc = subxt::backend::legacy::LegacyRpcMethods::<subxt::PolkadotConfig>::new(
+        super::chain_url::rpc_client(&rpc_url).await?,
+    );
+    let number = u32::try_from(finalized.block_number)
+        .map_err(|_| "finalized block number exceeds runtime capacity")?;
+    let hash = rpc
+        .chain_get_block_hash(Some(number.into()))
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("finalized block missing")?;
+    if hash.0 != finalized.block_hash {
+        return Err("stored result has noncanonical block hash".into());
+    }
+    let block = view
+        .client
+        .blocks()
+        .at(hash)
+        .await
+        .map_err(|e| e.to_string())?;
+    let raw = hex::decode(
+        finalized
+            .tx_hash
+            .strip_prefix("0x")
+            .ok_or("invalid finalized transaction hash")?,
+    )
+    .map_err(|e| e.to_string())?;
+    let target = subxt::utils::H256(
+        <[u8; 32]>::try_from(raw.as_slice())
+            .map_err(|_| "invalid finalized transaction hash length")?,
+    );
+    if !block_has_successful_extrinsic(&block, &target).await? {
+        return Err("stored finalized transaction missing".into());
+    }
     Ok(())
 }
 
@@ -403,35 +436,35 @@ async fn block_has_successful_extrinsic(
     target_hash: &subxt::utils::H256,
 ) -> Result<bool, String> {
     let extrinsics = block
-            .extrinsics()
-            .await
-            .map_err(|e| format!("read finalized block extrinsics failed: {e}"))?;
-        for extrinsic in extrinsics.iter() {
-            if extrinsic.hash() != *target_hash {
-                continue;
-            }
-            let events = extrinsic
-                .events()
-                .await
-                .map_err(|e| format!("read finalized extrinsic events failed: {e}"))?;
-            let mut success = false;
-            for event in events.iter() {
-                let event =
-                    event.map_err(|e| format!("decode finalized extrinsic event failed: {e}"))?;
-                if event.pallet_name() == "System" && event.variant_name() == "ExtrinsicFailed" {
-                    return Err("submitted extrinsic finalized with ExtrinsicFailed".to_string());
-                }
-                if event.pallet_name() == "System" && event.variant_name() == "ExtrinsicSuccess" {
-                    success = true;
-                }
-            }
-            if !success {
-                return Err(
-                    "submitted extrinsic finalized without System.ExtrinsicSuccess".to_string(),
-                );
-            }
-            return Ok(true);
+        .extrinsics()
+        .await
+        .map_err(|e| format!("read finalized block extrinsics failed: {e}"))?;
+    for extrinsic in extrinsics.iter() {
+        if extrinsic.hash() != *target_hash {
+            continue;
         }
+        let events = extrinsic
+            .events()
+            .await
+            .map_err(|e| format!("read finalized extrinsic events failed: {e}"))?;
+        let mut success = false;
+        for event in events.iter() {
+            let event =
+                event.map_err(|e| format!("decode finalized extrinsic event failed: {e}"))?;
+            if event.pallet_name() == "System" && event.variant_name() == "ExtrinsicFailed" {
+                return Err("submitted extrinsic finalized with ExtrinsicFailed".to_string());
+            }
+            if event.pallet_name() == "System" && event.variant_name() == "ExtrinsicSuccess" {
+                success = true;
+            }
+        }
+        if !success {
+            return Err(
+                "submitted extrinsic finalized without System.ExtrinsicSuccess".to_string(),
+            );
+        }
+        return Ok(true);
+    }
     Ok(false)
 }
 

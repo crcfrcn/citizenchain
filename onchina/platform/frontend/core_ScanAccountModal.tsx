@@ -12,7 +12,7 @@ import { CID_MODAL_Z_INDEX } from './core_modalStack';
 export function ScanAccountModal(props: {
   open: boolean;
   onClose: () => void;
-  onResolved: (account_id: string) => void;
+  onResolved: (accountId: string) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [scanAttempt, setScanAttempt] = useState(0);
@@ -31,8 +31,8 @@ export function ScanAccountModal(props: {
         setScanAttempt((attempt) => attempt + 1);
         return;
       }
-      const account_id = (env.body as AccountIdCodeBody).account_id;
-      props.onResolved(account_id);
+      const accountId = (env.body as AccountIdCodeBody).account_id;
+      props.onResolved(accountId);
     } catch (e) {
       if (e instanceof QrParseError) {
         setError(e.message);

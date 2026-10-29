@@ -33,12 +33,12 @@ pub(crate) const QR_KIND_SIGN_RESPONSE: u8 = primitives::sign::QR_KIND_SIGN_RESP
 
 #[derive(Debug, Clone)]
 struct ChainSignSession {
-    expected_signer_public_key: String,
+    expected_public_key: String,
     call_data_hex: String,
     /// QR `b.d` 携带的完整审阅载荷 SHA-256。
     payload_hash_hex: String,
     /// sr25519 实际签名输入 SHA-256，用于提交前重建校验。
-    signing_payload_hash_hex: String,
+    payload_hash: String,
     nonce: u32,
     expires_at: u64,
 }
@@ -58,8 +58,8 @@ pub(crate) fn chain_action_code(call_data: &[u8]) -> Result<u16, String> {
 
 // QR body 定长字段的 base64url 编解码统一走 qr-protocol 单源,
 // 本文件不再自带第二份实现(与 onchina 分裂会导致同一二维码一端过一端拒)。
-pub(crate) fn public_key_b64(signer_public_key_bytes: &[u8]) -> Result<String, String> {
-    qr_protocol::public_key_b64(signer_public_key_bytes, "b.u").map_err(|e| e.to_string())
+pub(crate) fn public_key_b64(public_key_bytes: &[u8]) -> Result<String, String> {
+    qr_protocol::public_key_b64(public_key_bytes, "b.u").map_err(|e| e.to_string())
 }
 
 pub(crate) fn payload_b64(payload: &[u8]) -> String {
@@ -99,25 +99,22 @@ fn remember_chain_sign_session(
 
 pub(crate) fn remember_chain_sign_request_session(
     request_id: &str,
-    expected_signer_public_key: &str,
+    expected_public_key: &str,
     call_data: &[u8],
     payload_hash_hex: &str,
-    signing_payload_hash_hex: &str,
+    payload_hash: &str,
     nonce: u32,
     expires_at: u64,
 ) -> Result<(), String> {
     remember_chain_sign_session(
         request_id.to_string(),
         ChainSignSession {
-            expected_signer_public_key: crate::shared::validation::normalize_public_key(
-                expected_signer_public_key,
+            expected_public_key: crate::shared::validation::normalize_public_key(
+                expected_public_key,
             )?,
             call_data_hex: hex::encode(call_data),
             payload_hash_hex: normalize_hash_hex(payload_hash_hex, "payload_hash")?,
-            signing_payload_hash_hex: normalize_hash_hex(
-                signing_payload_hash_hex,
-                "signing_payload_hash",
-            )?,
+            payload_hash: normalize_hash_hex(payload_hash, "signing_payload_hash")?,
             nonce,
             expires_at,
         },
@@ -275,7 +272,7 @@ pub fn build_vote_sign_request(
 ) -> Result<VoteSignRequestResult, String> {
     // 验证公钥格式
     let signer_public_key = crate::shared::validation::normalize_public_key(signer_public_key)?;
-    let signer_public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
+    let public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
         .map_err(|e| format!("公钥解码失败: {e}"))?;
     let signer_account_id = signer_account_id_from_public_key(&signer_public_key)?;
 
@@ -292,7 +289,7 @@ pub fn build_vote_sign_request(
     match voter_role_code {
         Some(role_code) => {
             if role_code.is_empty()
-                || role_code.len() > entity_primitives::INSTITUTION_ROLE_CODE_MAX_BYTES as usize
+                || role_code.len() > entitybase::INSTITUTION_ROLE_CODE_MAX_BYTES as usize
             {
                 return Err("voter_role_code 长度超出链上岗位码范围".to_string());
             }
@@ -312,7 +309,7 @@ pub fn build_vote_sign_request(
     // 计算审阅 payload hash 与实际签名字节 hash，分别用于 QR 会话和提交校验。
     let payload_hash = sha256_hash(&payload);
     let payload_hash_hex = hex::encode(payload_hash);
-    let signing_payload_hash_hex = hex::encode(sha256_hash(&signing_bytes));
+    let payload_hash = hex::encode(sha256_hash(&signing_bytes));
 
     // 生成请求 ID
     let request_id = generate_request_id("vote");
@@ -327,7 +324,7 @@ pub fn build_vote_sign_request(
         body: SignRequestBody {
             action: chain_action_code(&call_data)?,
             sig_alg: 1,
-            signer_public_key: public_key_b64(&signer_public_key_bytes)?,
+            signer_public_key: public_key_b64(&public_key_bytes)?,
             payload: payload_b64(&payload),
         },
     };
@@ -337,10 +334,10 @@ pub fn build_vote_sign_request(
     remember_chain_sign_session(
         request_id.clone(),
         ChainSignSession {
-            expected_signer_public_key: signer_public_key,
+            expected_public_key: signer_public_key,
             call_data_hex: hex::encode(&call_data),
             payload_hash_hex: payload_hash_hex.clone(),
-            signing_payload_hash_hex,
+            payload_hash,
             nonce,
             expires_at,
         },
@@ -370,7 +367,7 @@ pub fn build_joint_vote_sign_request(
     approve: bool,
 ) -> Result<VoteSignRequestResult, String> {
     let signer_public_key = crate::shared::validation::normalize_public_key(signer_public_key)?;
-    let signer_public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
+    let public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
         .map_err(|e| format!("公钥解码失败: {e}"))?;
     let signer_account_id = signer_account_id_from_public_key(&signer_public_key)?;
 
@@ -380,7 +377,7 @@ pub fn build_joint_vote_sign_request(
         return Err("actor_cid_number 长度必须在链上 CID_NUMBER_MAX_BYTES 范围内".to_string());
     }
     if voter_role_code.is_empty()
-        || voter_role_code.len() > entity_primitives::INSTITUTION_ROLE_CODE_MAX_BYTES as usize
+        || voter_role_code.len() > entitybase::INSTITUTION_ROLE_CODE_MAX_BYTES as usize
     {
         return Err("voter_role_code 长度超出链上岗位码范围".to_string());
     }
@@ -404,7 +401,7 @@ pub fn build_joint_vote_sign_request(
         build_signing_payloads(&call_data, &genesis_hash, nonce, spec_version, tx_version)?;
     let payload_hash = sha256_hash(&payload);
     let payload_hash_hex = hex::encode(payload_hash);
-    let signing_payload_hash_hex = hex::encode(sha256_hash(&signing_bytes));
+    let payload_hash = hex::encode(sha256_hash(&signing_bytes));
     let request_id = generate_request_id("jvote");
 
     let now = now_secs()?;
@@ -417,7 +414,7 @@ pub fn build_joint_vote_sign_request(
         body: SignRequestBody {
             action: chain_action_code(&call_data)?,
             sig_alg: 1,
-            signer_public_key: public_key_b64(&signer_public_key_bytes)?,
+            signer_public_key: public_key_b64(&public_key_bytes)?,
             payload: payload_b64(&payload),
         },
     };
@@ -427,10 +424,10 @@ pub fn build_joint_vote_sign_request(
     remember_chain_sign_session(
         request_id.clone(),
         ChainSignSession {
-            expected_signer_public_key: signer_public_key,
+            expected_public_key: signer_public_key,
             call_data_hex: hex::encode(&call_data),
             payload_hash_hex: payload_hash_hex.clone(),
-            signing_payload_hash_hex,
+            payload_hash,
             nonce,
             expires_at,
         },
@@ -483,7 +480,7 @@ pub fn account_id_from_ss58_address(ss58_address: &str) -> Result<[u8; 32], Stri
 /// call_data 由调用方根据投票类型构建。
 pub fn verify_and_submit(
     request_id: &str,
-    expected_signer_public_key: &str,
+    expected_public_key: &str,
     expected_payload_hash: &str,
     call_data: &[u8],
     sign_nonce: u32,
@@ -521,19 +518,18 @@ pub fn verify_and_submit(
     }
 
     // 验证公钥匹配
-    let expected_signer_public_key =
-        crate::shared::validation::normalize_public_key(expected_signer_public_key)?;
-    if session.expected_signer_public_key != expected_signer_public_key {
+    let expected_public_key = crate::shared::validation::normalize_public_key(expected_public_key)?;
+    if session.expected_public_key != expected_public_key {
         return Err("提交参数公钥与本地签名 session 不匹配".to_string());
     }
-    if response.body.signer_public_key != expected_signer_public_key {
+    if response.body.signer_public_key != expected_public_key {
         return Err("公钥不匹配".to_string());
     }
 
     let expected_payload_hash_clean =
         normalize_hash_hex(expected_payload_hash, "expected_payload_hash")?;
     if expected_payload_hash_clean != session.payload_hash_hex
-        && expected_payload_hash_clean != session.signing_payload_hash_hex
+        && expected_payload_hash_clean != session.payload_hash
     {
         return Err("提交参数 payload hash 与本地签名 session 不匹配".to_string());
     }
@@ -545,7 +541,7 @@ pub fn verify_and_submit(
         return Err("提交参数 call_data 与本地签名 session 不匹配".to_string());
     }
 
-    let public = chain_signing::parse_sr25519_public_key(&expected_signer_public_key)?;
+    let public = chain_signing::parse_sr25519_public_key(&expected_public_key)?;
     let signature = chain_signing::parse_sr25519_signature_hex(&response.body.signature)?;
 
     let (spec_version, tx_version) = fetch_runtime_version()?;
@@ -559,9 +555,7 @@ pub fn verify_and_submit(
     )?;
     let payload_hash = hex::encode(sha256_hash(&material.payload));
     let signing_payload_hash = hex::encode(sha256_hash(&material.signing_bytes));
-    if session.payload_hash_hex != payload_hash
-        || session.signing_payload_hash_hex != signing_payload_hash
-    {
+    if session.payload_hash_hex != payload_hash || session.payload_hash != signing_payload_hash {
         return Err(format!(
             "本地签名 session payload hash 不匹配：expected={}, runtime_payload={}, signing_payload={}",
             session.payload_hash_hex, payload_hash, signing_payload_hash
@@ -646,7 +640,7 @@ pub fn verify_and_submit(
 
     // 被交易池接受 ≠ 已上链（nonce 错位时交易进 future 队列，永不
     // 被打包且不广播）。后台延迟核对一次 nonce 是否被消费，只打日志不阻塞。
-    let signer_account_id = signer_account_id_from_public_key(&expected_signer_public_key)?;
+    let signer_account_id = signer_account_id_from_public_key(&expected_public_key)?;
     spawn_post_submit_audit(signer_account_id, sign_nonce, tx_hash.clone());
 
     Ok(VoteSubmitResult { tx_hash })
@@ -862,7 +856,7 @@ pub(crate) fn generate_request_id_public(prefix: &str) -> String {
 /// 供 transaction 模块等外部调用方使用，避免重复获取链上参数和构建 review_payload。
 pub fn build_sign_request_from_call_data(
     signer_public_key: &str,
-    signer_public_key_bytes: &[u8],
+    public_key_bytes: &[u8],
     call_data: &[u8],
 ) -> Result<VoteSignRequestResult, String> {
     let signer_public_key = crate::shared::validation::normalize_public_key(signer_public_key)?;
@@ -875,7 +869,7 @@ pub fn build_sign_request_from_call_data(
         build_signing_payloads(call_data, &genesis_hash, nonce, spec_version, tx_version)?;
     let payload_hash = sha256_hash(&payload);
     let payload_hash_hex = hex::encode(payload_hash);
-    let signing_payload_hash_hex = hex::encode(sha256_hash(&signing_bytes));
+    let payload_hash = hex::encode(sha256_hash(&signing_bytes));
     let request_id = generate_request_id("chain");
 
     let now = now_secs()?;
@@ -888,7 +882,7 @@ pub fn build_sign_request_from_call_data(
         body: SignRequestBody {
             action: chain_action_code(call_data)?,
             sig_alg: 1,
-            signer_public_key: public_key_b64(signer_public_key_bytes)?,
+            signer_public_key: public_key_b64(public_key_bytes)?,
             payload: payload_b64(&payload),
         },
     };
@@ -898,10 +892,10 @@ pub fn build_sign_request_from_call_data(
     remember_chain_sign_session(
         request_id.clone(),
         ChainSignSession {
-            expected_signer_public_key: signer_public_key,
+            expected_public_key: signer_public_key,
             call_data_hex: hex::encode(call_data),
             payload_hash_hex: payload_hash_hex.clone(),
-            signing_payload_hash_hex,
+            payload_hash,
             nonce,
             expires_at,
         },

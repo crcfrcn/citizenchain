@@ -73,13 +73,13 @@ export const PrivateShell: React.FC<Props> = ({ auth, cidMeta, privateType }) =>
       canGoBack ? () => setSelectedProvince(null) : undefined,
       '返回省列表',
     );
-    body = <CityGrid auth={auth} province_name={effectiveProvince} onPick={(c) => setSelectedCity(c)} />;
+    body = <CityGrid auth={auth} provinceName={effectiveProvince} onPick={(c) => setSelectedCity(c)} />;
   } else {
     const canGoBack = !scope.skipCityList;
     const commonProps = {
       auth,
-      province_name: effectiveProvince,
-      city_name: effectiveCity,
+      provinceName: effectiveProvince,
+      cityName: effectiveCity,
       canWrite: scope.canWrite,
       onSelectInstitution: (cidNumber: string) => setSelectedCidNumber(cidNumber),
     };

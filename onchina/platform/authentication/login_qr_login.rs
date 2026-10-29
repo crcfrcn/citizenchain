@@ -57,7 +57,7 @@ pub(crate) async fn admin_auth_qr_sign_request(
     };
 
     let now = Utc::now();
-    let expire_at = now + Duration::seconds(LOGIN_SIGN_REQUEST_TTL_SECONDS);
+    let expires_at = now + Duration::seconds(LOGIN_SIGN_REQUEST_TTL_SECONDS);
     let challenge_id = Uuid::new_v4().to_string();
     // challenge_text:客户端生成 k=2 登录签名响应时的原文(与 CitizenWallet 端的
     // buildSignatureMessage(kind=signResponse, ...) 拼接规则保持一致)。
@@ -70,7 +70,7 @@ pub(crate) async fn admin_auth_qr_sign_request(
         crate::core::qr::QrKind::SignResponse.code(),
         challenge_id,
         LOGIN_QR_SYSTEM,
-        expire_at.timestamp()
+        expires_at.timestamp()
     );
     // 用户码先确定目标账户，b.u 必须携带该账户的 32 字节公钥；钱包不得任选账户签名。
     let login_body = match crate::core::qr::login_request_body(LOGIN_QR_SYSTEM, &account_id) {
@@ -83,7 +83,7 @@ pub(crate) async fn admin_auth_qr_sign_request(
     let login_qr_payload = serde_json::to_string(&crate::core::qr::SignRequestEnvelope::new(
         challenge_id.clone(),
         now.timestamp(),
-        expire_at.timestamp(),
+        expires_at.timestamp(),
         login_body,
     ))
     .unwrap_or_default();
@@ -102,7 +102,7 @@ pub(crate) async fn admin_auth_qr_sign_request(
             session_id: session_id.clone(),
             nonce: String::new(),
             issued_at: now,
-            expire_at,
+            expires_at,
             consumed: false,
         },
     ) {
@@ -120,7 +120,7 @@ pub(crate) async fn admin_auth_qr_sign_request(
             origin,
             domain: derived_domain,
             session_id,
-            expire_at: expire_at.timestamp(),
+            expires_at: expires_at.timestamp(),
         },
     })
     .into_response()
@@ -167,11 +167,11 @@ pub(crate) async fn admin_auth_qr_complete(
                 return Err("http:forbidden:sign request session mismatch".to_string());
             }
         }
-        if now > challenge.expire_at {
+        if now > challenge.expires_at {
             return Err("http:gone:sign request expired".to_string());
         }
         let session_id = challenge.session_id.clone();
-        let challenge_expire_at = challenge.expire_at.timestamp();
+        let challenge_expire_at = challenge.expires_at.timestamp();
         let verify_public_key = account_id.clone();
         if !same_account_id(challenge.account_id.as_str(), verify_public_key.as_str()) {
             return Err("http:forbidden:account_id must match targeted account_id".to_string());
@@ -241,12 +241,12 @@ pub(crate) async fn admin_auth_qr_complete(
             Ok(v) => v,
             Err(err) => return onchain_gate::gate_error_response(err),
         };
-    let (access_token, expire_at, output) = match outcome {
+    let (access_token, expires_at, output) = match outcome {
         onchain_gate::GateOutcome::Session {
             access_token,
-            expire_at,
+            expires_at,
             admin,
-        } => (access_token, expire_at, *admin),
+        } => (access_token, expires_at, *admin),
         onchain_gate::GateOutcome::BindingRequired(binding) => {
             return Json(ApiResponse {
                 code: 0,
@@ -254,7 +254,7 @@ pub(crate) async fn admin_auth_qr_complete(
                 data: AdminLoginCompleteOutput {
                     status: "BINDING_REQUIRED".to_string(),
                     access_token: None,
-                    expire_at: None,
+                    expires_at: None,
                     admin: None,
                     binding: Some(binding),
                 },
@@ -268,7 +268,7 @@ pub(crate) async fn admin_auth_qr_complete(
     let qr_result = QrLoginResultRecord {
         session_id,
         access_token: access_token.clone(),
-        expire_at,
+        expires_at,
         account_id: output.account_id.clone(),
         institution_code: output.institution_code.clone(),
         created_at: now,
@@ -286,7 +286,7 @@ pub(crate) async fn admin_auth_qr_complete(
         data: AdminLoginCompleteOutput {
             status: "SUCCESS".to_string(),
             access_token: Some(access_token),
-            expire_at: Some(expire_at.timestamp()),
+            expires_at: Some(expires_at.timestamp()),
             admin: Some(output),
             binding: None,
         },
@@ -365,26 +365,37 @@ pub(crate) async fn admin_auth_qr_result(
         };
         let scope_account_id = result.account_id.clone();
         let institution_code_for_scope = result.institution_code.clone();
-        let (mut province, scope_city_name, scope_town_name) = match state.db.with_client(move |conn| {
-            repo::derive_admin_scope_conn(
-                conn,
-                scope_account_id.as_str(),
-                institution_code_for_scope.as_str(),
-            )
-        }) {
-            Ok(v) => v,
-            Err(err) => {
-                let message = format!("query admin scope failed: {err}");
-                return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
-            }
-        };
+        let (mut province, scope_city_name, scope_town_name) =
+            match state.db.with_client(move |conn| {
+                repo::derive_admin_scope_conn(
+                    conn,
+                    scope_account_id.as_str(),
+                    institution_code_for_scope.as_str(),
+                )
+            }) {
+                Ok(v) => v,
+                Err(err) => {
+                    let message = format!("query admin scope failed: {err}");
+                    return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
+                }
+            };
         if crate::core::chain_runtime::is_tier1_registry(&result.institution_code) {
-            province = match crate::core::chain_runtime::current_frg_province_name(&institution_cid_number, &result.account_id).await {
+            province = match crate::core::chain_runtime::current_frg_province_name(
+                &institution_cid_number,
+                &result.account_id,
+            )
+            .await
+            {
                 Ok(province) => Some(province),
-                Err(_) => return api_error(StatusCode::FORBIDDEN, 2002, "admin province scope missing"),
+                Err(_) => {
+                    return api_error(StatusCode::FORBIDDEN, 2002, "admin province scope missing")
+                }
             };
         }
-        if crate::core::chain_runtime::admin_level_label_for(&result.institution_code).as_deref() != Some("NATIONAL") && province.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        if crate::core::chain_runtime::admin_level_label_for(&result.institution_code).as_deref()
+            != Some("NATIONAL")
+            && province.as_deref().map(str::trim).unwrap_or("").is_empty()
+        {
             return api_error(StatusCode::FORBIDDEN, 2002, "admin province scope missing");
         }
         let cid_short_name = repo::resolve_home_cid_short_name(
@@ -394,11 +405,17 @@ pub(crate) async fn admin_auth_qr_result(
             scope_city_name.as_deref(),
         )
         .unwrap_or(None);
-        let capabilities = crate::modules::capability::capabilities_for(&state.modules, &result.institution_code);
-        let workspace_modules =
-            state.modules.workspace_modules(&institution_cid_number, &crate::modules::session_headers(&result.access_token)).await;
+        let capabilities =
+            crate::modules::capability::capabilities_for(&state.modules, &result.institution_code);
+        let workspace_modules = state
+            .modules
+            .workspace_modules(
+                &institution_cid_number,
+                &crate::modules::session_headers(&result.access_token),
+            )
+            .await;
         let workspace = crate::workspace::build_institution_workspace(
-        &state.modules,
+            &state.modules,
             &result.institution_code,
             cid_short_name.as_deref(),
             capabilities,
@@ -415,7 +432,7 @@ pub(crate) async fn admin_auth_qr_result(
                 status: "SUCCESS".to_string(),
                 message: "login success".to_string(),
                 access_token: Some(result.access_token.clone()),
-                expire_at: Some(result.expire_at.timestamp()),
+                expires_at: Some(result.expires_at.timestamp()),
                 admin: Some(AdminIdentifyOutput {
                     account_id: result.account_id.clone(),
                     institution_cid_number,
@@ -443,7 +460,7 @@ pub(crate) async fn admin_auth_qr_result(
     if challenge.session_id != session_id {
         return api_error(StatusCode::FORBIDDEN, 1003, "challenge session mismatch");
     }
-    if now > challenge.expire_at {
+    if now > challenge.expires_at {
         return Json(ApiResponse {
             code: 0,
             message: "ok".to_string(),
@@ -451,7 +468,7 @@ pub(crate) async fn admin_auth_qr_result(
                 status: "EXPIRED".to_string(),
                 message: "challenge expired".to_string(),
                 access_token: None,
-                expire_at: None,
+                expires_at: None,
                 admin: None,
             },
         })
@@ -465,7 +482,7 @@ pub(crate) async fn admin_auth_qr_result(
             status: "PENDING".to_string(),
             message: "waiting mobile scan".to_string(),
             access_token: None,
-            expire_at: None,
+            expires_at: None,
             admin: None,
         },
     })

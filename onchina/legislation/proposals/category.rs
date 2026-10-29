@@ -11,7 +11,7 @@
 //! - 市立法会委员(CLEG):提案 + 单院表决(宪法第46/110条)。
 //! - 参议会(NSN/PSN):只审议/终审,无发起权(宪法第45/100/106条)。
 //!
-//! 提案主体与表决院(houses)的解耦、合法性裁决全在链端 `legislation-yuan::ensure_routing`,
+//! 提案主体与表决院(houses)的解耦、合法性裁决全在链端 `legislation::ensure_routing`,
 //! 本文件只声明候选,不做链上裁决。
 
 use super::model::ProposalCategory;

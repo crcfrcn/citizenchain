@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ::codec::{Decode, Encode};
-use entity_primitives::{
+use entitybase::{
     InstitutionAdminAssignment, InstitutionAssignmentSource, InstitutionAssignmentStatus,
     InstitutionRole, InstitutionRoleStatus, RoleBusinessPermission, RolePermissionOperation,
 };
@@ -384,7 +384,7 @@ fn decode_hex_storage(hex_str: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::{assignment_is_effective, display_source_ref, permission_operation_label};
-    use entity_primitives::{
+    use entitybase::{
         InstitutionAdminAssignment, InstitutionAssignmentSource, InstitutionAssignmentStatus,
         InstitutionRole, InstitutionRoleStatus, RolePermissionOperation,
     };

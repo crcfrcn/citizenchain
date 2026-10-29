@@ -17,7 +17,7 @@ export function LegalRepresentativePhoto({ auth, path, name }: {
     setSrc('');
     setLoading(false);
     return () => { pending.current?.abort(); };
-  }, [path, auth.access_token]);
+  }, [path, auth.accessToken]);
 
   if (!path) return <span>(未上传)</span>;
   // 历史磁盘路径无法读取；不把服务端返回的任意地址作为携带令牌的请求目标。

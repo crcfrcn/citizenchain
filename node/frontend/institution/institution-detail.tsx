@@ -1,3 +1,5 @@
+import { accountIdToSs58 } from '../shared/ss58';
+import { formatBalance } from '../shared/format';
 // 清算行机构详情页(链上 organization-manage::Institutions[cid_number] 已存在时展示)。
 //
 // 风格参考 governance/InstitutionDetailPage 的卡片栅格 + 折叠子页入口,
@@ -123,7 +125,7 @@ export function ClearingBankInstitutionDetailPage({
             <dt>注册区块</dt>
             <dd>#{nodeInfo.registeredAt}</dd>
             <dt>声明账户</dt>
-            <dd><code>{nodeInfo.registered_by_ss58_address}</code></dd>
+            <dd><code>{accountIdToSs58(nodeInfo.registrarAccountId)}</code></dd>
           </dl>
         </div>
       )}
@@ -139,9 +141,9 @@ export function ClearingBankInstitutionDetailPage({
 
         <div className="metric-card">
           <div className="metric-label">
-            主账户 <code className="metric-label-id">{detail.main_account_info.ss58_address}</code>
+            主账户 <code className="metric-label-id">{accountIdToSs58(detail.mainAccountInfo.accountId)}</code>
           </div>
-          <div className="metric-value">{detail.main_account_info.balanceText} 元</div>
+          <div className="metric-value">{formatBalance(detail.mainAccountInfo.balanceFen)}</div>
         </div>
 
         <div className="metric-card">
@@ -153,9 +155,9 @@ export function ClearingBankInstitutionDetailPage({
 
         <div className="metric-card">
           <div className="metric-label">
-            费用账户 <code className="metric-label-id">{detail.fee_account_info.ss58_address}</code>
+            费用账户 <code className="metric-label-id">{accountIdToSs58(detail.feeAccountInfo.accountId)}</code>
           </div>
-          <div className="metric-value">{detail.fee_account_info.balanceText} 元</div>
+          <div className="metric-value">{formatBalance(detail.feeAccountInfo.balanceFen)}</div>
         </div>
       </div>
 

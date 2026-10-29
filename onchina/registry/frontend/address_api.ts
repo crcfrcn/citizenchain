@@ -2,30 +2,30 @@ import { adminHeaders, request } from '../../platform/frontend/helpers_http';
 import type { AdminAuth } from '../../platform/frontend/authentication_types';
 
 export type AddressNameRow = {
-  province_code: string;
-  city_code: string;
-  town_code: string;
-  address_name_code: string;
-  address_name: string;
-  address_count: number;
+  provinceCode: string;
+  cityCode: string;
+  townCode: string;
+  addressNameCode: string;
+  addressName: string;
+  addressCount: number;
 };
 
 export type AddressRow = {
-  province_code: string;
-  city_code: string;
-  town_code: string;
-  address_name_code: string;
-  address_name: string;
-  address_local_no: string;
-  address_detail: string;
-  sort_order: number;
+  provinceCode: string;
+  cityCode: string;
+  townCode: string;
+  addressNameCode: string;
+  addressName: string;
+  addressLocalNo: string;
+  addressDetail: string;
+  sortOrder: number;
 };
 
 export type AddressPage<T> = {
   items: T[];
-  page_size: number;
-  next_cursor?: number | null;
-  has_more: boolean;
+  pageSize: number;
+  nextCursor?: number | null;
+  hasMore: boolean;
 };
 
 export type AddressChainAction =
@@ -36,51 +36,51 @@ export type AddressChainAction =
   | 'remove_address';
 
 export type AddressChainCallInput = {
-  actor_role_code: string;
+  actorRoleCode: string;
   action: AddressChainAction;
-  catalog_version?: string;
-  catalog_hash?: string;
-  province_code?: string;
-  city_code?: string;
-  town_code?: string;
-  address_name_code?: string;
-  address_name?: string;
-  address_local_no?: string;
-  address_detail?: string;
+  catalogVersion?: string;
+  catalogHash?: string;
+  provinceCode?: string;
+  cityCode?: string;
+  townCode?: string;
+  addressNameCode?: string;
+  addressName?: string;
+  addressLocalNo?: string;
+  addressDetail?: string;
 };
 
 export type AddressChainCallOutput = {
   action: number;
-  pallet_index: number;
-  call_index: number;
-  call_data_hex: string;
-  review_title: string;
+  palletIndex: number;
+  callIndex: number;
+  callDataHex: string;
+  reviewTitle: string;
 };
 
 function scopeQuery(params: {
-  province_code: string;
-  city_code: string;
-  town_code: string;
-  address_name_code?: string;
+  provinceCode: string;
+  cityCode: string;
+  townCode: string;
+  addressNameCode?: string;
   cursor?: number | null;
-  page_size?: number;
+  pageSize?: number;
 }) {
   const q = new URLSearchParams();
-  q.set('province_code', params.province_code);
-  q.set('city_code', params.city_code);
-  q.set('town_code', params.town_code);
-  if (params.address_name_code) q.set('address_name_code', params.address_name_code);
+  q.set('provinceCode', params.provinceCode);
+  q.set('cityCode', params.cityCode);
+  q.set('townCode', params.townCode);
+  if (params.addressNameCode) q.set('addressNameCode', params.addressNameCode);
   if (typeof params.cursor === 'number') q.set('cursor', String(params.cursor));
-  if (params.page_size) q.set('page_size', String(params.page_size));
+  if (params.pageSize) q.set('pageSize', String(params.pageSize));
   return q.toString();
 }
 
 export async function listAddressNames(
   auth: AdminAuth,
-  params: { province_code: string; city_code: string; town_code: string; cursor?: number | null },
+  params: { provinceCode: string; cityCode: string; townCode: string; cursor?: number | null },
 ): Promise<AddressPage<AddressNameRow>> {
   return request<AddressPage<AddressNameRow>>(
-    `/api/admin/address/names?${scopeQuery({ ...params, page_size: 100 })}`,
+    `/api/admin/address/names?${scopeQuery({ ...params, pageSize: 100 })}`,
     { method: 'GET', headers: adminHeaders(auth) },
   );
 }
@@ -88,15 +88,15 @@ export async function listAddressNames(
 export async function listAddressItems(
   auth: AdminAuth,
   params: {
-    province_code: string;
-    city_code: string;
-    town_code: string;
-    address_name_code: string;
+    provinceCode: string;
+    cityCode: string;
+    townCode: string;
+    addressNameCode: string;
     cursor?: number | null;
   },
 ): Promise<AddressPage<AddressRow>> {
   return request<AddressPage<AddressRow>>(
-    `/api/admin/address/items?${scopeQuery({ ...params, page_size: 100 })}`,
+    `/api/admin/address/items?${scopeQuery({ ...params, pageSize: 100 })}`,
     { method: 'GET', headers: adminHeaders(auth) },
   );
 }

@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use crate::shared::{constants::RPC_RESPONSE_LIMIT_SMALL, rpc};
 
-use crate::transaction::offchain::types::{ConnectivityCheck, ConnectivityTestReport};
+use crate::offchain::types::{ConnectivityCheck, ConnectivityTestReport};
 
 const DNS_RESOLVE_TIMEOUT: Duration = Duration::from_secs(3);
 const REMOTE_RPC_TIMEOUT: Duration = Duration::from_secs(5);

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AddressScopeQuery {
     pub(crate) province_code: String,
     pub(crate) city_code: String,
@@ -11,6 +13,7 @@ pub(crate) struct AddressScopeQuery {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AddressNameRow {
     pub(crate) province_code: String,
     pub(crate) city_code: String,
@@ -21,6 +24,7 @@ pub(crate) struct AddressNameRow {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AddressRow {
     pub(crate) province_code: String,
     pub(crate) city_code: String,
@@ -33,6 +37,7 @@ pub(crate) struct AddressRow {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AddressPage<T: Serialize> {
     pub(crate) items: Vec<T>,
     pub(crate) page_size: usize,
@@ -51,6 +56,8 @@ pub(crate) enum AddressChainAction {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AddressChainCallInput {
     pub(crate) actor_role_code: String,
     pub(crate) action: AddressChainAction,
@@ -75,6 +82,7 @@ pub(crate) struct AddressChainCallInput {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AddressChainCallOutput {
     pub(crate) action: u16,
     pub(crate) pallet_index: u8,

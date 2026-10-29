@@ -1,5 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarks;
+mod weights;
+
 use frame_support::traits::{
     fungible::Inspect,
     tokens::{
@@ -124,7 +128,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// 普通转账并把备注绑定到同一笔链上交易事件。
         #[pallet::call_index(0)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        #[pallet::weight(crate::weights::transfer_with_remark::<T>())]
         pub fn transfer_with_remark(
             origin: OriginFor<T>,
             beneficiary_account_id: T::AccountId,
@@ -268,7 +272,7 @@ where
 impl<T, Currency, Router, FeeRouteProvider> OnChargeTransaction<T>
     for OnchainChargeAdapter<Currency, Router, FeeRouteProvider>
 where
-    T: TxPaymentConfig + fullnode_issuance::Config + pallet::Config,
+    T: TxPaymentConfig + fullnodeissue::Config + pallet::Config,
     Currency: Balanced<T::AccountId> + 'static,
     Router: OnUnbalanced<Credit<T::AccountId, Currency>>,
     FeeRouteProvider:
@@ -371,7 +375,7 @@ impl<T, Currency, AuthorFinder, NrcProvider, SafetyFundProvider>
     OnUnbalanced<Credit<T::AccountId, Currency>>
     for OnchainFeeRouter<T, Currency, AuthorFinder, NrcProvider, SafetyFundProvider>
 where
-    T: frame_system::Config + fullnode_issuance::Config + pallet::Config,
+    T: frame_system::Config + fullnodeissue::Config + pallet::Config,
     Currency: Balanced<T::AccountId>,
     AuthorFinder: FindAuthor<T::AccountId>,
     NrcProvider: NrcAccountProvider<T::AccountId>,
@@ -417,7 +421,7 @@ where
         match AuthorFinder::find_author(pre_runtime_digests) {
             Some(miner_account_id) => {
                 if let Some(reward_account_id) =
-                    fullnode_issuance::RewardAccountIdByMiner::<T>::get(&miner_account_id)
+                    fullnodeissue::RewardAccountIdByMiner::<T>::get(&miner_account_id)
                 {
                     if let Err(remaining) = Currency::resolve(&reward_account_id, fullnode_credit) {
                         let burnt_amount = remaining.peek().saturated_into::<u128>();
@@ -553,4 +557,5 @@ where
 }
 
 #[cfg(test)]
+#[path = "../tests/mod.rs"]
 mod tests;

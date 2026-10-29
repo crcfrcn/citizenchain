@@ -9,8 +9,8 @@ import { loadCachedCidCities, readCachedCidCities } from '../../platform/fronten
 
 interface Props {
   auth: AdminAuth;
-  province_name: string;
-  onPick: (city_name: string) => void;
+  provinceName: string;
+  onPick: (cityName: string) => void;
 }
 
 const CARD_STYLE: React.CSSProperties = {
@@ -24,29 +24,29 @@ const CARD_STYLE: React.CSSProperties = {
   textAlign: 'center' as const,
 };
 
-export const CityGrid: React.FC<Props> = ({ auth, province_name, onPick }) => {
-  const cachedCities = readCachedCidCities(province_name);
+export const CityGrid: React.FC<Props> = ({ auth, provinceName, onPick }) => {
+  const cachedCities = readCachedCidCities(provinceName);
   const [cities, setCities] = useState<CidCityItem[]>(
-    () => cachedCities?.filter((c) => c.city_code !== '000') ?? [],
+    () => cachedCities?.filter((c) => c.cityCode !== '000') ?? [],
   );
   const [loading, setLoading] = useState(!cachedCities);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    const cachedRows = readCachedCidCities(province_name);
+    const cachedRows = readCachedCidCities(provinceName);
     if (cachedRows) {
-      setCities(cachedRows.filter((c) => c.city_code !== '000'));
+      setCities(cachedRows.filter((c) => c.cityCode !== '000'));
       setLoading(false);
     } else {
       setCities([]);
       setLoading(true);
     }
     setError(null);
-    loadCachedCidCities(auth, province_name)
+    loadCachedCidCities(auth, provinceName)
       .then((rows) => {
         if (cancelled) return;
-        setCities(rows.filter((c) => c.city_code !== '000'));
+        setCities(rows.filter((c) => c.cityCode !== '000'));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -58,7 +58,7 @@ export const CityGrid: React.FC<Props> = ({ auth, province_name, onPick }) => {
     return () => {
       cancelled = true;
     };
-  }, [auth.access_token, province_name]);
+  }, [auth.accessToken, provinceName]);
 
   return (
     <div>
@@ -76,8 +76,8 @@ export const CityGrid: React.FC<Props> = ({ auth, province_name, onPick }) => {
       >
         {cities.map((c) => (
           <div
-            key={c.city_code}
-            onClick={() => onPick(c.city_name)}
+            key={c.cityCode}
+            onClick={() => onPick(c.cityName)}
             style={CARD_STYLE}
             onMouseEnter={(e) => {
               (e.currentTarget as HTMLDivElement).style.background = 'rgba(13,148,136,0.22)';
@@ -90,7 +90,7 @@ export const CityGrid: React.FC<Props> = ({ auth, province_name, onPick }) => {
           >
             {/* 市名为空(字典/缓存未同步)时回退 city_code,绝不渲染空白细卡 */}
             <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a' }}>
-              {c.city_name || c.city_code}
+              {c.cityName || c.cityCode}
             </div>
           </div>
         ))}

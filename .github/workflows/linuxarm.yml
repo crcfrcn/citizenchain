@@ -121,7 +121,7 @@ jobs:
       run: |
         set -euo pipefail
         mkdir -p "$CITIZENCHAIN_WORK_DIR"
-        node --test scripts/config.mjs scripts/runtime.mjs
+        node --test scripts/config.mjs scripts/runtime.mjs scripts/build.test.mjs
         npm ci --prefix crates/scanner --include=dev
         npm ci --prefix node/frontend --include=dev
         npm ci --prefix onchina/platform/frontend --include=dev
@@ -130,6 +130,7 @@ jobs:
         npm run check --prefix crates/scanner
         npm test --prefix crates/scanner
         npm run test:local-doc --prefix node/frontend
+        npm run test:transfer --prefix node/frontend
         npm run typecheck --prefix onchina/platform/frontend
         npm test --prefix onchina/platform/frontend
         export TAURI_CONFIG="$(node -e 'console.log(JSON.stringify({build:{beforeBuildCommand:null,frontendDist:process.env.GITHUB_WORKSPACE+"/node/frontend"}}))')"

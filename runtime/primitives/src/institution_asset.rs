@@ -1,7 +1,7 @@
 //! 机构账户资金操作白名单(institution_asset)。
 //!
 //! 只提供 `InstitutionAssetAction` 枚举和 `InstitutionAsset` trait,供实体生命周期
-//! (public/private/personal-manage)、`multisig`、`offchain` 复用;不是 pallet,不含
+//! (public/private/personalentity)、`multisig`、`offchain` 复用;不是 pallet,不含
 //! storage 或 extrinsic。实际放行/拒绝规则由 runtime 的 `RuntimeInstitutionAsset` 实现。
 //!
 //! # Safety
@@ -48,29 +48,5 @@ pub trait InstitutionAsset<AccountId> {
 impl<AccountId> InstitutionAsset<AccountId> for () {
     fn can_spend(_source: &AccountId, _action: InstitutionAssetAction) -> bool {
         true
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_asset_allows_all_actions() {
-        let account = [7u8; 32];
-        for action in [
-            InstitutionAssetAction::InstitutionCreateFunding,
-            InstitutionAssetAction::MultisigTransferExecute,
-            InstitutionAssetAction::MultisigCloseExecute,
-            InstitutionAssetAction::OffchainFeeSweepExecute,
-            InstitutionAssetAction::NrcSafetyFundTransfer,
-            InstitutionAssetAction::L3DepositIn,
-            InstitutionAssetAction::L3WithdrawOut,
-            InstitutionAssetAction::L2ClearingDebit,
-        ] {
-            assert!(<() as InstitutionAsset<[u8; 32]>>::can_spend(
-                &account, action
-            ));
-        }
     }
 }

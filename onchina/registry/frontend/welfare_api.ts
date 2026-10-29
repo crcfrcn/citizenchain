@@ -24,12 +24,12 @@ export function createWelfareInstitution(
 export function listWelfareInstitutions(
   auth: AdminAuth,
   query: {
-    province_name: string;
-    city_name?: string;
-    private_type: PrivateType;
+    provinceName: string;
+    cityName?: string;
+    privateType: PrivateType;
     q: string;
     cursor?: string | null;
-    page_size?: number;
+    pageSize?: number;
   },
 ): Promise<PageResult<InstitutionListRow>> {
   return listPrivateInstitutions(auth, WELFARE_ROUTE_SEGMENT, query);

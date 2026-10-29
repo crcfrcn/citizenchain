@@ -23,11 +23,11 @@ const SUBJECT_STATUS_LABEL: Record<string, string> = {
 };
 
 function areaText(row: InstitutionListRow) {
-  return [row.province_name, row.city_name, row.town_name].filter(Boolean).join('/') || '-';
+  return [row.provinceName, row.cityName, row.townName].filter(Boolean).join('/') || '-';
 }
 
 function nameText(row: InstitutionListRow) {
-  return row.cid_full_name || row.cid_short_name || '';
+  return row.cidFullName || row.cidShortName || '';
 }
 
 function statusTag(status: string | null | undefined, labels: Record<string, string>) {
@@ -38,8 +38,8 @@ function statusTag(status: string | null | undefined, labels: Record<string, str
 
 interface Props {
   auth: AdminAuth;
-  province_name: string;
-  city_name: string;
+  provinceName: string;
+  cityName: string;
   onSelectInstitution?: (cidNumber: string) => void;
   refreshKey?: number;
   searchQuery?: string;
@@ -47,8 +47,8 @@ interface Props {
 
 export const GovListTable: React.FC<Props> = ({
   auth,
-  province_name,
-  city_name,
+  provinceName,
+  cityName,
   onSelectInstitution,
   refreshKey,
   searchQuery,
@@ -57,7 +57,7 @@ export const GovListTable: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [deterministicPage, setDeterministicPage] = useState(1);
   const institutionLabels = useInstitutionCodeLabels();
-  const cacheKey = officialInstitutionCacheKey(auth, province_name, city_name);
+  const cacheKey = officialInstitutionCacheKey(auth, provinceName, cityName);
 
   const loadRows = () => {
     const exactQuery = searchQuery?.trim() ?? '';
@@ -74,10 +74,10 @@ export const GovListTable: React.FC<Props> = ({
     let cancelled = false;
     if (!hasImmediateRows) setLoading(true);
     const request = listOfficialInstitutions(auth, {
-      province_name,
-      city_name: city_name || undefined,
+      provinceName,
+      cityName: cityName || undefined,
       q: exactQuery || undefined,
-      page_size: 300,
+      pageSize: 300,
     });
 
     request
@@ -86,7 +86,7 @@ export const GovListTable: React.FC<Props> = ({
         setRows(data.items);
         setDeterministicPage(1);
         if (!exactQuery) {
-          writeCachedOfficialInstitutionRows(cacheKey, auth, province_name, city_name, data.items, data.manifest_version);
+          writeCachedOfficialInstitutionRows(cacheKey, auth, provinceName, cityName, data.items, data.manifest_version);
         }
       })
       .catch((err) => {
@@ -101,20 +101,20 @@ export const GovListTable: React.FC<Props> = ({
   };
 
   useEffect(() => loadRows(), [
-    auth.access_token,
-    auth.account_id,
-    auth.institution_code,
-    auth.scope_province_name,
-    auth.scope_city_name,
-    province_name,
-    city_name,
+    auth.accessToken,
+    auth.accountId,
+    auth.institutionCode,
+    auth.scopeProvinceName,
+    auth.scopeCityName,
+    provinceName,
+    cityName,
     refreshKey,
     searchQuery,
   ]);
 
   // 市注册局(CREG)已搬进「市注册局」tab,公权机构列表不再展示;
   // 联邦注册局(FRG)是中枢省的国家级机构,按 user 决定保留在公权列表里。
-  const visibleRows = rows.filter((r) => !isSubordinateRegistry(r.institution_code));
+  const visibleRows = rows.filter((r) => !isSubordinateRegistry(r.institutionCode));
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / DETERMINISTIC_PAGE_SIZE));
   const displayRows = visibleRows.slice(
     (deterministicPage - 1) * DETERMINISTIC_PAGE_SIZE,
@@ -130,7 +130,7 @@ export const GovListTable: React.FC<Props> = ({
         render: (_v, _row, index) =>
           (deterministicPage - 1) * DETERMINISTIC_PAGE_SIZE + index + 1,
       },
-      { title: '身份ID', dataIndex: 'cid_number', width: 260, align: 'center' },
+      { title: '身份ID', dataIndex: 'cidNumber', width: 260, align: 'center' },
       {
         title: '机构全称',
         width: 180,
@@ -140,7 +140,7 @@ export const GovListTable: React.FC<Props> = ({
       { title: '行政区', width: 180, align: 'center', render: (_v, row) => areaText(row) },
       {
         title: '机构类型',
-        dataIndex: 'institution_code',
+        dataIndex: 'institutionCode',
         width: 130,
         align: 'center',
         render: (v: string) => institutionLabels[v] || v,
@@ -152,19 +152,19 @@ export const GovListTable: React.FC<Props> = ({
         align: 'center',
         render: (v: string) => statusTag(v, SUBJECT_STATUS_LABEL),
       },
-      { title: '账户数', dataIndex: 'account_count', width: 90, align: 'center' },
+      { title: '账户数', dataIndex: 'accountCount', width: 90, align: 'center' },
     ];
   }, [deterministicPage, institutionLabels]);
 
   return (
     <div>
       <Table<InstitutionListRow>
-        rowKey={(r) => r.cid_number}
+        rowKey={(r) => r.cidNumber}
         loading={loading}
         dataSource={displayRows}
         pagination={false}
         onRow={(row) => ({
-          onClick: () => onSelectInstitution?.(row.cid_number),
+          onClick: () => onSelectInstitution?.(row.cidNumber),
           style: onSelectInstitution ? { cursor: 'pointer' } : undefined,
         })}
         columns={columns}

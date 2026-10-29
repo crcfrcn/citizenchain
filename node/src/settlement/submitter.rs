@@ -26,7 +26,6 @@ use sp_core::{sr25519, Pair, H256};
 use sp_runtime::{AccountId32, OpaqueExtrinsic};
 use std::sync::{Arc, RwLock};
 
-use citizenchain as runtime;
 use offchain::batch_item::OffchainBatchItem;
 
 use super::keystore::SigningKey;

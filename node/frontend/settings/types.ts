@@ -1,8 +1,7 @@
 // 设置页类型，对齐后端 src/settings 返回值。
 
 export type RewardAccount = {
-  account_id: string | null;
-  ss58_address: string | null;
+  accountId: string | null;
 };
 
 export type BootnodeKey = {

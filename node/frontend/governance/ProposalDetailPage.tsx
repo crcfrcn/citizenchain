@@ -57,8 +57,8 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
         return assignments.map(async (assignment) => {
           try {
             const roleCode = assignment?.roleCode;
-            const vs = await api.checkVoteStatus(pid, admin.account_id, sid, roleCode);
-            results[`${admin.account_id}:${roleCode ?? ''}`] = vs;
+            const vs = await api.checkVoteStatus(pid, admin.accountId, sid, roleCode);
+            results[`${admin.accountId}:${roleCode ?? ''}`] = vs;
           } catch (_) {}
         });
       }),
@@ -122,9 +122,9 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
               cidNumber: sid,
             });
             signers = activated.map((admin) => ({
-              ss58_address: accountIdToSs58(admin.account_id),
-              account_id: admin.account_id,
-              account_label: '',
+
+              accountId: admin.accountId,
+              accountLabel: '',
             }));
             setDetectedAdminSigners(signers);
           }
@@ -148,9 +148,9 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
   }, [pendingVotes.size, refreshData]);
 
   // 投票提交成功回调：标记为 pending，关闭弹窗
-  const handleVoteSuccess = useCallback((txHash: string, account_id: string, voterRoleCode: string | null) => {
-    if (account_id) {
-      const ticketKey = `${account_id}:${voterRoleCode ?? ''}`;
+  const handleVoteSuccess = useCallback((txHash: string, accountId: string, voterRoleCode: string | null) => {
+    if (accountId) {
+      const ticketKey = `${accountId}:${voterRoleCode ?? ''}`;
       setPendingVotes((prev) => new Map(prev).set(ticketKey, Date.now()));
     }
     setVotingSigner(null);
@@ -237,7 +237,7 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
             </div>
             <div className="detail-row">
               <span className="detail-label">提案人</span>
-              <code className="detail-value">{accountIdToSs58(info.runtimeUpgradeDetail.proposer_account_id)}</code>
+              <code className="detail-value">{accountIdToSs58(info.runtimeUpgradeDetail.proposerAccountId)}</code>
             </div>
           </div>
         </div>
@@ -266,9 +266,9 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
           <h3>管理员投票状态（{institution.admins.length} 人）</h3>
           <div className="admin-grid">
             {institution.admins.map((admin, i) => {
-              const accountId = admin.account_id;
+              const accountId = admin.accountId;
               const localSigner = adminSigners.find(
-                (signer) => signer.account_id === accountId,
+                (signer) => signer.accountId === accountId,
               );
               const eligibleAssignments = admin.assignments.filter((assignment) =>
                 info.voterRoleSubjects.some((subject) =>

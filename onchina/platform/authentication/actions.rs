@@ -36,12 +36,16 @@ const ADMIN_SECURITY_GRANT_TTL_SECONDS: i64 = 120;
 pub(crate) const ADMIN_SECURITY_GRANT_HEADER: &str = "x-cid-security-grant";
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareAdminActionInput {
     action_type: AdminActionType,
     payload: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CommitAdminActionInput {
     action_id: String,
     /// 冷钱包扫码签名(PasskeyColdSign 档必填;Session 动作不走 commit)。
@@ -54,6 +58,7 @@ pub(crate) struct CommitAdminActionInput {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminSecurityGrantOutput {
     grant_id: String,
     action_type: String,
@@ -71,6 +76,7 @@ pub(crate) enum CommitAdminActionOutput {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareAdminActionOutput {
     action_id: String,
     action_type: String,
@@ -80,8 +86,6 @@ pub(crate) struct PrepareAdminActionOutput {
     auth_type: AdminOperationAuth,
     expires_at: i64,
 }
-
-
 
 pub(crate) struct ActionPreview {
     pub(crate) before_hash: String,
@@ -155,7 +159,10 @@ async fn ensure_account_id_on_chain_admin(
             "actor_cid_number does not match node binding",
         ));
     }
-    let identity = chain_runtime::identity_from_binding_parts(&binding.institution_code, Some(actor_cid_number))
+    let identity = chain_runtime::identity_from_binding_parts(
+        &binding.institution_code,
+        Some(actor_cid_number),
+    )
     .map_err(|err| {
         tracing::error!(error = %err, "node binding is invalid");
         api_error(
@@ -183,7 +190,10 @@ async fn ensure_account_id_on_chain_admin(
 }
 
 /// 本地敏感写也复核当前链上成员，不能利用后台会话清退间隔继续写入。
-pub(crate) async fn require_current_admin(state: &AppState, ctx: &AdminAuthContext) -> Result<(), axum::response::Response> {
+pub(crate) async fn require_current_admin(
+    state: &AppState,
+    ctx: &AdminAuthContext,
+) -> Result<(), axum::response::Response> {
     ensure_signer_on_chain_admin(&state.db, &ctx.institution_cid_number, &ctx.account_id).await
 }
 
@@ -207,11 +217,24 @@ pub(crate) async fn prepare_admin_action(
         Err(resp) => return resp,
     };
     if let Some(owner) = state.modules.owner_of_action(input.action_type.as_str()) {
-        if !state.modules.local_owns(&owner) { return crate::modules::forward_json(&state, &owner, "/api/admin/actions/prepare", &headers, &input).await; }
-        if let Some(module) = &state.modules.local {
-            if let Err(response) = module.authorize_action(&ctx, &input.action_type) { return response; }
+        if !state.modules.local_owns(&owner) {
+            return crate::modules::forward_json(
+                &state,
+                &owner,
+                "/api/admin/actions/prepare",
+                &headers,
+                &input,
+            )
+            .await;
         }
-    } else if input.action_type.requires_module() { return api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable"); }
+        if let Some(module) = &state.modules.local {
+            if let Err(response) = module.authorize_action(&ctx, &input.action_type) {
+                return response;
+            }
+        }
+    } else if input.action_type.requires_module() {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable");
+    }
     if let Err(resp) = ensure_action_role_allowed(&ctx, &input.action_type) {
         return resp;
     }
@@ -231,7 +254,10 @@ pub(crate) async fn prepare_admin_action(
         let action_type = input.action_type.clone();
         let payload = input.payload.clone();
         let module = state.modules.local.clone();
-        move |conn| match &module { Some(module) => module.preview_admin(conn, &ctx, &action_type, &payload), None => preview_action_conn(conn, &ctx, &action_type, &payload) }
+        move |conn| match &module {
+            Some(module) => module.preview_admin(conn, &ctx, &action_type, &payload),
+            None => preview_action_conn(conn, &ctx, &action_type, &payload),
+        }
     }) {
         Ok(v) => v,
         Err(err) => return admin_action_error(err),
@@ -321,14 +347,30 @@ pub(crate) async fn commit_admin_action(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let dispatch_challenge = match state.db.with_client(|conn| repo::get_action_challenge_conn(conn, &input.action_id, &ctx.account_id)) {
+    let dispatch_challenge = match state.db.with_client(|conn| {
+        repo::get_action_challenge_conn(conn, &input.action_id, &ctx.account_id)
+    }) {
         Ok(Some(challenge)) => challenge,
         Ok(None) => return api_error(StatusCode::NOT_FOUND, 1004, "admin action not found"),
         Err(err) => return admin_action_error(err),
     };
-    if let Some(owner) = state.modules.owner_of_action(&dispatch_challenge.action_type) {
-        if !state.modules.local_owns(&owner) { return crate::modules::forward_json(&state, &owner, "/api/admin/actions/commit", &headers, &input).await; }
-    } else if parse_action_type(&dispatch_challenge.action_type).is_ok_and(|action| action.requires_module()) {
+    if let Some(owner) = state
+        .modules
+        .owner_of_action(&dispatch_challenge.action_type)
+    {
+        if !state.modules.local_owns(&owner) {
+            return crate::modules::forward_json(
+                &state,
+                &owner,
+                "/api/admin/actions/commit",
+                &headers,
+                &input,
+            )
+            .await;
+        }
+    } else if parse_action_type(&dispatch_challenge.action_type)
+        .is_ok_and(|action| action.requires_module())
+    {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, 1503, "module unavailable");
     }
     let now = Utc::now();
@@ -372,9 +414,15 @@ pub(crate) async fn commit_admin_action(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if state.modules.owner_of_action(action_type.as_str()).is_some() {
+    if state
+        .modules
+        .owner_of_action(action_type.as_str())
+        .is_some()
+    {
         if let Some(module) = &state.modules.local {
-            if let Err(response) = module.authorize_action(&ctx, &action_type) { return response; }
+            if let Err(response) = module.authorize_action(&ctx, &action_type) {
+                return response;
+            }
         }
     }
     if let Err(resp) = ensure_action_role_allowed(&ctx, &action_type) {
@@ -419,18 +467,25 @@ pub(crate) async fn commit_admin_action(
         ) {
             return resp;
         }
-        if let Err(resp) = ensure_signer_on_chain_admin(&state.db, &actor_cid_number, account_id).await
+        if let Err(resp) =
+            ensure_signer_on_chain_admin(&state.db, &actor_cid_number, account_id).await
         {
             return resp;
         }
     }
     if action_type.is_governance() {
         // 此分支会直接写业务数据，必须在写入前消费一次 Passkey。
-        if let Err(resp) = crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id) {
+        if let Err(resp) = crate::authentication::passkey::require_passkey_assertion(
+            &state,
+            &headers,
+            &ctx.account_id,
+        ) {
             return resp;
         }
         if challenge.auth_type == AdminOperationAuth::Passkey {
-            if let Err(resp) = ensure_signer_on_chain_admin(&state.db, &actor_cid_number, &ctx.account_id).await {
+            if let Err(resp) =
+                ensure_signer_on_chain_admin(&state.db, &actor_cid_number, &ctx.account_id).await
+            {
                 return resp;
             }
         }
@@ -443,7 +498,7 @@ pub(crate) async fn commit_admin_action(
             let mut tx = conn.transaction().map_err(|e| format!("begin action commit failed: {e}"))?;
             repo::lock_node_binding_conn(&mut tx)?;
             // 同一挑战的并发提交串行化，绑定改变也不能与正式写入交错。
-            tx.query_opt("SELECT action_id FROM admin_action_challenges WHERE action_id=$1 AND actor_account_id=$2 FOR UPDATE", &[&challenge.action_id, &ctx.account_id])
+            tx.query_opt("SELECT payload_json->>'actionId' FROM challenge WHERE payload_json->>'actionId'=$1 AND payload_json->>'actorAccountId'=$2 FOR UPDATE", &[&challenge.action_id, &ctx.account_id])
                 .map_err(|e| format!("lock action challenge failed: {e}"))?;
             let conn = &mut tx;
             let now = Utc::now(); // 等待事务锁后重新判断真实有效期。
@@ -529,8 +584,11 @@ pub(crate) fn require_admin_security_grant(
     ensure_action_role_allowed(ctx, &action_type)?;
     // 本地写(Passkey):会话 + passkey 断言 + 角色校验;不再有只会话的写动作。
     if action_type.auth_type() == AdminOperationAuth::Passkey {
-        let passkey =
-            crate::authentication::passkey::require_passkey_assertion(state, headers, &ctx.account_id)?;
+        let passkey = crate::authentication::passkey::require_passkey_assertion(
+            state,
+            headers,
+            &ctx.account_id,
+        )?;
         ensure_action_role_allowed(ctx, &action_type)?;
         return Ok(passkey);
     }
@@ -547,10 +605,17 @@ pub(crate) fn consume_admin_security_grant(
     request_payload: Option<&serde_json::Value>,
     // 同时返回冷签 grant 与 passkey 凭证:grant 供本次动作防重放,
     // 凭证供下游冷签会话创建入口做编译期校验,两者都不能丢。
-) -> Result<(AdminSecurityGrant, crate::authentication::passkey::PasskeyProof), axum::response::Response> {
+) -> Result<
+    (
+        AdminSecurityGrant,
+        crate::authentication::passkey::PasskeyProof,
+    ),
+    axum::response::Response,
+> {
     ensure_action_role_allowed(ctx, &action_type)?;
     // PasskeyColdSign 档:先消费 passkey 断言(fail-closed,绝不降档),再消费冷签 grant。
-    let passkey = crate::authentication::passkey::require_passkey_assertion(state, headers, &ctx.account_id)?;
+    let passkey =
+        crate::authentication::passkey::require_passkey_assertion(state, headers, &ctx.account_id)?;
     if action_type.auth_type() == AdminOperationAuth::Passkey {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
@@ -572,7 +637,7 @@ pub(crate) fn consume_admin_security_grant(
     let result = state.db.with_client(move |conn| {
         let mut tx = conn.transaction().map_err(|e| format!("begin grant consumption failed: {e}"))?;
         repo::lock_node_binding_conn(&mut tx)?;
-        tx.query_opt("SELECT grant_id FROM admin_security_grants WHERE grant_id=$1 AND actor_account_id=$2 FOR UPDATE", &[&grant_id, &ctx.account_id])
+        tx.query_opt("SELECT payload_json->>'grantId' FROM \"grant\" WHERE payload_json->>'grantId'=$1 AND payload_json->>'actorAccountId'=$2 FOR UPDATE", &[&grant_id, &ctx.account_id])
             .map_err(|e| format!("lock security grant failed: {e}"))?;
         let conn = &mut tx;
         let now = Utc::now(); // 排队等待不能延长一次性授权的有效期。
@@ -627,15 +692,22 @@ pub(crate) fn consume_admin_security_grant(
 }
 
 pub(crate) fn preview_action_conn(
-    conn: &mut impl postgres::GenericClient, ctx: &AdminAuthContext, action_type: &AdminActionType, payload: &serde_json::Value,
+    conn: &mut impl postgres::GenericClient,
+    ctx: &AdminAuthContext,
+    action_type: &AdminActionType,
+    payload: &serde_json::Value,
 ) -> Result<ActionPreview, String> {
     match action_type {
         AdminActionType::NodeBindingUnbind => preview_node_binding_unbind_conn(conn, action_type),
-        AdminActionType::InstitutionCreateAccount | AdminActionType::InstitutionDeleteAccount | AdminActionType::InstitutionDeleteDocument => {
+        AdminActionType::InstitutionCreateAccount
+        | AdminActionType::InstitutionDeleteAccount
+        | AdminActionType::InstitutionDeleteDocument => {
             precheck_institution_target_scope_conn(conn, ctx, payload)?;
             preview_security_action(action_type, payload)
         }
-        action if action.requires_module() => Err("http:forbidden:module action unavailable".into()),
+        action if action.requires_module() => {
+            Err("http:forbidden:module action unavailable".into())
+        }
         _ => preview_security_action(action_type, payload),
     }
 }
@@ -650,7 +722,7 @@ pub(crate) fn precheck_institution_target_scope_conn(
     let cid_number = payload
         .get("target")
         .and_then(|v| v.as_str())
-        .or_else(|| payload.get("cid_number").and_then(|v| v.as_str()))
+        .or_else(|| payload.get("cidNumber").and_then(|v| v.as_str()))
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| "http:bad_request:cid_number is required".to_string())?;
@@ -658,14 +730,16 @@ pub(crate) fn precheck_institution_target_scope_conn(
         return Err("http:not_found:institution not found".to_string());
     };
     let scope = crate::authorization::rules::get_visible_scope(ctx);
-    if !scope.includes_institution(&inst.cid_number, &inst.province_name, &inst.city_name, &inst.town_name)
-    {
+    if !scope.includes_institution(
+        &inst.cid_number,
+        &inst.province_name,
+        &inst.city_name,
+        &inst.town_name,
+    ) {
         return Err("http:forbidden:institution out of current admin scope".to_string());
     }
     Ok(())
 }
-
-
 
 pub(crate) fn preview_security_action(
     action_type: &AdminActionType,
@@ -674,9 +748,9 @@ pub(crate) fn preview_security_action(
     let target = payload
         .get("target")
         .and_then(|v| v.as_str())
-        .or_else(|| payload.get("cid_number").and_then(|v| v.as_str()))
-        .or_else(|| payload.get("cid_number").and_then(|v| v.as_str()))
-        .or_else(|| payload.get("challenge_id").and_then(|v| v.as_str()))
+        .or_else(|| payload.get("cidNumber").and_then(|v| v.as_str()))
+        .or_else(|| payload.get("cidNumber").and_then(|v| v.as_str()))
+        .or_else(|| payload.get("challengeId").and_then(|v| v.as_str()))
         .unwrap_or("*");
     let target = normalize_security_target(target);
     let request_hash = hash_json(payload);
@@ -688,29 +762,44 @@ pub(crate) fn preview_security_action(
     })
 }
 
-
-
-
-
-
-
 fn recheck_preview_conn(
-    conn: &mut postgres::Transaction<'_>, ctx: &AdminAuthContext, challenge: &AdminActionChallenge,
+    conn: &mut postgres::Transaction<'_>,
+    ctx: &AdminAuthContext,
+    challenge: &AdminActionChallenge,
     module: Option<&dyn crate::modules::model::ModuleBusiness>,
 ) -> Result<(), String> {
-    let action = parse_action_type(&challenge.action_type).map_err(|_| "http:bad_request:unknown action_type")?;
-    let preview = match module { Some(module) => module.preview_admin_transaction(conn, ctx, &action, &challenge.request_payload)?, None => preview_action_conn(conn, ctx, &action, &challenge.request_payload)? };
-    if preview.before_hash != challenge.before_hash { return Err("http:conflict:admin action state changed".into()); }
+    let action = parse_action_type(&challenge.action_type)
+        .map_err(|_| "http:bad_request:unknown action_type")?;
+    let preview = match module {
+        Some(module) => {
+            module.preview_admin_transaction(conn, ctx, &action, &challenge.request_payload)?
+        }
+        None => preview_action_conn(conn, ctx, &action, &challenge.request_payload)?,
+    };
+    if preview.before_hash != challenge.before_hash {
+        return Err("http:conflict:admin action state changed".into());
+    }
     Ok(())
 }
 
 fn apply_action_conn(
-    conn: &mut postgres::Transaction<'_>, ctx: &AdminAuthContext, challenge: &AdminActionChallenge,
+    conn: &mut postgres::Transaction<'_>,
+    ctx: &AdminAuthContext,
+    challenge: &AdminActionChallenge,
     module: Option<&dyn crate::modules::model::ModuleBusiness>,
 ) -> Result<serde_json::Value, String> {
-    let action = parse_action_type(&challenge.action_type).map_err(|_| "http:bad_request:unknown action_type")?;
-    if action == AdminActionType::NodeBindingUnbind { return apply_node_binding_unbind_conn(conn); }
-    match module { Some(module) => module.apply_admin_transaction(conn, ctx, challenge), None => Err("http:bad_request:business action cannot be applied by admin governance endpoint".into()) }
+    let action = parse_action_type(&challenge.action_type)
+        .map_err(|_| "http:bad_request:unknown action_type")?;
+    if action == AdminActionType::NodeBindingUnbind {
+        return apply_node_binding_unbind_conn(conn);
+    }
+    match module {
+        Some(module) => module.apply_admin_transaction(conn, ctx, challenge),
+        None => Err(
+            "http:bad_request:business action cannot be applied by admin governance endpoint"
+                .into(),
+        ),
+    }
 }
 
 pub(crate) fn preview_node_binding_unbind_conn(
@@ -725,9 +814,9 @@ pub(crate) fn preview_node_binding_unbind_conn(
     let institution_code = binding.institution_code.clone();
     let after = json!({
         "unbind": true,
-        "binding_id": binding_id,
-        "candidate_id": candidate_id,
-        "institution_code": institution_code,
+        "bindingId": binding_id,
+        "candidateId": candidate_id,
+        "institutionCode": institution_code,
     });
     Ok(ActionPreview {
         before_hash: hash_serialized(&binding),
@@ -737,7 +826,9 @@ pub(crate) fn preview_node_binding_unbind_conn(
     })
 }
 
-pub(crate) fn apply_node_binding_unbind_conn(conn: &mut impl postgres::GenericClient) -> Result<serde_json::Value, String> {
+pub(crate) fn apply_node_binding_unbind_conn(
+    conn: &mut impl postgres::GenericClient,
+) -> Result<serde_json::Value, String> {
     let Some(binding) = repo::get_active_node_binding_conn(conn)? else {
         return Err("http:conflict:node binding missing".to_string());
     };
@@ -747,17 +838,13 @@ pub(crate) fn apply_node_binding_unbind_conn(conn: &mut impl postgres::GenericCl
     }
     let removed_sessions = repo::delete_all_admin_sessions_conn(conn)?;
     Ok(json!({
-        "binding_id": binding.binding_id,
-        "candidate_id": binding.candidate_id,
-        "institution_code": binding.institution_code,
+        "bindingId": binding.binding_id,
+        "candidateId": binding.candidate_id,
+        "institutionCode": binding.institution_code,
         "status": "INACTIVE",
-        "removed_sessions": removed_sessions,
+        "removedSessions": removed_sessions,
     }))
 }
-
-
-
-
 
 pub(crate) fn hash_serialized<T: Serialize>(value: &T) -> String {
     let encoded = serde_json::to_vec(value).unwrap_or_default();
@@ -772,10 +859,6 @@ fn normalize_security_target(target: &str) -> String {
         trimmed.to_string()
     }
 }
-
-
-
-
 
 fn admin_action_error(err: String) -> axum::response::Response {
     if let Some(message) = err.strip_prefix("http:bad_request:") {
@@ -809,33 +892,90 @@ mod action_tests {
         let sandbox = crate::core::db::IsolatedTestDb::new();
         let actor = format!("0x{}", "11".repeat(32));
         let now = Utc::now();
-        let institution = format!("GZ018-CREG{}-000000001-2026", primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false));
-        let binding = NodeInstitutionBinding { binding_id: "binding-test".into(), candidate_id: "candidate-test".into(), institution_code: "CREG".into(), institution_cid_number: institution.clone(),
-            bound_account_id: actor.clone(), bound_at: now, status: "ACTIVE".into() };
-        let ctx = AdminAuthContext { account_id: actor.clone(), institution_cid_number: institution.clone(), institution_code: "CREG".into(), admin_level: Some("CITY".into()), family_name: "测".into(), given_name: "试".into(),
-            scope_province_name: Some("贵州省".into()), scope_city_name: Some("绥阳市".into()), scope_town_name: None, cid_short_name: None };
+        let institution = format!(
+            "GZ018-CREG{}-000000001-2026",
+            primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false)
+        );
+        let binding = NodeInstitutionBinding {
+            binding_id: "binding-test".into(),
+            candidate_id: "candidate-test".into(),
+            institution_code: "CREG".into(),
+            institution_cid_number: institution.clone(),
+            bound_account_id: actor.clone(),
+            bound_at: now,
+            status: "ACTIVE".into(),
+        };
+        let ctx = AdminAuthContext {
+            account_id: actor.clone(),
+            institution_cid_number: institution.clone(),
+            institution_code: "CREG".into(),
+            admin_level: Some("CITY".into()),
+            family_name: "测".into(),
+            given_name: "试".into(),
+            scope_province_name: Some("贵州省".into()),
+            scope_city_name: Some("绥阳市".into()),
+            scope_town_name: None,
+            cid_short_name: None,
+        };
         let payload = json!({"target":"subject-a"});
-        let grant = AdminSecurityGrant { grant_id: "grant-test".into(), action_type: "INSTITUTION_UPDATE".into(), actor_account_id: actor.clone(), actor_institution_code: "CREG".into(), actor_cid_number: institution,
-            actor_province_name: "贵州省".into(), actor_city_name: Some("绥阳市".into()), auth_type: AdminOperationAuth::PasskeyColdSign, target: "subject-a".into(), payload_hash: hash_json(&payload), issued_at: now, expires_at: now+Duration::minutes(2), consumed: false };
+        let grant = AdminSecurityGrant {
+            grant_id: "grant-test".into(),
+            action_type: "INSTITUTION_UPDATE".into(),
+            actor_account_id: actor.clone(),
+            actor_institution_code: "CREG".into(),
+            actor_cid_number: institution,
+            actor_province_name: "贵州省".into(),
+            actor_city_name: Some("绥阳市".into()),
+            auth_type: AdminOperationAuth::PasskeyColdSign,
+            target: "subject-a".into(),
+            payload_hash: hash_json(&payload),
+            issued_at: now,
+            expires_at: now + Duration::minutes(2),
+            consumed: false,
+        };
         sandbox.db.with_client(|conn| {
             repo::upsert_active_node_binding_conn(conn, &binding)?; repo::insert_security_grant_conn(conn, &grant)?;
             for token in ["assert-a","assert-b"] {
-                conn.execute("INSERT INTO admin_passkey_assertions(assertion_id,account_id,expires_at) VALUES($1,$2,$3)", &[&token,&actor,&(now+Duration::minutes(2))]).unwrap();
+                conn.execute("INSERT INTO assertion(assertion_id,account_id,expires_at) VALUES($1,$2,$3)", &[&token,&actor,&(now+Duration::minutes(2))]).unwrap();
             }
             Ok(())
         }).unwrap();
-        let state = AppState { db: sandbox.db.clone(), rate_limiter: std::sync::Arc::new(LocalRateLimiter::new()), modules: std::sync::Arc::new(crate::modules::ModuleCatalog::new(crate::local_module())) };
+        let state = AppState {
+            db: sandbox.db.clone(),
+            rate_limiter: std::sync::Arc::new(LocalRateLimiter::new()),
+            modules: std::sync::Arc::new(crate::modules::ModuleCatalog::new(crate::local_module())),
+        };
         let barrier = std::sync::Barrier::new(2);
         let successes = std::thread::scope(|scope| {
-            let handles = ["assert-a","assert-b"].into_iter().map(|token| {
-                let state = &state; let ctx = &ctx; let payload = &payload; let barrier = &barrier;
-                scope.spawn(move || {
-                    let mut headers = HeaderMap::new(); headers.insert("x-passkey-assertion", token.parse().unwrap()); headers.insert(ADMIN_SECURITY_GRANT_HEADER, "grant-test".parse().unwrap());
-                    barrier.wait();
-                    consume_admin_security_grant(state, &headers, ctx, AdminActionType::InstitutionUpdate, "subject-a", Some(payload)).is_ok()
+            let handles = ["assert-a", "assert-b"]
+                .into_iter()
+                .map(|token| {
+                    let state = &state;
+                    let ctx = &ctx;
+                    let payload = &payload;
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        let mut headers = HeaderMap::new();
+                        headers.insert("x-passkey-assertion", token.parse().unwrap());
+                        headers.insert(ADMIN_SECURITY_GRANT_HEADER, "grant-test".parse().unwrap());
+                        barrier.wait();
+                        consume_admin_security_grant(
+                            state,
+                            &headers,
+                            ctx,
+                            AdminActionType::InstitutionUpdate,
+                            "subject-a",
+                            Some(payload),
+                        )
+                        .is_ok()
+                    })
                 })
-            }).collect::<Vec<_>>();
-            handles.into_iter().map(|handle| handle.join().unwrap()).filter(|success| *success).count()
+                .collect::<Vec<_>>();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .filter(|success| *success)
+                .count()
         });
         assert_eq!(successes, 1);
     }
@@ -846,45 +986,153 @@ mod action_tests {
         let sandbox = crate::core::db::IsolatedTestDb::new();
         let actor = format!("0x{}", "11".repeat(32));
         let now = Utc::now();
-        let institution = format!("GZ018-CREG{}-000000001-2026", primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false));
-        let binding = NodeInstitutionBinding { binding_id: "binding-test".into(), candidate_id: "candidate-test".into(), institution_code: "CREG".into(), institution_cid_number: institution.clone(),
-            bound_account_id: actor.clone(), bound_at: now, status: "ACTIVE".into() };
-        let challenge = sandbox.db.with_client(|conn| {
-            repo::upsert_active_node_binding_conn(conn, &binding)?;
-            repo::upsert_admin_conn(conn, &AdminUser { id: 1, account_id: actor.clone(), family_name: "测".into(), given_name: "试".into(), institution_code: "CREG".into(), institution_cid_number: Some(institution.clone()), built_in: false,
-                creator_account_id: actor.clone(), created_at: now, updated_at: None, city_name: "绥阳市".into() })?;
-            repo::insert_admin_session_conn(conn, &AdminSession { token: "test-session".into(), account_id: actor.clone(), institution_code: "CREG".into(), candidate_id: binding.candidate_id.clone(), expire_at: now+Duration::hours(1), last_active_at: now })?;
-            let preview = preview_node_binding_unbind_conn(conn, &AdminActionType::NodeBindingUnbind)?;
-            let challenge = AdminActionChallenge { action_id: "unbind-test".into(), action_type: "NODE_BINDING_UNBIND".into(), actor_account_id: actor.clone(), actor_institution_code: "CREG".into(), actor_cid_number: institution.clone(),
-                actor_province_name: "贵州省".into(), actor_city_name: Some("绥阳市".into()), auth_type: AdminOperationAuth::Passkey, target: preview.target, payload_text: String::new(), payload_hash: "request-hash".into(),
-                before_hash: preview.before_hash, after_hash: preview.after_hash, request_payload: json!({}), issued_at: now, expires_at: now+Duration::minutes(2), consumed: false };
-            repo::upsert_action_challenge_conn(conn, &challenge)?;
-            Ok(challenge)
-        }).unwrap();
-        let state = AppState { db: sandbox.db.clone(), rate_limiter: std::sync::Arc::new(LocalRateLimiter::new()), modules: std::sync::Arc::new(crate::modules::ModuleCatalog::new(crate::local_module())) };
-        let mut headers = HeaderMap::new(); headers.insert("authorization", "Bearer test-session".parse().unwrap());
-        let mut expired = challenge.clone(); expired.expires_at = Utc::now()-Duration::seconds(1);
-        sandbox.db.with_client(|conn| repo::upsert_action_challenge_conn(conn, &expired)).unwrap();
-        let expired_response = commit_admin_action(State(state.clone()), headers.clone(), Json(CommitAdminActionInput { action_id: challenge.action_id.clone(), account_id: None, signature: None, payload_hash: Some(challenge.payload_hash.clone()) })).await.into_response();
-        assert!(matches!(expired_response.status(), StatusCode::NOT_FOUND | StatusCode::UNPROCESSABLE_ENTITY));
-        sandbox.db.with_client(|conn| repo::upsert_action_challenge_conn(conn, &challenge)).unwrap();
-        let response = commit_admin_action(State(state), headers, Json(CommitAdminActionInput { action_id: challenge.action_id.clone(), account_id: None, signature: None, payload_hash: Some(challenge.payload_hash.clone()) })).await.into_response();
+        let institution = format!(
+            "GZ018-CREG{}-000000001-2026",
+            primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false)
+        );
+        let binding = NodeInstitutionBinding {
+            binding_id: "binding-test".into(),
+            candidate_id: "candidate-test".into(),
+            institution_code: "CREG".into(),
+            institution_cid_number: institution.clone(),
+            bound_account_id: actor.clone(),
+            bound_at: now,
+            status: "ACTIVE".into(),
+        };
+        let challenge = sandbox
+            .db
+            .with_client(|conn| {
+                repo::upsert_active_node_binding_conn(conn, &binding)?;
+                repo::upsert_admin_conn(
+                    conn,
+                    &AdminUser {
+                        id: 1,
+                        account_id: actor.clone(),
+                        family_name: "测".into(),
+                        given_name: "试".into(),
+                        institution_code: "CREG".into(),
+                        institution_cid_number: Some(institution.clone()),
+                        built_in: false,
+                        creator_account_id: actor.clone(),
+                        created_at: now,
+                        updated_at: None,
+                        city_name: "绥阳市".into(),
+                    },
+                )?;
+                repo::insert_admin_session_conn(
+                    conn,
+                    &AdminSession {
+                        token: "test-session".into(),
+                        account_id: actor.clone(),
+                        institution_code: "CREG".into(),
+                        candidate_id: binding.candidate_id.clone(),
+                        expires_at: now + Duration::hours(1),
+                        last_active_at: now,
+                    },
+                )?;
+                let preview =
+                    preview_node_binding_unbind_conn(conn, &AdminActionType::NodeBindingUnbind)?;
+                let challenge = AdminActionChallenge {
+                    action_id: "unbind-test".into(),
+                    action_type: "NODE_BINDING_UNBIND".into(),
+                    actor_account_id: actor.clone(),
+                    actor_institution_code: "CREG".into(),
+                    actor_cid_number: institution.clone(),
+                    actor_province_name: "贵州省".into(),
+                    actor_city_name: Some("绥阳市".into()),
+                    auth_type: AdminOperationAuth::Passkey,
+                    target: preview.target,
+                    payload_text: String::new(),
+                    payload_hash: "request-hash".into(),
+                    before_hash: preview.before_hash,
+                    after_hash: preview.after_hash,
+                    request_payload: json!({}),
+                    issued_at: now,
+                    expires_at: now + Duration::minutes(2),
+                    consumed: false,
+                };
+                repo::upsert_action_challenge_conn(conn, &challenge)?;
+                Ok(challenge)
+            })
+            .unwrap();
+        let state = AppState {
+            db: sandbox.db.clone(),
+            rate_limiter: std::sync::Arc::new(LocalRateLimiter::new()),
+            modules: std::sync::Arc::new(crate::modules::ModuleCatalog::new(crate::local_module())),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer test-session".parse().unwrap());
+        let mut expired = challenge.clone();
+        expired.expires_at = Utc::now() - Duration::seconds(1);
+        sandbox
+            .db
+            .with_client(|conn| repo::upsert_action_challenge_conn(conn, &expired))
+            .unwrap();
+        let expired_response = commit_admin_action(
+            State(state.clone()),
+            headers.clone(),
+            Json(CommitAdminActionInput {
+                action_id: challenge.action_id.clone(),
+                account_id: None,
+                signature: None,
+                payload_hash: Some(challenge.payload_hash.clone()),
+            }),
+        )
+        .await
+        .into_response();
+        assert!(matches!(
+            expired_response.status(),
+            StatusCode::NOT_FOUND | StatusCode::UNPROCESSABLE_ENTITY
+        ));
+        sandbox
+            .db
+            .with_client(|conn| repo::upsert_action_challenge_conn(conn, &challenge))
+            .unwrap();
+        let response = commit_admin_action(
+            State(state),
+            headers,
+            Json(CommitAdminActionInput {
+                action_id: challenge.action_id.clone(),
+                account_id: None,
+                signature: None,
+                payload_hash: Some(challenge.payload_hash.clone()),
+            }),
+        )
+        .await
+        .into_response();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        sandbox.db.with_client(|conn| {
-            let mut tx = conn.transaction().unwrap(); repo::lock_node_binding_conn(&mut tx)?;
-            apply_node_binding_unbind_conn(&mut tx)?;
-            let mut consumed = challenge.clone(); consumed.consumed = true; repo::upsert_action_challenge_conn(&mut tx, &consumed)?;
-            drop(tx); // 模拟正式提交前失败，绑定、会话与挑战必须一起回滚。
-            assert!(repo::get_active_node_binding_conn(conn)?.is_some());
-            assert!(repo::get_admin_session_conn(conn, "test-session")?.is_some());
-            assert!(!repo::get_action_challenge_conn(conn, &challenge.action_id, &actor)?.unwrap().consumed);
-            let mut tx = conn.transaction().unwrap(); repo::lock_node_binding_conn(&mut tx)?;
-            apply_node_binding_unbind_conn(&mut tx)?; repo::upsert_action_challenge_conn(&mut tx, &consumed)?; tx.commit().unwrap();
-            assert!(repo::get_active_node_binding_conn(conn)?.is_none());
-            assert!(repo::get_admin_session_conn(conn, "test-session")?.is_none());
-            assert!(repo::get_action_challenge_conn(conn, &challenge.action_id, &actor)?.unwrap().consumed);
-            assert!(apply_node_binding_unbind_conn(conn).is_err());
-            Ok(())
-        }).unwrap();
+        sandbox
+            .db
+            .with_client(|conn| {
+                let mut tx = conn.transaction().unwrap();
+                repo::lock_node_binding_conn(&mut tx)?;
+                apply_node_binding_unbind_conn(&mut tx)?;
+                let mut consumed = challenge.clone();
+                consumed.consumed = true;
+                repo::upsert_action_challenge_conn(&mut tx, &consumed)?;
+                drop(tx); // 模拟正式提交前失败，绑定、会话与挑战必须一起回滚。
+                assert!(repo::get_active_node_binding_conn(conn)?.is_some());
+                assert!(repo::get_admin_session_conn(conn, "test-session")?.is_some());
+                assert!(
+                    !repo::get_action_challenge_conn(conn, &challenge.action_id, &actor)?
+                        .unwrap()
+                        .consumed
+                );
+                let mut tx = conn.transaction().unwrap();
+                repo::lock_node_binding_conn(&mut tx)?;
+                apply_node_binding_unbind_conn(&mut tx)?;
+                repo::upsert_action_challenge_conn(&mut tx, &consumed)?;
+                tx.commit().unwrap();
+                assert!(repo::get_active_node_binding_conn(conn)?.is_none());
+                assert!(repo::get_admin_session_conn(conn, "test-session")?.is_none());
+                assert!(
+                    repo::get_action_challenge_conn(conn, &challenge.action_id, &actor)?
+                        .unwrap()
+                        .consumed
+                );
+                assert!(apply_node_binding_unbind_conn(conn).is_err());
+                Ok(())
+            })
+            .unwrap();
     }
 }

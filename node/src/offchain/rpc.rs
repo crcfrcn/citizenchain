@@ -7,7 +7,7 @@
 //! - 本文件定义 **JSON-RPC trait 与纯 Rust 实现**,`citizenchain/node/src/core/rpc.rs`
 //!   委托到这里。
 
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 use jsonrpsee::{
     core::RpcResult,
     proc_macros::rpc,
@@ -21,9 +21,10 @@ use sp_runtime::AccountId32;
 use sp_storage::StorageKey;
 use std::sync::Arc;
 
-use super::ledger::{NodePaymentIntent, OffchainLedger};
+use super::ledger::OffchainLedger;
 use super::settlement::packer::BatchSigner;
 use crate::core::service::FullClient;
+use offchain::batch_item::PaymentIntent;
 
 /// 扫码支付 pallet 在 runtime `construct_runtime!` 中的实例名。与
 /// `reserve.rs` 保持一致,storage key 前缀计算 `twox_128(PALLET_NAME)` 依赖它。
@@ -216,15 +217,16 @@ impl OffchainClearingRpcServer for OffchainClearingRpcImpl {
         intent_hex: String,
         payer_sig_hex: String,
     ) -> RpcResult<SubmitPaymentResp> {
-        // 1. 解析 intent SCALE hex → NodePaymentIntent
+        // 1. 解析 intent SCALE hex → PaymentIntent
         let intent_bytes = decode_hex(&intent_hex)
             .map_err(|e| rpc_err(ErrorCode::InvalidParams, format!("intent_hex 解析失败:{e}")))?;
-        let intent = NodePaymentIntent::decode(&mut &intent_bytes[..]).map_err(|e| {
-            rpc_err(
-                ErrorCode::InvalidParams,
-                format!("PaymentIntent SCALE 反序列化失败:{e}"),
-            )
-        })?;
+        let intent = PaymentIntent::<AccountId32, u32>::decode_all(&mut &intent_bytes[..])
+            .map_err(|e| {
+                rpc_err(
+                    ErrorCode::InvalidParams,
+                    format!("PaymentIntent SCALE 反序列化失败:{e}"),
+                )
+            })?;
 
         // 2. 解析签名 hex → 64 字节
         let sig_bytes = decode_hex(&payer_sig_hex)
@@ -245,14 +247,14 @@ impl OffchainClearingRpcServer for OffchainClearingRpcImpl {
                 "recipient_bank_cid 不属于当前清算行节点",
             ));
         }
-        let payer_bank = self.read_user_bank(&intent.payer)?;
+        let payer_bank = self.read_user_bank(&intent.payer_account_id)?;
         if payer_bank.as_ref() != Some(&intent.payer_bank_cid) {
             return Err(rpc_err(
                 ErrorCode::InvalidParams,
                 "payer_bank_cid 与链上 UserBank[payer] 不一致",
             ));
         }
-        let recipient_bank = self.read_user_bank(&intent.recipient)?;
+        let recipient_bank = self.read_user_bank(&intent.recipient_account_id)?;
         if recipient_bank.as_ref() != Some(&intent.recipient_bank_cid) {
             return Err(rpc_err(
                 ErrorCode::InvalidParams,
@@ -294,8 +296,8 @@ impl OffchainClearingRpcServer for OffchainClearingRpcImpl {
         let cross_bank = intent.payer_bank_cid != self.bank_cid;
         let (chain_confirmed, chain_nonce) = if cross_bank {
             (
-                Some(self.read_deposit_balance(&intent.payer_bank_cid, &intent.payer)?),
-                Some(self.read_l3_payment_nonce(&intent.payer)?),
+                Some(self.read_deposit_balance(&intent.payer_bank_cid, &intent.payer_account_id)?),
+                Some(self.read_l3_payment_nonce(&intent.payer_account_id)?),
             )
         } else {
             (None, None)
@@ -362,7 +364,7 @@ fn calc_fee(transfer_amount: u128, rate_bp: u32) -> Result<u128, &'static str> {
 /// 注:citizenapp 侧 ACK 验签为 Step 3 待启用;启用时须按同一布局补跨语言金标。
 fn l2_ack_signing_message(
     bank_cid: &[u8],
-    intent: &NodePaymentIntent,
+    intent: &PaymentIntent<AccountId32, u32>,
     payer_sig: &[u8; 64],
     accepted_at: u64,
 ) -> [u8; 32] {
@@ -581,12 +583,18 @@ mod tests {
 
     #[test]
     fn l2_ack_signing_message_changes_with_inputs() {
-        let intent = NodePaymentIntent {
+        let intent = PaymentIntent {
             tx_id: sp_core::H256::repeat_byte(1),
-            payer: acc(1),
-            payer_bank_cid: b"PB001-PRB08-000000000-2026".to_vec(),
-            recipient: acc(3),
-            recipient_bank_cid: b"RB001-PRB08-000000000-2026".to_vec(),
+            payer_account_id: acc(1),
+            payer_bank_cid: b"PB001-PRB08-000000000-2026"
+                .to_vec()
+                .try_into()
+                .expect("测试CID在原链边界内"),
+            recipient_account_id: acc(3),
+            recipient_bank_cid: b"RB001-PRB08-000000000-2026"
+                .to_vec()
+                .try_into()
+                .expect("测试CID在原链边界内"),
             amount: 10_000,
             fee: 5,
             nonce: 1,

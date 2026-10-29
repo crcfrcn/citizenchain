@@ -44,33 +44,33 @@ import { submitChainSign, useChainSign } from '../../platform/frontend/core_useC
 const INSTITUTION_CREATION_ENABLED = false;
 
 interface FormValues {
-  subject_property: string;
+  subjectProperty: string;
   p1: string;
-  province_name: string;
-  city_name: string;
-  town_name?: string;
+  provinceName: string;
+  cityName: string;
+  townName?: string;
   institution: string;
-  education_type?: EducationType;
-  private_type?: PrivateType;
-  partnership_kind?: PartnershipKind;
+  educationType?: EducationType;
+  privateType?: PrivateType;
+  partnershipKind?: PartnershipKind;
   /** 私权/教育机构/手动公权机构创建时必填全称。 */
-  cid_full_name?: string;
+  cidFullName?: string;
   /** 私权/教育机构/手动公权机构创建时必填简称。 */
-  cid_short_name?: string;
+  cidShortName?: string;
   /** 需挂靠的非法人必填;个体经营/无限合伙不接受所属法人。 */
-  parent_cid_number?: string;
+  parentCidNumber?: string;
   admins: {
-    account_id: string;
-    family_name?: string;
-    given_name?: string;
+    accountId: string;
+    familyName?: string;
+    givenName?: string;
   }[];
 }
 
 type CheckCidFullName = (
   auth: AdminAuth,
   cidFullName: string,
-  subject_property?: string,
-  city_name?: string,
+  subjectProperty?: string,
+  cityName?: string,
 ) => Promise<{ exists: boolean }>;
 
 type CreateInstitution = (
@@ -133,11 +133,11 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
   const isPrivate = category === 'PRIVATE_INSTITUTION';
   const isGov = category === 'GOV_INSTITUTION';
   const isEducation = category === 'EDUCATION_FORM';
-  const watchedPartnershipKind = Form.useWatch('partnership_kind', form) as PartnershipKind | undefined;
-  const watchedEducationType = Form.useWatch('education_type', form) as EducationType | undefined;
+  const watchedPartnershipKind = Form.useWatch('partnershipKind', form) as PartnershipKind | undefined;
+  const watchedEducationType = Form.useWatch('educationType', form) as EducationType | undefined;
   const watchedInstitution = Form.useWatch('institution', form) as string | undefined;
-  const watchedProvinceName = Form.useWatch('province_name', form) as string | undefined;
-  const watchedCityName = Form.useWatch('city_name', form) as string | undefined;
+  const watchedProvinceName = Form.useWatch('provinceName', form) as string | undefined;
+  const watchedCityName = Form.useWatch('cityName', form) as string | undefined;
   const privateRule = isPrivate && privateType
     ? privateRuleFor(privateType, watchedPartnershipKind)
     : null;
@@ -223,25 +223,25 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
       : undefined;
     const defaultCollectName = isPrivate || isEducation || isGov;
     form.setFieldsValue({
-      subject_property: defaultSubjectProperty,
+      subjectProperty: defaultSubjectProperty,
       p1: privateType === 'ASSOCIATION'
         ? undefined
         : defaultRule
           ? defaultRule.p1
           : p1LocksForSubject(defaultSubjectProperty, null).value,
-      province_name: lockedProvinceName ?? '',
-      city_name: lockedCityName ?? '',
-      town_name: undefined,
+      provinceName: lockedProvinceName ?? '',
+      cityName: lockedCityName ?? '',
+      townName: undefined,
       institution: defaultInstitution,
-      education_type: defaultEducationType,
-      private_type: privateType,
-      partnership_kind: defaultPartnershipKind,
-      cid_full_name: defaultCollectName ? '' : undefined,
-      cid_short_name: defaultCollectName ? '' : undefined,
-      parent_cid_number: undefined,
+      educationType: defaultEducationType,
+      privateType: privateType,
+      partnershipKind: defaultPartnershipKind,
+      cidFullName: defaultCollectName ? '' : undefined,
+      cidShortName: defaultCollectName ? '' : undefined,
+      parentCidNumber: undefined,
       admins: [
-        { account_id: '', family_name: '管理', given_name: '员' },
-        { account_id: '', family_name: '管理', given_name: '员' },
+        { accountId: '', familyName: '管理', givenName: '员' },
+        { accountId: '', familyName: '管理', givenName: '员' },
       ],
     });
   }, [open, category, privateType, lockedProvinceName, lockedCityName]);
@@ -252,7 +252,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
     setCitiesLoading(true);
     loadCachedCidCities(auth, lockedProvinceName)
       .then((rows) => {
-        if (!cancelled) setCities(rows.filter((c) => c.city_code !== '000'));
+        if (!cancelled) setCities(rows.filter((c) => c.cityCode !== '000'));
       })
       .catch((err) => {
         if (!cancelled) {
@@ -266,20 +266,20 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, lockedProvinceName, auth.access_token]);
+  }, [open, lockedProvinceName, auth.accessToken]);
 
   useEffect(() => {
     if (!open || !requiresTown) {
       setTowns([]);
-      form.setFieldsValue({ town_name: undefined });
+      form.setFieldsValue({ townName: undefined });
       return;
     }
     const provinceName = (watchedProvinceName ?? '').trim();
     const cityName = (watchedCityName ?? '').trim();
-    const cityCode = cities.find((c) => c.city_name === cityName)?.city_code;
+    const cityCode = cities.find((c) => c.cityName === cityName)?.cityCode;
     if (!provinceName || !cityCode) {
       setTowns([]);
-      form.setFieldsValue({ town_name: undefined });
+      form.setFieldsValue({ townName: undefined });
       return;
     }
     let cancelled = false;
@@ -300,26 +300,26 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, requiresTown, watchedProvinceName, watchedCityName, cities, auth.access_token]);
+  }, [open, requiresTown, watchedProvinceName, watchedCityName, cities, auth.accessToken]);
 
-  const onSubjectPropertyChange = (subject_property: string) => {
-    setCurrentSubjectProperty(subject_property);
+  const onSubjectPropertyChange = (subjectProperty: string) => {
+    setCurrentSubjectProperty(subjectProperty);
     setCidFullNameAvailable(null);
     // 切主体属性必须重置所属法人与 p1(F 的 p1 是父级继承值,残留会提交旧值)。
     resetParentState();
-    const nextInstitution = institutionChoicesFor(category, subject_property)[0]?.value;
-    const nextEducationType = isEducation && subject_property !== 'F'
-      ? (form.getFieldValue('education_type') ?? SCHOOL_EDUCATION_TYPE_OPTIONS[0]?.value)
+    const nextInstitution = institutionChoicesFor(category, subjectProperty)[0]?.value;
+    const nextEducationType = isEducation && subjectProperty !== 'F'
+      ? (form.getFieldValue('educationType') ?? SCHOOL_EDUCATION_TYPE_OPTIONS[0]?.value)
       : undefined;
     const collectName =
-      isEducation || (isGov && subject_property === 'G');
+      isEducation || (isGov && subjectProperty === 'G');
     form.setFieldsValue({
       institution: nextInstitution,
-      education_type: nextEducationType,
-      p1: p1LocksForSubject(subject_property, null).value,
-      parent_cid_number: undefined,
-      town_name: undefined,
-      cid_full_name: collectName ? (form.getFieldValue('cid_full_name') ?? '') : undefined,
+      educationType: nextEducationType,
+      p1: p1LocksForSubject(subjectProperty, null).value,
+      parentCidNumber: undefined,
+      townName: undefined,
+      cidFullName: collectName ? (form.getFieldValue('cidFullName') ?? '') : undefined,
     });
   };
 
@@ -336,11 +336,11 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
     const rule = privateRuleFor(privateType, kind);
     setCurrentSubjectProperty(rule.subjectProperty);
     form.setFieldsValue({
-      subject_property: rule.subjectProperty,
+      subjectProperty: rule.subjectProperty,
       p1: rule.p1,
       institution: rule.institution,
-      partnership_kind: kind,
-      parent_cid_number: undefined,
+      partnershipKind: kind,
+      parentCidNumber: undefined,
     });
     resetParentState();
   };
@@ -348,23 +348,23 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
   // ── 所属法人搜索/选定(仅 F)────────────────────────────────
 
   const parentSearchOptions = (): SearchParentsOptions | null => {
-    const province_name = (form.getFieldValue('province_name') ?? '').trim();
-    const city_name = (form.getFieldValue('city_name') ?? '').trim();
-    if (!province_name || !city_name) {
+    const provinceName = (form.getFieldValue('provinceName') ?? '').trim();
+    const cityName = (form.getFieldValue('cityName') ?? '').trim();
+    if (!provinceName || !cityName) {
       notice.warning('请先选择市,所属法人按落位省市过滤');
       return null;
     }
     return {
       fInstitution: (form.getFieldValue('institution') ?? '').trim(),
-      province_name:  province_name,
-      city_name:  city_name,
+      provinceName:  provinceName,
+      cityName:  cityName,
       // 公权入口只挂公法人;教育入口(分校)由后端按学校本部过滤。
       parentProperty: isGov ? 'G' : undefined,
     };
   };
 
   const triggerParentSearch = async () => {
-    const q = (form.getFieldValue('parent_cid_number') ?? '').trim();
+    const q = (form.getFieldValue('parentCidNumber') ?? '').trim();
     if (!q) {
       notice.warning('请先输入所属法人全称、简称或身份ID关键字');
       return;
@@ -387,15 +387,15 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
   };
 
   const onParentSelect = (value: string) => {
-    const row = parentOptions.find((r) => r.cid_number === value);
+    const row = parentOptions.find((r) => r.cidNumber === value);
     if (!row) return;
     setSelectedParent(row);
     // 盈利属性附属于所属法人:选定父级即重算 p1(后端 unincorporated_org 同规则复核)
-    form.setFieldsValue({ p1: inheritedP1(row.subject_property, row.p1) });
+    form.setFieldsValue({ p1: inheritedP1(row.subjectProperty, row.p1) });
   };
 
   const onParentInputChange = (value: string) => {
-    if (selectedParent && value !== selectedParent.cid_number) {
+    if (selectedParent && value !== selectedParent.cidNumber) {
       setSelectedParent(null);
       form.setFieldsValue({ p1: undefined });
     }
@@ -404,7 +404,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
   // ── 全称查重 ─────────────────────────────────────────────
 
   const onCheckCidFullName = async () => {
-    const cidFullName = (form.getFieldValue('cid_full_name') ?? '').trim();
+    const cidFullName = (form.getFieldValue('cidFullName') ?? '').trim();
     if (!cidFullName) {
       notice.warning(`请先输入${nameLabel}`);
       return;
@@ -412,19 +412,19 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
     // G(公立学校/公权机构)查重是同市同 cid_full_name,S/F 全国查重。
     const isGovName = currentSubjectProperty === 'G';
     if (isGovName) {
-      const city_name = (form.getFieldValue('city_name') ?? '').trim();
-      if (!city_name) {
+      const cityName = (form.getFieldValue('cityName') ?? '').trim();
+      if (!cityName) {
         notice.warning(`${nameLabel}查重需要先选择市`);
         return;
       }
     }
     setCidFullNameChecking(true);
     try {
-      const cityVal = isGovName ? (form.getFieldValue('city_name') ?? '').trim() : undefined;
+      const cityVal = isGovName ? (form.getFieldValue('cityName') ?? '').trim() : undefined;
       const { exists } = await checkCidFullName(
         auth,
         cidFullName,
-        form.getFieldValue('subject_property'),
+        form.getFieldValue('subjectProperty'),
         cityVal,
       );
       if (exists) {
@@ -459,7 +459,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
     }
     if (requiresParent) {
       // 非法人必须从搜索结果中选定所属法人,手填未选定的不放行
-      if (!selectedParent || selectedParent.cid_number !== (values.parent_cid_number ?? '').trim()) {
+      if (!selectedParent || selectedParent.cidNumber !== (values.parentCidNumber ?? '').trim()) {
         notice.warning('请从搜索结果中选择所属法人');
         return;
       }
@@ -468,62 +468,62 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
     //   本部 → GUN/SUN(大学)或 GSCH/SFSC(中小初学);分校(F)→ UNIN(挂学校本部)。
     // 其余入口沿用表单 institution 值(私权由后端按 private_type 再覆盖)。
     const institutionCode = isEducation
-      ? computeEducationInstitutionCode(values.subject_property.trim(), values.education_type)
+      ? computeEducationInstitutionCode(values.subjectProperty.trim(), values.educationType)
       : values.institution.trim();
     const admins = (values.admins ?? [])
       .map((admin) => ({
-        account_id: admin.account_id.trim(),
-        family_name: (admin.family_name ?? '').trim() || '管理',
-        given_name: (admin.given_name ?? '').trim() || '员',
+        accountId: admin.accountId.trim(),
+        familyName: (admin.familyName ?? '').trim() || '管理',
+        givenName: (admin.givenName ?? '').trim() || '员',
       }))
-      .filter((admin) => admin.account_id);
-    const uniqueAdminCount = new Set(admins.map((admin) => admin.account_id)).size;
+      .filter((admin) => admin.accountId);
+    const uniqueAdminCount = new Set(admins.map((admin) => admin.accountId)).size;
     if (uniqueAdminCount < 2) {
       notice.warning('请至少填写 2 名初始管理员');
       return;
     }
-    if (requiresTown && !(values.town_name ?? '').trim()) {
+    if (requiresTown && !(values.townName ?? '').trim()) {
       notice.warning('请选择镇');
       return;
     }
     setSubmitting(true);
     try {
       const result = await createInstitution(auth, {
-        subject_property: values.subject_property.trim(),
+        subjectProperty: values.subjectProperty.trim(),
         p1: values.p1?.trim(),
-        province_name: values.province_name.trim(),
-        city_name: values.city_name.trim(),
-        town_name: requiresTown ? (values.town_name ?? '').trim() : undefined,
+        provinceName: values.provinceName.trim(),
+        cityName: values.cityName.trim(),
+        townName: requiresTown ? (values.townName ?? '').trim() : undefined,
         institution: institutionCode,
-        education_type: showEducationType ? values.education_type : undefined,
-        cid_full_name: collectNameInModal
-          ? (values.cid_full_name ?? '').trim()
+        educationType: showEducationType ? values.educationType : undefined,
+        cidFullName: collectNameInModal
+          ? (values.cidFullName ?? '').trim()
           : undefined,
-        cid_short_name: collectNameInModal
-          ? (values.cid_short_name ?? '').trim()
+        cidShortName: collectNameInModal
+          ? (values.cidShortName ?? '').trim()
           : undefined,
-        parent_cid_number: requiresParent ? (values.parent_cid_number ?? '').trim() : undefined,
-        private_type: isPrivate ? privateType : undefined,
-        partnership_kind: isPrivate && privateType === 'PARTNERSHIP'
-          ? values.partnership_kind
+        parentCidNumber: requiresParent ? (values.parentCidNumber ?? '').trim() : undefined,
+        privateType: isPrivate ? privateType : undefined,
+        partnershipKind: isPrivate && privateType === 'PARTNERSHIP'
+          ? values.partnershipKind
           : undefined,
         admins,
       });
-      const signed = await signChain(result.request_id, result.institution_create_sign_request);
+      const signed = await signChain(result.requestId, result.institutionCreateSignRequest);
       await submitChainSign(
         auth,
-        result.request_id,
-        signed.account_id,
+        result.requestId,
+        signed.accountId,
         signed.signature,
       );
       if (isPrivate && privateType) {
-        notice.success(`${PRIVATE_TYPE_LABEL[privateType]}已提交链上交易:${result.cid_number}`);
+        notice.success(`${PRIVATE_TYPE_LABEL[privateType]}已提交链上交易:${result.cidNumber}`);
       } else if (isEducation) {
-        notice.success(`学校机构已提交链上交易:${result.cid_number}`);
+        notice.success(`学校机构已提交链上交易:${result.cidNumber}`);
       } else if (collectNameInModal) {
-        notice.success(`公权机构已提交链上交易:${result.cid_number}`);
+        notice.success(`公权机构已提交链上交易:${result.cidNumber}`);
       } else {
-        notice.success(`身份ID 已提交链上交易:${result.cid_number}`);
+        notice.success(`身份ID 已提交链上交易:${result.cidNumber}`);
       }
       onCreated(result);
     } catch (err) {
@@ -578,7 +578,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
         <Row gutter={16}>
           {isPrivate && privateType === 'PARTNERSHIP' && (
             <Col span={24}>
-              <Form.Item label="合伙类型" name="partnership_kind" rules={[{ required: true }]}>
+              <Form.Item label="合伙类型" name="partnershipKind" rules={[{ required: true }]}>
                 <Select
                   options={[
                     { value: 'GENERAL', label: '无限合伙' },
@@ -590,7 +590,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
             </Col>
           )}
           <Col span={12}>
-            <Form.Item label="主体属性" name="subject_property" rules={[{ required: true }]}>
+            <Form.Item label="主体属性" name="subjectProperty" rules={[{ required: true }]}>
               <Select options={subjectPropertyChoices} disabled={subjectPropertyDisabled} onChange={onSubjectPropertyChange} />
             </Form.Item>
           </Col>
@@ -615,26 +615,26 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
         </Row>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item label="省" name="province_name" rules={[{ required: true }]}>
+            <Form.Item label="省" name="provinceName" rules={[{ required: true }]}>
               <Input disabled />
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item label="市" name="city_name" rules={[{ required: true, message: '请选择市' }]}>
+            <Form.Item label="市" name="cityName" rules={[{ required: true, message: '请选择市' }]}>
               <Select
                 loading={citiesLoading}
                 disabled={lockedCityName !== null}
-                options={cities.map((c) => ({ label: c.city_name, value: c.city_name }))}
+                options={cities.map((c) => ({ label: c.cityName, value: c.cityName }))}
                 placeholder="请选择市"
                 onChange={() => {
                   // G 全称查重按市,所属法人搜索按落位省市;换市后两者都要重来。
-                  form.setFieldsValue({ town_name: undefined });
+                  form.setFieldsValue({ townName: undefined });
                   if (currentSubjectProperty === 'G' && cidFullNameAvailable !== null) {
                     setCidFullNameAvailable(null);
                   }
                   if (isF && (selectedParent || parentOptions.length > 0)) {
                     resetParentState();
-                    form.setFieldsValue({ parent_cid_number: undefined, p1: undefined });
+                    form.setFieldsValue({ parentCidNumber: undefined, p1: undefined });
                   }
                 }}
               />
@@ -648,7 +648,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
                 options={visibleInstChoices}
                 disabled={instDisabled}
                 onChange={() => {
-                  form.setFieldsValue({ town_name: undefined });
+                  form.setFieldsValue({ townName: undefined });
                   if (cidFullNameAvailable !== null) setCidFullNameAvailable(null);
                 }}
               />
@@ -656,10 +656,10 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
           </Col>
           {requiresTown && (
             <Col span={12}>
-              <Form.Item label="镇" name="town_name" rules={[{ required: true, message: '请选择镇' }]}>
+              <Form.Item label="镇" name="townName" rules={[{ required: true, message: '请选择镇' }]}>
                 <Select
                   loading={townsLoading}
-                  options={towns.map((t) => ({ label: t.town_name, value: t.town_name }))}
+                  options={towns.map((t) => ({ label: t.townName, value: t.townName }))}
                   placeholder="请选择镇"
                 />
               </Form.Item>
@@ -669,7 +669,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
             <Col span={12}>
               <Form.Item
                 label="教育机构类型"
-                name="education_type"
+                name="educationType"
                 rules={[{ required: true, message: '请选择教育机构类型' }]}
               >
                 <Select
@@ -685,7 +685,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
             <Col span={12}>
               <Form.Item
                 label={nameLabel}
-                name="cid_full_name"
+                name="cidFullName"
                 rules={[
                   { required: true, message: `请输入${nameLabel}` },
                   { max: 30, message: '最多 30 个字' },
@@ -709,7 +709,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
             <Col span={12}>
               <Form.Item
                 label={shortNameLabel}
-                name="cid_short_name"
+                name="cidShortName"
                 rules={[
                   { required: true, message: `请输入${shortNameLabel}` },
                   { max: 30, message: '最多 30 个字' },
@@ -739,14 +739,14 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
           <>
             <Form.Item
               label={isEducation ? '所属法人(学校本部)' : '所属法人'}
-              name="parent_cid_number"
+              name="parentCidNumber"
               rules={[{ required: true, message: '请选择所属法人' }]}
             >
               <AutoComplete
                 filterOption={false}
                 options={parentOptions.map((row) => ({
-                  value: row.cid_number,
-                  label: `${row.cid_full_name}(${SUBJECT_PROPERTY_LABEL[row.subject_property] ?? row.subject_property}) ${row.province_name}/${row.city_name}`,
+                  value: row.cidNumber,
+                  label: `${row.cidFullName}(${SUBJECT_PROPERTY_LABEL[row.subjectProperty] ?? row.subjectProperty}) ${row.provinceName}/${row.cityName}`,
                 }))}
                 onSelect={onParentSelect}
                 onChange={onParentInputChange}
@@ -777,8 +777,8 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
             </div>
             {selectedParent && (
               <div style={{ color: '#52c41a', marginTop: -8, marginBottom: 12, fontSize: 12 }}>
-                已选:{selectedParent.cid_full_name}(
-                {SUBJECT_PROPERTY_LABEL[selectedParent.subject_property] ?? selectedParent.subject_property}
+                已选:{selectedParent.cidFullName}(
+                {SUBJECT_PROPERTY_LABEL[selectedParent.subjectProperty] ?? selectedParent.subjectProperty}
                 ,{selectedParent.p1 === '1' ? '盈利' : '非盈利'})
               </div>
             )}
@@ -836,7 +836,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
               ))}
               <Button
                 icon={<PlusOutlined />}
-                onClick={() => add({ account_id: '', family_name: '管理', given_name: '员' })}
+                onClick={() => add({ accountId: '', familyName: '管理', givenName: '员' })}
               >
                 添加管理员
               </Button>

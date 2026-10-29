@@ -4,30 +4,30 @@ import { adminHeaders, request } from './helpers_http';
 import type { AdminAuth } from './authentication_types';
 
 export type CidInstitutionCodeItem = {
-  institution_code: string;
-  institution_code_label: string;
+  institutionCode: string;
+  institutionCodeLabel: string;
 };
 
 export type CidProvinceItem = {
-  province_name: string;
-  province_code: string;
+  provinceName: string;
+  provinceCode: string;
 };
 
 export type CidCityItem = {
-  city_name: string;
-  city_code: string;
+  cityName: string;
+  cityCode: string;
 };
 
 export type CidTownItem = {
-  town_name: string;
-  town_code: string;
+  townName: string;
+  townCode: string;
 };
 
 export type CidMetaResult = {
-  institution_options: CidInstitutionCodeItem[];
+  institutionOptions: CidInstitutionCodeItem[];
   provinces: CidProvinceItem[];
-  all_provinces: CidProvinceItem[];
-  scoped_province_name?: string | null;
+  allProvinces: CidProvinceItem[];
+  scopedProvinceName?: string | null;
 };
 
 export async function getCidMeta(auth: AdminAuth): Promise<CidMetaResult> {
@@ -37,8 +37,8 @@ export async function getCidMeta(auth: AdminAuth): Promise<CidMetaResult> {
   });
 }
 
-export async function listCidCities(auth: AdminAuth, province_name: string): Promise<CidCityItem[]> {
-  const q = `?province_name=${encodeURIComponent(province_name)}`;
+export async function listCidCities(auth: AdminAuth, provinceName: string): Promise<CidCityItem[]> {
+  const q = `?province_name=${encodeURIComponent(provinceName)}`;
   return request<CidCityItem[]>(`/api/admin/cid/china/cities${q}`, {
     method: 'GET',
     headers: adminHeaders(auth),
@@ -47,10 +47,10 @@ export async function listCidCities(auth: AdminAuth, province_name: string): Pro
 
 export async function listCidTowns(
   auth: AdminAuth,
-  province_name: string,
-  city_code: string,
+  provinceName: string,
+  cityCode: string,
 ): Promise<CidTownItem[]> {
-  const params = new URLSearchParams({ province_name, city_code });
+  const params = new URLSearchParams({ provinceName, cityCode });
   return request<CidTownItem[]>(`/api/admin/cid/china/towns?${params.toString()}`, {
     method: 'GET',
     headers: adminHeaders(auth),

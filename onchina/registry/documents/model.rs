@@ -9,6 +9,7 @@ pub(crate) const CITIZEN_DOCUMENT_TYPES: [&str; 4] =
 /// 公民资料库必须独立于机构 docs 表;文件本体存磁盘,
 /// citizen_documents 只保存当前公民资料文件的元数据和内容哈希。
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CitizenDocument {
     pub(crate) id: u64,
     pub(crate) cid_number: String,
@@ -19,4 +20,3 @@ pub(crate) struct CitizenDocument {
     pub(crate) uploader_account_id: String,
     pub(crate) uploaded_at: DateTime<Utc>,
 }
-

@@ -48,7 +48,7 @@ export function RuntimeConstitutionViewer() {
         sandbox="allow-scripts"
         srcDoc={doc.html}
       />
-      <span className="runtime-constitution-hash" data-hash={doc.blake2_256} />
+      <span className="runtime-constitution-hash" data-hash={doc.blake2256} />
     </section>
   );
 }

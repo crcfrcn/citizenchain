@@ -82,11 +82,11 @@ sp-core = { workspace = true, default-features = true }
 sp-crypto-hashing = { workspace = true, default-features = true }
 primitives = { path = "../../runtime/primitives" }
 # 链交易组装+提交(D7):与 node 端同一套 runtime 类型拼 SignedPayload/UncheckedExtrinsic
-citizenchain = { workspace = true, default-features = true }
+runtime = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true }
-admin-primitives = { path = "../../runtime/admins/admin-primitives" }
-entity-primitives = { path = "../../runtime/entity/entity-primitives" }
+adminbase = { path = "../../runtime/admins/adminbase" }
+entitybase = { path = "../../runtime/entity/entitybase" }
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
 mdns-sd = "0.20.1"
 
@@ -95,6 +95,6 @@ mdns-sd = "0.20.1"
 tower = { version = "=0.5.3", features = ["util"] }
 webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
 # 仅供立法 call-data 编码器交叉校验测试:用链端真实 Tier/VoteType
-# .encode() 比对,锁死 legislation-yuan SCALE 不漂移。
-legislation-yuan = { path = "../../runtime/public/legislation-yuan" }
+# .encode() 比对,锁死 legislation SCALE 不漂移。
+legislation = { path = "../../runtime/public/legislation" }
 frame-support = { workspace = true, default-features = true }

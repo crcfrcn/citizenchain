@@ -93,20 +93,20 @@ export function RegistryWorkspace({
     setHasInitializedView(false);
     setActiveView('citizens');
     setViewResetToken((v) => v + 1);
-  }, [auth.account_id, auth.institution_code]);
+  }, [auth.accountId, auth.institutionCode]);
 
   useEffect(() => {
-    if (!auth.institution_code) return;
+    if (!auth.institutionCode) return;
     if (passkeyRegistered === null) return;
     if (hasInitializedView) return;
     setHasInitializedView(true);
-    const adminListTab = registryAdminListView(auth.institution_code);
+    const adminListTab = registryAdminListView(auth.institutionCode);
     if (!passkeyRegistered) {
       setActiveView(adminListTab ?? firstBusinessView(capabilities));
       return;
     }
     setActiveView(firstBusinessView(capabilities));
-  }, [auth.institution_code, capabilities, passkeyRegistered, hasInitializedView]);
+  }, [auth.institutionCode, capabilities, passkeyRegistered, hasInitializedView]);
 
   const loadCidMetaForInstitutions = async () => {
     if (cidMeta) return;
@@ -125,7 +125,7 @@ export function RegistryWorkspace({
   };
 
   const routedPrivateType = privateTypeForView(activeView);
-  const passkeyLockedRegistryView = passkeyRegistered === false ? registryAdminListView(auth.institution_code) : null;
+  const passkeyLockedRegistryView = passkeyRegistered === false ? registryAdminListView(auth.institutionCode) : null;
 
   return (
     <>

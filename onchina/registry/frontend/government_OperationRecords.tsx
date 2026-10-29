@@ -18,11 +18,11 @@ import { tryEncodeSs58 } from '../../platform/frontend/helpers_ss58';
 type AuditLogEntry = {
   seq: number;
   action: string;
-  actor_account_id: string;
-  target_cid?: string | null;
+  actorAccountId: string;
+  targetCid?: string | null;
   /** 结构化事实字段(后端 append_audit_log 只存事实);旧文本行/异常值回退 string */
   detail: Record<string, unknown> | string;
-  created_at: string;
+  createdAt: string;
 };
 
 // 审计日志操作类型中文映射(代码不上前端)。
@@ -54,30 +54,30 @@ const CATEGORY_LABEL: Record<string, string> = {
 const AUDIT_DETAIL_KEY_LABEL: Record<string, string> = {
   city: '市',
   institution: '机构',
-  cid_full_name: '机构全称',
-  old_cid_full_name: '原机构全称',
-  new_cid_full_name: '新机构全称',
-  subject_property: '主体属性',
+  cidFullName: '机构全称',
+  oldCidFullName: '原机构全称',
+  newCidFullName: '新机构全称',
+  subjectProperty: '主体属性',
   category: '机构分类',
-  private_type: '私权类型',
-  partnership_kind: '合伙类型',
-  parent_cid_number: '所属法人',
-  old_parent_cid_number: '原所属法人',
-  family_name: '姓',
-  given_name: '名',
-  legal_representative_cid_number: '法定代表人身份ID',
-  account_name: '账户名称',
-  doc_id: '资料ID',
-  file_name: '文件名',
-  doc_type: '资料类型',
-  file_size: '文件大小',
+  privateType: '私权类型',
+  partnershipKind: '合伙类型',
+  parentCidNumber: '所属法人',
+  oldParentCidNumber: '原所属法人',
+  familyName: '姓',
+  givenName: '名',
+  representativeCid: '法定代表人身份ID',
+  accountName: '账户名称',
+  docId: '资料ID',
+  fileName: '文件名',
+  docType: '资料类型',
+  fileSize: '文件大小',
   found: '查询命中',
-  request_id: '请求ID',
-  actor_ip: '来源IP',
-  eligible_total: '选民总数',
+  requestId: '请求ID',
+  actorIp: '来源IP',
+  eligibleTotal: '选民总数',
   mode: '绑定方式',
-  cid_number: '身份ID',
-  proposal_id: '提案ID',
+  cidNumber: '身份ID',
+  proposalId: '提案ID',
   eligible: '有选举权',
   year: '年度',
   batch: '批次',
@@ -87,16 +87,16 @@ const AUDIT_DETAIL_KEY_LABEL: Record<string, string> = {
   reason: '原因',
   updates: '更新条数',
   releases: '解除绑定数',
-  unmatched_bindings: '未匹配绑定数',
-  unmatched_releases: '未匹配解除数',
+  unmatchedBindings: '未匹配绑定数',
+  unmatchedReleases: '未匹配解除数',
 };
 
 // 枚举值翻译:按键名选择值映射。机构代码(institution)改由后端单源标签在运行期解析(见 formatAuditDetailValue)。
 const AUDIT_DETAIL_VALUE_LABEL: Record<string, Record<string, string>> = {
-  subject_property: SUBJECT_PROPERTY_LABEL,
+  subjectProperty: SUBJECT_PROPERTY_LABEL,
   category: CATEGORY_LABEL,
-  private_type: PRIVATE_TYPE_LABEL as Record<string, string>,
-  partnership_kind: PARTNERSHIP_KIND_LABEL as Record<string, string>,
+  privateType: PRIVATE_TYPE_LABEL as Record<string, string>,
+  partnershipKind: PARTNERSHIP_KIND_LABEL as Record<string, string>,
   status: {
     PENDING: '待安装',
     USED: '已使用',
@@ -165,7 +165,7 @@ export const OperationRecords: React.FC<Props> = ({ auth, cidNumber }) => {
     return () => {
       cancelled = true;
     };
-  }, [auth.access_token, cidNumber]);
+  }, [auth.accessToken, cidNumber]);
 
   return (
     <Card type="inner" title={`操作记录(${rows.length})`}>
@@ -183,7 +183,7 @@ export const OperationRecords: React.FC<Props> = ({ auth, cidNumber }) => {
           },
           {
             title: '操作者账户',
-            dataIndex: 'actor_account_id',
+            dataIndex: 'actorAccountId',
             width: 240,
             // 账户给人看时优先转 SS58;完整显示不截断,允许换行。
             render: (v: string) => (
@@ -200,7 +200,7 @@ export const OperationRecords: React.FC<Props> = ({ auth, cidNumber }) => {
           },
           {
             title: '时间',
-            dataIndex: 'created_at',
+            dataIndex: 'createdAt',
             width: 170,
             render: (v: string) => new Date(v).toLocaleString('zh-CN'),
           },

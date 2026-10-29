@@ -280,10 +280,10 @@ pallet_revive::impl_runtime_apis_plus_revive_traits!(Runtime, Revive, Executive,
         fn list_laws(tier: u8, region: primitives::genesis::LawRegion) -> Vec<u64> {
             if !region.matches_tier(tier) { return Vec::new(); }
             let tier = match tier {
-                0 => legislation_yuan::Tier::Constitution,
-                1 => legislation_yuan::Tier::National,
-                2 => legislation_yuan::Tier::Provincial,
-                3 => legislation_yuan::Tier::Municipal,
+                0 => legislation::Tier::Constitution,
+                1 => legislation::Tier::National,
+                2 => legislation::Tier::Provincial,
+                3 => legislation::Tier::Municipal,
                 _ => return Vec::new(),
             };
             LegislationYuan::list_laws(tier, region)
@@ -331,8 +331,8 @@ pallet_revive::impl_runtime_apis_plus_revive_traits!(Runtime, Revive, Executive,
     impl primitives::admin_policy::AdminPolicyApi<Block> for Runtime {
         fn personal_multisig_cid_mandated() -> bool {
             // 死规则:个人多签永不强制公民 CID。若未来错误地翻真,节点升级守卫拒绝该候选。
-            admin_primitives::required_admin_elements(
-                admin_primitives::AdminAccountKind::PersonalMultisig,
+            adminbase::required_admin_elements(
+                adminbase::AdminAccountKind::PersonalMultisig,
                 false,
             )
             .cid
@@ -345,11 +345,11 @@ pallet_revive::impl_runtime_apis_plus_revive_traits!(Runtime, Revive, Executive,
         }
 
         fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
-            get_preset::<RuntimeGenesisConfig>(id, crate::genesis::get_preset)
+            get_preset::<RuntimeGenesisConfig>(id, ::genesis::config::get_preset::<RuntimeGenesisConfig>)
         }
 
         fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
-            crate::genesis::preset_names()
+            ::genesis::config::preset_names()
         }
     }
 );

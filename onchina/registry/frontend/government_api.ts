@@ -21,13 +21,13 @@ import { buildInstitutionCreatePayload } from '../../platform/frontend/subjects_
 export type { CreateInstitutionOutput, InstitutionDetail } from '../../platform/frontend/subjects_api';
 
 export interface ListOfficialInstitutionQuery {
-  province_name?: string;
-  city_name?: string;
+  provinceName?: string;
+  cityName?: string;
   q?: string;
   /** 机构码精确过滤(单源,如市注册局=CREG);省略=不过滤。 */
-  institution_code?: string;
+  institutionCode?: string;
   cursor?: string | null;
-  page_size?: number;
+  pageSize?: number;
 }
 
 export async function listOfficialInstitutions(
@@ -35,13 +35,13 @@ export async function listOfficialInstitutions(
   query?: ListOfficialInstitutionQuery,
 ): Promise<PageResult<InstitutionListRow>> {
   const params = new URLSearchParams();
-  if (query?.province_name) params.set('province_name', query.province_name);
-  if (query?.city_name) params.set('city_name', query.city_name);
+  if (query?.provinceName) params.set('provinceName', query.provinceName);
+  if (query?.cityName) params.set('cityName', query.cityName);
   if (query?.q && query.q.trim()) params.set('q', query.q.trim());
-  if (query?.institution_code && query.institution_code.trim())
-    params.set('institution_code', query.institution_code.trim());
+  if (query?.institutionCode && query.institutionCode.trim())
+    params.set('institutionCode', query.institutionCode.trim());
   if (query?.cursor) params.set('cursor', query.cursor);
-  if (query?.page_size) params.set('page_size', String(query.page_size));
+  if (query?.pageSize) params.set('pageSize', String(query.pageSize));
   const qs = params.toString();
   return adminRequest<PageResult<InstitutionListRow>>(
     qs ? `/api/institutions/gov?${qs}` : '/api/institutions/gov',
@@ -52,12 +52,12 @@ export async function listOfficialInstitutions(
 export async function checkCidFullName(
   auth: AdminAuth,
   cidFullName: string,
-  subject_property?: string,
+  subjectProperty?: string,
   cityName?: string,
 ): Promise<{ exists: boolean }> {
-  const params = new URLSearchParams({ cid_full_name: cidFullName });
-  if (subject_property) params.set('subject_property', subject_property);
-  if (cityName) params.set('city_name', cityName);
+  const params = new URLSearchParams({ cidFullName: cidFullName });
+  if (subjectProperty) params.set('subjectProperty', subjectProperty);
+  if (cityName) params.set('cityName', cityName);
   return adminRequest<{ exists: boolean }>(
     `/api/institutions/check-cid-full-name?${params.toString()}`,
     auth,
@@ -101,10 +101,10 @@ export async function searchParentInstitutions(
   opts: SearchParentsOptions,
 ): Promise<ParentInstitutionRow[]> {
   const params = new URLSearchParams({ q });
-  params.set('f_institution', opts.fInstitution);
-  params.set('province_name', opts.province_name);
-  params.set('city_name', opts.city_name);
-  if (opts.parentProperty) params.set('parent_property', opts.parentProperty);
+  params.set('fInstitution', opts.fInstitution);
+  params.set('provinceName', opts.provinceName);
+  params.set('cityName', opts.cityName);
+  if (opts.parentProperty) params.set('parentProperty', opts.parentProperty);
   return adminRequest<ParentInstitutionRow[]>(
     `/api/institutions/search-parents?${params.toString()}`,
     auth,

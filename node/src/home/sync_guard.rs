@@ -38,10 +38,10 @@ pub struct SyncGuardStatus {
     pub running: bool,
     pub state: String,
     pub consecutive_suspects: u32,
-    pub degraded_count_in_window: usize,
+    pub window_degradations: usize,
     pub degraded: bool,
     pub last_reason: Option<String>,
-    pub last_updated_unix_secs: Option<u64>,
+    pub updated_at_secs: Option<u64>,
 }
 
 impl Default for SyncGuardStatus {
@@ -50,10 +50,10 @@ impl Default for SyncGuardStatus {
             running: false,
             state: "stopped".to_string(),
             consecutive_suspects: 0,
-            degraded_count_in_window: 0,
+            window_degradations: 0,
             degraded: false,
             last_reason: None,
-            last_updated_unix_secs: None,
+            updated_at_secs: None,
         }
     }
 }
@@ -89,7 +89,7 @@ where
 {
     let mut status = guard_status().lock().unwrap_or_else(|err| err.into_inner());
     f(&mut status);
-    status.last_updated_unix_secs = Some(unix_secs_now());
+    status.updated_at_secs = Some(unix_secs_now());
 }
 
 fn parse_bool(value: Option<&Value>) -> bool {
@@ -209,7 +209,7 @@ fn guard_loop(app: AppHandle, stop_rx: mpsc::Receiver<()>) {
                 status.state = "waiting_node".to_string();
                 status.consecutive_suspects = 0;
                 status.degraded = false;
-                status.degraded_count_in_window = degraded_times.len();
+                status.window_degradations = degraded_times.len();
                 status.last_reason = Some("node is not running".to_string());
             });
             continue;
@@ -222,7 +222,7 @@ fn guard_loop(app: AppHandle, stop_rx: mpsc::Receiver<()>) {
                 status.state = "warming_up".to_string();
                 status.consecutive_suspects = 0;
                 status.degraded = degraded;
-                status.degraded_count_in_window = degraded_times.len();
+                status.window_degradations = degraded_times.len();
                 status.last_reason = Some("node startup grace window".to_string());
             });
             continue;
@@ -240,7 +240,7 @@ fn guard_loop(app: AppHandle, stop_rx: mpsc::Receiver<()>) {
                     status.state = "sample_failed".to_string();
                     status.consecutive_suspects = 0;
                     status.degraded = degraded;
-                    status.degraded_count_in_window = degraded_times.len();
+                    status.window_degradations = degraded_times.len();
                     status.last_reason = Some(err);
                 });
                 continue;
@@ -256,7 +256,7 @@ fn guard_loop(app: AppHandle, stop_rx: mpsc::Receiver<()>) {
                 status.state = "healthy".to_string();
                 status.consecutive_suspects = 0;
                 status.degraded = degraded;
-                status.degraded_count_in_window = degraded_times.len();
+                status.window_degradations = degraded_times.len();
                 status.last_reason = Some(reason.clone());
             });
             continue;
@@ -268,7 +268,7 @@ fn guard_loop(app: AppHandle, stop_rx: mpsc::Receiver<()>) {
             status.state = "suspect".to_string();
             status.consecutive_suspects = consecutive_suspects;
             status.degraded = degraded;
-            status.degraded_count_in_window = degraded_times.len();
+            status.window_degradations = degraded_times.len();
             status.last_reason = Some(reason.clone());
         });
 
@@ -285,7 +285,7 @@ fn guard_loop(app: AppHandle, stop_rx: mpsc::Receiver<()>) {
             status.running = true;
             status.state = "degraded".to_string();
             status.consecutive_suspects = consecutive_suspects;
-            status.degraded_count_in_window = degraded_times.len();
+            status.window_degradations = degraded_times.len();
             status.degraded = true;
             status.last_reason = Some(format!(
                 "{reason}; auto restart disabled to avoid RocksDB lock reuse"
@@ -314,7 +314,7 @@ pub(crate) fn start_sync_guard(app: AppHandle) {
                 status.running = false;
                 status.state = "start_failed".to_string();
                 status.last_reason = Some(format!("同步守护线程启动失败: {err}"));
-                status.last_updated_unix_secs = None;
+                status.updated_at_secs = None;
             });
             return;
         }

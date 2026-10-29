@@ -404,7 +404,7 @@ mod tests {
             "--database", "rocksdb", "--no-prometheus",
         ]).unwrap();
         let config = cli.run.create_configuration(&cli, runtime.handle().clone()).unwrap();
-        let backend = sc_service::new_db_backend::<citizenchain::opaque::Block>(config.db_config()).unwrap();
+        let backend = sc_service::new_db_backend::<runtime::opaque::Block>(config.db_config()).unwrap();
         let weak = Arc::downgrade(&backend);
         let mut manager = sc_service::TaskManager::new(runtime.handle().clone(), None).unwrap();
         manager.keep_alive(backend);
@@ -420,7 +420,7 @@ mod tests {
         assert!(!reason.contains("panic"), "{reason}");
         assert!(weak.upgrade().is_none(), "Backend必须在停机返回前释放");
         // 同进程直接重新打开真实RocksDB，验证实际LOCK释放而非只读生命周期标记。
-        drop(sc_service::new_db_backend::<citizenchain::opaque::Block>(config.db_config()).unwrap());
+        drop(sc_service::new_db_backend::<runtime::opaque::Block>(config.db_config()).unwrap());
         drop(config);
         std::fs::remove_dir_all(path).unwrap();
     }

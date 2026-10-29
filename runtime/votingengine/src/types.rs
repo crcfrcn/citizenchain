@@ -7,7 +7,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode, MaxEncodedLen};
-pub use entity_primitives::{AuthorizationSubject, BusinessActionId, RoleSubject};
+pub use entitybase::{AuthorizationSubject, BusinessActionId, RoleSubject};
 use frame_support::{
     pallet_prelude::{BoundedVec, ConstU32, DecodeWithMemTracking},
     traits::Get,
@@ -22,7 +22,7 @@ pub const PROPOSAL_KIND_LEGISLATION: u8 = 2;
 pub const PROPOSAL_KIND_ELECTION: u8 = 3;
 // 机构码治理分类(全链唯一真源 = primitives::cid::code,见铁律)
 // 治理统一用 CID 机构码 [u8; 4]。
-// 这里整体 re-export,使 internal-vote / joint-vote / 业务 pallet 仍可写
+// 这里整体 re-export,使 internalvote / jointvote / 业务 pallet 仍可写
 // `votingengine::types::{InstitutionCode, NRC, fixed_governance_pass_threshold, ...}`。
 pub use primitives::cid::code::{
     code_bytes, fixed_governance_pass_threshold, institution_code_from_cid_number,
@@ -36,7 +36,7 @@ pub type CidNumber = BoundedVec<u8, ConstU32<{ primitives::core_const::CID_NUMBE
 
 /// 机构岗位码。上限与 entity 岗位 storage 契约一致。
 pub type RoleCode =
-    BoundedVec<u8, ConstU32<{ entity_primitives::INSTITUTION_ROLE_CODE_MAX_BYTES }>>;
+    BoundedVec<u8, ConstU32<{ entitybase::INSTITUTION_ROLE_CODE_MAX_BYTES }>>;
 
 /// 机构岗位的一张投票票据。
 ///
@@ -58,29 +58,29 @@ pub struct InstitutionVoteTicket<AccountId> {
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
 )]
 pub struct CitizenReferendumTicket<AccountId> {
-    pub voter_subject: citizen_identity::CitizenSubject<AccountId>,
+    pub voter_subject: identity::CitizenSubject<AccountId>,
     pub approve: bool,
 }
 
 /// 投票引擎按提案保存的人口快照。
 ///
-/// 人口数据全部来自 citizen-identity；投票引擎只增加创建区块并冻结为提案历史，
+/// 人口数据全部来自 identity；投票引擎只增加创建区块并冻结为提案历史，
 /// 不自行统计或解释人口。
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
 )]
 pub struct ProposalPopulationSnapshot<BlockNumber> {
-    pub population_data: citizen_identity::PopulationData,
+    pub population_data: identity::PopulationData,
     pub created_at: BlockNumber,
 }
 
 /// 全链投票计划使用的固定模块标签上限。
 ///
 /// `JointVoteEngine` 是跨 pallet trait，不能携带 runtime 关联类型；因此接口使用与
-/// `entity-primitives` 协议常量完全一致的固定上限。runtime 的 `MaxModuleTagLen` 必须
+/// `entitybase` 协议常量完全一致的固定上限。runtime 的 `MaxModuleTagLen` 必须
 /// 保持同值，业务 owner 索引仍使用该关联类型。
 pub type VotePlanOf<AccountId> =
-    VotePlan<AccountId, ConstU32<{ entity_primitives::BUSINESS_MODULE_TAG_MAX_BYTES }>>;
+    VotePlan<AccountId, ConstU32<{ entitybase::BUSINESS_MODULE_TAG_MAX_BYTES }>>;
 
 /// 单个投票计划最多绑定的授权主体数量。
 pub const MAX_VOTE_PLAN_SUBJECTS: u32 = MAX_PROPOSAL_SUBJECT_CIDS;
@@ -154,7 +154,7 @@ where
     pub proposer_subject: AuthorizationSubject<CidNumber, RoleCode, AccountId>,
     /// 有资格投票的岗位主体集合；个人多签固定为同一账户一项。
     /// 普选的选民来自提案人口快照，因此 `Election` 普选计划允许为空；互选仍由
-    /// election-vote 强制要求至少一个机构岗位主体。
+    /// electionvote 强制要求至少一个机构岗位主体。
     pub voter_subjects: BoundedVec<
         AuthorizationSubject<CidNumber, RoleCode, AccountId>,
         ConstU32<MAX_VOTE_PLAN_SUBJECTS>,
@@ -224,151 +224,7 @@ where
     }
 }
 
-#[cfg(test)]
-mod vote_plan_tests {
-    use super::*;
-    use entity_primitives::RoleSubject;
 
-    type MaxModuleTagLen = ConstU32<32>;
-    type TestVotePlan = VotePlan<[u8; 32], MaxModuleTagLen>;
-
-    fn bounded(bytes: &[u8]) -> BoundedVec<u8, MaxModuleTagLen> {
-        bytes.to_vec().try_into().expect("测试标签长度合法")
-    }
-
-    fn institution(
-        cid_number: &[u8],
-        role_code: &[u8],
-    ) -> AuthorizationSubject<CidNumber, RoleCode, [u8; 32]> {
-        AuthorizationSubject::Institution(RoleSubject {
-            cid_number: cid_number.to_vec().try_into().expect("测试 CID 长度合法"),
-            role_code: role_code.to_vec().try_into().expect("测试岗位码长度合法"),
-        })
-    }
-
-    fn valid_plan() -> TestVotePlan {
-        let proposer = institution(b"LN001-NRC0G-944805165-2026", b"COMMITTEE_MEMBER");
-        let voters = vec![
-            proposer.clone(),
-            institution(b"ZS001-PRC0E-016974075-2026", b"COMMITTEE_MEMBER"),
-            institution(b"ZS001-PRB08-233384677-2026", b"DIRECTOR"),
-        ];
-        TestVotePlan::try_new(
-            BusinessActionId {
-                module_tag: bounded(b"res-iss"),
-                action_code: 0,
-            },
-            bounded(b"res-iss"),
-            proposer,
-            voters,
-            VotingEngineKind::Joint,
-            [0xabu8; 32],
-        )
-        .expect("测试投票计划必须合法")
-    }
-
-    #[test]
-    fn voting_engine_discriminants_are_stable() {
-        assert_eq!(VotingEngineKind::Internal.encode(), vec![0]);
-        assert_eq!(VotingEngineKind::Joint.encode(), vec![1]);
-        assert_eq!(VotingEngineKind::Election.encode(), vec![2]);
-        assert_eq!(VotingEngineKind::Legislation.encode(), vec![3]);
-    }
-
-    #[test]
-    fn vote_plan_field_order_is_stable() {
-        let plan = valid_plan();
-        assert_eq!(
-            plan.encode(),
-            (
-                plan.business_action_id.clone(),
-                plan.proposal_owner.clone(),
-                plan.proposer_subject.clone(),
-                plan.voter_subjects.clone(),
-                plan.voting_engine,
-                plan.business_object_hash,
-            )
-                .encode()
-        );
-    }
-
-    #[test]
-    fn vote_plan_rejects_invalid_subject_combinations() {
-        let proposer = institution(b"LN001-NRC0G-944805165-2026", b"COMMITTEE_MEMBER");
-        let action = BusinessActionId {
-            module_tag: bounded(b"res-iss"),
-            action_code: 0,
-        };
-        let create = |owner: &[u8], proposer_subject, voter_subjects| {
-            TestVotePlan::try_new(
-                action.clone(),
-                bounded(owner),
-                proposer_subject,
-                voter_subjects,
-                VotingEngineKind::Joint,
-                [0xabu8; 32],
-            )
-        };
-
-        assert!(matches!(
-            create(b"wrong", proposer.clone(), vec![proposer.clone()]),
-            Err(VotePlanValidationError::ProposalOwnerMismatch)
-        ));
-        assert!(matches!(
-            create(b"res-iss", proposer.clone(), Vec::new()),
-            Err(VotePlanValidationError::VoterSubjectsEmpty)
-        ));
-        assert!(matches!(
-            create(
-                b"res-iss",
-                proposer.clone(),
-                vec![proposer.clone(), proposer.clone()],
-            ),
-            Err(VotePlanValidationError::DuplicateVoterSubject)
-        ));
-        assert!(matches!(
-            create(
-                b"res-iss",
-                proposer,
-                vec![AuthorizationSubject::PersonalMultisig([7u8; 32])],
-            ),
-            Err(VotePlanValidationError::AuthorizationSubjectMismatch)
-        ));
-    }
-
-    #[test]
-    fn personal_multisig_plan_requires_the_same_single_account() {
-        let personal = AuthorizationSubject::PersonalMultisig([7u8; 32]);
-        let result = TestVotePlan::try_new(
-            BusinessActionId {
-                module_tag: bounded(b"multisig"),
-                action_code: 0,
-            },
-            bounded(b"multisig"),
-            personal.clone(),
-            vec![personal],
-            VotingEngineKind::Internal,
-            [0xcdu8; 32],
-        );
-        assert!(result.is_ok());
-
-        let mismatched = TestVotePlan::try_new(
-            BusinessActionId {
-                module_tag: bounded(b"multisig"),
-                action_code: 0,
-            },
-            bounded(b"multisig"),
-            AuthorizationSubject::PersonalMultisig([7u8; 32]),
-            vec![AuthorizationSubject::PersonalMultisig([8u8; 32])],
-            VotingEngineKind::Internal,
-            [0xcdu8; 32],
-        );
-        assert!(matches!(
-            mismatched,
-            Err(VotePlanValidationError::AuthorizationSubjectMismatch)
-        ));
-    }
-}
 
 /// 单个提案最多关联的机构 CID 数。联合投票需要覆盖 NRC + PRC + PRB 全体机构。
 pub const MAX_PROPOSAL_SUBJECT_CIDS: u32 = 256;
@@ -383,16 +239,16 @@ pub const STAGE_JOINT: u8 = 1;
 /// 联合投票 pallet 的联合公投阶段(jointreferendum):内部投票阶段未全票通过或超时进入,
 /// 由 CID 持有者按 >50% 严格多数投票。
 ///
-/// 注意:这是联合投票的第二阶段,与独立的 election-vote pallet(pallet_index=22)
-/// 是两个不同概念。election-vote pallet 用于选举公职人员(普选 + 机构成员互选)。
+/// 注意:这是联合投票的第二阶段,与独立的 electionvote pallet(pallet_index=22)
+/// 是两个不同概念。electionvote pallet 用于选举公职人员(普选 + 机构成员互选)。
 pub const STAGE_REFERENDUM: u8 = 2;
 
 /// 立法机关代表表决阶段：单机构一段，顺序机构按 `current_body` 逐段推进。
 pub const STAGE_LEG_REPRESENTATIVE: u8 = 10;
-/// 立法投票强制公投阶段(legislation-vote,特别案/核心修宪):内部全过后强制进入。
+/// 立法投票强制公投阶段(legislationvote,特别案/核心修宪):内部全过后强制进入。
 /// 与联合投票 `STAGE_REFERENDUM` 区分,阈值为宪法 ≥70% 参与 + ≥70% 赞成。
 pub const STAGE_LEG_REFERENDUM: u8 = 11;
-/// 立法投票行政签署阶段(legislation-vote,ADR-027,宪法第45/46/100/106条):
+/// 立法投票行政签署阶段(legislationvote,ADR-027,宪法第45/46/100/106条):
 /// 非特别案内部全过后,由机构法定代表人签署——市长(市)/省长(省)/总统(国)。
 /// 市行政区单院无救济;省行政区/国家否决或超时进入 `STAGE_LEG_OVERRIDE`。特别案不经此阶段。
 pub const STAGE_LEG_SIGN: u8 = 12;
@@ -404,9 +260,9 @@ pub const STAGE_LEG_OVERRIDE: u8 = 13;
 /// 7 名护宪大法官中 4 名及以上赞成 → 生效;未获 4 名及以上赞成或 30 天超时 → 否决。
 pub const STAGE_LEG_CONSTITUTION_GUARD: u8 = 14;
 
-/// 选举投票普选阶段(election-vote):公民按行政区/机构范围投票选人。
+/// 选举投票普选阶段(electionvote):公民按行政区/机构范围投票选人。
 pub const STAGE_ELECTION_POPULAR: u8 = 20;
-/// 选举投票互选阶段(election-vote):机构现任成员/管理员在成员快照内互选。
+/// 选举投票互选阶段(electionvote):机构现任成员/管理员在成员快照内互选。
 pub const STAGE_ELECTION_MUTUAL: u8 = 21;
 
 pub const STATUS_VOTING: u8 = 0;
@@ -511,7 +367,7 @@ pub struct PendingExecutionState<BlockNumber> {
 }
 
 /// 事项模块接入联合投票时，统一由投票引擎创建提案。
-/// 人口快照、联合签名、投票资格和计票数据只允许在 votingengine/joint-vote 内处理。
+/// 人口快照、联合签名、投票资格和计票数据只允许在 votingengine/jointvote 内处理。
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, MaxEncodedLen)]
 pub struct Proposal<BlockNumber, AccountId> {
     /// 提案类型：内部投票/联合投票

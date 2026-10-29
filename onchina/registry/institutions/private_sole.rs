@@ -10,16 +10,17 @@ use axum::{
 };
 use serde::Serialize;
 
+use crate::institutions::subjects::CreateInstitutionInput;
 use crate::registry::institutions::private::common::{
     assert_module_spec, fixed_rule, lock_input_to_rule, PrivateModuleSpec, PrivateType,
 };
 use crate::registry::institutions::private::participants::{ParticipantRole, SOLE_ROLES};
 use crate::registry::institutions::registration::{self, ListInstitutionQuery};
-use crate::institutions::subjects::CreateInstitutionInput;
 use crate::AppState;
 
 /// 个体经营特有资料边界。
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SoleProfile {
     pub(crate) responsible_role: ParticipantRole,
     pub(crate) has_legal_personality: bool,

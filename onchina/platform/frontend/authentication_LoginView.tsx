@@ -31,10 +31,10 @@ function createSessionId(): string {
 const CA_CERTIFICATE_URL = '/api/platform/ca-certificate';
 
 /// 账户短址（首 6 后 6），只用于让操作员核对扫到的是哪个账户。
-function shortAccountId(account_id: string): string {
-  return account_id.length > 16
-    ? `${account_id.slice(0, 8)}…${account_id.slice(-6)}`
-    : account_id;
+function shortAccountId(accountId: string): string {
+  return accountId.length > 16
+    ? `${accountId.slice(0, 8)}…${accountId.slice(-6)}`
+    : accountId;
 }
 
 function shouldShowOrganizationCaNotice(): boolean {
@@ -90,19 +90,19 @@ export function LoginView() {
 
   const finishLogin = useCallback((accessToken: string, admin: AdminIdentifyResult) => {
     const nextAuth: AdminAuth = {
-      access_token: accessToken,
-      account_id: admin.account_id,
-      institution_cid_number: admin.institution_cid_number,
-      institution_code: admin.institution_code,
-      admin_level: admin.admin_level ?? null,
+      accessToken: accessToken,
+      accountId: admin.accountId,
+      institutionCidNumber: admin.institutionCidNumber,
+      institutionCode: admin.institutionCode,
+      adminLevel: admin.adminLevel ?? null,
       capabilities: admin.capabilities,
       workspace: admin.workspace,
-      family_name: admin.family_name,
-      given_name: admin.given_name,
-      scope_province_name: admin.scope_province_name ?? null,
-      scope_city_name: admin.scope_city_name ?? null,
-      scope_town_name: admin.scope_town_name ?? null,
-      cid_short_name: admin.cid_short_name ?? null,
+      familyName: admin.familyName,
+      givenName: admin.givenName,
+      scopeProvinceName: admin.scopeProvinceName ?? null,
+      scopeCityName: admin.scopeCityName ?? null,
+      scopeTownName: admin.scopeTownName ?? null,
+      cidShortName: admin.cidShortName ?? null,
     };
     setAuth(nextAuth);
     writeStoredAuth(nextAuth);
@@ -128,9 +128,9 @@ export function LoginView() {
       const sessionId = createSessionId();
       const origin = window.location.origin;
       const challenge = await createAdminQrSignRequest({
-        identity_qr: raw,
+        identityQr: raw,
         origin,
-        session_id: sessionId,
+        sessionId: sessionId,
       });
       // 账户码不带显示名，这里展示账户短址供操作员核对扫到的是哪个账户；
       // 管理员姓名在会话签发后由链上/数据库记录提供，不信二维码自述。
@@ -158,29 +158,29 @@ export function LoginView() {
     }
     setScanSubmitting(true);
     try {
-      const payload = parseSignedLoginPayload(raw, pendingQrLogin.challenge_id);
+      const payload = parseSignedLoginPayload(raw, pendingQrLogin.challengeId);
       const completion = await completeAdminQrLogin({
-        challenge_id: payload.challenge_id,
-        session_id: pendingQrLogin.session_id,
-        account_id: payload.account_id,
+        challengeId: payload.challengeId,
+        sessionId: pendingQrLogin.sessionId,
+        accountId: payload.accountId,
         signature: payload.signature,
       });
       if (completion.status === 'BINDING_REQUIRED' && completion.binding) {
         setPendingBinding(completion.binding);
-        setSelectedCandidateId(completion.binding.candidates[0]?.candidate_id ?? '');
+        setSelectedCandidateId(completion.binding.candidates[0]?.candidateId ?? '');
         notice.success('请选择本节点绑定机构');
         return;
       }
-      if (completion.status === 'SUCCESS' && completion.access_token && completion.admin) {
-        finishLogin(completion.access_token, completion.admin);
+      if (completion.status === 'SUCCESS' && completion.accessToken && completion.admin) {
+        finishLogin(completion.accessToken, completion.admin);
         return;
       }
       const status = await queryAdminQrLoginResult(
-        pendingQrLogin.challenge_id,
-        pendingQrLogin.session_id,
+        pendingQrLogin.challengeId,
+        pendingQrLogin.sessionId,
       );
-      if (status.status === 'SUCCESS' && status.access_token && status.admin) {
-        finishLogin(status.access_token, status.admin);
+      if (status.status === 'SUCCESS' && status.accessToken && status.admin) {
+        finishLogin(status.accessToken, status.admin);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
@@ -199,10 +199,10 @@ export function LoginView() {
     setBindingSubmitting(true);
     try {
       const result = await confirmNodeBinding({
-        binding_challenge_id: pendingBinding.binding_challenge_id,
-        candidate_id: selectedCandidateId,
+        bindingChallengeId: pendingBinding.bindingChallengeId,
+        candidateId: selectedCandidateId,
       });
-      finishLogin(result.access_token, result.admin);
+      finishLogin(result.accessToken, result.admin);
     } catch (err) {
       notice.error(err, '绑定机构失败');
     } finally {
@@ -217,8 +217,8 @@ export function LoginView() {
     const timer = window.setInterval(async () => {
       try {
         const status = await queryAdminQrLoginResult(
-          pendingQrLogin.challenge_id,
-          pendingQrLogin.session_id,
+          pendingQrLogin.challengeId,
+          pendingQrLogin.sessionId,
         );
         if (cancelled) return;
         if (status.status === 'PENDING') return;
@@ -228,8 +228,8 @@ export function LoginView() {
           setDisplayName('');
           return;
         }
-        if (status.status === 'SUCCESS' && status.access_token && status.admin) {
-          finishLogin(status.access_token, status.admin);
+        if (status.status === 'SUCCESS' && status.accessToken && status.admin) {
+          finishLogin(status.accessToken, status.admin);
         }
       } catch {
         // keep polling
@@ -293,11 +293,11 @@ export function LoginView() {
         <OrganizationCaNotice />
         <CitizenSignaturePanel
           qrTitle={pendingQrLogin ? '定向登录二维码' : '登录请求'}
-          qrValue={pendingQrLogin?.login_qr_payload}
+          qrValue={pendingQrLogin?.loginQrPayload}
           qrPlaceholderValue="ONCHINA_LOGIN_PENDING"
           qrHint={
             pendingQrLogin
-              ? `${displayName} · 有效期至 ${new Date(pendingQrLogin.expire_at * 1000).toLocaleTimeString()}`
+              ? `${displayName} · 有效期至 ${new Date(pendingQrLogin.expiresAt * 1000).toLocaleTimeString()}`
               : '扫描管理员账户码后生成，仅该账户可以签名'
           }
           scannerTitle={pendingQrLogin ? '签名响应' : '管理员账户码'}
@@ -341,18 +341,18 @@ export function LoginView() {
           >
             <Space direction="vertical" style={{ width: '100%' }}>
               {pendingBinding?.candidates.map((candidate) => {
-                const title = candidate.cid_short_name || candidate.cid_full_name || candidate.institution_code;
-                const scope = [candidate.scope_province_name, candidate.scope_city_name, candidate.scope_town_name]
+                const title = candidate.cidShortName || candidate.cidFullName || candidate.institutionCode;
+                const scope = [candidate.scopeProvinceName, candidate.scopeCityName, candidate.scopeTownName]
                   .filter(Boolean)
                   .join(' / ');
                 return (
-                  <Radio key={candidate.candidate_id} value={candidate.candidate_id}>
+                  <Radio key={candidate.candidateId} value={candidate.candidateId}>
                     <div>
                       <Typography.Text strong>{title}</Typography.Text>
                       <br />
                       <Typography.Text type="secondary">
-                        {candidate.institution_code}
-                        {candidate.institution_cid_number ? ` · ${candidate.institution_cid_number}` : ''}
+                        {candidate.institutionCode}
+                        {candidate.institutionCidNumber ? ` · ${candidate.institutionCidNumber}` : ''}
                         {scope ? ` · ${scope}` : ''}
                       </Typography.Text>
                     </div>

@@ -10,15 +10,16 @@ use axum::{
 };
 use serde::Serialize;
 
+use crate::institutions::subjects::CreateInstitutionInput;
 use crate::registry::institutions::private::common::{
     assert_module_spec, fixed_rule, lock_input_to_rule, PrivateModuleSpec, PrivateType,
 };
 use crate::registry::institutions::private::participants::WELFARE_ROLES;
 use crate::registry::institutions::registration::{self, ListInstitutionQuery};
-use crate::institutions::subjects::CreateInstitutionInput;
 use crate::AppState;
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct WelfareProfile {
     pub(crate) identity_code: &'static str,
     pub(crate) p1: &'static str,

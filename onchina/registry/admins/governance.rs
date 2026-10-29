@@ -1,14 +1,26 @@
 //! 注册局直接登记机构管理员；对齐现有链调用字段，保持原签名与授权规则。
-use axum::{extract::State, http::{HeaderMap, StatusCode}, response::IntoResponse, Json};
-use serde::Deserialize;
 use crate::authentication::repo as auth_repo;
-use crate::core::institution_call::{encode_register_institution_admins, RegisterInstitutionAdminsArgs};
-use crate::institutions::admins::{InstitutionAdminInput, InstitutionChainSignRequest, code_bytes, parse_admin_inputs, build_chain_sign_output};
 use crate::authorization::rules::ensure_registry_admin;
+use crate::core::institution_call::{
+    encode_register_institution_admins, RegisterInstitutionAdminsArgs,
+};
+use crate::institutions::admins::{
+    build_chain_sign_output, code_bytes, parse_admin_inputs, InstitutionAdminInput,
+    InstitutionChainSignRequest,
+};
 use crate::*;
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    Json,
+};
+use serde::Deserialize;
 pub(crate) const PURPOSE_INSTITUTION_REGISTER_ADMINS: &str = "INSTITUTION_REGISTER_ADMINS";
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareRegisterInstitutionAdminsInput {
     pub(crate) cid_number: String,
     pub(crate) admins: Vec<InstitutionAdminInput>,
@@ -38,8 +50,14 @@ pub(crate) async fn prepare_register_institution_admins(
         return resp;
     }
     let actor_role_code = input.actor_role_code.trim();
-    if actor_role_code.is_empty() || actor_role_code.len() > entity_primitives::INSTITUTION_ROLE_CODE_MAX_BYTES as usize {
-        return api_error(StatusCode::BAD_REQUEST, 1001, "actor_role_code 长度必须为 1 到 64 字节");
+    if actor_role_code.is_empty()
+        || actor_role_code.len() > entitybase::INSTITUTION_ROLE_CODE_MAX_BYTES as usize
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            1001,
+            "actor_role_code 长度必须为 1 到 64 字节",
+        );
     }
     let binding = match auth_repo::active_node_binding(&state.db) {
         Ok(Some(binding)) => binding,
@@ -112,7 +130,7 @@ pub(crate) async fn prepare_register_institution_admins(
         "INSTITUTION_REGISTER_ADMINS_PREPARE",
         &ctx.account_id,
         Some(cid_number.to_string()),
-        serde_json::json!({ "cid_number": cid_number, "actor_ip": actor_ip_from_headers(&headers) }),
+        serde_json::json!({ "cidNumber": cid_number, "actorIp": actor_ip_from_headers(&headers) }),
     );
     Json(ApiResponse {
         code: 0,

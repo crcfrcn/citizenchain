@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-统一派生 citizenchain/runtime/primitives/cid/china 下所有链上保留地址。
+统一派生 citizenchain/runtime/primitives/china 下所有链上保留地址。
 
 统一方案（GMB 单域 + op_tag 子命名空间）：
 
@@ -46,7 +46,7 @@ from typing import Optional
 
 
 PRIMITIVES_DIR = Path(__file__).resolve().parent
-CHINA_DIR = PRIMITIVES_DIR / "cid" / "china"
+CHINA_DIR = PRIMITIVES_DIR / "china"
 CORE_CONST_PATH = PRIMITIVES_DIR / "src" / "core_const.rs"
 ACCOUNT_DERIVE_PATH = PRIMITIVES_DIR / "src" / "account_derive.rs"
 
@@ -340,7 +340,7 @@ def regen_zb(all_addresses: list[str], dry_run: bool) -> None:
     uniq = sorted(set(all_addresses))
 
     lines = [
-        "//! 汇总 runtime/primitives/cid/china 目录下所有制度保留地址",
+        "//! 汇总 runtime/primitives/china 目录下所有制度保留地址",
         "//! （main_account + fee_account + stake_account + SAFETY_FUND_ACCOUNT）。",
         "//! 用于禁止 organization-manage 抢注这些机构地址。",
         "//!",
@@ -374,7 +374,7 @@ def regen_zb(all_addresses: list[str], dry_run: bool) -> None:
 # ── 主流程 ──────────────────────────────────────────
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="统一派生 primitives/cid/china 下的 main/fee/stake/safety_fund 地址（GMB + op_tag）"
+        description="统一派生 primitives/china 下的 main/fee/stake/safety_fund 地址（GMB + op_tag）"
     )
     grp = parser.add_mutually_exclusive_group()
     grp.add_argument("--dry-run", action="store_true", default=True, help="仅打印差异（默认）")

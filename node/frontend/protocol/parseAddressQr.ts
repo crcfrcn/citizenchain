@@ -13,7 +13,7 @@ import {
 } from './citizenQr';
 
 export type AddressScanResult = {
-  ss58_address: string;
+  ss58Address: string;
 };
 
 export function parseAddressQr(raw: string): AddressScanResult {
@@ -28,11 +28,11 @@ export function parseAddressQr(raw: string): AddressScanResult {
 
   if (env.kind === 'account_id_code') {
     const body = env.body as AccountIdCodeBody;
-    return { ss58_address: accountIdToSs58(body.account_id) };
+    return { ss58Address: accountIdToSs58(body.account_id) };
   }
   if (env.kind === 'user_contact') {
     const body = env.body as UserContactBody;
-    return { ss58_address: accountIdToSs58(body.account_id) };
+    return { ss58Address: accountIdToSs58(body.account_id) };
   }
   throw new Error('此地址框只接受用户码或账户码');
 }

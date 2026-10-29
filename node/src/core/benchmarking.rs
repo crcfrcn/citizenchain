@@ -7,7 +7,6 @@
 
 use crate::core::service::FullClient;
 
-use citizenchain as runtime;
 use runtime::{AccountId, Balance, SystemCall};
 use sc_cli::Result;
 use sc_client_api::BlockBackend;

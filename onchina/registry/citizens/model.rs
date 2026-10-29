@@ -20,6 +20,8 @@ pub(crate) enum CitizenStatus {
 /// `account_id` 是链上推送阶段的可选绑定信息；本地新增儿童或未绑定链账户的公民
 /// 保持为空。数据库只保存规范化账户 ID，SS58 地址仅在返回展示数据时派生。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CitizenRecord {
     pub(crate) id: u64,
     pub(crate) cid_number: String,
@@ -34,9 +36,9 @@ pub(crate) struct CitizenRecord {
     #[serde(default)]
     pub(crate) binding_revision: u64,
     #[serde(default)]
-    pub(crate) binding_finalized_block_number: Option<i64>,
+    pub(crate) binding_block_number: Option<i64>,
     #[serde(default)]
-    pub(crate) binding_finalized_block_hash: Option<String>,
+    pub(crate) binding_block_hash: Option<String>,
     pub(crate) citizen_status: CitizenStatus,
     #[serde(default)]
     pub(crate) voting_eligible: bool,
@@ -101,6 +103,8 @@ fn parse_passport_date(value: &str) -> Option<NaiveDate> {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CitizensQuery {
     pub(crate) keyword: Option<String>,
     pub(crate) province_name: Option<String>,
@@ -112,12 +116,15 @@ pub(crate) struct CitizensQuery {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PublicIdentitySearchQuery {
     pub(crate) identity_code: Option<String>,
     pub(crate) account_id: Option<String>,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PublicIdentitySearchOutput {
     pub(crate) found: bool,
     pub(crate) identity_code: Option<String>,
@@ -125,6 +132,7 @@ pub(crate) struct PublicIdentitySearchOutput {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CitizenRow {
     pub(crate) id: u64,
     pub(crate) cid_number: String,
@@ -134,10 +142,9 @@ pub(crate) struct CitizenRow {
     pub(crate) citizen_sex: String,
     pub(crate) citizen_birth_date: String,
     pub(crate) account_id: Option<String>,
-    pub(crate) ss58_address: Option<String>,
     pub(crate) binding_revision: u64,
-    pub(crate) binding_finalized_block_number: Option<i64>,
-    pub(crate) binding_finalized_block_hash: Option<String>,
+    pub(crate) binding_block_number: Option<i64>,
+    pub(crate) binding_block_hash: Option<String>,
     pub(crate) citizen_status: CitizenStatus,
     pub(crate) voting_eligible: bool,
     pub(crate) vote_status: CitizenStatus,
@@ -174,7 +181,10 @@ mod tests {
         let now = DateTime::from_timestamp(1_779_580_800, 0).unwrap();
         CitizenRecord {
             id: 1,
-            cid_number: format!("CN000-CTZN{}-100000000-2026", primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)),
+            cid_number: format!(
+                "CN000-CTZN{}-100000000-2026",
+                primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)
+            ),
             passport_no: "GD12345678A".to_string(),
             family_name: "测".to_string(),
             given_name: "试公民".to_string(),
@@ -182,8 +192,8 @@ mod tests {
             citizen_birth_date: "2000-01-01".to_string(),
             account_id: Some(format!("0x{}", "ab".repeat(32))),
             binding_revision: 1,
-            binding_finalized_block_number: Some(7),
-            binding_finalized_block_hash: Some(format!("0x{}", "11".repeat(32))),
+            binding_block_number: Some(7),
+            binding_block_hash: Some(format!("0x{}", "11".repeat(32))),
             citizen_status: CitizenStatus::Normal,
             voting_eligible: true,
             passport_valid_from: "2026-05-24".to_string(),
@@ -254,13 +264,9 @@ pub(crate) fn citizen_row_from_record(record: &CitizenRecord) -> CitizenRow {
         citizen_sex: record.citizen_sex.clone(),
         citizen_birth_date: record.citizen_birth_date.clone(),
         account_id: record.account_id.clone(),
-        ss58_address: record
-            .account_id
-            .as_deref()
-            .and_then(crate::crypto::pubkey::account_id_to_ss58),
         binding_revision: record.binding_revision,
-        binding_finalized_block_number: record.binding_finalized_block_number,
-        binding_finalized_block_hash: record.binding_finalized_block_hash.clone(),
+        binding_block_number: record.binding_block_number,
+        binding_block_hash: record.binding_block_hash.clone(),
         citizen_status: record.citizen_status.clone(),
         voting_eligible: record.voting_eligible,
         vote_status: record.computed_vote_status(),

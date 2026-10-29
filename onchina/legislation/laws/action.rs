@@ -42,6 +42,7 @@ struct LegislationSignRequest<'a> {
 
 /// 所有立法链交易 prepare 接口统一返回请求编号和请求二维码载荷。
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct LegislationSignOutput {
     request_id: String,
     sign_request: String,
@@ -63,7 +64,7 @@ pub(crate) async fn prepare_propose_law_sign(
         institution_cid_number,
         resolve_cid_number,
     )
-        .map_err(|error| api_error(StatusCode::UNPROCESSABLE_ENTITY, 2001, error.code()))?;
+    .map_err(|error| api_error(StatusCode::UNPROCESSABLE_ENTITY, 2001, error.code()))?;
     prepare_legislation_sign(
         state,
         LegislationSignRequest {
@@ -179,50 +180,47 @@ async fn prepare_legislation_sign(
 
 /// 共用提交管道调用原立法授权复核，未改变发起或代表机构表决规则。
 pub(crate) async fn recheck_module_submit(
-    _state: &AppState, ctx: &crate::authentication::login::AdminAuthContext,
+    _state: &AppState,
+    ctx: &crate::authentication::login::AdminAuthContext,
     session: &crate::transactions::session::ChainSignSession,
 ) -> Result<(), Response> {
-        let session_cid_number = session
-            .context
-            .get("cid_number")
-            .and_then(|value| value.as_str())
-            .unwrap_or_default();
-        let authorized = session_cid_number == ctx.institution_cid_number
-            && match session.purpose.as_str() {
-                crate::legislation::law::action::PURPOSE_LEGISLATION_PROPOSE => {
-                    let vote_type = session
-                        .context
-                        .get("operation")
-                        .and_then(|value| value.get("vote_type"))
-                        .and_then(|value| value.as_u64())
-                        .and_then(|value| u8::try_from(value).ok());
-                    vote_type.is_some_and(|vote_type| {
-                        crate::legislation::category::proposable_candidates(
-                            &ctx.institution_code,
-                        )
+    let session_cid_number = session
+        .context
+        .get("cid_number")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let authorized = session_cid_number == ctx.institution_cid_number
+        && match session.purpose.as_str() {
+            crate::legislation::law::action::PURPOSE_LEGISLATION_PROPOSE => {
+                let vote_type = session
+                    .context
+                    .get("operation")
+                    .and_then(|value| value.get("voteType"))
+                    .and_then(|value| value.as_u64())
+                    .and_then(|value| u8::try_from(value).ok());
+                vote_type.is_some_and(|vote_type| {
+                    crate::legislation::category::proposable_candidates(&ctx.institution_code)
                         .iter()
                         .any(|candidate| candidate.vote_types.contains(&vote_type))
-                    })
-                }
-                crate::legislation::law::action::PURPOSE_LEGISLATION_REPRESENTATIVE_VOTE => {
-                    matches!(
-                        crate::legislation::category::legislation_role(
-                            &ctx.institution_code
-                        ),
-                        Some(
-                            crate::legislation::category::LegislationRole::ProposerHouse
-                                | crate::legislation::category::LegislationRole::ReviewHouse
-                        )
+                })
+            }
+            crate::legislation::law::action::PURPOSE_LEGISLATION_REPRESENTATIVE_VOTE => {
+                matches!(
+                    crate::legislation::category::legislation_role(&ctx.institution_code),
+                    Some(
+                        crate::legislation::category::LegislationRole::ProposerHouse
+                            | crate::legislation::category::LegislationRole::ReviewHouse
                     )
-                }
-                _ => false,
-            };
-        if !authorized {
-            return Err(api_error(
-                StatusCode::FORBIDDEN,
-                1003,
-                "当前机构无权提交该立法链交易",
-            ));
-        }
+                )
+            }
+            _ => false,
+        };
+    if !authorized {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            1003,
+            "当前机构无权提交该立法链交易",
+        ));
+    }
     Ok(())
 }

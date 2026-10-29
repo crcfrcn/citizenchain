@@ -10,6 +10,7 @@ pub(crate) struct GovernanceCitizen {
     pub(crate) account_id: Option<String>,
 }
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct OwnInstitutionAdminRow {
     pub(crate) account_id: String,
     pub(crate) family_name: String,
@@ -28,12 +29,12 @@ pub(crate) struct OwnInstitutionAdminRow {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct OwnInstitutionAdminListOutput {
     pub(crate) institution_code: String,
     pub(crate) cid_short_name: Option<String>,
     pub(crate) rows: Vec<OwnInstitutionAdminRow>,
 }
-
 
 // 私权机构类别字符串真源，既有值不变；此处不解析CID或地区。
 pub(crate) const PRIVATE_TYPE_SOLE: &str = "SOLE";
@@ -67,8 +68,19 @@ mod private_type_tests {
     use super::*;
     #[test]
     fn existing_private_classes_keep_their_original_codes() {
-        for (institution, expected) in [("SFGT","SOLE"),("SFGP","PARTNERSHIP"),("SFLP","PARTNERSHIP"),("SFGQ","COMPANY"),("SFGF","CORPORATION"),("SFGY","WELFARE"),("SFAS","ASSOCIATION")] {
-            assert_eq!(private_type_code_from_institution_code(institution), Some(expected));
+        for (institution, expected) in [
+            ("SFGT", "SOLE"),
+            ("SFGP", "PARTNERSHIP"),
+            ("SFLP", "PARTNERSHIP"),
+            ("SFGQ", "COMPANY"),
+            ("SFGF", "CORPORATION"),
+            ("SFGY", "WELFARE"),
+            ("SFAS", "ASSOCIATION"),
+        ] {
+            assert_eq!(
+                private_type_code_from_institution_code(institution),
+                Some(expected)
+            );
         }
         assert_eq!(private_type_code_from_institution_code("NLG"), None);
     }

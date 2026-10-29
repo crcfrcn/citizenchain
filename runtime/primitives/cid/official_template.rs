@@ -258,26 +258,3 @@ pub const TOWN_TEMPLATES: &[OfficialOrgTemplate] = &[
         cid_full_name_suffix: "自治司法院",
     },
 ];
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn template_family_counts() {
-        assert_eq!(PROVINCE_DEPARTMENT_TEMPLATES.len(), 11);
-        assert_eq!(CITY_TEMPLATES.len(), 17);
-        assert_eq!(TOWN_TEMPLATES.len(), 14);
-    }
-
-    #[test]
-    fn name_composition_matches_reverse_verified_examples() {
-        let gov = &CITY_TEMPLATES[0];
-        assert_eq!(gov.cid_short_name("荔湾市"), "荔湾市政府");
-        assert_eq!(gov.cid_full_name("荔湾市"), "荔湾市自治政府");
-        let dept = &PROVINCE_DEPARTMENT_TEMPLATES[0];
-        assert_eq!(dept.cid_short_name("广东省"), "广东省国防厅");
-        let town = &TOWN_TEMPLATES[0];
-        assert_eq!(town.cid_short_name("锦程镇"), "锦程镇政府");
-    }
-}

@@ -12,31 +12,31 @@ export const grandpaKeyChangeApi = {
 
   buildRequest: (
     actorCidNumber: string,
-    signer_public_key: string,
+    signerPublicKey: string,
     emergencyRecovery: boolean,
     unlockPassword: string,
   ) =>
     invoke<GrandpaKeyChangeRequest>('build_grandpa_key_change_request', {
-      actor_cid_number: actorCidNumber,
-      signer_public_key,
-      emergency_recovery: emergencyRecovery,
-      unlock_password: unlockPassword,
+      actorCidNumber: actorCidNumber,
+      signerPublicKey,
+      emergencyRecovery: emergencyRecovery,
+      unlockPassword: unlockPassword,
     }),
 
   submit: (
     requestId: string,
-    expected_signer_public_key: string,
+    expectedPublicKey: string,
     expectedPayloadHash: string,
     signNonce: number,
     signBlockNumber: number,
     responseJson: string,
   ) =>
     invoke<GrandpaKeyChangeSubmitResult>('submit_grandpa_key_change', {
-      request_id: requestId,
-      expected_signer_public_key,
-      expected_payload_hash: expectedPayloadHash,
-      sign_nonce: signNonce,
-      sign_block_number: signBlockNumber,
-      response_json: responseJson,
+      requestId: requestId,
+      expectedPublicKey,
+      expectedPayloadHash: expectedPayloadHash,
+      signNonce: signNonce,
+      signBlockNumber: signBlockNumber,
+      responseJson: responseJson,
     }),
 };

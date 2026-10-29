@@ -25,6 +25,7 @@ pub enum PersonnelAction {
 
 /// 任免职书正文(单一职位的任免决定)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct PersonnelDecision {
     /// 任免动作。
@@ -52,6 +53,7 @@ pub struct PersonnelDecision {
 /// 表决院(houses)由后端按层级与原机构 CID 解析(参议会/市立法会单院),
 /// 不收前端；地域由后端原机构 CID 派生。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposePersonnelInput {
     /// 层级(1 国家 / 2 省 / 3 市)。

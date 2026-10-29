@@ -7,11 +7,8 @@ export type Wallet = {
   name: string;
   /** hot 使用本机 powr 私钥；cold 使用 CitizenWallet 离线扫码。 */
   signMode: SignMode;
-  /** 仅用于钱包界面展示的 SS58 地址（prefix 2027）。 */
-  ss58Address: string;
   /** 账户 ID（小写 0x + 64 位十六进制）。 */
   accountId: string;
-  createdAt: number;
 };
 
 export type WalletStore = {

@@ -1,8 +1,4 @@
-export type AdminSignerMatch = {
-  ss58_address: string;
-  account_id: string;
-  account_label: string;
-};
+export type { AdminSignerMatch } from '../governance/types';
 
 export type VoteSignRequestResult = {
   requestJson: string;
@@ -19,25 +15,25 @@ export type VoteSubmitResult = {
 export type TransferProposalDetail = {
   proposalId: number;
   actorCidNumber: string | null;
-  funding_account_id: string;
-  beneficiary_account_id: string;
+  fundingAccountId: string;
+  beneficiaryAccountId: string;
   amountFen: string;
   remark: string;
-  proposer_account_id: string;
+  proposerAccountId: string;
 };
 
 export type SweepProposalDetail = {
   proposalId: number;
   actorCidNumber: string;
-  institution_account_id: string;
+  institutionAccountId: string;
   amountFen: string;
 };
 
 export type SafetyFundProposalDetail = {
   proposalId: number;
   actorCidNumber: string;
-  institution_account_id: string;
-  beneficiary_account_id: string;
+  institutionAccountId: string;
+  beneficiaryAccountId: string;
   amountFen: string;
   remark: string;
 };

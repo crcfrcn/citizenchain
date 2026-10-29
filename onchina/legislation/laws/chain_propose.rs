@@ -3,7 +3,7 @@
 //! 复用 `core::institution_call` 与 `core::chain_submit` 的「构造裸 call data → CitizenWallet
 //! 一次签名并显示响应二维码 → OnChina 回扫后统一提交」通道。
 //!
-//! **铁律**:参数顺序与 SCALE 类型必须与链端 `legislation-yuan`(pallet idx 25)逐字节一致:
+//! **铁律**:参数顺序与 SCALE 类型必须与链端 `legislation`(pallet idx 25)逐字节一致:
 //! - `tier` / `vote_type` 是单字节枚举序号(Tier:0宪法/1国家/2省/3市;VoteType:0常规/1常规教育/2重要/3重要教育/4特别);
 //! - `houses` = `Vec<CidNumber>`,带 `Compact<u32>` 数量前缀,每项是 CID 字节向量;
 //! - `actor_cid_number` / `executive_cid_number` = 机构唯一 CID;
@@ -13,7 +13,7 @@
 //! - `chapters` = 章>节>条>款 嵌套(链端 `BoundedVec` 与 `Vec` 的 SCALE 同布局,由 `ChapterArg` 派生 `Encode`);
 //! - `region` = 原两字母省码 + u16 小端市号(固定四字节);`effective_at` = 生效时间戳毫秒(u64 小端);`law_id` = u64 小端。
 //!
-//! `tests` 用链端真实 `legislation_yuan::{Tier,VoteType}` 与 codec `.encode()` 逐字节交叉校验,杜绝静默漂移。
+//! `tests` 用链端真实 `legislation::{Tier,VoteType}` 与 codec `.encode()` 逐字节交叉校验,杜绝静默漂移。
 //!
 //! prepare 由 action.rs 调用，统一提交由平台 transactions 负责。
 
@@ -31,7 +31,7 @@ pub const PROPOSE_AMEND_LAW_CALL_INDEX: u8 = 1;
 pub const PROPOSE_REPEAL_LAW_CALL_INDEX: u8 = 2;
 
 // 章>节>条>款 SCALE 镜像:`Vec` 与链端 `BoundedVec` SCALE 同布局,字段顺序锁死链端
-// `legislation-yuan` 的 `Chapter/Section/Article/Clause`(lib.rs:75/97/125/149)。
+// `legislation` 的 `Chapter/Section/Article/Clause`(lib.rs:75/97/125/149)。
 /// 款(最末层正文)。
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct ClauseArg {
@@ -190,7 +190,7 @@ pub fn encode_propose_repeal_law(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use legislation_yuan::{Tier, VoteType};
+    use legislation::{Tier, VoteType};
 
     /// 本编码器的 `tier`/`vote_type` 单字节序号必须与链端真实枚举 `.encode()` 逐字节一致。
     #[test]

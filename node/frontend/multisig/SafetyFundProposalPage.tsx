@@ -10,7 +10,7 @@ import type { AdminSignerMatch, VoteSignRequestResult } from './types';
 
 type Props = {
   actorCidNumber: string;
-  institution_account_id: string;
+  institutionAccountId: string;
   adminSigners: AdminSignerMatch[];
   onBack: () => void;
   onSuccess: () => void;
@@ -18,7 +18,7 @@ type Props = {
 
 type Step = 'form' | 'qr' | 'submit' | 'done' | 'error';
 
-export function SafetyFundProposalPage({ actorCidNumber, institution_account_id, adminSigners, onBack, onSuccess }: Props) {
+export function SafetyFundProposalPage({ actorCidNumber, institutionAccountId, adminSigners, onBack, onSuccess }: Props) {
   const [step, setStep] = useState<Step>('form');
 
   const [selectedSigner, setSelectedSigner] = useState<AdminSignerMatch | null>(
@@ -77,7 +77,7 @@ export function SafetyFundProposalPage({ actorCidNumber, institution_account_id,
       formValuesRef.current = { beneficiary: beneficiary.trim(), amountYuan: amount, remark };
 
       const result = await api.buildProposeSafetyFundRequest(
-        selectedSigner!.account_id, actorCidNumber, proposerRoleCode.trim(), institution_account_id,
+        selectedSigner!.accountId, actorCidNumber, proposerRoleCode.trim(), institutionAccountId,
         beneficiary.trim(), amount, remark,
       );
 
@@ -104,8 +104,8 @@ export function SafetyFundProposalPage({ actorCidNumber, institution_account_id,
     try {
       const { beneficiary: ben, amountYuan: amt, remark: rmk } = formValuesRef.current;
       const result = await api.submitProposeSafetyFund(
-        req.requestId, wallet.account_id, req.expectedPayloadHash,
-        actorCidNumber, proposerRoleCode.trim(), institution_account_id,
+        req.requestId, wallet.accountId, req.expectedPayloadHash,
+        actorCidNumber, proposerRoleCode.trim(), institutionAccountId,
         ben, amt, rmk,
         req.signNonce, req.signBlockNumber, responseText,
       );
@@ -115,7 +115,7 @@ export function SafetyFundProposalPage({ actorCidNumber, institution_account_id,
       setError(sanitizeError(e));
       setStep('error');
     }
-  }, [actorCidNumber, proposerRoleCode, institution_account_id]);
+  }, [actorCidNumber, proposerRoleCode, institutionAccountId]);
 
   return (
     <div className="governance-section">
@@ -130,21 +130,21 @@ export function SafetyFundProposalPage({ actorCidNumber, institution_account_id,
           <div className="wallet-form-field">
             <label>发起管理员</label>
             <select
-              value={selectedSigner?.account_id || ''}
+              value={selectedSigner?.accountId || ''}
               onChange={(e) => {
-                const w = adminSigners.find((w) => w.account_id === e.target.value);
+                const w = adminSigners.find((w) => w.accountId === e.target.value);
                 setSelectedSigner(w || null);
               }}
               disabled={adminSigners.length <= 1}
             >
               {adminSigners.length === 0 && <option value="">无已激活管理员</option>}
               {adminSigners.length === 1 ? (
-                <option value={adminSigners[0].account_id}>{accountIdToSs58(adminSigners[0].account_id)}</option>
+                <option value={adminSigners[0].accountId}>{accountIdToSs58(adminSigners[0].accountId)}</option>
               ) : (
                 <>
                   <option value="">请选择…</option>
                   {adminSigners.map((w) => (
-                    <option key={w.account_id} value={w.account_id}>{accountIdToSs58(w.account_id)}</option>
+                    <option key={w.accountId} value={w.accountId}>{accountIdToSs58(w.accountId)}</option>
                   ))}
                 </>
               )}
@@ -162,7 +162,7 @@ export function SafetyFundProposalPage({ actorCidNumber, institution_account_id,
 
           <div className="wallet-form-field">
             <label>转出地址（安全基金账户）</label>
-            <input type="text" value={accountIdToSs58(institution_account_id)} disabled />
+            <input type="text" value={accountIdToSs58(institutionAccountId)} disabled />
           </div>
 
           <div className="wallet-form-field">
@@ -216,9 +216,9 @@ export function SafetyFundProposalPage({ actorCidNumber, institution_account_id,
 
           {showAddressScan && (
             <AddressScanModal
-              onResult={({ ss58_address }) => {
+              onResult={({ ss58Address }) => {
                 // 账户码只声明账户，不带金额与备注；两者一律由本端手工填写。
-                setBeneficiary(ss58_address);
+                setBeneficiary(ss58Address);
                 setShowAddressScan(false);
               }}
               onClose={() => setShowAddressScan(false)}

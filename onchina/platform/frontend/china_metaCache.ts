@@ -15,17 +15,17 @@ const INSTITUTION_DETAIL_CACHE_ID = 'institution-detail';
 const GOV_MANIFEST_VERSION_KEY = 'cid:gov-manifest-version';
 
 interface CachedPayload<T> {
-  cache_id: string;
+  cacheId: string;
   data: T;
 }
 
 interface InstitutionRowsCachePayload {
-  cache_id: string;
-  account_id: string;
-  institution_code: string;
-  province_name: string;
-  city_name: string;
-  manifest_version?: string | null;
+  cacheId: string;
+  accountId: string;
+  institutionCode: string;
+  provinceName: string;
+  cityName: string;
+  manifestVersion?: string | null;
   rows: InstitutionListRow[];
 }
 
@@ -34,7 +34,7 @@ function readCache<T>(key: string, cacheId: string): T | null {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedPayload<T>;
-    if (parsed.cache_id !== cacheId || typeof parsed.data === 'undefined') {
+    if (parsed.cacheId !== cacheId || typeof parsed.data === 'undefined') {
       localStorage.removeItem(key);
       return null;
     }
@@ -47,18 +47,18 @@ function readCache<T>(key: string, cacheId: string): T | null {
 
 function writeCache<T>(key: string, cacheId: string, data: T) {
   try {
-    localStorage.setItem(key, JSON.stringify({ cache_id: cacheId, data } satisfies CachedPayload<T>));
+    localStorage.setItem(key, JSON.stringify({ cacheId: cacheId, data } satisfies CachedPayload<T>));
   } catch {
     // 确定性元数据缓存写入失败不能阻断页面展示。
   }
 }
 
 function cidMetaCacheKey(auth: AdminAuth): string {
-  return ['cid:meta', CID_META_CACHE_ID, auth.account_id, auth.institution_code].join(':');
+  return ['cid:meta', CID_META_CACHE_ID, auth.accountId, auth.institutionCode].join(':');
 }
 
-function cidCitiesCacheKey(province_name: string): string {
-  return ['cid:cities', CID_CITY_CACHE_ID, province_name].join(':');
+function cidCitiesCacheKey(provinceName: string): string {
+  return ['cid:cities', CID_CITY_CACHE_ID, provinceName].join(':');
 }
 
 export async function loadCachedCidMeta(auth: AdminAuth): Promise<CidMetaResult> {
@@ -78,40 +78,40 @@ function citiesCacheUsable(rows: CidCityItem[] | null): rows is CidCityItem[] {
   return (
     Array.isArray(rows)
     && rows.every((c) =>
-      typeof c.city_name === 'string'
-      && c.city_name.length > 0
-      && typeof c.city_code === 'string'
-      && c.city_code.length > 0)
+      typeof c.cityName === 'string'
+      && c.cityName.length > 0
+      && typeof c.cityCode === 'string'
+      && c.cityCode.length > 0)
   );
 }
 
 export async function loadCachedCidCities(
   auth: AdminAuth,
-  province_name: string,
+  provinceName: string,
 ): Promise<CidCityItem[]> {
-  const key = cidCitiesCacheKey(province_name);
+  const key = cidCitiesCacheKey(provinceName);
   const cacheId = CID_CITY_CACHE_ID;
   const cached = readCache<CidCityItem[]>(key, cacheId);
   if (citiesCacheUsable(cached)) return cached;
   if (cached) localStorage.removeItem(key);
-  const rows = await listCidCities(auth, province_name);
+  const rows = await listCidCities(auth, provinceName);
   writeCache(key, cacheId, rows);
   return rows;
 }
 
-export function readCachedCidCities(province_name: string): CidCityItem[] | null {
-  const cached = readCache<CidCityItem[]>(cidCitiesCacheKey(province_name), CID_CITY_CACHE_ID);
+export function readCachedCidCities(provinceName: string): CidCityItem[] | null {
+  const cached = readCache<CidCityItem[]>(cidCitiesCacheKey(provinceName), CID_CITY_CACHE_ID);
   return citiesCacheUsable(cached) ? cached : null;
 }
 
-export function officialInstitutionCacheKey(auth: AdminAuth, province_name: string, city_name: string): string {
-  const scopeCity = auth.scope_city_name || city_name || 'ALL';
-  const scopeProvince = auth.scope_province_name || province_name;
+export function officialInstitutionCacheKey(auth: AdminAuth, provinceName: string, cityName: string): string {
+  const scopeCity = auth.scopeCityName || cityName || 'ALL';
+  const scopeProvince = auth.scopeProvinceName || provinceName;
   return [
     'cid:official-institutions',
     OFFICIAL_INSTITUTION_CACHE_ID,
-    auth.account_id,
-    auth.institution_code,
+    auth.accountId,
+    auth.institutionCode,
     scopeProvince,
     scopeCity,
   ].join(':');
@@ -122,7 +122,7 @@ export function readCachedOfficialInstitutionRows(key: string): InstitutionListR
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as InstitutionRowsCachePayload;
-    if (parsed.cache_id !== OFFICIAL_INSTITUTION_CACHE_ID || !Array.isArray(parsed.rows)) {
+    if (parsed.cacheId !== OFFICIAL_INSTITUTION_CACHE_ID || !Array.isArray(parsed.rows)) {
       localStorage.removeItem(key);
       return null;
     }
@@ -133,8 +133,8 @@ export function readCachedOfficialInstitutionRows(key: string): InstitutionListR
     const latestManifestVersion = localStorage.getItem(GOV_MANIFEST_VERSION_KEY);
     if (
       latestManifestVersion
-      && parsed.manifest_version
-      && parsed.manifest_version !== latestManifestVersion
+      && parsed.manifestVersion
+      && parsed.manifestVersion !== latestManifestVersion
     ) {
       localStorage.removeItem(key);
       return null;
@@ -149,8 +149,8 @@ export function readCachedOfficialInstitutionRows(key: string): InstitutionListR
 export function writeCachedOfficialInstitutionRows(
   key: string,
   auth: AdminAuth,
-  province_name: string,
-  city_name: string,
+  provinceName: string,
+  cityName: string,
   rows: InstitutionListRow[],
   manifestVersion?: string | null,
 ) {
@@ -160,12 +160,12 @@ export function writeCachedOfficialInstitutionRows(
     localStorage.setItem(
       key,
       JSON.stringify({
-        cache_id: OFFICIAL_INSTITUTION_CACHE_ID,
-        account_id: auth.account_id,
-        institution_code: auth.institution_code,
-        province_name: auth.scope_province_name ||  province_name,
-        city_name: auth.scope_city_name || city_name || 'ALL',
-        manifest_version: manifestVersion ?? null,
+        cacheId: OFFICIAL_INSTITUTION_CACHE_ID,
+        accountId: auth.accountId,
+        institutionCode: auth.institutionCode,
+        provinceName: auth.scopeProvinceName ||  provinceName,
+        cityName: auth.scopeCityName || cityName || 'ALL',
+        manifestVersion: manifestVersion ?? null,
         rows,
       } satisfies InstitutionRowsCachePayload),
     );
@@ -174,14 +174,14 @@ export function writeCachedOfficialInstitutionRows(
   }
 }
 
-export function educationCommitteeCacheKey(auth: AdminAuth, province_name: string, city_name: string): string {
-  const scopeCity = auth.scope_city_name || city_name;
-  const scopeProvince = auth.scope_province_name || province_name;
+export function educationCommitteeCacheKey(auth: AdminAuth, provinceName: string, cityName: string): string {
+  const scopeCity = auth.scopeCityName || cityName;
+  const scopeProvince = auth.scopeProvinceName || provinceName;
   return [
     'cid:education-committees',
     EDUCATION_COMMITTEE_CACHE_ID,
-    auth.account_id,
-    auth.institution_code,
+    auth.accountId,
+    auth.institutionCode,
     scopeProvince,
     scopeCity,
   ].join(':');
@@ -192,7 +192,7 @@ export function readCachedEducationCommitteeRows(key: string): InstitutionListRo
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as InstitutionRowsCachePayload;
-    if (parsed.cache_id !== EDUCATION_COMMITTEE_CACHE_ID || !Array.isArray(parsed.rows)) {
+    if (parsed.cacheId !== EDUCATION_COMMITTEE_CACHE_ID || !Array.isArray(parsed.rows)) {
       localStorage.removeItem(key);
       return null;
     }
@@ -210,8 +210,8 @@ export function readCachedEducationCommitteeRows(key: string): InstitutionListRo
 export function writeCachedEducationCommitteeRows(
   key: string,
   auth: AdminAuth,
-  province_name: string,
-  city_name: string,
+  provinceName: string,
+  cityName: string,
   rows: InstitutionListRow[],
 ) {
   try {
@@ -222,12 +222,12 @@ export function writeCachedEducationCommitteeRows(
     localStorage.setItem(
       key,
       JSON.stringify({
-        cache_id: EDUCATION_COMMITTEE_CACHE_ID,
-        account_id: auth.account_id,
-        institution_code: auth.institution_code,
-        province_name: auth.scope_province_name ||  province_name,
-        city_name: auth.scope_city_name ||  city_name,
-        manifest_version: null,
+        cacheId: EDUCATION_COMMITTEE_CACHE_ID,
+        accountId: auth.accountId,
+        institutionCode: auth.institutionCode,
+        provinceName: auth.scopeProvinceName ||  provinceName,
+        cityName: auth.scopeCityName ||  cityName,
+        manifestVersion: null,
         rows,
       } satisfies InstitutionRowsCachePayload),
     );
@@ -240,8 +240,8 @@ export function institutionDetailCacheKey(auth: AdminAuth, cidNumber: string): s
   return [
     'cid:institution-detail',
     INSTITUTION_DETAIL_CACHE_ID,
-    auth.account_id,
-    auth.institution_code,
+    auth.accountId,
+    auth.institutionCode,
     cidNumber,
   ].join(':');
 }

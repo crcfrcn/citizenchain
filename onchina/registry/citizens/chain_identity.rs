@@ -1,6 +1,6 @@
 //! 公民身份上链准备 handler。
 //!
-//! 本模块只处理公民账户签名与 `citizen-identity` call data 构造。
+//! 本模块只处理公民账户签名与 `identity` call data 构造。
 //! 本地建档不要求链账户；注册局准备推送链上身份时才绑定账户并验签。
 
 // 身份准备辅助函数必须原样返回统一 Axum 拒绝响应，禁止不同入口各自改写错误语义。
@@ -58,6 +58,8 @@ impl CitizenOnchainIdentityLevel {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenOnchainInput {
     pub(crate) account_id: String,
     pub(crate) actor_role_code: String,
@@ -65,12 +67,12 @@ pub(crate) struct PrepareCitizenOnchainInput {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenOnchainOutput {
     pub(crate) cid_number: String,
     pub(crate) actor_role_code: String,
     pub(crate) identity_level: CitizenOnchainIdentityLevel,
     pub(crate) account_id: String,
-    pub(crate) ss58_address: String,
     pub(crate) payload_hex: String,
     pub(crate) sign_request: String,
     pub(crate) action_label_zh: String,
@@ -78,6 +80,8 @@ pub(crate) struct PrepareCitizenOnchainOutput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CompleteCitizenOnchainInput {
     pub(crate) account_id: String,
     pub(crate) actor_role_code: String,
@@ -86,27 +90,27 @@ pub(crate) struct CompleteCitizenOnchainInput {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CompleteCitizenOnchainOutput {
     pub(crate) request_id: String,
     pub(crate) cid_number: String,
     pub(crate) actor_role_code: String,
     pub(crate) identity_level: CitizenOnchainIdentityLevel,
     pub(crate) account_id: String,
-    pub(crate) ss58_address: String,
     pub(crate) chain_action: u16,
     pub(crate) call_data_hex: String,
     pub(crate) citizen_signature: String,
-    pub(crate) citizen_identity_chain_sign_request: String,
+    pub(crate) identity_sign_request: String,
 }
 
 /// 所有注册局都可查询的链上公开 CID 绑定，不包含任何链下公民档案。
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct FinalizedCitizenBindingOutput {
     pub(crate) cid_number: String,
     pub(crate) cid_status: String,
     pub(crate) binding_active: bool,
     pub(crate) account_id: Option<String>,
-    pub(crate) ss58_address: Option<String>,
     pub(crate) binding_revision: Option<u64>,
     pub(crate) voting_identity: bool,
     pub(crate) candidate_identity: bool,
@@ -152,9 +156,6 @@ pub(crate) async fn finalized_citizen_binding(
     let active_binding = snapshot.active_binding();
     let binding_active = active_binding.is_some();
     let account_id = active_binding.map(|(account_id, _)| format!("0x{}", hex::encode(account_id)));
-    let ss58_address = account_id
-        .as_deref()
-        .and_then(crate::crypto::pubkey::account_id_to_ss58);
     Json(ApiResponse {
         code: 0,
         message: "ok".to_string(),
@@ -163,7 +164,6 @@ pub(crate) async fn finalized_citizen_binding(
             cid_status: snapshot.cid_status.as_str().to_string(),
             binding_active,
             account_id,
-            ss58_address,
             binding_revision: snapshot.binding_revision,
             voting_identity: snapshot.voting.is_some(),
             candidate_identity: snapshot.candidate.is_some(),
@@ -287,7 +287,6 @@ pub(crate) async fn prepare_citizen_onchain_signature(
             actor_role_code,
             identity_level: payload.identity_level,
             account_id: citizen_account.account_id,
-            ss58_address: citizen_account.ss58_address,
             payload_hex: format!("0x{}", hex::encode(authorization_bytes)),
             sign_request,
             action_label_zh: crate::core::qr::action_label_zh("citizen_identity"),
@@ -498,12 +497,15 @@ pub(crate) async fn complete_citizen_onchain_signature(
             "identity_level": payload.identity_level.as_str(),
             "actor_role_code": actor_role_code.clone(),
             "citizen_account_id": citizen_account.account_id,
-            "ss58_address": citizen_account.ss58_address,
         }),
         expires_at,
         consumed_at: None,
     };
-    if let Err(err) = state.db.insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number) {
+    if let Err(err) =
+        state
+            .db
+            .insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number)
+    {
         tracing::error!(error = %err, "insert identity push session failed");
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "冷签会话落库失败");
     }
@@ -517,11 +519,10 @@ pub(crate) async fn complete_citizen_onchain_signature(
             actor_role_code,
             identity_level: payload.identity_level,
             account_id: citizen_account.account_id,
-            ss58_address: citizen_account.ss58_address,
             chain_action: action,
             call_data_hex: format!("0x{}", hex::encode(call)),
             citizen_signature,
-            citizen_identity_chain_sign_request: chain_sign_request,
+            identity_sign_request: chain_sign_request,
         },
     })
     .into_response()
@@ -551,16 +552,13 @@ impl Db {
     ) -> Result<(), String> {
         let operation = operation.clone();
         self.with_client(move |conn| {
+            conn.execute("DELETE FROM operation WHERE expires_at < now()", &[])
+                .map_err(|e| format!("delete expired citizen onchain operations failed: {e}"))?;
             conn.execute(
-                "DELETE FROM citizen_onchain_operations WHERE expires_at < now()",
-                &[],
-            )
-            .map_err(|e| format!("delete expired citizen onchain operations failed: {e}"))?;
-            conn.execute(
-                "INSERT INTO citizen_onchain_operations
-                 (operation_id, registrar_account_id, institution_code, actor_role_code, cid_number,
-                  citizen_account_id, identity_level, payload_hex,
-                  expected_identity_version, authorization_expires_at, expires_at)
+                "INSERT INTO operation
+                 (operation_id, registrar_account, institution_code, actor_role, cid_number,
+                  citizen_account, identity_level, payload_hex,
+                  identity_version, authorization_until, expires_at)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
                 &[
                     &operation.operation_id,
@@ -589,11 +587,11 @@ impl Db {
         self.with_client(move |conn| {
             let row = conn
                 .query_opt(
-                    "SELECT operation_id, registrar_account_id, institution_code, actor_role_code,
-                        cid_number, citizen_account_id, identity_level, payload_hex,
-                        expected_identity_version, authorization_expires_at, expires_at
-                 FROM citizen_onchain_operations
-                 WHERE operation_id = $1 AND citizen_signed_at IS NULL AND expires_at >= now()",
+                    "SELECT operation_id, registrar_account, institution_code, actor_role,
+                        cid_number, citizen_account, identity_level, payload_hex,
+                        identity_version, authorization_until, expires_at
+                 FROM operation
+                 WHERE operation_id = $1 AND signed_at IS NULL AND expires_at >= now()",
                     &[&operation_id],
                 )
                 .map_err(|e| format!("query citizen onchain operation failed: {e}"))?;
@@ -617,8 +615,8 @@ impl Db {
         let operation_id = operation_id.to_string();
         self.with_client(move |conn| {
             conn.execute(
-                "UPDATE citizen_onchain_operations SET citizen_signed_at = now()
-             WHERE operation_id = $1 AND citizen_signed_at IS NULL AND expires_at >= now()",
+                "UPDATE operation SET signed_at = now()
+             WHERE operation_id = $1 AND signed_at IS NULL AND expires_at >= now()",
                 &[&operation_id],
             )
             .map(|count| count == 1)
@@ -626,35 +624,44 @@ impl Db {
         })
     }
 
-    pub(crate) fn find_citizen_by_cid(&self, cid_number: &str) -> Result<Option<CitizenRecord>, String> {
+    pub(crate) fn find_citizen_by_cid(
+        &self,
+        cid_number: &str,
+    ) -> Result<Option<CitizenRecord>, String> {
         let cid_number = cid_number.trim().to_string();
-        if cid_number.is_empty() { return Ok(None); }
+        if cid_number.is_empty() {
+            return Ok(None);
+        }
         self.with_client(move |conn| Self::find_citizen_by_cid_conn(conn, &cid_number))
     }
 
-    pub(crate) fn find_citizen_by_cid_conn(conn: &mut impl postgres::GenericClient, cid_number: &str) -> Result<Option<CitizenRecord>, String> {
-        if cid_number.trim().is_empty() { return Ok(None); }
-            let row = conn
-                .query_opt(
-                    "SELECT COALESCE(id, 0), cid_number, passport_no, family_name,
-                            given_name, citizen_sex, citizen_birth_date, account_id,
-                            binding_revision, binding_finalized_block_number,
-                            binding_finalized_block_hash, citizen_status, voting_eligible,
-                            passport_valid_from, passport_valid_until, status_updated_at,
+    pub(crate) fn find_citizen_by_cid_conn(
+        conn: &mut impl postgres::GenericClient,
+        cid_number: &str,
+    ) -> Result<Option<CitizenRecord>, String> {
+        if cid_number.trim().is_empty() {
+            return Ok(None);
+        }
+        let row = conn
+            .query_opt(
+                "SELECT COALESCE(row_id, 0), cid_number, passport_no, family_name,
+                            given_name, citizen_sex, birth_date, account_id,
+                            binding_revision, binding_block,
+                            binding_hash, citizen_status, voting_eligible,
+                            valid_from, valid_until, status_at,
                             province_code, city_code, town_code,
-                            birth_province_code, birth_city_code, birth_town_code,
-                            archive_hash, onchain_tx_hash, onchain_block_number, onchain_at,
-                            creator_account_id, created_at, updater_account_id, updated_at
-                     FROM citizens
+                            birth_province, birth_city, birth_town,
+                            archive_hash, tx_hash, block_number, onchain_at,
+                            creator_account, created_at, updater_account, updated_at
+                     FROM citizen
                      WHERE cid_number = $1
                      ORDER BY created_at DESC
                      LIMIT 1",
-                    &[&cid_number],
-                )
-                .map_err(|e| format!("query citizen by cid failed: {e}"))?;
-            Ok(row.as_ref().map(citizen_record_from_row))
+                &[&cid_number],
+            )
+            .map_err(|e| format!("query citizen by cid failed: {e}"))?;
+        Ok(row.as_ref().map(citizen_record_from_row))
     }
-
 }
 
 struct CitizenIdentityPayloadBytes {
@@ -678,8 +685,6 @@ fn build_citizen_identity_authorization_bytes(
     out.extend(authorization_expires_at.to_le_bytes());
     out
 }
-
-
 
 pub(crate) fn ensure_record_in_admin_scope(
     ctx: &crate::authentication::login::AdminAuthContext,

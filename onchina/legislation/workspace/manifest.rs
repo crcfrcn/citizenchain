@@ -23,7 +23,7 @@ pub(crate) fn legislation_sections(capabilities: CapabilitySet) -> Vec<Workspace
                 action(
                     "view_own_admins".to_string(),
                     "本机构管理员",
-                    capabilities.can_view_own_admins,
+                    capabilities.view_own_admins,
                 ),
             ],
         ),

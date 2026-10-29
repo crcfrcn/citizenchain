@@ -92,7 +92,7 @@ pub fn execute_clearing_bank_batch<T: Config>(
             actor_cid_number.as_slice(),
             actor_role_code,
             submitter,
-            entity_primitives::business_action::ACTION_OFFCHAIN_SUBMIT_BATCH,
+            entitybase::business_action::ACTION_OFFCHAIN_SUBMIT_BATCH,
         ),
         Error::<T>::UnauthorizedAdmin
     );

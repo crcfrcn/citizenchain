@@ -426,5 +426,5 @@ test('默认节点编译排除前端嵌入和基准CLI并保留显式能力及�
  assert.match(readFileSync(join(root,'node/src/core/cli.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*#\[command\(subcommand\)\]\s*Benchmark\(/u);
  assert.match(readFileSync(join(root,'node/src/core/command.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*Some\(Subcommand::Benchmark/u);
  assert.match(manifest,/^frame-benchmarking = /mu);
- assert.match(readFileSync(join(root,'node/src/guard/runtime_policy.rs'),'utf8'),/dyn frame_benchmarking::Benchmark<citizenchain::Block>/u);
+ assert.match(readFileSync(join(root,'node/src/guard/runtime_policy.rs'),'utf8'),/dyn frame_benchmarking::Benchmark<runtime::Block>/u);
 });

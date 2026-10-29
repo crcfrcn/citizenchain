@@ -10,7 +10,7 @@
 //!     3. 从链上事件(`Deposited` / `Withdrawn` / `PaymentSettled`)增量同步
 //! - 加密持久化采用 blake2_256 XOR + HMAC 方式(节点启动密码派生 key)。
 
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 use sp_core::sr25519::{Public as Sr25519Public, Signature as Sr25519Signature};
 use sp_core::H256;
 use sp_io::crypto::sr25519_verify;
@@ -51,57 +51,16 @@ impl L3AccountState {
 /// 一笔本地已接受但未上链的扫码支付。
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct PendingPayment {
-    pub tx_id: H256,
-    pub payer: AccountId32,
-    /// 付款方绑定清算行 CID(机构唯一永久主键)。
-    pub payer_bank_cid: Vec<u8>,
-    pub recipient: AccountId32,
-    /// 收款方绑定清算行 CID。
-    pub recipient_bank_cid: Vec<u8>,
-    pub amount: u128,
-    pub fee: u128,
-    pub nonce: u64,
-    pub expires_at: u32,
+    /// 直接保存所属链端意图，嵌入结构不增加 SCALE 编码层。
+    pub intent: PaymentIntent<AccountId32, u32>,
     /// L3 原始签名(sr25519),上链时作为 batch item 的 payer_sig 附带。
     pub payer_sig: [u8; 64],
     /// 节点接受时的 UNIX 秒时间戳(日志用)。
     pub accepted_at: u64,
 }
 
-/// L3 支付意图的**节点层镜像结构**。
-///
-///
-/// - 字段顺序与 runtime 侧 `offchain::batch_item::PaymentIntent`
-///   **严格一致**,否则 SCALE 编解码得到的 `signing_hash` 会不匹配,导致链上验签
-///   失败。
-/// - 之所以节点侧再定义一份,是为了不让 node/Cargo.toml 直接依赖 pallet crate
-///   (避免循环与门禁耦合),也便于冷启动不同版本节点间兼容。
-/// - 签名消息生成规则(唯一原语):
-///   `signing_message(OP_SIGN_L3_PAY, SCALE(self))`
-///   = `blake2_256(GMB || OP_SIGN_L3_PAY || SCALE(self))`。
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
-pub struct NodePaymentIntent {
-    pub tx_id: H256,
-    pub payer: AccountId32,
-    /// 付款方绑定清算行 CID(SCALE 与 runtime `InstitutionCidNumber` = BoundedVec<u8> 等价)。
-    pub payer_bank_cid: Vec<u8>,
-    pub recipient: AccountId32,
-    /// 收款方绑定清算行 CID。
-    pub recipient_bank_cid: Vec<u8>,
-    pub amount: u128,
-    pub fee: u128,
-    pub nonce: u64,
-    pub expires_at: u32,
-}
-
-impl NodePaymentIntent {
-    /// 生成签名消息哈希,与链上 runtime `PaymentIntent::signing_hash()` 严格一致。
-    ///
-    /// 统一收敛到 `primitives::sign::signing_message`,域头为 `GMB || OP_SIGN_L3_PAY`。
-    pub fn signing_hash(&self) -> [u8; 32] {
-        primitives::sign::signing_message(primitives::sign::OP_SIGN_L3_PAY, &self.encode())
-    }
-}
+// 直接消费现有offchain公开支付意图类型；编码、边界及签名哈希只归链端所有者。
+use offchain::batch_item::PaymentIntent;
 
 #[derive(Default)]
 pub(super) struct LedgerInner {
@@ -163,8 +122,8 @@ impl OffchainLedger {
         let pending_next = ledger
             .pending
             .iter()
-            .filter(|p| &p.payer == user)
-            .map(|p| p.nonce.saturating_add(1))
+            .filter(|p| &p.intent.payer_account_id == user)
+            .map(|p| p.intent.nonce.saturating_add(1))
             .max()
             .unwrap_or(1);
         account_next.max(pending_next)
@@ -256,7 +215,7 @@ impl OffchainLedger {
             }
         }
         // 从 pending 列表移除(不论付/收任一侧 accept 时写入的)
-        ledger.pending.retain(|p| p.tx_id != tx_id);
+        ledger.pending.retain(|p| p.intent.tx_id != tx_id);
         ledger.accepted_tx_ids.remove(&tx_id);
     }
 
@@ -342,16 +301,22 @@ impl OffchainLedger {
                 .try_into()
                 .map_err(|_| "账本待处理区长度字段损坏".to_string())?,
         ) as usize;
-        let p_data = &plaintext[4 + a_len + 4..4 + a_len + 4 + p_len];
+        let p_start = 4 + a_len + 4;
+        let p_end = p_start.checked_add(p_len).ok_or("账本待处理区长度溢出")?;
+        if p_end != plaintext.len() {
+            return Err("账本待处理区长度不匹配".into());
+        }
+        let p_data = plaintext.get(p_start..p_end).ok_or("账本待处理区损坏")?;
 
         let accounts_vec: Vec<(AccountId32, L3AccountState)> =
-            Decode::decode(&mut &a_data[..]).map_err(|e| format!("解码 accounts 失败:{e}"))?;
-        let pending: Vec<PendingPayment> =
-            Decode::decode(&mut &p_data[..]).map_err(|e| format!("解码 pending 失败:{e}"))?;
+            DecodeAll::decode_all(&mut &a_data[..])
+                .map_err(|e| format!("解码 accounts 失败:{e}"))?;
+        let pending: Vec<PendingPayment> = DecodeAll::decode_all(&mut &p_data[..])
+            .map_err(|e| format!("解码 pending 失败:{e}"))?;
 
         let mut ledger = self.inner.write().map_err(|e| format!("账本锁错误:{e}"))?;
         ledger.accounts = accounts_vec.into_iter().collect();
-        ledger.accepted_tx_ids = pending.iter().map(|p| p.tx_id).collect();
+        ledger.accepted_tx_ids = pending.iter().map(|p| p.intent.tx_id).collect();
         let count = pending.len();
         ledger.pending = pending;
         Ok(count)
@@ -378,7 +343,7 @@ impl OffchainLedger {
     #[allow(dead_code)]
     pub fn accept_payment(
         &self,
-        intent: NodePaymentIntent,
+        intent: PaymentIntent<AccountId32, u32>,
         payer_sig: [u8; 64],
         current_block: Option<u32>,
         l2_ack_sig_provider: [u8; 64],
@@ -408,7 +373,7 @@ impl OffchainLedger {
     /// - 这样收款方清算节点可以主导跨行批次,同时不会污染本地主账对账快照。
     pub fn accept_payment_with_chain_state(
         &self,
-        intent: NodePaymentIntent,
+        intent: PaymentIntent<AccountId32, u32>,
         payer_sig: [u8; 64],
         current_block: Option<u32>,
         l2_ack_sig_provider: [u8; 64],
@@ -419,7 +384,7 @@ impl OffchainLedger {
     ) -> Result<(H256, [u8; 64]), String> {
         // 1. sr25519 验签
         let msg = intent.signing_hash();
-        let pub_bytes: [u8; 32] = intent.payer.clone().into();
+        let pub_bytes: [u8; 32] = intent.payer_account_id.clone().into();
         let public = Sr25519Public::from_raw(pub_bytes);
         let signature = Sr25519Signature::from_raw(payer_sig);
         if !sr25519_verify(&signature, &msg, &public) {
@@ -445,7 +410,10 @@ impl OffchainLedger {
 
         let total_debit = intent.amount.saturating_add(intent.fee);
         if intent.payer_bank_cid.as_slice() == my_bank {
-            let state = ledger.accounts.entry(intent.payer.clone()).or_default();
+            let state = ledger
+                .accounts
+                .entry(intent.payer_account_id.clone())
+                .or_default();
             let expected_nonce = state.cached_nonce.saturating_add(1);
             if intent.nonce != expected_nonce {
                 return Err(format!(
@@ -469,8 +437,8 @@ impl OffchainLedger {
             let local_max_nonce = ledger
                 .pending
                 .iter()
-                .filter(|p| p.payer == intent.payer)
-                .map(|p| p.nonce)
+                .filter(|p| p.intent.payer_account_id == intent.payer_account_id)
+                .map(|p| p.intent.nonce)
                 .max()
                 .unwrap_or(base_nonce);
             let expected_nonce = base_nonce.max(local_max_nonce).saturating_add(1);
@@ -484,9 +452,9 @@ impl OffchainLedger {
             let local_pending_debit = ledger
                 .pending
                 .iter()
-                .filter(|p| p.payer == intent.payer)
+                .filter(|p| p.intent.payer_account_id == intent.payer_account_id)
                 .fold(0u128, |acc, p| {
-                    acc.saturating_add(p.amount.saturating_add(p.fee))
+                    acc.saturating_add(p.intent.amount.saturating_add(p.intent.fee))
                 });
             let confirmed = chain_confirmed.unwrap_or(0);
             let available = confirmed.saturating_sub(local_pending_debit);
@@ -501,21 +469,14 @@ impl OffchainLedger {
 
         ledger.accepted_tx_ids.insert(intent.tx_id);
 
+        let tx_id = intent.tx_id;
         ledger.pending.push(PendingPayment {
-            tx_id: intent.tx_id,
-            payer: intent.payer.clone(),
-            payer_bank_cid: intent.payer_bank_cid.clone(),
-            recipient: intent.recipient.clone(),
-            recipient_bank_cid: intent.recipient_bank_cid.clone(),
-            amount: intent.amount,
-            fee: intent.fee,
-            nonce: intent.nonce,
-            expires_at: intent.expires_at,
+            intent,
             payer_sig,
             accepted_at,
         });
 
-        Ok((intent.tx_id, l2_ack_sig_provider))
+        Ok((tx_id, l2_ack_sig_provider))
     }
 
     /// 回滚本地 pending(packer 提交 extrinsic 失败时调用)。
@@ -524,17 +485,17 @@ impl OffchainLedger {
     /// 否则仅做 `pending_debit` 和列表剔除,避免破坏其他未提交笔的 nonce 链。
     pub fn reject_pending(&self, tx_id: H256) -> Result<(), String> {
         let mut ledger = self.inner.write().map_err(|e| format!("账本锁错误:{e}"))?;
-        let Some(pos) = ledger.pending.iter().position(|p| p.tx_id == tx_id) else {
+        let Some(pos) = ledger.pending.iter().position(|p| p.intent.tx_id == tx_id) else {
             return Err("未找到对应 pending".to_string());
         };
         let p = ledger.pending.remove(pos);
-        let total = p.amount.saturating_add(p.fee);
-        if let Some(state) = ledger.accounts.get_mut(&p.payer) {
+        let total = p.intent.amount.saturating_add(p.intent.fee);
+        if let Some(state) = ledger.accounts.get_mut(&p.intent.payer_account_id) {
             let had_local_debit = total > 0 && state.pending_debit >= total;
             if had_local_debit {
                 state.pending_debit = state.pending_debit.saturating_sub(total);
             }
-            if had_local_debit && state.cached_nonce == p.nonce {
+            if had_local_debit && state.cached_nonce == p.intent.nonce {
                 state.cached_nonce = state.cached_nonce.saturating_sub(1);
             }
         }
@@ -567,13 +528,13 @@ mod tests {
         payer_bank_cid: Vec<u8>,
         recipient_bank_cid: Vec<u8>,
         nonce: u64,
-    ) -> (NodePaymentIntent, [u8; 64]) {
-        let intent = NodePaymentIntent {
+    ) -> (PaymentIntent<AccountId32, u32>, [u8; 64]) {
+        let intent = PaymentIntent {
             tx_id: H256::repeat_byte(tx_id),
-            payer: AccountId32::new(pair.public().0),
-            payer_bank_cid,
-            recipient: acc(0x22),
-            recipient_bank_cid,
+            payer_account_id: AccountId32::new(pair.public().0),
+            payer_bank_cid: payer_bank_cid.try_into().expect("测试CID在原链边界内"),
+            recipient_account_id: acc(0x22),
+            recipient_bank_cid: recipient_bank_cid.try_into().expect("测试CID在原链边界内"),
             amount: 99,
             fee: 1,
             nonce,
@@ -581,6 +542,36 @@ mod tests {
         };
         let sig = <sr25519::Pair as Pair>::sign(pair, &intent.signing_hash());
         (intent, sig.0)
+    }
+
+    #[test]
+    fn pending_intent_preserves_flat_scale_layout() {
+        let pair = <sr25519::Pair as Pair>::from_seed(&[0x41u8; 32]);
+        let (intent, payer_sig) =
+            signed_intent(&pair, 1, b"bank-a".to_vec(), b"bank-b".to_vec(), 7);
+        let accepted_at = 1_717_000_000u64;
+        // 原持久化字段序金标；只验证嵌入公开类型不改变既有有效记录字节。
+        let mut golden = intent.tx_id.encode();
+        golden.extend(intent.payer_account_id.encode());
+        golden.extend(intent.payer_bank_cid.encode());
+        golden.extend(intent.recipient_account_id.encode());
+        golden.extend(intent.recipient_bank_cid.encode());
+        golden.extend(intent.amount.encode());
+        golden.extend(intent.fee.encode());
+        golden.extend(intent.nonce.encode());
+        golden.extend(intent.expires_at.encode());
+        golden.extend(payer_sig.encode());
+        golden.extend(accepted_at.encode());
+        let pending = PendingPayment {
+            intent: intent.clone(),
+            payer_sig,
+            accepted_at,
+        };
+        assert_eq!(pending.encode(), golden);
+        let decoded = PendingPayment::decode(&mut &golden[..]).unwrap();
+        assert_eq!(decoded.intent, intent);
+        assert_eq!(decoded.payer_sig, payer_sig);
+        assert_eq!(decoded.accepted_at, accepted_at);
     }
 
     #[test]

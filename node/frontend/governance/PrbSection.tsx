@@ -14,8 +14,8 @@ type PrbView =
   | { page: 'detail'; cidNumber: string }
   | { page: 'admin-list'; cidNumber: string; orgType: number }
   | { page: 'proposal-detail'; proposalId: number; adminSigners: AdminSignerMatch[]; cidNumber?: string; originCidNumber: string }
-  | { page: 'create-proposal'; cidNumber: string; orgType: number; cidFullName: string; institution_account_id: string; adminSigners: AdminSignerMatch[] }
-  | { page: 'propose-sweep'; cidNumber: string; institution_account_id: string; cidFullName: string; adminSigners: AdminSignerMatch[] };
+  | { page: 'create-proposal'; cidNumber: string; orgType: number; cidFullName: string; institutionAccountId: string; adminSigners: AdminSignerMatch[] }
+  | { page: 'propose-sweep'; cidNumber: string; institutionAccountId: string; cidFullName: string; adminSigners: AdminSignerMatch[] };
 
 export function PrbSection() {
   const [view, setView] = useState<PrbView>({ page: 'list' });
@@ -49,7 +49,7 @@ export function PrbSection() {
       <CreateMultisigTransferPage
         cidNumber={view.cidNumber}
         cidFullName={view.cidFullName}
-        institution_account_id={view.institution_account_id}
+        institutionAccountId={view.institutionAccountId}
         adminSigners={view.adminSigners}
         onBack={() => backToDetail(view.cidNumber)}
         onSuccess={() => backToDetail(view.cidNumber)}
@@ -61,7 +61,7 @@ export function PrbSection() {
     return (
       <SweepProposalPage
         actorCidNumber={view.cidNumber}
-        institution_account_id={view.institution_account_id}
+        institutionAccountId={view.institutionAccountId}
         cidFullName={view.cidFullName}
         adminSigners={view.adminSigners}
         onBack={() => backToDetail(view.cidNumber)}
@@ -80,11 +80,11 @@ export function PrbSection() {
         onSelectProposal={(proposalId, adminSigners, sid) =>
           setView({ page: 'proposal-detail', proposalId, adminSigners, cidNumber: sid, originCidNumber: cidNumber })
         }
-        onCreateProposal={(sid, orgType, cidFullName, institution_account_id, aw) =>
-          setView({ page: 'create-proposal', cidNumber: sid, orgType, cidFullName, institution_account_id, adminSigners: aw })
+        onCreateProposal={(sid, orgType, cidFullName, institutionAccountId, aw) =>
+          setView({ page: 'create-proposal', cidNumber: sid, orgType, cidFullName, institutionAccountId, adminSigners: aw })
         }
-        onCreateSweep={(sid, institution_account_id, cidFullName, aw) =>
-          setView({ page: 'propose-sweep', cidNumber: sid, institution_account_id, cidFullName, adminSigners: aw })
+        onCreateSweep={(sid, institutionAccountId, cidFullName, aw) =>
+          setView({ page: 'propose-sweep', cidNumber: sid, institutionAccountId, cidFullName, adminSigners: aw })
         }
       />
     );

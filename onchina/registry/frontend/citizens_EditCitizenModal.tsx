@@ -34,16 +34,16 @@ interface Props {
 const DATE_FORMAT = 'YYYY-MM-DD';
 
 interface FormValues {
-  family_name: string;
-  given_name: string;
-  citizen_sex: CitizenSex | '';
-  citizen_birth_date: Dayjs | null;
-  birth_province_code: string;
-  birth_city_code: string;
-  birth_town_code: string;
-  city_code: string;
-  town_code: string;
-  voting_eligible: boolean;
+  familyName: string;
+  givenName: string;
+  citizenSex: CitizenSex | '';
+  citizenBirthDate: Dayjs | null;
+  birthProvinceCode: string;
+  birthCityCode: string;
+  birthTownCode: string;
+  cityCode: string;
+  townCode: string;
+  votingEligible: boolean;
 }
 
 function isSet(value?: string | null): boolean {
@@ -72,47 +72,47 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
   const [residenceTowns, setResidenceTowns] = useState<CidTownItem[]>([]);
 
   // 锁定判定:不可变字段现存非空即锁定,只有创世等未初始化档案放开对应字段。
-  const sexLocked = isSet(citizen.citizen_sex);
-  const birthDateLocked = isSet(citizen.citizen_birth_date);
+  const sexLocked = isSet(citizen.citizenSex);
+  const birthDateLocked = isSet(citizen.citizenBirthDate);
   const birthPlaceLocked =
-    isSet(citizen.birth_province_code) &&
-    isSet(citizen.birth_city_code) &&
-    isSet(citizen.birth_town_code);
+    isSet(citizen.birthProvinceCode) &&
+    isSet(citizen.birthCityCode) &&
+    isSet(citizen.birthTownCode);
 
-  const birthProvinceCode = Form.useWatch('birth_province_code', form);
-  const birthCityCode = Form.useWatch('birth_city_code', form);
-  const residenceCityCode = Form.useWatch('city_code', form);
-  const birthDate = Form.useWatch('citizen_birth_date', form);
+  const birthProvinceCode = Form.useWatch('birthProvinceCode', form);
+  const birthCityCode = Form.useWatch('birthCityCode', form);
+  const residenceCityCode = Form.useWatch('cityCode', form);
+  const birthDate = Form.useWatch('citizenBirthDate', form);
   const age = useMemo(() => ageAtToday(birthDate), [birthDate]);
 
   // 打开时回填现有档案,加载居住省下的市列表 + 现居市的镇列表;出生地未锁定才拉省份。
   useEffect(() => {
     if (!open || !auth) return;
     form.setFieldsValue({
-      family_name: citizen.family_name ?? '',
-      given_name: citizen.given_name ?? '',
-      citizen_sex: (citizen.citizen_sex as CitizenSex) ?? '',
-      citizen_birth_date: isSet(citizen.citizen_birth_date)
-        ? dayjs(citizen.citizen_birth_date, DATE_FORMAT)
+      familyName: citizen.familyName ?? '',
+      givenName: citizen.givenName ?? '',
+      citizenSex: (citizen.citizenSex as CitizenSex) ?? '',
+      citizenBirthDate: isSet(citizen.citizenBirthDate)
+        ? dayjs(citizen.citizenBirthDate, DATE_FORMAT)
         : null,
-      birth_province_code: citizen.birth_province_code ?? '',
-      birth_city_code: citizen.birth_city_code ?? '',
-      birth_town_code: citizen.birth_town_code ?? '',
-      city_code: citizen.city_code ?? '',
-      town_code: citizen.town_code ?? '',
-      voting_eligible: Boolean(citizen.voting_eligible),
+      birthProvinceCode: citizen.birthProvinceCode ?? '',
+      birthCityCode: citizen.birthCityCode ?? '',
+      birthTownCode: citizen.birthTownCode ?? '',
+      cityCode: citizen.cityCode ?? '',
+      townCode: citizen.townCode ?? '',
+      votingEligible: Boolean(citizen.votingEligible),
     });
     setBirthCities([]);
     setBirthTowns([]);
     setResidenceTowns([]);
     // 居住市列表:固定居住省下全部市。
-    if (citizen.province_name) {
-      listCidCities(auth, citizen.province_name)
+    if (citizen.provinceName) {
+      listCidCities(auth, citizen.provinceName)
         .then(setResidenceCities)
         .catch((err) => notice.error(err, '居住市加载失败'));
       // 现居市的镇列表(初始化,不清空已选镇)。
-      if (isSet(citizen.city_code)) {
-        listCidTowns(auth, citizen.province_name, citizen.city_code)
+      if (isSet(citizen.cityCode)) {
+        listCidTowns(auth, citizen.provinceName, citizen.cityCode)
           .then(setResidenceTowns)
           .catch((err) => notice.error(err, '居住镇加载失败'));
       }
@@ -120,7 +120,7 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
     if (!birthPlaceLocked) {
       getCidMeta(auth)
         .then((meta) =>
-          setBirthProvinces(meta.all_provinces?.length ? meta.all_provinces : meta.provinces),
+          setBirthProvinces(meta.allProvinces?.length ? meta.allProvinces : meta.provinces),
         )
         .catch((err) => notice.error(err, '行政区加载失败'));
     }
@@ -129,12 +129,12 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
 
   // 居住市变更(用户改动,非初始值)→ 重新加载居住镇并清空已选镇。
   useEffect(() => {
-    if (!auth || !citizen.province_name || !residenceCityCode) return;
-    if (residenceCityCode === citizen.city_code) return; // 初始值由打开时的 effect 处理
-    listCidTowns(auth, citizen.province_name, residenceCityCode)
+    if (!auth || !citizen.provinceName || !residenceCityCode) return;
+    if (residenceCityCode === citizen.cityCode) return; // 初始值由打开时的 effect 处理
+    listCidTowns(auth, citizen.provinceName, residenceCityCode)
       .then((rows) => {
         setResidenceTowns(rows);
-        form.setFieldsValue({ town_code: '' });
+        form.setFieldsValue({ townCode: '' });
       })
       .catch((err) => notice.error(err, '居住镇加载失败'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -143,13 +143,13 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
   // 出生省变更 → 加载出生市(仅出生地未锁定时生效)。
   useEffect(() => {
     if (!auth || birthPlaceLocked || !birthProvinceCode) return;
-    const province = birthProvinces.find((p) => p.province_code === birthProvinceCode);
+    const province = birthProvinces.find((p) => p.provinceCode === birthProvinceCode);
     if (!province) return;
-    listCidCities(auth, province.province_name)
+    listCidCities(auth, province.provinceName)
       .then((rows) => {
         setBirthCities(rows);
         setBirthTowns([]);
-        form.setFieldsValue({ birth_city_code: '', birth_town_code: '' });
+        form.setFieldsValue({ birthCityCode: '', birthTownCode: '' });
       })
       .catch((err) => notice.error(err, '出生城市加载失败'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,12 +158,12 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
   // 出生市变更 → 加载出生镇。
   useEffect(() => {
     if (!auth || birthPlaceLocked || !birthProvinceCode || !birthCityCode) return;
-    const province = birthProvinces.find((p) => p.province_code === birthProvinceCode);
+    const province = birthProvinces.find((p) => p.provinceCode === birthProvinceCode);
     if (!province) return;
-    listCidTowns(auth, province.province_name, birthCityCode)
+    listCidTowns(auth, province.provinceName, birthCityCode)
       .then((rows) => {
         setBirthTowns(rows);
-        form.setFieldsValue({ birth_town_code: '' });
+        form.setFieldsValue({ birthTownCode: '' });
       })
       .catch((err) => notice.error(err, '出生镇加载失败'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -172,7 +172,7 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
   // 未满 16 周岁强制清除选举资格。
   useEffect(() => {
     if (age !== null && age < 16) {
-      form.setFieldsValue({ voting_eligible: false });
+      form.setFieldsValue({ votingEligible: false });
     }
   }, [age, form]);
 
@@ -182,22 +182,22 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
       return;
     }
     const payload: EditCitizenInput = {
-      family_name: values.family_name?.trim() ?? '',
-      given_name: values.given_name?.trim() ?? '',
-      citizen_sex: values.citizen_sex ?? '',
-      citizen_birth_date: values.citizen_birth_date
-        ? values.citizen_birth_date.format(DATE_FORMAT)
+      familyName: values.familyName?.trim() ?? '',
+      givenName: values.givenName?.trim() ?? '',
+      citizenSex: values.citizenSex ?? '',
+      citizenBirthDate: values.citizenBirthDate
+        ? values.citizenBirthDate.format(DATE_FORMAT)
         : '',
-      birth_province_code: values.birth_province_code ?? '',
-      birth_city_code: values.birth_city_code ?? '',
-      birth_town_code: values.birth_town_code ?? '',
-      city_code: values.city_code ?? '',
-      town_code: values.town_code ?? '',
-      voting_eligible: Boolean(values.voting_eligible),
+      birthProvinceCode: values.birthProvinceCode ?? '',
+      birthCityCode: values.birthCityCode ?? '',
+      birthTownCode: values.birthTownCode ?? '',
+      cityCode: values.cityCode ?? '',
+      townCode: values.townCode ?? '',
+      votingEligible: Boolean(values.votingEligible),
     };
     setSubmitting(true);
     try {
-      const updated = await editCitizen(auth, citizen.cid_number, payload);
+      const updated = await editCitizen(auth, citizen.cidNumber, payload);
       notice.success('公民资料已保存');
       onClose();
       onSaved(updated);
@@ -208,7 +208,7 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
     }
   };
 
-  const birthPlaceText = [citizen.birth_province_name, citizen.birth_city_name, citizen.birth_town_name]
+  const birthPlaceText = [citizen.birthProvinceName, citizen.birthCityName, citizen.birthTownName]
     .filter((v) => v?.trim())
     .join(' / ');
 
@@ -236,16 +236,16 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
       />
       <Form form={form} layout="vertical" onFinish={onSubmit}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16 }}>
-          <Form.Item label="姓" name="family_name" rules={[{ required: true, message: '请输入姓' }]}>
+          <Form.Item label="姓" name="familyName" rules={[{ required: true, message: '请输入姓' }]}>
             <Input placeholder="姓" allowClear />
           </Form.Item>
-          <Form.Item label="名" name="given_name" rules={[{ required: true, message: '请输入名' }]}>
+          <Form.Item label="名" name="givenName" rules={[{ required: true, message: '请输入名' }]}>
             <Input placeholder="名" allowClear />
           </Form.Item>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16 }}>
-          <Form.Item label="性别" name="citizen_sex" rules={[{ required: true, message: '请选择性别' }]}>
+          <Form.Item label="性别" name="citizenSex" rules={[{ required: true, message: '请选择性别' }]}>
             <Select
               placeholder="性别"
               disabled={sexLocked}
@@ -257,7 +257,7 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
           </Form.Item>
           <Form.Item
             label="出生日期"
-            name="citizen_birth_date"
+            name="citizenBirthDate"
             rules={[{ required: true, message: '请选择出生日期' }]}
           >
             <DatePicker style={{ width: '100%' }} format={DATE_FORMAT} disabled={birthDateLocked} />
@@ -272,19 +272,19 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', columnGap: 16 }}>
             <Form.Item
               label="出生省"
-              name="birth_province_code"
+              name="birthProvinceCode"
               rules={[{ required: true, message: '请选择出生省' }]}
             >
               <Select
                 placeholder="出生省"
                 showSearch
                 optionFilterProp="label"
-                options={birthProvinces.map((p) => ({ value: p.province_code, label: p.province_name }))}
+                options={birthProvinces.map((p) => ({ value: p.provinceCode, label: p.provinceName }))}
               />
             </Form.Item>
             <Form.Item
               label="出生市"
-              name="birth_city_code"
+              name="birthCityCode"
               rules={[{ required: true, message: '请选择出生市' }]}
             >
               <Select
@@ -292,12 +292,12 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
                 showSearch
                 optionFilterProp="label"
                 disabled={!birthProvinceCode}
-                options={birthCities.map((city) => ({ value: city.city_code, label: city.city_name }))}
+                options={birthCities.map((city) => ({ value: city.cityCode, label: city.cityName }))}
               />
             </Form.Item>
             <Form.Item
               label="出生镇"
-              name="birth_town_code"
+              name="birthTownCode"
               rules={[{ required: true, message: '请选择出生镇' }]}
             >
               <Select
@@ -305,7 +305,7 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
                 showSearch
                 optionFilterProp="label"
                 disabled={!birthCityCode}
-                options={birthTowns.map((town) => ({ value: town.town_code, label: town.town_name }))}
+                options={birthTowns.map((town) => ({ value: town.townCode, label: town.townName }))}
               />
             </Form.Item>
           </div>
@@ -313,28 +313,28 @@ export function EditCitizenModal({ auth, open, citizen, onClose, onSaved }: Prop
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', columnGap: 16 }}>
           <Form.Item label="居住省">
-            <Input readOnly value={citizen.province_name ?? ''} />
+            <Input readOnly value={citizen.provinceName ?? ''} />
           </Form.Item>
-          <Form.Item label="居住市" name="city_code" rules={[{ required: true, message: '请选择居住市' }]}>
+          <Form.Item label="居住市" name="cityCode" rules={[{ required: true, message: '请选择居住市' }]}>
             <Select
               placeholder="居住市"
               showSearch
               optionFilterProp="label"
-              options={residenceCities.map((city) => ({ value: city.city_code, label: city.city_name }))}
+              options={residenceCities.map((city) => ({ value: city.cityCode, label: city.cityName }))}
             />
           </Form.Item>
-          <Form.Item label="居住镇" name="town_code" rules={[{ required: true, message: '请选择居住镇' }]}>
+          <Form.Item label="居住镇" name="townCode" rules={[{ required: true, message: '请选择居住镇' }]}>
             <Select
               placeholder="居住镇"
               showSearch
               optionFilterProp="label"
               disabled={!residenceCityCode}
-              options={residenceTowns.map((town) => ({ value: town.town_code, label: town.town_name }))}
+              options={residenceTowns.map((town) => ({ value: town.townCode, label: town.townName }))}
             />
           </Form.Item>
         </div>
 
-        <Form.Item label="选举资格" name="voting_eligible" valuePropName="checked">
+        <Form.Item label="选举资格" name="votingEligible" valuePropName="checked">
           <Switch checkedChildren="有" unCheckedChildren="无" disabled={age !== null && age < 16} />
         </Form.Item>
       </Form>

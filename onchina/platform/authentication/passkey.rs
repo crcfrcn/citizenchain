@@ -63,30 +63,37 @@ fn admin_user_uuid(account_id: &str) -> Uuid {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PasskeyBeginOutput<T: Serialize> {
     ceremony_id: String,
     challenge: T,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PasskeyRegisterFinishInput {
     ceremony_id: String,
     credential: RegisterPublicKeyCredential,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PasskeyAssertFinishInput {
     ceremony_id: String,
     credential: PublicKeyCredential,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PasskeyAssertionOutput {
     assertion_id: String,
-    expire_at: i64,
+    expires_at: i64,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PasskeyStatusOutput {
     registered: bool,
 }
@@ -329,17 +336,17 @@ pub(crate) async fn assert_finish(
             }
         }
         let assertion_id = format!("pk-assert-{}", Uuid::new_v4());
-        let expire_at = now + Duration::seconds(ASSERTION_TTL_SECONDS);
-        store::insert_assertion_conn(conn, assertion_id.as_str(), account_id.as_str(), expire_at)?;
-        Ok((assertion_id, expire_at.timestamp()))
+        let expires_at = now + Duration::seconds(ASSERTION_TTL_SECONDS);
+        store::insert_assertion_conn(conn, assertion_id.as_str(), account_id.as_str(), expires_at)?;
+        Ok((assertion_id, expires_at.timestamp()))
     });
     match result {
-        Ok((assertion_id, expire_at)) => Json(ApiResponse {
+        Ok((assertion_id, expires_at)) => Json(ApiResponse {
             code: 0,
             message: "ok".to_string(),
             data: PasskeyAssertionOutput {
                 assertion_id,
-                expire_at,
+                expires_at,
             },
         })
         .into_response(),
@@ -387,9 +394,16 @@ pub(crate) struct PasskeyProof {
     binding: crate::authentication::login::NodeInstitutionBinding,
 }
 impl PasskeyProof {
-    pub(crate) fn binding_id(&self) -> &str { &self.binding.binding_id }
-    pub(crate) fn matches_binding(&self, account: &str, binding: &crate::authentication::login::NodeInstitutionBinding) -> bool {
-        self.account_id == account && self.binding.binding_id == binding.binding_id
+    pub(crate) fn binding_id(&self) -> &str {
+        &self.binding.binding_id
+    }
+    pub(crate) fn matches_binding(
+        &self,
+        account: &str,
+        binding: &crate::authentication::login::NodeInstitutionBinding,
+    ) -> bool {
+        self.account_id == account
+            && self.binding.binding_id == binding.binding_id
             && self.binding.institution_cid_number == binding.institution_cid_number
     }
 }
@@ -417,18 +431,44 @@ pub(crate) fn require_passkey_assertion(
         .ok_or_else(|| api_error(StatusCode::FORBIDDEN, 2003, "passkey assertion required"))?
         .to_string();
     let account_id = account_id.to_string();
-    let proof = state.db.with_client(move |conn| {
-        let mut tx = conn.transaction().map_err(|e| e.to_string())?;
-        crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
-        let Some(binding) = crate::authentication::repo::get_active_node_binding_conn(&mut tx)? else { return Ok(None); };
-        if !store::consume_assertion_conn(&mut tx, assertion_id.as_str(), account_id.as_str(), Utc::now())? { return Ok(None); }
-        tx.commit().map_err(|e| e.to_string())?;
-        Ok(Some(PasskeyProof { account_id, binding }))
-    }).map_err(|err| {
-        tracing::error!(error = %err, "passkey assertion check failed");
-        api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, "passkey assertion check failed")
-    })?;
-    proof.ok_or_else(|| api_error(StatusCode::FORBIDDEN, 2003, "passkey assertion invalid or expired"))
+    let proof = state
+        .db
+        .with_client(move |conn| {
+            let mut tx = conn.transaction().map_err(|e| e.to_string())?;
+            crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
+            let Some(binding) = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?
+            else {
+                return Ok(None);
+            };
+            if !store::consume_assertion_conn(
+                &mut tx,
+                assertion_id.as_str(),
+                account_id.as_str(),
+                Utc::now(),
+            )? {
+                return Ok(None);
+            }
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(Some(PasskeyProof {
+                account_id,
+                binding,
+            }))
+        })
+        .map_err(|err| {
+            tracing::error!(error = %err, "passkey assertion check failed");
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                5001,
+                "passkey assertion check failed",
+            )
+        })?;
+    proof.ok_or_else(|| {
+        api_error(
+            StatusCode::FORBIDDEN,
+            2003,
+            "passkey assertion invalid or expired",
+        )
+    })
 }
 
 #[cfg(test)]
@@ -444,28 +484,60 @@ mod tests {
         let actor = format!("0x{}", "11".repeat(32));
         let other = format!("0x{}", "22".repeat(32));
         let now = Utc::now();
-        sandbox.db.with_client(|conn| {
-            store::insert_assertion_conn(conn, "live", &actor, now + Duration::seconds(120))?;
-            store::insert_assertion_conn(conn, "expired", &actor, now - Duration::seconds(1))?;
-            assert!(!store::consume_assertion_conn(conn, "missing", &actor, now)?);
-            assert!(!store::consume_assertion_conn(conn, "live", &other, now)?);
-            assert!(!store::consume_assertion_conn(conn, "expired", &actor, now)?);
-            assert!(store::consume_assertion_conn(conn, "live", &actor, now)?);
-            assert!(!store::consume_assertion_conn(conn, "live", &actor, now)?);
-            store::insert_assertion_conn(conn, "transaction", &actor, now + Duration::seconds(120))?;
-            {
+        sandbox
+            .db
+            .with_client(|conn| {
+                store::insert_assertion_conn(conn, "live", &actor, now + Duration::seconds(120))?;
+                store::insert_assertion_conn(conn, "expired", &actor, now - Duration::seconds(1))?;
+                assert!(!store::consume_assertion_conn(
+                    conn, "missing", &actor, now
+                )?);
+                assert!(!store::consume_assertion_conn(conn, "live", &other, now)?);
+                assert!(!store::consume_assertion_conn(
+                    conn, "expired", &actor, now
+                )?);
+                assert!(store::consume_assertion_conn(conn, "live", &actor, now)?);
+                assert!(!store::consume_assertion_conn(conn, "live", &actor, now)?);
+                store::insert_assertion_conn(
+                    conn,
+                    "transaction",
+                    &actor,
+                    now + Duration::seconds(120),
+                )?;
+                {
+                    let mut tx = conn.transaction().map_err(|e| e.to_string())?;
+                    assert!(store::consume_assertion_conn(
+                        &mut tx,
+                        "transaction",
+                        &actor,
+                        now
+                    )?);
+                    assert!(!store::consume_assertion_conn(
+                        &mut tx,
+                        "transaction",
+                        &actor,
+                        now
+                    )?);
+                    // 上层治理失败回滚后，断言必须仍可由后续合法事务消费。
+                    tx.rollback().map_err(|e| e.to_string())?;
+                }
                 let mut tx = conn.transaction().map_err(|e| e.to_string())?;
-                assert!(store::consume_assertion_conn(&mut tx, "transaction", &actor, now)?);
-                assert!(!store::consume_assertion_conn(&mut tx, "transaction", &actor, now)?);
-                // 上层治理失败回滚后，断言必须仍可由后续合法事务消费。
-                tx.rollback().map_err(|e| e.to_string())?;
-            }
-            let mut tx = conn.transaction().map_err(|e| e.to_string())?;
-            assert!(store::consume_assertion_conn(&mut tx, "transaction", &actor, now)?);
-            tx.commit().map_err(|e| e.to_string())?;
-            assert!(!store::consume_assertion_conn(conn, "transaction", &actor, now)?);
-            Ok(())
-        }).unwrap();
+                assert!(store::consume_assertion_conn(
+                    &mut tx,
+                    "transaction",
+                    &actor,
+                    now
+                )?);
+                tx.commit().map_err(|e| e.to_string())?;
+                assert!(!store::consume_assertion_conn(
+                    conn,
+                    "transaction",
+                    &actor,
+                    now
+                )?);
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]

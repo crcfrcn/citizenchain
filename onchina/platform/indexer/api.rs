@@ -13,6 +13,8 @@ use crate::{api_error, ApiResponse, AppState};
 use super::db;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct TxQuery {
     pub limit: Option<i64>,
     pub before_id: Option<i64>,
@@ -20,6 +22,7 @@ pub(crate) struct TxQuery {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TxRecordOutput {
     id: i64,
     block_number: i64,
@@ -33,6 +36,7 @@ struct TxRecordOutput {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TxListOutput {
     records: Vec<TxRecordOutput>,
     has_more: bool,
@@ -57,7 +61,11 @@ pub(crate) async fn account_transactions(
     let fetch_limit = limit + 1;
 
     let Some(genesis) = crate::core::chain_runtime::cached_chain_genesis_hash_hex() else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, 1500, "wallet history is not ready");
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            1500,
+            "wallet history is not ready",
+        );
     };
     let result = state.db.with_client(|conn| {
         db::query_tx_records(

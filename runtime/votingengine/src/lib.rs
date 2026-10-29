@@ -8,10 +8,10 @@
 //! - **联合投票**（JOINT）：NRC/PRC 委员与 PRB 董事岗位有效选民按机构票权加权投票，
 //!   105 票全票通过直接执行，任一机构反对立即进入联合公投，30 天超时进入联合公投。
 
-//! - **立法机关表决**（LEGISLATION）：由 legislation-vote sub-pallet 承载代表机构表决、
+//! - **立法机关表决**（LEGISLATION）：由 legislationvote sub-pallet 承载代表机构表决、
 //!   特别案/核心修宪立法公投、行政签署、三人会签和护宪终审。
 //!
-//! - **选举投票**（ELECTION）：由 election-vote sub-pallet 承载普选/互选选人流程，
+//! - **选举投票**（ELECTION）：由 electionvote sub-pallet 承载普选/互选选人流程，
 //!   核心只提供提案生命周期、超时结算分发、回调和清理状态机。
 //!
 //! 关键机制：
@@ -20,8 +20,8 @@
 //!
 //! 通过 trait 为上层治理模块提供标准化能力：
 //! - `InternalVoteEngine` / `JointVoteEngine`：业务模块发起提案的内部入口;
-//!   投票走对应 sub-pallet(`internal-vote::cast` / `joint-vote::cast_admin` /
-//!   `joint-vote::cast_referendum`)的公开 extrinsic。
+//!   投票走对应 sub-pallet(`internalvote::cast` / `jointvote::cast_admin` /
+//!   `jointvote::cast_referendum`)的公开 extrinsic。
 //! - `InternalVoteResultCallback` / `JointVoteResultCallback`:内部/联合提案
 //!   完成投票判定时,投票引擎按统一状态机调用业务 executor。
 //!   业务模块只返回统一执行结果，不再直接推进投票引擎状态；PASSED 表示执行授权/可重试态。
@@ -48,7 +48,7 @@ pub mod traits;
 pub mod types;
 pub mod weights;
 
-pub use citizen_identity::{CitizenSubject, PopulationData, PopulationScope};
+pub use identity::{CitizenSubject, PopulationData, PopulationScope};
 pub use pallet::*;
 pub use tracks::*;
 pub use traits::*;
@@ -177,11 +177,11 @@ pub mod pallet {
         /// Runtime 使用递归 tuple 注册 sub-pallet；核心不再维护 mode/stage 分支。
         type TrackHandlers: crate::tracks::ProposalTracks<BlockNumberFor<Self>, Self::AccountId>;
 
-        /// 立法投票终态业务回调(ADR-027),由 legislation-yuan 业务壳实现。
+        /// 立法投票终态业务回调(ADR-027),由 legislation 业务壳实现。
         /// 核心在 PROPOSAL_KIND_LEGISLATION 提案达终态时按 kind 广播。第1步装 `()`。
         type LegislationVoteResultCallback: LegislationVoteResultCallback;
 
-        /// 选举投票终态业务回调。当前可接 election-vote 自身生成结果快照,后续接 admins 写入器。
+        /// 选举投票终态业务回调。当前可接 electionvote 自身生成结果快照,后续接 admins 写入器。
         type ElectionVoteResultCallback: ElectionVoteResultCallback;
     }
 
@@ -327,7 +327,7 @@ pub mod pallet {
     pub type ProposalOwner<T: Config> =
         StorageMap<_, Blake2_128Concat, u64, BoundedVec<u8, T::MaxModuleTagLen>, OptionQuery>;
 
-    /// 投票引擎根据 citizen-identity 四级人口数据生成的提案人口快照。
+    /// 投票引擎根据 identity 四级人口数据生成的提案人口快照。
     /// 身份模块只提供人口数据和历史资格判断，不保存本投票快照。
     #[pallet::storage]
     #[pallet::getter(fn proposal_population_snapshot)]
@@ -669,7 +669,7 @@ pub mod pallet {
         ProposalCancellationNotAllowed,
         /// 终态提案的延迟清理队列连续多个目标区块已满，必须回滚终态写入。
         CleanupQueueSequenceExhausted,
-        /// citizen-identity 尚未把四级有效人口完整推进到当前 UTC+8 日期。
+        /// identity 尚未把四级有效人口完整推进到当前 UTC+8 日期。
         PopulationDataNotReady,
     }
 
@@ -800,3 +800,7 @@ pub mod pallet {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/mod.rs"]
+mod tests;

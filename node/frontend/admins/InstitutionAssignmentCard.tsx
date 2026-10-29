@@ -51,7 +51,7 @@ export function InstitutionAssignmentCard({
   status,
 }: Props) {
   const topAction = action ?? status;
-  const accountText = admin.account_id ? accountIdToSs58(admin.account_id) : '';
+  const accountText = admin.accountId ? accountIdToSs58(admin.accountId) : '';
   const personName = `${admin.familyName}${admin.givenName}`;
   const balanceText = balanceFen != null ? formatBalance(balanceFen) : '';
 

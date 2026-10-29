@@ -8,24 +8,22 @@ export type EligibleClearingBankCandidate = {
   refProperty: string;
   subType?: string | null;
   parentCidNumber?: string | null;
-  parentCidFullName?: string | null;
+  parentFullName?: string | null;
   parentRefProperty?: string | null;
   provinceName: string;
   cityName: string;
-  main_account_id?: string | null;
-  fee_account_id?: string | null;
+  mainAccountId?: string | null;
+  feeAccountId?: string | null;
 };
 
 export type AccountWithBalance = {
   accountName: string;
   /** 唯一账户 ID（小写 0x + 64 位十六进制）。 */
-  account_id: string;
+  accountId: string;
   /** 仅用于展示的 SS58 地址（GMB prefix=2027）。 */
-  ss58_address: string;
   /** `frame_system::Account[address].data.free`,最小单位"分"。 */
-  balanceMinUnits: string;
+  balanceFen: string;
   /** 友好元字符串 `xxx.xx`。 */
-  balanceText: string;
   accountKind: 'main' | 'fee' | 'stake' | 'safety_fund' | 'he' | 'named';
   canClose: boolean;
 };
@@ -36,8 +34,8 @@ export type InstitutionDetail = {
   /** 机构码（CID institution_code，[u8;4] 序列化为数字数组）。 */
   institutionCode: number[];
 
-  main_account_info: AccountWithBalance;
-  fee_account_info: AccountWithBalance;
+  mainAccountInfo: AccountWithBalance;
+  feeAccountInfo: AccountWithBalance;
   /** 主账户/费用账户之外的其它账户(自定义初始账户)。 */
   otherAccounts: AccountWithBalance[];
 

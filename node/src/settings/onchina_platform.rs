@@ -69,7 +69,7 @@ fn onchina_health_ok(app: &AppHandle) -> Result<(), String> {
 }
 
 fn current_state(app: &AppHandle) -> OnChinaPlatformState {
-    let process_running = crate::onchina_proc::is_onchina_running();
+    let process_running = crate::is_onchina_running();
     let health = process_running.then(|| onchina_health_ok(app));
     let (status, status_label, detail) = match health {
         None => ("stopped", "未开启", None),
@@ -110,7 +110,7 @@ fn wait_until_healthy_after_start(app: &AppHandle) -> OnChinaPlatformState {
     // 使用实际墙钟预算，包含每次HTTPS检查；模块初始化可继续，页面沿用已有启动中状态。
     let budget = Duration::from_secs(60);
     while start.elapsed() < budget {
-        let process_running = crate::onchina_proc::is_onchina_running();
+        let process_running = crate::is_onchina_running();
         if !process_running {
             return failed_state(false, "链上中国平台启动失败:子进程已退出".to_string());
         }
@@ -120,7 +120,7 @@ fn wait_until_healthy_after_start(app: &AppHandle) -> OnChinaPlatformState {
         }
         std::thread::sleep(Duration::from_millis(500).min(budget.saturating_sub(start.elapsed())));
     }
-    state_after_wait(crate::onchina_proc::is_onchina_running(), last_error)
+    state_after_wait(crate::is_onchina_running(), last_error)
 }
 
 #[cfg(test)]
@@ -150,7 +150,7 @@ pub fn start_onchina_platform(app: AppHandle) -> Result<OnChinaPlatformState, St
     if let Err(err) = security::append_audit_log(&app, "start_onchina_platform", "attempt") {
         eprintln!("[审计] start_onchina_platform attempt 日志写入失败:{err}");
     }
-    if let Err(err) = crate::onchina_proc::start_onchina(&app) {
+    if let Err(err) = crate::start_onchina(&app) {
         if let Err(log_err) = security::append_audit_log(&app, "start_onchina_platform", "failed") {
             eprintln!("[审计] start_onchina_platform failed 日志写入失败:{log_err}");
         }
@@ -167,7 +167,7 @@ pub fn stop_onchina_platform(app: AppHandle) -> Result<OnChinaPlatformState, Str
     if let Err(err) = security::append_audit_log(&app, "stop_onchina_platform", "attempt") {
         eprintln!("[审计] stop_onchina_platform attempt 日志写入失败:{err}");
     }
-    crate::onchina_proc::stop_onchina_checked()?;
+    crate::stop_onchina_checked()?;
     if let Err(err) = security::append_audit_log(&app, "stop_onchina_platform", "success") {
         eprintln!("[审计] stop_onchina_platform success 日志写入失败:{err}");
     }

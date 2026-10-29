@@ -64,14 +64,14 @@ function RepresentativeVotePanel({ auth }: Props) {
         voterRoleCode.trim(),
         approve,
       );
-      const signed = await signChain(prepared.request_id, prepared.sign_request);
+      const signed = await signChain(prepared.requestId, prepared.signRequest);
       const submitted = await submitChainSign(
         auth,
-        prepared.request_id,
-        signed.account_id,
+        prepared.requestId,
+        signed.accountId,
         signed.signature,
       );
-      message.success(`表决交易已提交：${submitted.tx_hash}`);
+      message.success(`表决交易已提交：${submitted.txHash}`);
     } catch (error: unknown) {
       message.error(error instanceof Error ? error.message : '表决提交失败');
     } finally {
@@ -121,7 +121,7 @@ export function LegislationView({ auth }: Props) {
   const [selectedLawId, setSelectedLawId] = useState<number | null>(null);
   const role = roleTag(auth);
   const scope =
-    [auth.scope_province_name, auth.scope_city_name].filter(Boolean).join(' · ') || '全国';
+    [auth.scopeProvinceName, auth.scopeCityName].filter(Boolean).join(' · ') || '全国';
   const canPropose = !!auth.capabilities?.canProposeLegislation;
   const canVote = !!auth.capabilities?.canCastRepresentativeVote;
 
@@ -133,16 +133,16 @@ export function LegislationView({ auth }: Props) {
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: 20, fontWeight: 700 }}>
-              {auth.cid_short_name ?? auth.institution_code}
+              {auth.cidShortName ?? auth.institutionCode}
             </span>
             <Tag color={role.color}>{role.text}</Tag>
           </div>
         }
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, color: 'rgba(0,0,0,0.65)' }}>
-          <span>层级:{tierLabel(auth.admin_level)}</span>
+          <span>层级:{tierLabel(auth.adminLevel)}</span>
           <span>辖区:{scope}</span>
-          <span>机构码:{auth.institution_code}</span>
+          <span>机构码:{auth.institutionCode}</span>
         </div>
       </Card>
 

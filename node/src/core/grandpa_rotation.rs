@@ -12,7 +12,7 @@ use crate::{
 };
 use codec::{Decode, Encode};
 use ed25519_dalek::Signer;
-use grandpakey_change::{GrandpaKeyChangeKind, GrandpaKeyProofPayload};
+use grandpakey::{GrandpaKeyChangeKind, GrandpaKeyProofPayload};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sp_core::H256;
@@ -225,8 +225,8 @@ fn build_runtime_call(
     new_public_key: [u8; 32],
     proof_nonce: u64,
     proof_expires_at: u32,
-    new_public_key_signature: [u8; 64],
-    old_public_key_signature: Option<[u8; 64]>,
+    new_key_signature: [u8; 64],
+    old_key_signature: Option<[u8; 64]>,
 ) -> Result<Vec<u8>, String> {
     let actor_cid_number = actor_cid_number
         .as_bytes()
@@ -237,30 +237,30 @@ fn build_runtime_call(
         .to_vec()
         .try_into()
         .map_err(|_| "委员岗位码超出链上范围".to_string())?;
-    let call = match old_public_key_signature {
-        Some(old_public_key_signature) => {
-            citizenchain::RuntimeCall::GrandpaKeyChange(grandpakey_change::Call::<
-                citizenchain::Runtime,
+    let call = match old_key_signature {
+        Some(old_key_signature) => {
+            runtime::RuntimeCall::GrandpaKeyChange(grandpakey::Call::<
+                runtime::Runtime,
             >::schedule_grandpa_key_rotation {
                 actor_cid_number,
                 actor_role_code,
                 new_public_key,
                 proof_nonce,
                 proof_expires_at,
-                old_public_key_signature,
-                new_public_key_signature,
+                old_public_key_signature: old_key_signature,
+                new_public_key_signature: new_key_signature,
             })
         }
         None => {
-            citizenchain::RuntimeCall::GrandpaKeyChange(grandpakey_change::Call::<
-                citizenchain::Runtime,
+            runtime::RuntimeCall::GrandpaKeyChange(grandpakey::Call::<
+                runtime::Runtime,
             >::propose_emergency_grandpa_key_recovery {
                 actor_cid_number,
                 actor_role_code,
                 new_public_key,
                 proof_nonce,
                 proof_expires_at,
-                new_public_key_signature,
+                new_public_key_signature: new_key_signature,
             })
         }
     };
@@ -317,9 +317,9 @@ fn build_request_sync(
         proof_expires_at,
         change_kind: local_kind.into(),
     };
-    let digest = grandpakey_change::proof_signing_digest(&proof_payload);
-    let new_public_key_signature = new_signing_key.sign(&digest).to_bytes();
-    let old_public_key_signature = if emergency_recovery {
+    let digest = grandpakey::proof_signing_digest(&proof_payload);
+    let new_key_signature = new_signing_key.sign(&digest).to_bytes();
+    let old_key_signature = if emergency_recovery {
         None
     } else {
         Some(grandpa_address::sign_rotation_proof(
@@ -333,8 +333,8 @@ fn build_request_sync(
         new_public_key,
         proof_nonce,
         proof_expires_at,
-        new_public_key_signature,
-        old_public_key_signature,
+        new_key_signature,
+        old_key_signature,
     )?;
     let normalized_signer = crate::shared::validation::normalize_public_key(signer_public_key)?;
     let signer_bytes = decode_hex_32(&normalized_signer, "signer_public_key")?;
@@ -388,7 +388,7 @@ fn build_request_sync(
     })
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn build_grandpa_key_change_request(
     app: AppHandle,
     actor_cid_number: String,
@@ -413,11 +413,11 @@ pub async fn build_grandpa_key_change_request(
     .map_err(|error| format!("构建 GRANDPA 换钥请求任务失败: {error}"))?
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn submit_grandpa_key_change(
     app: AppHandle,
     request_id: String,
-    expected_signer_public_key: String,
+    expected_public_key: String,
     expected_payload_hash: String,
     sign_nonce: u32,
     sign_block_number: u64,
@@ -435,7 +435,7 @@ pub async fn submit_grandpa_key_change(
             .ok_or_else(|| "GRANDPA 换钥 session 不存在或已过期".to_string())?;
         let result = signing::verify_and_submit(
             &request_id,
-            &expected_signer_public_key,
+            &expected_public_key,
             &expected_payload_hash,
             &session.call_data,
             sign_nonce,
@@ -562,7 +562,7 @@ mod tests {
         )
         .expect("emergency call");
         assert_eq!(emergency[1], 0);
-        assert!(citizenchain::RuntimeCall::decode_all(&mut emergency.as_slice()).is_ok());
+        assert!(runtime::RuntimeCall::decode_all(&mut emergency.as_slice()).is_ok());
 
         let routine = build_runtime_call(
             "LN001-NRC0G-944805165-2026",
@@ -574,6 +574,6 @@ mod tests {
         )
         .expect("routine call");
         assert_eq!(routine[1], 1);
-        assert!(citizenchain::RuntimeCall::decode_all(&mut routine.as_slice()).is_ok());
+        assert!(runtime::RuntimeCall::decode_all(&mut routine.as_slice()).is_ok());
     }
 }

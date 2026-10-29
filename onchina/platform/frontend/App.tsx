@@ -23,10 +23,10 @@ import { notice } from './helpers_notice';
 const { Header, Content } = Layout;
 
 /** Header 右上角管理员身份；姓名仍保留姓、名两个精确字段，渲染时才拼接。 */
-function resolveHeaderAdminIdentity(auth: AdminAuth | null): { cidShortName: string; family_name: string; given_name: string } {
-  if (!auth) return { cidShortName: '', family_name: '', given_name: '' };
-  const cidShortName = typeof auth.cid_short_name === 'string' ? auth.cid_short_name.trim() : '';
-  return { cidShortName, family_name: auth.family_name.trim(), given_name: auth.given_name.trim() };
+function resolveHeaderAdminIdentity(auth: AdminAuth | null): { cidShortName: string; familyName: string; givenName: string } {
+  if (!auth) return { cidShortName: '', familyName: '', givenName: '' };
+  const cidShortName = typeof auth.cidShortName === 'string' ? auth.cidShortName.trim() : '';
+  return { cidShortName, familyName: auth.familyName.trim(), givenName: auth.givenName.trim() };
 }
 
 function AppInner() {
@@ -38,7 +38,7 @@ function AppInner() {
 
   useEffect(() => {
     setCidMeta(null);
-  }, [auth?.account_id, auth?.institution_code]);
+  }, [auth?.accountId, auth?.institutionCode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,18 +53,18 @@ function AppInner() {
         const checked = await checkAdminAuth(auth);
         const refreshedAuth: AdminAuth = {
           ...auth,
-          account_id: checked.account_id,
-          institution_cid_number: checked.institution_cid_number,
-          institution_code: checked.institution_code,
-          admin_level: checked.admin_level ?? null,
+          accountId: checked.accountId,
+          institutionCidNumber: checked.institutionCidNumber,
+          institutionCode: checked.institutionCode,
+          adminLevel: checked.adminLevel ?? null,
           capabilities: checked.capabilities,
           workspace: checked.workspace ?? auth.workspace,
-          family_name: checked.family_name,
-          given_name: checked.given_name,
-          scope_province_name: checked.scope_province_name ?? null,
-          scope_city_name: checked.scope_city_name ?? null,
-          scope_town_name: checked.scope_town_name ?? null,
-          cid_short_name: checked.cid_short_name ?? null,
+          familyName: checked.familyName,
+          givenName: checked.givenName,
+          scopeProvinceName: checked.scopeProvinceName ?? null,
+          scopeCityName: checked.scopeCityName ?? null,
+          scopeTownName: checked.scopeTownName ?? null,
+          cidShortName: checked.cidShortName ?? null,
         };
         setAuth(refreshedAuth);
         writeStoredAuth(refreshedAuth);
@@ -101,7 +101,7 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [auth?.account_id, auth?.institution_code]);
+  }, [auth?.accountId, auth?.institutionCode]);
 
   const headerAdminIdentity = resolveHeaderAdminIdentity(auth);
 
@@ -197,7 +197,7 @@ function AppInner() {
                 </>
               )}
               <span>
-                {`${headerAdminIdentity.family_name}${headerAdminIdentity.given_name}` || '暂未设置'}
+                {`${headerAdminIdentity.familyName}${headerAdminIdentity.givenName}` || '暂未设置'}
               </span>
             </Typography.Text>
             <Button

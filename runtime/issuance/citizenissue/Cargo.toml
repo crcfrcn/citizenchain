@@ -1,0 +1,53 @@
+[package]
+# 单元测试与独立集成目标同目录，关闭扫描并显式注册全部集成目标。
+autotests = false
+name = "citizenissue"  # 公民发行模块
+edition.workspace = true   # 默认 Rust 版本
+version.workspace = true   # 版本号
+authors.workspace = true   # 作者
+repository.workspace = true  #项目仓库
+license = "MIT"        # 授权协议 MIT
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+pallet-balances = { workspace = true }
+sp-runtime = { workspace = true }
+identity = { path = "../../misc/identity", default-features = false }
+
+primitives = { path = "../../primitives", default-features = false }
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+    # benchmark feature 需向下游 FRAME 依赖传播，保持工作区 benchmark 构建口径一致。
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "identity/runtime-benchmarks",
+]
+try-runtime = []
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-balances/std",
+    "sp-runtime/std",
+    "identity/std",
+    "primitives/std",
+]
+
+[dev-dependencies]
+# 集成夹具的基准签名类型直接使用同一SDK锁内的sp-core，仅限测试。
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

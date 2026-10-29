@@ -17,13 +17,13 @@ pub struct EligibleClearingBankCandidate {
     pub ref_property: String,
     pub sub_type: Option<String>,
     pub parent_cid_number: Option<String>,
-    pub parent_cid_full_name: Option<String>,
+    pub parent_full_name: Option<String>,
     pub parent_ref_property: Option<String>,
     pub province_name: String,
     pub city_name: String,
-    #[serde(rename = "main_account_id")]
+
     pub main_account_id: Option<String>,
-    #[serde(rename = "fee_account_id")]
+
     pub fee_account_id: Option<String>,
 }
 
@@ -33,15 +33,9 @@ pub struct EligibleClearingBankCandidate {
 pub struct AccountWithBalance {
     pub account_name: String,
     /// 唯一账户 ID，固定为小写 `0x` + 64 位十六进制。
-    #[serde(rename = "account_id")]
     pub account_id: String,
-    /// 仅用于展示的 SS58 地址（GMB prefix=2027）。
-    #[serde(rename = "ss58_address")]
-    pub ss58_address: String,
     /// `frame_system::Account[address].data.free`,最小单位"分"。
-    pub balance_min_units: String,
-    /// 友好元字符串 `xxx.xx`。
-    pub balance_text: String,
+    pub balance_fen: String,
     /// 协议账户类别：main/fee/stake/safety_fund/he/named。
     pub account_kind: String,
     /// 只有 named 自定义账户允许关闭。
@@ -60,9 +54,9 @@ pub struct InstitutionDetail {
     pub cid_full_name: String,
     /// 机构码（CID institution_code，[u8;4]）。清算行属于私权法人机构码。
     pub institution_code: InstitutionCode,
-    #[serde(rename = "main_account_info")]
+
     pub main_account_info: AccountWithBalance,
-    #[serde(rename = "fee_account_info")]
+
     pub fee_account_info: AccountWithBalance,
     /// 主账户/费用账户之外的全部账户(自定义初始账户)。
     pub other_accounts: Vec<AccountWithBalance>,

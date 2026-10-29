@@ -20,47 +20,46 @@ function jsonAdminHeaders(auth: AdminAuth): Record<string, string> {
 
 export type CitizenRow = {
   id: number;
-  cid_number: string;
-  passport_no: string;
-  family_name: string;
-  given_name: string;
-  citizen_sex: CitizenSex;
-  citizen_birth_date: string;
-  account_id?: string | null;
-  ss58_address?: string | null;
-  binding_revision: number;
-  binding_finalized_block_number?: number | null;
-  binding_finalized_block_hash?: string | null;
-  citizen_status: CitizenState;
-  voting_eligible: boolean;
-  vote_status: CitizenState;
-  identity_status: CitizenState;
-  passport_valid_from: string;
-  passport_valid_until: string;
-  status_updated_at?: number;
-  province_code: string;
-  city_code: string;
-  town_code: string;
-  province_name?: string;
-  city_name?: string;
-  town_name?: string;
-  birth_province_code: string;
-  birth_city_code: string;
-  birth_town_code: string;
-  birth_province_name?: string;
-  birth_city_name?: string;
-  birth_town_name?: string;
-  archive_hash?: string;
-  onchain_tx_hash?: string;
-  onchain_block_number?: number;
-  onchain_at?: string;
+  cidNumber: string;
+  passportNo: string;
+  familyName: string;
+  givenName: string;
+  citizenSex: CitizenSex;
+  citizenBirthDate: string;
+  accountId?: string | null;
+  bindingRevision: number;
+  bindingBlockNumber?: number | null;
+  bindingBlockHash?: string | null;
+  citizenStatus: CitizenState;
+  votingEligible: boolean;
+  voteStatus: CitizenState;
+  identityStatus: CitizenState;
+  passportValidFrom: string;
+  passportValidUntil: string;
+  statusUpdatedAt?: number;
+  provinceCode: string;
+  cityCode: string;
+  townCode: string;
+  provinceName?: string;
+  cityName?: string;
+  townName?: string;
+  birthProvinceCode: string;
+  birthCityCode: string;
+  birthTownCode: string;
+  birthProvinceName?: string;
+  birthCityName?: string;
+  birthTownName?: string;
+  archiveHash?: string;
+  onchainTxHash?: string;
+  onchainBlockNumber?: number;
+  onchainAt?: string;
 };
 
 export type PageResult<T> = {
   items: T[];
-  page_size: number;
-  next_cursor?: string | null;
-  has_more: boolean;
+  pageSize: number;
+  nextCursor?: string | null;
+  hasMore: boolean;
 };
 
 /** 人主体类型:CTZN(公民)/ NATP(居民)。 */
@@ -71,57 +70,54 @@ export type CitizenType = 'CTZN' | 'NATP';
  * 姓名/性别/出生/护照等档案占号后为空、后续经「编辑资料」补齐(与后端 AdminCreateCitizenInput 对齐)。
  */
 export type CreateCitizenInput = {
-  actor_role_code: string;
-  cid_type: CitizenType;
+  actorRoleCode: string;
+  cidType: CitizenType;
 };
 
 /** 直接录入公民返回 DTO。 */
 export type CreateCitizenResult = {
   id: number;
-  cid_number: string;
-  passport_no: string;
-  family_name: string;
-  given_name: string;
-  citizen_sex: CitizenSex;
-  citizen_birth_date: string;
-  citizen_status: CitizenState;
-  voting_eligible: boolean;
-  account_id?: string | null;
-  ss58_address?: string | null;
-  passport_valid_from: string;
-  passport_valid_until: string;
-  province_code: string;
-  city_code: string;
-  town_code: string;
-  birth_province_code: string;
-  birth_city_code: string;
-  birth_town_code: string;
-  archive_hash?: string;
+  cidNumber: string;
+  passportNo: string;
+  familyName: string;
+  givenName: string;
+  citizenSex: CitizenSex;
+  citizenBirthDate: string;
+  citizenStatus: CitizenState;
+  votingEligible: boolean;
+  accountId?: string | null;
+  passportValidFrom: string;
+  passportValidUntil: string;
+  provinceCode: string;
+  cityCode: string;
+  townCode: string;
+  birthProvinceCode: string;
+  birthCityCode: string;
+  birthTownCode: string;
+  archiveHash?: string;
 };
 
 export type PrepareCitizenOnchainResult = {
-  cid_number: string;
-  actor_role_code: string;
-  identity_level: CitizenOnchainIdentityLevel;
-  account_id: string;
-  ss58_address: string;
-  payload_hex: string;
-  sign_request: string;
-  action_label_zh: string;
-  expires_at: number;
+  cidNumber: string;
+  actorRoleCode: string;
+  identityLevel: CitizenOnchainIdentityLevel;
+  accountId: string;
+  payloadHex: string;
+  signRequest: string;
+  actionLabelZh: string;
+  expiresAt: number;
 };
 
 export type CompleteCitizenOnchainResult = {
-  request_id: string;
-  cid_number: string;
-  actor_role_code: string;
-  identity_level: CitizenOnchainIdentityLevel;
-  account_id: string;
-  ss58_address: string;
-  chain_action: number;
-  call_data_hex: string;
-  citizen_signature: string;
-  citizen_identity_chain_sign_request: string;
+  requestId: string;
+  cidNumber: string;
+  actorRoleCode: string;
+  identityLevel: CitizenOnchainIdentityLevel;
+  accountId: string;
+  chainAction: number;
+  callDataHex: string;
+  citizenSignature: string;
+  identitySignRequest: string;
 };
 
 export const CITIZEN_DOCUMENT_TYPES = ['护照相片', '出生证明', '监护人护照', '其他材料'] as const;
@@ -130,23 +126,23 @@ export type CitizenDocumentType = (typeof CITIZEN_DOCUMENT_TYPES)[number];
 
 export type CitizenDocument = {
   id: number;
-  cid_number: string;
-  file_name: string;
-  document_type: CitizenDocumentType;
-  file_size: number;
-  file_hash: string;
-  uploader_account_id: string;
-  uploaded_at: string;
+  cidNumber: string;
+  fileName: string;
+  documentType: CitizenDocumentType;
+  fileSize: number;
+  fileHash: string;
+  uploaderAccountId: string;
+  uploadedAt: string;
 };
 
 export interface LegalRepresentativeCitizenSearchContext {
-  target_cid_number?: string;
-  province_name?: string;
-  city_name?: string;
-  subject_property?: string;
+  targetCidNumber?: string;
+  provinceName?: string;
+  cityName?: string;
+  subjectProperty?: string;
   institution?: string;
-  education_type?: string;
-  parent_cid_number?: string;
+  educationType?: string;
+  parentCidNumber?: string;
 }
 
 export async function listCitizens(
@@ -159,9 +155,9 @@ export async function listCitizens(
 ): Promise<PageResult<CitizenRow>> {
   const params = new URLSearchParams({
     keyword,
-    province_name: provinceName,
-    city_name: cityName,
-    page_size: String(pageSize),
+    provinceName: provinceName,
+    cityName: cityName,
+    pageSize: String(pageSize),
   });
   if (cursor) params.set('cursor', cursor);
   return request<PageResult<CitizenRow>>(`/api/admin/citizens?${params.toString()}`, {
@@ -177,16 +173,16 @@ export async function listCitizens(
  * 居住省(= CID 省)与身份 CID 不变;跨省居住迁移属"跨地区",后续单独处理。
  */
 export type EditCitizenInput = {
-  family_name: string;
-  given_name: string;
-  citizen_sex: CitizenSex | '';
-  citizen_birth_date: string;
-  birth_province_code: string;
-  birth_city_code: string;
-  birth_town_code: string;
-  city_code: string;
-  town_code: string;
-  voting_eligible: boolean;
+  familyName: string;
+  givenName: string;
+  citizenSex: CitizenSex | '';
+  citizenBirthDate: string;
+  birthProvinceCode: string;
+  birthCityCode: string;
+  birthTownCode: string;
+  cityCode: string;
+  townCode: string;
+  votingEligible: boolean;
 };
 
 /** 编辑/补齐公民本地档案(不可变字段锁定),返回最新档案行。 */
@@ -214,7 +210,7 @@ export async function searchLegalRepresentativeCitizens(
 ): Promise<string[]> {
   const params = new URLSearchParams({
     q: q.trim(),
-    page_size: String(pageSize),
+    pageSize: String(pageSize),
   });
   Object.entries(context).forEach(([key, value]) => {
     const trimmed = typeof value === 'string' ? value.trim() : '';
@@ -231,59 +227,58 @@ export async function searchLegalRepresentativeCitizens(
  * 管理员冷签交易 finalized+ExtrinsicSuccess 且同块状态核验通过后才建档。
  */
 export type PrepareCitizenOccupyResult = {
-  request_id: string;
-  cid_number: string;
-  citizen_sign_request: string;
-  expires_at: number;
+  requestId: string;
+  cidNumber: string;
+  citizenSignRequest: string;
+  expiresAt: number;
 };
 
 /** 占号 submit(段2)返回:管理员冷签 QR(段3 chain/submit 用)。 */
 export type SubmitCitizenOccupyResult = {
-  request_id: string;
-  cid_number: string;
-  sign_request: string;
-  expires_at: number;
+  requestId: string;
+  cidNumber: string;
+  signRequest: string;
+  expiresAt: number;
 };
 
 /** 换绑 prepare(段1)返回:**新钱包域签名 QR**(b.u 空、完整授权模板含零账户槽)。 */
 export type PrepareCitizenRebindResult = {
-  request_id: string;
-  cid_number: string;
-  new_wallet_sign_request: string;
-  expires_at: number;
+  requestId: string;
+  cidNumber: string;
+  walletSignRequest: string;
+  expiresAt: number;
 };
 
 /** 换绑 submit(段2)返回:管理员冷签 QR。 */
 export type SubmitCitizenRebindResult = {
-  request_id: string;
-  cid_number: string;
-  sign_request: string;
-  expires_at: number;
+  requestId: string;
+  cidNumber: string;
+  signRequest: string;
+  expiresAt: number;
 };
 
 /** 所有注册局可见的 finalized CID 公开绑定，不包含任何链下公民档案。 */
 export type FinalizedCitizenBinding = {
-  cid_number: string;
-  cid_status: 'ACTIVE' | 'REVOKED';
-  binding_active: boolean;
-  account_id?: string | null;
-  ss58_address?: string | null;
-  binding_revision?: number | null;
-  voting_identity: boolean;
-  candidate_identity: boolean;
-  registry_rebind_required: boolean;
-  registrar_cid_number?: string | null;
-  finalized_block_number: number;
-  finalized_block_hash: string;
-  genesis_hash: string;
+  cidNumber: string;
+  cidStatus: 'ACTIVE' | 'REVOKED';
+  bindingActive: boolean;
+  accountId?: string | null;
+  bindingRevision?: number | null;
+  votingIdentity: boolean;
+  candidateIdentity: boolean;
+  registryRebindRequired: boolean;
+  registrarCidNumber?: string | null;
+  finalizedBlockNumber: number;
+  finalizedBlockHash: string;
+  genesisHash: string;
 };
 
 /** 吊销 prepare 返回:冷签 QR。 */
 export type PrepareCitizenRevokeResult = {
-  request_id: string;
-  cid_number: string;
-  sign_request: string;
-  expires_at: number;
+  requestId: string;
+  cidNumber: string;
+  signRequest: string;
+  expiresAt: number;
 };
 
 /**
@@ -311,13 +306,13 @@ export async function prepareCitizenOccupy(
 export async function submitCitizenOccupy(
   auth: AdminAuth,
   requestId: string,
-  account_id: string,
-  occupy_signature: string,
+  accountId: string,
+  occupySignature: string,
 ): Promise<SubmitCitizenOccupyResult> {
   return request<SubmitCitizenOccupyResult>('/api/admin/citizens/occupy/submit', {
     method: 'POST',
     headers: jsonAdminHeaders(auth),
-    body: JSON.stringify({ request_id: requestId, account_id, occupy_signature }),
+    body: JSON.stringify({ requestId: requestId, accountId, occupySignature }),
   });
 }
 
@@ -337,7 +332,7 @@ export async function prepareCitizenRebind(
   return request<PrepareCitizenRebindResult>('/api/admin/citizens/rebind/prepare', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ actor_role_code: actorRoleCode, cid_number: cidNumber }),
+    body: JSON.stringify({ actorRoleCode: actorRoleCode, cidNumber: cidNumber }),
   });
 }
 
@@ -357,12 +352,12 @@ export async function submitCitizenRebind(
     method: 'POST',
     headers: jsonAdminHeaders(auth),
     body: JSON.stringify({
-      request_id: requestId,
-      new_account_id: newAccountId,
-      new_account_signature: newAccountSignature,
-      ...(currentAccountId ? { current_account_id: currentAccountId } : {}),
+      requestId: requestId,
+      newAccountId: newAccountId,
+      newAccountSignature: newAccountSignature,
+      ...(currentAccountId ? { currentAccountId: currentAccountId } : {}),
       ...(currentAccountSignature
-        ? { current_account_signature: currentAccountSignature }
+        ? { currentAccountSignature: currentAccountSignature }
         : {}),
     }),
   });
@@ -394,7 +389,7 @@ export async function prepareCitizenRevoke(
     {
       method: 'POST',
       headers,
-      body: JSON.stringify({ actor_role_code: actorRoleCode }),
+      body: JSON.stringify({ actorRoleCode: actorRoleCode }),
     },
   );
 }
@@ -402,7 +397,7 @@ export async function prepareCitizenRevoke(
 export async function prepareCitizenOnchainSignature(
   auth: AdminAuth,
   cidNumber: string,
-  account_id: string,
+  accountId: string,
   actorRoleCode: string,
   identityLevel: CitizenOnchainIdentityLevel,
 ): Promise<PrepareCitizenOnchainResult> {
@@ -415,9 +410,9 @@ export async function prepareCitizenOnchainSignature(
       method: 'POST',
       headers,
       body: JSON.stringify({
-        account_id,
-        actor_role_code: actorRoleCode,
-        identity_level: identityLevel,
+        accountId,
+        actorRoleCode: actorRoleCode,
+        identityLevel: identityLevel,
       }),
     },
   );
@@ -426,7 +421,7 @@ export async function prepareCitizenOnchainSignature(
 export async function completeCitizenOnchainSignature(
   auth: AdminAuth,
   cidNumber: string,
-  account_id: string,
+  accountId: string,
   actorRoleCode: string,
   identityLevel: CitizenOnchainIdentityLevel,
   signResponse: string,
@@ -438,10 +433,10 @@ export async function completeCitizenOnchainSignature(
       method: 'POST',
       headers,
       body: JSON.stringify({
-        account_id,
-        actor_role_code: actorRoleCode,
-        identity_level: identityLevel,
-        sign_response: signResponse,
+        accountId,
+        actorRoleCode: actorRoleCode,
+        identityLevel: identityLevel,
+        signResponse: signResponse,
       }),
     },
   );
@@ -466,7 +461,7 @@ export async function uploadCitizenDocument(
 ): Promise<CitizenDocument> {
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('document_type', documentType);
+  formData.append('documentType', documentType);
   return adminRequest<CitizenDocument>(
     `/api/admin/citizens/${encodeURIComponent(cidNumber)}/documents`,
     auth,

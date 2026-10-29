@@ -1,3 +1,4 @@
+import { encodeSs58 } from '../../platform/frontend/helpers_ss58';
 // 注册局顶层视图 —— activeView === 'citizens' 分支。
 // 包含:citizen 列表 + 搜索栏 + 表格 + 直接录入公民弹窗。
 
@@ -20,8 +21,8 @@ import { notice } from '../../platform/frontend/helpers_notice';
 
 const CITIZEN_PAGE_SIZE = 50;
 
-function makeCitizenName(row: Pick<CitizenRow, 'family_name' | 'given_name'>) {
-  return `${row.family_name ?? ''}${row.given_name ?? ''}`.trim() || '-';
+function makeCitizenName(row: Pick<CitizenRow, 'familyName' | 'givenName'>) {
+  return `${row.familyName ?? ''}${row.givenName ?? ''}`.trim() || '-';
 }
 
 /** 从 CID 机构段(第二段前 4 位)派生人主体类型:CTZN=公民 / NATP=居民。 */
@@ -81,7 +82,7 @@ export function CitizensView() {
       );
       const list = raw.items;
       setRows(list);
-      setNextCursor(raw.next_cursor ?? null);
+      setNextCursor(raw.nextCursor ?? null);
       if (exact && list.length === 0) {
         notice.warningModal({
           title: '查询结果',
@@ -165,7 +166,7 @@ export function CitizensView() {
 
   const handleCitizenUpdated = useCallback((next: CitizenRow) => {
     setSelectedCitizen(next);
-    setRows((prev) => prev.map((row) => (row.cid_number === next.cid_number ? next : row)));
+    setRows((prev) => prev.map((row) => (row.cidNumber === next.cidNumber ? next : row)));
   }, []);
 
   const statusTag = (status: string | undefined) => (
@@ -181,13 +182,13 @@ export function CitizensView() {
     },
     {
       title: '护照号',
-      dataIndex: 'passport_no',
+      dataIndex: 'passportNo',
       align: 'center',
       render: (v: string | undefined) => v ?? '-',
     },
     {
       title: '身份CID',
-      dataIndex: 'cid_number',
+      dataIndex: 'cidNumber',
       align: 'center',
       render: (v: string | undefined) => v ?? '-',
     },
@@ -196,7 +197,7 @@ export function CitizensView() {
       width: 90,
       align: 'center',
       render: (_v: unknown, row) =>
-        row.cid_number ? <Tag color="geekblue">{citizenTypeLabel(row.cid_number)}</Tag> : '-',
+        row.cidNumber ? <Tag color="geekblue">{citizenTypeLabel(row.cidNumber)}</Tag> : '-',
     },
     {
       title: '姓名',
@@ -205,13 +206,13 @@ export function CitizensView() {
     },
     {
       title: '当前绑定钱包账户',
-      dataIndex: 'ss58_address',
+      dataIndex: 'accountId',
       align: 'center',
-      render: (v: string | null | undefined) => v || '-',
+      render: (accountId: string | null | undefined) => accountId ? encodeSs58(accountId) : '-',
     },
     {
       title: '投票状态',
-      dataIndex: 'vote_status',
+      dataIndex: 'voteStatus',
       width: 120,
       align: 'center',
       render: (v: string | undefined) => statusTag(v),
@@ -240,7 +241,7 @@ export function CitizensView() {
         style={glassCardStyle}
         headStyle={glassCardHeadStyle}
       >
-        <CityGrid auth={auth} province_name={activeProvinceName} onPick={(cityName) => setSelectedCity(cityName)} />
+        <CityGrid auth={auth} provinceName={activeProvinceName} onPick={(cityName) => setSelectedCity(cityName)} />
       </Card>
     );
   }

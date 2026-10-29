@@ -38,17 +38,17 @@ export interface VisibleScope {
   lockedTownName: string | null;
 
   /** 判断某省是否在可见范围内。 */
-  includesProvince(province_name: string): boolean;
+  includesProvince(provinceName: string): boolean;
   /** 判断某市是否在可见范围内。 */
-  includesCity(city_name: string): boolean;
+  includesCity(cityName: string): boolean;
   /** 判断某镇是否在可见范围内。 */
-  includesTown(town_name: string): boolean;
+  includesTown(townName: string): boolean;
   /** 判断某省是否允许写操作(跨辖区一律置灰)。 */
-  canWriteProvince(province_name: string): boolean;
+  canWriteProvince(provinceName: string): boolean;
   /** 判断某市是否允许写操作(跨市置灰;省级本省内任意市可写)。 */
-  canWriteCity(province_name: string, city_name: string): boolean;
+  canWriteCity(provinceName: string, cityName: string): boolean;
   /** 判断某镇是否允许写操作(跨镇置灰;市级及以上本辖区内任意镇可写)。 */
-  canWriteTown(province_name: string, city_name: string, town_name: string): boolean;
+  canWriteTown(provinceName: string, cityName: string, townName: string): boolean;
 }
 
 type ScopeBase = Omit<
@@ -74,24 +74,24 @@ function makeScope(base: ScopeBase): VisibleScope {
     includesTown(_town: string) {
       return true;
     },
-    canWriteProvince(province_name: string) {
+    canWriteProvince(provinceName: string) {
       if (!base.canWrite) return false;
       if (base.nationwide) return true;
       if (!base.lockedProvinceName) return false;
-      return province_name === base.lockedProvinceName;
+      return provinceName === base.lockedProvinceName;
     },
-    canWriteCity(province_name: string, city_name: string) {
+    canWriteCity(provinceName: string, cityName: string) {
       if (!base.canWrite) return false;
       if (base.nationwide) return true;
-      if (!base.lockedProvinceName || province_name !== base.lockedProvinceName) return false;
+      if (!base.lockedProvinceName || provinceName !== base.lockedProvinceName) return false;
       // 省级本省内任意市;市级及以下必须等于自己 lockedCityName。
-      if (base.lockedCityName && city_name !== base.lockedCityName) return false;
+      if (base.lockedCityName && cityName !== base.lockedCityName) return false;
       return true;
     },
-    canWriteTown(province_name: string, city_name: string, town_name: string) {
-      if (!this.canWriteCity(province_name, city_name)) return false;
+    canWriteTown(provinceName: string, cityName: string, townName: string) {
+      if (!this.canWriteCity(provinceName, cityName)) return false;
       // 市级及以上本市内任意镇;镇级必须等于自己 lockedTownName。
-      if (base.lockedTownName && town_name !== base.lockedTownName) return false;
+      if (base.lockedTownName && townName !== base.lockedTownName) return false;
       return true;
     },
   };
@@ -136,57 +136,57 @@ function nationalScope(): VisibleScope {
 }
 
 function provinceScope(auth: AdminAuth): VisibleScope {
-  const province_name = normalizeScopeProvinceName(auth.scope_province_name);
+  const provinceName = normalizeScopeProvinceName(auth.scopeProvinceName);
   return makeScope({
     nationwide: false,
-    provinces: province_name ? [province_name] : [],
+    provinces: provinceName ? [provinceName] : [],
     cities: [],
     towns: [],
     // 缺省域是后端投影错误,前端进入只读错误态,不造伪省名。
-    canWrite: !!province_name,
+    canWrite: !!provinceName,
     skipProvinceList: true,
     skipCityList: false,
     skipTownList: false,
-    lockedProvinceName: province_name,
+    lockedProvinceName: provinceName,
     lockedCityName: null,
     lockedTownName: null,
   });
 }
 
 function cityScope(auth: AdminAuth): VisibleScope {
-  const province_name = normalizeScopeProvinceName(auth.scope_province_name);
-  const city_name = auth.scope_city_name?.trim() || null;
+  const provinceName = normalizeScopeProvinceName(auth.scopeProvinceName);
+  const cityName = auth.scopeCityName?.trim() || null;
   return makeScope({
     nationwide: false,
-    provinces: province_name ? [province_name] : [],
-    cities: city_name ? [city_name] : [],
+    provinces: provinceName ? [provinceName] : [],
+    cities: cityName ? [cityName] : [],
     towns: [],
-    canWrite: !!province_name && !!city_name,
+    canWrite: !!provinceName && !!cityName,
     skipProvinceList: true,
     skipCityList: true,
     skipTownList: false,
-    lockedProvinceName: province_name,
-    lockedCityName: city_name,
+    lockedProvinceName: provinceName,
+    lockedCityName: cityName,
     lockedTownName: null,
   });
 }
 
 function townScope(auth: AdminAuth): VisibleScope {
-  const province_name = normalizeScopeProvinceName(auth.scope_province_name);
-  const city_name = auth.scope_city_name?.trim() || null;
-  const town_name = auth.scope_town_name?.trim() || null;
+  const provinceName = normalizeScopeProvinceName(auth.scopeProvinceName);
+  const cityName = auth.scopeCityName?.trim() || null;
+  const townName = auth.scopeTownName?.trim() || null;
   return makeScope({
     nationwide: false,
-    provinces: province_name ? [province_name] : [],
-    cities: city_name ? [city_name] : [],
-    towns: town_name ? [town_name] : [],
-    canWrite: !!province_name && !!city_name && !!town_name,
+    provinces: provinceName ? [provinceName] : [],
+    cities: cityName ? [cityName] : [],
+    towns: townName ? [townName] : [],
+    canWrite: !!provinceName && !!cityName && !!townName,
     skipProvinceList: true,
     skipCityList: true,
     skipTownList: true,
-    lockedProvinceName: province_name,
-    lockedCityName: city_name,
-    lockedTownName: town_name,
+    lockedProvinceName: provinceName,
+    lockedCityName: cityName,
+    lockedTownName: townName,
   });
 }
 
@@ -194,8 +194,8 @@ export function useScope(auth: AdminAuth | null): VisibleScope {
   return useMemo<VisibleScope>(() => {
     if (!auth) return noAuthScope();
     // Tier1 创世注册局特判:admin_level 虽为 NATIONAL,但管理员按省分区(每节点单省)→ 省级范围。
-    if (isTier1Registry(auth.institution_code)) return provinceScope(auth);
-    switch (auth.admin_level) {
+    if (isTier1Registry(auth.institutionCode)) return provinceScope(auth);
+    switch (auth.adminLevel) {
       case 'NATIONAL':
         return nationalScope();
       case 'PROVINCE':
@@ -209,10 +209,10 @@ export function useScope(auth: AdminAuth | null): VisibleScope {
         return cityScope(auth);
     }
   }, [
-    auth?.institution_code,
-    auth?.admin_level,
-    auth?.scope_province_name,
-    auth?.scope_city_name,
-    auth?.scope_town_name,
+    auth?.institutionCode,
+    auth?.adminLevel,
+    auth?.scopeProvinceName,
+    auth?.scopeCityName,
+    auth?.scopeTownName,
   ]);
 }

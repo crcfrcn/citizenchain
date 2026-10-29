@@ -8,74 +8,74 @@ import type { InstitutionWorkspace } from './workspace_types';
 
 export type AdminAuthCheck = {
   ok: boolean;
-  account_id: string;
-  institution_cid_number: string;
-  institution_code: string;
-  admin_level?: string | null;
+  accountId: string;
+  institutionCidNumber: string;
+  institutionCode: string;
+  adminLevel?: string | null;
   capabilities?: CapabilitySet;
   workspace?: InstitutionWorkspace;
-  family_name: string;
-  given_name: string;
-  scope_province_name?: string | null;
-  scope_city_name?: string | null;
-  scope_town_name?: string | null;
-  cid_short_name?: string | null;
+  familyName: string;
+  givenName: string;
+  scopeProvinceName?: string | null;
+  scopeCityName?: string | null;
+  scopeTownName?: string | null;
+  cidShortName?: string | null;
 };
 
 export type AdminIdentifyResult = {
-  account_id: string;
-  institution_cid_number: string;
-  institution_code: string;
-  admin_level?: string | null;
+  accountId: string;
+  institutionCidNumber: string;
+  institutionCode: string;
+  adminLevel?: string | null;
   capabilities?: CapabilitySet;
   workspace?: InstitutionWorkspace;
-  family_name: string;
-  given_name: string;
-  scope_province_name?: string | null;
-  scope_city_name?: string | null;
-  scope_town_name?: string | null;
-  cid_short_name?: string | null;
+  familyName: string;
+  givenName: string;
+  scopeProvinceName?: string | null;
+  scopeCityName?: string | null;
+  scopeTownName?: string | null;
+  cidShortName?: string | null;
 };
 
 export type AdminQrSignRequestResult = {
-  challenge_id: string;
-  challenge_payload: string;
-  login_qr_payload: string;
+  challengeId: string;
+  challengePayload: string;
+  loginQrPayload: string;
   origin: string;
   domain: string;
-  session_id: string;
-  expire_at: number;
+  sessionId: string;
+  expiresAt: number;
 };
 
 export type AdminVerifyResult = {
-  access_token: string;
-  expire_at: number;
+  accessToken: string;
+  expiresAt: number;
   admin: AdminIdentifyResult;
 };
 
 export type AdminInstitutionCandidate = {
-  candidate_id: string;
-  institution_code: string;
-  admin_level?: string | null;
-  institution_cid_number?: string | null;
-  frg_province_code?: string | null;
-  cid_full_name?: string | null;
-  cid_short_name?: string | null;
-  scope_province_name?: string | null;
-  scope_city_name?: string | null;
-  scope_town_name?: string | null;
+  candidateId: string;
+  institutionCode: string;
+  adminLevel?: string | null;
+  institutionCidNumber?: string | null;
+  frgProvinceCode?: string | null;
+  cidFullName?: string | null;
+  cidShortName?: string | null;
+  scopeProvinceName?: string | null;
+  scopeCityName?: string | null;
+  scopeTownName?: string | null;
 };
 
 export type NodeBindingRequired = {
-  binding_challenge_id: string;
-  account_id: string;
+  bindingChallengeId: string;
+  accountId: string;
   candidates: AdminInstitutionCandidate[];
 };
 
 export type AdminLoginCompleteResult = {
   status: 'SUCCESS' | 'BINDING_REQUIRED';
-  access_token?: string;
-  expire_at?: number;
+  accessToken?: string;
+  expiresAt?: number;
   admin?: AdminIdentifyResult;
   binding?: NodeBindingRequired;
 };
@@ -83,15 +83,15 @@ export type AdminLoginCompleteResult = {
 export type AdminQrLoginStatus = {
   status: 'PENDING' | 'SUCCESS' | 'EXPIRED';
   message: string;
-  access_token?: string;
-  expire_at?: number;
+  accessToken?: string;
+  expiresAt?: number;
   admin?: AdminIdentifyResult;
 };
 
 export async function createAdminQrSignRequest(input: {
-  identity_qr: string;
+  identityQr: string;
   origin: string;
-  session_id: string;
+  sessionId: string;
 }): Promise<AdminQrSignRequestResult> {
   return request<AdminQrSignRequestResult>('/api/admin/auth/qr/sign-request', {
     method: 'POST',
@@ -111,9 +111,9 @@ export async function queryAdminQrLoginResult(
 }
 
 export async function completeAdminQrLogin(input: {
-  challenge_id: string;
-  session_id?: string;
-  account_id: string;
+  challengeId: string;
+  sessionId?: string;
+  accountId: string;
   signature: string;
 }): Promise<AdminLoginCompleteResult> {
   return request<AdminLoginCompleteResult>('/api/admin/auth/qr/complete', {
@@ -124,8 +124,8 @@ export async function completeAdminQrLogin(input: {
 }
 
 export async function confirmNodeBinding(input: {
-  binding_challenge_id: string;
-  candidate_id: string;
+  bindingChallengeId: string;
+  candidateId: string;
 }): Promise<AdminVerifyResult> {
   return request<AdminVerifyResult>('/api/admin/auth/node-binding/confirm', {
     method: 'POST',

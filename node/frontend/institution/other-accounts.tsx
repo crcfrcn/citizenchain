@@ -1,3 +1,5 @@
+import { accountIdToSs58 } from '../shared/ss58';
+import { formatBalance } from '../shared/format';
 // 其他账户列表子页(机构详情下的折叠卡片入口)。
 //
 // 显示主账户/费用账户之外的所有自定义账户:账户名 / SS58 地址 / 链上余额。
@@ -25,7 +27,7 @@ export function OtherAccountsListPage({ cidNumber, otherAccounts, onBack }: Prop
       ) : (
         <div className="admin-grid">
           {otherAccounts.map((acc) => (
-            <div key={acc.ss58_address} className="metric-card admin-card">
+            <div key={acc.accountId} className="metric-card admin-card">
               <div>
                 <strong>{acc.accountName}</strong>
                 {acc.accountKind !== 'named' && (
@@ -34,8 +36,8 @@ export function OtherAccountsListPage({ cidNumber, otherAccounts, onBack }: Prop
                   </span>
                 )}
               </div>
-              <code className="admin-card-address">{acc.ss58_address}</code>
-              <span className="muted">余额:{acc.balanceText} 元</span>
+              <code className="admin-card-address">{accountIdToSs58(acc.accountId)}</code>
+              <span className="muted">余额:{formatBalance(acc.balanceFen)}</span>
             </div>
           ))}
         </div>

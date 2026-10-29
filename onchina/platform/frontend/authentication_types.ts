@@ -5,32 +5,32 @@ import type { CapabilitySet } from './platform_capabilityMap';
 import type { InstitutionWorkspace } from './workspace_types';
 
 export type TokenAdminAuth = {
-  access_token: string;
-  account_id: string;
+  accessToken: string;
+  accountId: string;
   /** 当前会话绑定的准确机构 CID；由后端根据激活节点绑定派生。 */
-  institution_cid_number: string;
+  institutionCidNumber: string;
   /** 所属机构码(3/4 字符文本,如 FRG/CREG)。 */
-  institution_code: string;
+  institutionCode: string;
   /** 行政层级标签(NATIONAL/PROVINCE/CITY/TOWN);私权法人/非法人为空。 */
-  admin_level?: string | null;
+  adminLevel?: string | null;
   /** 机构能力位(后端单源下发);前端据此渲染工作台入口。 */
   capabilities?: CapabilitySet;
   /** 当前机构工作台清单,用于按机构类型挂载 UI。 */
   workspace?: InstitutionWorkspace;
   /** 管理员姓、名与链上管理员记录保持同名；页面仅在展示时合并。 */
-  family_name: string;
-  given_name: string;
-  scope_province_name?: string | null;
+  familyName: string;
+  givenName: string;
+  scopeProvinceName?: string | null;
   /** 市级及以下机构所属的市。 */
-  scope_city_name?: string | null;
+  scopeCityName?: string | null;
   /** 镇级机构所属的镇。 */
-  scope_town_name?: string | null;
+  scopeTownName?: string | null;
   /** 当前管理员所属机构简称,字段名与 subjects.cid_short_name 保持唯一命名。 */
-  cid_short_name?: string | null;
+  cidShortName?: string | null;
 };
 
 export type AdminAuth = TokenAdminAuth;
 
 export function isTokenAuth(auth: AdminAuth): auth is TokenAdminAuth {
-  return 'access_token' in auth;
+  return 'accessToken' in auth;
 }

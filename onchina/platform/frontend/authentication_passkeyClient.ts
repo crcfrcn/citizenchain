@@ -37,13 +37,13 @@ interface ServerRequestOptions {
 }
 
 interface PasskeyBeginResponse<T> {
-  ceremony_id: string;
+  ceremonyId: string;
   challenge: T;
 }
 
 interface PasskeyAssertionResponse {
-  assertion_id: string;
-  expire_at: number;
+  assertionId: string;
+  expiresAt: number;
 }
 
 function b64urlToBuffer(value: string): ArrayBuffer {
@@ -144,7 +144,7 @@ export async function registerPasskey(auth: AdminAuth): Promise<void> {
   }
   const response = credential.response as AuthenticatorAttestationResponse;
   const body = {
-    ceremony_id: begin.ceremony_id,
+    ceremonyId: begin.ceremonyId,
     credential: {
       id: credential.id,
       rawId: bufferToB64url(credential.rawId),
@@ -190,7 +190,7 @@ export async function assertPasskey(auth: AdminAuth): Promise<string> {
   }
   const response = credential.response as AuthenticatorAssertionResponse;
   const body = {
-    ceremony_id: begin.ceremony_id,
+    ceremonyId: begin.ceremonyId,
     credential: {
       id: credential.id,
       rawId: bufferToB64url(credential.rawId),
@@ -213,7 +213,7 @@ export async function assertPasskey(auth: AdminAuth): Promise<string> {
       body: JSON.stringify(body),
     },
   );
-  return result.assertion_id;
+  return result.assertionId;
 }
 
 interface PasskeyStatusResponse {

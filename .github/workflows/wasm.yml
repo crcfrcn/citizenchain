@@ -117,7 +117,7 @@ jobs:
       run: |
         set -euo pipefail
         mkdir -p "$CITIZENCHAIN_WORK_DIR"
-        node --test scripts/config.mjs scripts/runtime.mjs
+        node --test scripts/config.mjs scripts/runtime.mjs scripts/build.test.mjs
         # 唯一Runtime入口提供测试依赖WASM，原测试和金标不跳过。
         node scripts/runtime.mjs test
     - name: 编译及核对完整产物

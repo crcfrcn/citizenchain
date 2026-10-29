@@ -13,7 +13,7 @@ pub type CleanupChunkResult = (u32, bool);
 pub trait InternalCleanupHandler {
     /// 内部提案成功执行后的 mode 侧副作用。
     ///
-    /// internal-vote 在这里处理个人多签管理员变更对应的生效阈值；机构阈值
+    /// internalvote 在这里处理个人多签管理员变更对应的生效阈值；机构阈值
     /// 唯一真源在 public/private entity，不经过本回调改写。
     fn on_internal_proposal_executed(_proposal_id: u64) -> DispatchResult {
         Ok(())
@@ -46,7 +46,7 @@ impl InternalCleanupHandler for () {
 ///
 /// joint storage(JointVotesByTicket / JointInstitutionTallies / JointVotesByInstitution /
 /// JointTallies / ReferendumVotesByCid / ReferendumTallies)
-/// 住在 joint-vote pallet,votingengine 主 crate 通过本 trait 派发清理。
+/// 住在 jointvote pallet,votingengine 主 crate 通过本 trait 派发清理。
 pub trait JointCleanupHandler {
     fn cleanup_joint_admin_votes_chunk(proposal_id: u64, limit: u32) -> CleanupChunkResult;
     fn cleanup_joint_institution_votes_chunk(proposal_id: u64, limit: u32) -> CleanupChunkResult;
@@ -77,7 +77,7 @@ impl JointCleanupHandler for () {
 }
 
 /// 立法投票 mode 的 chunked cleanup 入口。
-/// legislation-vote 自有账本（RepresentativeVotesByTicket / RepresentativeTallies /
+/// legislationvote 自有账本（RepresentativeVotesByTicket / RepresentativeTallies /
 /// LegReferendumVotesByCid 等）住在 sub-pallet，核心通过本 trait 派发清理。
 pub trait LegislationCleanupHandler {
     fn cleanup_legislation_representative_votes_chunk(

@@ -1,6 +1,6 @@
 //! 宪法节点能力统一入口(ADR-027)。
 //!
-//! 宪法已迁入链上立法院模块(`legislation-yuan`,`law_id=0`、`tier=宪法`,创世注入),
+//! 宪法已迁入链上立法院模块(`legislation`,`law_id=0`、`tier=宪法`,创世注入),
 //! 唯一真源 = 链上法律。本文件统一承载节点端两件事:
 //!
 //! 1. **渲染**(展示):从链上结构化宪法(章>节>条>款 + 中英双语)重建《公民宪法》HTML,
@@ -30,7 +30,7 @@ use sp_storage::StorageKey;
 
 use primitives::count_const::IMMUTABLE_CONSTITUTION_ARTICLES;
 
-use citizenchain::opaque::Block;
+use runtime::opaque::Block;
 
 use crate::core::service::{FullBackend, FullClient};
 
@@ -39,20 +39,20 @@ pub const CONSTITUTION_LAW_ID: u64 = 0;
 /// 创世注入的宪法版本号,作为不可修改条款的内容基准来源。
 const GENESIS_CONSTITUTION_VERSION: u32 = 1;
 
-/// Law 元数据判别值(SCALE 变体索引,与 `legislation-yuan::types` 声明序一致:
+/// Law 元数据判别值(SCALE 变体索引,与 `legislation::types` 声明序一致:
 /// `Tier{Constitution=0,..}`、`LawStatus{Pending=0,Effective=1,Repealed=2}`)。
-/// 由 legislation-yuan 测试 `enum_discriminants_match_node_guard` 交叉钉死,防漂移。
+/// 由 legislation 测试 `enum_discriminants_match_node_guard` 交叉钉死,防漂移。
 const TIER_CONSTITUTION: u8 = 0;
 const LAW_STATUS_PENDING: u8 = 0;
 const LAW_STATUS_EFFECTIVE: u8 = 1;
 const LAW_STATUS_REPEALED: u8 = 2;
-/// 表决类型「特别案」的 wire 值(`legislation-yuan::VoteType::Special.as_u8()`)。
-/// 由 legislation-yuan 测试 `enum_discriminants_match_node_guard` 交叉钉死,防漂移。
+/// 表决类型「特别案」的 wire 值(`legislation::VoteType::Special.as_u8()`)。
+/// 由 legislation 测试 `enum_discriminants_match_node_guard` 交叉钉死,防漂移。
 /// 用途:核心章(第一章总则)条款改动必须记录为特别案(宪法第十九条 node 背书)。
 const LAW_VOTE_TYPE_SPECIAL: u8 = 4;
 
 // ───────── 链上结构镜像 ─────────
-// 字段序必须与 legislation-yuan 链端 `LawVersion / Chapter / Section / Article / Clause` 一致。
+// 字段序必须与 legislation 链端 `LawVersion / Chapter / Section / Article / Clause` 一致。
 // SCALE 按声明序顺序解码,解到所需字段即停 —— 尾部字段无需镜像。Encode 仅用于不可修改条款的
 // 规范字节比对(同一逻辑内容 → 同一字节)。
 
@@ -280,7 +280,7 @@ pub mod storage_key {
     }
 }
 
-/// 链上不可修改条款 manifest 镜像(与 `legislation-yuan::ImmutableManifest` 字段序一致)。
+/// 链上不可修改条款 manifest 镜像(与 `legislation::ImmutableManifest` 字段序一致)。
 #[derive(Decode, Encode)]
 struct MImmutableManifest {
     article_numbers: Vec<u32>,
@@ -742,7 +742,7 @@ where
 
 /// 修宪版本(生效/待生效,`version > 创世`)必须挂一份**通过口径**的永久护宪终审凭据
 /// `ConstitutionGuardVoteProof[version]`(第21条 node 背书:一切修宪须经护宪大法官 4/7 终审,含一般章)。
-/// 凭据是 legislation-yuan **永久存储**(不受 votingengine 90 天清理影响),故可对任意修宪版本随时校验。
+/// 凭据是 legislation **永久存储**(不受 votingengine 90 天清理影响),故可对任意修宪版本随时校验。
 /// 口径复用 `primitives::constitution::guard_review_passed`(与链端结算共用单源)。
 ///
 /// 信任上限：当前值只是 runtime 写入的赞成票计数，不含节点可独立验签的成员签名集合。
@@ -800,7 +800,7 @@ fn check_core_chapter_tier(
 
 /// 核心章有改动的版本必须挂一份**通过口径**的强制公投凭据 `ConstitutionAmendmentProof[version]`
 /// (第十九条 node 背书的公投凭据层:不止记录 `vote_type=Special`,还须有过公投口径的计票)。
-/// 凭据是 legislation-yuan **永久存储**(不受 votingengine 90 天清理影响),故可对生效/待生效版本随时校验,
+/// 凭据是 legislation **永久存储**(不受 votingengine 90 天清理影响),故可对生效/待生效版本随时校验,
 /// 无转移块检测。口径复用 `primitives::constitution::referendum_passed`(与链端结算共用单源)。
 /// 当前三元组不携带公民签名或人口快照证明，节点只背书记录与阈值口径的一致性，不宣称独立验票。
 fn check_core_referendum_proof<F>(read_raw: &F, version: u32) -> Result<(), GuardError>
@@ -1852,7 +1852,7 @@ mod tests {
     #[test]
     fn real_runtime_genesis_satisfies_full_constitution_guard() {
         use sp_runtime::BuildStorage;
-        let storage = citizenchain::RuntimeGenesisConfig::default()
+        let storage = runtime::RuntimeGenesisConfig::default()
             .build_storage()
             .expect("应能构建当前 runtime 创世状态");
         let top = storage.top;
@@ -1880,7 +1880,7 @@ mod tests {
     fn fresh_chain_spec_genesis_satisfies_full_constitution_guard() {
         use sp_runtime::BuildStorage;
 
-        if citizenchain::WASM_BINARY.is_none() {
+        if runtime::WASM_BINARY.is_none() {
             eprintln!("跳过 fresh chainspec 护宪验收：当前测试构建未嵌入 WASM_BINARY");
             return;
         }

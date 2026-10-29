@@ -1,3 +1,4 @@
+import { accountIdToSs58 } from '../shared/ss58';
 import scanIcon from "../../../icons/scan.svg?url";
 import { useState, useEffect } from 'react';
 import { sanitizeError } from '../tauri';
@@ -138,7 +139,7 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
           </div>
           {showScan && (
             <AddressScanModal
-              onResult={(result) => { setAddress(result.ss58_address); setShowScan(false); }}
+              onResult={(result) => { setAddress(result.ss58Address); setShowScan(false); }}
               onClose={() => setShowScan(false)}
             />
           )}
@@ -174,7 +175,7 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
                   className="wallet-radio"
                 />
                 <span className="wallet-row-name">{w.name} · {signModeLabel(w.signMode)}</span>
-                <span className="wallet-row-address">{w.ss58Address}</span>
+                <span className="wallet-row-address">{accountIdToSs58(w.accountId)}</span>
                 <span className="wallet-row-balance" title={bal?.status === 'error' ? bal.message : undefined}>
                   {bal?.status === 'ready' ? `${fenToYuan(bal.balance)} 元`
                     : bal?.status === 'error' ? '查询失败' : '查询中...'}

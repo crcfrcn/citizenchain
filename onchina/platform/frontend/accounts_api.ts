@@ -25,7 +25,7 @@ export async function createAccount(
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ account_name: accountName, proposer_role_code: proposerRoleCode }),
+      body: JSON.stringify({ accountName: accountName, proposerRoleCode: proposerRoleCode }),
     },
   );
 }
@@ -54,7 +54,7 @@ export async function deleteAccount(
     {
       method: 'DELETE',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ proposer_role_code: proposerRoleCode }),
+      body: JSON.stringify({ proposerRoleCode: proposerRoleCode }),
     },
   );
 }

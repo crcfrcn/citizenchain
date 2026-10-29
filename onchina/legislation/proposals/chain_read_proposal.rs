@@ -77,7 +77,7 @@ impl OnChainVoteProcedure {
     }
 }
 
-/// legislation-vote `RepresentativeMeta<T>` 完整解码镜像。
+/// legislationvote `RepresentativeMeta<T>` 完整解码镜像。
 #[derive(Debug, Decode)]
 pub struct OnChainRepresentativeMeta {
     pub route: OnChainRepresentativeRoute,
@@ -86,7 +86,7 @@ pub struct OnChainRepresentativeMeta {
     pub procedure: OnChainVoteProcedure,
 }
 
-/// legislation-vote `LegislationMeta<T>` 前缀镜像；公投作用域为尾字段且本投影不读取。
+/// legislationvote `LegislationMeta<T>` 前缀镜像；公投作用域为尾字段且本投影不读取。
 #[derive(Debug, Decode)]
 #[allow(dead_code)] // SCALE 解码镜像:未读字段只保序,删字段会破坏 Decode 对齐。
 pub struct OnChainLegislationMeta {

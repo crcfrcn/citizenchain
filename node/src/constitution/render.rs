@@ -10,9 +10,26 @@ const SHELL: &str = include_str!("constitution_shell.html");
 const BACKGROUND: &[u8] = include_bytes!("../../../icons/constitution.png");
 // 只编码本仓固定PNG原件；不读取用户上传或网络输入。
 fn background_data_uri() -> String {
- let alphabet=b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";let mut out=String::from("data:image/png;base64,");
- for bytes in BACKGROUND.chunks(3){let a=bytes[0] as usize;let b=bytes.get(1).copied().unwrap_or(0) as usize;let c=bytes.get(2).copied().unwrap_or(0) as usize;out.push(alphabet[a>>2] as char);out.push(alphabet[((a&3)<<4)|(b>>4)] as char);out.push(if bytes.len()>1{alphabet[((b&15)<<2)|(c>>6)] as char}else{'='});out.push(if bytes.len()>2{alphabet[c&63] as char}else{'='});}
- out
+    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::from("data:image/png;base64,");
+    for bytes in BACKGROUND.chunks(3) {
+        let a = bytes[0] as usize;
+        let b = bytes.get(1).copied().unwrap_or(0) as usize;
+        let c = bytes.get(2).copied().unwrap_or(0) as usize;
+        out.push(alphabet[a >> 2] as char);
+        out.push(alphabet[((a & 3) << 4) | (b >> 4)] as char);
+        out.push(if bytes.len() > 1 {
+            alphabet[((b & 15) << 2) | (c >> 6)] as char
+        } else {
+            '='
+        });
+        out.push(if bytes.len() > 2 {
+            alphabet[c & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
 }
 const VERSION_LABEL_MARKER: &str = "<!--CONSTITUTION_VERSION_LABEL-->";
 const TOC_MARKER: &str = "<!--CONSTITUTION_TOC-->";
@@ -53,11 +70,11 @@ pub fn immutable_article_numbers(manifest_scale: &[u8]) -> Result<Vec<u32>, Stri
 pub fn render_constitution_html(
     law_version_scale: &[u8],
     immutable_article_numbers: &[u32],
-    law_version_label_scale: Option<&[u8]>,
+    version_label_scale: Option<&[u8]>,
 ) -> Result<String, String> {
     let law = MLawVersionHead::decode(&mut &law_version_scale[..])
         .map_err(|e| format!("宪法 LawVersion 解码失败:{e}"))?;
-    let version_label = law_version_label_scale
+    let version_label = version_label_scale
         .map(|raw| {
             MLawVersionLabel::decode(&mut &raw[..])
                 .map_err(|e| format!("宪法 LawVersionLabel 解码失败:{e}"))
@@ -137,7 +154,9 @@ pub fn render_constitution_html(
         }
     }
 
-    Ok(SHELL.replace("__CONSTITUTION_BACKGROUND__", &background_data_uri()).replace(VERSION_LABEL_MARKER, &version_label_html)
+    Ok(SHELL
+        .replace("__CONSTITUTION_BACKGROUND__", &background_data_uri())
+        .replace(VERSION_LABEL_MARKER, &version_label_html)
         .replace(TOC_MARKER, &toc)
         .replace(CONTENT_MARKER, &content))
 }

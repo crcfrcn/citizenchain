@@ -2,7 +2,7 @@ import scanIcon from "../../../icons/scan.svg?url";
 import { useState, useEffect, useCallback } from 'react';
 import { sanitizeError } from '../tauri';
 import { AddressScanModal } from '../protocol/AddressScanModal';
-import { normalizeSs58Address } from '../shared/ss58';
+import { accountIdToSs58, normalizeSs58Address } from '../shared/ss58';
 import { settingsApi as api } from './api';
 import type { RewardAccount } from './types';
 
@@ -15,7 +15,7 @@ type BindStatus = null | 'binding' | 'success' | 'failed' | 'timeout';
 
 /** 管理奖励账户；账户 ID 是唯一标识，SS58 地址仅用于输入与展示。 */
 export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
-  const [input, setInput] = useState(rewardAccount.ss58_address ?? '');
+  const [input, setInput] = useState(rewardAccount.accountId ? accountIdToSs58(rewardAccount.accountId) : '');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [unlockPassword, setUnlockPassword] = useState('');
   const [pendingAddress, setPendingAddress] = useState<string | null>(null);
@@ -38,7 +38,7 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
       cancelled = true;
     };
   }, []);
-  const hasBoundAddress = Boolean(rewardAccount.account_id);
+  const hasBoundAddress = Boolean(rewardAccount.accountId);
   const actionText = hasBoundAddress ? '变更地址' : '绑定地址';
 
   // 监听后台链上绑定结果事件（仅在用户主动发起绑定后才响应）
@@ -91,7 +91,7 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
     try {
       const next = await api.setRewardAccount(pendingAddress, password);
       onUpdated(next);
-      setInput(next.ss58_address ?? '');
+      setInput(next.accountId ? accountIdToSs58(next.accountId) : '');
       setShowPasswordModal(false);
       setPendingAddress(null);
       setError(null);
@@ -121,7 +121,7 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
       <div className="reward-account-inline">
         <span className="reward-account-current">
           手续费收款地址
-          <span className="reward-account-bind-state">{rewardAccount.ss58_address ?? '未绑定'}</span>
+          <span className="reward-account-bind-state">{rewardAccount.accountId ? accountIdToSs58(rewardAccount.accountId) : '未绑定'}</span>
         </span>
         <input
           value={input}
@@ -156,7 +156,7 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
 
       {showAddressScan && (
         <AddressScanModal
-          onResult={({ ss58_address }) => { setInput(ss58_address); setShowAddressScan(false); }}
+          onResult={({ ss58Address }) => { setInput(ss58Address); setShowAddressScan(false); }}
           onClose={() => setShowAddressScan(false)}
         />
       )}

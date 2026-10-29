@@ -48,10 +48,10 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
     return () => {
       cancelled = true;
     };
-  }, [auth?.access_token]);
+  }, [auth?.accessToken]);
 
   const passkeyAction = (row: OwnInstitutionAdminRow) => {
-    const isSelf = row.is_self || sameHexAccount(row.account_id, auth?.account_id);
+    const isSelf = row.isSelf || sameHexAccount(row.accountId, auth?.accountId);
     if (!isSelf) return null;
     const button = (
       <Button size="small" icon={<KeyOutlined />} loading={passkeyBusy} onClick={doRegisterPasskey}>
@@ -73,7 +73,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
 
   return (
     <Card
-      title={`${data?.cid_short_name || '本机构'}管理员列表`}
+      title={`${data?.cidShortName || '本机构'}管理员列表`}
       bordered={false}
       style={{ background: '#ffffff', borderRadius: 8 }}
     >
@@ -91,7 +91,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
             >
               {rows.map((row, index) => (
                 <InstitutionAssignmentCard
-                  key={row.account_id}
+                  key={row.accountId}
                   assignment={row}
                   index={index + 1}
                   action={passkeyAction(row)}
@@ -103,7 +103,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
         </Spin>
       ) : (
         <Table<OwnInstitutionAdminRow>
-          rowKey={(row) => row.account_id}
+          rowKey={(row) => row.accountId}
           loading={loading}
           dataSource={rows}
           pagination={false}
@@ -116,15 +116,15 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
             },
             {
               title: '岗位',
-              dataIndex: 'role_name',
+              dataIndex: 'roleName',
               render: (_value: string, row) => assignmentDisplayLabel(row) || '-',
             },
             {
               title: '余额',
-              dataIndex: 'balance_fen',
+              dataIndex: 'balanceFen',
               width: 160,
               align: 'right',
-              render: (_value: string, row) => formatAdminBalanceFen(row.balance_fen) || '-',
+              render: (_value: string, row) => formatAdminBalanceFen(row.balanceFen) || '-',
             },
             {
               title: '操作',

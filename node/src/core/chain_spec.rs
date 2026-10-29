@@ -29,7 +29,7 @@ pub fn chain_config() -> Result<ChainSpec, String> {
 /// 该入口只给明确授权的冻结链规生成流程使用。默认启动
 /// 仍走 `chain_config()` 的冻结主网 JSON,避免误改线上 genesis。
 pub fn fresh_genesis_config() -> Result<ChainSpec, String> {
-    let wasm = citizenchain::WASM_BINARY.ok_or_else(|| {
+    let wasm = runtime::WASM_BINARY.ok_or_else(|| {
         "fresh genesis 需要 WASM_BINARY；请通过 WASM_FILE 指向最新 CI WASM 后再构建".to_string()
     })?;
     let mut properties = Properties::new();
@@ -56,9 +56,9 @@ pub fn fresh_genesis_config() -> Result<ChainSpec, String> {
         .collect::<Result<Vec<_>, _>>()?;
 
     // WASM runtime 在 no_std 下 `get_preset` 永远返回 None,
-    // 不能走 `with_genesis_config_preset_name`。直接调用 runtime crate 的 std 版
-    // `genesis_config()` 在 host 端构出完整 JSON,再 `with_genesis_config_patch` 注入。
-    let genesis_patch = citizenchain::genesis::genesis_config();
+    // 不能走 `with_genesis_config_preset_name`。由 genesis crate 接收主 Runtime 的实际
+    // 汇总配置类型，在 host 构出完整 JSON，再 `with_genesis_config_patch` 注入。
+    let genesis_patch = genesis::config::genesis_config::<runtime::RuntimeGenesisConfig>();
 
     Ok(ChainSpec::builder(wasm, None)
         .with_name("CitizenChain")

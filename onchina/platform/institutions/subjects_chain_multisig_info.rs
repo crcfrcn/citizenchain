@@ -14,6 +14,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AppInstitutionDetail {
     pub(crate) cid_number: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -41,12 +42,15 @@ pub(crate) struct AppInstitutionDetail {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AppInstitutionSearchQuery {
     pub q: Option<String>,
     pub limit: Option<u32>,
 }
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AppInstitutionSearchRow {
     pub(crate) cid_number: String,
     pub(crate) cid_full_name: Option<String>,
@@ -57,6 +61,7 @@ pub(crate) struct AppInstitutionSearchRow {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AppAccountEntry {
     pub(crate) account_name: String,
     pub(crate) account_id: Option<String>,
@@ -65,6 +70,7 @@ pub(crate) struct AppAccountEntry {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AppInstitutionAccounts {
     pub(crate) cid_number: String,
     pub(crate) cid_full_name: String,
@@ -95,18 +101,18 @@ pub(crate) async fn app_search_institutions(
             .query(
                 // 行政区名字按 code 现场从 china.sqlite 派生,DTO 仍带省/市名字;
                 // 库里只存 province_code/city_code,排序也按 code(同省/市稳定有序)。
-                "SELECT cid_number, cid_full_name, cid_short_name, category, province_code, city_code
-                 FROM subjects
-                 WHERE kind IN ('PUBLIC', 'PRIVATE')
-                   AND status = 'ACTIVE'
+                "SELECT cid_number, full_name, short_name, subject_kind, province_code, city_code
+                 FROM subject
+                 WHERE record_kind IN ('PUBLIC', 'PRIVATE')
+                   AND state_code = 'ACTIVE'
                    AND (
                         $1::text IS NULL
                         OR cid_number ILIKE '%' || $1 || '%'
-                        OR COALESCE(cid_full_name, '') ILIKE '%' || $1 || '%'
-                        OR COALESCE(cid_short_name, '') ILIKE '%' || $1 || '%'
+                        OR COALESCE(full_name, '') ILIKE '%' || $1 || '%'
+                        OR COALESCE(short_name, '') ILIKE '%' || $1 || '%'
                    )
-                 ORDER BY province_code ASC, city_code ASC, COALESCE(cid_short_name, '') ASC,
-                          COALESCE(cid_full_name, '') ASC, cid_number ASC
+                 ORDER BY province_code ASC, city_code ASC, COALESCE(short_name, '') ASC,
+                          COALESCE(full_name, '') ASC, cid_number ASC
                  LIMIT $2",
                 &[&q, &limit],
             )
@@ -116,12 +122,11 @@ pub(crate) async fn app_search_institutions(
             .map(|row| {
                 let province_code: String = row.get(4);
                 let city_code: Option<String> = row.get(5);
-                let (province_name, city_name, _town_name) =
-                    crate::cid::china::area_display_names(
-                        province_code.as_str(),
-                        city_code.as_deref(),
-                        None,
-                    );
+                let (province_name, city_name, _town_name) = crate::cid::china::area_display_names(
+                    province_code.as_str(),
+                    city_code.as_deref(),
+                    None,
+                );
                 AppInstitutionSearchRow {
                     cid_number: row.get(0),
                     cid_full_name: row.get(1),

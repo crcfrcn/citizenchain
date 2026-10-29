@@ -2,7 +2,7 @@
 //!
 //!
 //! - 职责:定时从 `OffchainLedger.pending` 取出待上链 `PendingPayment`,
-//!   组装为 `NodeBatchItem` 列表(字段与 runtime `OffchainBatchItem` 对齐),
+//!   组装为 链端公开 `OffchainBatchItem` 列表,
 //!   由 `BatchSigner` 出 batch 签名,`BatchSubmitter` 提交 extrinsic。
 //! - 触发条件:
 //!     - 笔数 ≥ `PACK_TX_THRESHOLD`(10 万)
@@ -17,7 +17,10 @@
 //! - 成功提交上链后**不立即 settle**;`ledger.on_payment_settled` 由
 //!   `settlement::listener` 收到链上 `PaymentSettled` 事件时调用。
 
-use codec::{Decode, Encode};
+#[cfg(test)]
+use codec::DecodeAll;
+use codec::Encode;
+use offchain::batch_item::{batch_signing_hash, OffchainBatchItem};
 use sp_core::H256;
 use sp_runtime::AccountId32;
 use std::sync::Arc;
@@ -31,44 +34,20 @@ pub const PACK_TX_THRESHOLD: usize = 100_000;
 /// 打包触发阈值:距上次打包区块数(与链上 `PACK_BLOCK_THRESHOLD` 对齐)。
 pub const PACK_BLOCK_THRESHOLD: u64 = 10;
 
-// ---------------- 节点批次项(与 runtime 结构对齐) ----------------
-
-/// `NodeBatchItem`:节点层批次项,字节级对齐 runtime 端
-/// `offchain::batch_item::OffchainBatchItem`。
-///
-/// 再定义一份而不直接引用 pallet 类型:
-/// - 避免 `node/Cargo.toml` 直接 dep 到 `offchain-transaction` pallet,
-///   让 node/offchain 子树可以独立于 runtime 升级节奏编译。
-/// - SCALE 编码只看**字段顺序和宽度**,两边逐字段对齐即可跨 crate 互认。
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
-pub struct NodeBatchItem {
-    pub tx_id: H256,
-    pub payer: AccountId32,
-    /// 付款方绑定清算行 CID(SCALE 与 runtime `InstitutionCidNumber` = BoundedVec<u8> 等价)。
-    pub payer_bank_cid: Vec<u8>,
-    pub recipient: AccountId32,
-    /// 收款方绑定清算行 CID。
-    pub recipient_bank_cid: Vec<u8>,
-    pub transfer_amount: u128,
-    pub fee_amount: u128,
-    pub payer_sig: [u8; 64],
-    pub payer_nonce: u64,
-    pub expires_at: u32,
-}
-
-impl From<PendingPayment> for NodeBatchItem {
+// 直接消费所属 pallet 的公开批次项，不在节点维护 SCALE 字段序镜像。
+impl From<PendingPayment> for OffchainBatchItem<AccountId32, u32> {
     fn from(p: PendingPayment) -> Self {
         Self {
-            tx_id: p.tx_id,
-            payer: p.payer,
-            payer_bank_cid: p.payer_bank_cid,
-            recipient: p.recipient,
-            recipient_bank_cid: p.recipient_bank_cid,
-            transfer_amount: p.amount,
-            fee_amount: p.fee,
+            tx_id: p.intent.tx_id,
+            payer_account_id: p.intent.payer_account_id,
+            payer_bank_cid: p.intent.payer_bank_cid,
+            recipient_account_id: p.intent.recipient_account_id,
+            recipient_bank_cid: p.intent.recipient_bank_cid,
+            transfer_amount: p.intent.amount,
+            fee_amount: p.intent.fee,
             payer_sig: p.payer_sig,
-            payer_nonce: p.nonce,
-            expires_at: p.expires_at,
+            payer_nonce: p.intent.nonce,
+            expires_at: p.intent.expires_at,
         }
     }
 }
@@ -81,7 +60,7 @@ impl From<PendingPayment> for NodeBatchItem {
 /// 未接入时用 `NoopBatchSigner` 占位。
 pub trait BatchSigner: Send + Sync {
     /// 对 `message = signing_message(OP_SIGN_OFFCHAIN_BATCH, actor_cid_number || institution_account_id || batch_seq || batch.encode())`
-    /// 做 sr25519 签名,返回 64 字节签名(见 `batch_signing_message`)。
+    /// 做 sr25519 签名,返回 64 字节签名(见 `batch_signing_hash`)。
     fn sign_batch(&self, message: &[u8]) -> Result<[u8; 64], String>;
 }
 
@@ -208,7 +187,7 @@ impl OffchainPacker {
 
     /// 打包并提交。调用顺序:
     /// 1. `ledger.take_pending_for_batch(cap)` 拿 pending 切片
-    /// 2. 转 `NodeBatchItem`
+    /// 2. 转 链端 `OffchainBatchItem`
     /// 3. `batch_seq` 递增
     /// 4. 组 batch_message → `signer.sign_batch` 得到 batch_signature
     /// 5. 对 batch 做 SCALE 编码 → `submitter.submit` 提交 extrinsic
@@ -223,12 +202,13 @@ impl OffchainPacker {
             return Ok(None);
         }
 
-        let batch: Vec<NodeBatchItem> = pending.into_iter().map(NodeBatchItem::from).collect();
+        let batch: Vec<OffchainBatchItem<AccountId32, u32>> =
+            pending.into_iter().map(OffchainBatchItem::from).collect();
 
         let batch_seq = self.next_batch_seq().await;
 
         let batch_bytes = batch.encode();
-        let message = batch_signing_message(
+        let message = batch_signing_hash(
             &self.actor_cid_number,
             &self.actor_role_code,
             &self.institution_account_id,
@@ -271,7 +251,7 @@ impl OffchainPacker {
     }
 
     /// 回滚:把本批次所有 item 重新置回 ledger pending(通过 `reject_pending`)。
-    fn rollback(&self, batch: &[NodeBatchItem], reason: &str) {
+    fn rollback(&self, batch: &[OffchainBatchItem<AccountId32, u32>], reason: &str) {
         log::warn!("[Packer] 批次提交失败,回滚 {} 笔:{reason}", batch.len());
         for item in batch {
             if let Err(e) = self.ledger.reject_pending(item.tx_id) {
@@ -281,39 +261,12 @@ impl OffchainPacker {
     }
 }
 
-// ---------------- 纯函数工具 ----------------
-
-/// 构造清算行批次签名消息(唯一原语):
-/// `signing_message(OP_SIGN_OFFCHAIN_BATCH, SCALE(actor_cid_number) || SCALE(actor_role_code)
-/// || institution_account_id || batch_seq_le || batch_bytes)`。
-///
-/// 链上 `submit_offchain_batch` 会校验 batch_signature,必须与本函数产生的消息
-/// **逐字节一致**(runtime `batch_signing_hash` 用同一原语 + 同序 scale_payload)。
-/// CID 按 SCALE 字节序列编码；账户按 32 字节编码，与 runtime 唯一原语逐字节对齐。
-pub fn batch_signing_message(
-    actor_cid_number: &[u8],
-    actor_role_code: &[u8],
-    institution_account_id: &AccountId32,
-    batch_seq: u64,
-    batch_bytes: &[u8],
-) -> [u8; 32] {
-    let mut scale_payload = Vec::with_capacity(
-        actor_cid_number.len() + actor_role_code.len() + 32 + 8 + batch_bytes.len(),
-    );
-    scale_payload.extend_from_slice(&actor_cid_number.encode());
-    scale_payload.extend_from_slice(&actor_role_code.encode());
-    scale_payload.extend_from_slice(institution_account_id.as_ref());
-    scale_payload.extend_from_slice(&batch_seq.to_le_bytes());
-    scale_payload.extend_from_slice(batch_bytes);
-    primitives::sign::signing_message(primitives::sign::OP_SIGN_OFFCHAIN_BATCH, &scale_payload)
-}
-
 // ---------------- 单元测试 ----------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::offchain::ledger::PendingPayment;
+    use crate::offchain::ledger::PendingPayment;
     use std::fs;
     use std::sync::Mutex;
 
@@ -339,15 +292,17 @@ mod tests {
         // 直接操纵 ledger.inner 注入一条 pending,避免 accept_payment 的签名校验
         let mut inner = ledger.inner.write().unwrap();
         inner.pending.push(PendingPayment {
-            tx_id: H256::repeat_byte(tx_byte),
-            payer: payer.clone(),
-            payer_bank_cid: b"ZS001-PRB08-233384677-2026".to_vec(),
-            recipient: acc(9),
-            recipient_bank_cid: b"ZS001-PRB08-233384677-2026".to_vec(),
-            amount: 1000,
-            fee: 1,
-            nonce: 1,
-            expires_at: 100,
+            intent: offchain::batch_item::PaymentIntent {
+                tx_id: H256::repeat_byte(tx_byte),
+                payer_account_id: payer.clone(),
+                payer_bank_cid: b"ZS001-PRB08-233384677-2026".to_vec().try_into().unwrap(),
+                recipient_account_id: acc(9),
+                recipient_bank_cid: b"ZS001-PRB08-233384677-2026".to_vec().try_into().unwrap(),
+                amount: 1000,
+                fee: 1,
+                nonce: 1,
+                expires_at: 100,
+            },
             payer_sig: [0u8; 64],
             accepted_at: tx_byte as u64,
         });
@@ -522,19 +477,19 @@ mod tests {
     }
 
     #[test]
-    fn batch_signing_message_is_deterministic() {
+    fn batch_signing_hash_is_deterministic() {
         let inst = acc(0xAA);
         let bytes = vec![1u8, 2, 3, 4];
-        let h1 = batch_signing_message(&cid(), &role_code(), &inst, 42, &bytes);
-        let h2 = batch_signing_message(&cid(), &role_code(), &inst, 42, &bytes);
+        let h1 = batch_signing_hash(&cid(), &role_code(), &inst, 42, &bytes);
+        let h2 = batch_signing_hash(&cid(), &role_code(), &inst, 42, &bytes);
         assert_eq!(h1, h2);
 
         // 改任意输入都影响哈希
-        let h3 = batch_signing_message(&cid(), &role_code(), &inst, 43, &bytes);
+        let h3 = batch_signing_hash(&cid(), &role_code(), &inst, 43, &bytes);
         assert_ne!(h1, h3);
-        let h4 = batch_signing_message(&cid(), &role_code(), &acc(0xAB), 42, &bytes);
+        let h4 = batch_signing_hash(&cid(), &role_code(), &acc(0xAB), 42, &bytes);
         assert_ne!(h1, h4);
-        let h5 = batch_signing_message(
+        let h5 = batch_signing_hash(
             b"GD001-SCB05-000000002-2026",
             &role_code(),
             &inst,
@@ -542,18 +497,18 @@ mod tests {
             &bytes,
         );
         assert_ne!(h1, h5);
-        let h6 = batch_signing_message(&cid(), b"OTHER_ROLE", &inst, 42, &bytes);
+        let h6 = batch_signing_hash(&cid(), b"OTHER_ROLE", &inst, 42, &bytes);
         assert_ne!(h1, h6);
     }
 
     #[test]
     fn node_batch_item_encodes_deterministically() {
-        let item = NodeBatchItem {
+        let item = OffchainBatchItem::<AccountId32, u32> {
             tx_id: H256::repeat_byte(5),
-            payer: acc(1),
-            payer_bank_cid: b"GD001-PRB0T-239565809-2026".to_vec(),
-            recipient: acc(3),
-            recipient_bank_cid: b"AH001-PRB0X-111111111-2026".to_vec(),
+            payer_account_id: acc(1),
+            payer_bank_cid: b"GD001-PRB0T-239565809-2026".to_vec().try_into().unwrap(),
+            recipient_account_id: acc(3),
+            recipient_bank_cid: b"AH001-PRB0X-111111111-2026".to_vec().try_into().unwrap(),
             transfer_amount: 10_000,
             fee_amount: 5,
             payer_sig: [9u8; 64],
@@ -568,7 +523,10 @@ mod tests {
             32 + 32 + (1 + 26) + 32 + (1 + 26) + 16 + 16 + 64 + 8 + 4
         );
 
-        let decoded: NodeBatchItem = NodeBatchItem::decode(&mut &bytes[..]).unwrap();
+        let decoded = OffchainBatchItem::<AccountId32, u32>::decode_all(&mut &bytes[..]).unwrap();
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(OffchainBatchItem::<AccountId32, u32>::decode_all(&mut &trailing[..]).is_err());
         assert_eq!(decoded, item);
     }
 }

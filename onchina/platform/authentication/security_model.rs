@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::authentication::operation_auth::AdminOperationAuth;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminActionChallenge {
     pub(crate) action_id: String,
     pub(crate) action_type: String,
@@ -26,12 +28,14 @@ pub(crate) struct AdminActionChallenge {
     pub(crate) after_hash: String,
     pub(crate) request_payload: serde_json::Value,
     pub(crate) issued_at: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
     pub(crate) expires_at: DateTime<Utc>,
-    #[serde(default)]
     pub(crate) consumed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminSecurityGrant {
     pub(crate) grant_id: String,
     pub(crate) action_type: String,
@@ -45,8 +49,8 @@ pub(crate) struct AdminSecurityGrant {
     pub(crate) target: String,
     pub(crate) payload_hash: String,
     pub(crate) issued_at: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
     pub(crate) expires_at: DateTime<Utc>,
-    #[serde(default)]
     pub(crate) consumed: bool,
 }
 
@@ -83,7 +87,7 @@ mod tests {
         value
             .as_object_mut()
             .expect("challenge JSON object")
-            .remove("actor_cid_number");
+            .remove("actorCidNumber");
         assert!(serde_json::from_value::<AdminActionChallenge>(value).is_err());
     }
 }

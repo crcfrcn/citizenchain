@@ -2,7 +2,7 @@
 //!
 //! 前端提交的法律案请求体 = 章节条款 + 标量(tier/vote_type/标题/生效时间)。
 //! **houses / executive / legislature 由后端按宪法路由 + 链上账户解析,不收前端**(防越权伪造表决院)。
-//! 字段命名对齐链端 `legislation-yuan` 与 CitizenApp `law_models`。
+//! 字段命名对齐链端 `legislation` 与 CitizenApp `law_models`。
 //!
 
 use super::chain_propose::{ArticleArg, ChapterArg, ClauseArg, SectionArg};
@@ -22,6 +22,7 @@ pub enum LawActionInput {
 
 /// 款(最末层正文)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct LawClause {
     pub number: u32,
@@ -31,6 +32,7 @@ pub struct LawClause {
 
 /// 条(目录 + 正文 + 款列表)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct LawArticle {
     pub number: u32,
@@ -43,6 +45,7 @@ pub struct LawArticle {
 
 /// 节(目录 + 条列表)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct LawSection {
     pub number: u32,
@@ -53,6 +56,7 @@ pub struct LawSection {
 
 /// 章(目录 + 节列表)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct LawChapter {
     pub number: u32,
@@ -63,6 +67,7 @@ pub struct LawChapter {
 
 /// 发起法律案请求体(houses/executive/legislature 后端解析,不收前端)。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposeLawInput {
     /// 立法动作。
@@ -154,7 +159,9 @@ impl From<primitives::genesis::LawRegion> for LawRegionView {
         Self {
             province_code: if region == primitives::genesis::LawRegion::NATIONAL {
                 String::new()
-            } else { String::from_utf8_lossy(&region.province_code).into_owned() },
+            } else {
+                String::from_utf8_lossy(&region.province_code).into_owned()
+            },
             city_number: region.city_number,
         }
     }
@@ -283,11 +290,19 @@ mod tests {
 
     #[test]
     fn region_view_serializes_original_letters_without_numeric_province() {
-        let region = primitives::genesis::LawRegion::from_codes(3, b"GD", b"001").expect("city region");
-        assert_eq!(serde_json::to_value(LawRegionView::from(region)).expect("serialize"),
-            serde_json::json!({"provinceCode":"GD", "cityNumber":1}));
-        assert_eq!(serde_json::to_value(LawRegionView::from(primitives::genesis::LawRegion::NATIONAL)).expect("serialize"),
-            serde_json::json!({"provinceCode":"", "cityNumber":0}));
+        let region =
+            primitives::genesis::LawRegion::from_codes(3, b"GD", b"001").expect("city region");
+        assert_eq!(
+            serde_json::to_value(LawRegionView::from(region)).expect("serialize"),
+            serde_json::json!({"provinceCode":"GD", "cityNumber":1})
+        );
+        assert_eq!(
+            serde_json::to_value(LawRegionView::from(
+                primitives::genesis::LawRegion::NATIONAL
+            ))
+            .expect("serialize"),
+            serde_json::json!({"provinceCode":"", "cityNumber":0})
+        );
     }
 
     #[test]

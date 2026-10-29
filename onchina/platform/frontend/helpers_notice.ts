@@ -272,24 +272,23 @@ const KNOWN_ENGLISH_MESSAGES: Record<string, string> = {
 
 const FIELD_LABELS: Record<string, string> = {
   address: '地址',
-  account_id: '账户 ID',
-  ss58_address: 'SS58 地址',
-  identity_code: '身份CID',
+  accountId: '账户 ID',
+  identityCode: '身份CID',
   name: '名称',
   province: '省份',
   city: '城市',
   institution: '机构',
-  cid_full_name: '机构全称',
-  cid_number: '身份CID',
+  cidFullName: '机构全称',
+  cidNumber: '身份CID',
   file: '文件',
   domain: '域名',
   origin: '来源',
-  session_id: '会话',
-  identity_qr: '身份二维码',
+  sessionId: '会话',
+  identityQr: '身份二维码',
   signature: '签名',
-  payload_hash: '载荷哈希',
-  bind_nonce: '绑定随机数',
-  binding_seed: '绑定种子',
+  payloadHash: '载荷哈希',
+  bindNonce: '绑定随机数',
+  bindingSeed: '绑定种子',
 };
 
 function requiredFieldText(lower: string): string {

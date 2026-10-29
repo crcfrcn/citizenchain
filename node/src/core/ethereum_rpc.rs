@@ -63,7 +63,7 @@ async fn pending_account(
         Some(bytes) => sp_runtime::AccountId32::decode_all(&mut &bytes.0[..])
             .map_err(|_| ErrorObjectOwned::owned(-32603, "Ethereum 地址映射存储无效", None::<()>)),
         None => Ok(
-            pallet_revive::AccountId32Mapper::<citizenchain::Runtime>::to_fallback_account_id(
+            pallet_revive::AccountId32Mapper::<runtime::Runtime>::to_fallback_account_id(
                 &address,
             ),
         ),
@@ -136,7 +136,7 @@ pub(crate) async fn initialize(
                     serde_json::json!([account]),
                 )
                 .await?;
-                let nonce: citizenchain::Nonce = serde_json::from_value(result).map_err(|_| {
+                let nonce: runtime::Nonce = serde_json::from_value(result).map_err(|_| {
                     ErrorObjectOwned::owned(-32603, "交易池 nonce 响应无效", None::<()>)
                 })?;
                 return Ok::<U256, ErrorObjectOwned>(nonce.into());
@@ -160,7 +160,7 @@ pub(crate) async fn initialize(
 mod tests {
     use super::*;
     use crate::core::service::{FullBackend, FullClient, Service};
-    use citizenchain::opaque::Block;
+    use runtime::opaque::Block;
     use codec::Encode;
     use jsonrpsee::core::client::SubscriptionClientT;
     use pallet_revive::evm::{Account, Bytes, GenericTransaction};
@@ -197,8 +197,8 @@ mod tests {
     fn chain_spec_with_accounts(
         accounts: &[(sp_runtime::AccountId32, u128)],
     ) -> crate::core::chain_spec::ChainSpec {
-        let wasm = citizenchain::WASM_BINARY.expect("必须执行真实源码 WASM，禁止跳过");
-        let mut genesis = citizenchain::genesis::genesis_config();
+        let wasm = runtime::WASM_BINARY.expect("必须执行真实源码 WASM，禁止跳过");
+        let mut genesis = genesis::config::genesis_config::<runtime::RuntimeGenesisConfig>();
         // 仅替换隔离夹具的 GRANDPA 权威，使用公开测试密钥完成真实投票。
         // 正式创世、链身份和 Runtime 源码不从此测试配置取得。
         let authority = sp_consensus_grandpa::AuthorityId::from(Ed25519Keyring::Alice.public());
@@ -507,7 +507,7 @@ mod tests {
         input: Vec<u8>,
         value: u128,
     ) -> (String, OpaqueExtrinsic) {
-        let fee_gas = pallet_revive::evm::fees::native_fee_to_gas::<citizenchain::Runtime>(
+        let fee_gas = pallet_revive::evm::fees::native_fee_to_gas::<runtime::Runtime>(
             primitives::fee_policy::calculate_onchain_fee(value),
         ).expect("测试金额必须有可表达的费用 gas");
         let tx = GenericTransaction {
@@ -517,7 +517,7 @@ mod tests {
             chain_id: Some(primitives::core_const::ETHEREUM_CHAIN_ID.into()),
             gas: Some(100_000_000u64.max(fee_gas).into()),
             // 测试签名复用已消费 SDK 的钱包报价，不能手填旧的一分 gas 价格掩盖问题。
-            gas_price: Some(pallet_revive::Pallet::<citizenchain::Runtime>::evm_base_fee()),
+            gas_price: Some(pallet_revive::Pallet::<runtime::Runtime>::evm_base_fee()),
             value: Some(
                 U256::from(value) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO),
             ),
@@ -533,8 +533,8 @@ mod tests {
         let payload = account
             .sign_transaction(tx.try_into_unsigned().unwrap())
             .signed_payload();
-        let xt: citizenchain::UncheckedExtrinsic =
-            sp_runtime::generic::UncheckedExtrinsic::new_bare(citizenchain::RuntimeCall::Revive(
+        let xt: runtime::UncheckedExtrinsic =
+            sp_runtime::generic::UncheckedExtrinsic::new_bare(runtime::RuntimeCall::Revive(
                 pallet_revive::Call::eth_transact {
                     payload: payload.clone(),
                 },
@@ -550,13 +550,13 @@ mod tests {
             .storage(hash, &sp_storage::StorageKey(key.to_vec()))
             .unwrap()
             .unwrap();
-        Vec::<frame_system::EventRecord<citizenchain::RuntimeEvent, sp_core::H256>>::decode_all(
+        Vec::<frame_system::EventRecord<runtime::RuntimeEvent, sp_core::H256>>::decode_all(
             &mut &data.0[..],
         )
         .unwrap()
         .into_iter()
         .filter_map(|record| match record.event {
-            citizenchain::RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+            runtime::RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
                 account_id,
                 fee,
             }) => Some((account_id, fee)),
@@ -570,8 +570,8 @@ mod tests {
         let hex = blockchain_harness::alice_system_remark_extrinsic_hex(
             &format!("{:?}", client.info().genesis_hash),
             nonce,
-            citizenchain::VERSION.spec_version,
-            citizenchain::VERSION.transaction_version,
+            runtime::VERSION.spec_version,
+            runtime::VERSION.transaction_version,
             b"mixed Ethereum index",
         )
         .unwrap();
@@ -600,9 +600,9 @@ mod tests {
             .with_inherent_digests(digest)
             .build()
             .unwrap();
-        let timestamp_xt: citizenchain::UncheckedExtrinsic =
+        let timestamp_xt: runtime::UncheckedExtrinsic =
             sp_runtime::generic::UncheckedExtrinsic::new_bare(
-                citizenchain::RuntimeCall::Timestamp(citizenchain::TimestampCall::set {
+                runtime::RuntimeCall::Timestamp(runtime::TimestampCall::set {
                     now: timestamp,
                 }),
             )
@@ -1025,11 +1025,11 @@ mod tests {
         account: &sp_runtime::AccountId32,
     ) -> u128 {
         use sc_client_api::StorageProvider;
-        let key = frame_system::Account::<citizenchain::Runtime>::hashed_key_for(account);
+        let key = frame_system::Account::<runtime::Runtime>::hashed_key_for(account);
         let data = client.storage(client.info().best_hash, &sp_storage::StorageKey(key))
             .unwrap().expect("预置测试账户必须存在于真实原生账本");
-        type AccountInfo = frame_system::AccountInfo<citizenchain::Nonce,
-            <citizenchain::Runtime as frame_system::Config>::AccountData>;
+        type AccountInfo = frame_system::AccountInfo<runtime::Nonce,
+            <runtime::Runtime as frame_system::Config>::AccountData>;
         AccountInfo::decode_all(&mut &data.0[..]).unwrap().data.free
     }
 
@@ -1061,7 +1061,7 @@ mod tests {
         let mut session_spec: Box<dyn sc_service::ChainSpec> = Box::new(chain_spec_with_accounts(&endowed));
         let storage = session_spec.as_storage_builder().build_storage().unwrap();
         assert_eq!(storage.top.get(sp_core::storage::well_known_keys::CODE).map(Vec::as_slice),
-            citizenchain::WASM_BINARY, "测试创世必须包含本轮准确源码 WASM");
+            runtime::WASM_BINARY, "测试创世必须包含本轮准确源码 WASM");
         // 同一会话只执行一次创世构造；三个数据库独立导入相同、已核对源码的 storage。
         session_spec.set_storage(storage);
         let mut configs = ["primary", "peer-two", "peer-three"].map(|name| {
@@ -1123,7 +1123,7 @@ mod tests {
                 assert_eq!(session_native_balance(endpoint_client, &account.substrate_account()), initial);
                 let balance: U256 = serde_json::from_value(rpc(&http, endpoint, "eth_getBalance",
                     serde_json::json!([account.address(), "latest"])).await).unwrap();
-                assert_eq!(balance, U256::from(initial - citizenchain::EXISTENTIAL_DEPOSIT)
+                assert_eq!(balance, U256::from(initial - runtime::EXISTENTIAL_DEPOSIT)
                     * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO));
                 assert_eq!(rpc(&http, endpoint, "eth_getTransactionCount",
                     serde_json::json!([account.address(), "latest"])).await, "0x0");
@@ -1258,7 +1258,7 @@ mod tests {
                 assert_eq!(session_native_balance(endpoint_client, &account.substrate_account()), expected[index]);
                 let balance: U256 = serde_json::from_value(rpc(&http, endpoint, "eth_getBalance",
                     serde_json::json!([account.address(), "latest"])).await).unwrap();
-                assert_eq!(balance, U256::from(expected[index] - citizenchain::EXISTENTIAL_DEPOSIT)
+                assert_eq!(balance, U256::from(expected[index] - runtime::EXISTENTIAL_DEPOSIT)
                     * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO));
                 assert_eq!(rpc(&http, endpoint, "eth_getTransactionCount",
                     serde_json::json!([account.address(), "latest"])).await, "0x2");
@@ -1269,13 +1269,13 @@ mod tests {
             }
         }
         let ready = serde_json::json!({"rpc":url,"chain_id":2027,"genesis_hash":client.info().genesis_hash,
-            "runtime_wasm_blake2_256":sp_core::H256::from(sp_crypto_hashing::blake2_256(citizenchain::WASM_BINARY.unwrap())),
+            "runtime_wasm_blake2_256":sp_core::H256::from(sp_crypto_hashing::blake2_256(runtime::WASM_BINARY.unwrap())),
             "nodes":3,"finalized_hash":hash,"ethereum_finalized_hash":head["hash"],"finalized_number":5,
             "accounts":accounts.iter().enumerate().map(|(index, account)| serde_json::json!({
                 "address":account.address(),"account_id":format!("0x{}", hex::encode(account.substrate_account())),
                 "initial_fen":initial,"balance_fen":expected[index],
-                "ethereum_balance_fen":expected[index] - citizenchain::EXISTENTIAL_DEPOSIT,
-                "existential_deposit_fen":citizenchain::EXISTENTIAL_DEPOSIT,"fee_fen":fees[index],"nonce":nonces[index]
+                "ethereum_balance_fen":expected[index] - runtime::EXISTENTIAL_DEPOSIT,
+                "existential_deposit_fen":runtime::EXISTENTIAL_DEPOSIT,"fee_fen":fees[index],"nonce":nonces[index]
             })).collect::<Vec<_>>(),"transactions":transactions,"hold_seconds":seconds});
         std::fs::write(root.join("ready.json"), serde_json::to_vec_pretty(&ready).unwrap()).unwrap();
         println!("测试链真实就绪：{ready}");
@@ -1349,7 +1349,7 @@ mod tests {
         let mapped = sp_runtime::AccountId32::new([7; 32]);
         // 没有 Externalities 的宿主环境也必须正确读取已有映射，并对损坏编码拒绝服务。
         for (raw, expected) in [
-            (None, Some(pallet_revive::AccountId32Mapper::<citizenchain::Runtime>::to_fallback_account_id(&address))),
+            (None, Some(pallet_revive::AccountId32Mapper::<runtime::Runtime>::to_fallback_account_id(&address))),
             (Some(mapped.encode()), Some(mapped.clone())),
             (Some(vec![7; 31]), None),
             (Some(vec![7; 33]), None),
@@ -1537,7 +1537,7 @@ mod tests {
         assert_eq!(
             balance - after,
             U256::from(
-                200 + citizenchain::EXISTENTIAL_DEPOSIT
+                200 + runtime::EXISTENTIAL_DEPOSIT
                     + primitives::fee_policy::calculate_onchain_fee(200)
             ) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO)
         );

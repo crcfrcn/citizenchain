@@ -2,7 +2,7 @@
 //!
 //! 行为契约由本模块测试和创世投影数据结构共同固定。
 //! 现阶段两个创世实体:
-//! - 创世公民程伟(人主体 CN 号,基金会法定代表人,已有创世 citizen-identity 绑定)→
+//! - 创世公民程伟(人主体 CN 号,基金会法定代表人,已有创世 identity 绑定)→
 //!   **按 finalized 链上绑定播种进联邦注册局本地库**,
 //!   置于 贵州省(GZ)/绥阳市(与基金会同市)。人主体 CID 去地域化,省市取自基金会机构 CID,
 //!   非从程伟号段推。联邦贵州组管理员进绥阳市即可见/可按 CID 搜到;
@@ -18,9 +18,9 @@ use crate::cid::InstitutionCategory;
 use crate::core::chain_citizen_identity::{read_finalized_citizen_identity, FinalizedCidStatus};
 use crate::core::chain_runtime::{institution_lookup, is_tier1_registry};
 use crate::core::db::Db;
-use crate::registry::citizens::model::{CitizenRecord, CitizenStatus};
 use crate::institutions::subjects::model::LegalRepresentative;
 use crate::institutions::subjects::Institution;
+use crate::registry::citizens::model::{CitizenRecord, CitizenStatus};
 
 use primitives::cid::china::citizenchain::{
     CITIZENCHAIN_FOUNDATION, LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER,
@@ -46,7 +46,7 @@ fn citizen_exists(db: &Db, province_code: &str, cid_number: &str) -> Result<bool
     db.with_client(move |conn| {
         let row = conn
             .query_opt(
-                "SELECT 1 FROM citizens WHERE province_code = $1 AND cid_number = $2",
+                "SELECT 1 FROM citizen WHERE province_code = $1 AND cid_number = $2",
                 &[&province_code, &cid_number],
             )
             .map_err(|e| format!("query genesis citizen existence failed: {e}"))?;
@@ -114,8 +114,8 @@ pub(crate) fn seed_genesis_citizen_blocking(db: &Db) -> Result<bool, String> {
         citizen_birth_date: String::new(),
         account_id: current_account_id,
         binding_revision,
-        binding_finalized_block_number: Some(i64::from(snapshot.finalized_block_number)),
-        binding_finalized_block_hash: Some(finalized_block_hash),
+        binding_block_number: Some(i64::from(snapshot.finalized_block_number)),
+        binding_block_hash: Some(finalized_block_hash),
         citizen_status: if snapshot.cid_status == FinalizedCidStatus::Active {
             CitizenStatus::Normal
         } else {
@@ -149,7 +149,10 @@ fn institution_exists(db: &Db, cid_number: &str) -> Result<bool, String> {
     let cid_number = cid_number.to_string();
     db.with_client(move |conn| {
         let row = conn
-            .query_opt("SELECT 1 FROM ids WHERE cid_number = $1", &[&cid_number])
+            .query_opt(
+                "SELECT 1 FROM identity WHERE cid_number = $1",
+                &[&cid_number],
+            )
             .map_err(|e| format!("query genesis institution existence failed: {e}"))?;
         Ok(row.is_some())
     })
@@ -199,11 +202,10 @@ pub(crate) fn backfill_genesis_private_blocking(db: &Db) -> Result<bool, String>
         });
     let now = Utc::now();
     // 私权列表 SQL 要求 private_type 非空;链上无此字段,按机构码确定性派生(基金会 SFGY → WELFARE)。
-    let derived_private_type =
-        crate::institutions::model::private_type_code_from_institution_code(
-            &parts.institution_code_text,
-        )
-        .map(str::to_string);
+    let derived_private_type = crate::institutions::model::private_type_code_from_institution_code(
+        &parts.institution_code_text,
+    )
+    .map(str::to_string);
     let inst = Institution {
         status: "ACTIVE".to_string(),
         chain_status: Some("ACTIVE_ON_CHAIN".to_string()),
@@ -227,10 +229,10 @@ pub(crate) fn backfill_genesis_private_blocking(db: &Db) -> Result<bool, String>
         has_legal_personality: Some(true), // 私权法人
         parent_cid_number: None,
         legal_representative,
-        legal_representative_photo_path: None,
-        legal_representative_photo_name: None,
-        legal_representative_photo_mime: None,
-        legal_representative_photo_size: None,
+        photo_path: None,
+        photo_name: None,
+        photo_mime: None,
+        photo_size: None,
         creator_account_id: None, // 链上创世投影无独立创建人
         created_at: now,
     };

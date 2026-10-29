@@ -30,8 +30,8 @@ pub fn institution_manage_pallet_index(institution_code: &[u8; 4]) -> u8 {
 /// 公私权管理员现统一 `Admin` 结构；仍按目标机构类型分流到公权/私权 pallet。
 #[derive(Debug, Clone)]
 pub enum InstitutionAdminsPayload {
-    Public(Vec<admin_primitives::Admin<[u8; 32]>>),
-    Private(Vec<admin_primitives::Admin<[u8; 32]>>),
+    Public(Vec<adminbase::Admin<[u8; 32]>>),
+    Private(Vec<adminbase::Admin<[u8; 32]>>),
 }
 
 /// `propose_institution_governance` 完整参数。
@@ -41,7 +41,7 @@ pub enum InstitutionAdminsPayload {
 #[derive(Debug, Clone)]
 pub struct ProposeInstitutionGovernanceArgs {
     pub cid_number: Vec<u8>,
-    /// `entity_primitives::InstitutionGovernanceAction` 的 SCALE 字节。
+    /// `entitybase::InstitutionGovernanceAction` 的 SCALE 字节。
     pub governance_action: Vec<u8>,
     pub institution_code: [u8; 4],
     pub actor_cid_number: Vec<u8>,
@@ -200,8 +200,8 @@ mod tests {
         account_id: [u8; 32],
         family_name: &str,
         given_name: &str,
-    ) -> admin_primitives::Admin<[u8; 32]> {
-        admin_primitives::Admin {
+    ) -> adminbase::Admin<[u8; 32]> {
+        adminbase::Admin {
             account_id,
             // Phase 1: 私权/个人多签管理员公民 CID 预留空。
             cid_number: Default::default(),
@@ -223,8 +223,8 @@ mod tests {
         cid_number: &str,
         family_name: &str,
         given_name: &str,
-    ) -> admin_primitives::Admin<[u8; 32]> {
-        admin_primitives::Admin {
+    ) -> adminbase::Admin<[u8; 32]> {
+        adminbase::Admin {
             account_id,
             cid_number: cid_number
                 .as_bytes()
@@ -322,14 +322,14 @@ mod tests {
             expected.extend((args.cid_number.clone(), expected_admins, args.actor_cid_number.clone(), args.actor_role_code.clone()).encode());
             assert_eq!(encoded.call_data, expected);
             assert_eq!(encoded.action, u16::from(pallet) << 8 | 9);
-            let decoded = citizenchain::RuntimeCall::decode_all(&mut &encoded.call_data[..]).unwrap();
+            let decoded = runtime::RuntimeCall::decode_all(&mut &encoded.call_data[..]).unwrap();
             assert_eq!(decoded.encode(), encoded.call_data);
             let mut incomplete = encoded.call_data.clone();
             incomplete.truncate(incomplete.len() - args.actor_role_code.encode().len());
-            assert!(citizenchain::RuntimeCall::decode_all(&mut &incomplete[..]).is_err());
+            assert!(runtime::RuntimeCall::decode_all(&mut &incomplete[..]).is_err());
             let mut trailing = encoded.call_data;
             trailing.push(0);
-            assert!(citizenchain::RuntimeCall::decode_all(&mut &trailing[..]).is_err());
+            assert!(runtime::RuntimeCall::decode_all(&mut &trailing[..]).is_err());
         }
     }
 

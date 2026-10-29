@@ -30,6 +30,7 @@ mod fen_string {
 
 /// 目(收支科目最末层,唯一携金额的叶子)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct BudgetSubitem {
     /// 科目码(编码规则待定,当前自由文本)。
@@ -46,6 +47,7 @@ pub struct BudgetSubitem {
 
 /// 项(目录 + 目列表;自身不携金额,金额 = 子目汇总)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct BudgetItem {
     pub code: String,
@@ -55,6 +57,7 @@ pub struct BudgetItem {
 
 /// 款(目录 + 项列表)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct BudgetSection {
     pub code: String,
@@ -64,6 +67,7 @@ pub struct BudgetSection {
 
 /// 类(目录 + 款列表;收支科目顶层)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct BudgetClass {
     pub code: String,
@@ -73,6 +77,7 @@ pub struct BudgetClass {
 
 /// 预算总案(某政府某会计年度的完整收支预算)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct BudgetPlan {
     /// 预算主体机构码(提交预算的政府 CID 机构码)。
@@ -94,6 +99,7 @@ pub struct BudgetPlan {
 /// 表决院(houses)由后端按层级与原机构 CID 解析(立法机关单院),不收前端;
 /// 地域由后端原机构 CID 派生，不接收前端数字占位值。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposeBudgetInput {
     /// 层级(1 国家 / 2 省 / 3 市)。
@@ -171,7 +177,8 @@ mod tests {
             10_000_000_000_000_000u128
         );
         let request = serde_json::json!({ "tier": 1, "voteType": 0, "plan": sample_plan() });
-        let input: ProposeBudgetInput = serde_json::from_value(request).expect("request without region placeholder");
+        let input: ProposeBudgetInput =
+            serde_json::from_value(request).expect("request without region placeholder");
         assert_eq!(input.tier, 1);
         assert_eq!(input.plan.total_expenditure, back.total_expenditure);
         assert_eq!(ProposeBudgetInput::category(), ProposalCategory::Budget);

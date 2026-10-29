@@ -29,8 +29,8 @@ interface Props {
 }
 
 interface FormValues {
-  account_name: string;
-  proposer_role_code: string;
+  accountName: string;
+  proposerRoleCode: string;
 }
 
 export const CreateAccountModal: React.FC<Props> = ({
@@ -53,8 +53,8 @@ export const CreateAccountModal: React.FC<Props> = ({
   }, [open]);
 
   const onSubmit = async (values: FormValues) => {
-    const name = values.account_name.trim();
-    const roleCode = values.proposer_role_code.trim();
+    const name = values.accountName.trim();
+    const roleCode = values.proposerRoleCode.trim();
     if (!name) {
       notice.error('账户名称不能为空');
       return;
@@ -68,15 +68,15 @@ export const CreateAccountModal: React.FC<Props> = ({
       return;
     }
     // 前端预校验:同 cid 下不能重名(含协议账户)
-    if (existingAccounts.some((a) => a.account_name === name)) {
+    if (existingAccounts.some((a) => a.accountName === name)) {
       notice.error(`账户名称"${name}"在本机构下已存在`);
       return;
     }
     setSubmitting(true);
     try {
       const prepared = await createAccount(auth, cidNumber, name, roleCode);
-      const signed = await signChain(prepared.request_id, prepared.sign_request);
-      await submitChainSign(auth, prepared.request_id, signed.account_id, signed.signature);
+      const signed = await signChain(prepared.requestId, prepared.signRequest);
+      await submitChainSign(auth, prepared.requestId, signed.accountId, signed.signature);
       notice.success('新增账户提案已提交,机构内部投票通过后生效');
       onCreated();
     } catch (err) {
@@ -112,7 +112,7 @@ export const CreateAccountModal: React.FC<Props> = ({
         <Form form={form} layout="vertical" onFinish={onSubmit}>
           <Form.Item
             label="账户名称"
-            name="account_name"
+            name="accountName"
             rules={[
               { required: true, message: '请输入账户名称' },
               { max: 30, message: '最多 30 个字' },
@@ -123,7 +123,7 @@ export const CreateAccountModal: React.FC<Props> = ({
           </Form.Item>
           <Form.Item
             label="发起岗位码"
-            name="proposer_role_code"
+            name="proposerRoleCode"
             rules={[
               { required: true, message: '请输入发起岗位码' },
               { max: 64, message: '最多 64 字节' },

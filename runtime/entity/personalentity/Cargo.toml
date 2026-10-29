@@ -1,0 +1,55 @@
+[package]
+# 根tests统一存放单元测试，独立集成目标仅显式注册，避免重复发现。
+autotests = false
+name = "personalentity"  # 个人多签账户生命周期
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+adminbase = { path = "../../admins/adminbase", default-features = false }
+votingengine = { path = "../../votingengine", default-features = false }
+onchain = { path = "../../transaction/onchain", default-features = false }
+primitives = { path = "../../primitives", default-features = false }
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+]
+try-runtime = []
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "sp-core/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "adminbase/std",
+    "votingengine/std",
+    "onchain/std",
+    "primitives/std",
+]
+
+[dev-dependencies]
+pallet-balances = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
+internalvote = { path = "../../votingengine/internalvote", default-features = false }
+personaladmin = { path = "../../admins/personaladmin", default-features = true }

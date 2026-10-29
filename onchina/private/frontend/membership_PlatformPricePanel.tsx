@@ -64,14 +64,14 @@ export function PlatformPricePanel({ auth }: { auth: AdminAuth }) {
     setSubmitting(true);
     try {
       const result = await proposePlatformPrice(auth, roleCode, membershipLevel, value);
-      const signed = await signChain(result.request_id, result.sign_request);
+      const signed = await signChain(result.requestId, result.signRequest);
       const submitted = await submitChainSign(
         auth,
-        result.request_id,
-        signed.account_id,
+        result.requestId,
+        signed.accountId,
         signed.signature,
       );
-      notice.success(`调价提案交易已提交：${submitted.tx_hash}`);
+      notice.success(`调价提案交易已提交：${submitted.txHash}`);
       setNewPriceFen('');
     } catch (error) {
       notice.error(error, '生成平台调价提案失败');
@@ -104,9 +104,9 @@ export function PlatformPricePanel({ auth }: { auth: AdminAuth }) {
           <div>
             <Typography.Text type="secondary">当前 finalized 价格：</Typography.Text>
             <Space wrap style={{ marginLeft: 12 }}>
-              <span>自由会员 {fenText(prices.freedom_price_fen)}</span>
-              <span>民主会员 {fenText(prices.democracy_price_fen)}</span>
-              <span>薪火会员 {fenText(prices.spark_price_fen)}</span>
+              <span>自由会员 {fenText(prices.freedomPriceFen)}</span>
+              <span>民主会员 {fenText(prices.democracyPriceFen)}</span>
+              <span>薪火会员 {fenText(prices.sparkPriceFen)}</span>
             </Space>
           </div>
           <Radio.Group
@@ -136,7 +136,7 @@ export function PlatformPricePanel({ auth }: { auth: AdminAuth }) {
             </Button>
           </Space>
           <Typography.Text type="secondary" style={{ wordBreak: 'break-all' }}>
-            平台机构 CID：{prices.platform_cid_number}
+            平台机构 CID：{prices.platformCidNumber}
           </Typography.Text>
         </Space>
       </Card>

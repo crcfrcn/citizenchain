@@ -50,22 +50,22 @@ function displayValue(value: string | number | null | undefined): string {
 
 function formatScope(auth: AdminAuth, inst?: Institution): string {
   const values = inst
-    ? [inst.province_name, inst.city_name, inst.town_name]
-    : [auth.scope_province_name, auth.scope_city_name, auth.scope_town_name];
+    ? [inst.provinceName, inst.cityName, inst.townName]
+    : [auth.scopeProvinceName, auth.scopeCityName, auth.scopeTownName];
   return values.filter(Boolean).join(' / ') || '全国';
 }
 
 function primaryAccount(accounts: InstitutionAccount[]): InstitutionAccount | null {
   return (
-    accounts.find((item) => ['main', '主账户'].includes(item.account_name.trim().toLowerCase())) ??
+    accounts.find((item) => ['main', '主账户'].includes(item.accountName.trim().toLowerCase())) ??
     accounts[0] ??
     null
   );
 }
 
-function accountText(account_id?: string | null): string {
-  if (!account_id) return '-';
-  return tryEncodeSs58(account_id);
+function accountText(accountId?: string | null): string {
+  if (!accountId) return '-';
+  return tryEncodeSs58(accountId);
 }
 
 export function OwnInstitutionInfoPanel({ auth }: OwnInstitutionInfoProps) {
@@ -89,16 +89,16 @@ export function OwnInstitutionInfoPanel({ auth }: OwnInstitutionInfoProps) {
     return () => {
       cancelled = true;
     };
-  }, [auth.access_token]);
+  }, [auth.accessToken]);
 
   const inst = detail?.institution;
   const account = primaryAccount(detail?.accounts ?? []);
   const status = inst?.status ? STATUS_LABEL[inst.status] || inst.status : '-';
-  const chainStatus = account?.chain_status ? CHAIN_STATUS_LABEL[account.chain_status] || account.chain_status : '-';
-  const institutionCode = inst?.institution_code ?? auth.institution_code;
+  const chainStatus = account?.chainStatus ? CHAIN_STATUS_LABEL[account.chainStatus] || account.chainStatus : '-';
+  const institutionCode = inst?.institutionCode ?? auth.institutionCode;
   const institutionCodeTitle = institutionLabels[institutionCode] || institutionCode;
 
-  const scopeText = [auth.scope_province_name, auth.scope_city_name, auth.scope_town_name]
+  const scopeText = [auth.scopeProvinceName, auth.scopeCityName, auth.scopeTownName]
     .filter(Boolean)
     .join(' / ') || '全国';
 
@@ -108,12 +108,12 @@ export function OwnInstitutionInfoPanel({ auth }: OwnInstitutionInfoProps) {
       <Spin spinning={loading}>
         <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} size="small">
           <Descriptions.Item label="机构全称">
-            {displayValue(inst?.cid_full_name ?? auth.cid_short_name)}
+            {displayValue(inst?.cidFullName ?? auth.cidShortName)}
           </Descriptions.Item>
           <Descriptions.Item label="机构简称">
-            {displayValue(inst?.cid_short_name ?? auth.cid_short_name)}
+            {displayValue(inst?.cidShortName ?? auth.cidShortName)}
           </Descriptions.Item>
-          <Descriptions.Item label="身份ID">{displayValue(inst?.cid_number)}</Descriptions.Item>
+          <Descriptions.Item label="身份ID">{displayValue(inst?.cidNumber)}</Descriptions.Item>
           <Descriptions.Item label="机构码">
             {institutionCodeTitle === institutionCode ? institutionCode : `${institutionCodeTitle}(${institutionCode})`}
           </Descriptions.Item>
@@ -124,56 +124,56 @@ export function OwnInstitutionInfoPanel({ auth }: OwnInstitutionInfoProps) {
             {inst?.status ? <Tag color={inst.status === 'ACTIVE' ? 'green' : 'red'}>{status}</Tag> : '-'}
           </Descriptions.Item>
           <Descriptions.Item label="行政层级">
-            {auth.admin_level ? ADMIN_LEVEL_LABEL[auth.admin_level] || auth.admin_level : '-'}
+            {auth.adminLevel ? ADMIN_LEVEL_LABEL[auth.adminLevel] || auth.adminLevel : '-'}
           </Descriptions.Item>
           <Descriptions.Item label="辖区">{inst ? formatScope(auth, inst) : scopeText}</Descriptions.Item>
           <Descriptions.Item label="盈利属性">{inst?.p1 ? P1_LABEL[inst.p1] || inst.p1 : '-'}</Descriptions.Item>
-          {inst?.education_type ? (
+          {inst?.educationType ? (
             <Descriptions.Item label="教育分类">
-              {EDUCATION_TYPE_LABEL[inst.education_type] || inst.education_type}
+              {EDUCATION_TYPE_LABEL[inst.educationType] || inst.educationType}
             </Descriptions.Item>
           ) : null}
-          {inst?.private_type ? (
+          {inst?.privateType ? (
             <Descriptions.Item label="私权类型">
-              {PRIVATE_TYPE_LABEL[inst.private_type] || inst.private_type}
+              {PRIVATE_TYPE_LABEL[inst.privateType] || inst.privateType}
             </Descriptions.Item>
           ) : null}
-          {inst?.partnership_kind ? (
+          {inst?.partnershipKind ? (
             <Descriptions.Item label="合伙类型">
-              {PARTNERSHIP_KIND_LABEL[inst.partnership_kind] || inst.partnership_kind}
+              {PARTNERSHIP_KIND_LABEL[inst.partnershipKind] || inst.partnershipKind}
             </Descriptions.Item>
           ) : null}
-          {inst?.has_legal_personality !== undefined && inst?.has_legal_personality !== null ? (
+          {inst?.hasLegalPersonality !== undefined && inst?.hasLegalPersonality !== null ? (
             <Descriptions.Item label="法人资格">
-              {inst.has_legal_personality ? '具有法人资格' : '不具有法人资格'}
+              {inst.hasLegalPersonality ? '具有法人资格' : '不具有法人资格'}
             </Descriptions.Item>
           ) : null}
-          {inst?.parent_cid_number ? (
-            <Descriptions.Item label="所属法人身份ID">{inst.parent_cid_number}</Descriptions.Item>
+          {inst?.parentCidNumber ? (
+            <Descriptions.Item label="所属法人身份ID">{inst.parentCidNumber}</Descriptions.Item>
           ) : null}
-          <Descriptions.Item label="主账户">{displayValue(account?.account_name)}</Descriptions.Item>
-          <Descriptions.Item label="主账户地址">{accountText(account?.account_id)}</Descriptions.Item>
+          <Descriptions.Item label="主账户">{displayValue(account?.accountName)}</Descriptions.Item>
+          <Descriptions.Item label="主账户地址">{accountText(account?.accountId)}</Descriptions.Item>
           <Descriptions.Item label="主账户状态">{chainStatus}</Descriptions.Item>
           <Descriptions.Item label="账户数量">{detail?.accounts.length ?? '-'}</Descriptions.Item>
-          {inst?.legal_representative ? (
+          {inst?.legalRepresentative ? (
             <Descriptions.Item label="法定代表人">
-              {`${inst.legal_representative.family_name}${inst.legal_representative.given_name}`}
+              {`${inst.legalRepresentative.family_name}${inst.legalRepresentative.given_name}`}
             </Descriptions.Item>
           ) : null}
-          {inst?.legal_representative?.cid_number ? (
+          {inst?.legalRepresentative?.cid_number ? (
             <Descriptions.Item label="法定代表人身份ID">
-              {inst.legal_representative.cid_number}
+              {inst.legalRepresentative.cid_number}
             </Descriptions.Item>
           ) : null}
-          {detail?.creator_family_name || detail?.creator_given_name ? (
+          {detail?.creatorFamilyName || detail?.creatorGivenName ? (
             <Descriptions.Item label="登记管理员">
-              {`${detail.creator_family_name ?? ''}${detail.creator_given_name ?? ''}`}
+              {`${detail.creatorFamilyName ?? ''}${detail.creatorGivenName ?? ''}`}
             </Descriptions.Item>
           ) : null}
-          {detail?.creator_institution_code ? (
-            <Descriptions.Item label="登记机构码">{detail.creator_institution_code}</Descriptions.Item>
+          {detail?.creatorInstitutionCode ? (
+            <Descriptions.Item label="登记机构码">{detail.creatorInstitutionCode}</Descriptions.Item>
           ) : null}
-          <Descriptions.Item label="创建时间">{displayValue(inst?.created_at)}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{displayValue(inst?.createdAt)}</Descriptions.Item>
         </Descriptions>
       </Spin>
     </Card>

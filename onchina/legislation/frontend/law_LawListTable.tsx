@@ -55,10 +55,10 @@ export function LawListTable({ auth, onOpen }: Props) {
       cancelled = true;
     };
   }, [
-    auth.access_token,
-    auth.institution_code,
-    auth.scope_province_name,
-    auth.scope_city_name,
+    auth.accessToken,
+    auth.institutionCode,
+    auth.scopeProvinceName,
+    auth.scopeCityName,
   ]);
 
   const columns = useMemo<ColumnsType<LawView>>(

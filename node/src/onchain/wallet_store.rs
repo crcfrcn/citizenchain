@@ -2,6 +2,7 @@
 //
 // 文件只保存用户显式导入的 Cold 钱包公开信息；Hot 钱包由本机 powr 密钥事实动态生成，
 // 不进入该文件。缺失或不属于 Hot/Cold 的签名模式由 serde 严格拒绝。
+// 只保存唯一账户和名称；SS58在展示边界编码，不存地址副本和无人消费的创建时间。
 
 use crate::shared::security;
 use serde::{Deserialize, Serialize};
@@ -26,11 +27,8 @@ pub struct Wallet {
     pub name: String,
     /// 唯一签名路由事实，只允许 Hot/Cold。
     pub sign_mode: SignMode,
-    /// 仅用于钱包界面展示的 SS58 地址（prefix 2027）。
-    pub ss58_address: String,
     /// 钱包账户 ID，固定为小写 `0x` + 64 位十六进制。
     pub account_id: String,
-    pub created_at: u64,
 }
 
 /// 钱包列表和当前账户；`account_id` 是唯一钱包标识，不再另设随机钱包 ID。
@@ -44,8 +42,8 @@ pub struct WalletStore {
 
 // 只读取当前严格格式；旧格式直接失败，不写回、不删除用户的原始文件。
 fn decode_store(raw: &str) -> Result<WalletStore, String> {
-    let store: WalletStore = serde_json::from_str(raw)
-        .map_err(|error| format!("解析钱包文件失败: {error}"))?;
+    let store: WalletStore =
+        serde_json::from_str(raw).map_err(|error| format!("解析钱包文件失败: {error}"))?;
     super::validate_persisted_store(&store)?;
     Ok(store)
 }
@@ -121,46 +119,79 @@ mod tests {
 
     #[test]
     fn current_store_round_trips_without_rewriting() {
-        let store = WalletStore { wallets: vec![cold_wallet()], active_account_id: Some(ACCOUNT_ID.to_string()) };
-        assert_eq!(decode_store(&serde_json::to_string(&store).unwrap()).unwrap(), store);
-        assert_eq!(decode_store(r#"{"wallets":[],"activeAccountId":null}"#).unwrap(), WalletStore::default());
+        let store = WalletStore {
+            wallets: vec![cold_wallet()],
+            active_account_id: Some(ACCOUNT_ID.to_string()),
+        };
+        assert_eq!(
+            decode_store(&serde_json::to_string(&store).unwrap()).unwrap(),
+            store
+        );
+        assert_eq!(
+            decode_store(r#"{"wallets":[],"activeAccountId":null}"#).unwrap(),
+            WalletStore::default()
+        );
     }
 
     #[test]
     fn current_store_rejects_legacy_and_ambiguous_fields() {
-        let legacy = format!(r#"{{"wallets":[{{"id":"old","name":"旧钱包","kind":"cold","deletable":true,"ss58_address":"x","account_id":"{ACCOUNT_ID}","createdAt":1}}],"activeId":"old"}}"#);
+        let legacy = format!(
+            r#"{{"wallets":[{{"id":"old","name":"旧钱包","kind":"cold","deletable":true,"ss58_address":"x","account_id":"{ACCOUNT_ID}","createdAt":1}}],"activeId":"old"}}"#
+        );
         assert!(decode_store(&legacy).is_err());
-        let store = WalletStore { wallets: vec![cold_wallet()], active_account_id: Some(ACCOUNT_ID.to_string()) };
+        let store = WalletStore {
+            wallets: vec![cold_wallet()],
+            active_account_id: Some(ACCOUNT_ID.to_string()),
+        };
         let value = serde_json::to_value(store).unwrap();
-        for field in ["signMode", "accountId", "ss58Address"] {
+        for field in ["signMode", "accountId"] {
             let mut missing = value.clone();
             missing["wallets"][0].as_object_mut().unwrap().remove(field);
             assert!(decode_store(&missing.to_string()).is_err());
         }
-        for (field, invalid) in [("signMode", "minerHot"), ("accountId", "0x11"), ("ss58Address", "invalid")] {
+        for (field, invalid) in [("signMode", "minerHot"), ("accountId", "0x11")] {
             let mut malformed = value.clone();
             malformed["wallets"][0][field] = serde_json::Value::String(invalid.to_string());
             assert!(decode_store(&malformed.to_string()).is_err());
         }
+        for field in ["ss58Address", "createdAt"] {
+            let mut shadow = value.clone();
+            shadow["wallets"][0]
+                .as_object_mut()
+                .unwrap()
+                .insert(field.into(), serde_json::json!("旧副本"));
+            assert!(decode_store(&shadow.to_string()).is_err());
+        }
         for field in ["activeId", "id", "extra"] {
             let mut unknown = value.clone();
-            unknown.as_object_mut().unwrap().insert(field.to_string(), serde_json::Value::Null);
+            unknown
+                .as_object_mut()
+                .unwrap()
+                .insert(field.to_string(), serde_json::Value::Null);
             assert!(decode_store(&unknown.to_string()).is_err());
         }
     }
 
     #[test]
     fn current_store_rejects_duplicates_and_inconsistent_accounts() {
-        let store = WalletStore { wallets: vec![cold_wallet()], active_account_id: Some(ACCOUNT_ID.to_string()) };
-        let mut duplicate = store.clone(); duplicate.wallets.push(cold_wallet());
+        let store = WalletStore {
+            wallets: vec![cold_wallet()],
+            active_account_id: Some(ACCOUNT_ID.to_string()),
+        };
+        let mut duplicate = store.clone();
+        duplicate.wallets.push(cold_wallet());
         assert!(decode_store(&serde_json::to_string(&duplicate).unwrap()).is_err());
         let mut mismatched = store.clone();
-        mismatched.wallets[0].ss58_address = cold_wallet_for_account("0x2222222222222222222222222222222222222222222222222222222222222222").ss58_address;
+        mismatched.wallets[0].account_id = "0x11".to_string();
         assert!(decode_store(&serde_json::to_string(&mismatched).unwrap()).is_err());
         let mut dangling = store;
-        dangling.active_account_id = Some("0x2222222222222222222222222222222222222222222222222222222222222222".to_string());
+        dangling.active_account_id =
+            Some("0x2222222222222222222222222222222222222222222222222222222222222222".to_string());
         // Cold 文件的活动标识可能指向动态 Hot；读取时只校验规范格式并原样保留。
-        assert_eq!(decode_store(&serde_json::to_string(&dangling).unwrap()).unwrap(), dangling);
+        assert_eq!(
+            decode_store(&serde_json::to_string(&dangling).unwrap()).unwrap(),
+            dangling
+        );
         for invalid in [
             "0x1234",
             "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -173,17 +204,10 @@ mod tests {
     }
 
     fn cold_wallet_for_account(account_id: &str) -> Wallet {
-        let account_id_bytes: [u8; 32] = hex::decode(account_id.trim_start_matches("0x"))
-            .unwrap()
-            .try_into()
-            .unwrap();
         Wallet {
             name: "测试冷钱包".to_string(),
             sign_mode: SignMode::Cold,
-            ss58_address: crate::governance::signing::account_id_to_ss58(&account_id_bytes)
-                .unwrap(),
             account_id: account_id.to_string(),
-            created_at: 1,
         }
     }
 }

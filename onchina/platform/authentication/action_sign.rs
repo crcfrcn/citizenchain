@@ -19,6 +19,7 @@ pub(crate) const ADMIN_ACTION_TTL_SECONDS: i64 = 300;
 
 /// 冷钱包扫码签名的结构化 payload(序列化为 JSON 文本后冷签)。
 #[derive(Serialize)]
+// QR_V1 固定签名字节保持原 snake_case 与声明顺序；不属于 HTTP DTO。
 pub(crate) struct AdminSignedPayload<'a> {
     pub(crate) domain: &'static str,
     pub(crate) qr_proto: &'static str,
@@ -52,14 +53,14 @@ pub(crate) fn hash_json(value: &serde_json::Value) -> String {
 /// ① signer 必须等于动作发起人;② 提交摘要与服务端预期摘要一致;
 /// ③ sr25519 验签通过。调用方(actions::commit)还会额外校验 signer ∈ 本机构链上 Active 集合。
 pub(crate) fn verify_account_signature(
-    expected_actor_account_id: &str,
+    expected_actor_account: &str,
     account_id: &str,
     signature: &str,
     submitted_payload_hash: &str,
     expected_payload_hash: &str,
     payload_text: &str,
 ) -> Result<(), axum::response::Response> {
-    if !same_account_id(expected_actor_account_id, account_id) {
+    if !same_account_id(expected_actor_account, account_id) {
         return Err(api_error(
             StatusCode::FORBIDDEN,
             1003,
@@ -80,7 +81,11 @@ pub(crate) fn verify_account_signature(
         primitives::sign::OP_SIGN_ONCHINA_ADMIN,
         payload_text.as_bytes(),
     );
-    if !crate::authentication::login::verify_admin_signature_bytes(account_id, &signing_bytes, signature) {
+    if !crate::authentication::login::verify_admin_signature_bytes(
+        account_id,
+        &signing_bytes,
+        signature,
+    ) {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             2004,

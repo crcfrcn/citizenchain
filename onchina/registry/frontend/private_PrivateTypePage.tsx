@@ -18,8 +18,8 @@ import { PrivateListTable } from './private_PrivateListTable';
 
 export interface PrivateTypePageProps {
   auth: AdminAuth;
-  province_name: string;
-  city_name: string;
+  provinceName: string;
+  cityName: string;
   canWrite: boolean;
   privateType: PrivateType;
   title: string;
@@ -28,20 +28,20 @@ export interface PrivateTypePageProps {
     input: CreateInstitutionInput,
   ) => Promise<CreateInstitutionOutput>;
   listInstitutions: (auth: AdminAuth, query: {
-    province_name: string;
-    city_name?: string;
-    private_type: PrivateType;
+    provinceName: string;
+    cityName?: string;
+    privateType: PrivateType;
     q: string;
     cursor?: string | null;
-    page_size?: number;
+    pageSize?: number;
   }) => Promise<PageResult<InstitutionListRow>>;
   onSelectInstitution: (cidNumber: string) => void;
 }
 
 export const PrivateTypePage: React.FC<PrivateTypePageProps> = ({
   auth,
-   province_name,
-   city_name,
+   provinceName,
+   cityName,
   canWrite,
   privateType,
   title,
@@ -94,8 +94,8 @@ export const PrivateTypePage: React.FC<PrivateTypePageProps> = ({
 
       <PrivateListTable
         auth={auth}
-        province_name={province_name}
-        city_name={city_name}
+        provinceName={provinceName}
+        cityName={cityName}
         privateType={privateType}
         listInstitutions={listInstitutions}
         refreshKey={refreshKey}
@@ -106,15 +106,15 @@ export const PrivateTypePage: React.FC<PrivateTypePageProps> = ({
       <PrivateCreateModal
         auth={auth}
         open={createOpen}
-        lockedProvinceName={province_name}
-        lockedCityName={city_name}
+        lockedProvinceName={provinceName}
+        lockedCityName={cityName}
         privateType={privateType}
         createInstitution={createInstitution}
         onCancel={() => setCreateOpen(false)}
         onCreated={(result) => {
           setCreateOpen(false);
           setRefreshKey((k) => k + 1);
-          if (result?.cid_number) onSelectInstitution(result.cid_number);
+          if (result?.cidNumber) onSelectInstitution(result.cidNumber);
         }}
       />
     </>

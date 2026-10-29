@@ -42,7 +42,7 @@ export const AccountList: React.FC<Props> = ({
 }) => {
   return (
     <Table<InstitutionAccount>
-      rowKey={(r) => `${r.cid_number}|${r.account_name}`}
+      rowKey={(r) => `${r.cidNumber}|${r.accountName}`}
       loading={loading}
       dataSource={accounts}
       pagination={false}
@@ -53,10 +53,10 @@ export const AccountList: React.FC<Props> = ({
           align: 'center',
           render: (_v, _row, index) => index + 1,
         },
-        { title: '账户名称', dataIndex: 'account_name', width: 200 },
+        { title: '账户名称', dataIndex: 'accountName', width: 200 },
         {
           title: '账户地址',
-          dataIndex: 'account_id',
+          dataIndex: 'accountId',
           // SS58 地址完整显示不截断(地址是给人核对的),小号等宽字体允许换行
           render: (v: string | null) => {
             if (!v) return '-';
@@ -69,7 +69,7 @@ export const AccountList: React.FC<Props> = ({
         },
         {
           title: '链上状态',
-          dataIndex: 'chain_status',
+          dataIndex: 'chainStatus',
           width: 120,
           render: (v: MultisigChainStatus) => (
             <Tag color={STATUS_COLOR[v] || 'default'}>{STATUS_LABEL[v] || v}</Tag>
@@ -77,7 +77,7 @@ export const AccountList: React.FC<Props> = ({
         },
         {
           title: '交易哈希',
-          dataIndex: 'chain_tx_hash',
+          dataIndex: 'chainTxHash',
           render: (v: string | null) =>
             v ? (
               <span style={{ fontSize: 11, fontFamily: 'monospace', wordBreak: 'break-all' }}>
@@ -89,7 +89,7 @@ export const AccountList: React.FC<Props> = ({
         },
         {
           title: '创建时间',
-          dataIndex: 'created_at',
+          dataIndex: 'createdAt',
           width: 170,
           // 账户读侧为链上真源,链上无创建时间戳:空值显示 '-',不再回退成 1970。
           render: (v: string | null) => (v ? new Date(v).toLocaleString('zh-CN') : '-'),
@@ -99,14 +99,14 @@ export const AccountList: React.FC<Props> = ({
           width: 160,
           align: 'center',
           render: (_v, row) => {
-            const canDeleteRow = canDelete && row.can_delete;
+            const canDeleteRow = canDelete && row.canDelete;
             // 删除按钮：仅后端判定可删除的自定义命名账户显示。
             const deleteCell =
               canDeleteRow ? (
                 <Popconfirm
-                  title={`确认发起关闭账户 "${row.account_name}" 提案?`}
+                  title={`确认发起关闭账户 "${row.accountName}" 提案?`}
                   description="发起本机构「关闭账户」内部投票提案,通过后才在链上生效"
-                  onConfirm={() => onDelete?.(row.account_name)}
+                  onConfirm={() => onDelete?.(row.accountName)}
                   okText="发起提案"
                   okButtonProps={{ danger: true }}
                   cancelText="取消"
@@ -117,7 +117,7 @@ export const AccountList: React.FC<Props> = ({
                 </Popconfirm>
               ) : null;
             if (deleteCell) return <Space size={4}>{deleteCell}</Space>;
-            if (row.can_close && row.chain_status === 'ACTIVE_ON_CHAIN') {
+            if (row.canClose && row.chainStatus === 'ACTIVE_ON_CHAIN') {
               return <span style={{ color: '#999', fontSize: 12 }}>链上账户不可删</span>;
             }
             return <span style={{ color: '#999', fontSize: 12 }}>-</span>;

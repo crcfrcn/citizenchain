@@ -1,9 +1,10 @@
-//! 创世模块=genesis-pallet
+//! 创世模块=genesis
 //!
 //! # 职责
 //! 1. 存储链的当前运行阶段（创世期 Genesis / 运行期 Operation）及开发者直升开关。
 //! 2. 存储创世常量（创世宣言、国名宣言、创世人口），在创世区块中初始化。
 //! 3. 创世写入内置公权机构和创世公职人员，只写初始 storage，不承载运行期治理。
+//! 4. 通过 config 公开入口唯一构造整链创世配置和预设，由主 Runtime 提供实际汇总类型。
 //!
 //! # 设计原则
 //! - 纯存储 + getter + trait，不暴露 extrinsic。
@@ -14,20 +15,21 @@
 
 extern crate alloc;
 
+pub mod config;
 pub mod institution;
 pub mod weights;
 
 pub use pallet::*;
 
 // ─── DeveloperUpgradeCheck trait ────────────────────────────────────────────
-// 供 runtime-upgrade 通过关联类型读取开发者直升开关，不硬耦合。
+// 供 upgrade 通过关联类型读取开发者直升开关，不硬耦合。
 pub trait DeveloperUpgradeCheck {
     /// 开发者直升是否启用。
     fn is_enabled() -> bool;
 }
 
 // ─── GenesisInstitutionSeeder trait ─────────────────────────────────────────
-// 创世机构/管理员 seeding 注入口。把「写 public_manage/public_admins 治理存储」这件事
+// 创世机构/管理员 seeding 注入口。把「写 publicentity/publicadmin 治理存储」这件事
 // 从本 pallet 的 Config supertrait 解耦成 runtime 注入,消费者与本 pallet 单测因此
 // 不必 mock 整套治理栈;seeding 逻辑仍在 institution::build,由 runtime 的实现调用。
 pub trait GenesisInstitutionSeeder {
@@ -170,12 +172,13 @@ impl<T: pallet::Config> DeveloperUpgradeCheck for pallet::Pallet<T> {
 
 // ─── ChainPhaseCheck 实现 ───────────────────────────────────────────────────
 // 供 admin/entity 层读运行期强制门控:管理员字段强制仅在 Operation 期生效。
-// trait 定义在 admin-primitives(本 pallet 反向依赖各 admin/entity pallet,不能定义于此)。
-impl<T: pallet::Config> admin_primitives::ChainPhaseCheck for pallet::Pallet<T> {
+// trait 定义在 adminbase(本 pallet 反向依赖各 admin/entity pallet,不能定义于此)。
+impl<T: pallet::Config> adminbase::ChainPhaseCheck for pallet::Pallet<T> {
     fn is_operation() -> bool {
         pallet::Phase::<T>::get() == pallet::ChainPhase::Operation
     }
 }
 
 #[cfg(test)]
+#[path = "../tests/mod.rs"]
 mod tests;

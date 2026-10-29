@@ -15,13 +15,13 @@ import { notice } from './helpers_notice';
 
 type PendingScanSign = {
   prepared: PrepareAdminActionOutput;
-  resolve: (value: { account_id: string; signature: string }) => void;
+  resolve: (value: { accountId: string; signature: string }) => void;
   reject: (reason?: unknown) => void;
 };
 
 export interface UseScanSignGrantResult {
   /** 传给 createScanSignSecurityGrant / create* API 的扫码签名解析回调。 */
-  signWithScan: (prepared: PrepareAdminActionOutput) => Promise<{ account_id: string; signature: string }>;
+  signWithScan: (prepared: PrepareAdminActionOutput) => Promise<{ accountId: string; signature: string }>;
   /** 需在组件 JSX 中渲染的扫码签名弹窗。 */
   scanSignModal: ReactNode;
 }
@@ -34,7 +34,7 @@ export function useScanSignGrant(
 
   const signWithScan = useCallback(
     (prepared: PrepareAdminActionOutput) =>
-      new Promise<{ account_id: string; signature: string }>((resolve, reject) => {
+      new Promise<{ accountId: string; signature: string }>((resolve, reject) => {
         setPending({ prepared, resolve, reject });
       }),
     [],
@@ -45,14 +45,14 @@ export function useScanSignGrant(
       if (!pending) return;
       setScanning(true);
       try {
-        const signed = parseSignedReceiptPayload(raw, pending.prepared.action_id);
-        if (signed.challenge_id !== pending.prepared.action_id) {
+        const signed = parseSignedReceiptPayload(raw, pending.prepared.actionId);
+        if (signed.challengeId !== pending.prepared.actionId) {
           throw new Error('签名响应与当前请求不匹配');
         }
-        if (!signed.account_id) {
+        if (!signed.accountId) {
           throw new Error('签名响应缺少 account_id');
         }
-        pending.resolve({ account_id: signed.account_id, signature: signed.signature });
+        pending.resolve({ accountId: signed.accountId, signature: signed.signature });
         setPending(null);
       } catch (err) {
         pending.reject(err);
@@ -77,7 +77,7 @@ export function useScanSignGrant(
       open={!!pending}
       onCancel={onCancel}
       qrTitle="签名二维码"
-      qrValue={pending?.prepared.sign_request ?? undefined}
+      qrValue={pending?.prepared.signRequest ?? undefined}
       qrHint="使用管理员公民钱包扫码签名"
       scannerHint="扫描公民钱包生成的签名响应二维码"
       scannerDisabled={scanning}

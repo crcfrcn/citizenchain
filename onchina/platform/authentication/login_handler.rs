@@ -37,9 +37,12 @@ pub(crate) async fn admin_auth_check(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let capabilities = crate::modules::capability::capabilities_for(&state.modules, &ctx.institution_code);
-    let workspace_modules =
-        state.modules.workspace_modules(&ctx.institution_cid_number, &headers).await;
+    let capabilities =
+        crate::modules::capability::capabilities_for(&state.modules, &ctx.institution_code);
+    let workspace_modules = state
+        .modules
+        .workspace_modules(&ctx.institution_cid_number, &headers)
+        .await;
     let workspace = crate::workspace::build_institution_workspace(
         &state.modules,
         &ctx.institution_code,
@@ -95,7 +98,7 @@ pub(crate) async fn admin_auth_confirm_node_binding(
     Json(input): Json<NodeBindingConfirmInput>,
 ) -> impl IntoResponse {
     let now = Utc::now();
-    let (access_token, expire_at, admin) =
+    let (access_token, expires_at, admin) =
         match onchain_gate::confirm_node_binding_after_onchain_gate(
             &state,
             input.binding_challenge_id.as_str(),
@@ -112,7 +115,7 @@ pub(crate) async fn admin_auth_confirm_node_binding(
         message: "ok".to_string(),
         data: AdminVerifyOutput {
             access_token,
-            expire_at: expire_at.timestamp(),
+            expires_at: expires_at.timestamp(),
             admin,
         },
     })

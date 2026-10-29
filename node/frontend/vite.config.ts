@@ -2,7 +2,8 @@ import {fileURLToPath} from 'node:url';
 import { defineConfig, type UserConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { createSecureContext } from 'node:tls';
 
@@ -21,11 +22,25 @@ function developmentTLS() {
 }
 
 export default defineConfig(({ command }): UserConfig => {
-  const https = command === "serve" ? developmentTLS() : undefined;
+  // 仅Vitest官方测试环境和实际CLI入口同时匹配时加载测试配置。
+  // 普通开发/预览即使继承VITEST变量或使用--mode test，仍要求原TLS证书。
+  const isTest = process.env.VITEST === 'true' && basename(process.argv[1] ?? '') === 'vitest.mjs';
+  const https = command === "serve" && !isTest ? developmentTLS() : undefined;
+  const scanner = createRequire(new URL('../../crates/scanner/package.json', import.meta.url));
   return {
-  plugins: [react()],
+  plugins: isTest ? [] : [react()],
+  ...(isTest ? {
+    test: { environment: 'jsdom', include: ['onchain/transfer.test.tsx'] },
+  } : {}),
   // 本仓扫码组件与宿主共用同一React实例，避免链接包加载第二套Hooks运行库。
-  resolve: { dedupe: ['react', 'react-dom'] },
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+    ...(isTest ? { alias: {
+      '@testing-library/react': scanner.resolve('@testing-library/react'),
+      react: dirname(scanner.resolve('react/package.json')),
+      'react-dom': dirname(scanner.resolve('react-dom/package.json')),
+    } } : {}),
+  },
   build: {
     outDir: process.env.CITIZENCHAIN_FRONTEND_DIST || join(tmpdir(), 'citizenchain', 'node-frontend')
   },

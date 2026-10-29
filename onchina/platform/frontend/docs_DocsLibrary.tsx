@@ -53,7 +53,7 @@ export const DocsLibrary: React.FC<Props> = ({
       .then(setDocs)
       .catch((err) => notice.error(err, ''))
       .finally(() => setLoading(false));
-  }, [auth.access_token, cidNumber]);
+  }, [auth.accessToken, cidNumber]);
 
   useEffect(() => {
     load();
@@ -78,7 +78,7 @@ export const DocsLibrary: React.FC<Props> = ({
 
   const onDownload = async (doc: InstitutionDocument) => {
     try {
-      await downloadDocument(auth, cidNumber, doc.id, doc.file_name);
+      await downloadDocument(auth, cidNumber, doc.id, doc.fileName);
     } catch (err) {
       notice.error(err, '');
     }
@@ -127,22 +127,22 @@ export const DocsLibrary: React.FC<Props> = ({
         dataSource={docs}
         pagination={docs.length > 10 ? { pageSize: 10 } : false}
         columns={[
-          { title: '文件名', dataIndex: 'file_name', ellipsis: true },
+          { title: '文件名', dataIndex: 'fileName', ellipsis: true },
           {
             title: '类型',
-            dataIndex: 'doc_type',
+            dataIndex: 'docType',
             width: 120,
             render: (v: string) => <Tag color={DOC_TYPE_COLORS[v] || 'default'}>{v}</Tag>,
           },
           {
             title: '大小',
-            dataIndex: 'file_size',
+            dataIndex: 'fileSize',
             width: 100,
             render: (v: number) => formatFileSize(v),
           },
           {
             title: '上传时间',
-            dataIndex: 'uploaded_at',
+            dataIndex: 'uploadedAt',
             width: 170,
             render: (v: string) => new Date(v).toLocaleString('zh-CN'),
           },
@@ -160,7 +160,7 @@ export const DocsLibrary: React.FC<Props> = ({
                 />
                 {canWrite && (
                   <Popconfirm
-                    title={`确认删除 "${row.file_name}"?`}
+                    title={`确认删除 "${row.fileName}"?`}
                     onConfirm={() => onDelete(row)}
                     okText="删除"
                     okButtonProps={{ danger: true }}

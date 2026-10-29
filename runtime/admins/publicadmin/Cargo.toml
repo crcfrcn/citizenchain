@@ -1,0 +1,47 @@
+[package]
+name = "publicadmin"  # 非创世公权机构管理员
+edition.workspace = true   # 默认 Rust 版本
+version.workspace = true   # 版本号
+authors.workspace = true   # 作者
+repository.workspace = true  #项目仓库
+license = "MIT"        # 授权协议 MIT
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+sp-std = { workspace = true }
+
+primitives = { path = "../../primitives", default-features = false }
+adminbase = { path = "../adminbase", default-features = false }
+entitybase = { path = "../../entity/entitybase", default-features = false }
+votingengine = { path = "../../votingengine", default-features = false }
+
+[features]
+default = ["std"]
+# 保留空 feature 供 runtime 统一转发；本 pallet 无外部 call，不注册 benchmark。
+runtime-benchmarks = []
+try-runtime = []
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "frame-system/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "sp-std/std",
+    "primitives/std",
+    "adminbase/std",
+    "entitybase/std",
+    "votingengine/std",
+]
+
+[dev-dependencies]
+internalvote = { path = "../../votingengine/internalvote", default-features = false }
+
+# 单源码库直接归属模块根，逻辑crate及pallet路径保持。
+[lib]
+path = "lib.rs"

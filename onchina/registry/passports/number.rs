@@ -183,8 +183,8 @@ fn passport_no_exists<C: postgres::GenericClient>(
 ) -> Result<bool, String> {
     let row = conn
         .query_one(
-            "SELECT EXISTS(SELECT 1 FROM passport_numbers WHERE passport_no = $1)
-             OR EXISTS(SELECT 1 FROM citizens WHERE passport_no = $1)",
+            "SELECT EXISTS(SELECT 1 FROM passport WHERE passport_no = $1)
+             OR EXISTS(SELECT 1 FROM citizen WHERE passport_no = $1)",
             &[&passport_no],
         )
         .map_err(|e| format!("passport lookup failed: {e}"))?;
@@ -197,9 +197,9 @@ fn allocate_sequence<C: postgres::GenericClient>(
 ) -> Result<i64, String> {
     let row = conn
         .query_one(
-            "INSERT INTO sequence_counters (seq_key, next_seq)
+            "INSERT INTO sequence (seq_key, next_seq)
              VALUES ($1, 2)
-             ON CONFLICT (seq_key) DO UPDATE SET next_seq = sequence_counters.next_seq + 1
+             ON CONFLICT (seq_key) DO UPDATE SET next_seq = sequence.next_seq + 1
              RETURNING next_seq - 1",
             &[&seq_key],
         )
@@ -214,7 +214,7 @@ fn claim_recycled_passport_no<C: postgres::GenericClient>(
     let row = conn
         .query_opt(
             "SELECT pool_id, passport_no
-             FROM passport_number_recycle_pool
+             FROM recycle
              WHERE used_at IS NULL
              ORDER BY released_at, pool_id
              LIMIT 1
@@ -230,8 +230,8 @@ fn claim_recycled_passport_no<C: postgres::GenericClient>(
     let passport_no: String = row.get(1);
     let affected = conn
         .execute(
-            "UPDATE passport_number_recycle_pool
-             SET used_at = now(), used_by_cid_number = $1
+            "UPDATE recycle
+             SET used_at = now(), used_cid = $1
              WHERE pool_id = $2 AND used_at IS NULL",
             &[&cid_number, &pool_id],
         )

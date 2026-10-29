@@ -5,8 +5,8 @@
 //! - 自动执行失败时保留提案状态，可通过 `VotingEngine::retry_passed_proposal` 手动重试。
 //! - 余额在提案创建和执行两个时点双重检查，含手续费和 ED 保留。
 //! - 收款地址不能是转出资金账户自身，也不能是受保护地址(质押地址等)。
-//! - 本模块只处理转账提案与执行；个人多签生命周期归 `personal-manage`，
-//!   个人多签管理员真源归 `personal-admins`。
+//! - 本模块只处理转账提案与执行；个人多签生命周期归 `personalentity`，
+//!   个人多签管理员真源归 `personaladmin`。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -117,7 +117,7 @@ fn nrc_cid() -> CidNumber {
 pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo;
-    use entity_primitives::ProtectedSourceChecker;
+    use entitybase::ProtectedSourceChecker;
     use frame_support::traits::ExistenceRequirement;
     use primitives::institution_asset::{InstitutionAsset, InstitutionAssetAction};
     use votingengine::InternalAdminProvider;
@@ -135,7 +135,7 @@ pub mod pallet {
         type InternalVoteEngine: votingengine::InternalVoteEngine<Self::AccountId>;
 
         /// 机构岗位业务授权真源；个人多签不经过该接口。
-        type InstitutionRoleAuthorization: entity_primitives::InstitutionRoleAuthorizationQuery<
+        type InstitutionRoleAuthorization: entitybase::InstitutionRoleAuthorizationQuery<
             Self::AccountId,
         >;
 
@@ -155,11 +155,11 @@ pub mod pallet {
             BalanceOf<Self>,
         >;
 
-        /// 个人多签账户状态与管理员配置查询,由 personal-manage 聚合 personal-admins 提供。
-        type PersonalQuery: personal_manage::traits::PersonalMultisigQuery<Self::AccountId>;
+        /// 个人多签账户状态与管理员配置查询,由 personalentity 聚合 personaladmin 提供。
+        type PersonalQuery: personalentity::traits::PersonalMultisigQuery<Self::AccountId>;
 
         /// 注册机构账户状态与管理员配置查询,由 runtime 聚合 public/private 生命周期模块提供。
-        type InstitutionQuery: entity_primitives::InstitutionMultisigQuery<Self::AccountId>;
+        type InstitutionQuery: entitybase::InstitutionMultisigQuery<Self::AccountId>;
 
         /// Weight 配置
         type WeightInfo: crate::weights::WeightInfo;
@@ -412,7 +412,7 @@ pub mod pallet {
                     &who,
                     cid_number.as_slice(),
                     role_code.as_slice(),
-                    entity_primitives::business_action::ACTION_MULTISIG_TRANSFER,
+                    entitybase::business_action::ACTION_MULTISIG_TRANSFER,
                     &encoded,
                 )?;
                 <T as Config>::InternalVoteEngine::create_institution_proposal_with_data(
@@ -513,7 +513,7 @@ pub mod pallet {
                 &who,
                 actor_cid_number.as_slice(),
                 proposer_role_code.as_slice(),
-                entity_primitives::business_action::ACTION_SAFETY_FUND_TRANSFER,
+                entitybase::business_action::ACTION_SAFETY_FUND_TRANSFER,
                 &proposal_data,
             )?;
             let proposal_id =
@@ -582,7 +582,7 @@ pub mod pallet {
                 &who,
                 actor_cid_number.as_slice(),
                 proposer_role_code.as_slice(),
-                entity_primitives::business_action::ACTION_FEE_SWEEP_TO_MAIN,
+                entitybase::business_action::ACTION_FEE_SWEEP_TO_MAIN,
                 &proposal_data,
             )?;
             let proposal_id =
@@ -635,8 +635,8 @@ pub mod pallet {
             actor_cid_number: Option<&CidNumber>,
             funding_account_id: &T::AccountId,
         ) -> Result<(InstitutionCode, Vec<Vec<u8>>), Error<T>> {
-            use entity_primitives::InstitutionMultisigQuery;
-            use personal_manage::traits::PersonalMultisigQuery;
+            use entitybase::InstitutionMultisigQuery;
+            use personalentity::traits::PersonalMultisigQuery;
 
             let Some(cid_number) = actor_cid_number else {
                 ensure!(
@@ -676,13 +676,13 @@ pub mod pallet {
             action_code: u32,
             proposal_data: &[u8],
         ) -> Result<VotePlanOf<T::AccountId>, sp_runtime::DispatchError> {
-            use entity_primitives::{InstitutionRoleAuthorizationQuery, RolePermissionOperation};
+            use entitybase::{InstitutionRoleAuthorizationQuery, RolePermissionOperation};
 
             let action_id = BusinessActionId {
                 module_tag: crate::MODULE_TAG.to_vec(),
                 action_code,
             };
-            let proposer_account_id = entity_primitives::RoleSubject {
+            let proposer_account_id = entitybase::RoleSubject {
                 cid_number: cid_number.to_vec(),
                 role_code: proposer_role_code.to_vec(),
             };
@@ -713,7 +713,7 @@ pub mod pallet {
             let owner: frame_support::BoundedVec<
                 u8,
                 frame_support::traits::ConstU32<
-                    { entity_primitives::BUSINESS_MODULE_TAG_MAX_BYTES },
+                    { entitybase::BUSINESS_MODULE_TAG_MAX_BYTES },
                 >,
             > = crate::MODULE_TAG
                 .to_vec()
@@ -786,7 +786,7 @@ pub mod pallet {
 
         /// 解析治理机构手续费账户。
         fn resolve_fee_account(cid_number: &CidNumber) -> Result<T::AccountId, DispatchError> {
-            use entity_primitives::InstitutionMultisigQuery;
+            use entitybase::InstitutionMultisigQuery;
             T::InstitutionQuery::lookup_institution_account(
                 cid_number.as_slice(),
                 RESERVED_NAME_FEE,
@@ -796,7 +796,7 @@ pub mod pallet {
 
         /// 解析治理机构主账户。
         fn resolve_main_account(cid_number: &CidNumber) -> Result<T::AccountId, DispatchError> {
-            use entity_primitives::InstitutionMultisigQuery;
+            use entitybase::InstitutionMultisigQuery;
             T::InstitutionQuery::lookup_institution_account(
                 cid_number.as_slice(),
                 RESERVED_NAME_MAIN,
@@ -1176,4 +1176,5 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
 }
 
 #[cfg(test)]
+#[path = "../tests/mod.rs"]
 mod tests;

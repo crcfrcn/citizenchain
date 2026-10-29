@@ -13,7 +13,7 @@
 // Substrate service API 固定返回 sc_service::Error，Node 必须保持框架函数签名。
 #![allow(clippy::result_large_err)]
 
-use citizenchain::{self, apis::RuntimeApi, opaque::Block};
+use runtime::{self, apis::RuntimeApi, opaque::Block};
 use codec::{Decode, Encode};
 use frame_metadata::{RuntimeMetadata, RuntimeMetadataPrefixed, META_RESERVED};
 use futures::FutureExt;
@@ -77,9 +77,15 @@ pub(crate) struct LocalNetworkSnapshot {
 }
 
 impl LocalNetworkReader {
-    pub(crate) fn new() -> Self { Self::default() }
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
 
-    pub(super) fn attach(&self, rpc: Arc<jsonrpsee::RpcModule<()>>, runtime: tokio::runtime::Handle) -> Result<(), String> {
+    pub(super) fn attach(
+        &self,
+        rpc: Arc<jsonrpsee::RpcModule<()>>,
+        runtime: tokio::runtime::Handle,
+    ) -> Result<(), String> {
         let mut session = self.0.lock().map_err(|_| "本机网络查询状态锁异常")?;
         if session.closed || session.rpc.is_some() {
             return Err("本机网络查询入口已关闭或已经绑定".into());
@@ -97,20 +103,26 @@ impl LocalNetworkReader {
     fn read(&self, query: NetworkRead) -> Result<serde_json::Value, String> {
         let (rpc, runtime) = {
             let session = self.0.lock().map_err(|_| "本机网络查询状态锁异常")?;
-            if session.closed { return Err("本机节点网络查询入口已关闭".into()); }
+            if session.closed {
+                return Err("本机节点网络查询入口已关闭".into());
+            }
             session.rpc.clone().ok_or("本机节点网络查询入口尚未就绪")?
         };
         let method = query.method();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         // 在节点自己的 Runtime 执行，调用方不持有节点状态锁，也不嵌套 block_on。
         runtime.spawn(async move {
-            let result = tokio::time::timeout(Duration::from_secs(4),
-                rpc.call::<_, serde_json::Value>(method, Vec::<serde_json::Value>::new())).await
-                .map_err(|_| format!("本机 {method} 查询超时"))
-                .and_then(|result| result.map_err(|error| format!("本机 {method} 查询失败: {error}")));
+            let result = tokio::time::timeout(
+                Duration::from_secs(4),
+                rpc.call::<_, serde_json::Value>(method, Vec::<serde_json::Value>::new()),
+            )
+            .await
+            .map_err(|_| format!("本机 {method} 查询超时"))
+            .and_then(|result| result.map_err(|error| format!("本机 {method} 查询失败: {error}")));
             let _ = sender.send(result);
         });
-        let result = receiver.recv_timeout(Duration::from_secs(5))
+        let result = receiver
+            .recv_timeout(Duration::from_secs(5))
             .map_err(|error| format!("本机 {method} 查询未完成: {error}"))?;
         // 停机期间返回的旧响应不能被交给新一轮界面或同步诊断。
         if self.0.lock().map_err(|_| "本机网络查询状态锁异常")?.closed {
@@ -121,7 +133,9 @@ impl LocalNetworkReader {
             NetworkRead::Peers => value.is_array(),
             NetworkRead::Health | NetworkRead::State => value.is_object(),
         };
-        if !valid { return Err(format!("本机 {method} 返回格式无效")); }
+        if !valid {
+            return Err(format!("本机 {method} 返回格式无效"));
+        }
         Ok(value)
     }
 
@@ -336,7 +350,10 @@ struct CpuMinerThreads {
 
 impl CpuMinerThreads {
     fn new() -> Self {
-        Self { stopping: Arc::new(AtomicBool::new(false)), threads: Vec::new() }
+        Self {
+            stopping: Arc::new(AtomicBool::new(false)),
+            threads: Vec::new(),
+        }
     }
 
     fn spawn(&mut self, run: impl FnOnce(Arc<AtomicBool>) + Send + 'static) {
@@ -379,7 +396,10 @@ impl std::error::Error for RpcStageError {
 }
 
 fn rpc_stage_error(stage: &'static str, source: impl Into<RpcTaskError>) -> RpcTaskError {
-    Box::new(RpcStageError { stage, source: source.into() })
+    Box::new(RpcStageError {
+        stage,
+        source: source.into(),
+    })
 }
 
 fn start_cpu_miner(
@@ -502,9 +522,9 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 // 正式入口始终使用冻结身份；此独立入口不进入任何正式节点二进制。
 #[cfg(test)]
 pub(super) fn new_partial_for_test(config: &Configuration) -> Result<Service, ServiceError> {
-    let identity = crate::core::node_guard::TestGenesisIdentity::from_chain_spec(
-        config.chain_spec.as_ref(),
-    ).map_err(ServiceError::Other)?;
+    let identity =
+        crate::core::node_guard::TestGenesisIdentity::from_chain_spec(config.chain_spec.as_ref())
+            .map_err(ServiceError::Other)?;
     new_partial_inner(config, Some(identity))
 }
 
@@ -580,10 +600,15 @@ fn new_partial_inner(
     #[cfg(test)]
     let node_guard = match test_genesis_identity {
         Some(identity) => crate::core::node_guard::NodeGuard::new_for_test(
-            pow_block_import, client.clone(), backend.clone(), identity,
+            pow_block_import,
+            client.clone(),
+            backend.clone(),
+            identity,
         ),
         None => crate::core::node_guard::NodeGuard::new(
-            pow_block_import, client.clone(), backend.clone(),
+            pow_block_import,
+            client.clone(),
+            backend.clone(),
         ),
     };
     #[cfg(not(test))]
@@ -629,14 +654,23 @@ pub(crate) fn new_full(
     gpu_device: Option<usize>,
     desktop_rpc_tls: Option<crate::core::rpc_tls::RpcTls>,
     desktop_rpc_failure: Option<Arc<Mutex<Option<String>>>>,
-    clearing_bank_cid_number: Option<String>,
-    clearing_bank_role_code: Option<String>,
+    bank_cid: Option<String>,
+    bank_role: Option<String>,
     clearing_bank_password: Option<String>,
-    clearing_reserve_monitor_interval_secs: Option<u64>,
+    reserve_interval_secs: Option<u64>,
 ) -> Result<TaskManager, ServiceError> {
-    new_full_with_network_reader(config, mining_threads, gpu_device, desktop_rpc_tls,
-        desktop_rpc_failure, clearing_bank_cid_number, clearing_bank_role_code,
-        clearing_bank_password, clearing_reserve_monitor_interval_secs, None)
+    new_full_with_network_reader(
+        config,
+        mining_threads,
+        gpu_device,
+        desktop_rpc_tls,
+        desktop_rpc_failure,
+        bank_cid,
+        bank_role,
+        clearing_bank_password,
+        reserve_interval_secs,
+        None,
+    )
 }
 
 pub(crate) fn new_full_with_network_reader(
@@ -646,13 +680,13 @@ pub(crate) fn new_full_with_network_reader(
     desktop_rpc_tls: Option<crate::core::rpc_tls::RpcTls>,
     desktop_rpc_failure: Option<Arc<Mutex<Option<String>>>>,
     // 清算行机构 CID(None=本节点不做清算行角色)
-    clearing_bank_cid_number: Option<String>,
+    bank_cid: Option<String>,
     // 清算批次提交岗位码；必须与 CID 和签名钱包任职同时匹配
-    clearing_bank_role_code: Option<String>,
+    bank_role: Option<String>,
     // 解锁 `offchain::settlement::keystore` 的密码
     clearing_bank_password: Option<String>,
     // offchain::settlement::reserve 对账周期(秒),None=默认 300,Some(0)=关闭
-    clearing_reserve_monitor_interval_secs: Option<u64>,
+    reserve_interval_secs: Option<u64>,
     local_network: Option<LocalNetworkReader>,
 ) -> Result<TaskManager, ServiceError> {
     // 先装载可信 RPC 证书并取走端点，禁止上游 spawn_tasks 同时开启明文监听。
@@ -780,12 +814,12 @@ pub(crate) fn new_full_with_network_reader(
         }
     };
 
-    // 清算行启动细节归入 `transaction::offchain::settlement::bootstrap`,service.rs 只做节点通用接线。
-    let clearing_rpc_impl = crate::transaction::offchain::settlement::bootstrap::start_from_cli(
-        clearing_bank_cid_number.as_deref(),
-        clearing_bank_role_code.as_deref(),
+    // 清算行启动细节归入 `offchain::settlement::bootstrap`,service.rs 只做节点通用接线。
+    let clearing_rpc_impl = crate::offchain::settlement::bootstrap::start_from_cli(
+        bank_cid.as_deref(),
+        bank_role.as_deref(),
         clearing_bank_password.as_deref(),
-        clearing_reserve_monitor_interval_secs,
+        reserve_interval_secs,
         config.base_path.path(),
         client.clone(),
         transaction_pool.clone(),
@@ -829,7 +863,8 @@ pub(crate) fn new_full_with_network_reader(
     })?;
 
     if let Some(reader) = local_network {
-        reader.attach(rpc_handlers.handle(), tokio::runtime::Handle::current())
+        reader
+            .attach(rpc_handlers.handle(), tokio::runtime::Handle::current())
             .map_err(ServiceError::Other)?;
     }
 
@@ -837,45 +872,75 @@ pub(crate) fn new_full_with_network_reader(
         // 原生后端仅在进程内使用；公开副本显式覆盖为 Safe，防止 Unsafe 扩展泄漏。
         let native = (*rpc_handlers.handle()).clone();
         let rpc_client = client.clone();
-        task_manager.spawn_essential_handle().spawn("ethereum-rpc-tls", Some("rpc"), async move {
-            let result: Result<(), RpcTaskError> = async {
-                let finalized = rpc_client.info().finalized_hash;
-                let metadata = rpc_client.runtime_api().metadata(finalized)
-                    .map_err(|error| rpc_stage_error("读取Runtime元数据", error))?;
-                let version = rpc_client.runtime_api().version(finalized)
-                    .map_err(|error| rpc_stage_error("读取Runtime版本", error))?;
-                let with_ethereum = ethereum_rpc_available(metadata.as_slice(), version.spec_version)
-                    .map_err(|error| rpc_stage_error("核验Runtime的Revive能力", std::io::Error::other(error)))?;
-                let mut exposed = native;
-                if with_ethereum {
-                    let (ethereum, synchronization) = crate::core::ethereum_rpc::initialize(exposed.clone()).await
-                        .map_err(|error| rpc_stage_error("Ethereum客户端初始化", error))?;
-                    exposed.merge(ethereum)
-                        .map_err(|error| rpc_stage_error("Ethereum方法装配", error))?;
-                    tokio::try_join!(
-                        async { synchronization.await.map_err(|error| rpc_stage_error("Ethereum同步任务", error)) },
-                        async { rpc_tls.run(rpc_endpoints, exposed).await.map_err(|error| rpc_stage_error("TLS监听", error)) },
-                    )?;
-                } else {
-                    // 创世旧Runtime尚无Revive，只提供受同一TLS和Safe规则保护的原生RPC。
-                    // 正式升级最终确认后由节点重启重新装配Ethereum方法，初始化失败仍终止节点。
-                    log::info!("创世Runtime尚无Revive，原生TLS RPC先行服务；升级最终确认后需重启节点");
-                    rpc_tls.run(rpc_endpoints, exposed).await
-                        .map_err(|error| rpc_stage_error("原生TLS监听", error))?;
-                }
-                Ok(())
-            }.await;
-            if let Err(error) = result {
-                if let Some(failure) = desktop_rpc_failure {
-                    let mut saved = failure.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                    if saved.is_none() {
-                        *saved = Some(format!("Ethereum RPC/TLS 必要任务失败: {error}"));
+        task_manager
+            .spawn_essential_handle()
+            .spawn("ethereum-rpc-tls", Some("rpc"), async move {
+                let result: Result<(), RpcTaskError> = async {
+                    let finalized = rpc_client.info().finalized_hash;
+                    let metadata = rpc_client
+                        .runtime_api()
+                        .metadata(finalized)
+                        .map_err(|error| rpc_stage_error("读取Runtime元数据", error))?;
+                    let version = rpc_client
+                        .runtime_api()
+                        .version(finalized)
+                        .map_err(|error| rpc_stage_error("读取Runtime版本", error))?;
+                    let with_ethereum = ethereum_rpc_available(
+                        metadata.as_slice(),
+                        version.spec_version,
+                    )
+                    .map_err(|error| {
+                        rpc_stage_error("核验Runtime的Revive能力", std::io::Error::other(error))
+                    })?;
+                    let mut exposed = native;
+                    if with_ethereum {
+                        let (ethereum, synchronization) =
+                            crate::core::ethereum_rpc::initialize(exposed.clone())
+                                .await
+                                .map_err(|error| rpc_stage_error("Ethereum客户端初始化", error))?;
+                        exposed
+                            .merge(ethereum)
+                            .map_err(|error| rpc_stage_error("Ethereum方法装配", error))?;
+                        tokio::try_join!(
+                            async {
+                                synchronization
+                                    .await
+                                    .map_err(|error| rpc_stage_error("Ethereum同步任务", error))
+                            },
+                            async {
+                                rpc_tls
+                                    .run(rpc_endpoints, exposed)
+                                    .await
+                                    .map_err(|error| rpc_stage_error("TLS监听", error))
+                            },
+                        )?;
+                    } else {
+                        // 创世旧Runtime尚无Revive，只提供受同一TLS和Safe规则保护的原生RPC。
+                        // 正式升级最终确认后由节点重启重新装配Ethereum方法，初始化失败仍终止节点。
+                        log::info!(
+                            "创世Runtime尚无Revive，原生TLS RPC先行服务；升级最终确认后需重启节点"
+                        );
+                        rpc_tls
+                            .run(rpc_endpoints, exposed)
+                            .await
+                            .map_err(|error| rpc_stage_error("原生TLS监听", error))?;
                     }
+                    Ok(())
                 }
-                log::error!("Ethereum RPC/TLS 必要任务失败: {error}");
-            }
-            // 必要任务退出由 TaskManager 终止节点，禁止继续报告 RPC 可用。
-        });
+                .await;
+                if let Err(error) = result {
+                    if let Some(failure) = desktop_rpc_failure {
+                        let mut saved = failure
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if saved.is_none() {
+                            *saved = Some(format!("Ethereum RPC/TLS 必要任务失败: {error}"));
+                        }
+                    }
+                    log::error!("Ethereum RPC/TLS 必要任务失败: {error}");
+                }
+                // 必要任务退出由 TaskManager 终止节点，禁止继续报告 RPC 可用。
+            });
     }
 
     // 普通全节点不会像 GRANDPA voter 那样把交易池交给最终性组件持有。
@@ -1110,24 +1175,42 @@ mod tests {
     fn network_module(peers: serde_json::Value) -> Arc<jsonrpsee::RpcModule<()>> {
         let mut module = jsonrpsee::RpcModule::new(());
         module.extensions_mut().insert(sc_rpc_api::DenyUnsafe::No);
-        module.register_method("system_health", |_, _, _| serde_json::json!({
-            "peers": 1, "isSyncing": false, "shouldHavePeers": true,
-        })).unwrap();
-        module.register_method("system_peers", move |_, _, extensions| {
-            sc_rpc_api::check_if_safe(extensions).map(|_| peers.clone())
-        }).unwrap();
-        module.register_method("system_unstable_networkState", |_, _, extensions| {
-            sc_rpc_api::check_if_safe(extensions).map(|_| serde_json::json!({"connectedPeers": {}}))
-        }).unwrap();
+        module
+            .register_method("system_health", |_, _, _| {
+                serde_json::json!({
+                    "peers": 1, "isSyncing": false, "shouldHavePeers": true,
+                })
+            })
+            .unwrap();
+        module
+            .register_method("system_peers", move |_, _, extensions| {
+                sc_rpc_api::check_if_safe(extensions).map(|_| peers.clone())
+            })
+            .unwrap();
+        module
+            .register_method("system_unstable_networkState", |_, _, extensions| {
+                sc_rpc_api::check_if_safe(extensions)
+                    .map(|_| serde_json::json!({"connectedPeers": {}}))
+            })
+            .unwrap();
         Arc::new(module)
     }
 
     #[test]
     fn local_network_reader_reads_fixed_native_methods_including_zero_peers() {
-        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
         let reader = LocalNetworkReader::new();
         assert!(reader.peers().unwrap_err().contains("尚未就绪"));
-        reader.attach(network_module(serde_json::json!([])), runtime.handle().clone()).unwrap();
+        reader
+            .attach(
+                network_module(serde_json::json!([])),
+                runtime.handle().clone(),
+            )
+            .unwrap();
         let snapshot = reader.sync_snapshot().unwrap();
         assert_eq!(snapshot.peers, serde_json::json!([]));
         assert_eq!(snapshot.health["shouldHavePeers"], true);
@@ -1137,7 +1220,11 @@ mod tests {
 
     #[test]
     fn local_network_reader_close_releases_rpc_and_restart_does_not_revive_old_handles() {
-        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
         let reader = LocalNetworkReader::new();
         let old = reader.clone();
         let rpc = network_module(serde_json::json!([]));
@@ -1146,9 +1233,19 @@ mod tests {
         reader.close();
         assert!(weak.upgrade().is_none());
         assert!(old.peers().unwrap_err().contains("已关闭"));
-        assert!(old.attach(network_module(serde_json::json!([])), runtime.handle().clone()).is_err());
+        assert!(old
+            .attach(
+                network_module(serde_json::json!([])),
+                runtime.handle().clone()
+            )
+            .is_err());
         let restarted = LocalNetworkReader::new();
-        restarted.attach(network_module(serde_json::json!([{"peerId":"new-session"}])), runtime.handle().clone()).unwrap();
+        restarted
+            .attach(
+                network_module(serde_json::json!([{"peerId":"new-session"}])),
+                runtime.handle().clone(),
+            )
+            .unwrap();
         assert_eq!(restarted.peers().unwrap().as_array().unwrap().len(), 1);
         assert!(old.sync_snapshot().is_err());
         restarted.close();
@@ -1156,25 +1253,38 @@ mod tests {
 
     #[test]
     fn local_network_reader_discards_late_response_after_close() {
-        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
         let entered = Arc::new(tokio::sync::Notify::new());
         let release = Arc::new(tokio::sync::Notify::new());
         let started = entered.clone();
         let finish = release.clone();
         let mut module = jsonrpsee::RpcModule::new(());
-        module.register_async_method("system_peers", move |_, _, _| {
-            let started = started.clone(); let finish = finish.clone();
-            async move {
-                started.notify_one();
-                finish.notified().await;
-                serde_json::json!([{"peerId":"stale"}])
-            }
-        }).unwrap();
+        module
+            .register_async_method("system_peers", move |_, _, _| {
+                let started = started.clone();
+                let finish = finish.clone();
+                async move {
+                    started.notify_one();
+                    finish.notified().await;
+                    serde_json::json!([{"peerId":"stale"}])
+                }
+            })
+            .unwrap();
         let reader = LocalNetworkReader::new();
-        reader.attach(Arc::new(module), runtime.handle().clone()).unwrap();
+        reader
+            .attach(Arc::new(module), runtime.handle().clone())
+            .unwrap();
         let pending = reader.clone();
         let query = thread::spawn(move || pending.peers());
-        runtime.block_on(async { tokio::time::timeout(Duration::from_secs(2), entered.notified()).await.unwrap(); });
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(2), entered.notified())
+                .await
+                .unwrap();
+        });
         reader.close();
         release.notify_one();
         assert!(query.join().unwrap().unwrap_err().contains("已关闭"));
@@ -1182,9 +1292,18 @@ mod tests {
 
     #[test]
     fn local_network_reader_does_not_turn_malformed_peer_response_into_zero() {
-        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
         let reader = LocalNetworkReader::new();
-        reader.attach(network_module(serde_json::Value::Null), runtime.handle().clone()).unwrap();
+        reader
+            .attach(
+                network_module(serde_json::Value::Null),
+                runtime.handle().clone(),
+            )
+            .unwrap();
         assert!(reader.peers().unwrap_err().contains("返回格式无效"));
         reader.close();
     }
@@ -1204,19 +1323,27 @@ mod tests {
                 let _resource = resource;
                 ready.send(()).unwrap();
                 while !stopping.load(Ordering::Acquire) {
-                    if busy { std::hint::spin_loop(); }
-                    else { thread::sleep(Duration::from_millis(10)); }
+                    if busy {
+                        std::hint::spin_loop();
+                    } else {
+                        thread::sleep(Duration::from_millis(10));
+                    }
                 }
                 exits.fetch_add(1, Ordering::Release);
             });
         }
         drop(ready);
-        for _ in 0..2 { started.recv_timeout(Duration::from_secs(10)).unwrap(); }
+        for _ in 0..2 {
+            started.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
         drop(resource);
         assert!(weak.upgrade().is_some());
         drop(miners);
         assert_eq!(exits.load(Ordering::Acquire), 2);
-        assert!(weak.upgrade().is_none(), "停止返回前必须释放全部线程捕获资源");
+        assert!(
+            weak.upgrade().is_none(),
+            "停止返回前必须释放全部线程捕获资源"
+        );
         drop(CpuMinerThreads::new());
     }
 
@@ -1224,13 +1351,16 @@ mod tests {
     fn rpc_stage_preserves_original_error_chain() {
         let original = std::io::Error::other("固定上游错误(4003)");
         let error = rpc_stage_error("Ethereum客户端初始化", original);
-        assert_eq!(error.to_string(), "Ethereum客户端初始化: 固定上游错误(4003)");
+        assert_eq!(
+            error.to_string(),
+            "Ethereum客户端初始化: 固定上游错误(4003)"
+        );
         assert_eq!(error.source().unwrap().to_string(), "固定上游错误(4003)");
     }
 
     #[test]
     fn ethereum_rpc_requires_runtime_revive_after_genesis() {
-        let metadata: Vec<u8> = citizenchain::Runtime::metadata().into();
+        let metadata: Vec<u8> = runtime::Runtime::metadata().into();
         assert_eq!(ethereum_rpc_available(&metadata, 0), Ok(true));
         assert_eq!(ethereum_rpc_available(&metadata, 1), Ok(true));
 

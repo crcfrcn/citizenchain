@@ -18,15 +18,15 @@ import { notice } from './helpers_notice';
 import { adminHeaders, request } from './helpers_http';
 
 export type ChainSignResult = {
-  account_id: string;
+  accountId: string;
   signature: string;
   /** 换绑扫码可在同一响应中附带当前账户授权，二者不得拆成两次交互。 */
-  current_account_id?: string;
-  current_account_signature?: string;
+  currentAccountId?: string;
+  currentAccountSignature?: string;
 };
 
 /** 所有 OnChina 链交易 prepare 接口共用的最小返回结构。 */
-export type ChainSignPrepare = { request_id: string; sign_request: string };
+export type ChainSignPrepare = { requestId: string; signRequest: string };
 
 /**
  * 所有 OnChina 链交易共用的提交结果。
@@ -34,9 +34,9 @@ export type ChainSignPrepare = { request_id: string; sign_request: string };
  */
 export type ChainSubmitResult<TCitizen = unknown> = {
   purpose: string;
-  cid_number: string;
-  tx_hash: string;
-  block_number?: number | null;
+  cidNumber: string;
+  txHash: string;
+  blockNumber?: number | null;
   citizen?: TCitizen | null;
 };
 
@@ -47,7 +47,7 @@ export type ChainSubmitResult<TCitizen = unknown> = {
 export async function submitChainSign<TCitizen = unknown>(
   auth: AdminAuth,
   requestId: string,
-  account_id: string,
+  accountId: string,
   signature: string,
 ): Promise<ChainSubmitResult<TCitizen>> {
   return request<ChainSubmitResult<TCitizen>>('/api/admin/chain/submit', {
@@ -57,8 +57,8 @@ export async function submitChainSign<TCitizen = unknown>(
       ...adminHeaders(auth),
     },
     body: JSON.stringify({
-      request_id: requestId,
-      account_id,
+      requestId: requestId,
+      accountId,
       signature,
     }),
   });
@@ -96,18 +96,18 @@ export function useChainSign(title = '管理员公民钱包签名'): UseChainSig
       setScanning(true);
       try {
         const signed = parseSignedReceiptPayload(raw, pending.requestId);
-        if (signed.challenge_id !== pending.requestId) {
+        if (signed.challengeId !== pending.requestId) {
           throw new Error('签名响应与当前请求不匹配');
         }
-        if (!signed.account_id) {
+        if (!signed.accountId) {
           throw new Error('签名响应缺少 account_id');
         }
         // 统一把新账户签名和可选的当前账户签名交回同一个提交调用。
         pending.resolve({
-          account_id: signed.account_id,
+          accountId: signed.accountId,
           signature: signed.signature,
-          current_account_id: signed.current_account_id,
-          current_account_signature: signed.current_account_signature,
+          currentAccountId: signed.currentAccountId,
+          currentAccountSignature: signed.currentAccountSignature,
         });
         setPending(null);
       } catch (err) {

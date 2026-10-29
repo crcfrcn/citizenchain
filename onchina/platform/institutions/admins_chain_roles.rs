@@ -218,7 +218,7 @@ pub(crate) async fn fetch_active_assignments_onchain(
         .iter()
         .map(|admin| {
             Ok((
-                admin.role_assignment_account_id,
+                admin.role_account_id,
                 ActiveAdminRoleProjection {
                     account_id: admin.account_id.clone(),
                     family_name: admin.family_name.clone(),
@@ -337,7 +337,7 @@ pub(crate) async fn fetch_all_federal_registry_assignments(
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod scale_contract_tests {
     use super::*;
-    use entity_primitives::{
+    use entitybase::{
         AuthorizationSubject, BusinessActionId, RoleBusinessPermission, RoleSubject,
     };
     use frame_support::pallet_prelude::{BoundedVec, ConstU32};

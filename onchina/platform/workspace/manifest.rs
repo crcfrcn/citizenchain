@@ -69,7 +69,7 @@ pub(crate) fn own_institution_sections(capabilities: CapabilitySet) -> Vec<Works
                 action(
                     "view_own_admins".to_string(),
                     "本机构管理员",
-                    capabilities.can_view_own_admins,
+                    capabilities.view_own_admins,
                 ),
             ],
         ),
@@ -94,7 +94,9 @@ pub(crate) fn build_institution_workspace(
     workspace_modules: Vec<WorkspaceModule>,
 ) -> InstitutionWorkspace {
     let workspace_kind = workspace_kind_for(catalog, institution_code);
-    let workspace_sections = catalog.workspace(institution_code).map(|w| w.sections)
+    let workspace_sections = catalog
+        .workspace(institution_code)
+        .map(|w| w.sections)
         .unwrap_or_else(|| own_institution_sections(capabilities));
     InstitutionWorkspace {
         workspace_kind,
@@ -103,4 +105,3 @@ pub(crate) fn build_institution_workspace(
         workspace_modules,
     }
 }
-

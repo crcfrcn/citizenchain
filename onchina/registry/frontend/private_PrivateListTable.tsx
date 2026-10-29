@@ -10,16 +10,16 @@ import { notice } from '../../platform/frontend/helpers_notice';
 
 interface Props {
   auth: AdminAuth;
-  province_name: string;
-  city_name: string;
+  provinceName: string;
+  cityName: string;
   privateType: PrivateType;
   listInstitutions: (auth: AdminAuth, query: {
-    province_name: string;
-    city_name?: string;
-    private_type: PrivateType;
+    provinceName: string;
+    cityName?: string;
+    privateType: PrivateType;
     q: string;
     cursor?: string | null;
-    page_size?: number;
+    pageSize?: number;
   }) => Promise<PageResult<InstitutionListRow>>;
   onSelectInstitution?: (cidNumber: string) => void;
   refreshKey?: number;
@@ -28,8 +28,8 @@ interface Props {
 
 export const PrivateListTable: React.FC<Props> = ({
   auth,
-   province_name,
-   city_name,
+   provinceName,
+   cityName,
   privateType,
   listInstitutions,
   onSelectInstitution,
@@ -45,7 +45,7 @@ export const PrivateListTable: React.FC<Props> = ({
     const exactQuery = searchQuery?.trim() ?? '';
     // 已选定城市 → 空搜索=浏览该市全部私权机构(城市级有界,后端 drill-in 已投影本市链上私权机构)。
     // 未选城市(仅省)→ 空搜索仍不发请求,坚持精确搜索避免跨省全量扫描。
-    if (!exactQuery && !city_name) {
+    if (!exactQuery && !cityName) {
       setRows([]);
       setNextCursor(null);
       return () => {};
@@ -54,12 +54,12 @@ export const PrivateListTable: React.FC<Props> = ({
     let cancelled = false;
     setLoading(true);
     listInstitutions(auth, {
-       province_name,
-      city_name: city_name || undefined,
-      private_type: privateType,
+       provinceName,
+      cityName: cityName || undefined,
+      privateType: privateType,
       q: exactQuery,
       cursor,
-      page_size: 50,
+      pageSize: 50,
     })
       .then((data) => {
         if (cancelled) return;
@@ -81,13 +81,13 @@ export const PrivateListTable: React.FC<Props> = ({
     setCursorStack([]);
     return loadRows(null);
   }, [
-    auth.access_token,
-    auth.account_id,
-    auth.institution_code,
-    auth.scope_province_name,
-    auth.scope_city_name,
-     province_name,
-     city_name,
+    auth.accessToken,
+    auth.accountId,
+    auth.institutionCode,
+    auth.scopeProvinceName,
+    auth.scopeCityName,
+     provinceName,
+     cityName,
     privateType,
     listInstitutions,
     refreshKey,
@@ -102,22 +102,22 @@ export const PrivateListTable: React.FC<Props> = ({
         align: 'center',
         render: (_v, _row, index) => cursorStack.length * 50 + index + 1,
       },
-      { title: '身份ID', dataIndex: 'cid_number', width: 260, align: 'center' },
+      { title: '身份ID', dataIndex: 'cidNumber', width: 260, align: 'center' },
       {
         title: '机构全称',
-        dataIndex: 'cid_full_name',
+        dataIndex: 'cidFullName',
         width: 180,
         align: 'center',
         render: (v: string | null) =>
           v ? v : <span style={{ color: '#999' }}>(未设置全称,待完善)</span>,
       },
-      { title: '省/市', render: (_v, r) => `${r.province_name}/${r.city_name}`, width: 160, align: 'center' },
+      { title: '省/市', render: (_v, r) => `${r.provinceName}/${r.cityName}`, width: 160, align: 'center' },
       {
         title: '私权类型',
         key: 'private_type',
         width: 120,
         align: 'center',
-        render: (_v, r) => r.private_type ? PRIVATE_TYPE_LABEL[r.private_type] : '',
+        render: (_v, r) => r.privateType ? PRIVATE_TYPE_LABEL[r.privateType] : '',
       },
       {
         title: '法人资格',
@@ -125,8 +125,8 @@ export const PrivateListTable: React.FC<Props> = ({
         width: 110,
         align: 'center',
         render: (_v, r) => (
-          <Tag color={r.has_legal_personality ? 'green' : 'default'}>
-            {r.has_legal_personality ? '有法人资格' : '无法人资格'}
+          <Tag color={r.hasLegalPersonality ? 'green' : 'default'}>
+            {r.hasLegalPersonality ? '有法人资格' : '无法人资格'}
           </Tag>
         ),
       },
@@ -135,9 +135,9 @@ export const PrivateListTable: React.FC<Props> = ({
         key: 'partnership_kind',
         width: 110,
         align: 'center',
-        render: (_v, r) => r.partnership_kind ? PARTNERSHIP_KIND_LABEL[r.partnership_kind] : '',
+        render: (_v, r) => r.partnershipKind ? PARTNERSHIP_KIND_LABEL[r.partnershipKind] : '',
       },
-      { title: '账户数', dataIndex: 'account_count', width: 90, align: 'center' },
+      { title: '账户数', dataIndex: 'accountCount', width: 90, align: 'center' },
     ],
     [cursorStack.length],
   );
@@ -160,12 +160,12 @@ export const PrivateListTable: React.FC<Props> = ({
   return (
     <div>
       <Table<InstitutionListRow>
-        rowKey={(r) => r.cid_number}
+        rowKey={(r) => r.cidNumber}
         loading={loading}
         dataSource={rows}
         pagination={false}
         onRow={(row) => ({
-          onClick: () => onSelectInstitution?.(row.cid_number),
+          onClick: () => onSelectInstitution?.(row.cidNumber),
           style: onSelectInstitution ? { cursor: 'pointer' } : undefined,
         })}
         columns={columns}

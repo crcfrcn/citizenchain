@@ -115,12 +115,12 @@ function ss58Checksum(payload: Uint8Array): Uint8Array {
 }
 
 /// 把规范 account_id 编码成 SS58 展示地址。
-export function encodeSs58(account_id: string, prefix: number = CITIZENCHAIN_SS58_PREFIX): string {
-  account_id = account_id.trim();
-  if (!/^0x[0-9a-f]{64}$/.test(account_id)) {
+export function encodeSs58(accountId: string, prefix: number = CITIZENCHAIN_SS58_PREFIX): string {
+  accountId = accountId.trim();
+  if (!/^0x[0-9a-f]{64}$/.test(accountId)) {
     throw new Error('账户 ID 必须是小写 0x 加 64 位十六进制');
   }
-  const cleaned = account_id.slice(2);
+  const cleaned = accountId.slice(2);
   const pubkey = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
     pubkey[i] = parseInt(cleaned.substr(i * 2, 2), 16);
@@ -165,11 +165,11 @@ export function decodeSs58(address: string, expectedPrefix: number = CITIZENCHAI
 }
 
 /// 安全版本：失败时返回原始值（用于无法保证输入正确性的展示场景）。
-export function tryEncodeSs58(account_id: string | null | undefined): string {
-  if (!account_id) return '-';
+export function tryEncodeSs58(accountId: string | null | undefined): string {
+  if (!accountId) return '-';
   try {
-    return encodeSs58(account_id);
+    return encodeSs58(accountId);
   } catch {
-    return account_id;
+    return accountId;
   }
 }

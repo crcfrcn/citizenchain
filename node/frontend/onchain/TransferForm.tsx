@@ -132,7 +132,7 @@ export function TransferForm({ activeWallet, balance, balanceError, onRetryBalan
         <AddressScanModal
           onResult={(result) => {
             // 账户码只声明账户，不带金额；金额一律由本端手工填写。
-            setToAddress(result.ss58_address);
+            setToAddress(result.ss58Address);
             setShowScan(false);
           }}
           onClose={() => setShowScan(false)}

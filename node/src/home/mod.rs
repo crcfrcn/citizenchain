@@ -1,5 +1,5 @@
 // 首页模块入口，按职责拆分为进程管理、RPC 和身份管理三个子模块。
-// 钱包/链上转账已下沉到 `transaction::onchain`，对齐 runtime/transaction/onchain 边界。
+// 钱包/链上转账已下沉到 `onchain`，对齐 runtime/transaction/onchain 边界。
 
 pub(crate) mod identity;
 pub(crate) mod process;

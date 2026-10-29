@@ -21,12 +21,12 @@ pub struct Cli {
     /// 把本节点以清算行角色启动，参数为清算行机构 CID。
     /// 主账户由 CID 和统一账户派生协议确定，不再作为机构身份参数输入。若不设则节点不启动清算行组件
     /// (RPC / ledger / settlement/listener 全部跳过)。
-    #[arg(long, value_name = "CID_NUMBER")]
-    pub clearing_bank_cid_number: Option<String>,
+    #[arg(long = "clearing-bank-cid-number", value_name = "CID_NUMBER")]
+    pub bank_cid: Option<String>,
 
     /// 清算批次提交岗位码；必须与清算行 CID 和已解锁签名钱包的有效任职一致。
-    #[arg(long, value_name = "ROLE_CODE")]
-    pub clearing_bank_role_code: Option<String>,
+    #[arg(long = "clearing-bank-role-code", value_name = "ROLE_CODE")]
+    pub bank_role: Option<String>,
 
     /// 解锁 `offchain::settlement::keystore` 里清算行
     /// 管理员 sr25519 私钥的密码。不提供时签名密钥保持 `None`,节点只保留
@@ -38,8 +38,8 @@ pub struct Cli {
     /// `offchain::settlement::reserve` 主账对账触发周期(秒)。
     /// 缺省 300(5 分钟)。设为 0 则关闭对账 worker(不推荐,仅用于排障)。
     /// 仅在 `--clearing-bank-cid-number` 生效时启用。
-    #[arg(long, value_name = "SECS")]
-    pub clearing_reserve_monitor_interval_secs: Option<u64>,
+    #[arg(long = "clearing-reserve-monitor-interval-secs", value_name = "SECS")]
+    pub reserve_interval_secs: Option<u64>,
 }
 
 #[derive(Debug, clap::Subcommand)]

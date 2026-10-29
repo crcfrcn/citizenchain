@@ -66,12 +66,14 @@ async fn fetch_chain_genesis_hash_from_rpc() -> Result<[u8; 32], String> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ChainGetBlockHashResponse {
     result: Option<String>,
     error: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ChainRpcValueResponse {
     id: u64,
     result: Option<serde_json::Value>,
@@ -85,6 +87,7 @@ pub(crate) struct ChainFinalizedAnchor {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ChainHeaderResponse {
     result: Option<ChainHeader>,
     error: Option<serde_json::Value>,
@@ -254,6 +257,7 @@ fn twox64_concat_storage_map_key(pallet: &[u8], item: &[u8], encoded_key: &[u8])
 
 /// finalized `SquarePost` 平台价格快照。价格单位固定为分，CID 和价格均不落本地副本。
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PlatformMembershipSnapshot {
     pub(crate) block_hash: String,
     pub(crate) platform_cid_number: Option<String>,
@@ -547,8 +551,8 @@ pub(crate) fn parse_hex_2(raw: &str) -> Result<[u8; 2], String> {
 // `PrivateAdmins`(私权法人:股权/股份/有限合伙/公益/协会/私立学校等)。
 // 节点按自身机构码路由到对应 pallet,登录验签后比对该集合放行,
 // 本地 admins 表仅作展示元数据缓存，不保存管理员省权限。个人多签 PMUL 不在控制台范围。
-/// 联邦注册局机构码,镜像 `admin_primitives::FRG`(`*b"FRG\0"`)。
-/// onchina 不依赖 admin-primitives(避免引入 frame-support 重依赖),
+/// 联邦注册局机构码,镜像 `adminbase::FRG`(`*b"FRG\0"`)。
+/// onchina 不依赖 adminbase(避免引入 frame-support 重依赖),
 /// 此处单字面镜像;FRG 为稳定常量,与链端保持一致即可。
 const FRG_CODE: [u8; 4] = *b"FRG\0";
 /// 国家司法院机构码。NJD 虽属固定治理档,但按产品边界进入 OnChina 控制台。
@@ -572,7 +576,7 @@ struct OnChainAdminRecord {
 /// CID 在同一个 finalized 区块上的当前绑定账户，也是 OnChina 唯一接受的签名账户。
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ResolvedOnChainAdminRecord {
-    role_assignment_account_id: [u8; 32],
+    role_account_id: [u8; 32],
     account_id: [u8; 32],
     cid_number: Vec<u8>,
     family_name: Vec<u8>,
@@ -588,7 +592,7 @@ struct OnChainAdminAccount {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OnChainAdmin {
     pub(crate) account_id: String,
-    pub(crate) role_assignment_account_id: [u8; 32],
+    pub(crate) role_account_id: [u8; 32],
     pub(crate) cid_number: String,
     pub(crate) family_name: String,
     pub(crate) given_name: String,
@@ -601,7 +605,7 @@ fn decode_onchain_admin_account(
     let mut input = raw;
     let (institution_code, admins): ([u8; 4], Vec<OnChainAdminRecord>) = match pallet {
         AdminPallet::PublicAdmins => {
-            type Raw = admin_primitives::InstitutionAdmins<Vec<admin_primitives::Admin<[u8; 32]>>>;
+            type Raw = adminbase::InstitutionAdmins<Vec<adminbase::Admin<[u8; 32]>>>;
             let decoded = Raw::decode(&mut input)
                 .map_err(|e| format!("decode PublicInstitutionAdmins failed: {e}"))?;
             let admins = decoded
@@ -617,7 +621,7 @@ fn decode_onchain_admin_account(
             (decoded.institution_code, admins)
         }
         AdminPallet::PrivateAdmins => {
-            type Raw = admin_primitives::InstitutionAdmins<Vec<admin_primitives::Admin<[u8; 32]>>>;
+            type Raw = adminbase::InstitutionAdmins<Vec<adminbase::Admin<[u8; 32]>>>;
             let decoded = Raw::decode(&mut input)
                 .map_err(|e| format!("decode PrivateInstitutionAdmins failed: {e}"))?;
             let admins = decoded
@@ -745,7 +749,6 @@ pub(crate) struct NodeInstitutionIdentity {
     pub(crate) admin_pallets: Vec<AdminPallet>,
     /// 本机构 CID 号。提案归属/订阅统一按 CID,机构码只用于分类。
     pub(crate) cid_number: String,
-
 }
 
 #[derive(Debug, Clone)]
@@ -769,7 +772,7 @@ impl ActiveAdminMembership {
 
 /// 机构码 → 控制台准入的候选 admin pallet。
 ///
-/// 镜像链端 `admin-primitives` 路由语义(用 `primitives::cid::code` 分类,不引入 admin-primitives
+/// 镜像链端 `adminbase` 路由语义(用 `primitives::cid::code` 分类,不引入 adminbase
 /// 重依赖):FRG/NJD/其它公权法人→公权;私权法人→私权;
 /// 非法人按所属法人落公权或私权——账户键全局唯一,登录时按 [Public, Private] 顺序探测命中。
 /// 国家储委会/省储委会/省储行走节点桌面端,个人主体/个人多签都不在控制台范围,返回错误拒绝。
@@ -826,7 +829,10 @@ fn console_login_block_reason_for_membership(
         .flatten()
 }
 
-pub(crate) fn identity_from_binding_parts(institution_code: &str, institution_cid_number: Option<&str>) -> Result<NodeInstitutionIdentity, String> {
+pub(crate) fn identity_from_binding_parts(
+    institution_code: &str,
+    institution_cid_number: Option<&str>,
+) -> Result<NodeInstitutionIdentity, String> {
     let code = primitives::cid::code::institution_code_from_str(institution_code)
         .ok_or_else(|| "binding institution_code is invalid".to_string())?;
     let admin_pallets = console_admin_pallets(&code)?;
@@ -962,7 +968,7 @@ pub(crate) struct OnChainInstitutionAccount {
     pub(crate) account_id: [u8; 32],
 }
 
-/// 与 public-manage `InstitutionInfo` 字段序一致的最小解码结构。
+/// 与 publicentity `InstitutionInfo` 字段序一致的最小解码结构。
 #[derive(codec::Decode)]
 struct RawInstitutionInfo {
     cid_full_name: Vec<u8>,
@@ -973,7 +979,7 @@ struct RawInstitutionInfo {
     _created_at: u32,
 }
 
-/// 与 entity-primitives `LegalRepresentative` 字段序一致的最小解码结构。
+/// 与 entitybase `LegalRepresentative` 字段序一致的最小解码结构。
 #[derive(codec::Decode)]
 struct RawLegalRepresentative {
     family_name: Vec<u8>,
@@ -1110,12 +1116,11 @@ async fn matching_admin_for_signer<'a>(
         return Ok(Some(admin));
     }
     if target_cid_number.is_some() && pallet == AdminPallet::PrivateAdmins {
-        if let Some(role_assignment_account_id) =
-            private_legal_representatives.get(institution_cid_number)
-        {
-            let admin = decoded.admins.iter().find(|admin| {
-                &admin.account_id == role_assignment_account_id && admin.cid_number.is_empty()
-            });
+        if let Some(role_account_id) = private_legal_representatives.get(institution_cid_number) {
+            let admin = decoded
+                .admins
+                .iter()
+                .find(|admin| &admin.account_id == role_account_id && admin.cid_number.is_empty());
             if admin.is_none() {
                 return Err("private legal representative is missing from admin roster".to_string());
             }
@@ -1209,7 +1214,7 @@ async fn resolve_onchain_admin_records(
             return Err("resolved admin set contains duplicate account_id".to_string());
         }
         resolved.push(ResolvedOnChainAdminRecord {
-            role_assignment_account_id: admin.account_id,
+            role_account_id: admin.account_id,
             account_id,
             cid_number,
             family_name,
@@ -1219,7 +1224,7 @@ async fn resolve_onchain_admin_records(
     Ok(resolved)
 }
 
-/// 与 public-manage `InstitutionAccountInfo<AccountId, Balance, BlockNumber>` 字段序一致。
+/// 与 publicentity `InstitutionAccountInfo<AccountId, Balance, BlockNumber>` 字段序一致。
 #[derive(codec::Decode)]
 struct RawInstitutionAccountInfo {
     address: [u8; 32],
@@ -1228,18 +1233,27 @@ struct RawInstitutionAccountInfo {
 }
 
 /// 按唯一 CID 读取链上机构；依次查询公权、私权两个实体命名空间，禁止本地猜测归属。
-pub(crate) async fn institution_lookup(cid_number: &str) -> Result<Option<OnChainInstitution>, String> {
+pub(crate) async fn institution_lookup(
+    cid_number: &str,
+) -> Result<Option<OnChainInstitution>, String> {
     institution_lookup_at(cid_number, None).await
 }
 
-pub(crate) async fn institution_lookup_at(cid_number: &str, block_hash: Option<[u8; 32]>) -> Result<Option<OnChainInstitution>, String> {
+pub(crate) async fn institution_lookup_at(
+    cid_number: &str,
+    block_hash: Option<[u8; 32]>,
+) -> Result<Option<OnChainInstitution>, String> {
     let ws_url = super::chain_url::chain_ws_url()?;
     let client = super::chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for institutions failed: {e}"))?;
     let storage = match block_hash {
         Some(hash) => client.storage().at(subxt::utils::H256(hash)),
-        None => client.storage().at_latest().await.map_err(|e| format!("read finalized storage failed: {e}"))?,
+        None => client
+            .storage()
+            .at_latest()
+            .await
+            .map_err(|e| format!("read finalized storage failed: {e}"))?,
     };
     for pallet in ["PublicManage", "PrivateManage"] {
         let query = dynamic::storage(
@@ -1270,12 +1284,17 @@ pub(crate) async fn institution_lookup_at(cid_number: &str, block_hash: Option<[
 
 /// 全量遍历链上 `PublicManage::Institutions`(部署验收对账用),
 /// 每条回调 `(cid_number 字节, 机构信息)`,返回遍历总数。
-pub(crate) async fn for_each_chain_institution(f: impl FnMut(Vec<u8>, OnChainInstitution)) -> Result<usize, String> {
+pub(crate) async fn for_each_chain_institution(
+    f: impl FnMut(Vec<u8>, OnChainInstitution),
+) -> Result<usize, String> {
     let finalized = FinalizedChainView::connect().await?;
     for_each_chain_institution_at(&finalized, f).await
 }
 
-pub(crate) async fn for_each_chain_institution_at(finalized: &FinalizedChainView, mut f: impl FnMut(Vec<u8>, OnChainInstitution)) -> Result<usize, String> {
+pub(crate) async fn for_each_chain_institution_at(
+    finalized: &FinalizedChainView,
+    mut f: impl FnMut(Vec<u8>, OnChainInstitution),
+) -> Result<usize, String> {
     let storage = finalized.storage();
     let query = dynamic::storage("PublicManage", "Institutions", Vec::<dynamic::Value>::new());
     let mut iter = storage
@@ -1286,7 +1305,10 @@ pub(crate) async fn for_each_chain_institution_at(finalized: &FinalizedChainView
     while let Some(item) = iter.next().await {
         let kv = item.map_err(|e| format!("read institution entry failed: {e}"))?;
         // 键 = 32 前缀 + 16 blake2_128 + SCALE(BoundedVec<u8>);取尾段解出号字节。
-        let suffix = kv.key_bytes.get(48..).ok_or("institution storage key too short")?;
+        let suffix = kv
+            .key_bytes
+            .get(48..)
+            .ok_or("institution storage key too short")?;
         let mut cursor = suffix;
         let cid: Vec<u8> = codec::Decode::decode(&mut cursor)
             .map_err(|e| format!("decode institution key failed: {e}"))?;
@@ -1311,7 +1333,10 @@ pub(crate) async fn for_each_chain_institution_at(finalized: &FinalizedChainView
 /// 全量遍历链上 `PublicManage::InstitutionAccounts`。
 ///
 /// 只读取链上 storage,不按本地行政区或模板派生账户;本地 PostgreSQL 仅作为投影缓存。
-pub(crate) async fn for_each_chain_institution_account_at(finalized: &FinalizedChainView, mut f: impl FnMut(OnChainInstitutionAccount)) -> Result<usize, String> {
+pub(crate) async fn for_each_chain_institution_account_at(
+    finalized: &FinalizedChainView,
+    mut f: impl FnMut(OnChainInstitutionAccount),
+) -> Result<usize, String> {
     let storage = finalized.storage();
     let query = dynamic::storage(
         "PublicManage",
@@ -1326,7 +1351,10 @@ pub(crate) async fn for_each_chain_institution_account_at(finalized: &FinalizedC
     while let Some(item) = iter.next().await {
         let kv = item.map_err(|e| format!("read institution account entry failed: {e}"))?;
         // 键 = 32 前缀 + 16 blake2_128 + SCALE(cid) + 16 blake2_128 + SCALE(account_name)。
-        let mut suffix = kv.key_bytes.get(48..).ok_or("institution account storage key too short")?;
+        let mut suffix = kv
+            .key_bytes
+            .get(48..)
+            .ok_or("institution account storage key too short")?;
         let cid_number: Vec<u8> = codec::Decode::decode(&mut suffix)
             .map_err(|e| format!("decode institution account cid key failed: {e}"))?;
         if suffix.len() < 16 {
@@ -1354,12 +1382,19 @@ pub(crate) async fn for_each_chain_institution_account_at(finalized: &FinalizedC
 /// 按机构码选 pallet(私法人 → PrivateManage / 其余 → PublicManage),对首键做前缀迭代;
 /// 键解码沿用 `for_each_chain_institution_account`:48 头(32 存储前缀 + 16 blake2_128(cid))
 /// → decode cid → 跳过 16 blake2_128(account_name) → decode account_name。
-pub(crate) async fn institution_accounts_lookup(institution_code: &[u8; 4], cid_number: &str) -> Result<Vec<OnChainInstitutionAccount>, String> {
+pub(crate) async fn institution_accounts_lookup(
+    institution_code: &[u8; 4],
+    cid_number: &str,
+) -> Result<Vec<OnChainInstitutionAccount>, String> {
     let finalized = FinalizedChainView::connect().await?;
     institution_accounts_lookup_at(institution_code, cid_number, &finalized).await
 }
 
-pub(crate) async fn institution_accounts_lookup_at(institution_code: &[u8; 4], cid_number: &str, finalized: &FinalizedChainView) -> Result<Vec<OnChainInstitutionAccount>, String> {
+pub(crate) async fn institution_accounts_lookup_at(
+    institution_code: &[u8; 4],
+    cid_number: &str,
+    finalized: &FinalizedChainView,
+) -> Result<Vec<OnChainInstitutionAccount>, String> {
     let pallet = if primitives::cid::code::is_private_legal_code(institution_code) {
         "PrivateManage"
     } else {
@@ -1380,7 +1415,10 @@ pub(crate) async fn institution_accounts_lookup_at(institution_code: &[u8; 4], c
     while let Some(item) = iter.next().await {
         let kv = item.map_err(|e| format!("read institution account entry failed: {e}"))?;
         // 键 = 32 存储前缀 + 16 blake2_128(cid) + SCALE(cid) + 16 blake2_128(name) + SCALE(name)。
-        let mut suffix = kv.key_bytes.get(48..).ok_or("institution account storage key too short")?;
+        let mut suffix = kv
+            .key_bytes
+            .get(48..)
+            .ok_or("institution account storage key too short")?;
         let cid: Vec<u8> = codec::Decode::decode(&mut suffix)
             .map_err(|e| format!("decode institution account cid key failed: {e}"))?;
         if suffix.len() < 16 {
@@ -1423,8 +1461,8 @@ pub(crate) struct OnChainCitizenDetail {
     pub(crate) account_id: Option<[u8; 32]>,
     /// CID 当前绑定单调版本；链上已登记 CID 必须大于 0。
     pub(crate) binding_revision: u64,
-    pub(crate) binding_finalized_block_number: u32,
-    pub(crate) binding_finalized_block_hash: [u8; 32],
+    pub(crate) binding_block_number: u32,
+    pub(crate) binding_block_hash: [u8; 32],
     /// citizen_status == Normal / CidRecord.status == Active。
     pub(crate) status_normal: bool,
     pub(crate) passport_valid_from: Option<u32>,
@@ -1498,8 +1536,8 @@ pub(crate) async fn read_chain_citizen_detail_at(
             .then_some(snapshot.account_id)
             .flatten(),
         binding_revision,
-        binding_finalized_block_number: snapshot.finalized_block_number,
-        binding_finalized_block_hash: snapshot.finalized_block_hash,
+        binding_block_number: snapshot.finalized_block_number,
+        binding_block_hash: snapshot.finalized_block_hash,
         status_normal,
         passport_valid_from: valid_from,
         passport_valid_until: valid_until,
@@ -1509,12 +1547,19 @@ pub(crate) async fn read_chain_citizen_detail_at(
 
 /// 前缀扫描链上 `CitizenIdentity::CidRegistry`,回调 residence 落在指定 (省,市) 的公民 CID。
 /// 供联邦 drill-in 按市枚举本市公民(链上无按市索引,故过滤全表 residence)。
-pub(crate) async fn for_each_chain_citizen_cid_in_scope(province_code: &str, city_code: &str, f: impl FnMut(String)) -> Result<usize, String> {
+pub(crate) async fn for_each_chain_citizen_cid_in_scope(
+    province_code: &str,
+    city_code: &str,
+    f: impl FnMut(String),
+) -> Result<usize, String> {
     for_each_chain_citizen_cid_in_scope_at(province_code, city_code, None, f).await
 }
 
 pub(crate) async fn for_each_chain_citizen_cid_in_scope_at(
-    province_code: &str, city_code: &str, block_hash: Option<[u8; 32]>, mut f: impl FnMut(String),
+    province_code: &str,
+    city_code: &str,
+    block_hash: Option<[u8; 32]>,
+    mut f: impl FnMut(String),
 ) -> Result<usize, String> {
     #[derive(Decode)]
     struct RawCidRecord {
@@ -1532,7 +1577,11 @@ pub(crate) async fn for_each_chain_citizen_cid_in_scope_at(
         .map_err(|e| format!("connect chain ws for citizen scan failed: {e}"))?;
     let storage = match block_hash {
         Some(hash) => client.storage().at(subxt::utils::H256(hash)),
-        None => client.storage().at_latest().await.map_err(|e| format!("read finalized storage failed: {e}"))?,
+        None => client
+            .storage()
+            .at_latest()
+            .await
+            .map_err(|e| format!("read finalized storage failed: {e}"))?,
     };
     let query = dynamic::storage(
         "CitizenIdentity",
@@ -1547,19 +1596,26 @@ pub(crate) async fn for_each_chain_citizen_cid_in_scope_at(
     while let Some(item) = iter.next().await {
         let kv = item.map_err(|e| format!("read CidRegistry entry failed: {e}"))?;
         // 键 = 32 前缀 + 16 blake2_128 + SCALE(cid);取尾段解出号字节。
-        let mut cursor = kv.key_bytes.get(48..).ok_or("entity storage key too short")?;
+        let mut cursor = kv
+            .key_bytes
+            .get(48..)
+            .ok_or("entity storage key too short")?;
         let cid: Vec<u8> = codec::Decode::decode(&mut cursor)
             .map_err(|e| format!("decode CidRegistry key failed: {e}"))?;
         let mut raw = kv.value.encoded();
         let record = RawCidRecord::decode(&mut raw)
             .map_err(|e| format!("decode CidRegistry record failed: {e}"))?;
         let cid_str = String::from_utf8(cid).map_err(|_| "citizen CID is not UTF-8")?;
-        let voting = crate::core::chain_citizen_identity::read_voting_identity_at(&storage, &cid_str).await?;
+        let voting =
+            crate::core::chain_citizen_identity::read_voting_identity_at(&storage, &cid_str)
+                .await?;
         let (province, city) = match voting {
             Some(voting) => (voting.residence_province_code, voting.residence_city_code),
             None => (record.province, record.city),
         };
-        if on_chain_bytes_to_string(province) == province_code && on_chain_bytes_to_string(city) == city_code {
+        if on_chain_bytes_to_string(province) == province_code
+            && on_chain_bytes_to_string(city) == city_code
+        {
             f(cid_str);
             count += 1;
         }
@@ -1569,18 +1625,27 @@ pub(crate) async fn for_each_chain_citizen_cid_in_scope_at(
 
 /// 前缀扫描链上 `PrivateManage::Institutions`,回调每个私权机构 CID 字符串。
 /// 归属市由 CID 市码决定,过滤在调用方(或投影层按作用域再判)。
-pub(crate) async fn for_each_chain_private_institution_cid(f: impl FnMut(String)) -> Result<usize, String> {
+pub(crate) async fn for_each_chain_private_institution_cid(
+    f: impl FnMut(String),
+) -> Result<usize, String> {
     for_each_chain_private_institution_cid_at(None, f).await
 }
 
-pub(crate) async fn for_each_chain_private_institution_cid_at(block_hash: Option<[u8; 32]>, mut f: impl FnMut(String)) -> Result<usize, String> {
+pub(crate) async fn for_each_chain_private_institution_cid_at(
+    block_hash: Option<[u8; 32]>,
+    mut f: impl FnMut(String),
+) -> Result<usize, String> {
     let ws_url = super::chain_url::chain_ws_url()?;
     let client = super::chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for private institutions failed: {e}"))?;
     let storage = match block_hash {
         Some(hash) => client.storage().at(subxt::utils::H256(hash)),
-        None => client.storage().at_latest().await.map_err(|e| format!("read finalized storage failed: {e}"))?,
+        None => client
+            .storage()
+            .at_latest()
+            .await
+            .map_err(|e| format!("read finalized storage failed: {e}"))?,
     };
     let query = dynamic::storage(
         "PrivateManage",
@@ -1594,7 +1659,10 @@ pub(crate) async fn for_each_chain_private_institution_cid_at(block_hash: Option
     let mut count = 0usize;
     while let Some(item) = iter.next().await {
         let kv = item.map_err(|e| format!("read private institution entry failed: {e}"))?;
-        let mut cursor = kv.key_bytes.get(48..).ok_or("entity storage key too short")?;
+        let mut cursor = kv
+            .key_bytes
+            .get(48..)
+            .ok_or("entity storage key too short")?;
         let cid: Vec<u8> = codec::Decode::decode(&mut cursor)
             .map_err(|e| format!("decode private institution key failed: {e}"))?;
         let cid_str = String::from_utf8(cid).map_err(|_| "institution CID is not UTF-8")?;
@@ -1713,30 +1781,57 @@ pub(crate) async fn find_active_admin_memberships(
 }
 
 fn one_frg_province(provinces: &[[u8; 2]]) -> Result<[u8; 2], String> {
-    match provinces { [province] => Ok(*province), _ => Err("scope:FRG admin must have one unambiguous active province assignment".into()) }
+    match provinces {
+        [province] => Ok(*province),
+        _ => Err("scope:FRG admin must have one unambiguous active province assignment".into()),
+    }
 }
 
 /// FRG 范围属于当前账户的有效任职；每次在同一 finalized 视图重核，不读取绑定省份。
 pub(crate) async fn current_frg_province_name(cid: &str, account: &str) -> Result<String, String> {
     let identity = identity_from_binding_parts(TIER1_REGISTRY_CODE, Some(cid))?;
     let finalized = FinalizedChainView::connect().await?;
-    let admins = fetch_active_admins_onchain_at(&identity, &finalized).await?.ok_or("scope:FRG admin set missing")?;
-    let admin = admins.iter().find(|admin| crate::crypto::pubkey::same_account_id(&admin.account_id, account))
+    let admins = fetch_active_admins_onchain_at(&identity, &finalized)
+        .await?
+        .ok_or("scope:FRG admin set missing")?;
+    let admin = admins
+        .iter()
+        .find(|admin| crate::crypto::pubkey::same_account_id(&admin.account_id, account))
         .ok_or("scope:FRG account is no longer an active admin")?;
-    let provinces = crate::institutions::admins::chain_roles::fetch_frg_province_codes_for_admin(&finalized, cid.as_bytes(), admin.role_assignment_account_id).await?;
+    let provinces = crate::institutions::admins::chain_roles::fetch_frg_province_codes_for_admin(
+        &finalized,
+        cid.as_bytes(),
+        admin.role_account_id,
+    )
+    .await?;
     let province = one_frg_province(&provinces)?;
-    chain_province_name_by_code(province).ok_or_else(|| "scope:FRG assignment has unknown province".into())
+    chain_province_name_by_code(province)
+        .ok_or_else(|| "scope:FRG assignment has unknown province".into())
 }
 
 /// 既有同步守卫在连接池之外执行有界链读，不跨网络请求持有数据库连接或事务锁。
-pub(crate) fn current_frg_province_name_blocking(cid: &str, account: &str) -> Result<String, String> {
+pub(crate) fn current_frg_province_name_blocking(
+    cid: &str,
+    account: &str,
+) -> Result<String, String> {
     let cid = cid.to_string();
     let account = account.to_string();
     std::thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
-        runtime.block_on(async { tokio::time::timeout(std::time::Duration::from_secs(20), current_frg_province_name(&cid, &account)).await
-            .map_err(|_| "scope:FRG chain scope read timed out".to_string())? })
-    }).join().map_err(|_| "scope:FRG chain scope read worker failed".to_string())?
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?;
+        runtime.block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                current_frg_province_name(&cid, &account),
+            )
+            .await
+            .map_err(|_| "scope:FRG chain scope read timed out".to_string())?
+        })
+    })
+    .join()
+    .map_err(|_| "scope:FRG chain scope read worker failed".to_string())?
 }
 
 /// 读取本节点机构的链上管理员人员集合；`account_id` 始终是当前可签名账户。
@@ -1796,7 +1891,7 @@ pub(crate) async fn fetch_active_admins_onchain_at(
             .map(|admin| {
                 Ok(OnChainAdmin {
                     account_id: format!("0x{}", hex::encode(admin.account_id)),
-                    role_assignment_account_id: admin.role_assignment_account_id,
+                    role_account_id: admin.role_account_id,
                     cid_number: String::from_utf8(admin.cid_number)
                         .map_err(|_| "on-chain cid_number is not UTF-8".to_string())?,
                     family_name: String::from_utf8(admin.family_name)
@@ -1816,18 +1911,46 @@ pub(crate) async fn fetch_active_admins_onchain_at(
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::{
-        decode_scale_u128, is_production_mode, parse_hex_hash32, trusted_production_chain_by_hash,
-        ActiveAdminMembership, FRG_CODE, one_frg_province,
+        decode_scale_u128, is_production_mode, one_frg_province, parse_hex_hash32,
+        trusted_production_chain_by_hash, ActiveAdminMembership, FRG_CODE,
     };
 
     #[test]
+    fn upstream_rpc_envelopes_keep_official_jsonrpc_fields() {
+        // JSON-RPC 的 jsonrpc/id 属于上游封装，局部投影不得拒绝未使用的官方字段。
+        let hash: super::ChainGetBlockHashResponse = serde_json::from_value(serde_json::json!({
+            "jsonrpc":"2.0", "id":1, "result":"0x11"
+        }))
+        .unwrap();
+        assert_eq!(hash.result.as_deref(), Some("0x11"));
+        let value: super::ChainRpcValueResponse = serde_json::from_value(serde_json::json!({
+            "jsonrpc":"2.0", "id":2, "result":null
+        }))
+        .unwrap();
+        assert_eq!(value.id, 2);
+        let header: super::ChainHeaderResponse = serde_json::from_value(serde_json::json!({
+            "jsonrpc":"2.0", "id":3, "result":null
+        }))
+        .unwrap();
+        assert!(header.result.is_none());
+    }
+
+    #[test]
     fn frg_candidate_identity_is_cid_only_and_role_scope_is_unambiguous() {
-        let membership = ActiveAdminMembership { institution_code: FRG_CODE, cid_number:"FRG-CID".into(), frg_province_code:Some(*b"GZ") };
-        let moved = ActiveAdminMembership { frg_province_code:Some(*b"GD"), ..membership.clone() };
+        let membership = ActiveAdminMembership {
+            institution_code: FRG_CODE,
+            cid_number: "FRG-CID".into(),
+            frg_province_code: Some(*b"GZ"),
+        };
+        let moved = ActiveAdminMembership {
+            frg_province_code: Some(*b"GD"),
+            ..membership.clone()
+        };
         assert_eq!(membership.candidate_id(), moved.candidate_id());
         assert!(membership.candidate_id().contains("FRG-CID"));
         assert_eq!(one_frg_province(&[*b"GZ"]).unwrap(), *b"GZ");
-        assert!(one_frg_province(&[]).is_err()); assert!(one_frg_province(&[*b"GZ",*b"GD"]).is_err());
+        assert!(one_frg_province(&[]).is_err());
+        assert!(one_frg_province(&[*b"GZ", *b"GD"]).is_err());
     }
 
     #[test]
@@ -1846,9 +1969,9 @@ mod tests {
     fn onchain_institution_admin_account_decodes_unified_records_only() {
         use codec::Encode;
 
-        let bytes = admin_primitives::InstitutionAdmins {
+        let bytes = adminbase::InstitutionAdmins {
             institution_code: *b"CREG",
-            admins: vec![admin_primitives::Admin {
+            admins: vec![adminbase::Admin {
                 account_id: [0x42u8; 32],
                 cid_number: "CN220-CTZN2-198805200-2026"
                     .as_bytes()
@@ -1872,7 +1995,7 @@ mod tests {
             "CN220-CTZN2-198805200-2026".as_bytes()
         );
         let resolved = [super::ResolvedOnChainAdminRecord {
-            role_assignment_account_id: decoded.admins[0].account_id,
+            role_account_id: decoded.admins[0].account_id,
             account_id: [0x43; 32],
             cid_number: decoded.admins[0].cid_number.clone(),
             family_name: decoded.admins[0].family_name.clone(),
@@ -1881,7 +2004,7 @@ mod tests {
         // 换绑后岗位关联仍保留名册账户，但只有 CID 当前绑定的新账户能签名。
         assert!(resolved.iter().all(|admin| admin.account_id != [0x42; 32]));
         assert!(resolved.iter().any(|admin| admin.account_id == [0x43; 32]));
-        assert_eq!(resolved[0].role_assignment_account_id, [0x42; 32]);
+        assert_eq!(resolved[0].role_account_id, [0x42; 32]);
 
         let old_layout = (*b"CREG", vec![[0x42u8; 32]]).encode();
         assert!(
@@ -1894,9 +2017,9 @@ mod tests {
     fn private_institution_admin_account_decodes_unified_layout() {
         use codec::Encode;
 
-        let bytes = admin_primitives::InstitutionAdmins {
+        let bytes = adminbase::InstitutionAdmins {
             institution_code: *b"SFGY",
-            admins: vec![admin_primitives::Admin {
+            admins: vec![adminbase::Admin {
                 account_id: [0x24u8; 32],
                 cid_number: "CN220-CTZN2-198805200-2026"
                     .as_bytes()
@@ -1929,9 +2052,9 @@ mod tests {
         assert_eq!(decoded.admins[0].family_name, "程".as_bytes());
         assert_eq!(decoded.admins[0].given_name, "伟".as_bytes());
 
-        let account_only = admin_primitives::InstitutionAdmins {
+        let account_only = adminbase::InstitutionAdmins {
             institution_code: *b"SFGY",
-            admins: vec![admin_primitives::Admin {
+            admins: vec![adminbase::Admin {
                 account_id: [0x25u8; 32],
                 cid_number: Default::default(),
                 family_name: Default::default(),

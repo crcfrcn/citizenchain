@@ -5,7 +5,7 @@
 //! the CPU miner, using the upper half of the nonce space (bit 63 = 1).
 
 use crate::core::service::SimplePow;
-use citizenchain::opaque::Block;
+use runtime::opaque::Block;
 use codec::Encode;
 use ocl::{Buffer, MemFlags, ProQue};
 use sc_consensus_pow::MiningHandle;

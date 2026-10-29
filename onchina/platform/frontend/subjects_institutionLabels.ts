@@ -2,12 +2,12 @@
 // 取代原前端硬编码 INSTITUTION_CODE_LABEL。模块级缓存 + 一次拉取(免登录),多组件挂载复用同一份。
 
 import { useEffect, useState } from 'react';
-import { publicRequest } from './helpers_http';
+import { request } from './helpers_http';
 
 export type InstitutionCodeLabelMap = Record<string, string>;
 
 type CidLabelsResponse = {
-  institution_labels: { institution_code: string; institution_code_label: string }[];
+  institutionLabels: { institutionCode: string; institutionCodeLabel: string }[];
 };
 
 let cache: InstitutionCodeLabelMap | null = null;
@@ -16,11 +16,11 @@ let inflight: Promise<InstitutionCodeLabelMap> | null = null;
 function loadInstitutionCodeLabels(): Promise<InstitutionCodeLabelMap> {
   if (cache) return Promise.resolve(cache);
   if (!inflight) {
-    inflight = publicRequest<CidLabelsResponse>('/api/public/cid/labels', { method: 'GET' })
+    inflight = request<CidLabelsResponse>('/api/public/cid/labels', { method: 'GET' })
       .then((data) => {
         const map: InstitutionCodeLabelMap = {};
-        for (const item of data.institution_labels) {
-          map[item.institution_code] = item.institution_code_label;
+        for (const item of data.institutionLabels) {
+          map[item.institutionCode] = item.institutionCodeLabel;
         }
         cache = map;
         return map;

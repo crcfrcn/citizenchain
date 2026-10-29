@@ -28,7 +28,6 @@ impl InstitutionType {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminInfo {
-    #[serde(rename = "account_id")]
     pub account_id: String,
     pub family_name: String,
     pub given_name: String,
@@ -44,10 +43,10 @@ pub struct InstitutionDetail {
     pub cid_full_name: String,
     /// 机构中文简称,字段唯一对齐 runtime/CID 的 `cid_short_name`。
     pub cid_short_name: String,
-    /// 机构英文全称,字段唯一对齐 runtime/CID 的 `cid_full_name_en`。
-    pub cid_full_name_en: String,
-    /// 机构英文简称,字段唯一对齐 runtime/CID 的 `cid_short_name_en`。
-    pub cid_short_name_en: String,
+    /// 机构英文全称,读取当前固定 runtime/CID 接口 `full_name_en`。
+    pub full_name_en: String,
+    /// 机构英文简称,读取当前固定 runtime/CID 接口 `short_name_en`。
+    pub short_name_en: String,
     /// 链上身份标识。
     pub cid_number: String,
     /// 机构类型：0=NRC, 1=PRC, 2=PRB。
@@ -55,7 +54,6 @@ pub struct InstitutionDetail {
     /// 机构类型显示标签。
     pub org_type_label: String,
     /// 主账户 ID，固定为小写 `0x` + 64 位十六进制。
-    #[serde(rename = "main_account_id")]
     pub main_account_id: String,
     /// 主账户链上余额（分），节点未运行时为 null。
     pub balance_fen: Option<String>,
@@ -66,30 +64,25 @@ pub struct InstitutionDetail {
     /// 联合投票权重。
     pub joint_vote_weight: u32,
     /// 永久质押账户 AccountId hex（仅 PRB）。
-    #[serde(rename = "stake_account_id")]
     pub stake_account_id: Option<String>,
     /// 永久质押账户余额（分，仅 PRB）。
     pub staking_balance_fen: Option<String>,
     /// 手续费账户 AccountId hex（仅 PRB）。
-    #[serde(rename = "fee_account_id")]
     pub fee_account_id: Option<String>,
     /// 手续费账户余额（分，仅 PRB）。
     pub fee_balance_fen: Option<String>,
     /// 储委会费用账户 AccountId hex（省储委会，仅 PRC）。
-    #[serde(rename = "cb_fee_account_id")]
-    pub cb_fee_account_id: Option<String>,
+    pub cb_account_id: Option<String>,
     /// 储委会费用账户余额（分，仅 PRC）。
-    pub cb_fee_balance_fen: Option<String>,
+    pub cb_fee_fen: Option<String>,
     /// 国家储委会费用账户 AccountId hex（仅 NRC）。
-    #[serde(rename = "nrc_fee_account_id")]
-    pub nrc_fee_account_id: Option<String>,
+    pub nrc_account_id: Option<String>,
     /// 国家储委会手续费账户余额（分，仅 NRC）。
-    pub nrc_fee_balance_fen: Option<String>,
+    pub nrc_fee_fen: Option<String>,
     /// 国家储委会安全基金账户 AccountId hex（仅 NRC）。
-    #[serde(rename = "safety_fund_account_id")]
-    pub safety_fund_account_id: Option<String>,
+    pub fund_account_id: Option<String>,
     /// 国家储委会安全基金账户余额（分，仅 NRC）。
-    pub safety_fund_balance_fen: Option<String>,
+    pub fund_balance_fen: Option<String>,
     /// 告警信息。
     pub warning: Option<String>,
 }
@@ -107,11 +100,11 @@ pub struct InstitutionBalanceUpdate {
     /// 费用账户链上余额（分，仅 PRB）。
     pub fee_balance_fen: Option<String>,
     /// 省储委会费用账户链上余额（分，仅 PRC）。
-    pub cb_fee_balance_fen: Option<String>,
+    pub cb_fee_fen: Option<String>,
     /// 国家储委会费用账户链上余额（分，仅 NRC）。
-    pub nrc_fee_balance_fen: Option<String>,
+    pub nrc_fee_fen: Option<String>,
     /// 国家储委会安全基金账户链上余额（分，仅 NRC）。
-    pub safety_fund_balance_fen: Option<String>,
+    pub fund_balance_fen: Option<String>,
     /// 链上查询告警。
     pub warning: Option<String>,
 }
@@ -124,15 +117,14 @@ pub struct InstitutionListItem {
     pub cid_full_name: String,
     /// 机构中文简称,字段唯一对齐 runtime/CID 的 `cid_short_name`。
     pub cid_short_name: String,
-    /// 机构英文全称,字段唯一对齐 runtime/CID 的 `cid_full_name_en`。
-    pub cid_full_name_en: String,
-    /// 机构英文简称,字段唯一对齐 runtime/CID 的 `cid_short_name_en`。
-    pub cid_short_name_en: String,
+    /// 机构英文全称,读取当前固定 runtime/CID 接口 `full_name_en`。
+    pub full_name_en: String,
+    /// 机构英文简称,读取当前固定 runtime/CID 接口 `short_name_en`。
+    pub short_name_en: String,
     pub cid_number: String,
     pub org_type: u8,
     pub org_type_label: String,
     /// 主账户 ID，固定为小写 `0x` + 64 位十六进制。
-    #[serde(rename = "main_account_id")]
     pub main_account_id: String,
 }
 

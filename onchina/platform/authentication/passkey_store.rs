@@ -16,9 +16,9 @@ pub(super) fn insert_credential_conn(
     let payload =
         serde_json::to_value(passkey).map_err(|e| format!("encode passkey failed: {e}"))?;
     conn.execute(
-        "INSERT INTO admin_passkey_credentials(credential_id, account_id, passkey, created_at)
+        "INSERT INTO credential(credential_id, account_id, passkey_data, created_at)
          VALUES ($1, $2, $3, now())
-         ON CONFLICT (credential_id) DO UPDATE SET passkey = EXCLUDED.passkey",
+         ON CONFLICT (credential_id) DO UPDATE SET passkey_data = EXCLUDED.passkey_data",
         &[&credential_id, &account_id, &payload],
     )
     .map_err(|e| format!("insert passkey credential failed: {e}"))?;
@@ -31,7 +31,7 @@ pub(super) fn list_credentials_for_admin_conn(
 ) -> Result<Vec<Passkey>, String> {
     let rows = conn
         .query(
-            "SELECT passkey FROM admin_passkey_credentials WHERE account_id = $1",
+            "SELECT passkey_data FROM credential WHERE account_id = $1",
             &[&account_id],
         )
         .map_err(|e| format!("list passkey credentials failed: {e}"))?;
@@ -51,7 +51,7 @@ pub(super) fn update_credential_conn(
     let payload =
         serde_json::to_value(passkey).map_err(|e| format!("encode passkey failed: {e}"))?;
     conn.execute(
-        "UPDATE admin_passkey_credentials SET passkey = $2 WHERE credential_id = $1",
+        "UPDATE credential SET passkey_data = $2 WHERE credential_id = $1",
         &[&credential_id, &payload],
     )
     .map_err(|e| format!("update passkey credential failed: {e}"))?;
@@ -67,7 +67,7 @@ pub(super) fn insert_ceremony_conn(
     expires_at: DateTime<Utc>,
 ) -> Result<(), String> {
     conn.execute(
-        "INSERT INTO admin_passkey_ceremonies(ceremony_id, account_id, kind, state, expires_at)
+        "INSERT INTO ceremony(ceremony_id, account_id, record_kind, state_data, expires_at)
          VALUES ($1, $2, $3, $4, $5)",
         &[&ceremony_id, &account_id, &kind, state, &expires_at],
     )
@@ -85,10 +85,10 @@ pub(super) fn take_ceremony_conn(
 ) -> Result<Option<serde_json::Value>, String> {
     let row = conn
         .query_opt(
-            "DELETE FROM admin_passkey_ceremonies
+            "DELETE FROM ceremony
              WHERE ceremony_id = $1 AND account_id = $2
-               AND kind = $3 AND expires_at > $4
-             RETURNING state",
+               AND record_kind = $3 AND expires_at > $4
+             RETURNING state_data",
             &[&ceremony_id, &account_id, &kind, &now],
         )
         .map_err(|e| format!("take passkey ceremony failed: {e}"))?;
@@ -102,7 +102,7 @@ pub(super) fn insert_assertion_conn(
     expires_at: DateTime<Utc>,
 ) -> Result<(), String> {
     conn.execute(
-        "INSERT INTO admin_passkey_assertions(assertion_id, account_id, expires_at)
+        "INSERT INTO assertion(assertion_id, account_id, expires_at)
          VALUES ($1, $2, $3)",
         &[&assertion_id, &account_id, &expires_at],
     )
@@ -117,7 +117,7 @@ pub(super) fn admin_has_credential_conn(
 ) -> Result<bool, String> {
     let row = conn
         .query_one(
-            "SELECT EXISTS(SELECT 1 FROM admin_passkey_credentials WHERE account_id = $1)",
+            "SELECT EXISTS(SELECT 1 FROM credential WHERE account_id = $1)",
             &[&account_id],
         )
         .map_err(|e| format!("query passkey credential existence failed: {e}"))?;
@@ -133,7 +133,7 @@ pub(super) fn consume_assertion_conn(
 ) -> Result<bool, String> {
     let row = conn
         .query_opt(
-            "DELETE FROM admin_passkey_assertions
+            "DELETE FROM assertion
              WHERE assertion_id = $1 AND account_id = $2 AND expires_at > $3
              RETURNING assertion_id",
             &[&assertion_id, &account_id, &now],
@@ -147,15 +147,9 @@ pub(super) fn cleanup_passkey_state_conn(
     conn: &mut Client,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
-    conn.execute(
-        "DELETE FROM admin_passkey_ceremonies WHERE expires_at < $1",
-        &[&now],
-    )
-    .map_err(|e| format!("cleanup passkey ceremonies failed: {e}"))?;
-    conn.execute(
-        "DELETE FROM admin_passkey_assertions WHERE expires_at < $1",
-        &[&now],
-    )
-    .map_err(|e| format!("cleanup passkey assertions failed: {e}"))?;
+    conn.execute("DELETE FROM ceremony WHERE expires_at < $1", &[&now])
+        .map_err(|e| format!("cleanup passkey ceremonies failed: {e}"))?;
+    conn.execute("DELETE FROM assertion WHERE expires_at < $1", &[&now])
+        .map_err(|e| format!("cleanup passkey assertions failed: {e}"))?;
     Ok(())
 }

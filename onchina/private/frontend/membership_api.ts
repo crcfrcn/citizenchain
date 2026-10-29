@@ -27,9 +27,9 @@ export async function proposePlatformPrice(
       method: 'POST',
       headers: await passkeySubmitHeaders(auth, { 'content-type': 'application/json' }),
       body: JSON.stringify({
-        proposer_role_code: proposerRoleCode,
-        membership_level: membershipLevel,
-        new_price_fen: newPriceFen,
+        proposerRoleCode: proposerRoleCode,
+        membershipLevel: membershipLevel,
+        newPriceFen: newPriceFen,
       }),
     },
   );

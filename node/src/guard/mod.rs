@@ -31,7 +31,7 @@ use sp_crypto_hashing::blake2_128;
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 use sp_storage::StorageKey;
 
-use citizenchain::opaque::Block;
+use runtime::opaque::Block;
 
 use crate::core::service::{FullBackend, FullClient};
 
@@ -118,11 +118,11 @@ impl TestGenesisIdentity {
     pub(super) fn from_chain_spec(spec: &dyn sc_service::ChainSpec) -> Result<Self, String> {
         let storage = spec.as_storage_builder().build_storage()?;
         if storage.top.get(sp_core::storage::well_known_keys::CODE).map(Vec::as_slice)
-            != citizenchain::WASM_BINARY
+            != runtime::WASM_BINARY
         {
             return Err("测试创世必须使用本次内置的准确 WASM".into());
         }
-        let state_version = citizenchain::VERSION.state_version();
+        let state_version = runtime::VERSION.state_version();
         let mut changes = vec![(
             None,
             storage.top.into_iter().map(|(key, value)| (key, Some(value))).collect::<Vec<_>>(),
@@ -148,7 +148,7 @@ mod genesis_identity_tests {
     struct TestClient {
         recorded_hash: H256,
         indexed_hash: Option<H256>,
-        header: Option<citizenchain::opaque::Header>,
+        header: Option<runtime::opaque::Header>,
         hash_read_error: bool,
         header_read_error: bool,
     }
@@ -160,7 +160,7 @@ mod genesis_identity_tests {
                 recorded_hash,
                 indexed_hash: Some(recorded_hash),
                 // 冻结块 0：空 parent/digest，以及空 extrinsics trie 的实际根。
-                header: Some(citizenchain::opaque::Header::new(
+                header: Some(runtime::opaque::Header::new(
                     0,
                     H256::from(hex_literal::hex!(
                         "03170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314"
@@ -179,7 +179,7 @@ mod genesis_identity_tests {
         fn header(
             &self,
             hash: H256,
-        ) -> sp_blockchain::Result<Option<citizenchain::opaque::Header>> {
+        ) -> sp_blockchain::Result<Option<runtime::opaque::Header>> {
             assert_eq!(Some(hash), self.indexed_hash);
             if self.header_read_error {
                 return Err(sp_blockchain::Error::Backend("header read failed".into()));
@@ -1416,8 +1416,8 @@ mod finalize_issuance_tests {
     fn full_runtime_genesis_storage() -> sp_runtime::Storage {
         use sp_runtime::BuildStorage;
 
-        let config: citizenchain::RuntimeGenesisConfig =
-            serde_json::from_value(citizenchain::genesis::genesis_config())
+        let config: runtime::RuntimeGenesisConfig =
+            serde_json::from_value(genesis::config::genesis_config::<runtime::RuntimeGenesisConfig>())
                 .expect("decode complete runtime genesis config");
         config
             .build_storage()
@@ -1506,8 +1506,8 @@ mod finalize_issuance_tests {
     }
 
     fn test_chain_spec() -> crate::core::chain_spec::ChainSpec {
-        let wasm = citizenchain::WASM_BINARY.expect("test requires embedded runtime WASM");
-        let mut genesis_patch = citizenchain::genesis::genesis_config();
+        let wasm = runtime::WASM_BINARY.expect("test requires embedded runtime WASM");
+        let mut genesis_patch = genesis::config::genesis_config::<runtime::RuntimeGenesisConfig>();
         let alice = Sr25519Keyring::Alice
             .to_account_id()
             .to_ss58check_with_version(Ss58AddressFormat::custom(
@@ -1607,7 +1607,7 @@ mod finalize_issuance_tests {
     }
 
     fn skip_without_wasm_binary(test_name: &str) -> bool {
-        if citizenchain::WASM_BINARY.is_some() {
+        if runtime::WASM_BINARY.is_some() {
             return false;
         }
         eprintln!("{test_name}: 跳过真实服务级坏块验收；当前测试构建未内置 WASM_BINARY");
@@ -1618,8 +1618,8 @@ mod finalize_issuance_tests {
         let hex = blockchain_harness::alice_system_remark_extrinsic_hex(
             &format!("{genesis_hash:?}"),
             0,
-            citizenchain::VERSION.spec_version,
-            citizenchain::VERSION.transaction_version,
+            runtime::VERSION.spec_version,
+            runtime::VERSION.transaction_version,
             b"node-guard-bad-block",
         )
         .expect("build signed remark extrinsic");
@@ -1629,9 +1629,9 @@ mod finalize_issuance_tests {
     }
 
     fn timestamp_extrinsic(now: u64) -> <Block as BlockT>::Extrinsic {
-        let xt: citizenchain::UncheckedExtrinsic =
+        let xt: runtime::UncheckedExtrinsic =
             sp_runtime::generic::UncheckedExtrinsic::new_bare(
-                citizenchain::RuntimeCall::Timestamp(citizenchain::TimestampCall::set { now }),
+                runtime::RuntimeCall::Timestamp(runtime::TimestampCall::set { now }),
             )
             .into();
         xt.into()
@@ -1728,7 +1728,7 @@ mod finalize_issuance_tests {
         use sp_core::H256;
         use sp_runtime::Digest;
 
-        let header = citizenchain::opaque::Header::new(
+        let header = runtime::opaque::Header::new(
             number,
             H256::repeat_byte(1),
             H256::repeat_byte(2),
@@ -2213,7 +2213,7 @@ mod finalize_issuance_tests {
             genesis_hash,
             0,
             &BTreeMap::new(),
-            citizenchain::WASM_BINARY.expect("checked above"),
+            runtime::WASM_BINARY.expect("checked above"),
             genesis_hash,
         )
         .expect("current WASM must satisfy node-side runtime policy behavior probes");

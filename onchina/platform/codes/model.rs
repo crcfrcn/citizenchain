@@ -3,30 +3,35 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CidInstitutionCodeItem {
     pub(crate) institution_code: &'static str,
     pub(crate) institution_code_label: &'static str,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CidProvinceItem {
     pub(crate) province_name: String,
     pub(crate) province_code: String,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CidCityItem {
     pub(crate) city_name: String,
     pub(crate) city_code: String,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CidTownItem {
     pub(crate) town_name: String,
     pub(crate) town_code: String,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminCidMetaOutput {
     pub(crate) institution_options: Vec<CidInstitutionCodeItem>,
     pub(crate) provinces: Vec<CidProvinceItem>,
@@ -36,16 +41,21 @@ pub(crate) struct AdminCidMetaOutput {
 
 /// 公开机构码标签表(免登录):前端替代原硬编码 INSTITUTION_CODE_LABEL 的单一真源。
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CidLabelsOutput {
     pub(crate) institution_labels: Vec<CidInstitutionCodeItem>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminCidCitiesQuery {
     pub(crate) province_name: String,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminCidTownsQuery {
     pub(crate) province_name: String,
     pub(crate) city_code: String,

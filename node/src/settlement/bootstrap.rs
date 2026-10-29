@@ -29,16 +29,16 @@ use super::submitter::{PoolBatchSubmitter, TxPool};
 /// 返回值为可注入 JSON-RPC 的 `OffchainClearingRpcImpl`。如果未指定清算行、
 /// 地址无效或组件启动失败,返回 `None`,普通 PoW + GRANDPA 节点继续运行。
 pub(crate) fn start_from_cli(
-    clearing_bank_cid_number: Option<&str>,
-    clearing_bank_role_code: Option<&str>,
+    bank_cid: Option<&str>,
+    bank_role: Option<&str>,
     clearing_bank_password: Option<&str>,
-    reserve_monitor_interval_secs: Option<u64>,
+    reserve_interval_secs: Option<u64>,
     base_path: &Path,
     client: Arc<crate::core::service::FullClient>,
     transaction_pool: Arc<TxPool>,
     task_manager: &TaskManager,
 ) -> Option<Arc<OffchainClearingRpcImpl>> {
-    let raw_cid_number = clearing_bank_cid_number?;
+    let raw_cid_number = bank_cid?;
 
     let actor_cid_number = match primitives::cid::number::validate_cid_number_format(raw_cid_number)
     {
@@ -48,7 +48,7 @@ pub(crate) fn start_from_cli(
             return None;
         }
     };
-    let Some(actor_role_code) = clearing_bank_role_code
+    let Some(actor_role_code) = bank_role
         .map(str::trim)
         .filter(|value| !value.is_empty() && value.len() <= 64)
     else {
@@ -119,7 +119,7 @@ pub(crate) fn start_from_cli(
         task_manager,
         client,
         components.reserve_monitor.clone(),
-        reserve_monitor_interval_secs,
+        reserve_interval_secs,
     );
 
     log::info!(
@@ -176,9 +176,9 @@ fn spawn_reserve_worker(
     task_manager: &TaskManager,
     client: Arc<crate::core::service::FullClient>,
     monitor: Arc<super::reserve::ReserveMonitor>,
-    reserve_monitor_interval_secs: Option<u64>,
+    reserve_interval_secs: Option<u64>,
 ) {
-    let monitor_interval_secs = reserve_monitor_interval_secs.unwrap_or(300);
+    let monitor_interval_secs = reserve_interval_secs.unwrap_or(300);
     if monitor_interval_secs == 0 {
         log::warn!(
             "[ClearingBank] reserve monitor 已关闭(interval=0),仅用于排障,生产环境请保留默认 300 秒"

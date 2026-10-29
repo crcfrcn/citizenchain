@@ -79,7 +79,6 @@ fn activation_sign_sessions() -> &'static Mutex<HashMap<String, ActivationSignSe
 #[serde(rename_all = "camelCase")]
 pub struct ActivatedAdmin {
     /// 已激活管理员账户 ID，固定为小写 `0x` + 64 位十六进制。
-    #[serde(rename = "account_id")]
     pub account_id: String,
     /// 机构唯一 CID。
     pub cid_number: String,
@@ -335,7 +334,7 @@ fn activated_admin_from_stored(item: &StoredActivation) -> ActivatedAdmin {
 ///
 /// 验证公钥确实在该 CID 的链上管理员列表中，
 /// 然后生成 QR_V1/k=1 格式的 CID 级签名请求。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn build_activate_admin_request(
     app: AppHandle,
     signer_public_key: String,
@@ -436,7 +435,7 @@ pub async fn build_activate_admin_request(
 /// 验证管理员激活签名并写入本地加密存储。
 ///
 /// 本地验证 sr25519 签名，不提交链上交易；写入前重新确认链上账户仍 Active。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn verify_activate_admin(
     app: AppHandle,
     request_id: String,
@@ -624,7 +623,7 @@ pub async fn verify_activate_admin(
 /// - 链上已移除的管理员 → 自动删除本地激活记录；
 /// - institution_code/kind 已变化或账户已关闭 → 不再返回本地激活记录；
 /// - 返回仍有效的已激活管理员。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn get_activated_admins(
     app: AppHandle,
     cid_number: String,
@@ -686,7 +685,7 @@ pub async fn get_activated_admins(
 }
 
 /// 取消管理员激活（需要设备密码）。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn deactivate_admin(
     app: AppHandle,
     account_id: String,

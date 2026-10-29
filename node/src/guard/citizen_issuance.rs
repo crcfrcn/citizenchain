@@ -423,7 +423,7 @@ where
             let encoded = key
                 .get(identity_prefix.len() + 16..)
                 .ok_or(GuardError::StorageKeyMalformed("IdentityRewardClaimed"))?;
-            let cid = decode_exact::<citizen_identity::CidNumberBound>(
+            let cid = decode_exact::<identity::CidNumberBound>(
                 encoded,
                 "IdentityRewardClaimed key",
             )?;

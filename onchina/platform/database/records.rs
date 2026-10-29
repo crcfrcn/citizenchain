@@ -6,13 +6,17 @@ impl Db {
         account_id: &str,
     ) -> Result<Option<crate::institutions::model::GovernanceCitizen>, String> {
         let account_id = account_id.trim().to_string();
-        if account_id.is_empty() { return Ok(None); }
+        if account_id.is_empty() {
+            return Ok(None);
+        }
         self.with_client(move |conn| {
-            let row = conn.query_opt(
-                "SELECT cid_number, family_name, given_name, account_id
-                 FROM citizens WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1",
-                &[&account_id],
-            ).map_err(|e| format!("query governance citizen by account failed: {e}"))?;
+            let row = conn
+                .query_opt(
+                    "SELECT cid_number, family_name, given_name, account_id
+                 FROM citizen WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1",
+                    &[&account_id],
+                )
+                .map_err(|e| format!("query governance citizen by account failed: {e}"))?;
             Ok(row.as_ref().map(governance_citizen_from_row))
         })
     }
@@ -23,13 +27,17 @@ impl Db {
         cid_number: &str,
     ) -> Result<Option<crate::institutions::model::GovernanceCitizen>, String> {
         let cid_number = cid_number.trim().to_string();
-        if cid_number.is_empty() { return Ok(None); }
+        if cid_number.is_empty() {
+            return Ok(None);
+        }
         self.with_client(move |conn| {
-            let row = conn.query_opt(
-                "SELECT cid_number, family_name, given_name, account_id
-                 FROM citizens WHERE cid_number = $1 ORDER BY created_at DESC LIMIT 1",
-                &[&cid_number],
-            ).map_err(|e| format!("query governance citizen by cid failed: {e}"))?;
+            let row = conn
+                .query_opt(
+                    "SELECT cid_number, family_name, given_name, account_id
+                 FROM citizen WHERE cid_number = $1 ORDER BY created_at DESC LIMIT 1",
+                    &[&cid_number],
+                )
+                .map_err(|e| format!("query governance citizen by cid failed: {e}"))?;
             Ok(row.as_ref().map(governance_citizen_from_row))
         })
     }
@@ -49,9 +57,9 @@ impl Db {
             let row = conn
                 .query_one(
                     "SELECT EXISTS (
-                        SELECT 1 FROM subjects
-                        WHERE kind IN ('PUBLIC', 'PRIVATE')
-                          AND cid_full_name = $1
+                        SELECT 1 FROM subject
+                        WHERE record_kind IN ('PUBLIC', 'PRIVATE')
+                          AND full_name = $1
                           AND ($2::text IS NULL OR province_code = $2)
                           AND ($3::text IS NULL OR city_code = $3)
                           AND ($4::text IS NULL OR cid_number <> $4)
@@ -91,8 +99,8 @@ impl Db {
             let rows = conn
                 .query(
                     "SELECT cid_number
-                     FROM gov
-                     WHERE source = 'CHAIN'
+                     FROM government
+                     WHERE source_kind = 'CHAIN'
                        AND institution_code = $1
                      ORDER BY cid_number ASC
                      LIMIT 2",
@@ -129,20 +137,21 @@ impl Db {
         {
             let row = conn
                 .query_opt(
-                    "SELECT s.cid_number, s.cid_full_name, s.category,
-                            s.p1, ''::text AS province_name,
+                    "SELECT s.cid_number, s.full_name, s.subject_kind,
+                            s.profit_kind, ''::text AS province_name,
                             ''::text AS city_name, s.province_code, s.city_code, s.institution_code,
-                            s.private_type, s.partnership_kind, s.has_legal_personality,
-                            s.parent_cid_number, s.creator_account_id, s.created_at,
-                            s.cid_full_name, s.cid_short_name,
+                            s.private_type, s.partnership_kind, s.legal_personality,
+                            s.parent_cid, s.creator_account, s.created_at,
+                            s.full_name, s.short_name,
                             ''::text AS town_name, COALESCE(s.town_code, ''),
-                            s.education_type, s.family_name, s.given_name, s.legal_representative_cid_number,
-	                            s.legal_representative_photo_path, s.legal_representative_photo_name,
-	                            s.legal_representative_photo_mime, s.legal_representative_photo_size,
-	                            s.legal_representative_account_id, s.status, s.chain_status
-		                     FROM subjects s
-		                     LEFT JOIN gov g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
-	                     WHERE s.kind IN ('PUBLIC', 'PRIVATE') AND s.cid_number = $1
+                            s.education_type, s.family_name, s.given_name, s.representative_cid,
+	                            p.file_path, p.file_name,
+	                            p.mime_type, octet_length(p.file_data)::bigint,
+	                            s.representative_account, s.state_code, s.chain_status
+		                     FROM subject s
+		                     LEFT JOIN government g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
+                             LEFT JOIN photo p ON p.institution_cid = s.cid_number
+	                     WHERE s.record_kind IN ('PUBLIC', 'PRIVATE') AND s.cid_number = $1
 	                     LIMIT 1",
                     &[&cid_number],
                 )
@@ -154,7 +163,7 @@ impl Db {
             let account_rows = conn
                 .query(
                     "SELECT cid_number, account_name, account_id, created_at
-                     FROM accounts
+                     FROM account
                      WHERE cid_number = $1
                      ORDER BY account_name ASC",
                     &[&cid_number],
@@ -174,21 +183,9 @@ impl Db {
         }
     }
 
-
-
-
-
     /// 与读合并投影共用 CID 事务锁，避免同 CID 并发创建或链下正本被旧快照覆盖。
 
-
     /// next_seq 保存最后已分配值；首次启用只在原子插入时接续既有最大 ID。
-
-
-
-
-
-
-
 
     pub(crate) fn upsert_institution_row(
         &self,
@@ -196,11 +193,13 @@ impl Db {
     ) -> Result<(), String> {
         let inst = inst.clone();
         self.with_client(move |conn| {
-            let mut tx = conn.transaction().map_err(|e| format!("begin institution write failed: {e}"))?;
+            let mut tx = conn
+                .transaction()
+                .map_err(|e| format!("begin institution write failed: {e}"))?;
             crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
             Self::upsert_target_subject_rows(&mut tx, &inst)?;
-            tx.commit().map_err(|e| format!("commit institution write failed: {e}"))
-
+            tx.commit()
+                .map_err(|e| format!("commit institution write failed: {e}"))
         })
     }
 
@@ -215,7 +214,7 @@ impl Db {
         self.with_client(move |conn| {
             let row = conn
                 .query_opt(
-                    "SELECT account_id FROM citizens
+                    "SELECT account_id FROM citizen
                      WHERE cid_number = $1
                        AND citizen_status = 'NORMAL'
                        AND account_id IS NOT NULL
@@ -243,7 +242,7 @@ impl Db {
             let rows = conn
                 .query(
                     "SELECT cid_number
-                     FROM citizens
+                     FROM citizen
                      WHERE citizen_status = 'NORMAL'
                        AND ($1::text IS NULL OR province_code = $1)
                        AND ($2::text IS NULL OR city_code = $2)
@@ -288,57 +287,14 @@ impl Db {
         )?;
         Self::delete_target_rows_outside_scope(
             conn,
-            "subjects",
+            "subject",
             inst.cid_number.as_str(),
             province_code.as_str(),
         )?;
         let category = institution_category_text(inst.category);
-        let legal_representative_photo_size = inst
-            .legal_representative_photo_size
-            .and_then(|v| i64::try_from(v).ok());
         // 行政区名字不入库(china.sqlite 单源),只写 province_code/city_code/town_code。
         conn.execute(
-            "INSERT INTO subjects (
-                cid_number, kind, cid_full_name, cid_short_name,
-                category, p1,
-                province_code, city_code, town_code, institution_code,
-                education_type, private_type, partnership_kind, has_legal_personality,
-                parent_cid_number, family_name, given_name, legal_representative_cid_number,
-                legal_representative_account_id,
-                legal_representative_photo_path, legal_representative_photo_name, legal_representative_photo_mime,
-                legal_representative_photo_size, creator_account_id, created_at, status, chain_status, updated_at
-             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18,
-                $19, $20, $21, $22, $23, $24, $25, $26, $27, now()
-             )
-             ON CONFLICT (province_code, cid_number) DO UPDATE SET
-                kind = EXCLUDED.kind,
-                status = EXCLUDED.status,
-                chain_status = EXCLUDED.chain_status,
-                cid_full_name = EXCLUDED.cid_full_name,
-                cid_short_name = EXCLUDED.cid_short_name,
-                category = EXCLUDED.category,
-                p1 = EXCLUDED.p1,
-                province_code = EXCLUDED.province_code,
-                city_code = EXCLUDED.city_code,
-                town_code = EXCLUDED.town_code,
-                institution_code = EXCLUDED.institution_code,
-                education_type = EXCLUDED.education_type,
-                private_type = EXCLUDED.private_type,
-                partnership_kind = EXCLUDED.partnership_kind,
-                has_legal_personality = EXCLUDED.has_legal_personality,
-                parent_cid_number = EXCLUDED.parent_cid_number,
-                family_name = EXCLUDED.family_name,
-                given_name = EXCLUDED.given_name,
-                legal_representative_cid_number = EXCLUDED.legal_representative_cid_number,
-                legal_representative_account_id = EXCLUDED.legal_representative_account_id,
-                legal_representative_photo_path = EXCLUDED.legal_representative_photo_path,
-                legal_representative_photo_name = EXCLUDED.legal_representative_photo_name,
-                legal_representative_photo_mime = EXCLUDED.legal_representative_photo_mime,
-                legal_representative_photo_size = EXCLUDED.legal_representative_photo_size,
-                creator_account_id = EXCLUDED.creator_account_id,
-                updated_at = now()",
+            "INSERT INTO subject (cid_number, record_kind, full_name, short_name, subject_kind, profit_kind, province_code, city_code, town_code, institution_code, education_type, private_type, partnership_kind, legal_personality, parent_cid, family_name, given_name, representative_cid, representative_account, creator_account, created_at, state_code, chain_status, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now()) ON CONFLICT(province_code,cid_number) DO UPDATE SET record_kind=EXCLUDED.record_kind, full_name=EXCLUDED.full_name, short_name=EXCLUDED.short_name, subject_kind=EXCLUDED.subject_kind, profit_kind=EXCLUDED.profit_kind, city_code=EXCLUDED.city_code, town_code=EXCLUDED.town_code, institution_code=EXCLUDED.institution_code, education_type=EXCLUDED.education_type, private_type=EXCLUDED.private_type, partnership_kind=EXCLUDED.partnership_kind, legal_personality=EXCLUDED.legal_personality, parent_cid=EXCLUDED.parent_cid, family_name=EXCLUDED.family_name, given_name=EXCLUDED.given_name, representative_cid=EXCLUDED.representative_cid, representative_account=EXCLUDED.representative_account, creator_account=EXCLUDED.creator_account, state_code=EXCLUDED.state_code, chain_status=EXCLUDED.chain_status, updated_at=now()",
             &[
                 &inst.cid_number,
                 &kind,
@@ -359,10 +315,6 @@ impl Db {
                 &inst.legal_representative.as_ref().map(|value| value.given_name.as_str()),
                 &inst.legal_representative.as_ref().map(|value| value.cid_number.as_str()),
                 &inst.legal_representative.as_ref().map(|value| value.account_id.as_str()),
-                &inst.legal_representative_photo_path,
-                &inst.legal_representative_photo_name,
-                &inst.legal_representative_photo_mime,
-                &legal_representative_photo_size,
                 &inst.creator_account_id,
                 &inst.created_at,
                 &inst.status,
@@ -379,23 +331,26 @@ impl Db {
                     inst.cid_number.as_str(),
                     province_code.as_str(),
                 )?;
-                conn.execute("DELETE FROM gov WHERE cid_number = $1", &[&inst.cid_number])
-                    .map_err(|e| format!("delete gov row for private subject failed: {e}"))?;
+                conn.execute(
+                    "DELETE FROM government WHERE cid_number = $1",
+                    &[&inst.cid_number],
+                )
+                .map_err(|e| format!("delete gov row for private subject failed: {e}"))?;
                 if let Some(private_type) = &inst.private_type {
                     let has_legal_personality = inst.has_legal_personality.unwrap_or(false);
                     conn.execute(
                         "INSERT INTO private (
-                            cid_number, province_code, city_code, code, private_type, partnership_kind,
-                            has_legal_personality, p1, parent_cid_number
+                            cid_number, province_code, city_code, kind_code, private_type, partnership_kind,
+                            legal_personality, profit_kind, parent_cid
                          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                          ON CONFLICT (province_code, cid_number) DO UPDATE SET
                             city_code = EXCLUDED.city_code,
-                            code = EXCLUDED.code,
+                            kind_code = EXCLUDED.kind_code,
                             private_type = EXCLUDED.private_type,
                             partnership_kind = EXCLUDED.partnership_kind,
-                            has_legal_personality = EXCLUDED.has_legal_personality,
-                            p1 = EXCLUDED.p1,
-                            parent_cid_number = EXCLUDED.parent_cid_number",
+                            legal_personality = EXCLUDED.legal_personality,
+                            profit_kind = EXCLUDED.profit_kind,
+                            parent_cid = EXCLUDED.parent_cid",
                         &[
                             &inst.cid_number,
                             &province_code,
@@ -420,7 +375,7 @@ impl Db {
             crate::cid::InstitutionCategory::GovInstitution => {
                 Self::delete_target_rows_outside_scope(
                     conn,
-                    "gov",
+                    "government",
                     inst.cid_number.as_str(),
                     province_code.as_str(),
                 )?;
@@ -432,16 +387,16 @@ impl Db {
                 let home_p: Option<String> = None;
                 let home_c: Option<String> = None;
                 conn.execute(
-                    "INSERT INTO gov (
+                    "INSERT INTO government (
 		                        cid_number, province_code, city_code, town_code, institution_code,
-		                        source, home_p, home_c
+		                        source_kind, home_province, home_city
 		                     ) VALUES ($1, $2, $3, $4, $5, 'MANUAL', $6, $7)
 		                     ON CONFLICT (province_code, cid_number) DO UPDATE SET
 		                        city_code = EXCLUDED.city_code,
 		                        town_code = EXCLUDED.town_code,
 		                        institution_code = EXCLUDED.institution_code,
-		                        home_p = EXCLUDED.home_p,
-		                        home_c = EXCLUDED.home_c",
+		                        home_province = EXCLUDED.home_province,
+		                        home_city = EXCLUDED.home_city",
                     &[
                         &inst.cid_number,
                         &province_code,
@@ -481,27 +436,27 @@ impl Db {
     pub(crate) fn purge_legacy_cid_rows(&self, dry_run: bool) -> Result<PurgeReport, String> {
         // 号承载表清单,无外键约束,删除顺序无关;主登记表 ids 放最后。
         const CID_TABLES: [&str; 8] = [
-            "subjects",
-            "citizens",
-            "citizen_documents",
-            "gov",
+            "subject",
+            "citizen",
+            "document",
+            "government",
             "private",
-            "accounts",
-            "docs",
-            "ids",
+            "account",
+            "attachment",
+            "identity",
         ];
         self.with_client(move |conn| {
             // 1. 收集号全集与 kind(ids 为准,subjects 补孤儿)。
             let mut kind_by_cid: std::collections::HashMap<String, String> =
                 std::collections::HashMap::new();
             for row in conn
-                .query("SELECT cid_number, kind FROM ids", &[])
+                .query("SELECT cid_number, record_kind FROM identity", &[])
                 .map_err(|e| format!("scan ids failed: {e}"))?
             {
                 kind_by_cid.entry(row.get(0)).or_insert_with(|| row.get(1));
             }
             for row in conn
-                .query("SELECT DISTINCT cid_number, kind FROM subjects", &[])
+                .query("SELECT DISTINCT cid_number, record_kind FROM subject", &[])
                 .map_err(|e| format!("scan subjects failed: {e}"))?
             {
                 kind_by_cid.entry(row.get(0)).or_insert_with(|| row.get(1));
@@ -572,11 +527,11 @@ impl Db {
         self.with_client(move |conn| {
             let rows = conn
                 .query(
-                    "SELECT province_code, cid_number, kind,
+                    "SELECT province_code, cid_number, record_kind,
                             COALESCE(city_code, ''), COALESCE(town_code, ''),
-                            ''::text AS town_name, COALESCE(category, ''),
+                            ''::text AS town_name, COALESCE(subject_kind, ''),
                             COALESCE(institution_code, '')
-                     FROM subjects
+                     FROM subject
                      WHERE town_code IS NOT NULL AND town_code <> ''",
                     &[],
                 )
@@ -637,11 +592,11 @@ impl Db {
             // 按 (表, 主键关联列) 分别导出;subjects/gov/private/accounts 用 cid_number,
             // docs 用 cid_number,audit 用 target_cid。
             const EXPORTS: [(&str, &str); 6] = [
-                ("subjects", "cid_number"),
-                ("gov", "cid_number"),
+                ("subject", "cid_number"),
+                ("government", "cid_number"),
                 ("private", "cid_number"),
-                ("accounts", "cid_number"),
-                ("docs", "cid_number"),
+                ("account", "cid_number"),
+                ("attachment", "cid_number"),
                 ("audit", "target_cid"),
             ];
             for (province, cids) in &by_province {
@@ -699,14 +654,14 @@ impl Db {
 
             // 1. accounts(province_code 分区,按 cid_number)。
             tx.execute(
-                "DELETE FROM accounts WHERE province_code = $1 AND cid_number = ANY($2)",
+                "DELETE FROM account WHERE province_code = $1 AND cid_number = ANY($2)",
                 &[&province, &all_cids],
             )
             .map_err(|e| format!("delete accounts for {province} failed: {e}"))?;
 
             // 2. docs(province_code 分区,按 cid_number)。
             tx.execute(
-                "DELETE FROM docs WHERE province_code = $1 AND cid_number = ANY($2)",
+                "DELETE FROM attachment WHERE province_code = $1 AND cid_number = ANY($2)",
                 &[&province, &all_cids],
             )
             .map_err(|e| format!("delete docs for {province} failed: {e}"))?;
@@ -721,7 +676,7 @@ impl Db {
             // 4. gov / private(province_code 分区,按 kind 区分各自的 cid 集合)。
             if !gov_cids.is_empty() {
                 tx.execute(
-                    "DELETE FROM gov WHERE province_code = $1 AND cid_number = ANY($2)",
+                    "DELETE FROM government WHERE province_code = $1 AND cid_number = ANY($2)",
                     &[&province, &gov_cids],
                 )
                 .map_err(|e| format!("delete gov for {province} failed: {e}"))?;
@@ -735,13 +690,16 @@ impl Db {
             }
 
             // 5. ids(不分区,主登记表,仅按 cid_number)。
-            tx.execute("DELETE FROM ids WHERE cid_number = ANY($1)", &[&all_cids])
-                .map_err(|e| format!("delete ids for {province} failed: {e}"))?;
+            tx.execute(
+                "DELETE FROM identity WHERE cid_number = ANY($1)",
+                &[&all_cids],
+            )
+            .map_err(|e| format!("delete ids for {province} failed: {e}"))?;
 
             // 6. subjects(province_code 分区,父表最后删)。
             let deleted = tx
                 .execute(
-                    "DELETE FROM subjects WHERE province_code = $1 AND cid_number = ANY($2)",
+                    "DELETE FROM subject WHERE province_code = $1 AND cid_number = ANY($2)",
                     &[&province, &all_cids],
                 )
                 .map_err(|e| format!("delete subjects for {province} failed: {e}"))?;
@@ -812,35 +770,35 @@ impl Db {
             // 非法人按父级属性分流到公权/私权),无注入面;par 是子句依赖的父级别名,
             // 父级允许跨省(私法人全国),故只按 cid_number 关联不限定 province_code。
             let sql = format!(
-		                    "SELECT s.cid_number, s.cid_full_name, s.category,
-			                                    s.p1, ''::text AS province_name,
+		                    "SELECT s.cid_number, s.full_name, s.subject_kind,
+			                                    s.profit_kind, ''::text AS province_name,
 			                                    ''::text AS city_name, s.province_code, s.city_code, s.institution_code,
-				                                    s.private_type, s.partnership_kind, s.has_legal_personality,
-				                                    s.parent_cid_number, s.creator_account_id, s.created_at,
+				                                    s.private_type, s.partnership_kind, s.legal_personality,
+				                                    s.parent_cid, s.creator_account, s.created_at,
 				                                    COALESCE(ac.account_count, 0),
-				                                    a.family_name, a.given_name, a.institution_code, s.cid_full_name, s.cid_short_name,
+				                                    a.family_name, a.given_name, a.institution_code, s.full_name, s.short_name,
 				                                    ''::text AS town_name, COALESCE(s.town_code, ''),
-				                                    s.education_type, s.status, s.chain_status
-		                             FROM subjects s
-		                             LEFT JOIN gov g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
-		                             LEFT JOIN subjects par ON par.cid_number = s.parent_cid_number
+				                                    s.education_type, s.state_code, s.chain_status
+		                             FROM subject s
+		                             LEFT JOIN government g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
+		                             LEFT JOIN subject par ON par.cid_number = s.parent_cid
 		                             LEFT JOIN (
 	                                SELECT province_code, cid_number, COUNT(*)::BIGINT AS account_count
-	                                FROM accounts
+	                                FROM account
 	                                WHERE province_code = $1
 	                                  AND ($2::text IS NULL OR city_code = $2)
 	                                GROUP BY province_code, cid_number
 	                             ) ac ON ac.province_code = s.province_code AND ac.cid_number = s.cid_number
-	                             LEFT JOIN admins a ON a.account_id = s.creator_account_id
-	                             WHERE s.kind IN ('PUBLIC', 'PRIVATE')
+	                             LEFT JOIN admin a ON a.account_id = s.creator_account
+	                             WHERE s.record_kind IN ('PUBLIC', 'PRIVATE')
 	                               {filter_clause}
 	                               AND ($6::text IS NULL OR s.private_type = $6)
 	                               AND s.province_code = $1
 	                               AND ($2::text IS NULL OR s.city_code = $2)
 	                               AND (
 	                                    s.cid_number = $3
-	                                    OR lower(COALESCE(s.cid_full_name, '')) = lower($3)
-	                                    OR lower(COALESCE(s.cid_short_name, '')) = lower($3)
+	                                    OR lower(COALESCE(s.full_name, '')) = lower($3)
+	                                    OR lower(COALESCE(s.short_name, '')) = lower($3)
 	                               )
 	                               AND (
 	                                    $4::timestamptz IS NULL
@@ -892,25 +850,25 @@ impl Db {
             // 国家公民教育委员会不跨市铺开,学校和 F+JY 分支机构仍走精确搜索。
             let rows = conn
                 .query(
-                    "SELECT s.cid_number, s.cid_full_name, s.category,
-                                    s.p1, ''::text AS province_name,
+                    "SELECT s.cid_number, s.full_name, s.subject_kind,
+                                    s.profit_kind, ''::text AS province_name,
                                     ''::text AS city_name, s.province_code, s.city_code, s.institution_code,
-                                    s.private_type, s.partnership_kind, s.has_legal_personality,
-                                    s.parent_cid_number, s.creator_account_id, s.created_at,
+                                    s.private_type, s.partnership_kind, s.legal_personality,
+                                    s.parent_cid, s.creator_account, s.created_at,
                                     COALESCE(ac.account_count, 0),
-                                    a.family_name, a.given_name, a.institution_code, s.cid_full_name, s.cid_short_name,
+                                    a.family_name, a.given_name, a.institution_code, s.full_name, s.short_name,
                                     ''::text AS town_name, COALESCE(s.town_code, ''),
-                                    s.education_type, s.status, s.chain_status
-	                     FROM subjects s
-	                     JOIN gov g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
+                                    s.education_type, s.state_code, s.chain_status
+	                     FROM subject s
+	                     JOIN government g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
 	                     LEFT JOIN (
                         SELECT cid_number, COUNT(*)::BIGINT AS account_count
-                        FROM accounts
+                        FROM account
                         GROUP BY cid_number
                      ) ac ON ac.cid_number = s.cid_number
-                     LEFT JOIN admins a ON a.account_id = s.creator_account_id
-                     WHERE s.kind = 'PUBLIC'
-		                       AND g.source = 'CHAIN'
+                     LEFT JOIN admin a ON a.account_id = s.creator_account
+                     WHERE s.record_kind = 'PUBLIC'
+		                       AND g.source_kind = 'CHAIN'
 		                       AND s.institution_code IN ('NED', 'CEDU', 'GUN', 'GSCH')
 	                       AND s.education_type = $3
 	                       AND s.province_code = $1
@@ -953,24 +911,24 @@ impl Db {
                 .map_err(|_| "page_size too large".to_string())?;
             let rows = conn
                 .query(
-                    "SELECT s.cid_number, s.cid_full_name, s.category,
-                                    s.p1, ''::text AS province_name,
+                    "SELECT s.cid_number, s.full_name, s.subject_kind,
+                                    s.profit_kind, ''::text AS province_name,
                                     ''::text AS city_name, s.province_code, s.city_code, s.institution_code,
-                                    s.private_type, s.partnership_kind, s.has_legal_personality,
-                                    s.parent_cid_number, s.creator_account_id, s.created_at,
+                                    s.private_type, s.partnership_kind, s.legal_personality,
+                                    s.parent_cid, s.creator_account, s.created_at,
                                     COALESCE(ac.account_count, 0),
-                                    a.family_name, a.given_name, a.institution_code, s.cid_full_name, s.cid_short_name,
+                                    a.family_name, a.given_name, a.institution_code, s.full_name, s.short_name,
                                     ''::text AS town_name, COALESCE(s.town_code, ''),
-                                    s.education_type, s.status, s.chain_status
-	                     FROM subjects s
+                                    s.education_type, s.state_code, s.chain_status
+	                     FROM subject s
 	                     LEFT JOIN (
                         SELECT cid_number, COUNT(*)::BIGINT AS account_count
-                        FROM accounts
+                        FROM account
                         GROUP BY cid_number
                      ) ac ON ac.cid_number = s.cid_number
-                     LEFT JOIN admins a ON a.account_id = s.creator_account_id
-                     WHERE s.kind = 'PRIVATE'
-	                       AND s.category = 'PRIVATE_INSTITUTION'
+                     LEFT JOIN admin a ON a.account_id = s.creator_account
+                     WHERE s.record_kind = 'PRIVATE'
+	                       AND s.subject_kind = 'PRIVATE_INSTITUTION'
 	                       AND s.private_type IS NOT NULL
 	                       AND ($3::text IS NULL OR s.private_type = $3)
 	                       AND s.province_code = $1
@@ -1017,35 +975,35 @@ impl Db {
             // 父级只按 cid_number 关联(cid 全局唯一,父级不限定本省分区)。
             let rows = conn
                 .query(
-                    "SELECT s.cid_number, s.cid_full_name, s.category,
-			                                    s.p1, ''::text AS province_name,
+                    "SELECT s.cid_number, s.full_name, s.subject_kind,
+			                                    s.profit_kind, ''::text AS province_name,
 			                                    ''::text AS city_name, s.province_code, s.city_code, s.institution_code,
-				                                    s.private_type, s.partnership_kind, s.has_legal_personality,
-				                                    s.parent_cid_number, s.creator_account_id, s.created_at,
+				                                    s.private_type, s.partnership_kind, s.legal_personality,
+				                                    s.parent_cid, s.creator_account, s.created_at,
 			                                    COALESCE(ac.account_count, 0),
-			                                    a.family_name, a.given_name, a.institution_code, s.cid_full_name, s.cid_short_name,
+			                                    a.family_name, a.given_name, a.institution_code, s.full_name, s.short_name,
 			                                    ''::text AS town_name, COALESCE(s.town_code, ''),
-			                                    s.education_type, s.status, s.chain_status
-	                             FROM subjects s
-	                             LEFT JOIN gov g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
-	                             LEFT JOIN subjects par ON par.cid_number = s.parent_cid_number
+			                                    s.education_type, s.state_code, s.chain_status
+	                             FROM subject s
+	                             LEFT JOIN government g ON g.province_code = s.province_code AND g.cid_number = s.cid_number
+	                             LEFT JOIN subject par ON par.cid_number = s.parent_cid
 		                             LEFT JOIN (
 	                                SELECT province_code, cid_number, COUNT(*)::BIGINT AS account_count
-	                                FROM accounts
+	                                FROM account
 	                                WHERE province_code = $1
 	                                  AND ($2::text IS NULL OR city_code = $2)
 	                                GROUP BY province_code, cid_number
 	                             ) ac ON ac.province_code = s.province_code AND ac.cid_number = s.cid_number
-	                             LEFT JOIN admins a ON a.account_id = s.creator_account_id
-	                             WHERE s.kind IN ('PUBLIC', 'PRIVATE')
+	                             LEFT JOIN admin a ON a.account_id = s.creator_account
+	                             WHERE s.record_kind IN ('PUBLIC', 'PRIVATE')
 			                               AND (
-			                                    (s.category = 'GOV_INSTITUTION'
+			                                    (s.subject_kind = 'GOV_INSTITUTION'
 			                                     AND g.cid_number IS NOT NULL
-			                                     AND g.source = 'CHAIN'
+			                                     AND g.source_kind = 'CHAIN'
 			                                     AND s.institution_code NOT IN ('NED', 'CEDU', 'GUN', 'SUN', 'JUN', 'GSCH', 'SFSC', 'JSCH'))
 		                                    OR (s.institution_code IN ('SFGT', 'SFGP', 'UNIN')
 	                                        AND s.institution_code NOT IN ('NED', 'CEDU', 'GUN', 'SUN', 'GSCH', 'SFSC')
-	                                        AND par.category = 'GOV_INSTITUTION')
+	                                        AND par.subject_kind = 'GOV_INSTITUTION')
 	                               )
 	                               AND s.province_code = $1
 	                               AND ($2::text IS NULL OR s.city_code = $2)
@@ -1054,8 +1012,8 @@ impl Db {
 	                               AND (
 	                                    $3::text = ''
 	                                    OR lower(s.cid_number) LIKE '%' || $3 || '%'
-	                                    OR lower(COALESCE(s.cid_full_name, '')) LIKE '%' || $3 || '%'
-	                                    OR lower(COALESCE(s.cid_short_name, '')) LIKE '%' || $3 || '%'
+	                                    OR lower(COALESCE(s.full_name, '')) LIKE '%' || $3 || '%'
+	                                    OR lower(COALESCE(s.short_name, '')) LIKE '%' || $3 || '%'
 	                               )
 	                             ORDER BY
 		                                s.city_code ASC NULLS LAST,
@@ -1067,8 +1025,8 @@ impl Db {
                                         WHEN s.institution_code IN ('NRC','PRC','PRB') THEN 4
                                         ELSE 0
                                     END ASC,
-	                                COALESCE(s.cid_short_name, '') ASC,
-	                                COALESCE(s.cid_full_name, '') ASC,
+	                                COALESCE(s.short_name, '') ASC,
+	                                COALESCE(s.full_name, '') ASC,
 	                                s.cid_number ASC
 	                             LIMIT $4 OFFSET $5",
                     &[&province_code, &city_code, &keyword, &limit, &offset_i64, &institution_code_filter, &town_code],
@@ -1083,7 +1041,6 @@ impl Db {
     }
 }
 
-
 // 机构与公民共用的查询索引写入，保持唯一实现。
 impl Db {
     fn upsert_target_id_row<C: postgres::GenericClient>(
@@ -1095,7 +1052,10 @@ impl Db {
     ) -> Result<(), String> {
         // ids 是 cid_number 全局唯一索引,同号不能在身份大类之间静默改义。
         let existing = conn
-            .query_opt("SELECT kind FROM ids WHERE cid_number = $1", &[&cid_number])
+            .query_opt(
+                "SELECT record_kind FROM identity WHERE cid_number = $1",
+                &[&cid_number],
+            )
             .map_err(|e| format!("query target id failed: {e}"))?;
         if let Some(row) = existing {
             let existing_kind: String = row.get(0);
@@ -1105,13 +1065,13 @@ impl Db {
                 ));
             }
             conn.execute(
-                "UPDATE ids SET province_code = $2, city_code = $3 WHERE cid_number = $1",
+                "UPDATE identity SET province_code = $2, city_code = $3 WHERE cid_number = $1",
                 &[&cid_number, &province_code, &city_code],
             )
             .map_err(|e| format!("update target id failed: {e}"))?;
         } else {
             conn.execute(
-                "INSERT INTO ids (cid_number, kind, province_code, city_code)
+                "INSERT INTO identity (cid_number, record_kind, province_code, city_code)
                  VALUES ($1, $2, $3, $4)",
                 &[&cid_number, &kind, &province_code, &city_code],
             )
@@ -1133,11 +1093,15 @@ impl Db {
     }
 }
 
-
 /// 公共身份查询只映射治理需要的四个字段，不构造注册局完整档案。
-fn governance_citizen_from_row(row: &postgres::Row) -> crate::institutions::model::GovernanceCitizen {
+fn governance_citizen_from_row(
+    row: &postgres::Row,
+) -> crate::institutions::model::GovernanceCitizen {
     crate::institutions::model::GovernanceCitizen {
-        cid_number: row.get(0), family_name: row.get(1), given_name: row.get(2), account_id: row.get(3),
+        cid_number: row.get(0),
+        family_name: row.get(1),
+        given_name: row.get(2),
+        account_id: row.get(3),
     }
 }
 
@@ -1149,10 +1113,20 @@ mod governance_citizen_tests {
     #[test]
     fn empty_identity_is_absent_and_database_failure_is_preserved() {
         let db = Db::empty_for_route_test();
-        assert!(db.find_governance_citizen_by_account_id("  ").unwrap().is_none());
+        assert!(db
+            .find_governance_citizen_by_account_id("  ")
+            .unwrap()
+            .is_none());
         assert!(db.find_governance_citizen_by_cid("\t").unwrap().is_none());
-        assert_eq!(db.find_governance_citizen_by_account_id("account").unwrap_err(), "postgres client pool is empty");
-        assert_eq!(db.find_governance_citizen_by_cid("cid").unwrap_err(), "postgres client pool is empty");
+        assert_eq!(
+            db.find_governance_citizen_by_account_id("account")
+                .unwrap_err(),
+            "postgres client pool is empty"
+        );
+        assert_eq!(
+            db.find_governance_citizen_by_cid("cid").unwrap_err(),
+            "postgres client pool is empty"
+        );
     }
 
     #[test]
@@ -1163,8 +1137,8 @@ mod governance_citizen_tests {
         // 只写本测试独占schema，原分区、字段约束和实际查询均参与回归。
         sandbox.db.with_client(|conn| {
             conn.execute(
-                "INSERT INTO citizens(cid_number, family_name, given_name, account_id,
-                 province_code, city_code, citizen_status, voting_eligible, creator_account_id, created_at)
+                "INSERT INTO citizen(cid_number, family_name, given_name, account_id,
+                 province_code, city_code, citizen_status, voting_eligible, creator_account, created_at)
                  VALUES ('old', '旧姓', '旧名', $1, 'GZ', '001', 'NORMAL', true, $1, now() - interval '1 second'),
                         ('latest', '新姓', '新名', $1, 'GZ', '001', 'NORMAL', true, $1, now()),
                         ('unbound', '未绑定', '公民', NULL, 'GZ', '001', 'NORMAL', false, $1, now())",
@@ -1173,18 +1147,66 @@ mod governance_citizen_tests {
             Ok(())
         }).unwrap();
         let expected = crate::institutions::model::GovernanceCitizen {
-            cid_number: "latest".into(), family_name: "新姓".into(), given_name: "新名".into(), account_id: Some(actor.clone()),
+            cid_number: "latest".into(),
+            family_name: "新姓".into(),
+            given_name: "新名".into(),
+            account_id: Some(actor.clone()),
         };
-        assert_eq!(sandbox.db.find_governance_citizen_by_account_id(&format!(" {actor} ")).unwrap(), Some(expected));
-        let old = sandbox.db.find_governance_citizen_by_cid(" old ").unwrap().unwrap();
-        assert_eq!((old.cid_number.as_str(), old.family_name.as_str(), old.given_name.as_str(), old.account_id.as_deref()),
-                   ("old", "旧姓", "旧名", Some(actor.as_str())));
-        assert!(sandbox.db.find_governance_citizen_by_cid("unbound").unwrap().unwrap().account_id.is_none());
-        assert!(sandbox.db.find_governance_citizen_by_cid("missing").unwrap().is_none());
-        assert!(sandbox.db.find_governance_citizen_by_account_id(&format!("0x{}", "22".repeat(32))).unwrap().is_none());
+        assert_eq!(
+            sandbox
+                .db
+                .find_governance_citizen_by_account_id(&format!(" {actor} "))
+                .unwrap(),
+            Some(expected)
+        );
+        let old = sandbox
+            .db
+            .find_governance_citizen_by_cid(" old ")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (
+                old.cid_number.as_str(),
+                old.family_name.as_str(),
+                old.given_name.as_str(),
+                old.account_id.as_deref()
+            ),
+            ("old", "旧姓", "旧名", Some(actor.as_str()))
+        );
+        assert!(sandbox
+            .db
+            .find_governance_citizen_by_cid("unbound")
+            .unwrap()
+            .unwrap()
+            .account_id
+            .is_none());
+        assert!(sandbox
+            .db
+            .find_governance_citizen_by_cid("missing")
+            .unwrap()
+            .is_none());
+        assert!(sandbox
+            .db
+            .find_governance_citizen_by_account_id(&format!("0x{}", "22".repeat(32)))
+            .unwrap()
+            .is_none());
         // schema内临时隐藏源表，确保真实SQL失败不会伪装为未找到。
-        sandbox.db.with_client(|conn| conn.batch_execute("ALTER TABLE citizens RENAME TO citizens_unavailable").map_err(|e| e.to_string())).unwrap();
-        assert!(sandbox.db.find_governance_citizen_by_cid("latest").unwrap_err().contains("query governance citizen by cid failed"));
-        assert!(sandbox.db.find_governance_citizen_by_account_id(&actor).unwrap_err().contains("query governance citizen by account failed"));
+        sandbox
+            .db
+            .with_client(|conn| {
+                conn.batch_execute("ALTER TABLE citizen RENAME TO citizens_unavailable")
+                    .map_err(|e| e.to_string())
+            })
+            .unwrap();
+        assert!(sandbox
+            .db
+            .find_governance_citizen_by_cid("latest")
+            .unwrap_err()
+            .contains("query governance citizen by cid failed"));
+        assert!(sandbox
+            .db
+            .find_governance_citizen_by_account_id(&actor)
+            .unwrap_err()
+            .contains("query governance citizen by account failed"));
     }
 }

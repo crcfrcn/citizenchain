@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 
 use crate::cid::{generate_cid_number, GenerateCidInput};
 use crate::core::chain_citizen_identity::FinalizedCitizenIdentity;
-use crate::crypto::pubkey::{account_id_to_ss58, normalize_account_id};
+use crate::crypto::pubkey::normalize_account_id;
 use crate::registry::citizens::passport_no::{
     generate_passport_no_with_retry, is_voting_age_at, passport_valid_from, passport_valid_until,
     passport_validity_years,
@@ -30,6 +30,8 @@ use crate::*;
 /// 后期在详情页编辑完善(现有严格逻辑),占号阶段不收。用户钱包账户与签名在第二段
 /// `submit_citizen_occupy` 收集。
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminCreateCitizenInput {
     /// 当前注册局内的任职岗位码；与机构 CID、管理员签名钱包共同构成权限主体。
     pub(crate) actor_role_code: String,
@@ -39,6 +41,7 @@ pub(crate) struct AdminCreateCitizenInput {
 
 /// 直接录入公民返回 DTO。
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminCreateCitizenOutput {
     pub(crate) id: u64,
     pub(crate) cid_number: String,
@@ -50,7 +53,6 @@ pub(crate) struct AdminCreateCitizenOutput {
     pub(crate) citizen_status: CitizenStatus,
     pub(crate) voting_eligible: bool,
     pub(crate) account_id: Option<String>,
-    pub(crate) ss58_address: Option<String>,
     pub(crate) passport_valid_from: String,
     pub(crate) passport_valid_until: String,
     pub(crate) province_code: String,
@@ -64,6 +66,8 @@ pub(crate) struct AdminCreateCitizenOutput {
 
 /// 建档输入校验产物:两阶段占号流程经会话 JSON 往返(ADR-031 D6)。
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ValidatedCitizenInput {
     /// 人主体类型:CTZN / NATP(已校验)。发号机构码单源。
     pub(crate) cid_type: String,
@@ -214,7 +218,7 @@ pub(crate) fn persist_citizen_record(
     };
     // 账户与块哈希统一按 ADR-040 规范文本落库:小写 0x + 十六进制。
     let citizen_account_id = format!("0x{}", hex::encode(citizen_account_id));
-    let binding_finalized_block_hash = format!("0x{}", hex::encode(finalized.finalized_block_hash));
+    let binding_block_hash = format!("0x{}", hex::encode(finalized.finalized_block_hash));
     // 匿名占号:档案选填,出生日期可空,不解析成 NaiveDate(空串会 panic),按字符串原样落库。
     let citizen_birth_date = v.citizen_birth_date.clone();
     let family_name = v.family_name.clone();
@@ -248,8 +252,8 @@ pub(crate) fn persist_citizen_record(
         // 占即绑:占号阶段就绑定用户钱包账户(链上 occupy_cid 已绑)。
         account_id: Some(citizen_account_id),
         binding_revision,
-        binding_finalized_block_number: Some(i64::from(finalized.finalized_block_number)),
-        binding_finalized_block_hash: Some(binding_finalized_block_hash),
+        binding_block_number: Some(i64::from(finalized.finalized_block_number)),
+        binding_block_hash: Some(binding_block_hash),
         citizen_status: CitizenStatus::Normal,
         voting_eligible: v.voting_eligible,
         passport_valid_from: valid_from.clone(),
@@ -293,7 +297,6 @@ pub(crate) fn create_output_from_record(record: CitizenRecord) -> AdminCreateCit
         citizen_birth_date: record.citizen_birth_date,
         citizen_status: record.citizen_status,
         voting_eligible: record.voting_eligible,
-        ss58_address: record.account_id.as_deref().and_then(account_id_to_ss58),
         account_id: record.account_id,
         passport_valid_from: record.passport_valid_from,
         passport_valid_until: record.passport_valid_until,
@@ -309,7 +312,6 @@ pub(crate) fn create_output_from_record(record: CitizenRecord) -> AdminCreateCit
 
 pub(crate) struct ResolvedCitizenAccount {
     pub(crate) account_id: String,
-    pub(crate) ss58_address: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -364,36 +366,26 @@ pub(crate) fn resolve_citizen_account(
             "account_id 必须是小写 0x 加 64 位十六进制",
         ));
     };
-    let Some(ss58_address) = account_id_to_ss58(&account_id) else {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            1001,
-            "account_id 无法派生 SS58 展示地址",
-        ));
-    };
-    Ok(ResolvedCitizenAccount {
-        account_id,
-        ss58_address,
-    })
+    Ok(ResolvedCitizenAccount { account_id })
 }
 
 fn citizen_archive_hash(record: &CitizenRecord) -> String {
     let value = serde_json::json!({
-        "cid_number": record.cid_number,
-        "passport_no": record.passport_no,
-        "family_name": record.family_name,
-        "given_name": record.given_name,
-        "citizen_sex": record.citizen_sex,
-        "citizen_birth_date": record.citizen_birth_date,
-        "province_code": record.province_code,
-        "city_code": record.city_code,
-        "town_code": record.town_code,
-        "birth_province_code": record.birth_province_code,
-        "birth_city_code": record.birth_city_code,
-        "birth_town_code": record.birth_town_code,
-        "passport_valid_from": record.passport_valid_from,
-        "passport_valid_until": record.passport_valid_until,
-        "voting_eligible": record.voting_eligible,
+        "cidNumber": record.cid_number,
+        "passportNo": record.passport_no,
+        "familyName": record.family_name,
+        "givenName": record.given_name,
+        "citizenSex": record.citizen_sex,
+        "citizenBirthDate": record.citizen_birth_date,
+        "provinceCode": record.province_code,
+        "cityCode": record.city_code,
+        "townCode": record.town_code,
+        "birthProvinceCode": record.birth_province_code,
+        "birthCityCode": record.birth_city_code,
+        "birthTownCode": record.birth_town_code,
+        "passportValidFrom": record.passport_valid_from,
+        "passportValidUntil": record.passport_valid_until,
+        "votingEligible": record.voting_eligible,
     });
     let mut hasher = Sha256::new();
     hasher.update(value.to_string().as_bytes());
@@ -413,16 +405,16 @@ impl Db {
         self.with_client(move |conn| {
             let row = conn
                 .query_opt(
-                    "SELECT COALESCE(id, 0), cid_number, passport_no, family_name,
-                            given_name, citizen_sex, citizen_birth_date, account_id,
-                            binding_revision, binding_finalized_block_number,
-                            binding_finalized_block_hash, citizen_status, voting_eligible,
-                            passport_valid_from, passport_valid_until, status_updated_at,
+                    "SELECT COALESCE(row_id, 0), cid_number, passport_no, family_name,
+                            given_name, citizen_sex, birth_date, account_id,
+                            binding_revision, binding_block,
+                            binding_hash, citizen_status, voting_eligible,
+                            valid_from, valid_until, status_at,
                             province_code, city_code, town_code,
-                            birth_province_code, birth_city_code, birth_town_code,
-                            archive_hash, onchain_tx_hash, onchain_block_number, onchain_at,
-                            creator_account_id, created_at, updater_account_id, updated_at
-                     FROM citizens
+                            birth_province, birth_city, birth_town,
+                            archive_hash, tx_hash, block_number, onchain_at,
+                            creator_account, created_at, updater_account, updated_at
+                     FROM citizen
                      WHERE account_id = $1
                      ORDER BY created_at DESC
                      LIMIT 1",
@@ -446,8 +438,6 @@ impl Db {
             generate_passport_no_with_retry(conn, &province_code, &city_code, &cid_number)
         })
     }
-
-
 }
 
 fn citizen_status_from_db(status: &str) -> CitizenStatus {
@@ -469,8 +459,8 @@ pub(crate) fn citizen_record_from_row(row: &postgres::Row) -> CitizenRecord {
         citizen_birth_date: row.get(6),
         account_id: row.get(7),
         binding_revision: u64::try_from(row.get::<_, i64>(8)).unwrap_or(0),
-        binding_finalized_block_number: row.get(9),
-        binding_finalized_block_hash: row.get(10),
+        binding_block_number: row.get(9),
+        binding_block_hash: row.get(10),
         citizen_status: citizen_status_from_db(row.get::<_, String>(11).as_str()),
         voting_eligible: row.get(12),
         passport_valid_from: row.get(13),
@@ -508,6 +498,8 @@ pub(crate) fn citizen_record_from_row(row: &postgres::Row) -> CitizenRecord {
 /// 出生日期派生年限),绝不接受前端直填,避免破坏护照号唯一性与有效期口径。
 /// 居住省与身份 CID 不在本入口变更。
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminEditCitizenInput {
     // ── 可变:姓名与居住市镇 ──
     #[serde(default)]
@@ -743,12 +735,18 @@ pub(crate) async fn admin_update_citizen(
     if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
         return resp;
     }
-    let passkey = match crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id) {
+    let passkey = match crate::authentication::passkey::require_passkey_assertion(
+        &state,
+        &headers,
+        &ctx.account_id,
+    ) {
         Ok(proof) => proof,
         Err(response) => return response,
     };
     // 网络鉴权已经结束；在同一事务内重新读取档案、校验锁定字段并签发护照。
-    let updated = match state.db.with_client(|conn| apply_citizen_edit_conn(conn, &ctx, passkey.binding_id(), &cid_number, &input)) {
+    let updated = match state.db.with_client(|conn| {
+        apply_citizen_edit_conn(conn, &ctx, passkey.binding_id(), &cid_number, &input)
+    }) {
         Ok(Ok(record)) => record,
         Ok(Err(response)) => return response,
         Err(err) => {
@@ -772,32 +770,72 @@ fn apply_citizen_edit_conn(
     cid: &str,
     input: &AdminEditCitizenInput,
 ) -> Result<Result<CitizenRecord, axum::response::Response>, String> {
-    let mut tx = conn.transaction().map_err(|e| format!("begin citizen edit failed: {e}"))?;
+    let mut tx = conn
+        .transaction()
+        .map_err(|e| format!("begin citizen edit failed: {e}"))?;
     crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
     let binding = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?;
-    if !binding.is_some_and(|binding| binding.binding_id == expected_binding_id && binding.institution_cid_number == ctx.institution_cid_number && binding.institution_code == ctx.institution_code) {
-        return Ok(Err(crate::api_error(StatusCode::CONFLICT, 1005, "节点绑定已改变，请重新登录")));
+    if !binding.is_some_and(|binding| {
+        binding.binding_id == expected_binding_id
+            && binding.institution_cid_number == ctx.institution_cid_number
+            && binding.institution_code == ctx.institution_code
+    }) {
+        return Ok(Err(crate::api_error(
+            StatusCode::CONFLICT,
+            1005,
+            "节点绑定已改变，请重新登录",
+        )));
     }
     Db::lock_citizen_conn(&mut tx, cid)?;
     let Some(existing) = Db::find_citizen_by_cid_conn(&mut tx, cid)? else {
-        return Ok(Err(crate::api_error(StatusCode::NOT_FOUND, 1004, "公民档案不存在")));
+        return Ok(Err(crate::api_error(
+            StatusCode::NOT_FOUND,
+            1004,
+            "公民档案不存在",
+        )));
     };
-    if let Err(response) = crate::registry::citizens::chain_identity::ensure_record_in_admin_scope(ctx, &existing) {
+    if let Err(response) =
+        crate::registry::citizens::chain_identity::ensure_record_in_admin_scope(ctx, &existing)
+    {
         return Ok(Err(response));
     }
     let family_name = input.family_name.trim().to_string();
     let given_name = input.given_name.trim().to_string();
     if family_name.is_empty() || given_name.is_empty() {
-        return Ok(Err(crate::api_error(StatusCode::BAD_REQUEST, 1001, "姓名不能为空")));
+        return Ok(Err(crate::api_error(
+            StatusCode::BAD_REQUEST,
+            1001,
+            "姓名不能为空",
+        )));
     }
-    let city = if input.city_code.trim().is_empty() { existing.city_code.clone() } else { input.city_code.trim().to_string() };
-    let town = if input.town_code.trim().is_empty() { existing.town_code.clone() } else { input.town_code.trim().to_string() };
+    let city = if input.city_code.trim().is_empty() {
+        existing.city_code.clone()
+    } else {
+        input.city_code.trim().to_string()
+    };
+    let town = if input.town_code.trim().is_empty() {
+        existing.town_code.clone()
+    } else {
+        input.town_code.trim().to_string()
+    };
     let locked = match resolve_locked_identity(&existing, input) {
         Ok(locked) => locked,
-        Err(message) => return Ok(Err(crate::api_error(StatusCode::BAD_REQUEST, 1001, &message))),
+        Err(message) => {
+            return Ok(Err(crate::api_error(
+                StatusCode::BAD_REQUEST,
+                1001,
+                &message,
+            )))
+        }
     };
-    if let Err(message) = validate_locked_identity(&existing, &locked, input.voting_eligible, &city, &town) {
-        return Ok(Err(crate::api_error(StatusCode::BAD_REQUEST, 1001, &message)));
+    if let Err(message) =
+        validate_locked_identity(&existing, &locked, input.voting_eligible, &city, &town)
+    {
+        return Ok(Err(crate::api_error(
+            StatusCode::BAD_REQUEST,
+            1001,
+            &message,
+        )));
     }
     let now = Utc::now();
     let mut updated = existing;
@@ -814,16 +852,23 @@ fn apply_citizen_edit_conn(
     if updated.passport_no.trim().is_empty() && !updated.citizen_birth_date.is_empty() {
         let birth = NaiveDate::parse_from_str(&updated.citizen_birth_date, "%Y-%m-%d")
             .map_err(|_| "validated birth date became invalid")?;
-        updated.passport_no = generate_passport_no_with_retry(&mut tx, &updated.province_code, &updated.city_code, &updated.cid_number)?;
+        updated.passport_no = generate_passport_no_with_retry(
+            &mut tx,
+            &updated.province_code,
+            &updated.city_code,
+            &updated.cid_number,
+        )?;
         updated.passport_valid_from = passport_valid_from(now);
-        updated.passport_valid_until = passport_valid_until(now, passport_validity_years(now, birth));
+        updated.passport_valid_until =
+            passport_valid_until(now, passport_validity_years(now, birth));
     }
     updated.status_updated_at = Some(now.timestamp());
     updated.updated_at = now;
     updated.archive_hash = Some(citizen_archive_hash(&updated));
     Db::upsert_target_citizen_rows(&mut tx, &updated)?;
     let saved = Db::find_citizen_by_cid_conn(&mut tx, cid)?.ok_or("saved citizen row missing")?;
-    tx.commit().map_err(|e| format!("commit citizen edit failed: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("commit citizen edit failed: {e}"))?;
     Ok(Ok(saved))
 }
 
@@ -836,7 +881,10 @@ mod edit_tests {
     fn base_record() -> CitizenRecord {
         CitizenRecord {
             id: 1,
-            cid_number: format!("CN000-CTZN{}-100000000-2026", primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)),
+            cid_number: format!(
+                "CN000-CTZN{}-100000000-2026",
+                primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)
+            ),
             passport_no: String::new(),
             family_name: String::new(),
             given_name: String::new(),
@@ -844,8 +892,8 @@ mod edit_tests {
             citizen_birth_date: String::new(),
             account_id: None,
             binding_revision: 0,
-            binding_finalized_block_number: None,
-            binding_finalized_block_hash: None,
+            binding_block_number: None,
+            binding_block_hash: None,
             citizen_status: CitizenStatus::Normal,
             voting_eligible: false,
             passport_valid_from: String::new(),
@@ -868,18 +916,49 @@ mod edit_tests {
         }
     }
 
+    #[test]
+    fn citizen_outputs_only_expose_canonical_account_identity() {
+        let mut record = base_record();
+        let account_id = format!("0x{}", "11".repeat(32));
+        record.account_id = Some(account_id.clone());
+        for output in [
+            serde_json::to_value(create_output_from_record(record.clone())).unwrap(),
+            serde_json::to_value(crate::registry::citizens::model::citizen_row_from_record(
+                &record,
+            ))
+            .unwrap(),
+        ] {
+            assert_eq!(output["accountId"], account_id);
+            assert!(output.get("ss58Address").is_none());
+            assert!(output.get("ss58_address").is_none());
+        }
+        assert_eq!(
+            resolve_citizen_account(&account_id).unwrap().account_id,
+            account_id
+        );
+        for invalid in [
+            "",
+            "0x11",
+            "11",
+            "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ] {
+            assert!(resolve_citizen_account(invalid).is_err());
+        }
+    }
+
     fn input() -> AdminEditCitizenInput {
         AdminEditCitizenInput {
             family_name: "程".to_string(),
             given_name: "伟".to_string(),
             city_code: "018".to_string(),
-            town_code: "018001".to_string(),
+            // 唯一 china.sqlite 中 GZ/018 的真实三位镇码（坪乐镇）。
+            town_code: "013".to_string(),
             voting_eligible: true,
             citizen_sex: "MALE".to_string(),
             citizen_birth_date: "1988-05-20".to_string(),
             birth_province_code: "GZ".to_string(),
             birth_city_code: "018".to_string(),
-            birth_town_code: "018001".to_string(),
+            birth_town_code: "013".to_string(),
         }
     }
 
@@ -887,42 +966,125 @@ mod edit_tests {
     #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
     fn concurrent_edits_lock_identity_and_stale_projection_rolls_back_all_indexes() {
         let sandbox = crate::core::db::IsolatedTestDb::new();
-        let owner = format!("GZ018-CREG{}-000000001-2026", primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false));
+        let owner = format!(
+            "GZ018-CREG{}-000000001-2026",
+            primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false)
+        );
         let ctx = crate::authentication::login::AdminAuthContext {
-            account_id: format!("0x{}", "9c".repeat(32)), institution_cid_number: owner.clone(), institution_code: "CREG".into(), admin_level: Some("CITY".into()),
-            family_name: "测".into(), given_name: "试".into(), scope_province_name: Some("贵州省".into()), scope_city_name: Some("绥阳市".into()), scope_town_name: None, cid_short_name: None,
+            account_id: format!("0x{}", "9c".repeat(32)),
+            institution_cid_number: owner.clone(),
+            institution_code: "CREG".into(),
+            admin_level: Some("CITY".into()),
+            family_name: "测".into(),
+            given_name: "试".into(),
+            scope_province_name: Some("贵州省".into()),
+            scope_city_name: Some("绥阳市".into()),
+            scope_town_name: None,
+            cid_short_name: None,
         };
         let record = base_record();
-        let binding = crate::authentication::login::NodeInstitutionBinding { binding_id:"edit-binding".into(), candidate_id:"edit-candidate".into(), institution_code:"CREG".into(), institution_cid_number:owner,
-            bound_account_id:ctx.account_id.clone(), bound_at:record.created_at, status:"ACTIVE".into() };
-        sandbox.db.with_client(|conn| crate::authentication::repo::upsert_active_node_binding_conn(conn, &binding)).unwrap();
-        sandbox.db.upsert_citizen_row(&record).unwrap();
-        let handles = ["1988-05-20", "1989-05-20"].into_iter().map(|birth| {
-            let db = sandbox.db.clone(); let ctx = ctx.clone(); let cid = record.cid_number.clone();
-            std::thread::spawn(move || {
-                let mut edit = input(); edit.citizen_birth_date = birth.into();
-                db.with_client(|conn| apply_citizen_edit_conn(conn, &ctx, "edit-binding", &cid, &edit)).unwrap().is_ok()
+        let binding = crate::authentication::login::NodeInstitutionBinding {
+            binding_id: "edit-binding".into(),
+            candidate_id: "edit-candidate".into(),
+            institution_code: "CREG".into(),
+            institution_cid_number: owner,
+            bound_account_id: ctx.account_id.clone(),
+            bound_at: record.created_at,
+            status: "ACTIVE".into(),
+        };
+        sandbox
+            .db
+            .with_client(|conn| {
+                crate::authentication::repo::upsert_active_node_binding_conn(conn, &binding)
             })
-        }).collect::<Vec<_>>();
-        assert_eq!(handles.into_iter().map(|handle| handle.join().unwrap()).filter(|success| *success).count(), 1);
-        let saved = sandbox.db.find_citizen_by_cid(&record.cid_number).unwrap().unwrap();
+            .unwrap();
+        sandbox.db.upsert_citizen_row(&record).unwrap();
+        let handles = ["1988-05-20", "1989-05-20"]
+            .into_iter()
+            .map(|birth| {
+                let db = sandbox.db.clone();
+                let ctx = ctx.clone();
+                let cid = record.cid_number.clone();
+                std::thread::spawn(move || {
+                    let mut edit = input();
+                    edit.citizen_birth_date = birth.into();
+                    db.with_client(|conn| {
+                        apply_citizen_edit_conn(conn, &ctx, "edit-binding", &cid, &edit)
+                    })
+                    .unwrap()
+                    .is_ok()
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .filter(|success| *success)
+                .count(),
+            1
+        );
+        let saved = sandbox
+            .db
+            .find_citizen_by_cid(&record.cid_number)
+            .unwrap()
+            .unwrap();
         assert!(!saved.passport_no.is_empty());
         assert!(saved.id > 0);
-        let mut current = saved.clone(); current.binding_revision = 2; current.account_id = Some(format!("0x{}", "33".repeat(32)));
+        let mut current = saved.clone();
+        current.binding_revision = 2;
+        current.account_id = Some(format!("0x{}", "33".repeat(32)));
         sandbox.db.upsert_citizen_row(&current).unwrap();
-        let mut stale = saved; stale.province_code = "GD".into(); stale.city_code = "001".into();
+        let mut stale = saved;
+        stale.province_code = "GD".into();
+        stale.city_code = "001".into();
         assert!(sandbox.db.upsert_citizen_row(&stale).is_err());
-        let reread = sandbox.db.find_citizen_by_cid(&record.cid_number).unwrap().unwrap();
-        assert_eq!(reread.province_code,"GZ"); assert_eq!(reread.binding_revision,2);
-        sandbox.db.with_client(|conn| {
-            let province: String = conn.query_one("SELECT province_code FROM ids WHERE cid_number=$1", &[&record.cid_number]).unwrap().get(0);
-            assert_eq!(province,"GZ");
-            let passports: i64 = conn.query_one("SELECT COUNT(*) FROM passport_numbers WHERE cid_number=$1", &[&record.cid_number]).unwrap().get(0);
-            assert_eq!(passports,1);
-            Ok(())
-        }).unwrap();
-        sandbox.db.with_client(|conn| crate::authentication::repo::deactivate_active_node_binding_conn(conn).map(|_| ())).unwrap();
-        assert!(sandbox.db.with_client(|conn| apply_citizen_edit_conn(conn,&ctx,"edit-binding",&record.cid_number,&input())).unwrap().is_err());
+        let reread = sandbox
+            .db
+            .find_citizen_by_cid(&record.cid_number)
+            .unwrap()
+            .unwrap();
+        assert_eq!(reread.province_code, "GZ");
+        assert_eq!(reread.binding_revision, 2);
+        sandbox
+            .db
+            .with_client(|conn| {
+                let province: String = conn
+                    .query_one(
+                        "SELECT province_code FROM identity WHERE cid_number=$1",
+                        &[&record.cid_number],
+                    )
+                    .unwrap()
+                    .get(0);
+                assert_eq!(province, "GZ");
+                let passports: i64 = conn
+                    .query_one(
+                        "SELECT COUNT(*) FROM passport WHERE cid_number=$1",
+                        &[&record.cid_number],
+                    )
+                    .unwrap()
+                    .get(0);
+                assert_eq!(passports, 1);
+                Ok(())
+            })
+            .unwrap();
+        sandbox
+            .db
+            .with_client(|conn| {
+                crate::authentication::repo::deactivate_active_node_binding_conn(conn).map(|_| ())
+            })
+            .unwrap();
+        assert!(sandbox
+            .db
+            .with_client(|conn| apply_citizen_edit_conn(
+                conn,
+                &ctx,
+                "edit-binding",
+                &record.cid_number,
+                &input()
+            ))
+            .unwrap()
+            .is_err());
     }
 
     #[test]
@@ -930,7 +1092,7 @@ mod edit_tests {
         let locked = resolve_locked_identity(&base_record(), &input()).expect("ok");
         assert_eq!(locked.citizen_sex, "MALE");
         assert_eq!(locked.citizen_birth_date, "1988-05-20");
-        assert_eq!(locked.birth_town_code, "018001");
+        assert_eq!(locked.birth_town_code, "013");
     }
 
     #[test]
@@ -1001,11 +1163,14 @@ impl Db {
     pub(crate) fn upsert_citizen_row(&self, record: &CitizenRecord) -> Result<u64, String> {
         let record = record.clone();
         self.with_client(move |conn| {
-            let mut tx = conn.transaction().map_err(|e| format!("begin citizen write failed: {e}"))?;
+            let mut tx = conn
+                .transaction()
+                .map_err(|e| format!("begin citizen write failed: {e}"))?;
             // 固定锁顺序：绑定 -> CID -> ID 计数器，与批量实体投影一致。
             crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
             let id = Self::upsert_target_citizen_rows(&mut tx, &record)?;
-            tx.commit().map_err(|e| format!("commit citizen write failed: {e}"))?;
+            tx.commit()
+                .map_err(|e| format!("commit citizen write failed: {e}"))?;
             Ok(id)
         })
     }
@@ -1034,14 +1199,20 @@ impl Db {
         // 先检查修订号再更新 ids/subjects/护照索引，拒绝旧快照时整个事务均不得留下副作用。
         if let Some(current) = Self::find_citizen_by_cid_conn(conn, &cid_number)? {
             if current.binding_revision > record.binding_revision
-                || (current.binding_revision == record.binding_revision && current.account_id != record.account_id)
+                || (current.binding_revision == record.binding_revision
+                    && current.account_id != record.account_id)
             {
                 return Err("citizen binding revision conflict".to_string());
             }
         }
-        let existing_id = conn.query_opt("SELECT id FROM citizens WHERE cid_number=$1 LIMIT 1", &[&cid_number])
+        let existing_id = conn
+            .query_opt(
+                "SELECT row_id FROM citizen WHERE cid_number=$1 LIMIT 1",
+                &[&cid_number],
+            )
             .map_err(|e| format!("read citizen id failed: {e}"))?
-            .and_then(|row| row.get::<_, Option<i64>>(0)).filter(|id| *id > 0);
+            .and_then(|row| row.get::<_, Option<i64>>(0))
+            .filter(|id| *id > 0);
         let id = match existing_id {
             Some(id) => id,
             None => Self::allocate_citizen_id_conn(conn)?,
@@ -1057,23 +1228,23 @@ impl Db {
         )?;
         Self::delete_target_rows_outside_scope(
             conn,
-            "subjects",
+            "subject",
             cid_number.as_str(),
             province_code.as_str(),
         )?;
         Self::delete_target_rows_outside_scope(
             conn,
-            "citizens",
+            "citizen",
             cid_number.as_str(),
             province_code.as_str(),
         )?;
         conn.execute(
-            "INSERT INTO subjects (
-                cid_number, kind, province_code, city_code, status, created_at, updated_at
+            "INSERT INTO subject (
+                cid_number, record_kind, province_code, city_code, state_code, created_at, updated_at
              ) VALUES ($1, 'CITIZEN', $2, $3, $4, $5, now())
              ON CONFLICT (province_code, cid_number) DO UPDATE SET
                 city_code = EXCLUDED.city_code,
-                status = EXCLUDED.status,
+                state_code = EXCLUDED.state_code,
                 updated_at = now()",
             &[
                 &cid_number,
@@ -1084,15 +1255,16 @@ impl Db {
             ],
         )
         .map_err(|e| format!("upsert citizen subject failed: {e}"))?;
-        let written = conn.execute(
-            "INSERT INTO citizens (
+        let written = conn
+            .execute(
+                "INSERT INTO citizen (
                 cid_number, passport_no, family_name, given_name,
-                citizen_sex, citizen_birth_date, province_code, city_code, id,
-                account_id, binding_revision, binding_finalized_block_number,
-                binding_finalized_block_hash, citizen_status, voting_eligible, passport_valid_from,
-                passport_valid_until, status_updated_at, town_code, birth_province_code, birth_city_code,
-                birth_town_code, archive_hash, onchain_tx_hash, onchain_block_number, onchain_at,
-                creator_account_id, created_at, updater_account_id, updated_at
+                citizen_sex, birth_date, province_code, city_code, row_id,
+                account_id, binding_revision, binding_block,
+                binding_hash, citizen_status, voting_eligible, valid_from,
+                valid_until, status_at, town_code, birth_province, birth_city,
+                birth_town, archive_hash, tx_hash, block_number, onchain_at,
+                creator_account, created_at, updater_account, updated_at
              ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19,
@@ -1104,73 +1276,75 @@ impl Db {
                 family_name = EXCLUDED.family_name,
                 given_name = EXCLUDED.given_name,
                 citizen_sex = EXCLUDED.citizen_sex,
-                citizen_birth_date = EXCLUDED.citizen_birth_date,
+                birth_date = EXCLUDED.birth_date,
                 city_code = EXCLUDED.city_code,
-                id = EXCLUDED.id,
+                row_id = EXCLUDED.row_id,
                 account_id = EXCLUDED.account_id,
                 binding_revision = EXCLUDED.binding_revision,
-                binding_finalized_block_number = EXCLUDED.binding_finalized_block_number,
-                binding_finalized_block_hash = EXCLUDED.binding_finalized_block_hash,
+                binding_block = EXCLUDED.binding_block,
+                binding_hash = EXCLUDED.binding_hash,
                 citizen_status = EXCLUDED.citizen_status,
                 voting_eligible = EXCLUDED.voting_eligible,
-                passport_valid_from = EXCLUDED.passport_valid_from,
-                passport_valid_until = EXCLUDED.passport_valid_until,
-                status_updated_at = EXCLUDED.status_updated_at,
+                valid_from = EXCLUDED.valid_from,
+                valid_until = EXCLUDED.valid_until,
+                status_at = EXCLUDED.status_at,
                 town_code = EXCLUDED.town_code,
-                birth_province_code = EXCLUDED.birth_province_code,
-                birth_city_code = EXCLUDED.birth_city_code,
-                birth_town_code = EXCLUDED.birth_town_code,
+                birth_province = EXCLUDED.birth_province,
+                birth_city = EXCLUDED.birth_city,
+                birth_town = EXCLUDED.birth_town,
                 archive_hash = EXCLUDED.archive_hash,
-                onchain_tx_hash = EXCLUDED.onchain_tx_hash,
-                onchain_block_number = EXCLUDED.onchain_block_number,
+                tx_hash = EXCLUDED.tx_hash,
+                block_number = EXCLUDED.block_number,
                 onchain_at = EXCLUDED.onchain_at,
-                updater_account_id = EXCLUDED.updater_account_id,
+                updater_account = EXCLUDED.updater_account,
                 updated_at = EXCLUDED.updated_at
-             WHERE citizens.binding_revision < EXCLUDED.binding_revision
+             WHERE citizen.binding_revision < EXCLUDED.binding_revision
                 OR (
-                    citizens.binding_revision = EXCLUDED.binding_revision
-                    AND citizens.account_id IS NOT DISTINCT FROM EXCLUDED.account_id
+                    citizen.binding_revision = EXCLUDED.binding_revision
+                    AND citizen.account_id IS NOT DISTINCT FROM EXCLUDED.account_id
                 )",
-            &[
-                &cid_number,
-                &record.passport_no,
-                &record.family_name,
-                &record.given_name,
-                &record.citizen_sex,
-                &record.citizen_birth_date,
-                &province_code,
-                &city_code,
-                &id,
-                &record.account_id,
-                &binding_revision,
-                &record.binding_finalized_block_number,
-                &record.binding_finalized_block_hash,
-                &citizen_status,
-                &record.voting_eligible,
-                &record.passport_valid_from,
-                &record.passport_valid_until,
-                &record.status_updated_at,
-                &record.town_code,
-                &record.birth_province_code,
-                &record.birth_city_code,
-                &record.birth_town_code,
-                &record.archive_hash,
-                &record.onchain_tx_hash,
-                &record.onchain_block_number,
-                &record.onchain_at,
-                &record.creator_account_id,
-                &record.created_at,
-                &record.updater_account_id,
-                &record.updated_at,
-            ],
-        )
-        .map_err(|e| format!("upsert citizens failed: {e}"))?;
-        if written != 1 { return Err("citizen write did not update exactly one row".to_string()); }
+                &[
+                    &cid_number,
+                    &record.passport_no,
+                    &record.family_name,
+                    &record.given_name,
+                    &record.citizen_sex,
+                    &record.citizen_birth_date,
+                    &province_code,
+                    &city_code,
+                    &id,
+                    &record.account_id,
+                    &binding_revision,
+                    &record.binding_block_number,
+                    &record.binding_block_hash,
+                    &citizen_status,
+                    &record.voting_eligible,
+                    &record.passport_valid_from,
+                    &record.passport_valid_until,
+                    &record.status_updated_at,
+                    &record.town_code,
+                    &record.birth_province_code,
+                    &record.birth_city_code,
+                    &record.birth_town_code,
+                    &record.archive_hash,
+                    &record.onchain_tx_hash,
+                    &record.onchain_block_number,
+                    &record.onchain_at,
+                    &record.creator_account_id,
+                    &record.created_at,
+                    &record.updater_account_id,
+                    &record.updated_at,
+                ],
+            )
+            .map_err(|e| format!("upsert citizens failed: {e}"))?;
+        if written != 1 {
+            return Err("citizen write did not update exactly one row".to_string());
+        }
         // 匿名占号无护照(护照随详情页完善出生日期时一次性签发)→ 空护照号不登记 passport_numbers,
         // 否则多条匿名记录会在 passport_no='' 主键冲突。
         if !record.passport_no.trim().is_empty() {
             conn.execute(
-                "INSERT INTO passport_numbers (passport_no, cid_number, province_code, city_code, created_at)
+                "INSERT INTO passport (passport_no, cid_number, province_code, city_code, created_at)
                  VALUES ($1, $2, $3, $4, $5)
                  ON CONFLICT (passport_no) DO UPDATE SET
                     cid_number = EXCLUDED.cid_number,
@@ -1188,24 +1362,37 @@ impl Db {
         }
         Ok(id as u64)
     }
-    pub(crate) fn lock_citizen_conn(conn: &mut impl postgres::GenericClient, cid: &str) -> Result<(), String> {
+    pub(crate) fn lock_citizen_conn(
+        conn: &mut impl postgres::GenericClient,
+        cid: &str,
+    ) -> Result<(), String> {
         let key = format!("onchina-citizen:{cid}");
-        conn.query_one("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", &[&key])
-            .map_err(|e| format!("lock citizen failed: {e}"))?;
+        conn.query_one(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+            &[&key],
+        )
+        .map_err(|e| format!("lock citizen failed: {e}"))?;
         Ok(())
     }
-    pub(crate) fn allocate_citizen_id_conn(conn: &mut impl postgres::GenericClient) -> Result<i64, String> {
-        if conn.query_opt("SELECT next_seq FROM sequence_counters WHERE seq_key='citizen_id'", &[])
-            .map_err(|e| format!("read citizen id counter failed: {e}"))?.is_none() {
-            conn.execute("INSERT INTO sequence_counters(seq_key,next_seq) SELECT 'citizen_id', COALESCE(MAX(id),0) FROM citizens ON CONFLICT (seq_key) DO NOTHING", &[])
+    pub(crate) fn allocate_citizen_id_conn(
+        conn: &mut impl postgres::GenericClient,
+    ) -> Result<i64, String> {
+        if conn
+            .query_opt(
+                "SELECT next_seq FROM sequence WHERE seq_key='citizen_id'",
+                &[],
+            )
+            .map_err(|e| format!("read citizen id counter failed: {e}"))?
+            .is_none()
+        {
+            conn.execute("INSERT INTO sequence(seq_key,next_seq) SELECT 'citizen_id', COALESCE(MAX(row_id),0) FROM citizen ON CONFLICT (seq_key) DO NOTHING", &[])
                 .map_err(|e| format!("initialize citizen id counter failed: {e}"))?;
         }
-        let row = conn.query_opt("UPDATE sequence_counters SET next_seq=next_seq+1 WHERE seq_key='citizen_id' AND next_seq>=0 AND next_seq<9223372036854775807 RETURNING next_seq", &[])
+        let row = conn.query_opt("UPDATE sequence SET next_seq=next_seq+1 WHERE seq_key='citizen_id' AND next_seq>=0 AND next_seq<9223372036854775807 RETURNING next_seq", &[])
             .map_err(|e| format!("allocate citizen id failed: {e}"))?
             .ok_or_else(|| "citizen id capacity exhausted or counter invalid".to_string())?;
         Ok(row.get(0))
     }
-
 
     pub(crate) fn list_citizens_page(
         &self,
@@ -1227,22 +1414,22 @@ impl Db {
                 .map_err(|_| "page_size too large".to_string())?;
             let rows = conn
                 .query(
-                    "SELECT COALESCE(c.id, 0), c.cid_number, c.passport_no, c.family_name,
-                                    c.given_name, c.citizen_sex, c.citizen_birth_date,
+                    "SELECT COALESCE(c.row_id, 0), c.cid_number, c.passport_no, c.family_name,
+                                    c.given_name, c.citizen_sex, c.birth_date,
                                     c.account_id, c.binding_revision,
-                                    c.binding_finalized_block_number,
-                                    c.binding_finalized_block_hash,
+                                    c.binding_block,
+                                    c.binding_hash,
                                     c.citizen_status, c.voting_eligible,
-                                    c.passport_valid_from, c.passport_valid_until, c.status_updated_at,
+                                    c.valid_from, c.valid_until, c.status_at,
                                     c.province_code, c.city_code, c.town_code,
-                                    c.birth_province_code, c.birth_city_code, c.birth_town_code,
-                                    c.archive_hash, c.onchain_tx_hash, c.onchain_block_number, c.onchain_at,
-                                    c.creator_account_id, c.created_at, c.updater_account_id, c.updated_at
-                             FROM citizens c
-                             JOIN subjects s
+                                    c.birth_province, c.birth_city, c.birth_town,
+                                    c.archive_hash, c.tx_hash, c.block_number, c.onchain_at,
+                                    c.creator_account, c.created_at, c.updater_account, c.updated_at
+                             FROM citizen c
+                             JOIN subject s
                                ON s.province_code = c.province_code
                               AND s.cid_number = c.cid_number
-                              AND s.kind = 'CITIZEN'
+                              AND s.record_kind = 'CITIZEN'
                              WHERE ($1::text IS NULL OR c.province_code = $1)
                                AND ($2::text IS NULL OR c.city_code = $2)
                                AND (
@@ -1258,9 +1445,9 @@ impl Db {
                                AND (
                                     $4::timestamptz IS NULL
                                     OR c.created_at < $4
-                                    OR (c.created_at = $4 AND COALESCE(c.id, 0) < $5)
+                                    OR (c.created_at = $4 AND COALESCE(c.row_id, 0) < $5)
                                )
-                             ORDER BY c.created_at DESC, COALESCE(c.id, 0) DESC
+                             ORDER BY c.created_at DESC, COALESCE(c.row_id, 0) DESC
                              LIMIT $6",
                     &[
                         &province_code,
@@ -1293,69 +1480,145 @@ mod citizen_id_tests {
     #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
     fn concurrent_ids_are_unique_and_capacity_exhaustion_is_explicit() {
         let sandbox = crate::core::db::IsolatedTestDb::new();
-        let handles = (0..8).map(|_| {
-            let db = sandbox.db.clone();
-            std::thread::spawn(move || (0..16).map(|_| db.with_client(Db::allocate_citizen_id_conn).unwrap()).collect::<Vec<_>>())
-        }).collect::<Vec<_>>();
-        let ids = handles.into_iter().flat_map(|handle| handle.join().unwrap()).collect::<std::collections::BTreeSet<_>>();
+        let handles = (0..8)
+            .map(|_| {
+                let db = sandbox.db.clone();
+                std::thread::spawn(move || {
+                    (0..16)
+                        .map(|_| db.with_client(Db::allocate_citizen_id_conn).unwrap())
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let ids = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(ids.len(), 128);
         assert_eq!(ids.first(), Some(&1));
         assert_eq!(ids.last(), Some(&128));
-        sandbox.db.with_client(|conn| {
-            conn.execute("UPDATE sequence_counters SET next_seq=9223372036854775807 WHERE seq_key='citizen_id'", &[]).unwrap();
-            assert!(Db::allocate_citizen_id_conn(conn).is_err());
-            Ok(())
-        }).unwrap();
+        sandbox
+            .db
+            .with_client(|conn| {
+                conn.execute(
+                    "UPDATE sequence SET next_seq=9223372036854775807 WHERE seq_key='citizen_id'",
+                    &[],
+                )
+                .unwrap();
+                assert!(Db::allocate_citizen_id_conn(conn).is_err());
+                Ok(())
+            })
+            .unwrap();
     }
 }
 
 /// 原公民投影只在所属模块执行；回写仍与会话租约及完成标记同一事务。
 pub(crate) async fn commit_module_projection(
-    db: &Db, session: &crate::transactions::session::ChainSignSession,
+    db: &Db,
+    session: &crate::transactions::session::ChainSignSession,
     lease: &crate::transactions::session::SessionLease,
     finalized: &crate::core::chain_submit::FinalizedChainSubmit,
     verified_snapshot: Option<&crate::core::chain_citizen_identity::FinalizedCitizenIdentity>,
 ) -> Result<Option<serde_json::Value>, axum::response::Response> {
-    use crate::registry::citizens::occupy::{PURPOSE_CITIZEN_OCCUPY, PURPOSE_CITIZEN_ADMIN_REBIND, PURPOSE_CITIZEN_REVOKE, PURPOSE_CITIZEN_IDENTITY_PUSH};
-    let cid_number = session.context.get("cid_number").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    use crate::registry::citizens::occupy::{
+        PURPOSE_CITIZEN_ADMIN_REBIND, PURPOSE_CITIZEN_IDENTITY_PUSH, PURPOSE_CITIZEN_OCCUPY,
+        PURPOSE_CITIZEN_REVOKE,
+    };
+    let cid_number = session
+        .context
+        .get("cid_number")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     let tx_hash = finalized.tx_hash.clone();
     let extra_snapshot;
-    let finalized_cid_snapshot = if verified_snapshot.is_none() && matches!(session.purpose.as_str(), PURPOSE_CITIZEN_REVOKE | PURPOSE_CITIZEN_IDENTITY_PUSH) {
-        extra_snapshot = match crate::core::chain_citizen_identity::read_citizen_identity_at(&cid_number, Some(finalized.block_hash)).await {
+    let finalized_cid_snapshot = if verified_snapshot.is_none()
+        && matches!(
+            session.purpose.as_str(),
+            PURPOSE_CITIZEN_REVOKE | PURPOSE_CITIZEN_IDENTITY_PUSH
+        ) {
+        extra_snapshot = match crate::core::chain_citizen_identity::read_citizen_identity_at(
+            &cid_number,
+            Some(finalized.block_hash),
+        )
+        .await
+        {
             Ok(snapshot) => snapshot,
             Err(err) => {
                 tracing::error!(error = %err, tx_hash = %tx_hash, "read finalized citizen snapshot failed");
-                return Err(api_error(StatusCode::BAD_GATEWAY, 2004, "交易已 finalized，但公民绑定快照读取失败"));
+                return Err(api_error(
+                    StatusCode::BAD_GATEWAY,
+                    2004,
+                    "交易已 finalized，但公民绑定快照读取失败",
+                ));
             }
         };
         Some(&extra_snapshot)
-    } else { verified_snapshot };
+    } else {
+        verified_snapshot
+    };
     crate::transactions::handler::commit_projection(db, session, lease, &tx_hash, |tx| {
         let mut citizen_output = None;
         match session.purpose.as_str() {
             PURPOSE_CITIZEN_OCCUPY => {
                 let snapshot = finalized_cid_snapshot.ok_or("missing finalized CID snapshot")?;
-                let validated: ValidatedCitizenInput = serde_json::from_value(session.context.get("validated").cloned().ok_or("validated citizen context missing")?).map_err(|e| e.to_string())?;
-                let record = persist_citizen_record(tx, &session.account_id, &validated, &cid_number, &tx_hash, snapshot)?;
-                citizen_output = Some(serde_json::to_value(create_output_from_record(record)).map_err(|e| e.to_string())?);
+                let validated: ValidatedCitizenInput = serde_json::from_value(
+                    session
+                        .context
+                        .get("validated")
+                        .cloned()
+                        .ok_or("validated citizen context missing")?,
+                )
+                .map_err(|e| e.to_string())?;
+                let record = persist_citizen_record(
+                    tx,
+                    &session.account_id,
+                    &validated,
+                    &cid_number,
+                    &tx_hash,
+                    snapshot,
+                )?;
+                citizen_output = Some(
+                    serde_json::to_value(create_output_from_record(record))
+                        .map_err(|e| e.to_string())?,
+                );
             }
             PURPOSE_CITIZEN_REVOKE => {
                 let snapshot = finalized_cid_snapshot.ok_or("missing finalized CID snapshot")?;
-                Db::mark_citizen_revoked_conn(tx, &cid_number, &session.account_id, &tx_hash,
-                    snapshot.binding_revision.ok_or("finalized binding revision missing")?, snapshot.finalized_block_number,
-                    &format!("0x{}", hex::encode(snapshot.finalized_block_hash)))?;
+                Db::mark_citizen_revoked_conn(
+                    tx,
+                    &cid_number,
+                    &session.account_id,
+                    &tx_hash,
+                    snapshot
+                        .binding_revision
+                        .ok_or("finalized binding revision missing")?,
+                    snapshot.finalized_block_number,
+                    &format!("0x{}", hex::encode(snapshot.finalized_block_hash)),
+                )?;
             }
             PURPOSE_CITIZEN_IDENTITY_PUSH | PURPOSE_CITIZEN_ADMIN_REBIND => {
                 let snapshot = finalized_cid_snapshot.ok_or("missing finalized CID snapshot")?;
-                Db::confirm_citizen_identity_onchain_conn(tx, &cid_number, &session.account_id, &tx_hash, snapshot)?;
+                Db::confirm_citizen_identity_onchain_conn(
+                    tx,
+                    &cid_number,
+                    &session.account_id,
+                    &tx_hash,
+                    snapshot,
+                )?;
             }
             crate::registry::admins::governance::PURPOSE_INSTITUTION_REGISTER_ADMINS => {}
             _ => return Err("unknown chain sign purpose".into()),
         }
         Ok(citizen_output)
-    }).map_err(|error| {
+    })
+    .map_err(|error| {
         tracing::error!(error = %error, "finalized business projection retained for recovery");
-        api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "链上交易已完成，本地投影尚未完成，会话已保留")
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            1004,
+            "链上交易已完成，本地投影尚未完成，会话已保留",
+        )
     })
 }
 
@@ -1363,53 +1626,136 @@ pub(crate) async fn commit_module_projection(
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod chain_projection_tests {
     use super::*;
-    use chrono::Duration;
-    use crate::transactions::session::SessionLease;
-    use crate::transactions::handler::tests::chain_session_with_context;
     use crate::transactions::handler::origin_matches_binding;
-#[tokio::test]
-#[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-async fn recovery_lease_and_projection_commit_survive_revocation_failure_and_retry() {
-    use crate::authentication::{repo, login::NodeInstitutionBinding};
-    use crate::core::chain_citizen_identity::{FinalizedCitizenIdentity, FinalizedCidStatus};
-    let sandbox=crate::core::db::IsolatedTestDb::new();
-    let owner=format!("GZ018-CREG{}-000000001-2026",primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026",false));
-    let citizen=format!("CN000-CTZN{}-100000000-2026",primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026",true));
-    let binding=NodeInstitutionBinding { binding_id:"original".into(),candidate_id:"one-institution".into(),institution_code:"CREG".into(),institution_cid_number:owner.clone(),bound_account_id:format!("0x{}","11".repeat(32)),bound_at:Utc::now(),status:"ACTIVE".into() };
-    sandbox.db.with_client(|conn| repo::upsert_active_node_binding_conn(conn,&binding)).unwrap();
-    let mut session=chain_session_with_context(serde_json::json!({
-        "origin_binding_id":binding.binding_id,"origin_institution_cid_number":owner,"origin_institution_code":"CREG",
-        "cid_number":citizen,"finalized_tx_hash":format!("0x{}","55".repeat(32)),"finalized_block_number":7,"finalized_block_hash":format!("0x{}","22".repeat(32)),
-        "validated":{"cid_type":"CTZN","family_name":"","given_name":"","citizen_sex":"","citizen_birth_date":"","province_name":"贵州省","city_name":"绥阳市","province_code":"GZ","city_code":"018","town_code":"","birth_province_code":"","birth_city_code":"","birth_town_code":"","voting_eligible":false}
-    }));
-    session.purpose = crate::registry::citizens::occupy::PURPOSE_CITIZEN_OCCUPY.into();
-    session.call_data = vec![crate::registry::citizens::occupy::CITIZEN_IDENTITY_PALLET_INDEX, crate::registry::citizens::occupy::OCCUPY_CID_CALL_INDEX];
-    session.expires_at=Utc::now()-Duration::hours(1); // 已提交事务恢复不受签名会话到期阻断。
-    sandbox.db.with_client(|conn| {
-        conn.execute("INSERT INTO chain_sign_sessions(request_id,purpose,account_id,call_data,nonce,signing_hash,context,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", &[&session.request_id,&session.purpose,&session.account_id,&hex::encode(&session.call_data),&i64::from(session.nonce),&session.signing_hash,&session.context,&session.expires_at]).unwrap();
+    use crate::transactions::handler::tests::chain_session_with_context;
+    use crate::transactions::session::SessionLease;
+    use chrono::Duration;
+    #[tokio::test]
+    #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
+    async fn recovery_lease_and_projection_commit_survive_revocation_failure_and_retry() {
+        use crate::authentication::{login::NodeInstitutionBinding, repo};
+        use crate::core::chain_citizen_identity::{FinalizedCidStatus, FinalizedCitizenIdentity};
+        let sandbox = crate::core::db::IsolatedTestDb::new();
+        let owner = format!(
+            "GZ018-CREG{}-000000001-2026",
+            primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false)
+        );
+        let citizen = format!(
+            "CN000-CTZN{}-100000000-2026",
+            primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)
+        );
+        let binding = NodeInstitutionBinding {
+            binding_id: "original".into(),
+            candidate_id: "one-institution".into(),
+            institution_code: "CREG".into(),
+            institution_cid_number: owner.clone(),
+            bound_account_id: format!("0x{}", "11".repeat(32)),
+            bound_at: Utc::now(),
+            status: "ACTIVE".into(),
+        };
+        sandbox
+            .db
+            .with_client(|conn| repo::upsert_active_node_binding_conn(conn, &binding))
+            .unwrap();
+        let mut session = chain_session_with_context(serde_json::json!({
+            "origin_binding_id":binding.binding_id,"origin_institution_cid":owner,"origin_institution_code":"CREG",
+            "cid_number":citizen,"finalized_tx_hash":format!("0x{}","55".repeat(32)),"finalized_block_number":7,"finalized_block_hash":format!("0x{}","22".repeat(32)),
+            "validated":{"cidType":"CTZN","familyName":"","givenName":"","citizenSex":"","citizenBirthDate":"","provinceName":"贵州省","cityName":"绥阳市","provinceCode":"GZ","cityCode":"018","townCode":"","birthProvinceCode":"","birthCityCode":"","birthTownCode":"","votingEligible":false}
+        }));
+        session.purpose = crate::registry::citizens::occupy::PURPOSE_CITIZEN_OCCUPY.into();
+        session.call_data = vec![
+            crate::registry::citizens::occupy::CITIZEN_IDENTITY_PALLET_INDEX,
+            crate::registry::citizens::occupy::OCCUPY_CID_CALL_INDEX,
+        ];
+        session.expires_at = Utc::now() - Duration::hours(1); // 已提交事务恢复不受签名会话到期阻断。
+        sandbox.db.with_client(|conn| {
+        conn.execute("INSERT INTO signing(request_id,sign_purpose,account_id,call_data,nonce_value,signing_hash,context_json,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", &[&session.request_id,&session.purpose,&session.account_id,&hex::encode(&session.call_data),&i64::from(session.nonce),&session.signing_hash,&session.context,&session.expires_at]).unwrap();
         // 没有当前管理员行，恢复依然只按已确认会话的原机构完成，不能用于发新交易。
-        assert_eq!(conn.query_one("SELECT COUNT(*) FROM admins",&[]).unwrap().get::<_,i64>(0),0);
+        assert_eq!(conn.query_one("SELECT COUNT(*) FROM admin",&[]).unwrap().get::<_,i64>(0),0);
         Ok(())
     }).unwrap();
-    let lease=SessionLease::acquire(&sandbox.db,&session.request_id).unwrap().unwrap();
-    assert!(SessionLease::acquire(&sandbox.db,&session.request_id).unwrap().is_none());
-    let snapshot=FinalizedCitizenIdentity { genesis_hash:[1;32],finalized_block_hash:[0x22;32],finalized_block_number:7,chain_now_seconds:1_700_000_000,cid_status:FinalizedCidStatus::Active,
-        registrar_cid_number:Some(binding.institution_cid_number.as_bytes().to_vec()),commitment:Some([3;32]),residence_province_code:b"GZ".to_vec(),residence_city_code:b"018".to_vec(),account_id:Some([0x33;32]),binding_revision:Some(1),identity_version:0,voting:None,candidate:None };
-    let mut finalized = crate::core::chain_submit::FinalizedChainSubmit { tx_hash:"different-finalized-hash".into(), block_hash:[0x22;32], block_number:7 };
-    assert!(super::commit_module_projection(&sandbox.db,&session,&lease,&finalized,Some(&snapshot)).await.is_err());
-    assert!(sandbox.db.find_citizen_by_cid(&citizen).unwrap().is_none()); // 消费失败须回滚已写的公民/ID。
-    let hash=format!("0x{}","55".repeat(32));
-    finalized.tx_hash = hash.clone();
-    let output=super::commit_module_projection(&sandbox.db,&session,&lease,&finalized,Some(&snapshot)).await.unwrap().unwrap();
-    assert!(output["id"].as_u64().unwrap()>0);
-    assert!(sandbox.db.find_chain_sign_session(&session.request_id).unwrap().unwrap().consumed_at.is_some());
-    assert!(super::commit_module_projection(&sandbox.db,&session,&lease,&finalized,Some(&snapshot)).await.is_err());
-    assert_eq!(sandbox.db.find_citizen_by_cid(&citizen).unwrap().unwrap().id,output["id"].as_u64().unwrap());
-    assert!(origin_matches_binding(&session,&binding));
-    let other=NodeInstitutionBinding { institution_cid_number:"different-institution".into(),..binding.clone() };
-    assert!(!origin_matches_binding(&session,&other));
-    let fresh=chain_session_with_context(serde_json::json!({}));
-    assert!(!origin_matches_binding(&fresh,&binding));
-}
-
+        let lease = SessionLease::acquire(&sandbox.db, &session.request_id)
+            .unwrap()
+            .unwrap();
+        assert!(SessionLease::acquire(&sandbox.db, &session.request_id)
+            .unwrap()
+            .is_none());
+        let snapshot = FinalizedCitizenIdentity {
+            genesis_hash: [1; 32],
+            finalized_block_hash: [0x22; 32],
+            finalized_block_number: 7,
+            chain_now_seconds: 1_700_000_000,
+            cid_status: FinalizedCidStatus::Active,
+            registrar_cid_number: Some(binding.institution_cid_number.as_bytes().to_vec()),
+            commitment: Some([3; 32]),
+            residence_province_code: b"GZ".to_vec(),
+            residence_city_code: b"018".to_vec(),
+            account_id: Some([0x33; 32]),
+            binding_revision: Some(1),
+            identity_version: 0,
+            voting: None,
+            candidate: None,
+        };
+        let mut finalized = crate::core::chain_submit::FinalizedChainSubmit {
+            tx_hash: "different-finalized-hash".into(),
+            block_hash: [0x22; 32],
+            block_number: 7,
+        };
+        assert!(super::commit_module_projection(
+            &sandbox.db,
+            &session,
+            &lease,
+            &finalized,
+            Some(&snapshot)
+        )
+        .await
+        .is_err());
+        assert!(sandbox.db.find_citizen_by_cid(&citizen).unwrap().is_none()); // 消费失败须回滚已写的公民/ID。
+        let hash = format!("0x{}", "55".repeat(32));
+        finalized.tx_hash = hash.clone();
+        let output = super::commit_module_projection(
+            &sandbox.db,
+            &session,
+            &lease,
+            &finalized,
+            Some(&snapshot),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(output["id"].as_u64().unwrap() > 0);
+        assert!(sandbox
+            .db
+            .find_chain_sign_session(&session.request_id)
+            .unwrap()
+            .unwrap()
+            .consumed_at
+            .is_some());
+        assert!(super::commit_module_projection(
+            &sandbox.db,
+            &session,
+            &lease,
+            &finalized,
+            Some(&snapshot)
+        )
+        .await
+        .is_err());
+        assert_eq!(
+            sandbox
+                .db
+                .find_citizen_by_cid(&citizen)
+                .unwrap()
+                .unwrap()
+                .id,
+            output["id"].as_u64().unwrap()
+        );
+        assert!(origin_matches_binding(&session, &binding));
+        let other = NodeInstitutionBinding {
+            institution_cid_number: "different-institution".into(),
+            ..binding.clone()
+        };
+        assert!(!origin_matches_binding(&session, &other));
+        let fresh = chain_session_with_context(serde_json::json!({}));
+        assert!(!origin_matches_binding(&fresh, &binding));
+    }
 }

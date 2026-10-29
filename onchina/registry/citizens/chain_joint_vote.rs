@@ -1,7 +1,7 @@
 //! 公民人数查询 handler。
 //!
 //! 本接口只返回 OnChina 本地公民档案统计,用于 CitizenApp 展示或诊断。
-//! 链端联合投票人口快照由 runtime 从 `citizen-identity` 链上状态按 scope 读取。
+//! 链端联合投票人口快照由 runtime 从 `identity` 链上状态按 scope 读取。
 //!
 //! 无 token 鉴权:只返回聚合人数,不包含个人档案字段。
 
@@ -17,11 +17,14 @@ use crate::core::chain_runtime::normalize_account_id;
 use crate::*;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AppVotersCountQuery {
     pub(crate) account_id: String,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct AppVotersCountOutput {
     eligible_total: u64,
     account_id: String,
@@ -45,7 +48,7 @@ pub(crate) async fn app_voters_count(
         let row = conn
             .query_one(
                 "SELECT COUNT(*)::BIGINT
-                 FROM citizens
+                 FROM citizen
                  WHERE citizen_status = 'NORMAL'
                    AND voting_eligible = true",
                 &[],
@@ -71,8 +74,8 @@ pub(crate) async fn app_voters_count(
         "app",
         Some(account_id.clone()),
         serde_json::json!({
-            "eligible_total": eligible_total,
-            "actor_ip": actor_ip_from_headers(&headers),
+            "eligibleTotal": eligible_total,
+            "actorIp": actor_ip_from_headers(&headers),
         }),
     );
 

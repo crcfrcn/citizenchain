@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AuditLogEntry {
     pub(crate) seq: u64,
     pub(crate) action: String,
@@ -31,6 +33,8 @@ pub(crate) struct AuditLogEntry {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AuditLogsQuery {
     pub(crate) action: Option<String>,
     pub(crate) actor_account_id: Option<String>,
@@ -84,21 +88,21 @@ pub(crate) async fn admin_list_audit_logs(
         let limit_i64 = i64::try_from(limit).map_err(|_| "limit too large".to_string())?;
         let rows = conn
             .query(
-                "SELECT id, action, actor_account_id, target_cid, detail, created_at
+                "SELECT row_id, action_kind, actor_account, target_cid, detail_json, created_at
                  FROM audit
                  WHERE ($1::text IS NULL OR province_code = $1)
                    AND ($2::text IS NULL OR city_code = $2)
-                   AND ($3::text = '' OR action = $3)
-                   AND ($4::text = '' OR actor_account_id = $4)
+                   AND ($3::text = '' OR action_kind = $3)
+                   AND ($4::text = '' OR actor_account = $4)
                    AND ($5::text = '' OR target_cid = $5)
                    AND (
                         $6::text = ''
-                        OR lower(detail::text) LIKE '%' || $6 || '%'
-                        OR lower(action) LIKE '%' || $6 || '%'
-                        OR lower(COALESCE(actor_account_id, '')) LIKE '%' || $6 || '%'
+                        OR lower(detail_json::text) LIKE '%' || $6 || '%'
+                        OR lower(action_kind) LIKE '%' || $6 || '%'
+                        OR lower(COALESCE(actor_account, '')) LIKE '%' || $6 || '%'
                         OR lower(COALESCE(target_cid, '')) LIKE '%' || $6 || '%'
                    )
-                 ORDER BY created_at DESC, id DESC
+                 ORDER BY created_at DESC, row_id DESC
                  LIMIT $7",
                 &[
                     &province_code,

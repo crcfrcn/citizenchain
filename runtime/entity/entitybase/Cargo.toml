@@ -1,0 +1,28 @@
+[package]
+name = "entitybase" # 实体生命周期共用类型与 trait
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+sp-runtime = { workspace = true }
+primitives = { path = "../../primitives", default-features = false }
+adminbase = { path = "../../admins/adminbase", default-features = false }
+sp-std = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "sp-runtime/std",
+    "primitives/std",
+    "adminbase/std",
+    "sp-std/std",
+]

@@ -1,0 +1,48 @@
+[package]
+# 根tests统一存放单元测试，独立集成目标仅显式注册，避免重复发现。
+autotests = false
+name = "legislationvote"  # 立法投票 sub-pallet:立法机构专属投票(单院/两院/特别案强制公投,ADR-027)
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license = "MIT"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+
+primitives = { path = "../../primitives", default-features = false }
+entitybase = { path = "../../entity/entitybase", default-features = false }
+votingengine = { path = "..", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "frame-system/std",
+    "frame-benchmarking?/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "primitives/std",
+    "entitybase/std",
+    "votingengine/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "votingengine/runtime-benchmarks",
+]
+try-runtime = []
+
+[dev-dependencies]
+internalvote = { path = "../internalvote" }

@@ -1,4 +1,6 @@
 [package]
+# 根tests统一存放单元测试，独立集成目标仅显式注册，避免重复发现。
+autotests = false
 name = "offchain"  # 链下交易清算模块
 edition.workspace = true   # 默认 Rust 版本
 version.workspace = true   # 版本号
@@ -20,7 +22,7 @@ sp-std = { workspace = true }
 log = { version = "0.4", default-features = false }
 
 primitives = { path = "../../primitives", default-features = false }
-entity-primitives = { path = "../../entity/entity-primitives", default-features = false }
+entitybase = { path = "../../entity/entitybase", default-features = false }
 votingengine = { path = "../../votingengine", default-features = false }
 
 [features]
@@ -44,6 +46,6 @@ std = [
     "sp-std/std",
     "log/std",
     "primitives/std",
-    "entity-primitives/std",
+    "entitybase/std",
     "votingengine/std",
 ]

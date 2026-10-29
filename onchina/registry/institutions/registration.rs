@@ -12,12 +12,12 @@ use axum::{
 };
 
 use crate::authentication::login::{require_admin_any, AdminAuthContext};
-use crate::crypto::pubkey::{normalize_account_id, same_account_id};
+use crate::authorization::get_visible_scope;
 use crate::cid::china::{city_code_by_name, province_code_by_name};
+use crate::crypto::pubkey::{normalize_account_id, same_account_id};
 use crate::institutions::subjects::model::{
     CreateInstitutionInput, InstitutionListFilter, InstitutionListRow,
 };
-use crate::authorization::get_visible_scope;
 use crate::*;
 
 pub(crate) async fn create_institution(
@@ -50,6 +50,8 @@ async fn create_institution_inner(
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ListInstitutionQuery {
     pub category: Option<String>,
     pub private_type: Option<String>,
@@ -212,17 +214,17 @@ pub(crate) fn precheck_institution_create_scope(
     let scope = crate::authorization::rules::get_visible_scope(ctx);
     check_locked_field(
         scope.locked_province_name.as_deref(),
-        payload.get("province_name").and_then(|v| v.as_str()),
+        payload.get("provinceName").and_then(|v| v.as_str()),
         "province",
     )?;
     check_locked_field(
         scope.locked_city_name.as_deref(),
-        payload.get("city_name").and_then(|v| v.as_str()),
+        payload.get("cityName").and_then(|v| v.as_str()),
         "city",
     )?;
     check_locked_field(
         scope.locked_town_name.as_deref(),
-        payload.get("town_name").and_then(|v| v.as_str()),
+        payload.get("townName").and_then(|v| v.as_str()),
         "town",
     )?;
     let admins = payload
@@ -237,7 +239,7 @@ pub(crate) fn precheck_institution_create_scope(
     let mut normalized_account_ids: Vec<String> = Vec::with_capacity(admins.len());
     for item in admins {
         let raw = item
-            .get("account_id")
+            .get("accountId")
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|v| !v.is_empty())
@@ -269,4 +271,36 @@ fn check_locked_field(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+
+    #[test]
+    fn scope_precheck_reads_canonical_admin_account_keys() {
+        let ctx = AdminAuthContext {
+            account_id: format!("0x{}", "11".repeat(32)),
+            institution_cid_number: "test-institution".into(),
+            institution_code: "CREG".into(),
+            admin_level: None,
+            family_name: "测".into(),
+            given_name: "试".into(),
+            scope_province_name: Some("贵州省".into()),
+            scope_city_name: Some("绥阳市".into()),
+            scope_town_name: None,
+            cid_short_name: None,
+        };
+        let a = format!("0x{}", "22".repeat(32));
+        let b = format!("0x{}", "33".repeat(32));
+        let input = serde_json::json!({"provinceName":"贵州省", "cityName":"绥阳市",
+            "admins":[{"accountId":a},{"accountId":b}]});
+        assert!(precheck_institution_create_scope(&ctx, &input).is_ok());
+        let legacy = serde_json::json!({"provinceName":"贵州省", "cityName":"绥阳市",
+            "admins":[{"account_id":a},{"account_id":b}]});
+        assert!(precheck_institution_create_scope(&ctx, &legacy).is_err());
+        let duplicate = serde_json::json!({"provinceName":"贵州省", "cityName":"绥阳市",
+            "admins":[{"accountId":a},{"accountId":a}]});
+        assert!(precheck_institution_create_scope(&ctx, &duplicate).is_err());
+    }
 }

@@ -60,9 +60,9 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
       if (cancelled) return;
       setPeerId(pid);
       const matches: AdminSignerMatch[] = aa.map(a => ({
-        ss58_address: accountIdToSs58(a.account_id),
-        account_id: a.account_id,
-        account_label: '',
+
+        accountId: a.accountId,
+        accountLabel: '',
       }));
       setAdmins(matches);
       if (matches.length === 1) setSelectedAdmin(matches[0]);
@@ -122,7 +122,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
     setCountdown(90);
     try {
       const r = await offchainApi.buildRegisterClearingBankRequest(
-        selectedAdmin.account_id,
+        selectedAdmin.accountId,
         cidNumber,
         peerId,
         rpcDomain.trim(),
@@ -142,7 +142,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
     try {
       const r = await offchainApi.submitRegisterClearingBank(
         sr.requestId,
-        selectedAdmin.account_id,
+        selectedAdmin.accountId,
         sr.expectedPayloadHash,
         cidNumber,
         peerId,
@@ -199,19 +199,19 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
             {admins.length === 0 ? (
               <p className="muted">本机构尚无已激活管理员。请先回到治理 tab 激活至少 1 名清算行管理员后再来声明节点。</p>
             ) : admins.length === 1 ? (
-              <code className="admin-card-address">{admins[0].ss58_address}</code>
+              <code className="admin-card-address">{accountIdToSs58(admins[0].accountId)}</code>
             ) : (
               <select
-                value={selectedAdmin?.account_id ?? ''}
+                value={selectedAdmin?.accountId ?? ''}
                 onChange={(e) => {
-                  const found = admins.find(a => a.account_id === e.target.value);
+                  const found = admins.find(a => a.accountId === e.target.value);
                   setSelectedAdmin(found ?? null);
                 }}
               >
                 <option value="">— 选择管理员 —</option>
                 {admins.map((a) => (
-                  <option key={a.account_id} value={a.account_id}>
-                    {a.ss58_address}
+                  <option key={a.accountId} value={a.accountId}>
+                    {accountIdToSs58(a.accountId)}
                   </option>
                 ))}
               </select>

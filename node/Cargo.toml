@@ -33,6 +33,7 @@ log = { workspace = true, default-features = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, default-features = true }
 primitives = { path = "../runtime/primitives" }
+genesis = { path = "../runtime/genesis" }
 ocl = { version = "0.19", optional = true }
 rcgen = { version = "=0.13.2", default-features = false, features = ["ring"] }
 # TLS 复用统一 rustls 版本，证书材料仅由运行环境提供。
@@ -90,18 +91,18 @@ pallet-transaction-payment = { workspace = true, default-features = true }
 pallet-transaction-payment-rpc = { workspace = true, default-features = true }
 substrate-frame-rpc-system = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true }
-entity-primitives = { path = "../runtime/entity/entity-primitives", default-features = true }
-admin-primitives = { path = "../runtime/admins/admin-primitives", default-features = true }
-citizen-identity = { path = "../runtime/misc/citizen-identity", default-features = true }
-public-admins = { path = "../runtime/admins/public-admins", default-features = true }
-public-manage = { path = "../runtime/entity/public-manage", default-features = true }
+entitybase = { path = "../runtime/entity/entitybase", default-features = true }
+adminbase = { path = "../runtime/admins/adminbase", default-features = true }
+identity = { path = "../runtime/misc/identity", default-features = true }
+publicadmin = { path = "../runtime/admins/publicadmin", default-features = true }
+publicentity = { path = "../runtime/entity/publicentity", default-features = true }
 pallet-timestamp = { workspace = true, default-features = true }
 votingengine = { path = "../runtime/votingengine", default-features = true }
 # NodeGuard 直接匹配五类实际投票 call，避免依赖 runtime 自报费用分类。
-internal-vote = { path = "../runtime/votingengine/internal-vote", default-features = true }
-joint-vote = { path = "../runtime/votingengine/joint-vote", default-features = true }
-election-vote = { path = "../runtime/votingengine/election-vote", default-features = true }
-legislation-vote = { path = "../runtime/votingengine/legislation-vote", default-features = true }
+internalvote = { path = "../runtime/votingengine/internalvote", default-features = true }
+jointvote = { path = "../runtime/votingengine/jointvote", default-features = true }
+electionvote = { path = "../runtime/votingengine/electionvote", default-features = true }
+legislationvote = { path = "../runtime/votingengine/legislationvote", default-features = true }
 
 # 基准CLI仅由runtime-benchmarks启用；frame-benchmarking仍供生产Runtime API安全检查使用。
 frame-benchmarking-cli = { workspace = true, default-features = true, optional = true }
@@ -109,10 +110,10 @@ frame-benchmarking = { workspace = true, default-features = true }
 
 # Local Dependencies
 chain-signing = { path = "../crates/signing" }
-citizenchain = { workspace = true }
-grandpakey-change = { path = "../runtime/governance/grandpakey-change", default-features = true }
-pow-difficulty = { path = "../runtime/misc/pow-difficulty", default-features = true }
-fullnode-issuance = { path = "../runtime/issuance/fullnode-issuance", default-features = true }
+runtime = { workspace = true }
+grandpakey = { path = "../runtime/governance/grandpakey", default-features = true }
+difficulty = { path = "../runtime/misc/difficulty", default-features = true }
+fullnodeissue = { path = "../runtime/issuance/fullnodeissue", default-features = true }
 onchain = { path = "../runtime/transaction/onchain", default-features = true }
 # 扫码支付 Step 2b-ii-β-2-a 新增:node 端 pool_submitter 需要直接 use
 # offchain 的 batch_item / pallet::Call 类型构造 extrinsic。
@@ -157,19 +158,19 @@ tauri-build = { version = "=2.6.3", features = [] }
 [features]
 # 普通Cargo测试不嵌入前端源码；正式Tauri CLI自动启用tauri/custom-protocol。
 default = ["std"]
-std = ["citizenchain/std"]
+std = ["runtime/std"]
 custom-protocol = ["tauri/custom-protocol"]
 gpu-mining = ["ocl"]
 # 显式启用时仍提供完整基准命令与Runtime基准功能。
 runtime-benchmarks = [
     "frame-benchmarking-cli/runtime-benchmarks",
-	"citizenchain/runtime-benchmarks",
+	"runtime/runtime-benchmarks",
 ]
 # Enable features that allow the runtime to be tried and debugged. Name might be subject to change
 # in the near future.
 try-runtime = [
 	"frame-system/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"citizenchain/try-runtime",
+	"runtime/try-runtime",
 	"sp-runtime/try-runtime",
 ]

@@ -11,7 +11,7 @@
 
 ## 五个平台的完整产物
 
-五份既有 `.github/workflows/macos.yml`、`windows.yml`、`linuxarm.yml`、`linuxamd.yml`、`wasm.yml` 各自核对候选和准确源码、准备官方工具、执行所属真实测试、编译并上传完整 Artifact。四端分别交付 DMG、NSIS EXE、ARM64 DEB、AMD64 DEB，包含节点、OnChina宿主、模块及前端、PostgreSQL和必要运行库；WASM精确交付 citizenchain.wasm、citizenchain.compact.wasm、citizenchain.compact.compressed.wasm。
+五份既有 `.github/workflows/macos.yml`、`windows.yml`、`linuxarm.yml`、`linuxamd.yml`、`wasm.yml` 各自核对候选和准确源码、准备官方工具、执行所属真实测试、编译并上传完整 Artifact。四端分别交付 DMG、NSIS EXE、ARM64 DEB、AMD64 DEB，包含节点、OnChina宿主、模块及前端、PostgreSQL和必要运行库；WASM精确交付 runtime.wasm、runtime.compact.wasm、runtime.compact.compressed.wasm。
 
 编译工具版本以公开声明为准，缺件或错误版本直接失败。Unix PostgreSQL使用官方源码与既定OpenSSL配方；实际从随包路径运行initdb，运行库使用官方平台工具处理。macOS先执行Tauri官方build --no-bundle，再由签名分段和官方bundle生成正式包，核对App签名身份、团队、时间戳、公证和DMG。Linux实际解包检查架构、宿主、模块、前端和PostgreSQL。Windows动态OpenSSL依赖及各进程使用Runner现有Visual Studio官方可再分发CRT进行应用本地部署，不能只因Runner已装VC运行库就把缺件安装包当作完整。签名材料仅交付编译入口的签名分段，不进入测试、编译器环境或缓存。节点真实服务和费用守卫回归要求内置本轮源码WASM；测试步骤用官方Cargo只清理Runtime本体输出后启用现有源码WasmBuilder，禁止缺WASM跳过。该WASM仅为同平台真实测试输入，不作为另一平台交付；正式节点打包仍使用不内置WASM的既有合同。
 
@@ -253,7 +253,7 @@ WASM 远端自动化的官方 protoc 35.0 来源、SHA-256、解包和执行器�
 
 节点与OnChina的reqwest使用产品原始锁统一固定的版本，共用原始`citizenchain/Cargo.lock`，由Cargo解析更新，不手工改锁。节点的HTTPS请求按实际调用启用blocking、json、query、rustls；query是查询参数调用所需的显式功能。锁维护只写该锁及已批准的消费者清单，源码Runtime不参与写入。Polkadot SDK仍使用原锁固定Git仓库与提交，取源由受控唯一原件提供；锁解析通过不代表节点编译或网络运行验收通过。
 
-节点入口、工具准备与运行失败条件由本仓scripts及声明拥有；对应回归归本仓`scripts/flow.test.mjs`和既有真实测试。门禁只使用本仓准确提交、测试清单和所属技术文档，不读取外部规则、证据区间或任务库；文档同步不等于真实运行验收通过。
+节点入口、工具准备与运行失败条件由本仓scripts及声明拥有；对应回归归本仓`scripts/config.mjs`、`scripts/runtime.mjs`、`scripts/build.test.mjs`和既有真实测试。门禁只使用本仓准确提交、测试清单和所属技术文档，不读取外部规则、证据区间或任务库；文档同步不等于真实运行验收通过。
 
 ### citizenchain/crates 技术说明
 
@@ -288,7 +288,7 @@ Clippy 和测试，禁止只跑 `citizenchain --workspace` 后误报共享模块
 
 `citizenchain/crates/protocol/tests/golden_fixtures.rs` 与 `repo_guard.rs` 是 QR 协议的跨端锁步夹具；
 改动 QR 协议字段序时，它们与四端（onchina、citizenapp、citizenwallet、node）必须同改，
-另有 `.github/scripts/repository/ci-repository.mjs golden-vectors` 在 CI 侧校验真源与各端镜像一致。
+对应校验由上述所属测试及 `crates/protocol/tests/repo_guard.rs` 承担，经原协议测试入口执行。
 
 公民服务端 Cloudflare 发布使用独立 QR_V1 动作 `citizenserve_cloudflare_publish=17`。
 `config_sha256` 是注入九项公开运行值后的最终 Wrangler 配置 UTF-8 字节摘要，
@@ -317,7 +317,7 @@ Tauri 打包(dmg/nsis/deb)随包"五件套",装好即用、无外部依赖:
 | 件 | 位置 | 运行期 |
 |----|------|--------|
 | node 矿工端 | 主程序 | 桌面=节点运维台,默认全核挖矿 |
-| OnChina 二进制 | `resources/onchina-bin/onchina` | 节点设置页二次确认后由 `onchina_proc` 拉起 |
+| OnChina 二进制 | `resources/onchina-bin/onchina` | 节点设置页二次确认后由 `main.rs` 中的进程管理入口拉起 |
 | PostgreSQL 官方二进制 | `resources/postgres/<os>/`(bin/lib/share) | OnChina **自管**内嵌私有实例 |
 | OnChina 前端产物 | `resources/onchina-frontend/dist` | OnChina 同源托管(`ONCHINA_FRONTEND_DIST`) |
 | china.sqlite | `resources/china.sqlite` | 行政区只读单源(`ONCHINA_CHINA_DB`) |
@@ -329,8 +329,8 @@ PG 官方二进制来源:https://www.postgresql.org/download/(解压后含 bin/l
 
 #### 进程编排(设置页手动拉起,OnChina 自管 PG/TLS)
 
-- 节点 `desktop` setup 不启动 OnChina；用户在设置页“链上中国平台”行点击“启动”并二次确认后，`start_onchina_platform` 调用 `onchina_proc::start_onchina(app)`。
-- `onchina_proc` 用 env 把资源/数据路径告诉 OnChina(`ONCHINA_PG_BIN_DIR`/`ONCHINA_PG_DATA_DIR`/`ONCHINA_PG_PORT`/`ONCHINA_TLS_DIR`/`ONCHINA_PG_WAL_ARCHIVE_DIR`/`ONCHINA_FRONTEND_DIST`/`ONCHINA_CHINA_DB`/`ONCHAIN_WS_URL`/`ONCHAIN_LOCAL_RPC_CERTIFICATE`/`ONCHINA_EMBEDDED_PG=1`/`ONCHINA_ENABLE_TLS=1`)。桌面父进程只通过后者交付本次RPC证书的公开DER十六进制，不交付私钥。
+- 节点 `desktop` setup 不启动 OnChina；用户在设置页“链上中国平台”行点击“启动”并二次确认后，`start_onchina_platform` 调用 `crate::start_onchina(app)`。
+- `main.rs` 中的进程管理入口通过环境变量把资源/数据路径告诉 OnChina(`ONCHINA_PG_BIN_DIR`/`ONCHINA_PG_DATA_DIR`/`ONCHINA_PG_PORT`/`ONCHINA_TLS_DIR`/`ONCHINA_PG_WAL_ARCHIVE_DIR`/`ONCHINA_FRONTEND_DIST`/`ONCHINA_CHINA_DB`/`ONCHAIN_WS_URL`/`ONCHAIN_LOCAL_RPC_CERTIFICATE`/`ONCHINA_EMBEDDED_PG=1`/`ONCHINA_ENABLE_TLS=1`)。桌面父进程只通过后者交付本次RPC证书的公开DER十六进制，不交付私钥。
 - OnChina 启动:`embedded_pg::ensure_started()`(首启 initdb→起 postgres@127.0.0.1:私有端口→建 onchina 库→自拼 DATABASE_URL)→ schema 幂等建 → `tls`(机构私有 CA 签发 HTTPS,主机 `onchina.local`)→ 服务。
 - 退出:node 停子进程信号 → OnChina 收 SIGTERM/Ctrl-C → `embedded_pg::stop()` → 退出。node **不碰 PG**。
 - 开发期(无随包 PG)继承 `run.sh` / `clean-run.sh` 注入的外部 PostgreSQL 二进制、数据目录、前端产物和 HTTPS 配置。
@@ -390,10 +390,10 @@ OnChina的数据库地址本机判断保持跨平台一致：TCP仅接受`localh
 - `citizenchain` 是 `crcfrcn/citizenchain` 完整仓的主权区块链产品，负责链上状态、共识、治理、发行、交易结算与节点运行。
 - 原生链名称为 `CitizenChain`，原生数字货币为 `GMB`。
 - 产品作为一个安装包交付，包含三类核心能力：
-  - 区块链节点程序：`node/src/service.rs`、`node/src/command.rs` 等原生节点模块。
+  - 区块链节点程序：`node/src/core/service.rs`、`node/src/core/command.rs` 等原生节点模块。
   - 链上状态机：`runtime/` 编译出的 wasm 与所有 pallet。
   - 链上中国平台：`onchina/` 多机构工作台，由节点桌面端按需拉起。
-- 桌面节点软件由 `node/src/desktop.rs`、`node/src/<功能名>` 与 `node/frontend` 提供本地节点运维、设置和打包入口。
+- 桌面节点软件由 `node/src/desktop/mod.rs`、`node/src/<功能名>` 与 `node/frontend` 提供本地节点运维、设置和打包入口。
 
 ##### 3.2 对外协作边界
 - 对 `CID`：提供绑定、资格校验、人口快照、投票凭证等链侧接口承载能力。
@@ -410,7 +410,7 @@ OnChina的数据库地址本机判断保持跨平台一致：TCP仅接受`localh
 - 机构岗位授权必须同时验证 `cid_number + role_code + account_id`；公民身份必须同时验证 `cid_number + account_id`。命名统一不改变管理员名册、岗位、CID 或投票引擎职责边界。
 - 跨 RPC/JSON 的 32 字节账户和公钥统一编码为小写 `0x` 加 64 位十六进制；runtime 内部继续使用强类型和原始 32 字节值。
 - Node 与桌面前端的账户输入边界严格执行 `^0x[0-9a-f]{64}$`，不接受无前缀、大写或混合大小写文本；签名路径先校验 `signer_public_key`，再派生并比较 `signer_account_id`。
-- Node 本地缓存、桌面命令和私有 RPC 只保存、传递 `account_id`；SS58 输入在边界解析为账户 ID，输出时可另行派生 `ss58_address`，不得把 SS58 当作授权或缓存主键。
+- Node本地缓存保存唯一账户。桌面JSON使用官方camelCase（`accountId`、`signerPublicKey`等），固定RPC/QR沿用所属合同；SS58输入在边界解析为账户，展示从账户派生。钱包、奖励账户、机构账户与节点登记人不另存或下发地址副本。
 - 挖矿奖励账户私有 RPC 固定为 `reward_bindAccount` / `reward_rebindAccount`，本地非密钥配置固定为 `reward-account.json`。旧 RPC、旧 JSON 和兼容读取均已删除。
 - 完整目标与无兼容实施顺序见 ADR-040 和任务卡 `账户官方统一.md`。当前旧字段只描述实施前代码，不得用于新增实现。
 
@@ -456,7 +456,7 @@ citizenchain/
 - Native Node 层：负责 CLI、网络、数据库、共识服务编排、RPC 服务、chain spec 加载。
 - Runtime 层：负责所有链上状态转换、交易校验、治理规则、发行规则、手续费规则。
 - Pallet 层：按治理、发行、交易、其他能力拆分功能模块。
-- Desktop UI 层：由 `node/src/desktop.rs`、`node/src/<功能名>` 与 `node/frontend` 负责本地节点进程生命周期管理、参数设置、状态展示与安装包交付。
+- Desktop UI 层：由 `node/src/desktop/mod.rs`、`node/src/<功能名>` 与 `node/frontend` 负责本地节点进程生命周期管理、参数设置、状态展示与安装包交付。
 
 ##### 5.2 关键共享依赖
 - `runtime/primitives/`：提供链常量、机构常量、SS58 参数、发行与人口基础常量。
@@ -497,8 +497,8 @@ CitizenApp P2P 暂时不可用时，聊天和广场不依赖链节点 RPC，继�
 - `AccountId` 与公钥等价，链上账户体系直接以公钥签名身份为主。
 - 交易扩展中显式拒绝 `stake` 账户作为发送方。
 - runtime 当前直接依赖本产品的治理、发行、交易、其他 pallet。
-- 创世配置由 `runtime/src/genesis_config_presets.rs` 提供。
-- 公民宪法创世正文唯一文件为 `runtime/public/legislation-yuan/src/constitution.scale`；该文件是结构化 `章>节>条>款` SCALE 数据，运行态注入为 `law_id=0`，修改必须经 runtime 二次确认并通过 `legislation-yuan` 解码/创世测试。
+- 创世配置由genesis模块的 `runtime/genesis/src/config.rs` 唯一提供；Node传入 `runtime::RuntimeGenesisConfig` 调用公开构造入口，不复制整链配置实现。
+- 公民宪法创世正文唯一文件为 `runtime/public/legislation/src/constitution.scale`；该文件是结构化 `章>节>条>款` SCALE 数据，运行态注入为 `law_id=0`，修改必须经 runtime 二次确认并通过 `legislation` 解码/创世测试。
 - 单一宪法版本的目录编号规则固定为：章号全文全局唯一、节号在所属章内唯一（不同章允许复用）、条号全文全局唯一；只约束唯一性，不要求连续或从 1 开始。
 - runtime 在创世构建、修宪提案和投票结果最终写入三处独立校验上述规则；原生 `ConstitutionGuard` 对 block#0 与全部历史版本复校验，`check-constitution-genesis.py` 对 chainspec/RPC 创世状态执行同口径检查，任何一层发现重复编号都失败关闭。
 - 创世法律版本标签唯一常量在 `runtime/primitives/src/genesis.rs`：`GENESIS_LAW_VERSION_LABELS` 目前固定写入 `(law_id=0, version=1) -> 创世版 / Genesis Edition`；runtime 创世构建把该常量写入 `LegislationYuan.LawVersionLabels`，显示端不得本地推断 `v1=创世版`。
@@ -538,22 +538,22 @@ CitizenApp P2P 暂时不可用时，聊天和广场不依赖链节点 RPC，继�
 - ADR-039 目标中，每个业务模块先按完整 `RoleSubject(cid_number, role_code)` 校验发起权限，在代码中静态指定唯一投票引擎并绑定 VotePlan；投票引擎不得由调用方选择，也不得执行具体业务。
 
 当前模块：
-- `grandpakey-change`
-- `resolution-destro`
-- `runtime-upgrade`
+- `grandpakey`
+- `destroy`
+- `upgrade`
 - `votingengine`
 
 ##### 9.2 管理员模块（`runtime/admins/`）
 - 负责公权机构管理员、私权机构管理员和个人多签管理员；固定治理机构初始管理员由链配置写入，运行期治理归公权管理员模块。
-- 机构管理员集合真源归 `admins`，机构管理员是可任职人员。公权、私权机构值结构统一为 `Admin { account_id, cid_number, family_name, given_name }`，非空公民 CID 必须与 `citizen-identity` 的 `AccountIdByCid` / `CidByAccountId` 双向真源一致。个人多签虽复用同一 SCALE 结构，但按个人多签规则处理字段完整性。管理员账户本身没有机构业务权限。
+- 机构管理员集合真源归 `admins`，机构管理员是可任职人员。公权、私权机构值结构统一为 `Admin { account_id, cid_number, family_name, given_name }`，非空公民 CID 必须与 `identity` 的 `AccountIdByCid` / `CidByAccountId` 双向真源一致。个人多签虽复用同一 SCALE 结构，但按个人多签规则处理字段完整性。管理员账户本身没有机构业务权限。
 - ADR-039 目标授权主体为 `RoleSubject(cid_number, role_code)`。岗位、强类型 `RoleBusinessPermission` 和任职真源归 `entity`；业务动作、指定投票引擎和执行真源归业务模块。个人多签保持独立 `AuthorizationSubject::PersonalMultisig`。
-- `public-admins`、`private-admins`、`personal-admins` 的 `AdminAccounts` 统一接受四字段 `Admin` SCALE 布局；旧纯账户、旧三字段、旧合并姓名和历史 storage migration 均已删除，不保留兼容或双轨。字段是否必须非空由机构类型、岗位和个人多签规则分别判定。
+- `publicadmin`、`privateadmin`、`personaladmin` 的 `AdminAccounts` 统一接受四字段 `Admin` SCALE 布局；旧纯账户、旧三字段、旧合并姓名和历史 storage migration 均已删除，不保留兼容或双轨。字段是否必须非空由机构类型、岗位和个人多签规则分别判定。
 
 当前模块：
-- `admin-primitives`
-- `public-admins`
-- `private-admins`
-- `personal-admins`
+- `adminbase`
+- `publicadmin`
+- `privateadmin`
+- `personaladmin`
 
 ##### 9.3 实体模块（`runtime/entity/`）
 - 负责公权机构、私权机构、个人多签账户的创建、关闭、资金与生命周期治理。
@@ -562,29 +562,29 @@ CitizenApp P2P 暂时不可用时，聊天和广场不依赖链节点 RPC，继�
 - 动态岗位码由 runtime 使用所属 pallet 的 `MODULE_TAG` 作哈希域生成，调用方不得提交；岗位码及权限不可修改，岗位名可以依法修改。
 
 当前模块：
-- `public-manage`（公权机构生命周期,idx30）
-- `private-manage`（私权机构生命周期,idx31）
-- `personal-manage`（个人多签）
+- `publicentity`（公权机构生命周期,idx30）
+- `privateentity`（私权机构生命周期,idx31）
+- `personalentity`（个人多签）
 
 ##### 9.4 公权业务模块（`runtime/public/`）
 - 负责公权机构的业务壳。业务壳只解释业务规则和写回业务真源，不复刻投票流程。
-- `legislation-yuan` 是立法业务壳；立法表决、计票和公投流程归 `legislation-vote`。
-- `citizen-election` 是公民选举公职人员的业务模块，当前仅占位；后续逐步实现具体选举规则，选举投票、计票和结果快照统一归 `election-vote`。
+- `legislation` 是立法业务壳；立法表决、计票和公投流程归 `legislationvote`。
+- `election` 是公民选举公职人员的业务模块，当前仅占位；后续逐步实现具体选举规则，选举投票、计票和结果快照统一归 `electionvote`。
 
 当前模块：
-- `legislation-yuan`（idx25）
-- `citizen-election`（idx32，当前仅占位）
+- `legislation`（idx25）
+- `election`（idx32，当前仅占位）
 
-index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，用于公民选举公职人员；当前仅占位，不提供交易入口、业务存储或事件。
+index 32 由 `CitizenElection`（`runtime/public/election`）复用，用于公民选举公职人员；当前仅占位，不提供交易入口、业务存储或事件。
 
 ##### 9.5 发行模块（`runtime/issuance/`）
 - 负责公民发行、全节点发行、省储行利息、决议发行完整流程。
 
 当前模块：
-- `citizen-issuance`
-- `fullnode-issuance`
-- `resolution-issuance`
-- `provincialbank-interest`
+- `citizenissue`
+- `fullnodeissue`
+- `resolutionissue`
+- `prbbankissue`
 
 ##### 9.6 交易模块（`runtime/transaction/`）
 - 负责链上交易手续费、链下交易手续费、机构多签交易能力。
@@ -596,11 +596,11 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
 
 ##### 9.7 其他模块（`runtime/misc/`）
 - 负责链上公民身份、人口统计、PoW 难度调整等基础能力。
-- `citizen-identity` 是链上投票身份、参选身份和全国、省、市、镇四级有效人口数据的唯一真源；投票引擎按提案需要消费这些人口数据并生成快照。投票身份不在链上算/存年龄，能否投票由 `citizen_status=Normal` + 护照有效期窗口判定；最低年龄门禁只在竞选身份按链上保存的出生日期 `birth_date` 实时计算复核（≥16）。
+- `identity` 是链上投票身份、参选身份和全国、省、市、镇四级有效人口数据的唯一真源；投票引擎按提案需要消费这些人口数据并生成快照。投票身份不在链上算/存年龄，能否投票由 `citizen_status=Normal` + 护照有效期窗口判定；最低年龄门禁只在竞选身份按链上保存的出生日期 `birth_date` 实时计算复核（≥16）。
 
 当前模块：
-- `pow-difficulty`
-- `citizen-identity`
+- `difficulty`
+- `identity`
 
 ##### 10.1 定位
 - `citizenchain/node` 是当前唯一桌面节点产品壳与原生节点实现目录。
@@ -608,11 +608,11 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
 - 对最终用户仍然提供“安装即用”的节点软件，而不是要求用户手工管理原生 node 命令。
 
 ##### 10.2 当前职责
-- `node/src/desktop.rs` 负责 Tauri 桌面入口与 command 注册。
+- `node/src/desktop/mod.rs` 负责 Tauri 桌面入口与 command 注册。
 - `node/src/<功能名>` 负责桌面端 Rust 后端能力，不再保留 `node/src/ui` 目录层。
 - `node/frontend/<功能名>` 负责 React 前端页面与交互。
 - `citizenchain/node` 负责启动 / 停止内嵌节点进程，管理 bootnode 地址、奖励地址、GRANDPA 地址、节点名称等本地设置，并展示节点状态、链状态、网络概览、挖矿面板与其他辅助信息。
-- 管理员、治理、转账、清算和奖励设置等桌面桥接统一把账户字段输出为 `account_id` / `<role>_account_id`，把签名公钥输出为 `signer_public_key`，把展示地址输出为 `ss58_address`；前端不得重新创造同义字段。
+- 管理员、治理、转账、清算和奖励设置的桌面桥接使用 camelCase：账户为 `accountId` 或对应角色账户字段，签名公钥为 `signerPublicKey`。展示地址从唯一账户派生；钱包、奖励账户、机构账户和节点登记人 DTO 不保存或下发 SS58 副本。固定 QR_V1 和当前 Runtime 接口保留所属拼写。
 - Node 端所有公民钱包离线扫码签名 UI 统一由 `node/frontend/protocol/CitizenSignaturePanel.tsx` 和 `CitizenSignatureModal.tsx` 承载：左侧固定“扫码签名”，右侧固定“识别签名”，面板只显示二维码有效期倒计时，不显示内部 request id 或签名账户地址；业务页面只负责构造请求、验签和提交交易。地址扫码填入等非签名二维码不纳入该组件。
 - 设置页的“全节点模式”当前展示归档全节点和普通全节点：默认归档全节点；普通全节点置灰不可选择；在底层剪裁能力完成前，节点实际仍按归档全节点运行。
 - 设置页在“全节点模式”之后提供“链上中国平台”手动启动行，显示 `未开启` / `启动中` / `已开启` 状态标签、固定入口 `https://onchina.local:8964` 和“启动 / 关闭”按钮；点击后必须二次确认，只启动或停止 OnChina 子进程，不自动打开浏览器；只有 `/api/health` 真实健康检查通过后才显示 `已开启`。
@@ -636,50 +636,42 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
 - 构建脚本、CI/CD、前端界面、说明文档。
 
 ##### 11.4 特殊情况
-- `node/src/chain_spec.rs` 变更通常不是“现有链 runtime 升级”，而是 chain spec / bootnodes / properties / 启动配置变更。
-- `runtime/src/genesis_config_presets.rs` 变更若影响创世状态，通常对应新链或重建链，不等于自动给已运行链打补丁。
+- `node/src/core/chain_spec.rs` 变更通常不是“现有链 runtime 升级”，而是 chain spec / bootnodes / properties / 启动配置变更。
+- `runtime/genesis/src/config.rs` 变更若影响创世状态，通常对应新链或重建链，不等于自动给已运行链打补丁。
 
 ##### 12.1 治理
-- `runtime/governance/grandpakey-change/GRANDPAKEYCHANGE_TECHNICAL.md`
-- `runtime/governance/resolution-destro/RESOLUTIONDESTRO_TECHNICAL.md`
-- `runtime/governance/runtime-upgrade/RUNTIMEUPGRADE_TECHNICAL.md`
-- `runtime/votingengine/VOTINGENGINE_TECHNICAL.md`
+- `CitizenChainRuntime.md`（runtime/governance/grandpakey 对应模块章节）
+- `CitizenChainRuntime.md`（runtime/governance/destroy 对应模块章节）
+- `CitizenChainRuntime.md`（runtime/governance/upgrade 对应模块章节）
+- `CitizenChainRuntime.md`（runtime/votingengine 对应模块章节）
 
 ##### 12.1.1 管理员
-- `runtime/admins/ADMINS_TECHNICAL.md`
+- `CitizenChainRuntime.md`（runtime/admins 对应模块章节）
 
 ##### 12.1.2 实体（机构/个人生命周期）
-- `runtime/entity/public-manage/PUBLIC_MANAGE_TECHNICAL.md`
-- `runtime/entity/private-manage/PRIVATE_MANAGE_TECHNICAL.md`
-- `runtime/entity/personal-manage/PERSONAL_MANAGE_TECHNICAL.md`
+- `CitizenChainRuntime.md`（runtime/entity/publicentity 对应模块章节）
+- `CitizenChainRuntime.md`（runtime/entity/privateentity 对应模块章节）
+- `CitizenChainRuntime.md`（runtime/entity/personalentity 对应模块章节）
 
 ##### 12.2 发行
-- `runtime/issuance/citizen-issuance/CITIZENISS_TECHNICAL.md`
-- `runtime/issuance/fullnode-issuance/FULLNODE_TECHNICAL.md`
-- `runtime/issuance/resolution-issuance/RESOLUTIONISSUANCE_TECHNICAL.md`
-- `runtime/issuance/provincialbank-interest/PROVINCIALBANK_TECHNICAL.md`
+- `CitizenChainRuntime.md`（runtime/issuance/citizenissue 对应模块章节）
+- `CitizenChainRuntime.md`（runtime/issuance/fullnodeissue 对应模块章节）
+- `CitizenChainRuntime.md`（runtime/issuance/resolutionissue 对应模块章节）
+- `CitizenChainRuntime.md`（runtime/issuance/prbbankissue 对应模块章节）
 
 ##### 12.3 交易
-- `runtime/transaction/multisig-transfer/MULTISIG_TRANSFER_TECHNICAL.md`
-- `runtime/transaction/institution-asset/INSTITUTION_ASSET_TECHNICAL.md`
-- `runtime/transaction/offchain-transaction/STEP1_TECHNICAL.md`
-- `runtime/transaction/offchain-transaction/STEP2A_RUNTIME.md`
-- `runtime/transaction/onchain-transaction/ONCHAIN_TECHNICAL.md`
+- `CitizenChainRuntime.md`（runtime/transaction/multisig 对应模块章节）
+- `CitizenChainRuntime.md`（机构账户资金操作接口位于runtime/primitives/src/institution_asset.rs）
+- `runtime/transaction/offchain/STEP1_TECHNICAL.md`
+- `runtime/transaction/offchain/STEP2A_RUNTIME.md`
+- `CitizenChainRuntime.md`（runtime/transaction/onchain 对应模块章节）
 
 ##### 12.4 其他链上模块
-- `runtime/misc/pow-difficulty/POW_DIFFICULTY_TECHNICAL.md`
-- `runtime/misc/citizen-identity/CITIZEN_IDENTITY_TECHNICAL.md`
+- `CitizenChainRuntime.md`（runtime/misc/difficulty 对应模块章节）
+- `CitizenChainRuntime.md`（runtime/misc/identity 对应模块章节）
 
 ##### 12.5 桌面节点 UI
-- `CitizenChainNode.md`
-- `CitizenChainNode.md`
-- `CitizenChainNode.md`
-- `CitizenChainNode.md`
-- `CitizenChainNode.md`
-- `CitizenChainNode.md`
-- `CitizenChainNode.md`
-- `CitizenChainNode.md`
-- `CitizenChainNode.md`（第 9 节记录全节点模式设置边界）
+- `CitizenChainNode.md` 是节点桌面、普通转账与设置的唯一技术文档入口。
 
 ##### 12.6 公民链客户端 SDK
 
@@ -690,11 +682,11 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
 - 模块行为变更时，必须同时更新对应模块技术文档。
 - 若产品级口径与模块级口径冲突，以代码实现为准，并应在本次改动中同时修正文档。
 
-#### 14. 本地 fresh Node 验收口径
+#### 14. 隔离节点验收口径
 
-- macOS 节点二进制默认进入桌面模式；需要命令行指定 `--chain citizenchain-fresh --tmp` 做隔离验收时，必须同时设置 `CITIZENCHAIN_HEADLESS=1`，否则命令行 chain 参数不会代表实际启动的桌面节点状态。
-- fresh 验收必须读取 RPC 的 block 0、health、六项项目 Runtime 版本、metadata、genesis hash 与 state root，并在结束后停止节点。与既有 bootnode 的 genesis 不一致只说明正式 chainspec 尚未统一，不得通过削弱 NodeGuard 或复用旧链数据规避。
-- 2026-07-22 最终验收：block #0/genesis hash `0x4bd7e3f65f5ad4788e6ac8917abce9b0683f0c93d286766a7512854084ff0dd9`，state root `0xd15b1a20d972f0cc5f64aa9a08a09f6793fe51886f9445c6dc953c0f9d438f7b`，`peers=0`、`isSyncing=false`，六项项目 Runtime 版本均为 `0`，metadata 二进制 220,247 字节；验收节点已停止，未生成正式 chainspec。
+- macOS 节点二进制默认进入桌面模式；隔离运行服务时必须同时设置 `CITIZENCHAIN_HEADLESS=1`，并显式指定本轮临时数据目录。原CLI子命令直接进入工具模式。链身份验收使用原冻结citizenchain链规。
+- 隔离验收核对实际block 0、Runtime版本、genesis hash与state root；启动服务时另查health和metadata，结束后停止本轮进程。实际链身份必须与冻结GENESIS_HASH、GENESIS_STATE_ROOT一致，任何不一致都失败，禁止换链规、改期望值或削弱NodeGuard。源码fresh入口仅归另行明确授权的生成流程，不用于重定义原链身份。
+- 以下仅为2026-07-22历史fresh现场记录，不是现行冻结链身份，也不构成当前验收通过证据：block #0/genesis hash `0x4bd7e3f65f5ad4788e6ac8917abce9b0683f0c93d286766a7512854084ff0dd9`，state root `0xd15b1a20d972f0cc5f64aa9a08a09f6793fe51886f9445c6dc953c0f9d438f7b`，`peers=0`、`isSyncing=false`，六项项目 Runtime 版本均为 `0`，metadata 二进制 220,247 字节；验收节点已停止，未生成正式 chainspec。
 
 #### 14.1 外部调用准入与费率路由：两处都不设通配分支
 
@@ -708,7 +700,7 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
 
 这样新增 pallet 会触发编译期 non-exhaustive 错误，强制作者显式决定放行还是拒绝。
 编译器只能拦住「删掉某个 pallet 分支」，拦不住有人把 `_ => true` 加回来，故另配源码级
-回归测试 `runtime/src/tests/cases.rs::runtime_call_filter_has_no_wildcard_arm` 钉死这一点。
+回归测试 `runtime/tests/cases.rs::runtime_call_filter_has_no_wildcard_arm` 钉死这一点。
 
 > 注：只有带 `#[pallet::call]` 的 pallet 才会出现在 `RuntimeCall` 中。`TransactionPayment`、
 > `ProvincialBankInterest`、`PowDifficulty`、`GenesisPallet`、`PublicAdmins`、`PrivateAdmins`
@@ -720,12 +712,12 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
   `cargo clippy --workspace --all-targets -- -D warnings`，范围包含全部 production、test、
   example、Node、OnChina、runtime、协议 crate 和固定 GRANDPA vendor target，不按目录
   跳过告警。
-- 同一源码已通过 `cargo test --workspace --all-targets`。现有 `square-post` 真实日历、
+- 同一源码已通过 `cargo test --workspace --all-targets`。现有 `square` 真实日历、
   自动续费、取消、暂停恢复与价格重确认测试均通过，本轮没有修改订阅业务逻辑。
 - FRAME 宏生成的既定 extrinsic 参数 ABI、固定上游 vendor 和测试断言只允许使用最窄、
   带中文原因的 lint 范围；不得以此扩展为 production 全局静音。
 - **2026-07-30 创世前审计复核：上条「2026-07-25 已通过」当时已不成立，门禁实际是红的**，
-  共 10 条错误（`citizen-identity` 参数超阈值 1 条来自当日提交 `51148c76`；
+  共 10 条错误（`identity` 参数超阈值 1 条来自当日提交 `51148c76`；
   `node/vendor/finality_proof.rs` 冗余借用 1 条从 2026-03-26 起就红着；
   `node/admins/management/activation.rs` 冗余借用 2 条；
   `node/transaction/offchain/rpc.rs` `return Err(..)?` 冗余 6 条）。全部已修，
@@ -734,9 +726,9 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
   - 手写辅助函数**一律不放宽**，按设计把长参数收成描述结构体
     （本轮把 `prepare_legislation_sign`、`build_chain_sign_output` 各收成 3 参数）。
   - FRAME `#[pallet::call]` 中单个 extrinsic 超阈值 → per-fn `#[allow]`
-    （`citizen-identity::admin_rebind_cid_account_id`、`public-manage`、`private-manage`）。
+    （`identity::admin_rebind_cid_account_id`、`publicentity`、`privateentity`）。
   - 宏在 pallet **模块层**生成的 Call 分发代码超阈值 → per-fn 与 call 块级 `#[allow]` 都够不到，
-    只能用模块内部属性 `#![allow(...)]`（`address-registry`、`legislation-yuan`）；
+    只能用模块内部属性 `#![allow(...)]`（`address`、`legislation`）；
     这仍窄于原先的 crate 级，模块外辅助函数的参数过多依然会被抓出。
 - 该门禁此前**只靠手工跑、没有进 CI**，这正是它红了几个月无人发现的原因；
   修完必须补 CI job，否则还会再漂。
@@ -745,7 +737,7 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
 - 第8.1步最终冻结源码提交为
   `ac6de21b2432f52f45f1767f88f4e6833a2c79d0`。CitizenChain WASM run
   `30190068925` 已成功并上传 artifact `8628330093`；正式烘焙必须使用该 run 的
-  `citizenchain.compact.compressed.wasm`，其 SHA-256 为
+  历史附件原名 `citizenchain.compact.compressed.wasm`，其 SHA-256 为
   `a838dd763c1c7003aca1edf177738d85b64936bbc1ba98dda7da348cc57d0d1a`。
   任何 HEAD SHA、run id 或 WASM 哈希不一致都必须阻止第8.2步。
 - 第8.2步已使用上述唯一 CI 产物完成正式 `--finalize`：
@@ -789,8 +781,8 @@ index 32 由 `CitizenElection`（`runtime/public/citizen-election`）复用，�
 - 更新日期:2026-07-22
 - 事实源:本文是流程导读;字段与编码以代码为准
   - `citizenchain/onchina/registry/`(建档 + 上链准备)
-  - `citizenchain/runtime/misc/citizen-identity/src/lib.rs`(链上身份 + 人口计数)
-  - `citizenchain/runtime/votingengine/legislation-vote/src/lib.rs`(快照消费)
+  - `citizenchain/runtime/misc/identity/src/lib.rs`(链上身份 + 人口计数)
+  - `citizenchain/runtime/votingengine/legislationvote/src/lib.rs`(快照消费)
   - `CitizenChainOnChina.md`(扫码动作登记)
 
 #### 1. 公民创建(本地建档,不碰链、不碰钱包)
@@ -849,13 +841,13 @@ prepare 与 complete 前各需一次 WebAuthn passkey 断言 + 管理员冷钱�
 当选结果保存完整主体，候选人计票以候选 CID 为唯一键；账户只证明当前签名授权，不得恢复
 裸账户身份主键。
 
-#### 3. 公民人口数据(citizen-identity pallet)
+#### 3. 公民人口数据(identity pallet)
 
 - 每次注册/更新/撤销身份时同步维护四级有效选民计数器:
   `CountryVotingCount` / `ProvinceVotingCount(省)` /
   `CityVotingCount(省,市)` / `TownVotingCount(省,市,镇)`,
   最终只统计状态正常且在当前人口就绪日期护照有效的身份。
-- 护照未来生效、到期、身份吊销和迁居必须由 citizen-identity 维护有界日期变化计划；
+- 护照未来生效、到期、身份吊销和迁居必须由 identity 维护有界日期变化计划；
   当天人口变化尚未处理完成时，新提案人口数据 fail-closed，不得用不完整分母建案。
 - `PopulationReadyDate` 保存四级人口完整推进至的 UTC+8 日期；护照生效和到期转换按
   `(date, index)` 独立存储并携带永久 CID、身份 revision 和转换类型，不复制账户或身份全文。
@@ -874,9 +866,9 @@ prepare 与 complete 前各需一次 WebAuthn passkey 断言 + 管理员冷钱�
 - 每次身份注册、资料更新、迁居或撤销都会递增全局 revision,关闭同一永久 CID 的旧版本并写入
   `VotingEligibilityVersions`;同一区块多次写入也有确定顺序。CID 不得修改、替换、删除或复用。
 
-#### 4. 投票引擎消费(legislation-vote 特别案公投)
+#### 4. 投票引擎消费(legislationvote 特别案公投)
 
-- **建案事务内快照**:特别案创建时由 `legislation-vote` 先从发起机构
+- **建案事务内快照**:特别案创建时由 `legislationvote` 先从发起机构
   `actor_cid_number` 的唯一 CID 解析国家/省/市作用域，再在同一存储事务内调用
   `VotingEngine::create_population_snapshot(proposal_id, scope)`。投票引擎只从
   `CitizenIdentityReader::population_data(scope)` 取得人口数据，再写入自身
@@ -920,9 +912,9 @@ prepare 与 complete 前各需一次 WebAuthn passkey 断言 + 管理员冷钱�
 
 #### 2026-07-22 第 6 步验收
 
-- 选举元数据只保留唯一 `actor_cid_number + role_code`，发起机构就是拟任职机构；`target_cid_number`、`office_code`、`rule_id` 已从 `election-vote` 清零。
+- 选举元数据只保留唯一 `actor_cid_number + role_code`，发起机构就是拟任职机构；`target_cid_number`、`office_code`、`rule_id` 已从 `electionvote` 清零。
 - 候选快照、普选票据、候选计票和当选结果全部保存完整 `CitizenSubject`；普选按永久 CID 去重，互选按机构 CID + 岗位码 + 账户票据去重。
-- `election-vote` 17 项、votingengine 4 项、runtime 46 项、全 workspace 测试目标、`no_std`、WASM、benchmark/try-runtime 和 release Node 构建通过。
+- `electionvote` 17 项、votingengine 4 项、runtime 46 项、全 workspace 测试目标、`no_std`、WASM、benchmark/try-runtime 和 release Node 构建通过。
 - `citizenchain-fresh --tmp` 真实节点 block #0 为 `0x285ca7f4ab0f24771baff6a6fc10141ee281fbbd6ce1a8f9dcd1d7676501a41b`，state root 为 `0x27ecdc5b73ce195df4bdfe6c05fe68ef0b682c58751f5f145868a69a1f4672bd`，metadata 二进制 220,398 字节，runtime 六项项目版本均为 `0`；验收节点已停止。
 
 #### 2026-07-22 第 8 步客户端协议验收
@@ -1398,7 +1390,7 @@ CID 的 r5 段 = 省码(2)+ 市码(3)(number.rs:88-92)。
 创世时直接上链、未走注册局流程的仅两个,按各自 CID 特性分开落地(去掉早前"程伟塞进某市 + 待补档 + PENDING"的复杂做法):
 
 - **基金会 `GZ018-SFGYR`(私权,CID 带市码 018=绥阳)** → 落 **绥阳市注册局(城市节点)**。绥阳节点(scope=GZ/绥阳)启动时 `institution_lookup(基金会CID)` → `INSERT subjects(PRIVATE) DO NOTHING`。绥阳看基金会时"法定代表人"字段自带程伟姓名(链上 `legal_representative`)。联邦贵州组管理员进绥阳市时经 M3 也能看到基金会。
-- **程伟 `GZ000-CTZN6`(公民,CID 无市码,无 citizen-identity,无居住地)** → **直接落联邦注册局本地库**,置于 **province=GZ(贵州)、city=绥阳市码(018,与基金会同市)**。联邦贵州组管理员**进绥阳市→显示程伟**,进贵州其他市→不显示。**不加省级/创世特殊视图**——他就是联邦库里一条普通"省+市"公民记录,现有列表/搜索(`GZ000-CTZN6`)即可见。绥阳城市节点本身不持有程伟(他是联邦的)。姓名/CID/账户取自 `primitives` 创世常量 + 链上 `legal_representative` 权威值;`INSERT citizens + subjects(CITIZEN) DO NOTHING`。
+- **程伟 `GZ000-CTZN6`(公民,CID 无市码,无 identity,无居住地)** → **直接落联邦注册局本地库**,置于 **province=GZ(贵州)、city=绥阳市码(018,与基金会同市)**。联邦贵州组管理员**进绥阳市→显示程伟**,进贵州其他市→不显示。**不加省级/创世特殊视图**——他就是联邦库里一条普通"省+市"公民记录,现有列表/搜索(`GZ000-CTZN6`)即可见。绥阳城市节点本身不持有程伟(他是联邦的)。姓名/CID/账户取自 `primitives` 创世常量 + 链上 `legal_representative` 权威值;`INSERT citizens + subjects(CITIZEN) DO NOTHING`。
 - 两条均**纯新增、DO NOTHING、不动现有写入器与推链门**;程伟不用 PENDING/待补档,故**不改** `canPushOnchain`。
 - M1/M3 仍是普通实体的通用机制,不受这两个特例影响。
 
@@ -1456,7 +1448,7 @@ CID 的 r5 段 = 省码(2)+ 市码(3)(number.rs:88-92)。
 
 #### 5. 字段映射 · 公民(citizens)
 
-| 列 | 正常公民(有 citizen-identity) | 待补/联邦办公民 |
+| 列 | 正常公民(有 identity) | 待补/联邦办公民 |
 |---|---|---|
 | cid_number | CID | CID |
 | province_code | CID 省 / residence 省 | 同 |
@@ -1471,7 +1463,7 @@ CID 的 r5 段 = 省码(2)+ 市码(3)(number.rs:88-92)。
 | creator_account_id | 公民自身账户(来源锚点) | 同 |
 
 - 市侧拿到的是**链副本**;链下正本(passport_no/证件)在**采集局**(本市或联邦),不跨节点同步。
-- 程伟(无 citizen-identity,仅基金会法定代表人)→ PENDING 待补档,姓名从 `legal_representative` 取。
+- 程伟(无 identity,仅基金会法定代表人)→ PENDING 待补档,姓名从 `legal_representative` 取。
 
 #### 6. 字段映射 · 私权机构(subjects kind=PRIVATE + 明细)
 
@@ -1707,7 +1699,7 @@ runtime/
 
 #### 状态
 
-- 2026-07-03:**机构信息可维护补齐**(卡 20260703-institution-info-update-and-add-account)——链是机构信息唯一真源(公权/私权统一),私权名改为上链;entity 两 pallet 加 `update_institution_info`(改全称/简称,机构码/CID/省市码物理编码在 CID 里不可改)+ `add_institution_account`(存量机构新增账户,派生地址上链),注册局授权;创世只铸初始版本,今后改名/加账户/新增机构走交易。public 38+private 37 测试绿。剩 onchina 冷签流程/App reconcile/internal-vote 自治路径。
+- 2026-07-03:**机构信息可维护补齐**(卡 20260703-institution-info-update-and-add-account)——链是机构信息唯一真源(公权/私权统一),私权名改为上链;entity 两 pallet 加 `update_institution_info`(改全称/简称,机构码/CID/省市码物理编码在 CID 里不可改)+ `add_institution_account`(存量机构新增账户,派生地址上链),注册局授权;创世只铸初始版本,今后改名/加账户/新增机构走交易。public 38+private 37 测试绿。剩 onchina 冷签流程/App reconcile/internalvote 自治路径。
 
 - 2026-07-03:**卡3 代码全部完成**——plain spec 部署形态、smoldot 轻形态、onchina 启动抽样对账+audit-chain-catalog 全量比对、同源年份钉死、runtime 全量断言(抓修 193 常量漏铸)。旧扩大创世口径已被 v3 废弃,需按 49,593 重新验证。
 
@@ -1715,7 +1707,7 @@ runtime/
 
 - 2026-07-02:初版定稿(批量交易方案);同日完成嵌入式库旧机构清理。
 - 2026-07-03:Q1-Q5 已决;卡1 完成归档;命名规则统一并验证;v2 曾定为扩大创世范围。
-- 2026-07-03:**卡2 链端完成**(§3.1 CidRegistry+occupy/batch/revoke、§3.2 机构 Closed 墓碑+register 缺口封堵、§3.3 费类 Free)——citizen-identity 21/21、entity 34+34、citizen-issuance 12+5、runtime 30/30 全绿;全 runtime benchmarks 编译过(顺修 4 处既有断链)。
+- 2026-07-03:**卡2 链端完成**(§3.1 CidRegistry+occupy/batch/revoke、§3.2 机构 Closed 墓碑+register 缺口封堵、§3.3 费类 Free)——identity 21/21、entity 34+34、citizenissue 12+5、runtime 30/30 全绿;全 runtime benchmarks 编译过(顺修 4 处既有断链)。
 - 2026-07-03:**卡2 完工(onchina 侧 D6/D7/D8 完成,归档 done/)**——`onchina/platform/transactions/submit.rs`(组装+dry-run+提交+等进块+区块回查,QR 只签不提交)、`onchina/registry/citizens/occupy.rs`(两阶段占号 prepare/submit,nonce 碰撞重试+承诺哈希幂等续用+吊销墓碑,`chain_sign_sessions` 会话表)、D8 提交路径同步回写 onchain_* + `cid_registry_lookup` 链上预查、chain_identity complete 切 D7 会话、前端 useChainSign+两阶段 api+建档/吊销 UI;onchina 134 测试全绿、前端 tsc+build 过、node 不受影响。
 - 2026-07-04:**卡3 口径更新为 v3**——`official_derive` 创世枚举只含省/市模板,直铸 296+49,297=**49,593**;镇级模板保留给注册局运行期注册,并通过 `town_code` 入链。12 个宪法国家级机构进入 `CHINA_ZF`;国家 NSN/NRP 进入 `CHINA_LF`;`china_zb` 制度保留地址同步增至 637。
 
@@ -1850,14 +1842,14 @@ VotingEngine 已统一内部、联合、立法和选举投票，但核心仍按�
 - 核心引擎通过 runtime 注册的递归 Track tuple 派发 timeout、mode 数据清理和 mode 终态副作用，不再匹配每个具体 stage。
 - 投票判定只写状态并登记业务执行队列；业务执行、自动终结和清理分别使用条数与 weight 双重预算。
 - 清理使用两级 FIFO：固定保留期的延迟 FIFO 到期后进入就绪 FIFO；每次只删除一个有界 chunk，未完成项重新入队，避免大型公投阻塞其他提案。
-- `citizen-identity` 只提供四级 `PopulationData` 和历史资格判断，是人口数据唯一真源；投票引擎在建案事务中读取该数据并生成自己的提案人口快照。联合公投、立法公投和 Popular 选举只消费投票引擎快照。
+- `identity` 只提供四级 `PopulationData` 和历史资格判断，是人口数据唯一真源；投票引擎在建案事务中读取该数据并生成自己的提案人口快照。联合公投、立法公投和 Popular 选举只消费投票引擎快照。
 - Mutual 互选由业务模块指定目标 `RoleSubject`，投票引擎读取 entity 的岗位有效任职并冻结 `VoterSnapshot`；Track 不复制资格真源。提案创建后的身份或任职变化不得改变既有提案。
 - 自动业务执行的回调错误、Ignored、结果应用错误和 Track 后处理错误统一递增 attempts、指数退避并在上限后 dead-letter；终态副作用使用独立队列，禁止重新执行业务动作。
 - 宪法阈值继续引用 `primitives::constitution`，Track 只表达流程和派发，不复制宪法数学。
 - 当前正式链尚未创世，全部 runtime 与 pallet storage version 在创世前统一归零；删除旧 storage alias、升级翻译和兼容测试，不保留双读或影子流程。正式创世后的首次 runtime、节点程序或 storage 升级才允许从零递增。
-- 具体公权选举业务模块是对应选举规则真源，按业务种类分别放在 `runtime/public/`；无具体规则的通用选举业务壳已决定删除。`election-vote` 继续只负责投票、计票和结果快照。
-- 公民投票与竞选主体统一为公民 CID + 签名钱包。`citizen-identity` 提供完整主体和规范化人口数据，投票引擎不得继续用裸钱包表达公民票据或候选人。
-- 生产权重必须由 FRAME benchmark 生成；runtime-upgrade 业务执行仍显式叠加 `SystemWeightInfo::set_code()` 的最重成本。
+- 具体公权选举业务模块是对应选举规则真源，按业务种类分别放在 `runtime/public/`；无具体规则的通用选举业务壳已决定删除。`electionvote` 继续只负责投票、计票和结果快照。
+- 公民投票与竞选主体统一为公民 CID + 签名钱包。`identity` 提供完整主体和规范化人口数据，投票引擎不得继续用裸钱包表达公民票据或候选人。
+- 生产权重必须由 FRAME benchmark 生成；upgrade 业务执行仍显式叠加 `SystemWeightInfo::set_code()` 的最重成本。
 
 当前 Runtime 将自动终结、异步执行、历史清理的独立预算分别配置为最大区块权重的 `1/4`、`1/4`、`1/8`。正式 benchmark 后复核总占比为 62.5%，每条管线在 60 秒最大计算区块内均能容纳至少一个最重任务，因此保持该预算。
 
@@ -2030,7 +2022,7 @@ Cloudflare 只承担低频镜像、展示与门禁加速，不保存第二份未
 - 税务是收款方作为纳税主体的**后置周期义务**，与订阅资金流解耦。
 
 **2. 纳税主体 = CID；税务管辖由 CID 决定**
-- **收款方标识是钱包账户**（订阅侧 `IssuerKey::Creator=AccountId`，创作者无 CID 限制、任意钱包账户可开、收款不受限）；税务侧从收款账户**唯一解析 CID**（个人 citizen-identity / 机构 CID，防伪造）：有 CID → 按 CID 记台账、链上申报结算；**无 CID → 自行申报、不进链上台账、不阻塞收款**。机构类型由 CID 反查 `institution_code`（ADR-025 单源，不建第二套分类）。
+- **收款方标识是钱包账户**（订阅侧 `IssuerKey::Creator=AccountId`，创作者无 CID 限制、任意钱包账户可开、收款不受限）；税务侧从收款账户**唯一解析 CID**（个人 identity / 机构 CID，防伪造）：有 CID → 按 CID 记台账、链上申报结算；**无 CID → 自行申报、不进链上台账、不阻塞收款**。机构类型由 CID 反查 `institution_code`（ADR-025 单源，不建第二套分类）。
 - **CID 决定归属税务机构**（CID 内含地域 → 地方税务机构管辖）。
 - **无 CID 主体**：不纳入链上自动结算，由用户**自行申报**（链下/例外路径，架构留口不强制）。
 
@@ -2047,8 +2039,8 @@ IncomeLedger: StorageMap<(taxpayer_cid, tax_period), accrued_income /*分*/>
 - primitives 侧只放**类型定义与硬顶护栏**（如 `Perbill` 上限、单位），不放可调值。
 
 **5. 征税权两级治理**
-- **第一级·立法院授权**：税务机构须经 `legislation-yuan` 通过《税法》获征税权。新增机器可读授权存储 `TaxAuthorization`（授予某税务机构对某范围/某类主体的征税权 + 上限区间 + 有效期，《税法》表决终态回调写入，effect 落税务 pallet 非法条文本）。
-- **第二级·税务机构设规则**：获授权的税务机构 admin 在 onchina 经 `internal-vote` 设税率/征收规则（机构级参数强制内部投票、无单管理员直改）；写入前 + 结算执行时复核 `TaxAuthorization` 区间 + `caller_cid ∩ scope` 双向校验（能力位绑**唯一税务机构 CID**，非类别码，防同类别/别省机构越权）。
+- **第一级·立法院授权**：税务机构须经 `legislation` 通过《税法》获征税权。新增机器可读授权存储 `TaxAuthorization`（授予某税务机构对某范围/某类主体的征税权 + 上限区间 + 有效期，《税法》表决终态回调写入，effect 落税务 pallet 非法条文本）。
+- **第二级·税务机构设规则**：获授权的税务机构 admin 在 onchina 经 `internalvote` 设税率/征收规则（机构级参数强制内部投票、无单管理员直改）；写入前 + 结算执行时复核 `TaxAuthorization` 区间 + `caller_cid ∩ scope` 双向校验（能力位绑**唯一税务机构 CID**，非类别码，防同类别/别省机构越权）。
 
 **6. 申报期结算与征收（周期性，非逐笔）**
 - 申报期到，按税务机构设定规则对 `IncomeLedger` 计算应纳税额（收入 − 成本 × 税率），从纳税主体账户征收到该管辖税务机构的财政账户。
@@ -2072,8 +2064,8 @@ IncomeLedger: StorageMap<(taxpayer_cid, tax_period), accrued_income /*分*/>
 
 #### 影响
 
-- **链（重大，重新创世无 migration）**：新税务 pallet（`IncomeLedger`/`TaxAuthorization`/税率与规则可配置 storage/申报期结算执行）；`RuntimeTaxSubjectQuery`（钉稳定 CID 反查，不跑地址 union）；`legislation-yuan` 回调写 `TaxAuthorization`；`InternalVoteResultCallback` 扩 executor；`subscription` 收款成功记 `IncomeLedger` 的接线。
-- **onchina**：`domains/fiscal/` 税务机构设规则入口（`internal-vote` + 冷签 + 能力位绑唯一税务机构 CID）；申报/结算相关 workspace。
+- **链（重大，重新创世无 migration）**：新税务 pallet（`IncomeLedger`/`TaxAuthorization`/税率与规则可配置 storage/申报期结算执行）；`RuntimeTaxSubjectQuery`（钉稳定 CID 反查，不跑地址 union）；`legislation` 回调写 `TaxAuthorization`；`InternalVoteResultCallback` 扩 executor；`subscription` 收款成功记 `IncomeLedger` 的接线。
+- **onchina**：`domains/fiscal/` 税务机构设规则入口（`internalvote` + 冷签 + 能力位绑唯一税务机构 CID）；申报/结算相关 workspace。
 - **Worker/App**：税在链上；创作者/公民链基金会看应税收入台账与申报状态读链。
 
 #### 备选方案
@@ -2157,11 +2149,11 @@ RoleSubject = (cid_number, role_code)
 
 #### 唯一真源与边界
 
-- admins 人员名册：`runtime/admins`。公权、私权机构统一使用 `Admin { account_id, cid_number, family_name, given_name }`，非空公民 CID 只能引用 `citizen-identity` 的 `AccountIdByCid` / `CidByAccountId` 双向绑定。个人多签复用同一 SCALE 结构，但不属于机构管理员并按个人多签规则处理字段完整性。
+- admins 人员名册：`runtime/admins`。公权、私权机构统一使用 `Admin { account_id, cid_number, family_name, given_name }`，非空公民 CID 只能引用 `identity` 的 `AccountIdByCid` / `CidByAccountId` 双向绑定。个人多签复用同一 SCALE 结构，但不属于机构管理员并按个人多签规则处理字段完整性。
 - 岗位、岗位权限、岗位码 nonce/占用和任职：`runtime/entity`。
 - CID 顶层能力、创世固定岗位与权限：runtime 共享常量与创世规范。
 - 业务动作权限要求、指定投票引擎、VotePlan 和通过后执行：对应业务模块。
-- 机构治理阈值：`runtime/entity/public-manage` / `private-manage`；提案阈值快照、资格快照、票据、计票和终态：`runtime/votingengine`。
+- 机构治理阈值：`runtime/entity/publicentity` / `privateentity`；提案阈值快照、资格快照、票据、计票和终态：`runtime/votingengine`。
 - 永久固定岗位保护：NodeGuard；不得扩大为一般机构业务授权真源。
 
 #### 后果
@@ -2181,7 +2173,7 @@ RoleSubject = (cid_number, role_code)
 
 实施顺序及完整验收以 `历史实施记录《机构岗位权限与投票职责统一》（卡已删除，规范以本文为准）` 为准。2026-07-19 已完成共享授权类型、跨端 SCALE 契约、public/private entity 岗位权限生命周期、创世固定权限、准确 CID 顶层能力和 NodeGuard 固定权限保护。旧机构直接创建 call 5 已永久关闭。
 
-联合、内部、立法和互选 Track 均按每个 `RoleSubject` 建立 `VoterSnapshot`，机构票据按 `RoleSubject + voter_account_id` 分别保存，已删除旧的按 CID 合并账户快照。同一账户仍只需一把私钥，但可依法分别行使其每个有效岗位席位；机构阈值未改变。普选和立法公投继续使用 citizen-identity 人口数据生成的提案人口快照，个人多签继续按管理员账户票据记票。
+联合、内部、立法和互选 Track 均按每个 `RoleSubject` 建立 `VoterSnapshot`，机构票据按 `RoleSubject + voter_account_id` 分别保存，已删除旧的按 CID 合并账户快照。同一账户仍只需一把私钥，但可依法分别行使其每个有效岗位席位；机构阈值未改变。普选和立法公投继续使用 identity 人口数据生成的提案人口快照，个人多签继续按管理员账户票据记票。
 
 不得恢复 admins 直接授权、机构全体 admins 快照、按账户合并岗位票权或旧账户票 storage。跨端调用必须显式携带岗位码，并以提案冻结的 VotePlan 和 VoterSnapshot 筛选可投岗位。
 
@@ -2203,7 +2195,7 @@ Polkadot SDK 的运行时身份模型以 `AccountId` 表示账户，以公钥完
 - 单一账户字段统一为 `account_id`。
 - 一个结构同时出现多个具有独立业务角色的账户时，统一使用 `<role>_account_id`，例如 `actor_account_id`、`voter_account_id`、`creator_account_id`、`sender_account_id`、`recipient_account_id`、`subscriber_account_id`、`registrar_account_id`、`beneficiary_account_id`、`representative_account_id`。
 - 签名公钥统一为 `public_key`；当前签名者公钥为 `signer_public_key`；凭证签名者公钥为 `credential_signer_public_key`。
-- SS58 只允许命名为 `ss58_address`，只用于输入、输出和界面展示。授权、关系索引、数据库主键、缓存 key 和链上真源必须使用 `account_id`。
+- SS58只用于输入和派生展示，Rust以 `ss58_address` 表达，桌面自有JSON与TypeScript以 `ss58Address` 表达；固定接口保留所属格式。授权、关系和缓存都以唯一账户标识为准。
 - `wallet` 是链外软件，不得再用于 runtime 账户字段；`admin`、`owner` 是人员或业务角色，不得在只有一个账户的结构中替代账户本体命名。
 
 ##### 2. 文本编码唯一
@@ -2217,7 +2209,7 @@ Polkadot SDK 的运行时身份模型以 `AccountId` 表示账户，以公钥完
 
 - 签名流程固定为：校验 `signer_public_key` 和签名，按运行时账户识别规则得到 `signer_account_id`，再与业务要求的 `account_id` 或 `<role>_account_id` 比较。
 - 机构岗位权限继续由 `cid_number + role_code + account_id` 三者共同成立；管理员账户本身不获得业务权限。
-- 公民身份继续由 `cid_number + account_id` 共同校验；citizen-identity 是 CID 与账户一一对应的唯一真源。
+- 公民身份继续由 `cid_number + account_id` 共同校验；identity 是 CID 与账户一一对应的唯一真源。
 - 机构 CID、公民 CID、岗位码、账户 ID、公钥和 SS58 地址分别表达不同语义，禁止互相替代。
 
 ##### 4. 目标结构与存储
@@ -2719,3 +2711,38 @@ fixtures/sign_request.json提供格式2公开样例；golden_fixtures.rs逐字�
 本产品scripts/config.mjs的describeAction仅返回repository、workflow、ref、inputs，或既有本地进程命令声明；不导入构建实现、不派发GitHub请求、不处理令牌、版本或历史。控制台使用统一数据接口直接派发并只读观察准确Run；产品GitHub业务归所属既有YAML。本次自动化Run名称使用运行编号，正式构建及产物保持版本名称。已有工具和依赖复用，缺少时才按原声明准备。
 
 本产品配置项统一为name、description、accessLevel、kind、format五个必填字段；不适用规则明确填写“不适用”。name严格使用两组大写字母和一个下划线，同名共用控制台唯一值，当前页仅汇总实际声明的使用产品。操作列固定写入/更换、查看、删除；保密查看保留生物识别。现有配置消费者随声明同步改名，官方工具/API字段保持官方名称，不新增旧名兼容或配置副本。
+
+
+节点钱包持久化只保存名称、真实Hot/Cold签名路由和唯一accountId；冷钱包文件不保存SS58副本或无人读取的创建时间。展示由原accountIdToSs58按2027前缀编码。旧文件含被删除字段时严格拒绝，普通读取不迁移、覆盖或清空真实文件；真实数据处置须单独确认。Runtime、创世、QR_V1和签名合同保持。
+
+节点自有Tauri参数与DTO采用官方camelCase合同，Rust成员保持snake_case，删除同一DTO内改回snake_case的独立字段注解。当前Runtime、官方RPC、固定QR_V1与公开CLI拼写继续遵循其所属合同，不提前改动链上接口。
+
+账户展示DTO也只携带accountId，奖励账户、机构账户和登记人地址由前端现有SS58函数计算；主/费账户按唯一AccountId分类，不再比较展示地址。机构账户只返回真实balanceFen，前端复用原BigInt格式化函数显示元，不同时传一份格式化金额副本。管理员签名匹配类型由治理模块唯一声明，多签只公开重导出同一类型。Runtime参数、原始金额、签名路由与链上编码保持。
+
+节点待结算记录只嵌入链端公开 PaymentIntent；批次项和签名哈希直接消费 offchain::batch_item 的 OffchainBatchItem 与 batch_signing_hash，不再维护节点镜像。SCALE 嵌入结构无额外信封；保留原批次长度与字段顺序金标，并拒绝尾随字节。
+
+节点自有提案所属模块参数为 moduleTagHex（Rust module_tag_hex）；编码格式仍为链端 SCALE 字节。私有签名公钥与宪法版本标签参数使用三词内名称，不改变所属链端键或调用索引。
+
+TLS集成回归中的阻塞HTTP客户端必须在原阻塞线程内创建、请求并析构；异步线程只等待结果。该测试仍严格核验真实证书、主机名、WSS与明文拒绝，不跳过或降低校验。
+
+
+## 普通转账边界与测试入口
+
+普通转账继续使用既有amount_yuan IPC参数及Runtime手续费公式。元转分保留原舍入规则，但转换前必须拒绝乘100后的非有限值及超出u128范围的结果；金额、手续费与账户保留金使用checked_add，在读取链余额前拒绝溢出。正常金额与冷签调用SCALE字节保持原金标。
+节点组件测试命令为npm run test:transfer --prefix node/frontend，复用本产品crates/scanner原声明和原锁的Vitest、Testing Library、jsdom。配置只归既有node/frontend/vite.config.ts，测试限定onchain/transfer.test.tsx且统一React实例。普通开发和预览继续要求原TLS证书；普通--mode test不能跳过TLS要求。
+四个原生工作流执行节点转账组件测试，五个平台执行scripts/build.test.mjs既有构建回归；发布、权限、版本和真实升级步骤不因测试接入改变。此处描述入口与合同，实际验收结果归唯一任务卡。
+
+
+### 节点主入口与交易子模块挂载
+
+`node/src/main.rs`直接拥有OnChina子进程启动、状态查询、父管道关闭和退出等待实现，
+并直接挂载`node/src/multisig`、`node/src/offchain`、`node/src/onchain`三个既有目录。
+Rust调用统一为`crate::multisig/offchain/onchain`及主入口进程函数；不保留旧聚合模块、
+转发函数或兼容别名。桌面命令名、RPC、交易编码、手续费、清算逻辑与启动/停止行为保持。
+父管道生命周期测试随实现在main.rs保留，子进程精确用例名为
+`lifecycle_tests::pipe_child`；其专用ignored标记及全部超时/异常断言保持。
+
+
+## 本机编译资源与版本来源
+
+本机compile macos复用环境PROTOC或PATH中已安装的protoc35.0，不再从GitHub下载protoc；缺件或版本不符直接报告所需工具。Cargo、npm按原锁离线执行，Git仅允许本地资源。现有自动化的GitHub身份、版本及正式交付保持，控制台任务号不传入本产品。

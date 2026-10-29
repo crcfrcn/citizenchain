@@ -514,10 +514,12 @@ mod tests {
         .unwrap();
         assert_eq!(response["result"], "0x7eb");
         // 桌面正式使用的阻塞客户端也须验证自动生成证书与回环IP。
-        let blocking_client = crate::shared::rpc::build_local_rpc_client(&certificate).unwrap();
+        let blocking_certificate = certificate.clone();
         let blocking_request = request.clone();
         let blocking_url = format!("https://127.0.0.1:{}", address.port());
         let blocking_response = tokio::task::spawn_blocking(move || {
+            // 阻塞客户端的创建、请求和析构都必须位于阻塞线程，不能嵌套异步 runtime。
+            let blocking_client = crate::shared::rpc::build_local_rpc_client(&blocking_certificate).unwrap();
             blocking_client
                 .post(blocking_url)
                 .json(&blocking_request)

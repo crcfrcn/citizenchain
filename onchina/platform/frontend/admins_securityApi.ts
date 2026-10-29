@@ -24,22 +24,22 @@ export type AdminActionType =
 export type AdminOperationAuth = 'SESSION' | 'PASSKEY' | 'PASSKEY_COLD_SIGN';
 
 export type PrepareAdminActionOutput = {
-  action_id: string;
-  action_type: AdminActionType;
-  actor_cid_number: string;
-  sign_request?: string | null;
-  payload_hash: string;
-  auth_type: AdminOperationAuth;
-  expires_at: number;
+  actionId: string;
+  actionType: AdminActionType;
+  actorCidNumber: string;
+  signRequest?: string | null;
+  payloadHash: string;
+  authType: AdminOperationAuth;
+  expiresAt: number;
 };
 
 export type AdminSecurityGrantOutput = {
-  grant_id: string;
-  action_type: AdminActionType;
-  actor_cid_number: string;
-  auth_type: AdminOperationAuth;
+  grantId: string;
+  actionType: AdminActionType;
+  actorCidNumber: string;
+  authType: AdminOperationAuth;
   target: string;
-  expires_at: number;
+  expiresAt: number;
 };
 
 export function formatAdminCreateError(error: unknown, fallback: string): string {
@@ -67,7 +67,7 @@ export async function prepareAdminAction(
   return adminRequest<PrepareAdminActionOutput>('/api/admin/actions/prepare', auth, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ action_type: actionType, payload }),
+    body: JSON.stringify({ actionType: actionType, payload }),
   });
 }
 
@@ -75,15 +75,15 @@ export async function prepareAdminAction(
 export async function commitAdminAction<T>(
   auth: AdminAuth,
   input: {
-    action_id: string;
-    account_id?: string;
+    actionId: string;
+    accountId?: string;
     signature?: string;
-    payload_hash: string;
-    action_type: AdminActionType;
+    payloadHash: string;
+    actionType: AdminActionType;
   },
 ): Promise<T> {
-  const { action_type, ...payload } = input;
-  const headers = ['CREATE_SUBORDINATE_REGISTRY', 'DELETE_SUBORDINATE_REGISTRY', 'NODE_BINDING_UNBIND'].includes(action_type)
+  const { actionType, ...payload } = input;
+  const headers = ['CREATE_SUBORDINATE_REGISTRY', 'DELETE_SUBORDINATE_REGISTRY', 'NODE_BINDING_UNBIND'].includes(actionType)
     ? await passkeySubmitHeaders(auth, { 'content-type': 'application/json' })
     : { 'content-type': 'application/json' };
   return adminRequest<T>('/api/admin/actions/commit', auth, {
@@ -97,7 +97,7 @@ export async function commitAdminAction<T>(
 // 弹出公民钱包二维码并扫描签名响应,解析出 account_id/signature 回传。
 export type ScanSignResolver = (
   prepared: PrepareAdminActionOutput,
-) => Promise<{ account_id: string; signature: string }>;
+) => Promise<{ accountId: string; signature: string }>;
 
 // 统一的 PASSKEY_COLD_SIGN 安全授权:prepare → 组件扫码签名 → commit 取回一次性 grant。
 // SESSION 动作不走这里(无 commit,业务 handler 仅凭会话执行)。
@@ -108,16 +108,16 @@ export async function createScanSignSecurityGrant(
   signWithScan: ScanSignResolver,
 ): Promise<AdminSecurityGrantOutput> {
   const prepared = await prepareAdminAction(auth, actionType, payload);
-  if (prepared.auth_type !== 'PASSKEY_COLD_SIGN' || !prepared.sign_request) {
+  if (prepared.authType !== 'PASSKEY_COLD_SIGN' || !prepared.signRequest) {
     throw new Error('该操作缺少公民钱包扫码签名请求');
   }
-  const { account_id, signature } = await signWithScan(prepared);
+  const { accountId, signature } = await signWithScan(prepared);
   return commitAdminAction<AdminSecurityGrantOutput>(auth, {
-    action_id: prepared.action_id,
-    account_id,
+    actionId: prepared.actionId,
+    accountId,
     signature,
-    payload_hash: prepared.payload_hash,
-    action_type: prepared.action_type,
+    payloadHash: prepared.payloadHash,
+    actionType: prepared.actionType,
   });
 }
 
@@ -133,7 +133,7 @@ export async function securityGrantSubmitHeaders(
   const passkeyAssertion = await assertPasskey(auth);
   return {
     ...baseHeaders,
-    [SECURITY_GRANT_HEADER]: securityGrant.grant_id,
+    [SECURITY_GRANT_HEADER]: securityGrant.grantId,
     [PASSKEY_ASSERTION_HEADER]: passkeyAssertion,
   };
 }
@@ -167,9 +167,9 @@ export async function createColdSignSubmitHeaders(
 /** 本地解绑复用已有 prepare/commit 协议；无需钱包扫码，不新增界面入口。 */
 export async function unbindNodeInstitution(auth: AdminAuth): Promise<void> {
   const prepared = await prepareAdminAction(auth, 'NODE_BINDING_UNBIND', {});
-  if (prepared.auth_type !== 'PASSKEY' || prepared.sign_request) throw new Error('解绑鉴权类型异常');
+  if (prepared.authType !== 'PASSKEY' || prepared.signRequest) throw new Error('解绑鉴权类型异常');
   await commitAdminAction(auth, {
-    action_id: prepared.action_id, action_type: prepared.action_type,
-    payload_hash: prepared.payload_hash,
+    actionId: prepared.actionId, actionType: prepared.actionType,
+    payloadHash: prepared.payloadHash,
   });
 }

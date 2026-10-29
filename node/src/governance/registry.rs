@@ -27,17 +27,17 @@ impl InstitutionRef {
         }
     }
 
-    pub(crate) fn cid_full_name_en(self) -> &'static str {
+    pub(crate) fn full_name_en(self) -> &'static str {
         match self {
-            InstitutionRef::Nrc(item) | InstitutionRef::Prc(item) => item.cid_full_name_en,
-            InstitutionRef::Prb(item) => item.cid_full_name_en,
+            InstitutionRef::Nrc(item) | InstitutionRef::Prc(item) => item.full_name_en,
+            InstitutionRef::Prb(item) => item.full_name_en,
         }
     }
 
-    pub(crate) fn cid_short_name_en(self) -> &'static str {
+    pub(crate) fn short_name_en(self) -> &'static str {
         match self {
-            InstitutionRef::Nrc(item) | InstitutionRef::Prc(item) => item.cid_short_name_en,
-            InstitutionRef::Prb(item) => item.cid_short_name_en,
+            InstitutionRef::Nrc(item) | InstitutionRef::Prc(item) => item.short_name_en,
+            InstitutionRef::Prb(item) => item.short_name_en,
         }
     }
 
@@ -81,7 +81,7 @@ impl InstitutionRef {
         }
     }
 
-    pub(crate) fn safety_fund_account_id(self) -> Option<String> {
+    pub(crate) fn fund_account_id(self) -> Option<String> {
         match self {
             InstitutionRef::Nrc(_) => Some(format!("0x{}", hex::encode(SAFETY_FUND_ACCOUNT))),
             InstitutionRef::Prc(_) | InstitutionRef::Prb(_) => None,
@@ -93,8 +93,8 @@ impl InstitutionRef {
         InstitutionListItem {
             cid_full_name: self.cid_full_name().to_string(),
             cid_short_name: self.cid_short_name().to_string(),
-            cid_full_name_en: self.cid_full_name_en().to_string(),
-            cid_short_name_en: self.cid_short_name_en().to_string(),
+            full_name_en: self.full_name_en().to_string(),
+            short_name_en: self.short_name_en().to_string(),
             cid_number: self.cid_number().to_string(),
             org_type: org_type as u8,
             org_type_label: org_type.label().to_string(),

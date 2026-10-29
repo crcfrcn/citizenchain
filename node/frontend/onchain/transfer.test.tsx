@@ -30,8 +30,8 @@ vi.mock('../protocol/CitizenSignaturePanel', () => ({
 vi.mock('../protocol/AddressScanModal', () => ({ AddressScanModal: () => null }));
 
 const wallet: Wallet = {
-  name: '合成冷钱包', signMode: 'cold', createdAt: 1,
-  accountId: `0x${'11'.repeat(32)}`, ss58Address: accountIdToSs58(`0x${'11'.repeat(32)}`),
+  name: '合成冷钱包', signMode: 'cold',
+  accountId: `0x${'11'.repeat(32)}`,
 };
 const destination = accountIdToSs58(`0x${'22'.repeat(32)}`);
 const request = {
@@ -150,16 +150,15 @@ describe('钱包余额查询状态', () => {
 
   it('切换钱包后，旧账户迟到的查询结果不能覆盖当前余额', async () => {
     const oldRequest = deferred<string>();
-    const otherWallet: Wallet = { ...wallet, name: '另一钱包', accountId: `0x${'44'.repeat(32)}`,
-      ss58Address: accountIdToSs58(`0x${'44'.repeat(32)}`) };
+    const otherWallet: Wallet = { ...wallet, name: '另一钱包', accountId: `0x${'44'.repeat(32)}` };
     const wallets = [wallet, otherWallet];
     let oldRequests = 0;
-    mocks.invoke.mockImplementation(async (command: string, args?: { account_id: string }) => {
+    mocks.invoke.mockImplementation(async (command: string, args?: { accountId: string }) => {
       if (command === 'get_wallets') return { wallets, activeAccountId: wallet.accountId };
       if (command === 'set_active_wallet') return { wallets, activeAccountId: otherWallet.accountId };
       if (command === 'get_wallet_balance') {
-        if (args?.account_id === wallet.accountId && ++oldRequests === 1) return oldRequest.promise;
-        return args?.account_id === wallet.accountId ? '10000' : '20000';
+        if (args?.accountId === wallet.accountId && ++oldRequests === 1) return oldRequest.promise;
+        return args?.accountId === wallet.accountId ? '10000' : '20000';
       }
       throw new Error(`非预期调用：${command}`);
     });
@@ -190,7 +189,7 @@ describe('现有确认、扫码与提交', () => {
     const button = screen.getByRole('button', { name: '确认转账' });
     act(() => { button.click(); button.click(); });
     expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith('build_cold_transfer_request', {
-      account_id: wallet.accountId, to_ss58_address: destination, amount_yuan: 105, remark: '合成备注',
+      accountId: wallet.accountId, toSs58Address: destination, amountYuan: 105, remark: '合成备注',
     });
     await act(async () => pending.resolve(request));
     expect(screen.getByText('合成扫码界面')).toBeTruthy();
@@ -217,10 +216,10 @@ describe('现有确认、扫码与提交', () => {
     const scan = mocks.scan!;
     act(() => { void scan('合成响应'); void scan('合成响应'); });
     expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith('submit_cold_transfer', {
-      account_id: wallet.accountId, request_id: request.requestId,
-      expected_payload_hash: request.expectedPayloadHash, call_data_hex: request.callDataHex,
-      sign_nonce: request.signNonce, sign_block_number: request.signBlockNumber,
-      response_json: '合成响应',
+      accountId: wallet.accountId, requestId: request.requestId,
+      expectedPayloadHash: request.expectedPayloadHash, callDataHex: request.callDataHex,
+      signNonce: request.signNonce, signBlockNumber: request.signBlockNumber,
+      responseJson: '合成响应',
     });
     await act(async () => pending.resolve({ txHash }));
     expect(screen.getByText('转账已提交')).toBeTruthy();
@@ -286,7 +285,7 @@ describe('现有确认、扫码与提交', () => {
 
 describe('账户二维码沿用唯一协议夹具', () => {
   it.each([accountCode, userContact])('k=$k解析为同一公民链SS58账户', (fixture) => {
-    expect(parseAddressQr(JSON.stringify(fixture)).ss58_address).toBe(accountIdToSs58(fixture.b.n));
+    expect(parseAddressQr(JSON.stringify(fixture)).ss58Address).toBe(accountIdToSs58(fixture.b.n));
   });
   it('账户输入框拒绝收款码、损坏账户码和普通文本', () => {
     expect(() => parseAddressQr(JSON.stringify(userTransfer))).toThrow();

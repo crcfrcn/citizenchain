@@ -199,7 +199,7 @@ export function LawDetailView({ auth, lawId, onBack }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [auth.access_token, lawId]);
+  }, [auth.accessToken, lawId]);
 
   if (loading) {
     return <Spin />;

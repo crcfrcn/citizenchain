@@ -170,7 +170,7 @@ export function moduleView<Props extends object>(id: string, name: string): Comp
 /** 已验证会话的实例级模块优先，其次使用模块声明的机构类工作台。 */
 export function workspaceView<Props extends object>(auth: AdminAuth): ComponentType<Props> | null {
   const instance = assets.filter(asset => asset.workspace && auth.workspace?.workspace_modules.includes(asset.id));
-  const owned = instance.length ? instance : assets.filter(asset => asset.workspace && asset.institution_codes.includes(auth.institution_code));
+  const owned = instance.length ? instance : assets.filter(asset => asset.workspace && asset.institution_codes.includes(auth.institutionCode));
   if (owned.length > 1) throw new Error('机构工作台模块归属冲突');
   const asset = owned[0];
   return asset?.workspace ? moduleView<Props>(asset.id, asset.workspace) : null;

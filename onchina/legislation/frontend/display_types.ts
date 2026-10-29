@@ -5,7 +5,7 @@ import type { LegProposalState } from './legislation_types';
 
 /** 单个席位(议员)对当前提案的投票态(true 赞成 / false 反对 / null 未投)。 */
 export interface SeatView {
-  account_id: string;
+  accountId: string;
   ticketId: string;
   roleCode: string;
   name: string;

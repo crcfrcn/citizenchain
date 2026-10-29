@@ -135,6 +135,8 @@ fn resolve_citizen_query_scope(
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct LegalRepresentativeCitizenQuery {
     pub q: Option<String>,
     pub page_size: Option<usize>,
@@ -396,7 +398,7 @@ pub(crate) async fn public_identity_search(
             let row = conn
                 .query_opt(
                     "SELECT cid_number, account_id
-                     FROM citizens
+                     FROM citizen
                      WHERE (
                             ($1::text <> '' AND cid_number = $1)
                             OR ($2::text <> '' AND account_id = $2)
@@ -431,8 +433,8 @@ pub(crate) async fn public_identity_search(
         output.account_id.clone(),
         serde_json::json!({
             "found": output.found,
-            "request_id": request_id.clone(),
-            "actor_ip": actor_ip.clone(),
+            "requestId": request_id.clone(),
+            "actorIp": actor_ip.clone(),
         }),
     );
     Json(ApiResponse {

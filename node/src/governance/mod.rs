@@ -49,9 +49,9 @@ struct InstitutionBalances {
     balance_fen: Option<String>,
     staking_balance_fen: Option<String>,
     fee_balance_fen: Option<String>,
-    cb_fee_balance_fen: Option<String>,
-    nrc_fee_balance_fen: Option<String>,
-    safety_fund_balance_fen: Option<String>,
+    cb_fee_fen: Option<String>,
+    nrc_fee_fen: Option<String>,
+    fund_balance_fen: Option<String>,
 }
 
 struct ChainQueryContext {
@@ -155,22 +155,18 @@ fn collect_institution_balances(
     match entry {
         InstitutionRef::Nrc(_) => {
             let fee_account_id = entry.fee_account_id();
-            let Some(safety_fund_account_id) = entry.safety_fund_account_id() else {
+            let Some(fund_account_id) = entry.fund_account_id() else {
                 warnings.push("国家储委会安全基金账户 AccountId 缺失".to_string());
                 return balances;
             };
-            balances.nrc_fee_balance_fen =
+            balances.nrc_fee_fen =
                 load_balance_at_block(&fee_account_id, block_hash, "费用账户余额", warnings);
-            balances.safety_fund_balance_fen = load_balance_at_block(
-                &safety_fund_account_id,
-                block_hash,
-                "安全基金账户余额",
-                warnings,
-            );
+            balances.fund_balance_fen =
+                load_balance_at_block(&fund_account_id, block_hash, "安全基金账户余额", warnings);
         }
         InstitutionRef::Prc(_) => {
             let fee_account_id = entry.fee_account_id();
-            balances.cb_fee_balance_fen =
+            balances.cb_fee_fen =
                 load_balance_at_block(&fee_account_id, block_hash, "费用账户余额", warnings);
         }
         InstitutionRef::Prb(_) => {
@@ -208,35 +204,30 @@ fn build_institution_detail_sync(
     };
     let balances =
         collect_institution_balances(entry, context.block_hash.as_deref(), &mut context.warnings);
-    let (
-        stake_account_id,
-        fee_account_id,
-        cb_fee_account_id,
-        nrc_fee_account_id,
-        safety_fund_account_id,
-    ) = match entry {
-        InstitutionRef::Nrc(_) => (
-            None,
-            None,
-            None,
-            Some(entry.fee_account_id()),
-            entry.safety_fund_account_id(),
-        ),
-        InstitutionRef::Prc(_) => (None, None, Some(entry.fee_account_id()), None, None),
-        InstitutionRef::Prb(_) => (
-            entry.stake_account_id(),
-            Some(entry.fee_account_id()),
-            None,
-            None,
-            None,
-        ),
-    };
+    let (stake_account_id, fee_account_id, cb_account_id, nrc_account_id, fund_account_id) =
+        match entry {
+            InstitutionRef::Nrc(_) => (
+                None,
+                None,
+                None,
+                Some(entry.fee_account_id()),
+                entry.fund_account_id(),
+            ),
+            InstitutionRef::Prc(_) => (None, None, Some(entry.fee_account_id()), None, None),
+            InstitutionRef::Prb(_) => (
+                entry.stake_account_id(),
+                Some(entry.fee_account_id()),
+                None,
+                None,
+                None,
+            ),
+        };
 
     Ok(InstitutionDetail {
         cid_full_name: entry.cid_full_name().to_string(),
         cid_short_name: entry.cid_short_name().to_string(),
-        cid_full_name_en: entry.cid_full_name_en().to_string(),
-        cid_short_name_en: entry.cid_short_name_en().to_string(),
+        full_name_en: entry.full_name_en().to_string(),
+        short_name_en: entry.short_name_en().to_string(),
         cid_number: cid_number.to_string(),
         org_type: org_type as u8,
         org_type_label: org_type.label().to_string(),
@@ -249,12 +240,12 @@ fn build_institution_detail_sync(
         staking_balance_fen: balances.staking_balance_fen,
         fee_account_id,
         fee_balance_fen: balances.fee_balance_fen,
-        cb_fee_account_id,
-        cb_fee_balance_fen: balances.cb_fee_balance_fen,
-        nrc_fee_account_id,
-        nrc_fee_balance_fen: balances.nrc_fee_balance_fen,
-        safety_fund_account_id,
-        safety_fund_balance_fen: balances.safety_fund_balance_fen,
+        cb_account_id,
+        cb_fee_fen: balances.cb_fee_fen,
+        nrc_account_id,
+        nrc_fee_fen: balances.nrc_fee_fen,
+        fund_account_id,
+        fund_balance_fen: balances.fund_balance_fen,
         warning: join_warnings(context.warnings),
     })
 }
@@ -274,9 +265,9 @@ pub(super) fn build_institution_balance_update_sync(
         balance_fen: balances.balance_fen,
         staking_balance_fen: balances.staking_balance_fen,
         fee_balance_fen: balances.fee_balance_fen,
-        cb_fee_balance_fen: balances.cb_fee_balance_fen,
-        nrc_fee_balance_fen: balances.nrc_fee_balance_fen,
-        safety_fund_balance_fen: balances.safety_fund_balance_fen,
+        cb_fee_fen: balances.cb_fee_fen,
+        nrc_fee_fen: balances.nrc_fee_fen,
+        fund_balance_fen: balances.fund_balance_fen,
         warning: join_warnings(context.warnings),
     })
 }
@@ -437,14 +428,14 @@ pub async fn list_proposals_by_cid(app: AppHandle, cid_number: String) -> Result
 #[tauri::command]
 pub async fn list_proposals_by_owner(
     app: AppHandle,
-    module_tag_scale_hex: String,
+    module_tag_hex: String,
 ) -> Result<Vec<u64>, String> {
     let status = home::current_status(&app)?;
     if !status.running {
         return Err("节点未运行,无法查询反向索引".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let bytes = hex::decode(module_tag_scale_hex.trim_start_matches("0x"))
+        let bytes = hex::decode(module_tag_hex.trim_start_matches("0x"))
             .map_err(|e| format!("module_tag hex 解析失败: {e}"))?;
         proposal::fetch_proposals_by_owner(&bytes)
     })
@@ -453,7 +444,7 @@ pub async fn list_proposals_by_owner(
 }
 
 /// 构建投票签名请求 QR JSON（需要节点运行）。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn build_vote_request(
     app: AppHandle,
     proposal_id: u64,
@@ -478,7 +469,7 @@ pub async fn build_vote_request(
 }
 
 /// 构建联合投票签名请求 QR JSON（需要节点运行）。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn build_joint_vote_request(
     app: AppHandle,
     proposal_id: u64,
@@ -507,11 +498,11 @@ pub async fn build_joint_vote_request(
 /// 验证签名响应并提交投票（通用，支持内部和联合投票）。
 ///
 /// call_data_hex 为完整的 SCALE call data hex（不含 0x 前缀）。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn submit_vote(
     app: AppHandle,
     request_id: String,
-    expected_signer_public_key: String,
+    expected_public_key: String,
     expected_payload_hash: String,
     call_data_hex: String,
     sign_nonce: u32,
@@ -527,7 +518,7 @@ pub async fn submit_vote(
             hex::decode(&call_data_hex).map_err(|e| format!("call_data 解码失败: {e}"))?;
         signing::verify_and_submit(
             &request_id,
-            &expected_signer_public_key,
+            &expected_public_key,
             &expected_payload_hash,
             &call_data,
             sign_nonce,
@@ -540,7 +531,7 @@ pub async fn submit_vote(
 }
 
 /// 查询用户投票状态（需要节点运行）。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn check_vote_status(
     app: AppHandle,
     proposal_id: u64,

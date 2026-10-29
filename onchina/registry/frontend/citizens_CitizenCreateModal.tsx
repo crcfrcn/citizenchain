@@ -31,8 +31,8 @@ interface Props {
 }
 
 interface FormValues {
-  cid_type: CitizenType;
-  actor_role_code: string;
+  cidType: CitizenType;
+  actorRoleCode: string;
 }
 
 export function CitizenCreateModal({
@@ -65,8 +65,8 @@ export function CitizenCreateModal({
       return;
     }
     const payload: CreateCitizenInput = {
-      actor_role_code: values.actor_role_code.trim(),
-      cid_type: values.cid_type,
+      actorRoleCode: values.actorRoleCode.trim(),
+      cidType: values.cidType,
     };
     setSubmitting(true);
     try {
@@ -74,31 +74,31 @@ export function CitizenCreateModal({
       const prepared = await prepareCitizenOccupy(auth, payload);
       // 段1→2:公民本人扫码占号,返回其钱包账户与占号签名。
       const citizenSigned = await signCitizen(
-        prepared.request_id,
-        prepared.citizen_sign_request,
+        prepared.requestId,
+        prepared.citizenSignRequest,
       );
       const admin = await submitCitizenOccupy(
         auth,
-        prepared.request_id,
-        citizenSigned.account_id,
+        prepared.requestId,
+        citizenSigned.accountId,
         citizenSigned.signature,
       );
       // 段2→3:注册局管理员冷签占即绑 extrinsic 并提交进块。
-      const adminSigned = await signAdmin(admin.request_id, admin.sign_request);
+      const adminSigned = await signAdmin(admin.requestId, admin.signRequest);
       const submitted = await submitChainSign<CreateCitizenResult>(
         auth,
-        admin.request_id,
-        adminSigned.account_id,
+        admin.requestId,
+        adminSigned.accountId,
         adminSigned.signature,
       );
       const result = submitted.citizen;
       if (!result) {
         throw new Error('占号已上链,但记录落库结果缺失');
       }
-      notice.success(`占号上链成功,身份CID：${result.cid_number}`);
+      notice.success(`占号上链成功,身份CID：${result.cidNumber}`);
       form.resetFields();
       onClose();
-      await onCreated(result.cid_number);
+      await onCreated(result.cidNumber);
     } catch (err) {
       notice.error(err, '占号失败');
     } finally {
@@ -143,10 +143,10 @@ export function CitizenCreateModal({
           style={{ marginBottom: 16 }}
           message="占即绑:先由公民本人钱包扫码占号,再由注册局管理员冷签上链。姓名 / 性别 / 出生等档案占号后可在详情页「编辑资料」补齐。"
         />
-        <Form form={form} layout="vertical" onFinish={onSubmit} initialValues={{ cid_type: 'CTZN' }}>
+        <Form form={form} layout="vertical" onFinish={onSubmit} initialValues={{ cidType: 'CTZN' }}>
           <Form.Item
             label="人主体类型"
-            name="cid_type"
+            name="cidType"
             rules={[{ required: true, message: '请选择人主体类型' }]}
           >
             <Select
@@ -158,7 +158,7 @@ export function CitizenCreateModal({
           </Form.Item>
           <Form.Item
             label="注册局岗位码"
-            name="actor_role_code"
+            name="actorRoleCode"
             rules={[{ required: true, message: '请输入当前任职岗位码' }]}
           >
             <Input placeholder="岗位码" allowClear maxLength={64} />

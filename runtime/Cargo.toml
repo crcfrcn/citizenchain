@@ -1,5 +1,7 @@
 [package]
-name = "citizenchain"  # 运行时状态模块
+# 根tests统一存放单元测试，独立集成目标仅显式注册，避免重复发现。
+autotests = false
+name = "runtime"  # 运行时状态模块
 description = "CitizenChain runtime built with Substrate."
 homepage.workspace = true
 publish = false
@@ -63,37 +65,37 @@ pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 frame-benchmarking = { optional = true, workspace = true }
 frame-system-benchmarking = { optional = true, workspace = true }
 
-provincialbank-interest = { path = "issuance/provincialbank-interest", default-features = false }
-fullnode-issuance = { path = "issuance/fullnode-issuance", default-features = false }
-citizen-issuance = { path = "issuance/citizen-issuance", default-features = false }
-onchain-issuance = { path = "issuance/onchain-issuance", default-features = false }
-citizen-identity = { path = "misc/citizen-identity", default-features = false }
-pow-difficulty = { path = "misc/pow-difficulty", default-features = false }
-address-registry = { path = "misc/address-registry", default-features = false }
-square-post = { path = "misc/square-post", default-features = false }
+prbbankissue = { path = "issuance/prbbankissue", default-features = false }
+fullnodeissue = { path = "issuance/fullnodeissue", default-features = false }
+citizenissue = { path = "issuance/citizenissue", default-features = false }
+onchainissue = { path = "issuance/onchainissue", default-features = false }
+identity = { path = "misc/identity", default-features = false }
+difficulty = { path = "misc/difficulty", default-features = false }
+address = { path = "misc/address", default-features = false }
+square = { path = "misc/square", default-features = false }
 onchain = { path = "transaction/onchain", default-features = false }
-entity-primitives = { path = "entity/entity-primitives", default-features = false }
-public-manage = { path = "entity/public-manage", default-features = false }
-private-manage = { path = "entity/private-manage", default-features = false }
-personal-manage = { path = "entity/personal-manage", default-features = false }
-personal-admins = { path = "admins/personal-admins", default-features = false }
-resolution-issuance = { path = "issuance/resolution-issuance", default-features = false }
+entitybase = { path = "entity/entitybase", default-features = false }
+publicentity = { path = "entity/publicentity", default-features = false }
+privateentity = { path = "entity/privateentity", default-features = false }
+personalentity = { path = "entity/personalentity", default-features = false }
+personaladmin = { path = "admins/personaladmin", default-features = false }
+resolutionissue = { path = "issuance/resolutionissue", default-features = false }
 votingengine = { path = "votingengine", default-features = false }
-internal-vote = { path = "votingengine/internal-vote", default-features = false }
-joint-vote = { path = "votingengine/joint-vote", default-features = false }
-election-vote = { path = "votingengine/election-vote", default-features = false }
-legislation-vote = { path = "votingengine/legislation-vote", default-features = false }
-admin-primitives = { path = "admins/admin-primitives", default-features = false }
-public-admins = { path = "admins/public-admins", default-features = false }
-private-admins = { path = "admins/private-admins", default-features = false }
-grandpakey-change = { path = "governance/grandpakey-change", default-features = false }
-runtime-upgrade = { path = "governance/runtime-upgrade", default-features = false }
-legislation-yuan = { path = "public/legislation-yuan", default-features = false }
-citizen-election = { path = "public/citizen-election", default-features = false }
-resolution-destroy = { path = "governance/resolution-destroy", default-features = false }
+internalvote = { path = "votingengine/internalvote", default-features = false }
+jointvote = { path = "votingengine/jointvote", default-features = false }
+electionvote = { path = "votingengine/electionvote", default-features = false }
+legislationvote = { path = "votingengine/legislationvote", default-features = false }
+adminbase = { path = "admins/adminbase", default-features = false }
+publicadmin = { path = "admins/publicadmin", default-features = false }
+privateadmin = { path = "admins/privateadmin", default-features = false }
+grandpakey = { path = "governance/grandpakey", default-features = false }
+upgrade = { path = "governance/upgrade", default-features = false }
+legislation = { path = "public/legislation", default-features = false }
+election = { path = "public/election", default-features = false }
+destroy = { path = "governance/destroy", default-features = false }
 multisig = { path = "transaction/multisig", default-features = false }
 offchain = { path = "transaction/offchain", default-features = false }
-genesis-pallet = { path = "genesis", default-features = false }
+genesis = { path = "genesis", default-features = false }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -114,37 +116,37 @@ std = [
 	"pallet-balances/std",
 	"pallet-grandpa/std",
 	"pallet-revive/std",
-	"provincialbank-interest/std",
-	"fullnode-issuance/std",
-	"citizen-issuance/std",
-	"onchain-issuance/std",
-	"citizen-identity/std",
-	"pow-difficulty/std",
-	"address-registry/std",
-	"square-post/std",
+	"prbbankissue/std",
+	"fullnodeissue/std",
+	"citizenissue/std",
+	"onchainissue/std",
+	"identity/std",
+	"difficulty/std",
+	"address/std",
+	"square/std",
 	"onchain/std",
-	"entity-primitives/std",
-	"public-manage/std",
-	"private-manage/std",
-	"personal-manage/std",
-	"personal-admins/std",
-	"resolution-issuance/std",
+	"entitybase/std",
+	"publicentity/std",
+	"privateentity/std",
+	"personalentity/std",
+	"personaladmin/std",
+	"resolutionissue/std",
 	"votingengine/std",
-	"internal-vote/std",
-	"joint-vote/std",
-	"election-vote/std",
-	"legislation-vote/std",
-	"admin-primitives/std",
-	"public-admins/std",
-	"private-admins/std",
-	"grandpakey-change/std",
-	"runtime-upgrade/std",
-	"legislation-yuan/std",
-	"citizen-election/std",
-	"resolution-destroy/std",
+	"internalvote/std",
+	"jointvote/std",
+	"electionvote/std",
+	"legislationvote/std",
+	"adminbase/std",
+	"publicadmin/std",
+	"privateadmin/std",
+	"grandpakey/std",
+	"upgrade/std",
+	"legislation/std",
+	"election/std",
+	"destroy/std",
 	"multisig/std",
 	"offchain/std",
-	"genesis-pallet/std",
+	"genesis/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
@@ -178,34 +180,34 @@ runtime-benchmarks = [
 	"pallet-revive/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
-	"provincialbank-interest/runtime-benchmarks",
-	"fullnode-issuance/runtime-benchmarks",
-	"citizen-issuance/runtime-benchmarks",
-	"onchain-issuance/runtime-benchmarks",
-	"citizen-identity/runtime-benchmarks",
-	"pow-difficulty/runtime-benchmarks",
-	"address-registry/runtime-benchmarks",
-	"square-post/runtime-benchmarks",
+	"prbbankissue/runtime-benchmarks",
+	"fullnodeissue/runtime-benchmarks",
+	"citizenissue/runtime-benchmarks",
+	"onchainissue/runtime-benchmarks",
+	"identity/runtime-benchmarks",
+	"difficulty/runtime-benchmarks",
+	"address/runtime-benchmarks",
+	"square/runtime-benchmarks",
 	"onchain/runtime-benchmarks",
-	"public-manage/runtime-benchmarks",
-	"private-manage/runtime-benchmarks",
-	"personal-manage/runtime-benchmarks",
-	"personal-admins/runtime-benchmarks",
-	"resolution-issuance/runtime-benchmarks",
+	"publicentity/runtime-benchmarks",
+	"privateentity/runtime-benchmarks",
+	"personalentity/runtime-benchmarks",
+	"personaladmin/runtime-benchmarks",
+	"resolutionissue/runtime-benchmarks",
 	"votingengine/runtime-benchmarks",
-	"internal-vote/runtime-benchmarks",
-	"joint-vote/runtime-benchmarks",
-	"election-vote/runtime-benchmarks",
-	"citizen-election/runtime-benchmarks",
-	"legislation-vote/runtime-benchmarks",
-	"public-admins/runtime-benchmarks",
-	"private-admins/runtime-benchmarks",
-	"grandpakey-change/runtime-benchmarks",
-	"runtime-upgrade/runtime-benchmarks",
-	"resolution-destroy/runtime-benchmarks",
+	"internalvote/runtime-benchmarks",
+	"jointvote/runtime-benchmarks",
+	"electionvote/runtime-benchmarks",
+	"election/runtime-benchmarks",
+	"legislationvote/runtime-benchmarks",
+	"publicadmin/runtime-benchmarks",
+	"privateadmin/runtime-benchmarks",
+	"grandpakey/runtime-benchmarks",
+	"upgrade/runtime-benchmarks",
+	"destroy/runtime-benchmarks",
 	"multisig/runtime-benchmarks",
 	"offchain/runtime-benchmarks",
-	"genesis-pallet/runtime-benchmarks",
+	"genesis/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
@@ -219,33 +221,33 @@ try-runtime = [
 	"pallet-revive/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"provincialbank-interest/try-runtime",
-	"fullnode-issuance/try-runtime",
-	"citizen-issuance/try-runtime",
-	"onchain-issuance/try-runtime",
-	"citizen-identity/try-runtime",
-	"pow-difficulty/try-runtime",
-	"address-registry/try-runtime",
-	"square-post/try-runtime",
+	"prbbankissue/try-runtime",
+	"fullnodeissue/try-runtime",
+	"citizenissue/try-runtime",
+	"onchainissue/try-runtime",
+	"identity/try-runtime",
+	"difficulty/try-runtime",
+	"address/try-runtime",
+	"square/try-runtime",
 	"onchain/try-runtime",
-	"public-manage/try-runtime",
-	"private-manage/try-runtime",
-	"personal-manage/try-runtime",
-	"personal-admins/try-runtime",
-	"resolution-issuance/try-runtime",
+	"publicentity/try-runtime",
+	"privateentity/try-runtime",
+	"personalentity/try-runtime",
+	"personaladmin/try-runtime",
+	"resolutionissue/try-runtime",
 	"votingengine/try-runtime",
-	"internal-vote/try-runtime",
-	"joint-vote/try-runtime",
-	"election-vote/try-runtime",
-	"citizen-election/try-runtime",
-	"public-admins/try-runtime",
-	"private-admins/try-runtime",
-	"grandpakey-change/try-runtime",
-	"runtime-upgrade/try-runtime",
-	"resolution-destroy/try-runtime",
+	"internalvote/try-runtime",
+	"jointvote/try-runtime",
+	"electionvote/try-runtime",
+	"election/try-runtime",
+	"publicadmin/try-runtime",
+	"privateadmin/try-runtime",
+	"grandpakey/try-runtime",
+	"upgrade/try-runtime",
+	"destroy/try-runtime",
 	"multisig/try-runtime",
 	"offchain/try-runtime",
-	"genesis-pallet/try-runtime",
+	"genesis/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 

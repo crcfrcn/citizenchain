@@ -5,7 +5,7 @@ import type { CidProvinceItem } from '../../platform/frontend/china_api';
 
 interface Props {
   provinces: CidProvinceItem[];
-  onPick: (province_name: string) => void;
+  onPick: (provinceName: string) => void;
 }
 
 const CARD_STYLE: React.CSSProperties = {
@@ -30,8 +30,8 @@ export const ProvinceGrid: React.FC<Props> = ({ provinces, onPick }) => {
     >
       {provinces.map((p) => (
         <div
-          key={p.province_code}
-          onClick={() => onPick(p.province_name)}
+          key={p.provinceCode}
+          onClick={() => onPick(p.provinceName)}
           style={CARD_STYLE}
           onMouseEnter={(e) => {
             (e.currentTarget as HTMLDivElement).style.background = 'rgba(13,148,136,0.22)';
@@ -42,7 +42,7 @@ export const ProvinceGrid: React.FC<Props> = ({ provinces, onPick }) => {
             (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(15,23,42,0.22)';
           }}
         >
-          <div style={{ fontSize: 16, fontWeight: 600, color: '#0f172a' }}>{p.province_name}</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#0f172a' }}>{p.provinceName}</div>
         </div>
       ))}
     </div>

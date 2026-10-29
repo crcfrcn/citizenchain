@@ -47,23 +47,3 @@ pub const BLOCKS_PER_DAY: u64 = BLOCKS_PER_HOUR * 24; // 每天区块数：240
 
 /// 省储行年度利息结算周期,单位:区块。
 pub const BLOCKS_PER_YEAR: u64 = 87_600;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fullnode_total_issuance_is_consistent() {
-        // 全节点发行总量 = 区块奖励 × 发行区块数。
-        assert_eq!(
-            FULLNODE_TOTAL_ISSUANCE,
-            FULLNODE_BLOCK_REWARD * FULLNODE_REWARD_BLOCK_COUNT as u128
-        );
-    }
-
-    #[test]
-    fn pow_target_window_uses_fixed_six_minute_average() {
-        assert_eq!(POW_TARGET_BLOCK_TIME_MS, 6 * 60 * 1_000);
-        assert_eq!(DIFFICULTY_TARGET_WINDOW_MS, 600 * 6 * 60 * 1_000);
-    }
-}

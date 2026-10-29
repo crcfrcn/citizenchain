@@ -23,7 +23,7 @@ export function MultisigTransferProposalDetailSection({ info }: Props) {
             <div className="detail-row">
               <span className="detail-label">转出账户</span>
               <code className="detail-value">
-                {accountIdToSs58(info.transferDetail.funding_account_id)}
+                {accountIdToSs58(info.transferDetail.fundingAccountId)}
               </code>
             </div>
             <div className="detail-row">
@@ -34,7 +34,7 @@ export function MultisigTransferProposalDetailSection({ info }: Props) {
             </div>
             <div className="detail-row">
               <span className="detail-label">收款人</span>
-              <code className="detail-value">{accountIdToSs58(info.transferDetail.beneficiary_account_id)}</code>
+              <code className="detail-value">{accountIdToSs58(info.transferDetail.beneficiaryAccountId)}</code>
             </div>
             <div className="detail-row">
               <span className="detail-label">备注</span>
@@ -42,7 +42,7 @@ export function MultisigTransferProposalDetailSection({ info }: Props) {
             </div>
             <div className="detail-row">
               <span className="detail-label">提案人</span>
-              <code className="detail-value">{accountIdToSs58(info.transferDetail.proposer_account_id)}</code>
+              <code className="detail-value">{accountIdToSs58(info.transferDetail.proposerAccountId)}</code>
             </div>
           </div>
         </div>
@@ -59,12 +59,12 @@ export function MultisigTransferProposalDetailSection({ info }: Props) {
             <div className="detail-row">
               <span className="detail-label">转出账户</span>
               <code className="detail-value">
-                {accountIdToSs58(info.safetyFundDetail.institution_account_id)}
+                {accountIdToSs58(info.safetyFundDetail.institutionAccountId)}
               </code>
             </div>
             <div className="detail-row">
               <span className="detail-label">收款地址</span>
-              <code className="detail-value">{accountIdToSs58(info.safetyFundDetail.beneficiary_account_id)}</code>
+              <code className="detail-value">{accountIdToSs58(info.safetyFundDetail.beneficiaryAccountId)}</code>
             </div>
             <div className="detail-row">
               <span className="detail-label">金额</span>
@@ -91,7 +91,7 @@ export function MultisigTransferProposalDetailSection({ info }: Props) {
             <div className="detail-row">
               <span className="detail-label">转出账户</span>
               <code className="detail-value">
-                {accountIdToSs58(info.sweepDetail.institution_account_id)}
+                {accountIdToSs58(info.sweepDetail.institutionAccountId)}
               </code>
             </div>
             <div className="detail-row">

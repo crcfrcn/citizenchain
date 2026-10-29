@@ -1,4 +1,6 @@
 [package]
+# 根tests统一存放单元测试，独立集成目标仅显式注册，避免重复发现。
+autotests = false
 name = "multisig"  # 多签名地址转账模块
 edition.workspace = true
 version.workspace = true
@@ -19,10 +21,10 @@ sp-io = { workspace = true }
 
 primitives = { path = "../../primitives", default-features = false }
 votingengine = { path = "../../votingengine", default-features = false }
-entity-primitives = { path = "../../entity/entity-primitives", default-features = false }
-public-manage = { path = "../../entity/public-manage", default-features = false }
-private-manage = { path = "../../entity/private-manage", default-features = false }
-personal-manage = { path = "../../entity/personal-manage", default-features = false }
+entitybase = { path = "../../entity/entitybase", default-features = false }
+publicentity = { path = "../../entity/publicentity", default-features = false }
+privateentity = { path = "../../entity/privateentity", default-features = false }
+personalentity = { path = "../../entity/personalentity", default-features = false }
 onchain = { path = "../onchain", default-features = false }
 
 [features]
@@ -39,10 +41,10 @@ std = [
     "sp-io/std",
     "primitives/std",
     "votingengine/std",
-    "entity-primitives/std",
-    "public-manage/std",
-    "private-manage/std",
-    "personal-manage/std",
+    "entitybase/std",
+    "publicentity/std",
+    "privateentity/std",
+    "personalentity/std",
     "onchain/std",
 ]
 runtime-benchmarks = [
@@ -53,8 +55,8 @@ runtime-benchmarks = [
 try-runtime = []
 
 [dev-dependencies]
-admin-primitives = { path = "../../admins/admin-primitives", default-features = true }
-public-admins = { path = "../../admins/public-admins", default-features = true }
-private-admins = { path = "../../admins/private-admins", default-features = true }
-personal-admins = { path = "../../admins/personal-admins", default-features = true }
-internal-vote = { path = "../../votingengine/internal-vote", default-features = false }
+adminbase = { path = "../../admins/adminbase", default-features = true }
+publicadmin = { path = "../../admins/publicadmin", default-features = true }
+privateadmin = { path = "../../admins/privateadmin", default-features = true }
+personaladmin = { path = "../../admins/personaladmin", default-features = true }
+internalvote = { path = "../../votingengine/internalvote", default-features = false }

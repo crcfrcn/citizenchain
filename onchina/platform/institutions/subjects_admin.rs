@@ -14,17 +14,16 @@ use serde::Serialize;
 use crate::authentication::actions::require_admin_security_grant;
 use crate::authentication::login::require_admin_any;
 use crate::authentication::operation_auth::AdminActionType;
+use crate::authorization::get_visible_scope;
 use crate::institutions::subjects::http::{resolve_created_by, service_error_to_response};
 use crate::institutions::subjects::model::{
-    InstitutionDetailOutput, LegalRepresentative, ParentInstitutionRow,
-    UpdateInstitutionInput,
+    InstitutionDetailOutput, LegalRepresentative, ParentInstitutionRow, UpdateInstitutionInput,
 };
 use crate::institutions::subjects::service::{
     resolve_legal_representative_scope_for_institution, validate_cid_full_name,
     validate_legal_representative_required,
 };
 use crate::institutions::subjects::unincorporated_org;
-use crate::authorization::get_visible_scope;
 use crate::*;
 
 pub(crate) async fn check_cid_full_name(
@@ -81,8 +80,8 @@ pub(crate) async fn check_cid_full_name(
             let row = conn
                 .query_one(
                     "SELECT EXISTS (
-                        SELECT 1 FROM subjects
-                        WHERE kind = 'PUBLIC' AND cid_full_name = $1
+                        SELECT 1 FROM subject
+                        WHERE record_kind = 'PUBLIC' AND full_name = $1
                           AND province_code = $2 AND city_code = $3
                      )",
                     &[&cid_full_name, &province_code, &city_code],
@@ -117,6 +116,8 @@ pub(crate) async fn check_cid_full_name(
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct CheckNameQuery {
     pub cid_full_name: String,
     /// 主体属性:G 公法人机构走"同市同全称"查重。
@@ -125,6 +126,7 @@ pub struct CheckNameQuery {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CheckNameResult {
     exists: bool,
 }
@@ -145,7 +147,9 @@ pub(crate) async fn upload_legal_representative_photo(
             Ok(None) => break,
             Err(err) => return api_error(err.status(), 1001, "读取证件照失败"),
         };
-        if field.name().unwrap_or("") != "file" { continue; }
+        if field.name().unwrap_or("") != "file" {
+            continue;
+        }
         if upload.is_some() {
             return api_error(StatusCode::BAD_REQUEST, 1001, "一次只能上传一张证件照");
         }
@@ -178,11 +182,21 @@ pub(crate) async fn upload_legal_representative_photo(
     if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
         return resp;
     }
-    if let Err(resp) = crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id) {
+    if let Err(resp) =
+        crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id)
+    {
         return resp;
     }
-    match state.db.insert_legal_representative_photo(name, mime, bytes, ctx.account_id.clone()) {
-        Ok(photo) => Json(ApiResponse { code: 0, message: "ok".into(), data: photo }).into_response(),
+    match state
+        .db
+        .insert_legal_representative_photo(name, mime, bytes, ctx.account_id.clone())
+    {
+        Ok(photo) => Json(ApiResponse {
+            code: 0,
+            message: "ok".into(),
+            data: photo,
+        })
+        .into_response(),
         Err(err) => {
             tracing::error!(error = %err, "save legal representative photo failed");
             api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "证件照保存失败")
@@ -218,13 +232,22 @@ pub(crate) async fn read_legal_representative_photo(
             Err(_) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "机构读取失败"),
         };
         let scope = get_visible_scope(&ctx);
-        if inst.legal_representative_photo_path.as_deref() != Some(path.as_str())
-            || !scope.includes_institution(&inst.cid_number, &inst.province_name, &inst.city_name, &inst.town_name)
+        if inst.photo_path.as_deref() != Some(path.as_str())
+            || !scope.includes_institution(
+                &inst.cid_number,
+                &inst.province_name,
+                &inst.city_name,
+                &inst.town_name,
+            )
         {
             return api_error(StatusCode::FORBIDDEN, 1003, "out of admin scope");
         }
     } else if photo.uploader_account_id != ctx.account_id {
-        return api_error(StatusCode::FORBIDDEN, 1003, "photo belongs to another uploader");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            1003,
+            "photo belongs to another uploader",
+        );
     }
     (
         [
@@ -233,7 +256,8 @@ pub(crate) async fn read_legal_representative_photo(
             (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         ],
         photo.content,
-    ).into_response()
+    )
+        .into_response()
 }
 
 pub(crate) async fn update_institution(
@@ -248,13 +272,13 @@ pub(crate) async fn update_institution(
     };
     let grant_payload = serde_json::json!({
         "target": cid_number.clone(),
-        "cid_number": cid_number.clone(),
-        "cid_full_name": input.cid_full_name.clone(),
-        "parent_cid_number": input.parent_cid_number.clone(),
-        "family_name": input.family_name.clone(),
-        "given_name": input.given_name.clone(),
-        "legal_representative_cid_number": input.legal_representative_cid_number.clone(),
-        "legal_representative_photo_path": input.legal_representative_photo_path.clone(),
+        "cidNumber": cid_number.clone(),
+        "cidFullName": input.cid_full_name.clone(),
+        "parentCidNumber": input.parent_cid_number.clone(),
+        "familyName": input.family_name.clone(),
+        "givenName": input.given_name.clone(),
+        "representativeCid": input.representative_cid.clone(),
+        "photoPath": input.photo_path.clone(),
     });
     if let Err(resp) = require_admin_security_grant(
         &state,
@@ -279,8 +303,12 @@ pub(crate) async fn update_institution(
     let old_cid_full_name = existing.cid_full_name.clone().unwrap_or_default();
     let old_parent_cid_number = existing.parent_cid_number.clone().unwrap_or_default();
     let scope = get_visible_scope(&ctx);
-    if !scope.includes_institution(&existing.cid_number, &existing.province_name, &existing.city_name, &existing.town_name)
-    {
+    if !scope.includes_institution(
+        &existing.cid_number,
+        &existing.province_name,
+        &existing.city_name,
+        &existing.town_name,
+    ) {
         return api_error(StatusCode::FORBIDDEN, 1003, "out of admin scope");
     }
 
@@ -370,11 +398,11 @@ pub(crate) async fn update_institution(
     let legal_rep = match validate_legal_representative_required(
         input.family_name.as_deref(),
         input.given_name.as_deref(),
-        input.legal_representative_cid_number.as_deref(),
-        input.legal_representative_photo_path.as_deref(),
-        input.legal_representative_photo_name.as_deref(),
-        input.legal_representative_photo_mime.as_deref(),
-        input.legal_representative_photo_size,
+        input.representative_cid.as_deref(),
+        input.photo_path.as_deref(),
+        input.photo_name.as_deref(),
+        input.photo_mime.as_deref(),
+        input.photo_size,
     ) {
         Ok(v) => v,
         Err(e) => return service_error_to_response(e),
@@ -395,7 +423,7 @@ pub(crate) async fn update_institution(
         &existing,
         parent_for_legal_representative_scope.as_ref(),
     );
-    let legal_representative_account_id = match state.db.legal_representative_account_in_scope(
+    let representative_account = match state.db.legal_representative_account_in_scope(
         legal_rep.cid_number.as_str(),
         &legal_representative_scope,
     ) {
@@ -416,15 +444,24 @@ pub(crate) async fn update_institution(
         family_name: legal_rep.family_name,
         given_name: legal_rep.given_name,
         cid_number: legal_rep.cid_number,
-        account_id: legal_representative_account_id,
+        account_id: representative_account,
     });
-    existing.legal_representative_photo_path = Some(legal_rep.photo_path);
-    existing.legal_representative_photo_name = Some(legal_rep.photo_name);
-    existing.legal_representative_photo_mime = Some(legal_rep.photo_mime);
-    existing.legal_representative_photo_size = Some(legal_rep.photo_size);
-    existing = match state.db.save_institution_with_photo(existing, ctx.account_id.clone()) {
+    existing.photo_path = Some(legal_rep.photo_path);
+    existing.photo_name = Some(legal_rep.photo_name);
+    existing.photo_mime = Some(legal_rep.photo_mime);
+    existing.photo_size = Some(legal_rep.photo_size);
+    existing = match state
+        .db
+        .save_institution_with_photo(existing, ctx.account_id.clone())
+    {
         Ok(Some(inst)) => inst,
-        Ok(None) => return api_error(StatusCode::BAD_REQUEST, 1001, "证件照不存在、已过期或不属于本次办理，请重新上传"),
+        Ok(None) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                1001,
+                "证件照不存在、已过期或不属于本次办理，请重新上传",
+            )
+        }
         Err(err) => {
             tracing::error!(error = %err, "save institution and photo failed");
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, "机构资料保存失败");
@@ -436,14 +473,14 @@ pub(crate) async fn update_institution(
         &ctx.account_id,
         Some(cid_number.clone()),
         serde_json::json!({
-            "cid_number": cid_number.clone(),
-            "old_cid_full_name": old_cid_full_name,
-            "new_cid_full_name": existing.cid_full_name.clone().unwrap_or_default(),
-            "old_parent_cid_number": old_parent_cid_number,
-            "parent_cid_number": existing.parent_cid_number.clone().unwrap_or_default(),
-            "family_name": existing.legal_representative.as_ref().map(|value| value.family_name.clone()).unwrap_or_default(),
-            "given_name": existing.legal_representative.as_ref().map(|value| value.given_name.clone()).unwrap_or_default(),
-            "legal_representative_cid_number": existing.legal_representative.as_ref().map(|value| value.cid_number.clone()).unwrap_or_default(),
+            "cidNumber": cid_number.clone(),
+            "oldCidFullName": old_cid_full_name,
+            "newCidFullName": existing.cid_full_name.clone().unwrap_or_default(),
+            "oldParentCidNumber": old_parent_cid_number,
+            "parentCidNumber": existing.parent_cid_number.clone().unwrap_or_default(),
+            "familyName": existing.legal_representative.as_ref().map(|value| value.family_name.clone()).unwrap_or_default(),
+            "givenName": existing.legal_representative.as_ref().map(|value| value.given_name.clone()).unwrap_or_default(),
+            "representativeCid": existing.legal_representative.as_ref().map(|value| value.cid_number.clone()).unwrap_or_default(),
         }),
     );
     Json(ApiResponse {
@@ -455,6 +492,8 @@ pub(crate) async fn update_institution(
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SearchParentsQuery {
     pub q: Option<String>,
     /// 非法人的落位省/市,用于地域预过滤(规则同 onchina/platform/institutions/subjects_unincorporated_org.rs::parent_locality_rule)。
@@ -537,12 +576,12 @@ pub(crate) async fn search_parent_institutions(
                    AND s.province_code = $2 AND s.city_code = $3
                    AND ((s.institution_code IN ('SFLP', 'SFGQ', 'SFGF', 'SFGY', 'SFAS', 'SUN', 'JUN', 'SFSC', 'JSCH')
                          AND $4::text IS DISTINCT FROM 'G')
-                        OR (s.category = 'GOV_INSTITUTION'
+                        OR (s.subject_kind = 'GOV_INSTITUTION'
                             AND $4::text IS DISTINCT FROM 'S')))
                   OR (s.institution_code IN ('SFLP', 'SFGQ', 'SFGF', 'SFGY', 'SFAS', 'SUN', 'JUN', 'SFSC', 'JSCH')
                       AND s.institution_code NOT IN ('GUN', 'SUN', 'JUN', 'GSCH', 'SFSC', 'JSCH')
                       AND $4::text IS DISTINCT FROM 'G')
-                  OR (s.category = 'GOV_INSTITUTION'
+                  OR (s.subject_kind = 'GOV_INSTITUTION'
                       AND s.institution_code NOT IN ('GUN', 'SUN', 'JUN', 'GSCH', 'SFSC', 'JSCH')
                       AND $4::text IS DISTINCT FROM 'S'
                       AND (
@@ -564,16 +603,16 @@ pub(crate) async fn search_parent_institutions(
                       ))
              )";
         let sql = format!(
-            "SELECT s.cid_number, s.cid_full_name, s.private_type, s.partnership_kind, s.category,
-                    s.p1, s.province_code, s.city_code, COALESCE(s.town_code, '')
-             FROM subjects s
-             WHERE s.kind IN ('PUBLIC', 'PRIVATE')
-               AND COALESCE(s.cid_full_name, '') <> ''
+            "SELECT s.cid_number, s.full_name, s.private_type, s.partnership_kind, s.subject_kind,
+                    s.profit_kind, s.province_code, s.city_code, COALESCE(s.town_code, '')
+             FROM subject s
+             WHERE s.record_kind IN ('PUBLIC', 'PRIVATE')
+               AND COALESCE(s.full_name, '') <> ''
                AND {candidate_clause}
                AND (lower(s.cid_number) LIKE '%' || $1 || '%'
-                    OR lower(COALESCE(s.cid_full_name, '')) LIKE '%' || $1 || '%'
-                    OR lower(COALESCE(s.cid_short_name, '')) LIKE '%' || $1 || '%')
-             ORDER BY COALESCE(s.cid_short_name, '') ASC, COALESCE(s.cid_full_name, '') ASC, s.cid_number ASC
+                    OR lower(COALESCE(s.full_name, '')) LIKE '%' || $1 || '%'
+                    OR lower(COALESCE(s.short_name, '')) LIKE '%' || $1 || '%')
+             ORDER BY COALESCE(s.short_name, '') ASC, COALESCE(s.full_name, '') ASC, s.cid_number ASC
              LIMIT 20"
         );
         let rows = conn
@@ -646,11 +685,20 @@ pub(crate) async fn get_institution(
         return api_error(StatusCode::NOT_FOUND, 1004, "institution not found");
     };
     let scope = get_visible_scope(&ctx);
-    if !scope.includes_institution(&inst.cid_number, &inst.province_name, &inst.city_name, &inst.town_name)
-    {
+    if !scope.includes_institution(
+        &inst.cid_number,
+        &inst.province_name,
+        &inst.city_name,
+        &inst.town_name,
+    ) {
         return api_error(StatusCode::FORBIDDEN, 1003, "out of admin scope");
     }
-    let accounts = match crate::institutions::accounts::handler::detail_accounts(&inst.institution_code, &inst.cid_number).await {
+    let accounts = match crate::institutions::accounts::handler::detail_accounts(
+        &inst.institution_code,
+        &inst.cid_number,
+    )
+    .await
+    {
         Ok(accounts) => accounts,
         Err(error) => {
             tracing::warn!(error = %error, "institution detail chain accounts unavailable");
@@ -712,7 +760,12 @@ pub(crate) async fn get_federal_registry(
     }) else {
         return api_error(StatusCode::NOT_FOUND, 1004, "federal registry not found");
     };
-    let accounts = match crate::institutions::accounts::handler::detail_accounts(&inst.institution_code, &inst.cid_number).await {
+    let accounts = match crate::institutions::accounts::handler::detail_accounts(
+        &inst.institution_code,
+        &inst.cid_number,
+    )
+    .await
+    {
         Ok(accounts) => accounts,
         Err(error) => {
             tracing::warn!(error = %error, "institution detail chain accounts unavailable");

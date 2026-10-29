@@ -7,9 +7,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use admin_primitives::{Admin, InstitutionAdmins};
+use adminbase::{Admin, InstitutionAdmins};
 use codec::{Decode, Encode};
-use entity_primitives::{
+use entitybase::{
     InstitutionAdminAssignment, InstitutionAssignmentStatus, InstitutionRole, InstitutionRoleStatus,
 };
 use primitives::institution_constraints::{member_composition_specs, MemberCompositionSpec};
@@ -362,7 +362,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use entity_primitives::InstitutionAssignmentSource;
+    use entitybase::InstitutionAssignmentSource;
     use votingengine::types::{ProposalSubjectCidNumbers, PROPOSAL_KIND_INTERNAL, STAGE_INTERNAL};
 
     fn account(index: u32) -> [u8; 32] {

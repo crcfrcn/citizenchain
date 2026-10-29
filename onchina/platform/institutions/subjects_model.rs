@@ -28,6 +28,8 @@ pub const EDUCATION_TYPE_CITY_CITIZEN_EDU_COMMITTEE: &str = "CITY_CITIZEN_EDU_CO
 /// 由同步接口写成 `ActiveOnChain`;链上注销后写成 `RevokedOnChain`。
 /// 机构(每个 cid_number 唯一)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Institution {
     /// 业务状态与链投影状态分别来自 subjects 实际字段，不由账户非空推断。
     pub status: String,
@@ -84,16 +86,16 @@ pub struct Institution {
     pub legal_representative: Option<LegalRepresentative>,
     /// 法定代表人证件照数据库记录的鉴权读取地址。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub legal_representative_photo_path: Option<String>,
+    pub photo_path: Option<String>,
     /// 法定代表人证件照原始文件名。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub legal_representative_photo_name: Option<String>,
+    pub photo_name: Option<String>,
     /// 法定代表人证件照 MIME 类型。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub legal_representative_photo_mime: Option<String>,
+    pub photo_mime: Option<String>,
     /// 法定代表人证件照大小(字节)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub legal_representative_photo_size: Option<u64>,
+    pub photo_size: Option<u64>,
     /// 创建人账户 ID；链上创世投影没有独立创建人时为空。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creator_account_id: Option<String>,
@@ -103,17 +105,25 @@ pub struct Institution {
 impl Institution {
     /// 仅从既有机构码分类派生 G/S/F，不新增主体或行政区编码。
     pub(crate) fn subject_property_for_code(code: &str) -> Result<String, String> {
-        let code = primitives::cid::code::institution_code_from_str(code).ok_or("invalid institution code")?;
-        let property = if primitives::cid::code::is_public_legal_code(&code) { "G" }
-            else if primitives::cid::code::is_private_legal_code(&code) { "S" }
-            else if primitives::cid::code::is_unincorporated_code(&code) { "F" }
-            else { return Err("institution code has no institution subject property".into()); };
+        let code = primitives::cid::code::institution_code_from_str(code)
+            .ok_or("invalid institution code")?;
+        let property = if primitives::cid::code::is_public_legal_code(&code) {
+            "G"
+        } else if primitives::cid::code::is_private_legal_code(&code) {
+            "S"
+        } else if primitives::cid::code::is_unincorporated_code(&code) {
+            "F"
+        } else {
+            return Err("institution code has no institution subject property".into());
+        };
         Ok(property.to_string())
     }
 }
 
 /// 法定代表人公开身份。人的姓名只保存分离的姓、名，不保存拼接姓名。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+// CitizenApp 公开目录复用此唯一身份声明，保持已发布字段格式。
 pub struct LegalRepresentative {
     pub family_name: String,
     pub given_name: String,
@@ -125,6 +135,8 @@ pub struct LegalRepresentative {
 
 /// 内部 SQL 账户投影，保留完整 SELECT 列布局；HTTP 只使用真实链账户 DTO。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[allow(dead_code)] // SQL 查询契约列，不能把未消费的缓存元数据伪造为链上状态。
 pub struct InstitutionAccount {
     /// 所属机构的 cid_number。
@@ -139,6 +151,8 @@ pub struct InstitutionAccount {
 
 /// 机构资料库文档(注册文件/许可证/章程等)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct InstitutionDocument {
     /// 自增文档 ID。
     pub id: u64,
@@ -164,6 +178,8 @@ pub const VALID_DOC_TYPES: &[&str] =
 // ─── 请求/响应 DTO ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateInstitutionAdminInput {
     /// 管理员姓；缺失时先查公民资料，仍缺失则使用“管理”。
     #[serde(default)]
@@ -176,6 +192,8 @@ pub struct CreateInstitutionAdminInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 // serde 创建 DTO:字段是前端 JSON API 契约,7 个私权创建 handler 反序列化后按分支消费;
 // subject_property 为第 6 步原子创建业务预留(当前接口固定关闭),非死代码。
 #[allow(dead_code)]
@@ -213,6 +231,8 @@ pub struct CreateInstitutionInput {
 
 /// 机构详情页提交的可编辑字段。私权类型由身份 ID 机构码决定,创建后不允许改。
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateInstitutionInput {
     #[serde(default)]
     pub cid_full_name: Option<String>,
@@ -229,18 +249,20 @@ pub struct UpdateInstitutionInput {
     #[serde(default)]
     pub given_name: Option<String>,
     #[serde(default)]
-    pub legal_representative_cid_number: Option<String>,
+    pub representative_cid: Option<String>,
     #[serde(default)]
-    pub legal_representative_photo_path: Option<String>,
+    pub photo_path: Option<String>,
     #[serde(default)]
-    pub legal_representative_photo_name: Option<String>,
+    pub photo_name: Option<String>,
     #[serde(default)]
-    pub legal_representative_photo_mime: Option<String>,
+    pub photo_mime: Option<String>,
     #[serde(default)]
-    pub legal_representative_photo_size: Option<u64>,
+    pub photo_size: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+// CitizenApp 公开目录复用此唯一身份声明，保持已发布字段格式。
 pub struct LegalRepresentativePhoto {
     pub file_path: String,
     pub file_name: String,
@@ -249,6 +271,8 @@ pub struct LegalRepresentativePhoto {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateAccountInput {
     pub account_name: String,
     /// 发起人当前任职的机构岗位码;runtime 据此在 origin 处校验发起提案权限。
@@ -258,6 +282,8 @@ pub struct CreateAccountInput {
 /// 关闭机构自定义账户提案的请求体。DELETE 也带 Json body 传岗位码,
 /// 与新增账户一致由 runtime 在 origin 处以 `is_institution_admin` + 岗位码校验。
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct DeleteAccountInput {
     /// 发起人当前任职的机构岗位码。
     pub proposer_role_code: String,
@@ -299,6 +325,7 @@ impl InstitutionListFilter {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstitutionListRow {
     pub status: String,
     pub subject_property: String,
@@ -339,6 +366,7 @@ pub struct InstitutionListRow {
 
 /// 法人机构搜索结果项(用于 F 详情页"所属法人"选择器)
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ParentInstitutionRow {
     pub cid_number: String,
     pub cid_full_name: String,
@@ -358,6 +386,7 @@ pub struct ParentInstitutionRow {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstitutionDetailOutput {
     pub institution: Institution,
     pub accounts: Vec<crate::institutions::accounts::handler::ChainAccountRow>,

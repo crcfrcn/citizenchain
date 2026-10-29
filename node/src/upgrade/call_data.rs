@@ -24,7 +24,7 @@ pub(crate) fn propose_runtime_upgrade(
     actor_cid_number: &str,
     wasm_code: &[u8],
     reason: &str,
-    pow_params: pow_difficulty::PowDifficultyParams,
+    pow_params: difficulty::PowDifficultyParams,
 ) -> Result<Vec<u8>, String> {
     if actor_cid_number.is_empty()
         || actor_cid_number.len() > primitives::core_const::CID_NUMBER_MAX_BYTES as usize
@@ -61,7 +61,7 @@ pub(crate) fn propose_runtime_upgrade_from_file(
     actor_cid_number: &str,
     wasm_path: &str,
     reason: &str,
-    pow_params: pow_difficulty::PowDifficultyParams,
+    pow_params: difficulty::PowDifficultyParams,
 ) -> Result<Vec<u8>, String> {
     let (wasm_code, _) = read_wasm(wasm_path)?;
     propose_runtime_upgrade(actor_cid_number, &wasm_code, reason, pow_params)
@@ -75,12 +75,12 @@ mod tests {
     #[test]
     fn manual_call_encoding_matches_runtime_metadata_contract() {
         let code = vec![1u8, 2, 3];
-        let params = pow_difficulty::PowDifficultyParams::genesis_default();
+        let params = difficulty::PowDifficultyParams::genesis_default();
         let reason = "升级参数";
         let proposal_call =
             propose_runtime_upgrade("LN001-NRC0G-944805165-2026", &code, reason, params)
                 .expect("call data");
-        let decoded = citizenchain::RuntimeCall::decode_all(&mut proposal_call.as_slice())
+        let decoded = runtime::RuntimeCall::decode_all(&mut proposal_call.as_slice())
             .expect("治理升级 call_data 必须被真实 RuntimeCall 完整解码");
         assert_eq!(decoded.encode(), proposal_call);
     }

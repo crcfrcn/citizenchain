@@ -6,76 +6,76 @@ import { adminHeaders, adminRequest, request } from './helpers_http';
 import { passkeySubmitHeaders } from './admins_securityApi';
 
 export type OwnInstitutionAdminRow = {
-  account_id: string;
-  family_name: string;
-  given_name: string;
-  role_code: string;
-  role_name: string;
-  term_required: boolean;
-  term_start: number;
-  term_end: number;
-  assignment_source: number;
-  assignment_source_label: string;
-  assignment_source_ref: string;
-  balance_fen?: string | null;
-  is_self: boolean;
+  accountId: string;
+  familyName: string;
+  givenName: string;
+  roleCode: string;
+  roleName: string;
+  termRequired: boolean;
+  termStart: number;
+  termEnd: number;
+  assignmentSource: number;
+  assignmentSourceLabel: string;
+  assignmentSourceRef: string;
+  balanceFen?: string | null;
+  isSelf: boolean;
 };
 
 export type OwnInstitutionAdminListOutput = {
-  institution_code: string;
-  cid_short_name?: string | null;
+  institutionCode: string;
+  cidShortName?: string | null;
   rows: OwnInstitutionAdminRow[];
 };
 
 export type InstitutionGovernanceAdminInput = {
-  account_id: string;
-  family_name: string;
-  given_name: string;
+  accountId: string;
+  familyName: string;
+  givenName: string;
 };
 
 export type InstitutionRolePermissionInput = {
-  module_tag: string;
-  action_code: number;
+  moduleTag: string;
+  actionCode: number;
   operation: 'PROPOSE' | 'VOTE';
 };
 
 export type InstitutionGovernanceRoleMutationInput = {
   mutation: 'CREATE' | 'RENAME' | 'DELETE';
-  role_code?: string;
-  role_name?: string;
-  term_required?: boolean;
+  roleCode?: string;
+  roleName?: string;
+  termRequired?: boolean;
   permissions?: InstitutionRolePermissionInput[];
   assignments?: InstitutionGovernanceAssignmentTargetInput[];
 };
 
 export type InstitutionGovernanceAssignmentTargetInput = {
-  account_id: string;
-  term_start: number;
-  term_end: number;
+  accountId: string;
+  termStart: number;
+  termEnd: number;
 };
 
 export type InstitutionGovernanceAssignmentChangeInput = {
-  role_code: string;
+  roleCode: string;
   assignments: InstitutionGovernanceAssignmentTargetInput[];
 };
 
 export type PrepareInstitutionGovernanceInput = {
-  cid_number: string;
-  proposer_role_code: string;
+  cidNumber: string;
+  proposerRoleCode: string;
   admins?: InstitutionGovernanceAdminInput[];
-  role_mutations?: InstitutionGovernanceRoleMutationInput[];
-  assignment_changes?: InstitutionGovernanceAssignmentChangeInput[];
-  legal_representative_cid_number?: string | null;
-  clear_legal_representative?: boolean;
+  roleMutations?: InstitutionGovernanceRoleMutationInput[];
+  assignmentChanges?: InstitutionGovernanceAssignmentChangeInput[];
+  representativeCid?: string | null;
+  clearLegalRepresentative?: boolean;
 };
 
 export type PrepareInstitutionChainOutput = {
-  request_id: string;
-  cid_number: string;
-  chain_action: number;
-  call_data_hex: string;
-  sign_request: string;
-  expires_at: number;
+  requestId: string;
+  cidNumber: string;
+  chainAction: number;
+  callDataHex: string;
+  signRequest: string;
+  expiresAt: number;
 };
 
 export async function listOwnInstitutionAdmins(auth: AdminAuth): Promise<OwnInstitutionAdminListOutput> {

@@ -11,7 +11,7 @@ import type {
 export const offchainApi = {
   queryClearingBankNodeInfo: (cidNumber: string) =>
     invoke<ClearingBankNodeOnChainInfo | null>('query_clearing_bank_node_info', {
-      cid_number: cidNumber,
+      cidNumber: cidNumber,
     }),
 
   queryLocalPeerId: () => invoke<string>('query_local_peer_id'),
@@ -20,27 +20,27 @@ export const offchainApi = {
     invoke<ConnectivityTestReport>('test_clearing_bank_endpoint_connectivity', {
       domain,
       port,
-      expected_peer_id: expectedPeerId,
+      expectedPeerId: expectedPeerId,
     }),
 
   buildRegisterClearingBankRequest: (
-    signer_public_key: string,
+    signerPublicKey: string,
     actorCidNumber: string,
     peerId: string,
     rpcDomain: string,
     rpcPort: number,
   ) =>
     invoke<VoteSignRequestResult>('build_register_clearing_bank_request', {
-      signer_public_key,
-      actor_cid_number: actorCidNumber,
-      peer_id: peerId,
-      rpc_domain: rpcDomain,
-      rpc_port: rpcPort,
+      signerPublicKey,
+      actorCidNumber: actorCidNumber,
+      peerId: peerId,
+      rpcDomain: rpcDomain,
+      rpcPort: rpcPort,
     }),
 
   submitRegisterClearingBank: (
     requestId: string,
-    expected_signer_public_key: string,
+    expectedPublicKey: string,
     expectedPayloadHash: string,
     actorCidNumber: string,
     peerId: string,
@@ -51,34 +51,34 @@ export const offchainApi = {
     responseJson: string,
   ) =>
     invoke<VoteSubmitResult>('submit_register_clearing_bank', {
-      request_id: requestId,
-      expected_signer_public_key,
-      expected_payload_hash: expectedPayloadHash,
-      actor_cid_number: actorCidNumber,
-      peer_id: peerId,
-      rpc_domain: rpcDomain,
-      rpc_port: rpcPort,
-      sign_nonce: signNonce,
-      sign_block_number: signBlockNumber,
-      response_json: responseJson,
+      requestId: requestId,
+      expectedPublicKey,
+      expectedPayloadHash: expectedPayloadHash,
+      actorCidNumber: actorCidNumber,
+      peerId: peerId,
+      rpcDomain: rpcDomain,
+      rpcPort: rpcPort,
+      signNonce: signNonce,
+      signBlockNumber: signBlockNumber,
+      responseJson: responseJson,
     }),
 
   buildUpdateClearingBankEndpointRequest: (
-    signer_public_key: string,
+    signerPublicKey: string,
     actorCidNumber: string,
     newDomain: string,
     newPort: number,
   ) =>
     invoke<VoteSignRequestResult>('build_update_clearing_bank_endpoint_request', {
-      signer_public_key,
-      actor_cid_number: actorCidNumber,
-      new_domain: newDomain,
-      new_port: newPort,
+      signerPublicKey,
+      actorCidNumber: actorCidNumber,
+      newDomain: newDomain,
+      newPort: newPort,
     }),
 
   submitUpdateClearingBankEndpoint: (
     requestId: string,
-    expected_signer_public_key: string,
+    expectedPublicKey: string,
     expectedPayloadHash: string,
     actorCidNumber: string,
     newDomain: string,
@@ -88,26 +88,26 @@ export const offchainApi = {
     responseJson: string,
   ) =>
     invoke<VoteSubmitResult>('submit_update_clearing_bank_endpoint', {
-      request_id: requestId,
-      expected_signer_public_key,
-      expected_payload_hash: expectedPayloadHash,
-      actor_cid_number: actorCidNumber,
-      new_domain: newDomain,
-      new_port: newPort,
-      sign_nonce: signNonce,
-      sign_block_number: signBlockNumber,
-      response_json: responseJson,
+      requestId: requestId,
+      expectedPublicKey,
+      expectedPayloadHash: expectedPayloadHash,
+      actorCidNumber: actorCidNumber,
+      newDomain: newDomain,
+      newPort: newPort,
+      signNonce: signNonce,
+      signBlockNumber: signBlockNumber,
+      responseJson: responseJson,
     }),
 
-  buildUnregisterClearingBankRequest: (signer_public_key: string, actorCidNumber: string) =>
+  buildUnregisterClearingBankRequest: (signerPublicKey: string, actorCidNumber: string) =>
     invoke<VoteSignRequestResult>('build_unregister_clearing_bank_request', {
-      signer_public_key,
-      actor_cid_number: actorCidNumber,
+      signerPublicKey,
+      actorCidNumber: actorCidNumber,
     }),
 
   submitUnregisterClearingBank: (
     requestId: string,
-    expected_signer_public_key: string,
+    expectedPublicKey: string,
     expectedPayloadHash: string,
     actorCidNumber: string,
     signNonce: number,
@@ -115,37 +115,37 @@ export const offchainApi = {
     responseJson: string,
   ) =>
     invoke<VoteSubmitResult>('submit_unregister_clearing_bank', {
-      request_id: requestId,
-      expected_signer_public_key,
-      expected_payload_hash: expectedPayloadHash,
-      actor_cid_number: actorCidNumber,
-      sign_nonce: signNonce,
-      sign_block_number: signBlockNumber,
-      response_json: responseJson,
+      requestId: requestId,
+      expectedPublicKey,
+      expectedPayloadHash: expectedPayloadHash,
+      actorCidNumber: actorCidNumber,
+      signNonce: signNonce,
+      signBlockNumber: signBlockNumber,
+      responseJson: responseJson,
     }),
 
-  buildDecryptAdminRequest: (signer_public_key: string, cidNumber: string) =>
+  buildDecryptAdminRequest: (signerPublicKey: string, cidNumber: string) =>
     invoke<DecryptAdminRequestResult>('build_decrypt_admin_request', {
-      signer_public_key,
-      cid_number: cidNumber,
+      signerPublicKey,
+      cidNumber: cidNumber,
     }),
 
   verifyAndDecryptAdmin: (
     requestId: string,
-    signer_public_key: string,
+    signerPublicKey: string,
     expectedPayloadHash: string,
     responseJson: string,
   ) =>
     invoke<DecryptedAdminInfo>('verify_and_decrypt_admin', {
-      request_id: requestId,
-      signer_public_key,
-      expected_payload_hash: expectedPayloadHash,
-      response_json: responseJson,
+      requestId: requestId,
+      signerPublicKey,
+      expectedPayloadHash: expectedPayloadHash,
+      responseJson: responseJson,
     }),
 
   listDecryptedAdmins: (cidNumber: string) =>
-    invoke<DecryptedAdminInfo[]>('list_decrypted_admins', { cid_number: cidNumber }),
+    invoke<DecryptedAdminInfo[]>('list_decrypted_admins', { cidNumber: cidNumber }),
 
-  lockDecryptedAdmin: (signer_public_key: string) =>
-    invoke<void>('lock_decrypted_admin', { signer_public_key }),
+  lockDecryptedAdmin: (signerPublicKey: string) =>
+    invoke<void>('lock_decrypted_admin', { signerPublicKey }),
 };

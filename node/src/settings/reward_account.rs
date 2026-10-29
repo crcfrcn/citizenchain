@@ -23,10 +23,7 @@ use crate::shared::constants::RPC_RESPONSE_LIMIT_LARGE;
 #[serde(rename_all = "camelCase")]
 /// 前端展示的奖励账户配置；账户 ID 是唯一标识，SS58 仅供输入与展示。
 pub struct RewardAccount {
-    #[serde(rename = "account_id")]
     pub account_id: Option<String>,
-    #[serde(rename = "ss58_address")]
-    pub ss58_address: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -282,14 +279,7 @@ pub(crate) async fn sync_saved_reward_account_inner(app: &AppHandle) -> Result<(
 #[tauri::command]
 pub fn get_reward_account(app: AppHandle) -> Result<RewardAccount, String> {
     let account_id = load_reward_account_id(&app)?;
-    let ss58_address = account_id
-        .as_deref()
-        .map(account_id_to_ss58_address)
-        .transpose()?;
-    Ok(RewardAccount {
-        account_id,
-        ss58_address,
-    })
+    Ok(RewardAccount { account_id })
 }
 
 /// 返回本机矿工账户的 SS58 地址（前缀 2027）。
@@ -309,7 +299,7 @@ fn account_id_to_ss58_address(account_id: &str) -> Result<String, String> {
     crate::governance::signing::account_id_to_ss58(&account_id)
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn set_reward_account(
     app: AppHandle,
     ss58_address: String,
@@ -363,6 +353,5 @@ pub async fn set_reward_account(
 
     Ok(RewardAccount {
         account_id: Some(target_account_id_hex),
-        ss58_address: Some(ss58_address),
     })
 }

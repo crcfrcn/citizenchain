@@ -32,7 +32,6 @@ pub struct InstitutionRoleAssignmentInfo {
 #[serde(rename_all = "camelCase")]
 pub struct InstitutionAdminInfo {
     /// 管理员账户 ID，固定为小写 `0x` + 64 位十六进制。
-    #[serde(rename = "account_id")]
     pub account_id: String,
     /// 公权管理员公民 CID；私权管理员及尚未补齐的公权记录为空。
     pub cid_number: String,

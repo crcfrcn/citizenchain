@@ -7,11 +7,11 @@
 use tauri::AppHandle;
 
 use crate::home;
-use crate::transaction::offchain::types::{DecryptAdminRequestResult, DecryptedAdminInfo};
+use crate::offchain::types::{DecryptAdminRequestResult, DecryptedAdminInfo};
 
 use super::admin_unlock::VerifyDecryptAdminInput;
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn build_decrypt_admin_request(
     app: AppHandle,
     signer_public_key: String,
@@ -28,7 +28,7 @@ pub async fn build_decrypt_admin_request(
     .map_err(|e| format!("build_decrypt_admin_request task failed:{e}"))?
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn verify_and_decrypt_admin(
     request_id: String,
     signer_public_key: String,
@@ -47,12 +47,12 @@ pub async fn verify_and_decrypt_admin(
     .map_err(|e| format!("verify_and_decrypt_admin task failed:{e}"))?
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn list_decrypted_admins(cid_number: String) -> Result<Vec<DecryptedAdminInfo>, String> {
     Ok(super::admin_unlock::list_decrypted_admins(&cid_number))
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn lock_decrypted_admin(signer_public_key: String) -> Result<(), String> {
     super::admin_unlock::lock_decrypted_admin(&signer_public_key)
 }

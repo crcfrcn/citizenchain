@@ -15,6 +15,7 @@ use serde::Serialize;
 
 use crate::authentication::login::{require_admin_any, AdminAuthContext};
 use crate::authentication::repo as auth_repo;
+use crate::authorization::get_visible_scope;
 use crate::core::chain_runtime::{institution_accounts_lookup, OnChainInstitutionAccount};
 use crate::core::institution_call::{
     encode_propose_add_institution_account, encode_propose_close_institution,
@@ -29,7 +30,6 @@ use crate::institutions::subjects::service::{
     institution_account_kind_label, is_protocol_account_name, validate_account_name,
     ACCOUNT_NAME_MAIN,
 };
-use crate::authorization::get_visible_scope;
 use crate::*;
 
 /// 新增机构自定义账户提案用途。提交成功后读侧从链读,不落本地副本。
@@ -92,8 +92,12 @@ async fn authorize_own_institution_proposal(
         return Err(api_error(StatusCode::NOT_FOUND, 1004, "机构不存在"));
     };
     let scope = get_visible_scope(ctx);
-    if !scope.includes_institution(&inst.cid_number, &inst.province_name, &inst.city_name, &inst.town_name)
-    {
+    if !scope.includes_institution(
+        &inst.cid_number,
+        &inst.province_name,
+        &inst.city_name,
+        &inst.town_name,
+    ) {
         return Err(api_error(
             StatusCode::FORBIDDEN,
             1003,
@@ -176,8 +180,8 @@ pub(crate) async fn create_account(
         &ctx.account_id,
         Some(cid_number.clone()),
         serde_json::json!({
-            "cid_number": cid_number,
-            "account_name": account_name,
+            "cidNumber": cid_number,
+            "accountName": account_name,
         }),
     );
     Json(ApiResponse {
@@ -210,8 +214,12 @@ pub(crate) async fn list_accounts(
         return api_error(StatusCode::NOT_FOUND, 1004, "institution not found");
     };
     let scope = get_visible_scope(&ctx);
-    if !scope.includes_institution(&inst.cid_number, &inst.province_name, &inst.city_name, &inst.town_name)
-    {
+    if !scope.includes_institution(
+        &inst.cid_number,
+        &inst.province_name,
+        &inst.city_name,
+        &inst.town_name,
+    ) {
         return api_error(StatusCode::FORBIDDEN, 1003, "out of admin scope");
     }
     let code = match code_bytes(&inst.institution_code) {
@@ -314,8 +322,8 @@ pub(crate) async fn delete_account(
         &ctx.account_id,
         Some(cid_number.clone()),
         serde_json::json!({
-            "cid_number": cid_number,
-            "account_name": account_name,
+            "cidNumber": cid_number,
+            "accountName": account_name,
         }),
     );
     Json(ApiResponse {
@@ -329,6 +337,7 @@ pub(crate) async fn delete_account(
 /// 链读账户列表行。链上存在即视为 `ACTIVE_ON_CHAIN`;
 /// `creator_account_id/created_at/tx_hash/block_number` 链上无对应字段,一律置空。
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ChainAccountRow {
     cid_number: String,
     account_name: String,
@@ -345,8 +354,13 @@ pub(crate) struct ChainAccountRow {
 
 /// 详情接口与账户列表使用同一 DTO 和真实链读，链上缺少的账户不伪造激活状态。
 pub(crate) async fn detail_accounts(code: &str, cid: &str) -> Result<Vec<ChainAccountRow>, String> {
-    let code = primitives::cid::code::institution_code_from_str(code).ok_or("invalid institution code")?;
-    Ok(institution_accounts_lookup(&code, cid).await?.iter().map(chain_account_row).collect())
+    let code =
+        primitives::cid::code::institution_code_from_str(code).ok_or("invalid institution code")?;
+    Ok(institution_accounts_lookup(&code, cid)
+        .await?
+        .iter()
+        .map(chain_account_row)
+        .collect())
 }
 
 /// 把链上账户投影成规范 `account_id`。
@@ -372,20 +386,26 @@ pub(crate) fn chain_account_row(account_id: &OnChainInstitutionAccount) -> Chain
     }
 }
 
-
 #[cfg(test)]
 // 规范 DTO 夹具序列化失败应直接定位回归，仅测试允许 expect。
 #[allow(clippy::expect_used)]
 mod detail_tests {
     #[test]
     fn actual_chain_account_dto_exposes_status_without_changing_account_name() {
-        let account=crate::core::chain_runtime::OnChainInstitutionAccount { cid_number:b"GZ018-SFGYR-201206100-2026".to_vec(),account_name:"业务专户A".as_bytes().to_vec(),account_id:[0x11;32] };
-        let value=serde_json::to_value(super::chain_account_row(&account)).expect("account DTO must serialize");
-        assert_eq!(value["chain_status"],"ACTIVE_ON_CHAIN"); assert_eq!(value["account_name"],"业务专户A");
-        assert_eq!(value["account_id"],format!("0x{}","11".repeat(32))); assert_eq!(value["can_close"],true);
-        assert!(value["created_at"].is_null());
+        let account = crate::core::chain_runtime::OnChainInstitutionAccount {
+            cid_number: b"GZ018-SFGYR-201206100-2026".to_vec(),
+            account_name: "业务专户A".as_bytes().to_vec(),
+            account_id: [0x11; 32],
+        };
+        let value = serde_json::to_value(super::chain_account_row(&account))
+            .expect("account DTO must serialize");
+        assert_eq!(value["chainStatus"], "ACTIVE_ON_CHAIN");
+        assert_eq!(value["accountName"], "业务专户A");
+        assert_eq!(value["accountId"], format!("0x{}", "11".repeat(32)));
+        assert_eq!(value["canClose"], true);
+        assert!(value["createdAt"].is_null());
         // 对照前端 DTO 的全部真实协议账户分类，独立基金账户不得被漏成普通账户。
-        let source=include_str!("../frontend/subjects_api.ts");
+        let source = include_str!("../frontend/subjects_api.ts");
         assert!(source.contains("'federal_citizen_security_fund'"));
     }
 }

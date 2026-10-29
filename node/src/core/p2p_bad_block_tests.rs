@@ -79,7 +79,7 @@ impl TestNode {
 }
 
 fn skip_without_wasm_binary(test_name: &str) -> bool {
-    if citizenchain::WASM_BINARY.is_some() {
+    if runtime::WASM_BINARY.is_some() {
         return false;
     }
     eprintln!("{test_name}: 跳过 P2P 坏块注入验收；当前测试构建未内置 WASM_BINARY");
@@ -87,8 +87,8 @@ fn skip_without_wasm_binary(test_name: &str) -> bool {
 }
 
 fn test_chain_spec() -> crate::core::chain_spec::ChainSpec {
-    let wasm = citizenchain::WASM_BINARY.expect("test requires runtime wasm binary");
-    let mut genesis_patch = citizenchain::genesis::genesis_config();
+    let wasm = runtime::WASM_BINARY.expect("test requires runtime wasm binary");
+    let mut genesis_patch = genesis::config::genesis_config::<runtime::RuntimeGenesisConfig>();
     let alice = Sr25519Keyring::Alice
         .to_account_id()
         .to_ss58check_with_version(Ss58AddressFormat::custom(
@@ -192,8 +192,8 @@ fn remark_extrinsic(genesis_hash: <Block as BlockT>::Hash) -> <Block as BlockT>:
     let hex = blockchain_harness::alice_system_remark_extrinsic_hex(
         &format!("{genesis_hash:?}"),
         0,
-        citizenchain::VERSION.spec_version,
-        citizenchain::VERSION.transaction_version,
+        runtime::VERSION.spec_version,
+        runtime::VERSION.transaction_version,
         b"node-guard-p2p-bad-block",
     )
     .expect("build signed remark extrinsic");
@@ -202,8 +202,8 @@ fn remark_extrinsic(genesis_hash: <Block as BlockT>::Hash) -> <Block as BlockT>:
 }
 
 fn timestamp_extrinsic(now: u64) -> <Block as BlockT>::Extrinsic {
-    let xt: citizenchain::UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic::new_bare(
-        citizenchain::RuntimeCall::Timestamp(citizenchain::TimestampCall::set { now }),
+    let xt: runtime::UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic::new_bare(
+        runtime::RuntimeCall::Timestamp(runtime::TimestampCall::set { now }),
     )
     .into();
     xt.into()

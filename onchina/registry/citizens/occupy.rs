@@ -4,8 +4,8 @@
 //! 通用冷签会话由平台 transactions/session.rs 持有，最终提交、确认与恢复由
 //! 平台 transactions/handler.rs 执行，再调用本模块的原有身份目标校验及业务投影。
 
-use crate::core::chain_submit::parse_hex32;
 use crate::authorization::rules::ensure_registry_admin;
+use crate::core::chain_submit::parse_hex32;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -25,8 +25,6 @@ use crate::core::chain_citizen_identity::{
     FinalizedCidStatus, FinalizedCitizenIdentity as FinalizedCidBinding,
 };
 use crate::core::chain_submit;
-use crate::transactions::handler::delete_session_best_effort;
-use crate::transactions::session::{ChainSignSession, SESSION_TTL_SECS};
 use crate::crypto::pubkey::{normalize_account_id, same_account_id};
 use crate::registry::citizens::admin_entry::{
     cid_seed, generate_citizen_cid_candidate, validate_citizen_input, AdminCreateCitizenInput,
@@ -34,6 +32,8 @@ use crate::registry::citizens::admin_entry::{
 use crate::registry::citizens::chain_identity::{
     active_registry_cid_number, validate_actor_role_code,
 };
+use crate::transactions::handler::delete_session_best_effort;
+use crate::transactions::session::{ChainSignSession, SESSION_TTL_SECS};
 use crate::*;
 use sp_core::{sr25519, Pair};
 use sp_crypto_hashing::blake2_256;
@@ -67,39 +67,39 @@ impl Db {
         account_id: &str,
         onchain_tx_hash: &str,
         binding_revision: u64,
-        binding_finalized_block_number: u32,
-        binding_finalized_block_hash: &str,
+        binding_block_number: u32,
+        binding_block_hash: &str,
     ) -> Result<u64, String> {
         let cid_number = cid_number.to_string();
         let account_id = account_id.to_string();
         let onchain_tx_hash = onchain_tx_hash.to_string();
         let binding_revision = i64::try_from(binding_revision)
             .map_err(|_| "citizen binding revision exceeds i64".to_string())?;
-        let binding_finalized_block_number = i64::from(binding_finalized_block_number);
-        let binding_finalized_block_hash = binding_finalized_block_hash.to_string();
+        let binding_block_number = i64::from(binding_block_number);
+        let binding_block_hash = binding_block_hash.to_string();
         Db::lock_citizen_conn(conn, &cid_number)?;
         conn.execute(
-                "UPDATE citizens
+            "UPDATE citizen
                  SET account_id = NULL, citizen_status = 'REVOKED',
-                     binding_revision = $2, binding_finalized_block_number = $3,
-                     binding_finalized_block_hash = $4,
-                     status_updated_at = extract(epoch from now())::bigint,
-                     onchain_tx_hash = $5, onchain_at = now(), updater_account_id = $6, updated_at = now()
+                     binding_revision = $2, binding_block = $3,
+                     binding_hash = $4,
+                     status_at = extract(epoch from now())::bigint,
+                     tx_hash = $5, onchain_at = now(), updater_account = $6, updated_at = now()
                  WHERE cid_number = $1
                    AND (
                        binding_revision < $2
                        OR (binding_revision = $2 AND citizen_status = 'REVOKED')
                    )",
-                &[
-                    &cid_number,
-                    &binding_revision,
-                    &binding_finalized_block_number,
-                    &binding_finalized_block_hash,
-                    &onchain_tx_hash,
-                    &account_id,
-                ],
-            )
-            .map_err(|e| format!("mark citizen revoked failed: {e}"))
+            &[
+                &cid_number,
+                &binding_revision,
+                &binding_block_number,
+                &binding_block_hash,
+                &onchain_tx_hash,
+                &account_id,
+            ],
+        )
+        .map_err(|e| format!("mark citizen revoked failed: {e}"))
     }
 
     /// 链上身份推送成功回写(D8:提交路径同步回写,精确到交易哈希与块高)。
@@ -123,16 +123,15 @@ impl Db {
         let block = Some(i64::from(finalized.finalized_block_number));
         let binding_revision = i64::try_from(binding_revision)
             .map_err(|_| "citizen binding revision exceeds i64".to_string())?;
-        let binding_finalized_block_hash =
-            format!("0x{}", hex::encode(finalized.finalized_block_hash));
+        let binding_block_hash = format!("0x{}", hex::encode(finalized.finalized_block_hash));
         Db::lock_citizen_conn(conn, &cid_number)?;
         conn.execute(
-                "UPDATE citizens
+            "UPDATE citizen
                  SET account_id = $2, binding_revision = $3,
-                     binding_finalized_block_number = $4,
-                     binding_finalized_block_hash = $5, onchain_tx_hash = $6,
-                     onchain_block_number = $4, onchain_at = now(),
-                     updater_account_id = $7, updated_at = now()
+                     binding_block = $4,
+                     binding_hash = $5, tx_hash = $6,
+                     block_number = $4, onchain_at = now(),
+                     updater_account = $7, updated_at = now()
                  WHERE cid_number = $1
                    AND (
                        binding_revision < $3
@@ -141,21 +140,21 @@ impl Db {
                            AND (account_id IS NULL OR account_id = $2)
                        )
                    )",
-                &[
-                    &cid_number,
-                    &citizen_account_id,
-                    &binding_revision,
-                    &block,
-                    &binding_finalized_block_hash,
-                    &onchain_tx_hash,
-                    &registrar_account_id,
-                ],
-            )
-            .map_err(|e| format!("confirm citizen identity onchain failed: {e}"))
+            &[
+                &cid_number,
+                &citizen_account_id,
+                &binding_revision,
+                &block,
+                &binding_block_hash,
+                &onchain_tx_hash,
+                &registrar_account_id,
+            ],
+        )
+        .map_err(|e| format!("confirm citizen identity onchain failed: {e}"))
     }
 }
 
-// ──── SCALE 调用编码(citizen-identity pallet)────
+// ──── SCALE 调用编码(identity pallet)────
 
 fn append_bounded(out: &mut Vec<u8>, bytes: &[u8]) {
     out.extend(Compact(bytes.len() as u32).encode());
@@ -393,8 +392,6 @@ fn parse_signature_bytes(signature_hex: &str) -> Option<[u8; 64]> {
     raw.try_into().ok()
 }
 
-
-
 pub(crate) fn finalized_binding_expectation(
     session: &ChainSignSession,
 ) -> Result<Option<(String, FinalizedBindingExpectation)>, String> {
@@ -501,6 +498,7 @@ fn encode_revoke_cid_call(
 // ──── DTO ────
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenOccupyOutput {
     pub(crate) request_id: String,
     pub(crate) cid_number: String,
@@ -512,6 +510,8 @@ pub(crate) struct PrepareCitizenOccupyOutput {
 
 /// 提交用户占号签名(第二段):管理员回扫用户已签名的响应二维码后回传。
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SubmitCitizenOccupyInput {
     pub(crate) request_id: String,
     /// 用户钱包账户(0x 小写 hex),占即绑主键;由用户签名响应二维码带回。
@@ -522,6 +522,7 @@ pub(crate) struct SubmitCitizenOccupyInput {
 
 /// 提交用户占号签名返回:管理员冷签请求二维码(第三段冷签用)。
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SubmitCitizenOccupyOutput {
     pub(crate) request_id: String,
     pub(crate) cid_number: String,
@@ -531,23 +532,27 @@ pub(crate) struct SubmitCitizenOccupyOutput {
 
 /// 换绑第一段:注册局按链上身份类型和辖区规则为 CID 发起换绑钱包账户。
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenRebindInput {
     pub(crate) actor_role_code: String,
     pub(crate) cid_number: String,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenRebindOutput {
     pub(crate) request_id: String,
     pub(crate) cid_number: String,
     /// 新钱包域签名请求二维码；b.d 锁定链、CID、当前账户、revision 和过期时间，
     /// new_account_id 槽留零，钱包选定本账户后填入并签名。
-    pub(crate) new_wallet_sign_request: String,
+    pub(crate) wallet_sign_request: String,
     pub(crate) expires_at: i64,
 }
 
 /// 换绑第二段:管理员回扫新钱包已签名的响应二维码后回传。
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SubmitCitizenRebindInput {
     pub(crate) request_id: String,
@@ -561,6 +566,7 @@ pub(crate) struct SubmitCitizenRebindInput {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SubmitCitizenRebindOutput {
     pub(crate) request_id: String,
     pub(crate) cid_number: String,
@@ -569,6 +575,7 @@ pub(crate) struct SubmitCitizenRebindOutput {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenRevokeOutput {
     pub(crate) request_id: String,
     pub(crate) cid_number: String,
@@ -577,6 +584,8 @@ pub(crate) struct PrepareCitizenRevokeOutput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenRevokeInput {
     pub(crate) actor_role_code: String,
 }
@@ -607,8 +616,8 @@ pub(crate) async fn prepare_citizen_occupy(
     };
     // 链上写(occupy_cid extrinsic)硬规则 = passkey + 冷签:此处强制 passkey 断言(冷签在段3)。
     let occupy_grant_payload = serde_json::json!({
-        "cid_type": validated.cid_type,
-        "actor_role_code": actor_role_code,
+        "cidType": validated.cid_type,
+        "actorRoleCode": actor_role_code,
         "op": "occupy",
     });
     let passkey = match require_admin_security_grant(
@@ -689,7 +698,11 @@ pub(crate) async fn prepare_citizen_occupy(
         expires_at,
         consumed_at: None,
     };
-    if let Err(err) = state.db.insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number) {
+    if let Err(err) =
+        state
+            .db
+            .insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number)
+    {
         tracing::error!(error = %err, "insert occupy pending session failed");
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "占号会话落库失败");
     }
@@ -717,12 +730,12 @@ pub(crate) async fn prepare_citizen_occupy(
         &ctx.account_id,
         Some(cid_number.clone()),
         serde_json::json!({
-            "cid_number": cid_number,
-            "request_id": request_id,
-            "genesis_hash": format!("0x{}", hex::encode(genesis_hash)),
-            "expected_binding_revision": OCCUPY_EXPECTED_BINDING_REVISION,
-            "authorization_expires_at": authorization_expires_at,
-            "actor_ip": actor_ip_from_headers(&headers),
+            "cidNumber": cid_number,
+            "requestId": request_id,
+            "genesisHash": format!("0x{}", hex::encode(genesis_hash)),
+            "expectedBindingRevision": OCCUPY_EXPECTED_BINDING_REVISION,
+            "authorizationExpiresAt": authorization_expires_at,
+            "actorIp": actor_ip_from_headers(&headers),
         }),
     );
 
@@ -982,8 +995,8 @@ pub(crate) async fn prepare_citizen_rebind(
     // 链上写(admin_rebind_cid_account_id extrinsic)硬规则 = passkey + 冷签:强制 passkey 断言(冷签在段3)。
     // 注册局强制换绑不以当前账户签名为权限前提；passkey 是注册局侧操作者身份加固，不可省。
     let rebind_grant_payload = serde_json::json!({
-        "cid_number": cid_number,
-        "actor_role_code": actor_role_code,
+        "cidNumber": cid_number,
+        "actorRoleCode": actor_role_code,
         "op": "admin_rebind",
     });
     let passkey = match require_admin_security_grant(
@@ -1066,7 +1079,11 @@ pub(crate) async fn prepare_citizen_rebind(
         expires_at,
         consumed_at: None,
     };
-    if let Err(err) = state.db.insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number) {
+    if let Err(err) =
+        state
+            .db
+            .insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number)
+    {
         tracing::error!(error = %err, "insert rebind pending session failed");
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "换绑会话落库失败");
     }
@@ -1079,7 +1096,7 @@ pub(crate) async fn prepare_citizen_rebind(
         expected_binding_revision,
         authorization_expires_at,
     );
-    let new_wallet_sign_request = match crate::core::qr::build_domain_sign_request_bytes(
+    let wallet_sign_request = match crate::core::qr::build_domain_sign_request_bytes(
         request_id.as_str(),
         authorization_expires_at as i64,
         &authorization_template,
@@ -1094,13 +1111,13 @@ pub(crate) async fn prepare_citizen_rebind(
         &ctx.account_id,
         Some(cid_number.clone()),
         serde_json::json!({
-            "cid_number": cid_number,
-            "request_id": request_id,
-            "genesis_hash": format!("0x{}", hex::encode(finalized.genesis_hash)),
-            "current_account_id": format!("0x{}", hex::encode(current_account_id)),
-            "expected_binding_revision": expected_binding_revision,
-            "authorization_expires_at": authorization_expires_at,
-            "actor_ip": actor_ip_from_headers(&headers),
+            "cidNumber": cid_number,
+            "requestId": request_id,
+            "genesisHash": format!("0x{}", hex::encode(finalized.genesis_hash)),
+            "currentAccountId": format!("0x{}", hex::encode(current_account_id)),
+            "expectedBindingRevision": expected_binding_revision,
+            "authorizationExpiresAt": authorization_expires_at,
+            "actorIp": actor_ip_from_headers(&headers),
         }),
     );
     Json(ApiResponse {
@@ -1109,7 +1126,7 @@ pub(crate) async fn prepare_citizen_rebind(
         data: PrepareCitizenRebindOutput {
             request_id,
             cid_number,
-            new_wallet_sign_request,
+            wallet_sign_request,
             expires_at: authorization_expires_at as i64,
         },
     })
@@ -1412,8 +1429,8 @@ pub(crate) async fn prepare_citizen_revoke(
         Err(resp) => return resp,
     };
     let grant_payload = serde_json::json!({
-        "cid_number": cid_number,
-        "actor_role_code": actor_role_code,
+        "cidNumber": cid_number,
+        "actorRoleCode": actor_role_code,
         "op": "revoke",
     });
     let passkey = match require_admin_security_grant(
@@ -1487,7 +1504,11 @@ pub(crate) async fn prepare_citizen_revoke(
         expires_at,
         consumed_at: None,
     };
-    if let Err(err) = state.db.insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number) {
+    if let Err(err) =
+        state
+            .db
+            .insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number)
+    {
         tracing::error!(error = %err, "insert revoke session failed");
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "吊销会话落库失败");
     }
@@ -1497,9 +1518,9 @@ pub(crate) async fn prepare_citizen_revoke(
         &ctx.account_id,
         Some(cid_number.clone()),
         serde_json::json!({
-            "cid_number": cid_number,
-            "request_id": request_id,
-            "actor_ip": actor_ip_from_headers(&headers),
+            "cidNumber": cid_number,
+            "requestId": request_id,
+            "actorIp": actor_ip_from_headers(&headers),
         }),
     );
     Json(ApiResponse {
@@ -1526,11 +1547,11 @@ mod tests {
         let current_account_id = format!("0x{}", "11".repeat(32));
         let new_account_id = format!("0x{}", "22".repeat(32));
         let input: SubmitCitizenRebindInput = serde_json::from_value(serde_json::json!({
-            "request_id": "request-1",
-            "current_account_id": current_account_id,
-            "current_account_signature": format!("0x{}", "33".repeat(64)),
-            "new_account_id": new_account_id,
-            "new_account_signature": format!("0x{}", "44".repeat(64)),
+            "requestId": "request-1",
+            "currentAccountId": current_account_id,
+            "currentAccountSignature": format!("0x{}", "33".repeat(64)),
+            "newAccountId": new_account_id,
+            "newAccountSignature": format!("0x{}", "44".repeat(64)),
         }))
         .expect("official account field names must deserialize");
         assert_eq!(
@@ -1540,24 +1561,16 @@ mod tests {
         assert_eq!(input.new_account_id, new_account_id);
 
         let alias_result = serde_json::from_value::<SubmitCitizenRebindInput>(serde_json::json!({
-            "request_id": "request-1",
-            "current_account_id": current_account_id,
-            "current_account_signature": format!("0x{}", "33".repeat(64)),
-            "new_account_id": format!("0x{}", "22".repeat(32)),
-            "new_account_signature": format!("0x{}", "44".repeat(64)),
-            "account_id": format!("0x{}", "22".repeat(32)),
-            "rebind_signature": format!("0x{}", "44".repeat(64)),
+            "requestId": "request-1",
+            "currentAccountId": current_account_id,
+            "currentAccountSignature": format!("0x{}", "33".repeat(64)),
+            "newAccountId": format!("0x{}", "22".repeat(32)),
+            "newAccountSignature": format!("0x{}", "44".repeat(64)),
+            "accountId": format!("0x{}", "22".repeat(32)),
+            "rebindSignature": format!("0x{}", "44".repeat(64)),
         }));
         assert!(alias_result.is_err(), "废弃泛化字段不得作为兼容输入");
     }
-
-
-
-
-
-
-
-
 
     fn finalized_snapshot(
         cid_status: FinalizedCidStatus,
@@ -1943,17 +1956,39 @@ mod tests {
 /// 安全重提继续用原CID绑定期望核对；只有原目标仍待办理才允许重提。
 pub(crate) async fn safe_module_resubmit(session: &ChainSignSession) -> bool {
     match finalized_binding_expectation(session) {
-        Ok(Some((cid, expectation))) => match crate::core::chain_citizen_identity::read_finalized_citizen_identity(&cid).await {
-            Ok(snapshot) => finalized_target_state(&snapshot, &expectation) == FinalizedTargetState::Pending,
-            Err(error) => { tracing::error!(error = %error, "read CID state for resubmit failed"); false }
-        },
-        Ok(None) => true, Err(_) => false,
+        Ok(Some((cid, expectation))) => {
+            match crate::core::chain_citizen_identity::read_finalized_citizen_identity(&cid).await {
+                Ok(snapshot) => {
+                    finalized_target_state(&snapshot, &expectation) == FinalizedTargetState::Pending
+                }
+                Err(error) => {
+                    tracing::error!(error = %error, "read CID state for resubmit failed");
+                    false
+                }
+            }
+        }
+        Ok(None) => true,
+        Err(_) => false,
     }
 }
 /// 使用原绑定核验函数，错误响应及链上确认条件保持。
-pub(crate) async fn verify_module_finalized_binding(session: &ChainSignSession, finalized: &crate::core::chain_submit::FinalizedChainSubmit) -> Result<Option<crate::core::chain_citizen_identity::FinalizedCitizenIdentity>, axum::response::Response> {
-    let expectation = finalized_binding_expectation(session).map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "CID 绑定会话数据损坏"))?;
-    let Some((cid, expectation)) = expectation else { return Ok(None); };
+pub(crate) async fn verify_module_finalized_binding(
+    session: &ChainSignSession,
+    finalized: &crate::core::chain_submit::FinalizedChainSubmit,
+) -> Result<
+    Option<crate::core::chain_citizen_identity::FinalizedCitizenIdentity>,
+    axum::response::Response,
+> {
+    let expectation = finalized_binding_expectation(session).map_err(|_| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            1004,
+            "CID 绑定会话数据损坏",
+        )
+    })?;
+    let Some((cid, expectation)) = expectation else {
+        return Ok(None);
+    };
     verify_finalized_binding_at(&cid, &expectation, finalized.block_hash).await.map(Some).map_err(|error| {
         tracing::error!(error = %error, tx_hash = %finalized.tx_hash, "wait finalized CID binding failed");
         api_error(StatusCode::BAD_GATEWAY, 2004, &format!("交易已提交({})但 CID 绑定未 finalized: {error}", finalized.tx_hash))

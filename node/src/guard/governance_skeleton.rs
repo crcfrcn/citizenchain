@@ -9,13 +9,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use admin_primitives::{Admin, InstitutionAdmins};
+use adminbase::{Admin, InstitutionAdmins};
 use codec::Decode;
 #[cfg(test)]
 use codec::Encode;
 #[cfg(test)]
-use entity_primitives::InstitutionAssignmentSource;
-use entity_primitives::{
+use entitybase::InstitutionAssignmentSource;
+use entitybase::{
     BusinessActionId, InstitutionAdminAssignment as SharedInstitutionAdminAssignment,
     InstitutionAssignmentStatus, InstitutionRole as SharedInstitutionRole, InstitutionRoleStatus,
     RoleBusinessPermission, RoleSubject,
@@ -323,7 +323,7 @@ type DecodedInstitutionRole = SharedInstitutionRole<Vec<u8>, Vec<u8>, Vec<u8>>;
 type DecodedInstitutionAdminAssignment =
     SharedInstitutionAdminAssignment<Vec<u8>, [u8; 32], Vec<u8>, Vec<u8>>;
 type DecodedRoleBusinessPermission = RoleBusinessPermission<Vec<u8>, Vec<u8>, Vec<u8>>;
-type DecodedInstitutionInfo = entity_primitives::InstitutionInfo<u32, Vec<u8>, Vec<u8>, [u8; 32]>;
+type DecodedInstitutionInfo = entitybase::InstitutionInfo<u32, Vec<u8>, Vec<u8>, [u8; 32]>;
 
 /// 固定治理骨架校验失败原因。
 #[derive(Debug, PartialEq)]
@@ -340,7 +340,7 @@ pub enum GuardError {
     /// 基金会创世管理员的身份三要素(公民 CID / 姓 / 名)被篡改。
     /// 三个创世岗位永久由同一位公民担任,只允许更换钱包账户。
     FoundationGenesisIdentityChanged([u8; 4]),
-    /// 基金会名册账户与该公民 CID 在 citizen-identity 中当前绑定的钱包不一致。
+    /// 基金会名册账户与该公民 CID 在 identity 中当前绑定的钱包不一致。
     /// 换钱包必须同步换绑,不允许只换其一。
     FoundationWalletBindingMismatch([u8; 4]),
     DuplicateAdminAccountId([u8; 4]),
@@ -548,7 +548,7 @@ where
                 ));
             }
             // 换钱包必须同步换绑：名册账户须等于该公民 CID 当前绑定的签名账户。
-            // 该绑定由 citizen-identity 在运行期登记；创世不播种，故「无绑定」放行，
+            // 该绑定由 identity 在运行期登记；创世不播种，故「无绑定」放行，
             // 只有已登记却指向别的账户时才判定篡改（无条件校验会否掉创世状态本身）。
             if let Some(bound_raw) = read_raw(&storage_key::citizen_account_id_by_cid(expected_cid))
             {
@@ -650,7 +650,7 @@ where
                 code: institution.code,
                 role_code: expected_role.role_code.clone(),
             })?;
-        let expected_permissions = entity_primitives::fixed_role_permission_specs(
+        let expected_permissions = entitybase::fixed_role_permission_specs(
             institution.code,
             expected_cid,
             &expected_role.role_code,
@@ -854,7 +854,7 @@ mod tests {
             cid_full_name: CITIZENCHAIN_FOUNDATION.cid_full_name.as_bytes().to_vec(),
             cid_short_name: CITIZENCHAIN_FOUNDATION.cid_short_name.as_bytes().to_vec(),
             town_code: Vec::new(),
-            legal_representative: Some(entity_primitives::LegalRepresentative {
+            legal_representative: Some(entitybase::LegalRepresentative {
                 family_name: primitives::cid::china::citizenchain::LEGAL_REPRESENTATIVE_FAMILY_NAME
                     .as_bytes()
                     .to_vec(),
@@ -874,7 +874,7 @@ mod tests {
     }
 
     fn permission_bytes(institution: &FixedInstitution, role: &ExpectedRole) -> Vec<u8> {
-        entity_primitives::fixed_role_permission_specs(
+        entitybase::fixed_role_permission_specs(
             institution.code,
             institution.cid_number.as_bytes(),
             &role.role_code,
@@ -982,7 +982,7 @@ mod tests {
     }
 
     /// 基金会三个创世岗位永久由同一位公民担任：钱包账户可换，
-    /// 公民 CID / 姓 / 名永久冻结；换钱包必须同步换绑 citizen-identity。
+    /// 公民 CID / 姓 / 名永久冻结；换钱包必须同步换绑 identity。
     #[test]
     fn foundation_genesis_identity_is_frozen_and_only_wallet_may_change() {
         let foundation = protected_institutions()
@@ -998,7 +998,7 @@ mod tests {
                     .expect("foundation admins decode")
             };
 
-        // 基线：创世状态必须放行（此时 citizen-identity 尚无绑定）。
+        // 基线：创世状态必须放行（此时 identity 尚无绑定）。
         assert_eq!(check_state(&valid_state()), Ok(()));
 
         // 身份三要素逐项冻结：改任一项即判 KnownBad。
@@ -1054,7 +1054,7 @@ mod tests {
         );
         assert_eq!(check_state(&rotated), Ok(()));
 
-        // citizen-identity 已登记绑定但指向别的钱包：判 KnownBad（换钱包没同步换绑）。
+        // identity 已登记绑定但指向别的钱包：判 KnownBad（换钱包没同步换绑）。
         let mut mismatched = rotated.clone();
         mismatched.insert(
             storage_key::citizen_account_id_by_cid(expected_cid),

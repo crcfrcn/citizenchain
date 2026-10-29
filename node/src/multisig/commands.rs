@@ -7,7 +7,7 @@ use crate::{governance, home};
 use tauri::AppHandle;
 
 /// 构建多签转账提案签名请求 QR JSON（需要节点运行）。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn build_multisig_transfer_request(
     app: AppHandle,
     signer_public_key: String,
@@ -38,11 +38,11 @@ pub async fn build_multisig_transfer_request(
 }
 
 /// 验证签名响应并提交多签转账提案。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn submit_multisig_transfer(
     app: AppHandle,
     request_id: String,
-    expected_signer_public_key: String,
+    expected_public_key: String,
     expected_payload_hash: String,
     actor_cid_number: String,
     proposer_role_code: String,
@@ -76,7 +76,7 @@ pub async fn submit_multisig_transfer(
 
         governance::signing::verify_and_submit(
             &request_id,
-            &expected_signer_public_key,
+            &expected_public_key,
             &expected_payload_hash,
             &call_data,
             sign_nonce,
@@ -89,7 +89,7 @@ pub async fn submit_multisig_transfer(
 }
 
 /// 构建安全基金转账提案签名请求 QR JSON（需要节点运行）。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn build_multisig_safety_fund_request(
     app: AppHandle,
     signer_public_key: String,
@@ -120,11 +120,11 @@ pub async fn build_multisig_safety_fund_request(
 }
 
 /// 验证签名响应并提交安全基金转账提案。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn submit_multisig_safety_fund(
     app: AppHandle,
     request_id: String,
-    expected_signer_public_key: String,
+    expected_public_key: String,
     expected_payload_hash: String,
     actor_cid_number: String,
     proposer_role_code: String,
@@ -151,7 +151,7 @@ pub async fn submit_multisig_safety_fund(
         )?;
         governance::signing::verify_and_submit(
             &request_id,
-            &expected_signer_public_key,
+            &expected_public_key,
             &expected_payload_hash,
             &call_data,
             sign_nonce,
@@ -164,7 +164,7 @@ pub async fn submit_multisig_safety_fund(
 }
 
 /// 构建手续费划转提案签名请求。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn build_multisig_sweep_request(
     app: AppHandle,
     signer_public_key: String,
@@ -191,11 +191,11 @@ pub async fn build_multisig_sweep_request(
 }
 
 /// 验证签名并提交手续费划转提案。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn submit_multisig_sweep(
     app: AppHandle,
     request_id: String,
-    expected_signer_public_key: String,
+    expected_public_key: String,
     expected_payload_hash: String,
     actor_cid_number: String,
     proposer_role_code: String,
@@ -218,7 +218,7 @@ pub async fn submit_multisig_sweep(
         )?;
         governance::signing::verify_and_submit(
             &request_id,
-            &expected_signer_public_key,
+            &expected_public_key,
             &expected_payload_hash,
             &call_data,
             sign_nonce,

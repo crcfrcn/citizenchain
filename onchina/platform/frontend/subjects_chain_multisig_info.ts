@@ -8,26 +8,26 @@ type ApiEnvelope<T> = {
 };
 
 export interface InstitutionInfoDetail {
-  cid_number: string;
-  cid_full_name?: string | null;
-  cid_short_name?: string | null;
+  cidNumber: string;
+  cidFullName?: string | null;
+  cidShortName?: string | null;
   category: string;
-  subject_property: string;
+  subjectProperty: string;
   p1: string;
-  province_name: string;
-  city_name: string;
-  province_code: string;
-  city_code: string;
-  institution_code: string;
-  private_type?: string | null;
-  partnership_kind?: string | null;
-  has_legal_personality?: boolean | null;
-  parent_cid_number?: string | null;
-  legal_representative?: {
-    family_name: string;
-    given_name: string;
-    cid_number: string;
-    account_id: string;
+  provinceName: string;
+  cityName: string;
+  provinceCode: string;
+  cityCode: string;
+  institutionCode: string;
+  privateType?: string | null;
+  partnershipKind?: string | null;
+  hasLegalPersonality?: boolean | null;
+  parentCidNumber?: string | null;
+  legalRepresentative?: {
+    familyName: string;
+    givenName: string;
+    cidNumber: string;
+    accountId: string;
   } | null;
 }
 

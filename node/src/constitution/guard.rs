@@ -250,7 +250,7 @@ mod tests {
         use sp_core::H256;
         use sp_runtime::Digest;
 
-        let header = citizenchain::opaque::Header::new(
+        let header = runtime::opaque::Header::new(
             number,
             H256::repeat_byte(1),
             H256::repeat_byte(2),

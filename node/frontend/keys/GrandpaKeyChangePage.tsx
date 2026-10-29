@@ -32,7 +32,7 @@ export function GrandpaKeyChangePage({
   // 正常轮换与紧急恢复共用一次管理员二维码签名流程，差异只由链端操作类型决定。
   const [changeKind, setChangeKind] = useState<GrandpaChangeKind>('routine_rotation');
   const [selectedSignerAccountId, setSelectedSignerAccountId] = useState(
-    adminSigners.length === 1 ? adminSigners[0].account_id : '',
+    adminSigners.length === 1 ? adminSigners[0].accountId : '',
   );
   const [unlockPassword, setUnlockPassword] = useState('');
   const [step, setStep] = useState<FlowStep>('form');
@@ -179,8 +179,8 @@ export function GrandpaKeyChangePage({
             >
               {adminSigners.length !== 1 && <option value="">请选择…</option>}
               {adminSigners.map((admin) => (
-                <option key={admin.account_id} value={admin.account_id}>
-                  {accountIdToSs58(admin.account_id)}
+                <option key={admin.accountId} value={admin.accountId}>
+                  {accountIdToSs58(admin.accountId)}
                 </option>
               ))}
             </select>

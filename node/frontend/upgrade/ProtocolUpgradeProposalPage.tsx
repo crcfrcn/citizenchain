@@ -22,7 +22,7 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, adminSigners, onBa
   const [wasmFileName, setWasmFileName] = useState('');
   const [reason, setReason] = useState('');
   const [selectedSignerAccountId, setSelectedSignerAccountId] = useState(
-    adminSigners.length === 1 ? adminSigners[0].account_id : ''
+    adminSigners.length === 1 ? adminSigners[0].accountId : ''
   );
   const [step, setStep] = useState<FlowStep>('form');
   const [signRequest, setSignRequest] = useState<ProposeUpgradeRequestResult | null>(null);
@@ -199,12 +199,12 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, adminSigners, onBa
                 disabled={adminSigners.length <= 1}
               >
                 {adminSigners.length === 1 ? (
-                  <option value={adminSigners[0].account_id}>{accountIdToSs58(adminSigners[0].account_id)}</option>
+                  <option value={adminSigners[0].accountId}>{accountIdToSs58(adminSigners[0].accountId)}</option>
                 ) : (
                   <>
                     <option value="">请选择…</option>
                     {adminSigners.map((w) => (
-                      <option key={w.account_id} value={w.account_id}>{accountIdToSs58(w.account_id)}</option>
+                      <option key={w.accountId} value={w.accountId}>{accountIdToSs58(w.accountId)}</option>
                     ))}
                   </>
                 )}

@@ -24,12 +24,13 @@ use crate::{
     core::{
         chain_submit,
         institution_call::{
-            encode_propose_institution_governance,
-            InstitutionAdminsPayload, ProposeInstitutionGovernanceArgs,
+            encode_propose_institution_governance, InstitutionAdminsPayload,
+            ProposeInstitutionGovernanceArgs,
         },
     },
+    require_admin_any,
     transactions::session::{ChainSignSession, SESSION_TTL_SECS},
-    require_admin_any, ApiResponse, AppState,
+    ApiResponse, AppState,
 };
 
 #[path = "admins_chain_roles.rs"]
@@ -38,6 +39,8 @@ pub(crate) mod chain_roles;
 pub(crate) const PURPOSE_INSTITUTION_GOVERNANCE: &str = "INSTITUTION_GOVERNANCE";
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct InstitutionAdminInput {
     pub(crate) account_id: String,
     #[serde(default)]
@@ -49,6 +52,8 @@ pub(crate) struct InstitutionAdminInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct InstitutionRolePermissionInput {
     pub(crate) module_tag: String,
     pub(crate) action_code: u32,
@@ -56,6 +61,8 @@ pub(crate) struct InstitutionRolePermissionInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct InstitutionRoleMutationInput {
     pub(crate) mutation: String,
     #[serde(default)]
@@ -71,6 +78,8 @@ pub(crate) struct InstitutionRoleMutationInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct InstitutionAssignmentTargetInput {
     pub(crate) account_id: String,
     #[serde(default)]
@@ -80,6 +89,8 @@ pub(crate) struct InstitutionAssignmentTargetInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct InstitutionAssignmentChangeInput {
     pub(crate) role_code: String,
     #[serde(default)]
@@ -87,6 +98,8 @@ pub(crate) struct InstitutionAssignmentChangeInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareInstitutionGovernanceInput {
     pub(crate) cid_number: String,
     pub(crate) proposer_role_code: String,
@@ -97,14 +110,13 @@ pub(crate) struct PrepareInstitutionGovernanceInput {
     #[serde(default)]
     pub(crate) assignment_changes: Vec<InstitutionAssignmentChangeInput>,
     #[serde(default)]
-    pub(crate) legal_representative_cid_number: Option<String>,
+    pub(crate) representative_cid: Option<String>,
     #[serde(default)]
     pub(crate) clear_legal_representative: bool,
 }
 
-
-
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareInstitutionChainOutput {
     pub(crate) request_id: String,
     pub(crate) cid_number: String,
@@ -208,28 +220,28 @@ pub(crate) fn parse_admin_inputs(
                     "员".to_string()
                 }
             });
-        let family_name: admin_primitives::FamilyName = family_name
+        let family_name: adminbase::FamilyName = family_name
             .into_bytes()
             .try_into()
             .map_err(|_| api_error(StatusCode::BAD_REQUEST, 1001, "管理员姓过长"))?;
-        let given_name: admin_primitives::GivenName = given_name
+        let given_name: adminbase::GivenName = given_name
             .into_bytes()
             .try_into()
             .map_err(|_| api_error(StatusCode::BAD_REQUEST, 1001, "管理员名过长"))?;
         if is_public {
-            let cid_number: admin_primitives::AdminCidNumber = citizen_cid
+            let cid_number: adminbase::AdminCidNumber = citizen_cid
                 .unwrap_or_default()
                 .into_bytes()
                 .try_into()
                 .map_err(|_| api_error(StatusCode::BAD_REQUEST, 1001, "公民 CID 过长"))?;
-            public_admins.push(admin_primitives::Admin {
+            public_admins.push(adminbase::Admin {
                 account_id,
                 cid_number,
                 family_name,
                 given_name,
             });
         } else {
-            private_admins.push(admin_primitives::Admin {
+            private_admins.push(adminbase::Admin {
                 account_id,
                 cid_number: Default::default(),
                 family_name,
@@ -253,14 +265,14 @@ pub(crate) fn parse_admin_inputs(
 
 fn encode_governance_action<AdminRecord: Encode>(
     admins: Option<Vec<AdminRecord>>,
-    role_mutations: Vec<entity_primitives::InstitutionRoleMutation<[u8; 32]>>,
-    assignment_changes: Vec<entity_primitives::InstitutionRoleAssignmentChange<[u8; 32]>>,
+    role_mutations: Vec<entitybase::InstitutionRoleMutation<[u8; 32]>>,
+    assignment_changes: Vec<entitybase::InstitutionRoleAssignmentChange<[u8; 32]>>,
     legal_representative_change: Option<
-        entity_primitives::InstitutionLegalRepresentativeChange<[u8; 32]>,
+        entitybase::InstitutionLegalRepresentativeChange<[u8; 32]>,
     >,
 ) -> Vec<u8> {
     match admins {
-        None => entity_primitives::InstitutionGovernanceAction::<[u8; 32], AdminRecord>::MutateRolesAndAssignments {
+        None => entitybase::InstitutionGovernanceAction::<[u8; 32], AdminRecord>::MutateRolesAndAssignments {
             role_mutations,
             assignment_changes,
             legal_representative_change,
@@ -270,9 +282,9 @@ fn encode_governance_action<AdminRecord: Encode>(
                 && assignment_changes.is_empty()
                 && legal_representative_change.is_none() =>
         {
-            entity_primitives::InstitutionGovernanceAction::ReplaceAdmins { admins }
+            entitybase::InstitutionGovernanceAction::ReplaceAdmins { admins }
         }
-        Some(admins) => entity_primitives::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+        Some(admins) => entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
             admins,
             role_mutations,
             assignment_changes,
@@ -284,10 +296,10 @@ fn encode_governance_action<AdminRecord: Encode>(
 
 fn parse_permission_operation(
     value: &str,
-) -> Result<entity_primitives::RolePermissionOperation, axum::response::Response> {
+) -> Result<entitybase::RolePermissionOperation, axum::response::Response> {
     match value.trim().to_ascii_uppercase().as_str() {
-        "PROPOSE" => Ok(entity_primitives::RolePermissionOperation::Propose),
-        "VOTE" => Ok(entity_primitives::RolePermissionOperation::Vote),
+        "PROPOSE" => Ok(entitybase::RolePermissionOperation::Propose),
+        "VOTE" => Ok(entitybase::RolePermissionOperation::Vote),
         _ => Err(api_error(
             StatusCode::BAD_REQUEST,
             1001,
@@ -298,7 +310,7 @@ fn parse_permission_operation(
 
 fn assignment_targets(
     input: &[InstitutionAssignmentTargetInput],
-) -> Result<Vec<entity_primitives::InstitutionAssignmentTarget<[u8; 32]>>, axum::response::Response>
+) -> Result<Vec<entitybase::InstitutionAssignmentTarget<[u8; 32]>>, axum::response::Response>
 {
     let mut seen_accounts = std::collections::BTreeSet::new();
     let mut out = Vec::with_capacity(input.len());
@@ -317,14 +329,14 @@ fn assignment_targets(
                 "同一岗位任职账户不能重复",
             ));
         }
-        out.push(entity_primitives::InstitutionAssignmentTarget {
+        out.push(entitybase::InstitutionAssignmentTarget {
             account_id,
             term_start: target.term_start,
             term_end: target.term_end,
             assignment_source:
-                entity_primitives::InstitutionAssignmentSource::InstitutionGovernance,
+                entitybase::InstitutionAssignmentSource::InstitutionGovernance,
             assignment_source_ref: b"onchina-governance".to_vec(),
-            assignment_status: entity_primitives::InstitutionAssignmentStatus::Active,
+            assignment_status: entitybase::InstitutionAssignmentStatus::Active,
         });
     }
     Ok(out)
@@ -332,7 +344,7 @@ fn assignment_targets(
 
 fn role_mutations(
     input: &[InstitutionRoleMutationInput],
-) -> Result<Vec<entity_primitives::InstitutionRoleMutation<[u8; 32]>>, axum::response::Response> {
+) -> Result<Vec<entitybase::InstitutionRoleMutation<[u8; 32]>>, axum::response::Response> {
     let mut out = Vec::with_capacity(input.len());
     for item in input {
         match item.mutation.trim().to_ascii_uppercase().as_str() {
@@ -396,15 +408,15 @@ fn role_mutations(
                             "岗位权限不能为空或重复",
                         ));
                     }
-                    permissions.push(entity_primitives::RolePermissionSpec {
-                        business_action_id: entity_primitives::BusinessActionId {
+                    permissions.push(entitybase::RolePermissionSpec {
+                        business_action_id: entitybase::BusinessActionId {
                             module_tag: module_tag.as_bytes().to_vec(),
                             action_code: permission.action_code,
                         },
                         operation,
                     });
                 }
-                out.push(entity_primitives::InstitutionRoleMutation::Create {
+                out.push(entitybase::InstitutionRoleMutation::Create {
                     role_name: role_name.as_bytes().to_vec(),
                     term_required: item.term_required,
                     permissions,
@@ -428,7 +440,7 @@ fn role_mutations(
                         "改名只能提交岗位码和新岗位名",
                     ));
                 }
-                out.push(entity_primitives::InstitutionRoleMutation::Rename {
+                out.push(entitybase::InstitutionRoleMutation::Rename {
                     role_code: role_code.as_bytes().to_vec(),
                     role_name: role_name.as_bytes().to_vec(),
                 });
@@ -451,7 +463,7 @@ fn role_mutations(
                         "删除只能提交岗位码",
                     ));
                 }
-                out.push(entity_primitives::InstitutionRoleMutation::Delete {
+                out.push(entitybase::InstitutionRoleMutation::Delete {
                     role_code: role_code.as_bytes().to_vec(),
                 });
             }
@@ -470,7 +482,7 @@ fn role_mutations(
 fn assignment_changes(
     input: &[InstitutionAssignmentChangeInput],
 ) -> Result<
-    Vec<entity_primitives::InstitutionRoleAssignmentChange<[u8; 32]>>,
+    Vec<entitybase::InstitutionRoleAssignmentChange<[u8; 32]>>,
     axum::response::Response,
 > {
     let mut seen_roles = std::collections::BTreeSet::new();
@@ -492,7 +504,7 @@ fn assignment_changes(
             ));
         }
         let assignments = assignment_targets(&item.assignments)?;
-        out.push(entity_primitives::InstitutionRoleAssignmentChange {
+        out.push(entitybase::InstitutionRoleAssignmentChange {
             role_code: role_code.as_bytes().to_vec(),
             assignments,
         });
@@ -505,7 +517,7 @@ fn legal_representative_change(
     cid_number: Option<&str>,
     clear_legal_representative: bool,
 ) -> Result<
-    Option<entity_primitives::InstitutionLegalRepresentativeChange<[u8; 32]>>,
+    Option<entitybase::InstitutionLegalRepresentativeChange<[u8; 32]>>,
     axum::response::Response,
 > {
     if clear_legal_representative {
@@ -521,7 +533,7 @@ fn legal_representative_change(
             ));
         }
         return Ok(Some(
-            entity_primitives::InstitutionLegalRepresentativeChange::Clear,
+            entitybase::InstitutionLegalRepresentativeChange::Clear,
         ));
     }
     let Some(cid_number) = cid_number.map(str::trim).filter(|v| !v.is_empty()) else {
@@ -569,7 +581,7 @@ fn legal_representative_change(
         ));
     }
     Ok(Some(
-        entity_primitives::InstitutionLegalRepresentativeChange::Set {
+        entitybase::InstitutionLegalRepresentativeChange::Set {
             family_name: family_name.as_bytes().to_vec(),
             given_name: given_name.as_bytes().to_vec(),
             cid_number: cid_number.as_bytes().to_vec(),
@@ -632,7 +644,11 @@ pub(crate) async fn build_chain_sign_output(
         &prepared.payload,
         chain_action,
     )?;
-    let actor_cid_number = context.get("actor_cid_number").and_then(|value| value.as_str()).unwrap_or(cid_number).to_string();
+    let actor_cid_number = context
+        .get("actorCidNumber")
+        .and_then(|value| value.as_str())
+        .unwrap_or(cid_number)
+        .to_string();
     let session = ChainSignSession {
         request_id: request_id.clone(),
         purpose: purpose.to_string(),
@@ -729,7 +745,7 @@ pub(crate) async fn prepare_institution_governance(
     };
     let legal = match legal_representative_change(
         &state,
-        input.legal_representative_cid_number.as_deref(),
+        input.representative_cid.as_deref(),
         input.clear_legal_representative,
     ) {
         Ok(v) => v,
@@ -759,13 +775,13 @@ pub(crate) async fn prepare_institution_governance(
         Some(InstitutionAdminsPayload::Private(admins)) => {
             encode_governance_action(Some(admins), role_mutations, assignment_changes, legal)
         }
-        None if is_public => encode_governance_action::<admin_primitives::Admin<[u8; 32]>>(
+        None if is_public => encode_governance_action::<adminbase::Admin<[u8; 32]>>(
             None,
             role_mutations,
             assignment_changes,
             legal,
         ),
-        None => encode_governance_action::<admin_primitives::Admin<[u8; 32]>>(
+        None => encode_governance_action::<adminbase::Admin<[u8; 32]>>(
             None,
             role_mutations,
             assignment_changes,
@@ -803,7 +819,7 @@ pub(crate) async fn prepare_institution_governance(
         "INSTITUTION_GOVERNANCE_PREPARE",
         &ctx.account_id,
         Some(cid_number.to_string()),
-        serde_json::json!({ "cid_number": cid_number, "actor_ip": actor_ip_from_headers(&headers) }),
+        serde_json::json!({ "cidNumber": cid_number, "actorIp": actor_ip_from_headers(&headers) }),
     );
     Json(ApiResponse {
         code: 0,
@@ -812,5 +828,3 @@ pub(crate) async fn prepare_institution_governance(
     })
     .into_response()
 }
-
-

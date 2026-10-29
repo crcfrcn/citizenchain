@@ -3,7 +3,6 @@
 //! 本 crate 负责 Substrate extrinsic 的 `TxExtension`、`SignedPayload` 和
 //! `UncheckedExtrinsic` 组装；`runtime/primitives::sign` 仍负责 QR/op_tag 业务签名域。
 
-use citizenchain as runtime;
 use codec::{Decode, Encode};
 use sha2::{Digest, Sha256};
 use sp_core::{sr25519, Pair, H256};

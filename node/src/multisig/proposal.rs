@@ -18,17 +18,14 @@ pub struct TransferProposalDetail {
     /// 发起机构唯一 CID；个人多签转账为空。
     pub actor_cid_number: Option<String>,
     /// 实际转出资金的机构账户或个人多签账户。
-    #[serde(rename = "funding_account_id")]
     pub funding_account_id: String,
     /// 收款账户 ID。
-    #[serde(rename = "beneficiary_account_id")]
     pub beneficiary_account_id: String,
     /// 金额（分）。
     pub amount_fen: String,
     /// 转账备注。
     pub remark: String,
     /// 提案人账户 ID。
-    #[serde(rename = "proposer_account_id")]
     pub proposer_account_id: String,
 }
 
@@ -41,10 +38,8 @@ pub struct SafetyFundProposalDetail {
     /// 国家储委会唯一 CID。
     pub actor_cid_number: String,
     /// 实际转出的安全基金账户。
-    #[serde(rename = "institution_account_id")]
     pub institution_account_id: String,
     /// 收款账户 ID。
-    #[serde(rename = "beneficiary_account_id")]
     pub beneficiary_account_id: String,
     /// 金额（分）。
     pub amount_fen: String,
@@ -61,7 +56,6 @@ pub struct SweepProposalDetail {
     /// 发起机构唯一 CID。
     pub actor_cid_number: String,
     /// 实际转出的机构费用账户。
-    #[serde(rename = "institution_account_id")]
     pub institution_account_id: String,
     /// 金额（分）。
     pub amount_fen: String,

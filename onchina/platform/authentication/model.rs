@@ -7,6 +7,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AdminUser {
     pub(crate) id: u64,
     pub(crate) account_id: String,
@@ -27,4 +29,3 @@ pub(crate) struct AdminUser {
     #[serde(default)]
     pub(crate) city_name: String,
 }
-

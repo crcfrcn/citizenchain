@@ -58,7 +58,7 @@ fn ensure_expected_code(
 }
 
 /// 获取机构管理员集合状态。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn get_institution_admins_state(
     app: AppHandle,
     cid_number: String,
@@ -85,7 +85,7 @@ pub async fn get_institution_admins_state(
 ///
 /// 管理员卡片只做展示,余额读取必须钉 finalized 块,并且同一批账户共用
 /// 同一个 finalized hash,避免列表内不同卡片落在不同块高。
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn get_account_balances(
     app: AppHandle,
     account_ids: Vec<String>,

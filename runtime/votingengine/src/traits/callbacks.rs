@@ -108,8 +108,8 @@ fn merge_cancel_decision(
 // 异步执行尝试，投票判定保持 PASSED 并等待后续重试。
 //
 // 注:注册 5 个业务模块(multisig /
-// public_manage/private_manage / RuntimeAdminAccountQuery / resolution_destroy /
-// grandpakey_change),留 6 元组余量。如未来业务模块增加,补对应元组 impl。
+// publicentity/privateentity / RuntimeAdminAccountQuery / destroy /
+// grandpakey),留 6 元组余量。如未来业务模块增加,补对应元组 impl。
 impl<A: InternalVoteResultCallback> InternalVoteResultCallback for (A,) {
     fn on_internal_vote_finalized(
         proposal_id: u64,
@@ -362,7 +362,7 @@ impl<
 }
 
 /// 立法投票终态业务回调(对称于 `JointVoteResultCallback`)。
-/// 核心在立法提案进入 PASSED/REJECTED/EXECUTION_FAILED 时按 kind 广播到业务壳 legislation-yuan。
+/// 核心在立法提案进入 PASSED/REJECTED/EXECUTION_FAILED 时按 kind 广播到业务壳 legislation。
 pub trait LegislationVoteResultCallback {
     fn on_legislation_vote_finalized(
         vote_proposal_id: u64,
@@ -476,7 +476,7 @@ impl<
 
 /// 选举投票终态业务回调。
 ///
-/// 当前 election-vote 自己返回 Executed 表示“当选结果快照已生成”；
+/// 当前 electionvote 自己返回 Executed 表示“当选结果快照已生成”；
 /// 后续 admins/法定代表人接入后,这里可改为真正的结果写入器。
 pub trait ElectionVoteResultCallback {
     fn on_election_vote_finalized(

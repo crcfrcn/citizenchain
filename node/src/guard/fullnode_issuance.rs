@@ -10,7 +10,7 @@ use codec::Decode;
 use sp_crypto_hashing::twox_128;
 use sp_runtime::traits::Header as HeaderT;
 
-use citizenchain::opaque::Header;
+use runtime::opaque::Header;
 use primitives::pow_const::{
     FULLNODE_BLOCK_REWARD, FULLNODE_REWARD_END_BLOCK, FULLNODE_REWARD_START_BLOCK,
 };

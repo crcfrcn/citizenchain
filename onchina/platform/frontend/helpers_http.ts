@@ -8,9 +8,9 @@ let unauthorizedFired = false;
 
 type ErrorBody = {
   code?: number;
-  error_code?: string;
+  errorCode?: string;
   message?: string;
-  trace_id?: string;
+  traceId?: string;
 };
 
 export class ApiError extends Error {
@@ -24,8 +24,8 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.status = status;
     this.code = body?.code;
-    this.errorCode = body?.error_code;
-    this.traceId = body?.trace_id;
+    this.errorCode = body?.errorCode;
+    this.traceId = body?.traceId;
   }
 }
 
@@ -94,7 +94,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function adminHeaders(auth: AdminAuth): HeadersInit {
   return {
-    authorization: `Bearer ${auth.access_token}`,
+    authorization: `Bearer ${auth.accessToken}`,
   };
 }
 
@@ -120,4 +120,3 @@ export async function adminBlobRequest(
 // 公开(免登录)端点的取数变体。`request` 本身不带任何鉴权头(adminRequest 才注入 Bearer),
 // 故公开读取直接复用同一相对路径 + {code,message,data} 解包逻辑;仅用语义化别名区分调用意图。
 // 大屏只读看板(/api/public/legislation/display/board)经此拉取。
-export const publicRequest = request;

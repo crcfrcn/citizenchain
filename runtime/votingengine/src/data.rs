@@ -114,15 +114,7 @@ impl<T: pallet::Config> pallet::Pallet<T> {
         Ok(())
     }
 
-    /// 存储提案业务数据（供 votingengine crate 内部测试与统一登记流程使用）。
-    #[cfg(test)]
-    pub fn store_proposal_data(proposal_id: u64, data: sp_std::vec::Vec<u8>) -> DispatchResult {
-        let bounded: BoundedVec<u8, T::MaxProposalDataLen> = data
-            .try_into()
-            .map_err(|_| DispatchError::Other("ProposalDataTooLarge"))?;
-        ProposalData::<T>::insert(proposal_id, bounded);
-        Ok(())
-    }
+
 
     /// 读取提案业务数据。
     pub fn get_proposal_data(proposal_id: u64) -> Option<sp_std::vec::Vec<u8>> {
@@ -198,30 +190,11 @@ impl<T: pallet::Config> pallet::Pallet<T> {
         ProposalObjectMeta::<T>::get(proposal_id)
     }
 
-    /// 删除提案对象层数据与元数据。
-    #[cfg(test)]
-    pub fn remove_proposal_object(proposal_id: u64) {
-        ProposalObject::<T>::remove(proposal_id);
-        ProposalObjectMeta::<T>::remove(proposal_id);
-    }
 
-    /// 存储提案辅助元数据(创建时间)。
-    #[cfg(test)]
-    pub fn store_proposal_meta(proposal_id: u64, created_at: BlockNumberFor<T>) {
-        ProposalMeta::<T>::insert(
-            proposal_id,
-            ProposalMetadata {
-                created_at,
-                passed_at: None,
-            },
-        );
-    }
 
-    /// 标记提案通过时间。
-    #[cfg(test)]
-    pub fn set_proposal_passed(proposal_id: u64, block: BlockNumberFor<T>) {
-        Self::mark_proposal_passed_at(proposal_id, block);
-    }
+
+
+
 
     /// 读取提案辅助元数据。
     pub fn get_proposal_meta(proposal_id: u64) -> Option<ProposalMetadata<BlockNumberFor<T>>> {

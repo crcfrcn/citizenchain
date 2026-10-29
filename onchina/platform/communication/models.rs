@@ -1,5 +1,6 @@
 // 平台通用 DTO 与现有行映射；本次仅按功能移动定义。
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct OrganizationCaCertificateInfoView {
     filename: &'static str,
     sha256: String,
@@ -39,8 +40,6 @@ fn decode_db_page_cursor(cursor: Option<&str>) -> Result<Option<DbPageCursor>, S
         .ok_or_else(|| "invalid page cursor".to_string())?;
     Ok(Some(DbPageCursor { created_at, id }))
 }
-
-
 
 fn institution_category_text(category: crate::cid::InstitutionCategory) -> &'static str {
     match category {
@@ -99,8 +98,6 @@ fn citizen_region_names(
         })
         .unwrap_or((None, None, None))
 }
-
-
 
 fn stable_institution_cursor_id(cid_number: &str) -> i64 {
     cid_number
@@ -168,9 +165,13 @@ fn institution_row_from_pg_row(
         Some(town_code_value.as_str()),
     );
     let inst = crate::institutions::subjects::Institution {
-        status: row.get::<_, Option<String>>(24).ok_or("institution status missing")?,
+        status: row
+            .get::<_, Option<String>>(24)
+            .ok_or("institution status missing")?,
         chain_status: row.get(25),
-        subject_property: crate::institutions::subjects::Institution::subject_property_for_code(&row.get::<_, String>(8))?,
+        subject_property: crate::institutions::subjects::Institution::subject_property_for_code(
+            &row.get::<_, String>(8),
+        )?,
         cid_number: row.get(0),
         cid_full_name,
         cid_short_name,
@@ -189,10 +190,10 @@ fn institution_row_from_pg_row(
         has_legal_personality: row.get(11),
         parent_cid_number: row.get(12),
         legal_representative: None,
-        legal_representative_photo_path: None,
-        legal_representative_photo_name: None,
-        legal_representative_photo_mime: None,
-        legal_representative_photo_size: None,
+        photo_path: None,
+        photo_name: None,
+        photo_mime: None,
+        photo_size: None,
         creator_account_id: row.get(13),
         created_at: row.get(14),
     };
@@ -229,9 +230,13 @@ fn institution_from_subject_row(
         Some(town_code_value.as_str()),
     );
     Ok(crate::institutions::subjects::Institution {
-        status: row.get::<_, Option<String>>(28).ok_or("institution status missing")?,
+        status: row
+            .get::<_, Option<String>>(28)
+            .ok_or("institution status missing")?,
         chain_status: row.get(29),
-        subject_property: crate::institutions::subjects::Institution::subject_property_for_code(&row.get::<_, String>(8))?,
+        subject_property: crate::institutions::subjects::Institution::subject_property_for_code(
+            &row.get::<_, String>(8),
+        )?,
         cid_number: row.get(0),
         cid_full_name,
         cid_short_name,
@@ -266,11 +271,10 @@ fn institution_from_subject_row(
             (None, None, None, None) => None,
             _ => return Err("incomplete legal representative projection".to_string()),
         },
-        legal_representative_photo_path: row.get(23),
-        legal_representative_photo_name: row.get(24),
-        legal_representative_photo_mime: row.get(25),
-        legal_representative_photo_size: legal_representative_photo_size_i64
-            .and_then(|v| u64::try_from(v).ok()),
+        photo_path: row.get(23),
+        photo_name: row.get(24),
+        photo_mime: row.get(25),
+        photo_size: legal_representative_photo_size_i64.and_then(|v| u64::try_from(v).ok()),
         creator_account_id: row.get(13),
         created_at: row.get(14),
     })
@@ -295,4 +299,3 @@ fn offset_page_from_window<T: Serialize>(
         catalog_status: None,
     }
 }
-

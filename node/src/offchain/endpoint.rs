@@ -6,29 +6,15 @@
 //! - 本模块只读取链上声明,不会启动清算 worker;普通全节点可以只读查询,
 //!   但不能因此获得清算行权限。
 
-use codec::{Decode, Encode};
+use codec::{DecodeAll, Encode};
 use sp_core::ConstU32;
 use sp_runtime::{AccountId32, BoundedVec};
 
 use crate::governance::chain_query;
-use crate::governance::signing::account_id_to_ss58;
 use crate::governance::storage_keys;
-use crate::transaction::offchain::types::ClearingBankNodeOnChainInfo;
+use crate::offchain::types::ClearingBankNodeOnChainInfo;
 
-/// 链上 `ClearingBankNodeInfo<AccountId, BlockNumber>` 在 node 端的 SCALE 镜像。
-///
-/// runtime 端定义见 [citizenchain/runtime/transaction/offchain/src/lib.rs:65]。
-/// 字段顺序 / 边界长度必须与 runtime 严格一致,SCALE 解码才能成功。
-#[derive(Decode, Encode)]
-struct OnChainNodeInfo {
-    peer_id: BoundedVec<u8, ConstU32<64>>,
-    rpc_domain: BoundedVec<u8, ConstU32<128>>,
-    rpc_port: u16,
-    /// runtime 端 `BlockNumber = u32`(citizenchain Runtime 配置)。
-    registered_at: u32,
-    registered_by: AccountId32,
-}
-
+// 直接解码现有offchain公开节点信息，不另维护字段序镜像。
 /// SCALE 编码 cid_number 的全仓统一 `BoundedVec<u8, ConstU32<32>>` 形式。
 ///
 /// 字段编码:`Compact<u32>(len)` + `bytes`。
@@ -68,17 +54,17 @@ pub fn fetch_clearing_bank_node(
         Some(hex_data) => {
             let clean = hex_data.strip_prefix("0x").unwrap_or(&hex_data);
             let bytes = hex::decode(clean).map_err(|e| format!("storage hex 解码失败:{e}"))?;
-            let info = OnChainNodeInfo::decode(&mut &bytes[..])
-                .map_err(|e| format!("ClearingBankNodeInfo SCALE 解码失败:{e}"))?;
+            let info =
+                offchain::ClearingBankNodeInfo::<AccountId32, u32>::decode_all(&mut &bytes[..])
+                    .map_err(|e| format!("ClearingBankNodeInfo SCALE 解码失败:{e}"))?;
 
             let peer_id = String::from_utf8(info.peer_id.into_inner())
                 .map_err(|_| "PeerId 编码非 UTF-8".to_string())?;
             let rpc_domain = String::from_utf8(info.rpc_domain.into_inner())
                 .map_err(|_| "RPC 域名编码非 UTF-8".to_string())?;
 
-            let registered_by_bytes: [u8; 32] = info.registered_by.into();
-            let registered_by_account_id = format!("0x{}", hex::encode(registered_by_bytes));
-            let registered_by_ss58_address = account_id_to_ss58(&registered_by_bytes)?;
+            let registered_by_bytes: [u8; 32] = info.registrar_account_id.into();
+            let registrar_account_id = format!("0x{}", hex::encode(registered_by_bytes));
 
             Ok(Some(ClearingBankNodeOnChainInfo {
                 cid_number: cid_number.to_string(),
@@ -86,8 +72,7 @@ pub fn fetch_clearing_bank_node(
                 rpc_domain,
                 rpc_port: info.rpc_port,
                 registered_at: info.registered_at as u64,
-                registered_by_account_id,
-                registered_by_ss58_address,
+                registrar_account_id,
             }))
         }
     }

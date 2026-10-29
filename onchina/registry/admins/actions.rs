@@ -1,17 +1,19 @@
 //! 注册局名册办理的原有校验与写入；平台仅保留统一安全动作调度。
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use crate::authentication::login::AdminAuthContext;
-use crate::authentication::repo;
-use crate::crypto::pubkey::{normalize_account_id, same_account_id};
 use super::city_registry_admins::{
     can_manage_city_registry, city_registry_row_from_user_conn,
     count_city_registry_admins_in_city_conn, ensure_city_in_province,
     find_city_registry_by_id_conn, MAX_ADMIN_PERSON_NAME_BYTES, MAX_CITY_REGISTRY_ADMINS_PER_CITY,
 };
+use crate::authentication::login::AdminAuthContext;
+use crate::authentication::repo;
+use crate::crypto::pubkey::{normalize_account_id, same_account_id};
 use crate::*;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CityRegistryIdPayload {
     pub(crate) id: u64,
 }
@@ -24,8 +26,8 @@ pub(crate) fn validate_create_city_registry_conn(
     let Some(account_id) = normalize_account_id(input.account_id.as_str()) else {
         return Err("http:bad_request:account_id format invalid".to_string());
     };
-    let family_name = validate_person_name(input.family_name.as_str(), "family_name")?;
-    let given_name = validate_person_name(input.given_name.as_str(), "given_name")?;
+    let family_name = validate_person_name(input.family_name.as_str(), "familyName")?;
+    let given_name = validate_person_name(input.given_name.as_str(), "givenName")?;
     let creator_account_id = match input.creator_account_id.as_deref().map(str::trim) {
         None | Some("") => ctx.account_id.clone(),
         Some(raw) => {
@@ -95,7 +97,10 @@ pub(crate) fn apply_create_city_registry_conn(
 ) -> Result<serde_json::Value, String> {
     let (account_id, family_name, given_name, city, creator_account_id) =
         validate_create_city_registry_conn(conn, ctx, input)?;
-    let province = ctx.scope_province_name.as_deref().ok_or("http:forbidden:admin province scope missing")?;
+    let province = ctx
+        .scope_province_name
+        .as_deref()
+        .ok_or("http:forbidden:admin province scope missing")?;
     let owner = super::repo::city_registry_cid_conn(conn, province, &city)?;
     let now = Utc::now();
     let row = AdminUser {
@@ -124,9 +129,9 @@ pub(crate) fn apply_delete_city_registry_conn(
     let city_registry = require_manageable_city_registry_conn(conn, ctx, input.id)?;
     let account_id = city_registry.account_id.clone();
     repo::delete_admin_runtime_state_conn(conn, account_id.as_str())?;
-    conn.execute("DELETE FROM admins WHERE account_id = $1", &[&account_id])
+    conn.execute("DELETE FROM admin WHERE account_id = $1", &[&account_id])
         .map_err(|e| format!("delete city admin failed: {e}"))?;
-    Ok(json!({ "deleted": true, "account_id": account_id }))
+    Ok(json!({ "deleted": true, "accountId": account_id }))
 }
 
 fn duplicate_admin_account_error(institution_code: &str) -> String {
@@ -143,9 +148,12 @@ fn response_to_string(_resp: axum::response::Response) -> String {
 }
 
 // 原安全动作业务分支归所属模块，共用哈希和挑战协议仍在平台。
-use crate::authentication::actions::{ActionPreview, preview_security_action, preview_node_binding_unbind_conn, precheck_institution_target_scope_conn, hash_serialized, apply_node_binding_unbind_conn};
 use crate::authentication::action_sign::hash_json;
-use crate::authentication::operation_auth::{AdminActionType, parse_action_type};
+use crate::authentication::actions::{
+    apply_node_binding_unbind_conn, hash_serialized, precheck_institution_target_scope_conn,
+    preview_node_binding_unbind_conn, preview_security_action, ActionPreview,
+};
+use crate::authentication::operation_auth::{parse_action_type, AdminActionType};
 use crate::authentication::security_model::AdminActionChallenge;
 use crate::registry::institutions::registration::precheck_institution_create_scope;
 pub(crate) fn preview_action_conn(
@@ -161,12 +169,12 @@ pub(crate) fn preview_action_conn(
             let (account_id, family_name, given_name, city, creator_account_id) =
                 validate_create_city_registry_conn(conn, ctx, &input)?;
             let after = json!({
-                "institution_code": "CREG",
-                "account_id": account_id,
-                "family_name": family_name,
-                "given_name": given_name,
-                "city_name": city,
-                "creator_account_id": creator_account_id,
+                "institutionCode": "CREG",
+                "accountId": account_id,
+                "familyName": family_name,
+                "givenName": given_name,
+                "cityName": city,
+                "creatorAccountId": creator_account_id,
             });
             let after_hash = hash_json(&after);
             Ok(ActionPreview {
@@ -182,7 +190,7 @@ pub(crate) fn preview_action_conn(
             let city_registry = require_manageable_city_registry_conn(conn, ctx, input.id)?;
             let before = city_registry_row_from_user_conn(conn, &city_registry)?;
             let after =
-                json!({ "deleted": true, "id": input.id, "account_id": city_registry.account_id });
+                json!({ "deleted": true, "id": input.id, "accountId": city_registry.account_id });
             let before_hash = hash_serialized(&before);
             let after_hash = hash_json(&after);
             Ok(ActionPreview {

@@ -88,7 +88,7 @@ pub fn build_propose_law_call(
         .ok_or(LegislationError::UnknownRouting)?;
     let proposer_role_code = input.proposer_role_code.trim().as_bytes();
     if proposer_role_code.is_empty()
-        || proposer_role_code.len() > entity_primitives::INSTITUTION_ROLE_CODE_MAX_BYTES as usize
+        || proposer_role_code.len() > entitybase::INSTITUTION_ROLE_CODE_MAX_BYTES as usize
     {
         return Err(LegislationError::InvalidProposerRoleCode);
     }

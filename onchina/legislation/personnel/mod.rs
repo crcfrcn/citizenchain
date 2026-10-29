@@ -5,7 +5,7 @@
 //! 无公投/签署/护宪。
 //!
 //! 当前没有任免业务 pallet 或 extrinsic，故本模块仅锁定链下字段 schema。未来任免业务应保存
-//! 任免职书并调用 `legislation-vote` 的代表机构表决，不能新增任免投票 kind 或自行计票。
+//! 任免职书并调用 `legislationvote` 的代表机构表决，不能新增任免投票 kind 或自行计票。
 //! 升级路径（3 次驳回→重要案→直授）字段化随具体业务细则确定，本轮不引入。
 
 /// 任免职书字段 schema(`PersonnelAction` / `PersonnelDecision` / `ProposePersonnelInput`)。

@@ -35,14 +35,14 @@ export function FederalRegistryAdminSubTab({
   const [detailTarget, setDetailTarget] = useState<FederalRegistryAdminRow | null>(null);
   const [federalListPage, setFederalListPage] = useState(1);
   const currentProvinceName =
-    normalizeScopeProvinceName(auth?.scope_province_name) || selectedFederalRegistry?.province_name || '';
+    normalizeScopeProvinceName(auth?.scopeProvinceName) || selectedFederalRegistry?.provinceName || '';
 
   const displayedFederalRegistryAdmins = useMemo(
     () => federalRegistryAdmins
       .map((row, index) => ({ row, index }))
       .sort((left, right) => {
-        const leftCurrent = normalizeScopeProvinceName(left.row.province_name) === currentProvinceName;
-        const rightCurrent = normalizeScopeProvinceName(right.row.province_name) === currentProvinceName;
+        const leftCurrent = normalizeScopeProvinceName(left.row.provinceName) === currentProvinceName;
+        const rightCurrent = normalizeScopeProvinceName(right.row.provinceName) === currentProvinceName;
         if (leftCurrent !== rightCurrent) return leftCurrent ? -1 : 1;
         return left.index - right.index;
       })
@@ -58,23 +58,23 @@ export function FederalRegistryAdminSubTab({
       render: (_value, _row, index) =>
         (federalListPage - 1) * FEDERAL_REGISTRY_PAGE_SIZE + index + 1,
     },
-    { title: '省份', dataIndex: 'province_name', align: 'center', width: 120 },
+    { title: '省份', dataIndex: 'provinceName', align: 'center', width: 120 },
     {
       title: '岗位',
       render: (_value, row) => assignmentDisplayLabel(row) || '-',
     },
     {
       title: '余额',
-      dataIndex: 'balance_fen',
+      dataIndex: 'balanceFen',
       width: 160,
       align: 'right',
-      render: (_value, row) => formatAdminBalanceFen(row.balance_fen) || '-',
+      render: (_value, row) => formatAdminBalanceFen(row.balanceFen) || '-',
     },
     {
       title: '操作',
       width: 100,
       align: 'center',
-      render: (_value, row) => sameHexAccount(row.account_id, auth?.account_id) ? (
+      render: (_value, row) => sameHexAccount(row.accountId, auth?.accountId) ? (
         <Badge dot={passkeyRegistered === false} size="small">
           <Button
             size="small"
@@ -104,7 +104,7 @@ export function FederalRegistryAdminSubTab({
         )}
       >
         <Table<FederalRegistryAdminRow>
-          rowKey={(row) => `${row.id}-${row.account_id}-${row.role_code}`}
+          rowKey={(row) => `${row.id}-${row.accountId}-${row.roleCode}`}
           loading={federalRegistryAdminsLoading}
           dataSource={displayedFederalRegistryAdmins}
           pagination={{
@@ -134,7 +134,7 @@ export function FederalRegistryAdminSubTab({
           <InstitutionAssignmentDetails
             assignment={detailTarget}
             areaLabel="省份"
-            areaValue={detailTarget.province_name}
+            areaValue={detailTarget.provinceName}
           />
         ) : null}
       </Modal>

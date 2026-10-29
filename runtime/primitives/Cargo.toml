@@ -1,4 +1,6 @@
 [package]
+# 单元测试与独立集成目标同目录，关闭扫描并显式注册全部集成目标。
+autotests = false
 name = "primitives"        # 全局常量模块
 edition.workspace = true   # 默认 Rust 版本
 version.workspace = true   # 版本号
@@ -37,3 +39,15 @@ std = [
     "sp-std/std",
     "frame-support/std",
 ]
+
+[[test]]
+name = "account_derive_golden"
+path = "tests/account_derive_golden.rs"
+
+[[test]]
+name = "sign_golden"
+path = "tests/sign_golden.rs"
+
+[[test]]
+name = "scale_codec_golden"
+path = "tests/scale_codec_golden.rs"

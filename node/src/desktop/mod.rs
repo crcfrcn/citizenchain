@@ -238,12 +238,12 @@ pub fn run_desktop() {
             admins::management::commands::get_account_balances,
             governance::build_vote_request,
             governance::build_joint_vote_request,
-            crate::transaction::multisig::commands::build_multisig_transfer_request,
-            crate::transaction::multisig::commands::submit_multisig_transfer,
-            crate::transaction::multisig::commands::build_multisig_safety_fund_request,
-            crate::transaction::multisig::commands::submit_multisig_safety_fund,
-            crate::transaction::multisig::commands::build_multisig_sweep_request,
-            crate::transaction::multisig::commands::submit_multisig_sweep,
+            crate::multisig::commands::build_multisig_transfer_request,
+            crate::multisig::commands::submit_multisig_transfer,
+            crate::multisig::commands::build_multisig_safety_fund_request,
+            crate::multisig::commands::submit_multisig_safety_fund,
+            crate::multisig::commands::build_multisig_sweep_request,
+            crate::multisig::commands::submit_multisig_sweep,
             governance::runtime_upgrade::commands::get_pow_difficulty_params,
             governance::runtime_upgrade::commands::build_propose_upgrade_request,
             governance::runtime_upgrade::commands::submit_propose_upgrade,
@@ -252,31 +252,31 @@ pub fn run_desktop() {
             crate::core::grandpa_rotation::get_grandpa_key_change_status,
             governance::submit_vote,
             governance::check_vote_status,
-            crate::transaction::onchain::get_wallets,
-            crate::transaction::onchain::add_wallet,
-            crate::transaction::onchain::remove_wallet,
-            crate::transaction::onchain::set_active_wallet,
-            crate::transaction::onchain::get_wallet_balance,
-            crate::transaction::onchain::build_cold_transfer_request,
-            crate::transaction::onchain::submit_cold_transfer,
-            crate::transaction::onchain::submit_hot_transfer,
+            crate::onchain::get_wallets,
+            crate::onchain::add_wallet,
+            crate::onchain::remove_wallet,
+            crate::onchain::set_active_wallet,
+            crate::onchain::get_wallet_balance,
+            crate::onchain::build_cold_transfer_request,
+            crate::onchain::submit_cold_transfer,
+            crate::onchain::submit_hot_transfer,
             // ─── 清算行 offchain tab ───
-            crate::transaction::offchain::institution_read::commands::search_eligible_clearing_banks,
-            crate::transaction::offchain::commands::query_clearing_bank_node_info,
-            crate::transaction::offchain::commands::query_local_peer_id,
-            crate::transaction::offchain::commands::test_clearing_bank_endpoint_connectivity,
-            crate::transaction::offchain::commands::build_register_clearing_bank_request,
-            crate::transaction::offchain::commands::submit_register_clearing_bank,
-            crate::transaction::offchain::commands::build_update_clearing_bank_endpoint_request,
-            crate::transaction::offchain::commands::submit_update_clearing_bank_endpoint,
-            crate::transaction::offchain::commands::build_unregister_clearing_bank_request,
-            crate::transaction::offchain::commands::submit_unregister_clearing_bank,
-            crate::transaction::offchain::settlement::commands::build_decrypt_admin_request,
-            crate::transaction::offchain::settlement::commands::verify_and_decrypt_admin,
-            crate::transaction::offchain::settlement::commands::list_decrypted_admins,
-            crate::transaction::offchain::settlement::commands::lock_decrypted_admin,
-            crate::transaction::offchain::institution_read::commands::fetch_clearing_bank_institution_detail,
-            crate::transaction::offchain::institution_read::commands::fetch_clearing_bank_institution_proposals
+            crate::offchain::institution_read::commands::search_eligible_clearing_banks,
+            crate::offchain::commands::query_clearing_bank_node_info,
+            crate::offchain::commands::query_local_peer_id,
+            crate::offchain::commands::test_clearing_bank_endpoint_connectivity,
+            crate::offchain::commands::build_register_clearing_bank_request,
+            crate::offchain::commands::submit_register_clearing_bank,
+            crate::offchain::commands::build_update_clearing_bank_endpoint_request,
+            crate::offchain::commands::submit_update_clearing_bank_endpoint,
+            crate::offchain::commands::build_unregister_clearing_bank_request,
+            crate::offchain::commands::submit_unregister_clearing_bank,
+            crate::offchain::settlement::commands::build_decrypt_admin_request,
+            crate::offchain::settlement::commands::verify_and_decrypt_admin,
+            crate::offchain::settlement::commands::list_decrypted_admins,
+            crate::offchain::settlement::commands::lock_decrypted_admin,
+            crate::offchain::institution_read::commands::fetch_clearing_bank_institution_detail,
+            crate::offchain::institution_read::commands::fetch_clearing_bank_institution_proposals
         ])
         .setup(|app| {
             cleanup_on_startup(app.handle());
@@ -331,7 +331,7 @@ pub fn run_desktop() {
         if let tauri::RunEvent::Exit = event {
             cleanup_on_exit(app);
             // 如果用户手动启动过链上中国平台,节点退出时一并停掉子进程。
-            crate::onchina_proc::stop_onchina();
+            crate::stop_onchina();
         }
     });
 }

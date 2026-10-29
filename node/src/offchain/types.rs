@@ -20,11 +20,7 @@ pub struct ClearingBankNodeOnChainInfo {
     /// 链上注册区块高度。
     pub registered_at: u64,
     /// 注册管理员账户 ID（小写 `0x` + 64 位十六进制）。
-    #[serde(rename = "registered_by_account_id")]
-    pub registered_by_account_id: String,
-    /// 注册管理员 SS58(便于前端展示)。
-    #[serde(rename = "registered_by_ss58_address")]
-    pub registered_by_ss58_address: String,
+    pub registrar_account_id: String,
 }
 
 /// 连通性自测的逐项结果。每项要么 ok=true,要么带 detail 解释失败原因。
@@ -50,7 +46,6 @@ pub struct ConnectivityTestReport {
 #[serde(rename_all = "camelCase")]
 pub struct DecryptedAdminInfo {
     /// 管理员签名公钥（小写 `0x` + 64 位十六进制）。
-    #[serde(rename = "signer_public_key")]
     pub signer_public_key: String,
     pub cid_number: String,
     /// 解密时间(毫秒时间戳)。

@@ -12,8 +12,8 @@ import type { SignResponseBody } from './core_citizenQr';
 // sr25519 公钥即账户标识,`parseSignResponseBody` 已把 `u` 转成 `0x` + 64 hex 的
 // 规范 account_id,所以此处是直接改名映射,不是格式转换。
 export type SignedLoginPayload = {
-  challenge_id: string;
-  account_id: string;
+  challengeId: string;
+  accountId: string;
   signature: string;
 };
 
@@ -34,24 +34,24 @@ export function parseSignedLoginPayload(
     throw new Error(`期望 sign_response,实际: ${env.kind}`);
   }
   const body = env.body as SignResponseBody;
-  const challenge_id = env.id || fallbackChallengeId;
-  if (!challenge_id || !body.signer_public_key || !body.signature) {
+  const challengeId = env.id || fallbackChallengeId;
+  if (!challengeId || !body.signer_public_key || !body.signature) {
     throw new Error('签名二维码缺少必要字段(id/signer_public_key/signature)');
   }
   return {
-    challenge_id,
-    account_id: body.signer_public_key,
+    challengeId,
+    accountId: body.signer_public_key,
     signature: body.signature,
   };
 }
 
 export type SignedReceiptPayload = {
-  challenge_id: string;
+  challengeId: string;
   signature: string;
-  account_id?: string;
-  payload_hash?: string;
-  current_account_id?: string;
-  current_account_signature?: string;
+  accountId?: string;
+  payloadHash?: string;
+  currentAccountId?: string;
+  currentAccountSignature?: string;
 };
 
 // 解析"挑战签名响应"二维码 payload。
@@ -80,16 +80,16 @@ export function parseSignedReceiptPayload(
   if (env.kind !== 'sign_response') {
     throw new Error(`期望 sign_response,实际: ${env.kind}`);
   }
-  const challenge_id = env.id || fallbackChallengeId;
+  const challengeId = env.id || fallbackChallengeId;
   const body = env.body as SignResponseBody;
-  if (!challenge_id || !body.signature || !body.signer_public_key) {
+  if (!challengeId || !body.signature || !body.signer_public_key) {
     throw new Error('签名二维码缺少必要字段(id/signer_public_key/signature)');
   }
   return {
-    challenge_id,
+    challengeId,
     signature: body.signature,
-    account_id: body.signer_public_key,
-    current_account_id: body.current_account_id,
-    current_account_signature: body.current_account_signature,
+    accountId: body.signer_public_key,
+    currentAccountId: body.current_account_id,
+    currentAccountSignature: body.current_account_signature,
   };
 }

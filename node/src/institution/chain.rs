@@ -21,7 +21,6 @@ use std::time::Duration;
 
 use crate::admins::management::storage as admins_storage;
 use crate::governance::chain_query;
-use crate::governance::signing::account_id_to_ss58;
 use crate::governance::storage_keys;
 use crate::shared::{constants::RPC_RESPONSE_LIMIT_SMALL, rpc};
 
@@ -104,11 +103,6 @@ const ACCOUNT_INFO_HEADER_LEN: usize = 16;
 const ACCOUNT_INFO_FREE_LEN: usize = 16;
 
 /// 把"分"格式化成 `xxx.xx`(沿用 chain/balance/handler.rs 同款约定)。
-fn format_yuan(min_units: u128) -> String {
-    let yuan = min_units / 100;
-    let cents = (min_units % 100) as u8;
-    format!("{}.{:02}", yuan, cents)
-}
 
 /// 按 GMB 协议确定性派生机构主账户 32 字节地址。
 fn derive_main_account(cid_number: &str) -> AccountId32 {
@@ -277,9 +271,9 @@ pub fn fetch_institution_detail(cid_number: &str) -> Result<Option<InstitutionDe
     let main_account_id = derive_main_account(cid_number);
     let fee_account_id = derive_fee_account(cid_number);
     let main_account_bytes: [u8; 32] = main_account_id.clone().into();
-    let main_ss58_address = account_id_to_ss58(&main_account_bytes).unwrap_or_default();
+    let main_account_hex = format!("0x{}", hex::encode(main_account_bytes));
     let fee_account_bytes: [u8; 32] = fee_account_id.clone().into();
-    let fee_ss58_address = account_id_to_ss58(&fee_account_bytes).unwrap_or_default();
+    let fee_account_hex = format!("0x{}", hex::encode(fee_account_bytes));
 
     // 拉机构下所有账户(InstitutionAccounts[cid_number, *] 是 DoubleMap)。
     let accounts = fetch_institution_accounts(cid_number, manage_pallet, &finalized_hash)?;
@@ -290,9 +284,9 @@ pub fn fetch_institution_detail(cid_number: &str) -> Result<Option<InstitutionDe
     let mut fee_account_info: Option<AccountWithBalance> = None;
     let mut other_accounts: Vec<AccountWithBalance> = Vec::new();
     for acc in accounts {
-        if acc.ss58_address == main_ss58_address {
+        if acc.account_id == main_account_hex {
             main_account_info = Some(acc);
-        } else if acc.ss58_address == fee_ss58_address {
+        } else if acc.account_id == fee_account_hex {
             fee_account_info = Some(acc);
         } else {
             other_accounts.push(acc);
@@ -438,9 +432,8 @@ fn fetch_institution_accounts(
         out.push(AccountWithBalance {
             account_name: acc_name,
             account_id: format!("0x{}", hex::encode(account_id_bytes)),
-            ss58_address: account_id_to_ss58(&account_id_bytes).unwrap_or_default(),
-            balance_min_units: bal.to_string(),
-            balance_text: format_yuan(bal),
+
+            balance_fen: bal.to_string(),
             account_kind: account_kind_label.to_string(),
             can_close,
         });

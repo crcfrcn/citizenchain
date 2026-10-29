@@ -35,7 +35,7 @@ export async function uploadDocument(
 ): Promise<InstitutionDocument> {
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('doc_type', docType);
+  formData.append('docType', docType);
   const headers = await passkeySubmitHeaders(auth);
   return adminRequest<InstitutionDocument>(
     `/api/institutions/${encodeURIComponent(cidNumber)}/docs`,

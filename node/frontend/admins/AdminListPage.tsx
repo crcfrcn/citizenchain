@@ -61,11 +61,11 @@ export function AdminListPage({ cidNumber, accountRef, onBack }: Props) {
     return () => clearTimeout(timer);
   }, [activateStep, activateCountdown]);
 
-  const startActivation = useCallback(async (account_id: string) => {
-    setActivatePubkey(account_id);
+  const startActivation = useCallback(async (accountId: string) => {
+    setActivatePubkey(accountId);
     setActivateError(null);
     try {
-      const result = await api.buildActivateAdminRequest(account_id, cidNumber, accountRef);
+      const result = await api.buildActivateAdminRequest(accountId, cidNumber, accountRef);
       setActivateRequest(result);
       setActivateCountdown(90);
       setActivateStep('qr');
@@ -86,7 +86,7 @@ export function AdminListPage({ cidNumber, accountRef, onBack }: Props) {
         activateRequest.payloadHex,
         responseJson,
       );
-      setActivatedAdmins(prev => [...prev.filter(a => a.account_id !== result.account_id), result]);
+      setActivatedAdmins(prev => [...prev.filter(a => a.accountId !== result.accountId), result]);
       setActivateStep('done');
       setTimeout(() => setActivateStep('idle'), 2000);
     } catch (e) {
@@ -131,9 +131,9 @@ export function AdminListPage({ cidNumber, accountRef, onBack }: Props) {
       ) : (
         <div className="admin-grid">
           {detail.admins.map((admin, i) => {
-            const accountId = admin.account_id;
+            const accountId = admin.accountId;
             const isActivated = activatedAdmins.some(
-              a => a.account_id === accountId
+              a => a.accountId === accountId
             );
             return (
               <InstitutionAssignmentCard

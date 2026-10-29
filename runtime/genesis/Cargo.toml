@@ -1,5 +1,7 @@
 [package]
-name = "genesis-pallet"  # 创世模块：创世期/运行期切换 + 创世常量存储
+# 根tests统一存放单元测试，独立集成目标仅显式注册，避免重复发现。
+autotests = false
+name = "genesis"  # 创世模块：创世期/运行期切换 + 创世常量存储
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -13,23 +15,27 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
+serde_json = { workspace = true }
+sp-core = { workspace = true, features = ["serde"] }
+sp-consensus-grandpa = { workspace = true }
+sp-genesis-builder = { workspace = true }
 
 primitives = { path = "../primitives", default-features = false }
-admin-primitives = { path = "../admins/admin-primitives", default-features = false }
-public-manage = { path = "../entity/public-manage", default-features = false }
-public-admins = { path = "../admins/public-admins", default-features = false }
-private-manage = { path = "../entity/private-manage", default-features = false }
-private-admins = { path = "../admins/private-admins", default-features = false }
+adminbase = { path = "../admins/adminbase", default-features = false }
+publicentity = { path = "../entity/publicentity", default-features = false }
+publicadmin = { path = "../admins/publicadmin", default-features = false }
+privateentity = { path = "../entity/privateentity", default-features = false }
+privateadmin = { path = "../admins/privateadmin", default-features = false }
 
 [features]
 default = ["std"]
 runtime-benchmarks = [
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
-    "public-admins/runtime-benchmarks",
-    "public-manage/runtime-benchmarks",
-    "private-admins/runtime-benchmarks",
-    "private-manage/runtime-benchmarks",
+    "publicadmin/runtime-benchmarks",
+    "publicentity/runtime-benchmarks",
+    "privateadmin/runtime-benchmarks",
+    "privateentity/runtime-benchmarks",
 ]
 try-runtime = []
 std = [
@@ -39,12 +45,16 @@ std = [
     "frame-system/std",
     "sp-io/std",
     "sp-runtime/std",
+    "serde_json/std",
+    "sp-core/std",
+    "sp-consensus-grandpa/std",
+    "sp-genesis-builder/std",
     "primitives/std",
-    "admin-primitives/std",
-    "public-manage/std",
-    "public-admins/std",
-    "private-manage/std",
-    "private-admins/std",
+    "adminbase/std",
+    "publicentity/std",
+    "publicadmin/std",
+    "privateentity/std",
+    "privateadmin/std",
 ]
 
 [dev-dependencies]

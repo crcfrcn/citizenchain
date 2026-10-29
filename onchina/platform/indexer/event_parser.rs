@@ -216,7 +216,7 @@ fn match_event(
             })
         }
 
-        // ─── fullnode_issuance (index 6) ──────────────────────────
+        // ─── fullnodeissue (index 6) ──────────────────────────
         ("FullnodeIssuance", "FullnodeIssuanceIssued") => {
             let wallet = fields.at("reward_account_id").and_then(extract_account_id)?;
             let amount = fields.at("amount").and_then(extract_balance)?;
@@ -233,7 +233,7 @@ fn match_event(
             })
         }
 
-        // ─── provincialbank_interest (index 5) ─────────────────────
+        // ─── prbbankissue (index 5) ─────────────────────
         ("ProvincialBankInterest", "ProvincialBankInterestMinted") => {
             let account = fields.at("account_id").and_then(extract_account_id)?;
             let amount = fields.at("amount").and_then(extract_balance)?;
@@ -250,7 +250,7 @@ fn match_event(
             })
         }
 
-        // ─── resolution_issuance (index 8) ──────────────────────
+        // ─── resolutionissue (index 8) ──────────────────────
         ("ResolutionIssuance", "ResolutionIssuanceExecuted") => {
             let total = fields.at("total_amount").and_then(extract_balance)?;
             Some(TxRecordInsert {
@@ -266,7 +266,7 @@ fn match_event(
             })
         }
 
-        // ─── citizen_issuance (index 11) ───────────────────
+        // ─── citizenissue (index 11) ───────────────────
         ("CitizenIssuance", "CertificationRewardIssued") => {
             let who = fields.at("account_id").and_then(extract_account_id)?;
             let reward = fields.at("reward").and_then(extract_balance)?;
@@ -301,7 +301,7 @@ fn match_event(
             })
         }
 
-        // ─── personal_manage (index 7) ──────────────────────────
+        // ─── personalentity (index 7) ──────────────────────────
         // 个人多签创建/关闭按 Runtime 的真实事件名读取;
         // 机构多签的创建/关闭事件名为 InstitutionCreated/InstitutionClosed,本 indexer 不收录。
         ("PersonalManage", "PersonalCreated") => {
@@ -339,7 +339,7 @@ fn match_event(
             })
         }
 
-        // ─── resolution_destroy (index 14) ───────────────────────
+        // ─── destroy (index 14) ───────────────────────
         ("ResolutionDestroy", "DestroyExecuted") => {
             let amount = fields.at("amount").and_then(extract_balance)?;
             Some(TxRecordInsert {
@@ -369,13 +369,13 @@ mod tests {
 
     /// 索引器必须解码当前 Runtime 的真实元数据与 EventRecord，禁止仅伪造字段名测试。
     fn runtime_event(pallet: &str, variant: &str, fields: impl Encode) -> subxt::events::Events<PolkadotConfig> {
-        let bytes = citizenchain::Runtime::metadata().encode();
+        let bytes = runtime::Runtime::metadata().encode();
         let metadata = subxt::Metadata::decode(&mut bytes.as_slice()).unwrap();
         let module = metadata.pallet_by_name(pallet).unwrap();
         let event = module.event_variants().unwrap().iter().find(|event| event.name == variant).unwrap();
         let mut encoded = vec![module.index(), event.index];
         encoded.extend(fields.encode());
-        let event = citizenchain::RuntimeEvent::decode(&mut encoded.as_slice()).unwrap();
+        let event = runtime::RuntimeEvent::decode(&mut encoded.as_slice()).unwrap();
         let record = (Phase::ApplyExtrinsic(3), event, Vec::<subxt::utils::H256>::new());
         subxt::events::Events::decode_from(vec![record].encode(), metadata)
     }
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn empty_event_vectors_and_invalid_count_prefixes_follow_scale_decode() {
-        let metadata = subxt::Metadata::decode(&mut citizenchain::Runtime::metadata().encode().as_slice()).unwrap();
+        let metadata = subxt::Metadata::decode(&mut runtime::Runtime::metadata().encode().as_slice()).unwrap();
         for bytes in [Vec::new(), vec![0u8]] {
             let events = subxt::events::Events::decode_from(bytes, metadata.clone());
             assert!(parse_block_events(&events, 7, None).unwrap().is_empty());
@@ -422,7 +422,7 @@ mod tests {
     fn overflow_corrupt_and_truncated_events_stop_the_batch() {
         let events = runtime_event("ProvincialBankInterest", "ProvincialBankInterestMinted", (2026u32, [0x11u8; 32], i64::MAX as u128 + 1));
         assert!(parse_block_events(&events, 7, None).is_err());
-        let metadata = subxt::Metadata::decode(&mut citizenchain::Runtime::metadata().encode().as_slice()).unwrap();
+        let metadata = subxt::Metadata::decode(&mut runtime::Runtime::metadata().encode().as_slice()).unwrap();
         for bytes in [vec![4u8], vec![4u8, 0u8, 0u8], vec![0xffu8], vec![0u8, 1u8]] {
             let corrupt = subxt::events::Events::decode_from(bytes, metadata.clone());
             assert!(parse_block_events(&corrupt, 7, None).is_err());

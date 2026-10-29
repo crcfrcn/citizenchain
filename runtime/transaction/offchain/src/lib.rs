@@ -27,6 +27,7 @@ pub mod settlement;
 pub mod solvency;
 
 #[cfg(test)]
+#[path = "../tests/mod.rs"]
 mod tests;
 
 use codec::{Decode, Encode, MaxEncodedLen};
@@ -531,7 +532,7 @@ pub mod pallet {
                     actor_cid_number.as_slice(),
                     actor_role_code.as_slice(),
                     &submitter,
-                    entity_primitives::business_action::ACTION_OFFCHAIN_SUBMIT_BATCH,
+                    entitybase::business_action::ACTION_OFFCHAIN_SUBMIT_BATCH,
                 ),
                 Error::<T>::UnauthorizedAdmin
             );
@@ -818,7 +819,7 @@ impl<T: pallet::Config> pallet::Pallet<T> {
                 actor_cid_number.as_slice(),
                 actor_role_code.as_slice(),
                 &who,
-                entity_primitives::business_action::ACTION_OFFCHAIN_REGISTER_BANK,
+                entitybase::business_action::ACTION_OFFCHAIN_REGISTER_BANK,
             ),
             pallet::Error::<T>::UnauthorizedAdmin
         );
@@ -888,7 +889,7 @@ impl<T: pallet::Config> pallet::Pallet<T> {
                 actor_cid_number.as_slice(),
                 actor_role_code.as_slice(),
                 &who,
-                entity_primitives::business_action::ACTION_OFFCHAIN_UPDATE_BANK_ENDPOINT,
+                entitybase::business_action::ACTION_OFFCHAIN_UPDATE_BANK_ENDPOINT,
             ),
             pallet::Error::<T>::UnauthorizedAdmin
         );
@@ -927,7 +928,7 @@ impl<T: pallet::Config> pallet::Pallet<T> {
                 actor_cid_number.as_slice(),
                 actor_role_code.as_slice(),
                 &who,
-                entity_primitives::business_action::ACTION_OFFCHAIN_UNREGISTER_BANK,
+                entitybase::business_action::ACTION_OFFCHAIN_UNREGISTER_BANK,
             ),
             pallet::Error::<T>::UnauthorizedAdmin
         );

@@ -1,16 +1,16 @@
 // Substrate CLI runner 的闭包签名固定返回 sc_cli::Error，无法在 Node 侧装箱该错误类型。
 #![allow(clippy::result_large_err)]
 
+#[cfg(feature = "runtime-benchmarks")]
+use super::benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferWithRemarkBuilder};
 use super::{
     chain_spec,
     cli::{Cli, Subcommand},
     service,
 };
-use citizenchain::Block;
+use runtime::Block;
 #[cfg(feature = "runtime-benchmarks")]
-use citizenchain::EXISTENTIAL_DEPOSIT;
-#[cfg(feature = "runtime-benchmarks")]
-use super::benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferWithRemarkBuilder};
+use runtime::EXISTENTIAL_DEPOSIT;
 #[cfg(feature = "runtime-benchmarks")]
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use primitives::core_const::{SS58_FORMAT, SUPPORT_URL};
@@ -152,11 +152,10 @@ pub fn run() -> sc_cli::Result<()> {
                 // This switch needs to be in the client, since the client decides
                 // which sub-commands it wants to support.
                 match cmd {
-                    BenchmarkCmd::Pallet(cmd) => {
-                        cmd.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ()>(Some(
+                    BenchmarkCmd::Pallet(cmd) => cmd
+                        .run_with_spec::<sp_runtime::traits::HashingFor<Block>, ()>(Some(
                             config.chain_spec,
-                        ))
-                    }
+                        )),
                     BenchmarkCmd::Block(cmd) => {
                         let PartialComponents { client, .. } = service::new_partial(&config)?;
                         cmd.run(client)
@@ -222,10 +221,10 @@ pub fn run() -> sc_cli::Result<()> {
             let runner = cli.create_runner(&cli.run)?;
             // 固定使用 libp2p 后端承载 WSS；P2P 身份由 Noise 固定 peer ID 验证。
             // 把清算行 CLI 参数透传给 service::new_full
-            let clearing_bank_cid_number = cli.clearing_bank_cid_number.clone();
-            let clearing_bank_role_code = cli.clearing_bank_role_code.clone();
+            let bank_cid = cli.bank_cid.clone();
+            let bank_role = cli.bank_role.clone();
             let clearing_bank_password = cli.clearing_bank_password.clone();
-            let clearing_reserve_monitor_interval_secs = cli.clearing_reserve_monitor_interval_secs;
+            let reserve_interval_secs = cli.reserve_interval_secs;
             runner.run_node_until_exit(|config| async move {
                 service::new_full(
                     config,
@@ -233,10 +232,10 @@ pub fn run() -> sc_cli::Result<()> {
                     gpu_device,
                     None,
                     None,
-                    clearing_bank_cid_number,
-                    clearing_bank_role_code,
+                    bank_cid,
+                    bank_role,
                     clearing_bank_password,
-                    clearing_reserve_monitor_interval_secs,
+                    reserve_interval_secs,
                 )
                 .map_err(sc_cli::Error::Service)
             })

@@ -102,14 +102,14 @@ export function LawEditorModal({ open, auth, lawAction, tier, voteType, onClose 
     setSubmitting(true);
     try {
       const prepared = await proposeLegislation(auth, buildInput());
-      const signed = await signChain(prepared.request_id, prepared.sign_request);
+      const signed = await signChain(prepared.requestId, prepared.signRequest);
       const submitted = await submitChainSign(
         auth,
-        prepared.request_id,
-        signed.account_id,
+        prepared.requestId,
+        signed.accountId,
         signed.signature,
       );
-      message.success(`立法提案交易已提交：${submitted.tx_hash}`);
+      message.success(`立法提案交易已提交：${submitted.txHash}`);
       onClose();
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : '发起提案失败');

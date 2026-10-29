@@ -1,3 +1,4 @@
+import { accountIdToSs58 } from '../shared/ss58';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { sanitizeError } from '../tauri';
 import { CitizenSignaturePanel } from '../protocol/CitizenSignaturePanel';
@@ -179,7 +180,7 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
             <div className="transfer-signing-summary">
               <div className="transfer-signing-row">
                 <span className="transfer-signing-label">付款地址</span>
-                <span className="transfer-signing-value">{wallet.ss58Address}</span>
+                <span className="transfer-signing-value">{accountIdToSs58(wallet.accountId)}</span>
               </div>
               <div className="transfer-signing-row">
                 <span className="transfer-signing-label">收款地址</span>

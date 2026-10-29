@@ -1,5 +1,4 @@
 //! 随所属功能迁移的原有回归，输入与断言保持不变。
-use citizenchain as runtime;
 use codec::Encode;
 
 /// 材料构建离线自洽:同输入同产物,call 解码回等值,>256B 审阅载荷仍完整保留。

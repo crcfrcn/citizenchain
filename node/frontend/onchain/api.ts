@@ -5,18 +5,18 @@ import type { TransferSignRequestResult, TransferSubmitResult, Wallet, WalletSto
 export const transactionApi = {
   getWallets: () => invoke<WalletStore>('get_wallets'),
   addWallet: (name: string, ss58Address: string) =>
-    invoke<Wallet>('add_wallet', { name, ss58_address: ss58Address }),
+    invoke<Wallet>('add_wallet', { name, ss58Address: ss58Address }),
   removeWallet: (accountId: string) =>
-    invoke<WalletStore>('remove_wallet', { account_id: accountId }),
+    invoke<WalletStore>('remove_wallet', { accountId: accountId }),
   setActiveWallet: (accountId: string) =>
-    invoke<WalletStore>('set_active_wallet', { account_id: accountId }),
+    invoke<WalletStore>('set_active_wallet', { accountId: accountId }),
   getWalletBalance: (accountId: string) =>
-    invoke<string | null>('get_wallet_balance', { account_id: accountId }),
+    invoke<string | null>('get_wallet_balance', { accountId: accountId }),
   buildColdTransferRequest: (accountId: string, toSs58Address: string, amountYuan: number, remark: string) =>
     invoke<TransferSignRequestResult>('build_cold_transfer_request', {
-      account_id: accountId,
-      to_ss58_address: toSs58Address,
-      amount_yuan: amountYuan,
+      accountId: accountId,
+      toSs58Address: toSs58Address,
+      amountYuan: amountYuan,
       remark,
     }),
   submitHotTransfer: (
@@ -27,11 +27,11 @@ export const transactionApi = {
     unlockPassword: string,
   ) =>
     invoke<TransferSubmitResult>('submit_hot_transfer', {
-      account_id: accountId,
-      to_ss58_address: toSs58Address,
-      amount_yuan: amountYuan,
+      accountId: accountId,
+      toSs58Address: toSs58Address,
+      amountYuan: amountYuan,
       remark,
-      unlock_password: unlockPassword,
+      unlockPassword: unlockPassword,
     }),
   submitColdTransfer: (
     accountId: string,
@@ -43,12 +43,12 @@ export const transactionApi = {
     responseJson: string,
   ) =>
     invoke<TransferSubmitResult>('submit_cold_transfer', {
-      account_id: accountId,
-      request_id: requestId,
-      expected_payload_hash: expectedPayloadHash,
-      call_data_hex: callDataHex,
-      sign_nonce: signNonce,
-      sign_block_number: signBlockNumber,
-      response_json: responseJson,
+      accountId: accountId,
+      requestId: requestId,
+      expectedPayloadHash: expectedPayloadHash,
+      callDataHex: callDataHex,
+      signNonce: signNonce,
+      signBlockNumber: signBlockNumber,
+      responseJson: responseJson,
     }),
 };

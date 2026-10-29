@@ -439,8 +439,8 @@ async function runtime(action) {
     const cargo = (directory, args) => run(env.CARGO, ['--config', join(directory, 'config.toml'), ...args], directory);
     if (action === 'test') {
       // 保留原测试及测试WASM，版本0等金标不改；测试夹具绝不作为正式升级产物交付。
-      await cargo(root, ['clean', '-p', 'citizenchain', '--locked']);
-      await cargo(root, ['test', '--locked', '--release', ...(platform === 'wasm' ? ['-p', 'citizenchain'] : ['--workspace']), '--all-targets']);
+      await cargo(root, ['clean', '-p', 'runtime', '--locked']);
+      await cargo(root, ['test', '--locked', '--release', ...(platform === 'wasm' ? ['-p', 'runtime'] : ['--workspace']), '--all-targets']);
       return;
     }
     const sha = (await run('git', ['rev-parse', 'HEAD'], root, {capture: true})).stdout.trim();
@@ -455,15 +455,15 @@ async function runtime(action) {
       const input = join(source, 'runtime/src/lib.rs');
       writeFileSync(input, patchRuntimeVersion(readFileSync(input, 'utf8'), target));
       env.CITIZENCHAIN_SOURCE_ROOT = source;
-      await cargo(source, ['build', '--locked', '--release', '-p', 'citizenchain', '--no-default-features', '--features', 'std']);
+      await cargo(source, ['build', '--locked', '--release', '-p', 'runtime', '--no-default-features', '--features', 'std']);
       const filesToPublish = cfg.artifactNames('wasm', String(target.specVersion));
       for (const name of filesToPublish) {
-        const path = join(env.CARGO_TARGET_DIR, 'release/wbuild/citizenchain', name);
+        const path = join(env.CARGO_TARGET_DIR, 'release/wbuild/runtime', name);
         if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) fail('Runtime产物不是普通文件');
         verifyRuntimeWasm(readFileSync(path), target);
       }
       mkdirSync(artifact);
-      for (const name of filesToPublish) copyFileSync(join(env.CARGO_TARGET_DIR, 'release/wbuild/citizenchain', name), join(artifact, name));
+      for (const name of filesToPublish) copyFileSync(join(env.CARGO_TARGET_DIR, 'release/wbuild/runtime', name), join(artifact, name));
       const record = {source_sha: sha, genesis_hash: base.genesisHash, base_block_hash: base.blockHash, spec_name: base.specName,
         base_spec_version: base.specVersion, base_transaction_version: base.transactionVersion,
         spec_version: target.specVersion, transaction_version: target.transactionVersion};
@@ -964,7 +964,7 @@ if (testFile) {
     assert.throws(()=>automationRequest('wasm','launch',{version:'2',sha:'a'.repeat(40),base:observedBase}));
     const settle=automationRequest('wasm','settle',{run:wasmRun(42,'failure')});
     assert.deepEqual(settle.body.client_payload,{platform:'wasm',version:'2',run_id:42,run_attempt:1,source_sha:'a'.repeat(40)});
-    assert.equal(artifactLabel('wasm','2','citizenchain.compact.compressed.wasm'),'公民链·WASM·v2.compact.compressed.wasm');
+    assert.equal(artifactLabel('wasm','2','runtime.compact.compressed.wasm'),'公民链·WASM·v2.compact.compressed.wasm');
   });
   test('WASM正式交付绑定显示号、双版本、源码、原Run及完整三附件',()=>{
     const source=wasmRun(42),value=wasmRelease(source);

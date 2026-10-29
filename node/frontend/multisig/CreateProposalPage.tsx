@@ -11,7 +11,7 @@ import type { AdminSignerMatch, VoteSignRequestResult } from './types';
 type Props = {
   cidNumber: string;
   cidFullName: string;
-  institution_account_id: string;
+  institutionAccountId: string;
   adminSigners: AdminSignerMatch[];
   onBack: () => void;
   onSuccess: () => void;
@@ -20,7 +20,7 @@ type Props = {
 type Step = 'form' | 'qr' | 'submit' | 'done' | 'error';
 
 export function CreateMultisigTransferPage({
-  cidNumber, cidFullName, institution_account_id, adminSigners, onBack, onSuccess,
+  cidNumber, cidFullName, institutionAccountId, adminSigners, onBack, onSuccess,
 }: Props) {
   const [step, setStep] = useState<Step>('form');
 
@@ -84,7 +84,7 @@ export function CreateMultisigTransferPage({
       formValuesRef.current = { beneficiary: beneficiary.trim(), amountYuan: amount, remark };
 
       const result = await api.buildMultisigTransferRequest(
-        selectedSigner!.account_id, cidNumber, proposerRoleCode.trim(), institution_account_id,
+        selectedSigner!.accountId, cidNumber, proposerRoleCode.trim(), institutionAccountId,
         beneficiary.trim(), amount, remark,
       );
 
@@ -112,8 +112,8 @@ export function CreateMultisigTransferPage({
     try {
       const { beneficiary: ben, amountYuan: amt, remark: rmk } = formValuesRef.current;
       const result = await api.submitMultisigTransfer(
-        req.requestId, wallet.account_id, req.expectedPayloadHash,
-        cidNumber, proposerRoleCode.trim(), institution_account_id, ben, amt, rmk,
+        req.requestId, wallet.accountId, req.expectedPayloadHash,
+        cidNumber, proposerRoleCode.trim(), institutionAccountId, ben, amt, rmk,
         req.signNonce, req.signBlockNumber, responseText,
       );
       setTxHash(result.txHash);
@@ -122,7 +122,7 @@ export function CreateMultisigTransferPage({
       setError(sanitizeError(e));
       setStep('error');
     }
-  }, [cidNumber, proposerRoleCode, institution_account_id]);
+  }, [cidNumber, proposerRoleCode, institutionAccountId]);
 
   return (
     <div className="governance-section">
@@ -137,21 +137,21 @@ export function CreateMultisigTransferPage({
           <div className="wallet-form-field">
             <label>发起管理员</label>
             <select
-              value={selectedSigner?.account_id || ''}
+              value={selectedSigner?.accountId || ''}
               onChange={(e) => {
-                const w = adminSigners.find((w) => w.account_id === e.target.value);
+                const w = adminSigners.find((w) => w.accountId === e.target.value);
                 setSelectedSigner(w || null);
               }}
               disabled={adminSigners.length <= 1}
             >
               {adminSigners.length === 0 && <option value="">无已激活管理员</option>}
               {adminSigners.length === 1 ? (
-                <option value={adminSigners[0].account_id}>{accountIdToSs58(adminSigners[0].account_id)}</option>
+                <option value={adminSigners[0].accountId}>{accountIdToSs58(adminSigners[0].accountId)}</option>
               ) : (
                 <>
                   <option value="">请选择…</option>
                   {adminSigners.map((w) => (
-                    <option key={w.account_id} value={w.account_id}>{accountIdToSs58(w.account_id)}</option>
+                    <option key={w.accountId} value={w.accountId}>{accountIdToSs58(w.accountId)}</option>
                   ))}
                 </>
               )}
@@ -160,7 +160,7 @@ export function CreateMultisigTransferPage({
 
           <div className="wallet-form-field">
             <label>转出地址（机构多签）</label>
-            <input type="text" value={accountIdToSs58(institution_account_id)} disabled />
+            <input type="text" value={accountIdToSs58(institutionAccountId)} disabled />
           </div>
 
           <div className="wallet-form-field">
@@ -224,9 +224,9 @@ export function CreateMultisigTransferPage({
 
           {showAddressScan && (
             <AddressScanModal
-              onResult={({ ss58_address }) => {
+              onResult={({ ss58Address }) => {
                 // 账户码只声明账户，不带金额与备注；两者一律由本端手工填写。
-                setBeneficiary(ss58_address);
+                setBeneficiary(ss58Address);
                 setShowAddressScan(false);
               }}
               onClose={() => setShowAddressScan(false)}

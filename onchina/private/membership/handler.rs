@@ -21,6 +21,7 @@ use super::chain_call::{
 };
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PlatformPriceOutput {
     platform_cid_number: String,
     freedom_price_fen: String,
@@ -30,6 +31,8 @@ pub(crate) struct PlatformPriceOutput {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ProposePlatformPriceInput {
     proposer_role_code: String,
     membership_level: String,
@@ -38,6 +41,7 @@ pub(crate) struct ProposePlatformPriceInput {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ProposePlatformPriceOutput {
     request_id: String,
     sign_request: String,
@@ -86,7 +90,10 @@ pub(crate) async fn recheck_platform_admin(
             "session institution binding mismatch",
         ));
     }
-    let identity = chain_runtime::identity_from_binding_parts(&binding.institution_code, Some(binding.institution_cid_number.as_str()))
+    let identity = chain_runtime::identity_from_binding_parts(
+        &binding.institution_code,
+        Some(binding.institution_cid_number.as_str()),
+    )
     .map_err(|_| api_error(StatusCode::FORBIDDEN, 2003, "invalid institution binding"))?;
     let admins = chain_runtime::fetch_active_admins_onchain(&identity)
         .await
@@ -226,7 +233,11 @@ pub(crate) async fn propose_platform_price(
         expires_at,
         consumed_at: None,
     };
-    if let Err(err) = state.db.insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number) {
+    if let Err(err) =
+        state
+            .db
+            .insert_chain_sign_session(&session, &passkey, &ctx.institution_cid_number)
+    {
         tracing::error!(error = %err, "insert platform price chain sign session failed");
         return api_error(
             StatusCode::INTERNAL_SERVER_ERROR,

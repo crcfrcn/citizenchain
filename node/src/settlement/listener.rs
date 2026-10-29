@@ -22,7 +22,6 @@ use sp_runtime::AccountId32;
 use sp_storage::StorageKey;
 use std::sync::Arc;
 
-use citizenchain as runtime;
 
 use crate::core::service::FullClient;
 

@@ -30,9 +30,8 @@ export type UserVoteStatus = {
 // ── 管理员匹配（提案发起/投票签名流程共用） ──
 
 export type AdminSignerMatch = {
-  ss58_address: string;
-  account_id: string;
-  account_label: string;
+  accountId: string;
+  accountLabel: string;
   /// 当前机构内可供选择的任职岗位；同一账户可拥有多个岗位票据。
   roleAssignments?: InstitutionRoleAssignmentInfo[];
 };
@@ -40,7 +39,7 @@ export type AdminSignerMatch = {
 // ── 管理员激活 ──
 
 export type ActivatedAdmin = {
-  account_id: string;
+  accountId: string;
   cidNumber: string;
   institutionCode: number[];
   kind: number;
@@ -59,12 +58,12 @@ export type ActivateRequestResult = {
 export type InstitutionListItem = {
   cidFullName: string;
   cidShortName: string;
-  cidFullNameEn: string;
-  cidShortNameEn: string;
+  fullNameEn: string;
+  shortNameEn: string;
   cidNumber: string;
   orgType: number;
   orgTypeLabel: string;
-  main_account_id: string;
+  mainAccountId: string;
 };
 
 export type GovernanceOverview = {
@@ -86,7 +85,7 @@ export type InstitutionRoleAssignmentInfo = {
 };
 
 export type InstitutionAdminInfo = {
-  account_id: string;
+  accountId: string;
   familyName: string;
   givenName: string;
   assignments: InstitutionRoleAssignmentInfo[];
@@ -99,26 +98,26 @@ export type AdminInfo = InstitutionAdminInfo & {
 export type InstitutionDetail = {
   cidFullName: string;
   cidShortName: string;
-  cidFullNameEn: string;
-  cidShortNameEn: string;
+  fullNameEn: string;
+  shortNameEn: string;
   cidNumber: string;
   orgType: number;
   orgTypeLabel: string;
-  main_account_id: string;
+  mainAccountId: string;
   balanceFen: string | null;
   admins: AdminInfo[];
   internalThreshold: number;
   jointVoteWeight: number;
-  stake_account_id: string | null;
+  stakeAccountId: string | null;
   stakingBalanceFen: string | null;
-  fee_account_id: string | null;
+  feeAccountId: string | null;
   feeBalanceFen: string | null;
-  cb_fee_account_id: string | null;
-  cbFeeBalanceFen: string | null;
-  nrc_fee_account_id: string | null;
-  nrcFeeBalanceFen: string | null;
-  safety_fund_account_id: string | null;
-  safetyFundBalanceFen: string | null;
+  cbAccountId: string | null;
+  cbFeeFen: string | null;
+  nrcAccountId: string | null;
+  nrcFeeFen: string | null;
+  fundAccountId: string | null;
+  fundBalanceFen: string | null;
   warning: string | null;
 };
 
@@ -127,9 +126,9 @@ export type InstitutionBalanceUpdate = {
   balanceFen: string | null;
   stakingBalanceFen: string | null;
   feeBalanceFen: string | null;
-  cbFeeBalanceFen: string | null;
-  nrcFeeBalanceFen: string | null;
-  safetyFundBalanceFen: string | null;
+  cbFeeFen: string | null;
+  nrcFeeFen: string | null;
+  fundBalanceFen: string | null;
   warning: string | null;
 };
 
@@ -172,13 +171,13 @@ export type ProposalMeta = {
   status: number;
   internalCode: string | null;
   actorCidNumber: string | null;
-  execution_account_id: string | null;
+  executionAccountId: string | null;
   subjectCidNumbers: string[];
 };
 
 export type RuntimeUpgradeDetail = {
   proposalId: number;
-  proposer_account_id: string;
+  proposerAccountId: string;
   reason: string;
   codeHashHex: string;
 };

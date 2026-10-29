@@ -18,7 +18,10 @@ use primitives::cid::number::cid_scope_codes;
 pub(crate) fn admin_from_row(row: &postgres::Row) -> Result<AdminUser, String> {
     let id: i64 = row.get(0);
     Ok(AdminUser {
-        id: u64::try_from(id).ok().filter(|id| *id > 0).ok_or("invalid stored admin id")?,
+        id: u64::try_from(id)
+            .ok()
+            .filter(|id| *id > 0)
+            .ok_or("invalid stored admin id")?,
         account_id: row.get(1),
         family_name: row.get(2),
         given_name: row.get(3),
@@ -47,12 +50,6 @@ fn binding_from_row(row: &postgres::Row) -> Result<NodeInstitutionBinding, Strin
 // Tier1 创世注册局管理员「全走链读」：管理员账户 ID 来自 FRG AdminAccounts，
 // 省维度只来自 InstitutionRoleAssignments；本地不得建立权限缓存。
 
-
-
-
-
-
-
 pub(crate) fn get_admin_by_account_id(
     db: &Db,
     account_id: &str,
@@ -67,8 +64,8 @@ pub(crate) fn get_admin_by_account_id_conn(
 ) -> Result<Option<AdminUser>, String> {
     let row = conn
         .query_opt(
-            "SELECT admin_id, account_id, family_name, given_name, institution_code, built_in, creator_account_id, created_at, updated_at, city_name, institution_cid_number
-             FROM admins
+            "SELECT admin_id, account_id, family_name, given_name, institution_code, built_in, creator_account, created_at, updated_at, city_name, institution_cid
+             FROM admin
              WHERE account_id = $1",
             &[&account_id],
         )
@@ -108,7 +105,9 @@ pub(crate) fn derive_admin_scope_conn(
     if binding.institution_code != institution_code {
         return Err("active node binding institution mismatch".to_string());
     }
-    if crate::core::chain_runtime::is_tier1_registry(institution_code) { return Ok((None, None, None)); }
+    if crate::core::chain_runtime::is_tier1_registry(institution_code) {
+        return Ok((None, None, None));
+    }
     authorization_scope_from_identity_conn(
         conn,
         binding.institution_code.as_str(),
@@ -130,8 +129,8 @@ pub(crate) fn resolve_home_cid_short_name_conn(
     let row = if crate::core::chain_runtime::is_tier1_registry(institution_code) {
         // Tier1 创世注册局全局唯一,直接按机构码取其机构简称。
         conn.query_opt(
-            "SELECT cid_short_name FROM subjects \
-             WHERE institution_code = $1 AND status = 'ACTIVE' LIMIT 1",
+            "SELECT short_name FROM subject \
+             WHERE institution_code = $1 AND state_code = 'ACTIVE' LIMIT 1",
             &[&institution_code],
         )
         .map_err(|e| format!("query federal registry short name failed: {e}"))?
@@ -140,8 +139,8 @@ pub(crate) fn resolve_home_cid_short_name_conn(
     {
         // NJD 等全国级机构没有省市作用域,按机构码直接解析本机构简称。
         conn.query_opt(
-            "SELECT cid_short_name FROM subjects \
-             WHERE institution_code = $1 AND status = 'ACTIVE' LIMIT 1",
+            "SELECT short_name FROM subject \
+             WHERE institution_code = $1 AND state_code = 'ACTIVE' LIMIT 1",
             &[&institution_code],
         )
         .map_err(|e| format!("query national institution short name failed: {e}"))?
@@ -158,8 +157,8 @@ pub(crate) fn resolve_home_cid_short_name_conn(
             return Ok(None);
         };
         conn.query_opt(
-            "SELECT cid_short_name FROM subjects \
-             WHERE institution_code = $1 AND status = 'ACTIVE' \
+            "SELECT short_name FROM subject \
+             WHERE institution_code = $1 AND state_code = 'ACTIVE' \
                AND province_code = $2 AND city_code = $3 LIMIT 1",
             &[&institution_code, &province_code, &city_code],
         )
@@ -193,9 +192,9 @@ pub(crate) fn resolve_binding_candidate_metadata_conn(
 ) -> Result<Option<BindingCandidateMetadata>, String> {
     let row = conn
         .query_opt(
-            "SELECT s.cid_number, s.cid_full_name, s.cid_short_name,
+            "SELECT s.cid_number, s.full_name, s.short_name,
                     s.province_code, COALESCE(s.city_code, ''), COALESCE(s.town_code, '')
-             FROM subjects s
+             FROM subject s
              WHERE s.cid_number = $1
              ORDER BY s.updated_at DESC
              LIMIT 1",
@@ -255,7 +254,10 @@ fn authorization_scope_from_identity_conn(
     institution_cid_number: &str,
     frg_province_code: Option<&str>,
 ) -> Result<AdminScope, String> {
-    crate::core::chain_runtime::identity_from_binding_parts(institution_code, Some(institution_cid_number))?;
+    crate::core::chain_runtime::identity_from_binding_parts(
+        institution_code,
+        Some(institution_cid_number),
+    )?;
     let institution_scope = if crate::core::chain_runtime::is_tier1_registry(institution_code) {
         None
     } else {
@@ -268,10 +270,17 @@ fn authorization_scope_from_identity_conn(
         // **不含镇码**。镇级机构(`T***`,14 种 `AdminLevel::Town`)的镇码只存在于投影里,
         // 无条件改走 CID 会让镇级管理员 `scope_town_name` 恒为 None,
         // 进而在 `authorization::rules` 的 TOWN 分支 fail-closed 成空可见范围。
-        let (province, city) = cid_scope_codes(institution_cid_number.as_bytes()).map_err(|error| format!("{SCOPE_ERROR_PREFIX}institution cid scope invalid: {error}"))?;
-        let province_code = String::from_utf8(province.to_vec()).map_err(|_| "invalid institution province code")?;
-        let city_code = String::from_utf8(city.to_vec()).map_err(|_| "invalid institution city number")?;
-        let town_code = resolve_binding_candidate_metadata_conn(conn, institution_cid_number)?.map(|(_,_,_,_,_,town)| town).unwrap_or_default();
+        let (province, city) =
+            cid_scope_codes(institution_cid_number.as_bytes()).map_err(|error| {
+                format!("{SCOPE_ERROR_PREFIX}institution cid scope invalid: {error}")
+            })?;
+        let province_code = String::from_utf8(province.to_vec())
+            .map_err(|_| "invalid institution province code")?;
+        let city_code =
+            String::from_utf8(city.to_vec()).map_err(|_| "invalid institution city number")?;
+        let town_code = resolve_binding_candidate_metadata_conn(conn, institution_cid_number)?
+            .map(|(_, _, _, _, _, town)| town)
+            .unwrap_or_default();
         let (province_name, city_name, town_name) = crate::cid::china::area_display_names(
             province_code.as_str(),
             Some(city_code.as_str()),
@@ -285,7 +294,9 @@ fn authorization_scope_from_identity_conn(
     };
     authorization_scope_from_sources(
         institution_code,
-        frg_province_code.map(crate::core::chain_runtime::parse_hex_2).transpose()?,
+        frg_province_code
+            .map(crate::core::chain_runtime::parse_hex_2)
+            .transpose()?,
         institution_scope,
     )
 }
@@ -348,7 +359,9 @@ pub(crate) fn candidate_for_binding_conn(
         scope_city_name: None,
         scope_town_name: None,
     };
-    if !crate::core::chain_runtime::is_tier1_registry(&candidate.institution_code) { derive_candidate_authorization_scope_conn(conn, &mut candidate)?; }
+    if !crate::core::chain_runtime::is_tier1_registry(&candidate.institution_code) {
+        derive_candidate_authorization_scope_conn(conn, &mut candidate)?;
+    }
     hydrate_candidate_institution_metadata_conn(conn, &mut candidate)?;
     Ok(candidate)
 }
@@ -358,10 +371,10 @@ pub(crate) fn get_active_node_binding_conn(
 ) -> Result<Option<NodeInstitutionBinding>, String> {
     let row = conn
         .query_opt(
-            "SELECT binding_id, candidate_id, institution_code, institution_cid_number,
-                    bound_account_id, bound_at, status
-             FROM node_institution_bindings
-             WHERE status = 'ACTIVE'
+            "SELECT binding_id, candidate_id, institution_code, institution_cid,
+                    bound_account, bound_at, state_code
+             FROM binding
+             WHERE state_code = 'ACTIVE'
              ORDER BY bound_at DESC
              LIMIT 1",
             &[],
@@ -380,9 +393,14 @@ pub(crate) fn active_node_binding(db: &Db) -> Result<Option<NodeInstitutionBindi
 }
 
 /// 绑定确认、治理写入和实体投影共用事务锁；调用方必须持有数据库事务。
-pub(crate) fn lock_node_binding_conn(conn: &mut impl postgres::GenericClient) -> Result<(), String> {
-    conn.query_one("SELECT pg_advisory_xact_lock(hashtextextended('onchina-node-binding', 0))", &[])
-        .map_err(|e| format!("lock node binding failed: {e}"))?;
+pub(crate) fn lock_node_binding_conn(
+    conn: &mut impl postgres::GenericClient,
+) -> Result<(), String> {
+    conn.query_one(
+        "SELECT pg_advisory_xact_lock(hashtextextended('onchina-node-binding', 0))",
+        &[],
+    )
+    .map_err(|e| format!("lock node binding failed: {e}"))?;
     Ok(())
 }
 
@@ -391,9 +409,9 @@ pub(crate) fn upsert_active_node_binding_conn(
     binding: &NodeInstitutionBinding,
 ) -> Result<(), String> {
     conn.execute(
-        "UPDATE node_institution_bindings
-         SET status = 'INACTIVE'
-         WHERE status = 'ACTIVE'",
+        "UPDATE binding
+         SET state_code = 'INACTIVE'
+         WHERE state_code = 'ACTIVE'",
         &[],
     )
     .map_err(|e| {
@@ -403,9 +421,9 @@ pub(crate) fn upsert_active_node_binding_conn(
         )
     })?;
     conn.execute(
-        "INSERT INTO node_institution_bindings (
-            binding_id, candidate_id, institution_code, institution_cid_number,
-            bound_account_id, bound_at, status
+        "INSERT INTO binding (
+            binding_id, candidate_id, institution_code, institution_cid,
+            bound_account, bound_at, state_code
          )
          VALUES ($1,$2,$3,$4,$5,$6,$7)",
         &[
@@ -422,12 +440,14 @@ pub(crate) fn upsert_active_node_binding_conn(
     Ok(())
 }
 
-pub(crate) fn deactivate_active_node_binding_conn(conn: &mut impl postgres::GenericClient) -> Result<u64, String> {
+pub(crate) fn deactivate_active_node_binding_conn(
+    conn: &mut impl postgres::GenericClient,
+) -> Result<u64, String> {
     let changed = conn
         .execute(
-            "UPDATE node_institution_bindings
-             SET status = 'INACTIVE'
-             WHERE status = 'ACTIVE'",
+            "UPDATE binding
+             SET state_code = 'INACTIVE'
+             WHERE state_code = 'ACTIVE'",
             &[],
         )
         .map_err(|e| {
@@ -444,31 +464,8 @@ pub(crate) fn insert_node_binding_challenge_conn(
     challenge: &NodeBindingChallenge,
 ) -> Result<(), String> {
     let payload = serde_json::to_value(challenge)
-        .map_err(|e| format!("encode node binding challenge failed: {e}"))?;
-    conn.execute(
-        "INSERT INTO node_binding_challenges(
-            binding_challenge_id, account_id, expires_at, consumed, payload
-         )
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (binding_challenge_id) DO UPDATE SET
-            account_id = EXCLUDED.account_id,
-            expires_at = EXCLUDED.expires_at,
-            consumed = EXCLUDED.consumed,
-            payload = EXCLUDED.payload",
-        &[
-            &challenge.binding_challenge_id,
-            &challenge.account_id,
-            &challenge.expire_at,
-            &challenge.consumed,
-            &payload,
-        ],
-    )
-    .map_err(|e| {
-        format!(
-            "insert node binding challenge failed: {}",
-            postgres_error_text(&e)
-        )
-    })?;
+        .map_err(|e| format!("encode authentication record failed: {e}"))?;
+    conn.execute("INSERT INTO enrollment(payload_json) VALUES($1) ON CONFLICT ((payload_json->>'bindingChallengeId')) DO UPDATE SET payload_json=EXCLUDED.payload_json", &[&payload]).map_err(|e| format!("store authentication record failed: {e}"))?;
     Ok(())
 }
 
@@ -478,50 +475,40 @@ pub(crate) fn get_node_binding_challenge_conn(
 ) -> Result<Option<NodeBindingChallenge>, String> {
     let row = conn
         .query_opt(
-            "SELECT payload FROM node_binding_challenges WHERE binding_challenge_id = $1",
+            "SELECT payload_json FROM enrollment WHERE payload_json->>'bindingChallengeId' = $1",
             &[&binding_challenge_id],
         )
-        .map_err(|e| {
-            format!(
-                "query node binding challenge failed: {}",
-                postgres_error_text(&e)
-            )
-        })?;
-    row.map(|r| serde_json::from_value::<NodeBindingChallenge>(r.get(0)))
+        .map_err(|e| format!("query NodeBindingChallenge failed: {e}"))?;
+    row.map(|row| serde_json::from_value::<NodeBindingChallenge>(row.get(0)))
         .transpose()
-        .map_err(|e| format!("decode node binding challenge failed: {e}"))
+        .map_err(|e| format!("decode NodeBindingChallenge failed: {e}"))
 }
 
 pub(crate) fn consume_node_binding_challenge_conn(
     conn: &mut impl postgres::GenericClient,
     challenge: &NodeBindingChallenge,
 ) -> Result<(), String> {
-    let mut consumed = challenge.clone();
-    consumed.consumed = true;
-    let payload = serde_json::to_value(&consumed)
-        .map_err(|e| format!("encode consumed node binding challenge failed: {e}"))?;
-    conn.execute(
-        "UPDATE node_binding_challenges
-         SET consumed = true, payload = $2
-         WHERE binding_challenge_id = $1",
-        &[&challenge.binding_challenge_id, &payload],
-    )
-    .map_err(|e| {
-        format!(
-            "consume node binding challenge failed: {}",
-            postgres_error_text(&e)
-        )
-    })?;
+    let count = conn.execute("UPDATE enrollment SET payload_json=jsonb_set(payload_json,'{consumed}','true') WHERE payload_json->>'bindingChallengeId'=$1 AND (payload_json->>'consumed')::boolean=false", &[&challenge.binding_challenge_id]).map_err(|e| format!("consume binding challenge failed: {e}"))?;
+    if count != 1 {
+        return Err("binding challenge missing or consumed".into());
+    }
     Ok(())
 }
 
 pub(crate) fn next_admin_id_conn(conn: &mut impl postgres::GenericClient) -> Result<u64, String> {
     // 首次接续既有 ID，此后由单行原子递增；并发登录/名册登记不能读到同一个 MAX+1。
-    if conn.query_opt("SELECT next_seq FROM sequence_counters WHERE seq_key='admin_id'", &[]).map_err(|e| e.to_string())?.is_none() {
-        conn.execute("INSERT INTO sequence_counters(seq_key,next_seq) SELECT 'admin_id', COALESCE(MAX(admin_id),0) FROM admins ON CONFLICT (seq_key) DO NOTHING", &[])
+    if conn
+        .query_opt(
+            "SELECT next_seq FROM sequence WHERE seq_key='admin_id'",
+            &[],
+        )
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        conn.execute("INSERT INTO sequence(seq_key,next_seq) SELECT 'admin_id', COALESCE(MAX(admin_id),0) FROM admin ON CONFLICT (seq_key) DO NOTHING", &[])
             .map_err(|e| format!("initialize admin id counter failed: {e}"))?;
     }
-    let row = conn.query_opt("UPDATE sequence_counters SET next_seq=next_seq+1 WHERE seq_key='admin_id' AND next_seq>=0 AND next_seq<9223372036854775807 RETURNING next_seq", &[])
+    let row = conn.query_opt("UPDATE sequence SET next_seq=next_seq+1 WHERE seq_key='admin_id' AND next_seq>=0 AND next_seq<9223372036854775807 RETURNING next_seq", &[])
         .map_err(|e| format!("allocate admin id failed: {e}"))?
         .ok_or("admin id capacity exhausted or counter invalid")?;
     let id: i64 = row.get(0);
@@ -532,19 +519,22 @@ pub(crate) fn next_admin_id_conn(conn: &mut impl postgres::GenericClient) -> Res
 ///
 /// 管理员成员资格与节点机构归属以链上 active 集合 + 本节点 active binding 为准。
 /// 本函数只维护 `admins` 登录元数据缓存本身。
-pub(crate) fn upsert_admin_conn(conn: &mut impl postgres::GenericClient, admin: &AdminUser) -> Result<(), String> {
+pub(crate) fn upsert_admin_conn(
+    conn: &mut impl postgres::GenericClient,
+    admin: &AdminUser,
+) -> Result<(), String> {
     conn.execute(
-        "INSERT INTO admins(admin_id, account_id, family_name, given_name, institution_code, built_in, creator_account_id, created_at, updated_at, city_name, institution_cid_number)
+        "INSERT INTO admin(admin_id, account_id, family_name, given_name, institution_code, built_in, creator_account, created_at, updated_at, city_name, institution_cid)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (account_id) DO UPDATE SET
             family_name = EXCLUDED.family_name,
             given_name = EXCLUDED.given_name,
             institution_code = EXCLUDED.institution_code,
             built_in = EXCLUDED.built_in,
-            creator_account_id = EXCLUDED.creator_account_id,
+            creator_account = EXCLUDED.creator_account,
             updated_at = EXCLUDED.updated_at,
             city_name = EXCLUDED.city_name,
-            institution_cid_number = EXCLUDED.institution_cid_number",
+            institution_cid = EXCLUDED.institution_cid",
         &[
             &i64::try_from(admin.id).map_err(|_| "admin id exceeds database capacity")?,
             &admin.account_id,
@@ -568,25 +558,27 @@ pub(crate) fn delete_admin_runtime_state_conn(
     account_id: &str,
 ) -> Result<(), String> {
     conn.execute(
-        "DELETE FROM admin_sessions WHERE account_id = $1",
+        "DELETE FROM session WHERE payload_json->>'accountId' = $1",
         &[&account_id],
     )
     .map_err(|e| format!("delete admin sessions failed: {e}"))?;
     conn.execute(
-        "DELETE FROM admin_action_challenges WHERE actor_account_id = $1",
+        "DELETE FROM challenge WHERE payload_json->>'actorAccountId' = $1",
         &[&account_id],
     )
     .map_err(|e| format!("delete admin action challenges failed: {e}"))?;
     conn.execute(
-        "DELETE FROM admin_security_grants WHERE actor_account_id = $1",
+        "DELETE FROM \"grant\" WHERE payload_json->>'actorAccountId' = $1",
         &[&account_id],
     )
     .map_err(|e| format!("delete admin security grants failed: {e}"))?;
     Ok(())
 }
 
-pub(crate) fn delete_all_admin_sessions_conn(conn: &mut impl postgres::GenericClient) -> Result<u64, String> {
-    conn.execute("DELETE FROM admin_sessions", &[])
+pub(crate) fn delete_all_admin_sessions_conn(
+    conn: &mut impl postgres::GenericClient,
+) -> Result<u64, String> {
+    conn.execute("DELETE FROM session", &[])
         .map_err(|e| format!("delete all admin sessions failed: {e}"))
 }
 
@@ -594,18 +586,9 @@ pub(crate) fn cleanup_security_state_conn(
     conn: &mut impl postgres::GenericClient,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
-    conn.execute(
-        "DELETE FROM admin_action_challenges
-         WHERE consumed = true OR expires_at < $1",
-        &[&now],
-    )
-    .map_err(|e| format!("cleanup admin action challenges failed: {e}"))?;
-    conn.execute(
-        "DELETE FROM admin_security_grants
-         WHERE consumed = true OR expires_at < $1",
-        &[&now],
-    )
-    .map_err(|e| format!("cleanup admin security grants failed: {e}"))?;
+    let now = now.timestamp_millis();
+    conn.execute("DELETE FROM challenge WHERE (payload_json->>'consumed')::boolean OR (payload_json->>'expiresAt')::bigint < $1", &[&now]).map_err(|e| format!("cleanup action challenges failed: {e}"))?;
+    conn.execute("DELETE FROM \"grant\" WHERE (payload_json->>'consumed')::boolean OR (payload_json->>'expiresAt')::bigint < $1", &[&now]).map_err(|e| format!("cleanup security grants failed: {e}"))?;
     Ok(())
 }
 
@@ -629,14 +612,13 @@ pub(crate) fn get_action_challenge_conn(
 ) -> Result<Option<AdminActionChallenge>, String> {
     let row = conn
         .query_opt(
-            "SELECT payload FROM admin_action_challenges
-             WHERE action_id = $1 AND actor_account_id = $2",
-            &[&action_id, &actor_account_id],
+            "SELECT payload_json FROM challenge WHERE payload_json->>'actionId' = $1",
+            &[&action_id],
         )
-        .map_err(|e| format!("query action challenge failed: {e}"))?;
-    row.map(|r| serde_json::from_value::<AdminActionChallenge>(r.get(0)))
+        .map_err(|e| format!("query AdminActionChallenge failed: {e}"))?;
+    row.map(|row| serde_json::from_value::<AdminActionChallenge>(row.get(0)))
         .transpose()
-        .map_err(|e| format!("decode action challenge failed: {e}"))
+        .map_err(|e| format!("decode AdminActionChallenge failed: {e}"))
 }
 
 pub(crate) fn upsert_action_challenge_conn(
@@ -644,26 +626,8 @@ pub(crate) fn upsert_action_challenge_conn(
     challenge: &AdminActionChallenge,
 ) -> Result<(), String> {
     let payload = serde_json::to_value(challenge)
-        .map_err(|e| format!("encode action challenge failed: {e}"))?;
-    conn.execute(
-        "INSERT INTO admin_action_challenges(action_id, actor_account_id, action_type, expires_at, consumed, payload)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (action_id) DO UPDATE SET
-            actor_account_id = EXCLUDED.actor_account_id,
-            action_type = EXCLUDED.action_type,
-            expires_at = EXCLUDED.expires_at,
-            consumed = EXCLUDED.consumed,
-            payload = EXCLUDED.payload",
-        &[
-            &challenge.action_id,
-            &challenge.actor_account_id,
-            &challenge.action_type,
-            &challenge.expires_at,
-            &challenge.consumed,
-            &payload,
-        ],
-    )
-    .map_err(|e| format!("upsert action challenge failed: {e}"))?;
+        .map_err(|e| format!("encode authentication record failed: {e}"))?;
+    conn.execute("INSERT INTO challenge(payload_json) VALUES($1) ON CONFLICT ((payload_json->>'actionId')) DO UPDATE SET payload_json=EXCLUDED.payload_json", &[&payload]).map_err(|e| format!("store authentication record failed: {e}"))?;
     Ok(())
 }
 
@@ -671,27 +635,9 @@ pub(crate) fn insert_security_grant_conn(
     conn: &mut impl postgres::GenericClient,
     grant: &AdminSecurityGrant,
 ) -> Result<(), String> {
-    let payload =
-        serde_json::to_value(grant).map_err(|e| format!("encode security grant failed: {e}"))?;
-    conn.execute(
-        "INSERT INTO admin_security_grants(grant_id, actor_account_id, action_type, expires_at, consumed, payload)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (grant_id) DO UPDATE SET
-            actor_account_id = EXCLUDED.actor_account_id,
-            action_type = EXCLUDED.action_type,
-            expires_at = EXCLUDED.expires_at,
-            consumed = EXCLUDED.consumed,
-            payload = EXCLUDED.payload",
-        &[
-            &grant.grant_id,
-            &grant.actor_account_id,
-            &grant.action_type,
-            &grant.expires_at,
-            &grant.consumed,
-            &payload,
-        ],
-    )
-    .map_err(|e| format!("insert security grant failed: {e}"))?;
+    let payload = serde_json::to_value(grant)
+        .map_err(|e| format!("encode authentication record failed: {e}"))?;
+    conn.execute("INSERT INTO \"grant\"(payload_json) VALUES($1) ON CONFLICT ((payload_json->>'grantId')) DO UPDATE SET payload_json=EXCLUDED.payload_json", &[&payload]).map_err(|e| format!("store authentication record failed: {e}"))?;
     Ok(())
 }
 
@@ -702,14 +648,8 @@ pub(crate) fn get_security_grant_conn(
     grant_id: &str,
     actor_account_id: &str,
 ) -> Result<Option<AdminSecurityGrant>, String> {
-    let row = conn
-        .query_opt(
-            "SELECT payload FROM admin_security_grants
-             WHERE grant_id = $1 AND actor_account_id = $2",
-            &[&grant_id, &actor_account_id],
-        )
-        .map_err(|e| format!("query security grant failed: {e}"))?;
-    row.map(|r| serde_json::from_value::<AdminSecurityGrant>(r.get(0)))
+    let row = conn.query_opt("SELECT payload_json FROM \"grant\" WHERE payload_json->>'grantId'=$1 AND payload_json->>'actorAccountId'=$2", &[&grant_id,&actor_account_id]).map_err(|e| format!("query security grant failed: {e}"))?;
+    row.map(|row| serde_json::from_value::<AdminSecurityGrant>(row.get(0)))
         .transpose()
         .map_err(|e| format!("decode security grant failed: {e}"))
 }
@@ -718,46 +658,12 @@ pub(crate) fn cleanup_login_state_conn(
     conn: &mut impl postgres::GenericClient,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
-    let stale_login_before = now - Duration::minutes(10);
-    let consumed_login_before = now;
-    conn.execute(
-        "DELETE FROM admin_login_sign_requests
-         WHERE expires_at < $1
-            OR (consumed = true AND expires_at < $2)",
-        &[&stale_login_before, &consumed_login_before],
-    )
-    .map_err(|e| {
-        format!(
-            "cleanup login sign requests failed: {}",
-            postgres_error_text(&e)
-        )
-    })?;
-    let stale_qr_created_before = now - Duration::hours(1);
-    let stale_qr_expired_before = now - Duration::minutes(10);
-    conn.execute(
-        "DELETE FROM admin_qr_login_results
-         WHERE created_at < $1
-            OR expires_at < $2",
-        &[&stale_qr_created_before, &stale_qr_expired_before],
-    )
-    .map_err(|e| {
-        format!(
-            "cleanup qr login results failed: {}",
-            postgres_error_text(&e)
-        )
-    })?;
-    conn.execute(
-        "DELETE FROM node_binding_challenges
-         WHERE expires_at < $1
-            OR (consumed = true AND expires_at < $2)",
-        &[&stale_login_before, &consumed_login_before],
-    )
-    .map_err(|e| {
-        format!(
-            "cleanup node binding challenges failed: {}",
-            postgres_error_text(&e)
-        )
-    })?;
+    let stale_login = (now - Duration::minutes(10)).timestamp_millis();
+    let consumed_login = now.timestamp_millis();
+    conn.execute("DELETE FROM login WHERE (payload_json->>'expiresAt')::bigint < $1 OR ((payload_json->>'consumed')::boolean AND (payload_json->>'expiresAt')::bigint < $2)", &[&stale_login,&consumed_login]).map_err(|e| format!("cleanup login requests failed: {e}"))?;
+    let stale_created = now - Duration::hours(1);
+    conn.execute("DELETE FROM result WHERE (payload_json->>'createdAt')::timestamptz < $1 OR (payload_json->>'expiresAt')::bigint < $2", &[&stale_created,&stale_login]).map_err(|e| format!("cleanup QR results failed: {e}"))?;
+    conn.execute("DELETE FROM enrollment WHERE (payload_json->>'expiresAt')::bigint < $1 OR ((payload_json->>'consumed')::boolean AND (payload_json->>'expiresAt')::bigint < $2)", &[&stale_login,&consumed_login]).map_err(|e| format!("cleanup binding challenges failed: {e}"))?;
     Ok(())
 }
 
@@ -767,28 +673,9 @@ pub(crate) fn insert_login_sign_request(
 ) -> Result<(), String> {
     let challenge = challenge.clone();
     db.with_client(move |conn| {
-        cleanup_login_state_conn(conn, Utc::now())?;
-        let payload = serde_json::to_value(&challenge)
-            .map_err(|e| format!("encode login sign request failed: {e}"))?;
-        conn.execute(
-            "INSERT INTO admin_login_sign_requests(challenge_id, session_id, account_id, expires_at, consumed, payload)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (challenge_id) DO UPDATE SET
-                session_id = EXCLUDED.session_id,
-                account_id = EXCLUDED.account_id,
-                expires_at = EXCLUDED.expires_at,
-                consumed = EXCLUDED.consumed,
-                payload = EXCLUDED.payload",
-            &[
-                &challenge.challenge_id,
-                &challenge.session_id,
-                &challenge.account_id,
-                &challenge.expire_at,
-                &challenge.consumed,
-                &payload,
-            ],
-        )
-        .map_err(|e| format!("insert login sign request failed: {}", postgres_error_text(&e)))?;
+        cleanup_login_state_conn(conn,Utc::now())?;
+        let payload=serde_json::to_value(&challenge).map_err(|e| format!("encode login request failed: {e}"))?;
+        conn.execute("INSERT INTO login(payload_json) VALUES($1) ON CONFLICT ((payload_json->>'challengeId')) DO UPDATE SET payload_json=EXCLUDED.payload_json", &[&payload]).map_err(|e| format!("store login request failed: {e}"))?;
         Ok(())
     })
 }
@@ -799,48 +686,34 @@ pub(crate) fn get_login_sign_request_conn(
 ) -> Result<Option<LoginSignRequest>, String> {
     let row = conn
         .query_opt(
-            "SELECT payload FROM admin_login_sign_requests WHERE challenge_id = $1",
+            "SELECT payload_json FROM login WHERE payload_json->>'challengeId' = $1",
             &[&challenge_id],
         )
-        .map_err(|e| {
-            format!(
-                "query login sign request failed: {}",
-                postgres_error_text(&e)
-            )
-        })?;
-    row.map(|r| serde_json::from_value::<LoginSignRequest>(r.get(0)))
+        .map_err(|e| format!("query LoginSignRequest failed: {e}"))?;
+    row.map(|row| serde_json::from_value::<LoginSignRequest>(row.get(0)))
         .transpose()
-        .map_err(|e| format!("decode login sign request failed: {e}"))
+        .map_err(|e| format!("decode LoginSignRequest failed: {e}"))
 }
 
 pub(crate) fn update_login_sign_request_conn(
     conn: &mut impl postgres::GenericClient,
     challenge: &LoginSignRequest,
 ) -> Result<(), String> {
-    let payload = serde_json::to_value(challenge)
-        .map_err(|e| format!("encode login sign request failed: {e}"))?;
-    conn.execute(
-        "UPDATE admin_login_sign_requests
-         SET account_id = $2, expires_at = $3, consumed = $4, payload = $5
-         WHERE challenge_id = $1",
-        &[
-            &challenge.challenge_id,
-            &challenge.account_id,
-            &challenge.expire_at,
-            &challenge.consumed,
-            &payload,
-        ],
-    )
-    .map_err(|e| {
-        format!(
-            "update login sign request failed: {}",
-            postgres_error_text(&e)
+    let payload =
+        serde_json::to_value(challenge).map_err(|e| format!("encode login request failed: {e}"))?;
+    let count = conn
+        .execute(
+            "UPDATE login SET payload_json=$2 WHERE payload_json->>'challengeId'=$1",
+            &[&challenge.challenge_id, &payload],
         )
-    })?;
+        .map_err(|e| format!("update login request failed: {e}"))?;
+    if count != 1 {
+        return Err("login request missing".into());
+    }
     Ok(())
 }
 
-/// 会话令牌落库前统一取 SHA-256 十六进制:token 列与 payload 都只存哈希,
+/// 会话只以原令牌SHA-256定位，JSON不存明文、空值占位或第二份哈希,
 /// DB 被 dump 也拿不到可直接冒用的明文令牌(明文只在客户端 Cookie/请求头里)。
 /// 令牌本身是高熵随机 UUID,无需加盐即可抵御彩虹表。
 pub(crate) fn admin_session_token_hash(raw_token: &str) -> String {
@@ -851,44 +724,18 @@ pub(crate) fn insert_admin_session_conn(
     conn: &mut impl postgres::GenericClient,
     session: &AdminSession,
 ) -> Result<(), String> {
-    // 入参 session.token 是明文令牌;列存哈希,payload 里的 token 清空(不落明文)。
     let token_hash = admin_session_token_hash(&session.token);
-    let mut stored = session.clone();
-    stored.token.clear();
     let payload =
-        serde_json::to_value(&stored).map_err(|e| format!("encode admin session failed: {e}"))?;
-    conn.execute(
-        "INSERT INTO admin_sessions(token, account_id, institution_code, candidate_id, expires_at, last_active_at, payload)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (token) DO UPDATE SET
-            account_id = EXCLUDED.account_id,
-            institution_code = EXCLUDED.institution_code,
-            candidate_id = EXCLUDED.candidate_id,
-            expires_at = EXCLUDED.expires_at,
-            last_active_at = EXCLUDED.last_active_at,
-            payload = EXCLUDED.payload",
-        &[
-            &token_hash,
-            &session.account_id,
-            &session.institution_code,
-            &session.candidate_id,
-            &session.expire_at,
-            &session.last_active_at,
-            &payload,
-        ],
-    )
-    .map_err(|e| format!("insert admin session failed: {e}"))?;
+        serde_json::to_value(session).map_err(|e| format!("encode session failed: {e}"))?;
+    conn.execute("INSERT INTO session(token_hash,payload_json) VALUES($1,$2) ON CONFLICT(token_hash) DO UPDATE SET payload_json=EXCLUDED.payload_json", &[&token_hash,&payload]).map_err(|e| format!("store session failed: {e}"))?;
     Ok(())
 }
 
 pub(crate) fn delete_admin_session(db: &Db, token: &str) -> Result<(), String> {
     let token_hash = admin_session_token_hash(token.trim());
     db.with_client(move |conn| {
-        conn.execute(
-            "DELETE FROM admin_sessions WHERE token = $1",
-            &[&token_hash],
-        )
-        .map_err(|e| format!("delete admin session failed: {e}"))?;
+        conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token_hash])
+            .map_err(|e| format!("delete admin session failed: {e}"))?;
         Ok(())
     })
 }
@@ -900,21 +747,19 @@ pub(crate) fn get_admin_session_conn(
     let token_hash = admin_session_token_hash(token);
     let row = conn
         .query_opt(
-            "SELECT payload FROM admin_sessions WHERE token = $1",
+            "SELECT payload_json FROM session WHERE token_hash=$1",
             &[&token_hash],
         )
-        .map_err(|e| format!("query admin session failed: {e}"))?;
-    row.map(|r| serde_json::from_value::<AdminSession>(r.get(0)))
+        .map_err(|e| format!("query session failed: {e}"))?;
+    let mut session = row
+        .map(|row| serde_json::from_value::<AdminSession>(row.get(0)))
         .transpose()
-        .map_err(|e| format!("decode admin session failed: {e}"))
-        // payload 里 token 已清空;回填调用方持有的明文令牌,后续 touch(再 insert)
-        // 才能按同一明文重新取哈希,不会因空串算错 PK。
-        .map(|opt| {
-            opt.map(|mut session| {
-                session.token = token.to_string();
-                session
-            })
-        })
+        .map_err(|e| format!("decode session failed: {e}"))?;
+    // 只有本次请求持有原令牌；JSON不保存其副本，后续touch仍按同一输入定位。
+    if let Some(session) = session.as_mut() {
+        session.token = token.to_string();
+    }
+    Ok(session)
 }
 
 pub(crate) fn touch_admin_session_conn(
@@ -927,17 +772,16 @@ pub(crate) fn touch_admin_session_conn(
 pub(crate) fn cleanup_admin_sessions_conn(
     conn: &mut impl postgres::GenericClient,
     now: DateTime<Utc>,
-    city_idle_timeout_minutes: i64,
+    idle_timeout_minutes: i64,
 ) -> Result<(), String> {
-    conn.execute("DELETE FROM admin_sessions WHERE expires_at < $1", &[&now])
-        .map_err(|e| format!("cleanup expired admin sessions failed: {e}"))?;
-    let idle_cutoff = now - Duration::minutes(city_idle_timeout_minutes);
+    let expires_before = now.timestamp_millis();
     conn.execute(
-        "DELETE FROM admin_sessions
-         WHERE institution_code = 'CREG' AND last_active_at < $1",
-        &[&idle_cutoff],
+        "DELETE FROM session WHERE (payload_json->>'expiresAt')::bigint < $1",
+        &[&expires_before],
     )
-    .map_err(|e| format!("cleanup idle city admin sessions failed: {e}"))?;
+    .map_err(|e| format!("cleanup expired sessions failed: {e}"))?;
+    let idle_before = (now - Duration::minutes(idle_timeout_minutes)).timestamp_millis();
+    conn.execute("DELETE FROM session WHERE payload_json->>'institutionCode'='CREG' AND (payload_json->>'lastActiveAt')::bigint < $1", &[&idle_before]).map_err(|e| format!("cleanup idle sessions failed: {e}"))?;
     Ok(())
 }
 
@@ -946,13 +790,8 @@ pub(crate) fn list_session_admin_account_ids_conn(
     conn: &mut impl postgres::GenericClient,
     institution_code: &str,
 ) -> Result<Vec<String>, String> {
-    let rows = conn
-        .query(
-            "SELECT DISTINCT account_id FROM admin_sessions WHERE institution_code = $1",
-            &[&institution_code],
-        )
-        .map_err(|e| format!("list session admin accounts failed: {e}"))?;
-    Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    let rows=conn.query("SELECT DISTINCT payload_json->>'accountId' FROM session WHERE payload_json->>'institutionCode'=$1", &[&institution_code]).map_err(|e| format!("list session accounts failed: {e}"))?;
+    Ok(rows.iter().map(|row| row.get::<_, String>(0)).collect())
 }
 
 /// 清退某管理员账户的全部会话,返回删除行数(链上移除后即时失效用)。
@@ -961,7 +800,7 @@ pub(crate) fn delete_admin_sessions_for_account_id_conn(
     account_id: &str,
 ) -> Result<u64, String> {
     conn.execute(
-        "DELETE FROM admin_sessions WHERE account_id = $1",
+        "DELETE FROM session WHERE payload_json->>'accountId' = $1",
         &[&account_id],
     )
     .map_err(|e| format!("delete admin sessions for account failed: {e}"))
@@ -973,26 +812,8 @@ pub(crate) fn insert_qr_login_result_conn(
     result: &QrLoginResultRecord,
 ) -> Result<(), String> {
     let payload =
-        serde_json::to_value(result).map_err(|e| format!("encode qr login result failed: {e}"))?;
-    conn.execute(
-        "INSERT INTO admin_qr_login_results(challenge_id, session_id, access_token, expires_at, payload, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (challenge_id) DO UPDATE SET
-            session_id = EXCLUDED.session_id,
-            access_token = EXCLUDED.access_token,
-            expires_at = EXCLUDED.expires_at,
-            payload = EXCLUDED.payload,
-            created_at = EXCLUDED.created_at",
-        &[
-            &challenge_id,
-            &result.session_id,
-            &result.access_token,
-            &result.expire_at,
-            &payload,
-            &result.created_at,
-        ],
-    )
-    .map_err(|e| format!("insert qr login result failed: {e}"))?;
+        serde_json::to_value(result).map_err(|e| format!("encode QR result failed: {e}"))?;
+    conn.execute("INSERT INTO result(challenge_id,payload_json) VALUES($1,$2) ON CONFLICT(challenge_id) DO UPDATE SET payload_json=EXCLUDED.payload_json", &[&challenge_id,&payload]).map_err(|e| format!("store QR result failed: {e}"))?;
     Ok(())
 }
 
@@ -1002,13 +823,13 @@ pub(crate) fn get_qr_login_result_conn(
 ) -> Result<Option<QrLoginResultRecord>, String> {
     let row = conn
         .query_opt(
-            "SELECT payload FROM admin_qr_login_results WHERE challenge_id = $1",
+            "SELECT payload_json FROM result WHERE challenge_id = $1",
             &[&challenge_id],
         )
-        .map_err(|e| format!("query qr login result failed: {e}"))?;
-    row.map(|r| serde_json::from_value::<QrLoginResultRecord>(r.get(0)))
+        .map_err(|e| format!("query QrLoginResultRecord failed: {e}"))?;
+    row.map(|row| serde_json::from_value::<QrLoginResultRecord>(row.get(0)))
         .transpose()
-        .map_err(|e| format!("decode qr login result failed: {e}"))
+        .map_err(|e| format!("decode QrLoginResultRecord failed: {e}"))
 }
 
 #[cfg(test)]
@@ -1021,10 +842,35 @@ mod tests {
     #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
     fn concurrent_admin_id_allocation_is_unique_and_overflow_is_explicit() {
         let sandbox = crate::core::db::IsolatedTestDb::new();
-        let handles = (0..8).map(|_| { let db=sandbox.db.clone(); std::thread::spawn(move || (0..16).map(|_| db.with_client(next_admin_id_conn).unwrap()).collect::<Vec<_>>()) }).collect::<Vec<_>>();
-        let ids = handles.into_iter().flat_map(|handle| handle.join().unwrap()).collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(ids.len(),128); assert_eq!(ids.first(),Some(&1)); assert_eq!(ids.last(),Some(&128));
-        sandbox.db.with_client(|conn| { conn.execute("UPDATE sequence_counters SET next_seq=9223372036854775807 WHERE seq_key='admin_id'",&[]).unwrap(); assert!(next_admin_id_conn(conn).is_err()); Ok(()) }).unwrap();
+        let handles = (0..8)
+            .map(|_| {
+                let db = sandbox.db.clone();
+                std::thread::spawn(move || {
+                    (0..16)
+                        .map(|_| db.with_client(next_admin_id_conn).unwrap())
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let ids = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids.len(), 128);
+        assert_eq!(ids.first(), Some(&1));
+        assert_eq!(ids.last(), Some(&128));
+        sandbox
+            .db
+            .with_client(|conn| {
+                conn.execute(
+                    "UPDATE sequence SET next_seq=9223372036854775807 WHERE seq_key='admin_id'",
+                    &[],
+                )
+                .unwrap();
+                assert!(next_admin_id_conn(conn).is_err());
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]

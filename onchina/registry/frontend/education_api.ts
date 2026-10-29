@@ -27,12 +27,12 @@ export type {
 export async function checkCidFullName(
   auth: AdminAuth,
   cidFullName: string,
-  subject_property?: string,
+  subjectProperty?: string,
   cityName?: string,
 ): Promise<{ exists: boolean }> {
-  const params = new URLSearchParams({ cid_full_name: cidFullName });
-  if (subject_property) params.set('subject_property', subject_property);
-  if (cityName) params.set('city_name', cityName);
+  const params = new URLSearchParams({ cidFullName: cidFullName });
+  if (subjectProperty) params.set('subjectProperty', subjectProperty);
+  if (cityName) params.set('cityName', cityName);
   return adminRequest<{ exists: boolean }>(
     `/api/institutions/check-cid-full-name?${params.toString()}`,
     auth,
@@ -76,10 +76,10 @@ export async function searchParentInstitutions(
   opts: SearchParentsOptions,
 ): Promise<ParentInstitutionRow[]> {
   const params = new URLSearchParams({ q });
-  params.set('f_institution', opts.fInstitution);
-  params.set('province_name', opts.province_name);
-  params.set('city_name', opts.city_name);
-  if (opts.parentProperty) params.set('parent_property', opts.parentProperty);
+  params.set('fInstitution', opts.fInstitution);
+  params.set('provinceName', opts.provinceName);
+  params.set('cityName', opts.cityName);
+  if (opts.parentProperty) params.set('parentProperty', opts.parentProperty);
   return adminRequest<ParentInstitutionRow[]>(
     `/api/institutions/search-parents?${params.toString()}`,
     auth,
@@ -93,11 +93,11 @@ export async function listEducationInstitutions(
   const params = new URLSearchParams();
   // EDUCATION_FORM 是列表过滤维度(后端 InstitutionListFilter),不是存储 category
   params.set('category', 'EDUCATION_FORM');
-  if (query?.province_name) params.set('province_name', query.province_name);
-  if (query?.city_name) params.set('city_name', query.city_name);
+  if (query?.provinceName) params.set('provinceName', query.provinceName);
+  if (query?.cityName) params.set('cityName', query.cityName);
   if (query?.q && query.q.trim()) params.set('q', query.q.trim());
   if (query?.cursor) params.set('cursor', query.cursor);
-  if (query?.page_size) params.set('page_size', String(query.page_size));
+  if (query?.pageSize) params.set('pageSize', String(query.pageSize));
   return adminRequest<PageResult<InstitutionListRow>>(
     `/api/institutions/list?${params.toString()}`,
     auth,

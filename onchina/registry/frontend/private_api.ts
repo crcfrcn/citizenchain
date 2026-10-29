@@ -40,12 +40,12 @@ export type {
 export async function checkCidFullName(
   auth: AdminAuth,
   cidFullName: string,
-  subject_property?: string,
+  subjectProperty?: string,
   cityName?: string,
 ): Promise<{ exists: boolean }> {
-  const params = new URLSearchParams({ cid_full_name: cidFullName });
-  if (subject_property) params.set('subject_property', subject_property);
-  if (cityName) params.set('city_name', cityName);
+  const params = new URLSearchParams({ cidFullName: cidFullName });
+  if (subjectProperty) params.set('subjectProperty', subjectProperty);
+  if (cityName) params.set('cityName', cityName);
   return adminRequest<{ exists: boolean }>(
     `/api/institutions/check-cid-full-name?${params.toString()}`,
     auth,
@@ -88,12 +88,12 @@ export async function listPrivateInstitutions(
   query?: Omit<ListInstitutionsQuery, 'category'>,
 ): Promise<PageResult<InstitutionListRow>> {
   const params = new URLSearchParams();
-  if (query?.private_type) params.set('private_type', query.private_type);
-  if (query?.province_name) params.set('province_name', query.province_name);
-  if (query?.city_name) params.set('city_name', query.city_name);
+  if (query?.privateType) params.set('privateType', query.privateType);
+  if (query?.provinceName) params.set('provinceName', query.provinceName);
+  if (query?.cityName) params.set('cityName', query.cityName);
   if (query?.q && query.q.trim()) params.set('q', query.q.trim());
   if (query?.cursor) params.set('cursor', query.cursor);
-  if (query?.page_size) params.set('page_size', String(query.page_size));
+  if (query?.pageSize) params.set('pageSize', String(query.pageSize));
   return adminRequest<PageResult<InstitutionListRow>>(
     `/api/private/${routeSegment}?${params.toString()}`,
     auth,
@@ -118,10 +118,10 @@ export async function searchParentInstitutions(
   opts: SearchParentsOptions,
 ): Promise<ParentInstitutionRow[]> {
   const params = new URLSearchParams({ q });
-  params.set('f_institution', opts.fInstitution);
-  params.set('province_name', opts.province_name);
-  params.set('city_name', opts.city_name);
-  if (opts.parentProperty) params.set('parent_property', opts.parentProperty);
+  params.set('fInstitution', opts.fInstitution);
+  params.set('provinceName', opts.provinceName);
+  params.set('cityName', opts.cityName);
+  if (opts.parentProperty) params.set('parentProperty', opts.parentProperty);
   return adminRequest<ParentInstitutionRow[]>(
     `/api/institutions/search-parents?${params.toString()}`,
     auth,
@@ -134,13 +134,13 @@ export function buildInstitutionUpdateSecurityPayload(
 ) {
   return {
     target: cidNumber,
-    cid_number: cidNumber,
-    cid_full_name: input.cid_full_name ?? null,
-    parent_cid_number: input.parent_cid_number ?? null,
-    family_name: input.family_name ?? null,
-    given_name: input.given_name ?? null,
-    legal_representative_cid_number: input.legal_representative_cid_number ?? null,
-    legal_representative_photo_path: input.legal_representative_photo_path ?? null,
+    cidNumber: cidNumber,
+    cidFullName: input.cidFullName ?? null,
+    parentCidNumber: input.parentCidNumber ?? null,
+    familyName: input.familyName ?? null,
+    givenName: input.givenName ?? null,
+    representativeCid: input.representativeCid ?? null,
+    photoPath: input.photoPath ?? null,
   };
 }
 

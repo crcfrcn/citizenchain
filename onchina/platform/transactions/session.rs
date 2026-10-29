@@ -1,6 +1,6 @@
 //! 平台统一冷签会话、原机构恢复锚点与互斥租约；有效期不变。
-use chrono::{DateTime, Utc};
 use crate::Db;
+use chrono::{DateTime, Utc};
 /// 冷签会话有效期(秒)，沿用现有值。
 pub(crate) const SESSION_TTL_SECS: i64 = 600;
 
@@ -34,7 +34,7 @@ impl Db {
         &self,
         s: &ChainSignSession,
         passkey: &crate::authentication::passkey::PasskeyProof,
-        expected_institution_cid_number: &str,
+        expected_institution_cid: &str,
     ) -> Result<(), String> {
         let mut s = ChainSignSession {
             request_id: s.request_id.clone(),
@@ -50,16 +50,33 @@ impl Db {
         self.with_client(move |conn| {
             let mut tx = conn.transaction().map_err(|e| e.to_string())?;
             crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
-            let binding = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?.ok_or("node binding required for chain session")?;
-            if binding.institution_cid_number != expected_institution_cid_number || !passkey.matches_binding(&s.account_id, &binding) { return Err("Passkey proof belongs to another account or binding".into()); }
-            let context = s.context.as_object_mut().ok_or("chain session context must be an object")?;
-            context.insert("origin_binding_id".into(), serde_json::json!(binding.binding_id));
-            context.insert("origin_institution_cid_number".into(), serde_json::json!(binding.institution_cid_number));
-            context.insert("origin_institution_code".into(), serde_json::json!(binding.institution_code));
+            let binding = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?
+                .ok_or("node binding required for chain session")?;
+            if binding.institution_cid_number != expected_institution_cid
+                || !passkey.matches_binding(&s.account_id, &binding)
+            {
+                return Err("Passkey proof belongs to another account or binding".into());
+            }
+            let context = s
+                .context
+                .as_object_mut()
+                .ok_or("chain session context must be an object")?;
+            context.insert(
+                "origin_binding_id".into(),
+                serde_json::json!(binding.binding_id),
+            );
+            context.insert(
+                "origin_institution_cid".into(),
+                serde_json::json!(binding.institution_cid_number),
+            );
+            context.insert(
+                "origin_institution_code".into(),
+                serde_json::json!(binding.institution_code),
+            );
             tx.execute(
-                "INSERT INTO chain_sign_sessions
-                    (request_id, purpose, account_id, call_data, nonce, signing_hash,
-                     context, expires_at)
+                "INSERT INTO signing
+                    (request_id, sign_purpose, account_id, call_data, nonce_value, signing_hash,
+                     context_json, expires_at)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
                 &[
                     &s.request_id,
@@ -85,9 +102,9 @@ impl Db {
         self.with_client(move |conn| {
             let row = conn
                 .query_opt(
-                    "SELECT request_id, purpose, account_id, call_data, nonce, signing_hash,
-                            context, expires_at, consumed_at
-                     FROM chain_sign_sessions WHERE request_id = $1",
+                    "SELECT request_id, sign_purpose, account_id, call_data, nonce_value, signing_hash,
+                            context_json, expires_at, consumed_at
+                     FROM signing WHERE request_id = $1",
                     &[&request_id],
                 )
                 .map_err(|e| format!("query chain sign session failed: {e}"))?;
@@ -108,11 +125,8 @@ impl Db {
     pub(crate) fn delete_chain_sign_session(&self, request_id: &str) -> Result<(), String> {
         let request_id = request_id.trim().to_string();
         self.with_client(move |conn| {
-            conn.execute(
-                "DELETE FROM chain_sign_sessions WHERE request_id = $1",
-                &[&request_id],
-            )
-            .map_err(|e| format!("delete chain sign session failed: {e}"))?;
+            conn.execute("DELETE FROM signing WHERE request_id = $1", &[&request_id])
+                .map_err(|e| format!("delete chain sign session failed: {e}"))?;
             Ok(())
         })
     }
@@ -135,11 +149,11 @@ impl Db {
         let context = context.clone();
         self.with_client(move |conn| {
             conn.execute(
-                "UPDATE chain_sign_sessions
-                 SET purpose = $2, call_data = $3, nonce = $4, signing_hash = $5, context = $6 || jsonb_build_object(
-                     'origin_binding_id',context->'origin_binding_id',
-                     'origin_institution_cid_number',context->'origin_institution_cid_number',
-                     'origin_institution_code',context->'origin_institution_code')
+                "UPDATE signing
+                 SET sign_purpose = $2, call_data = $3, nonce_value = $4, signing_hash = $5, context_json = $6 || jsonb_build_object(
+                     'origin_binding_id',context_json->'origin_binding_id',
+                     'origin_institution_cid',context_json->'origin_institution_cid',
+                     'origin_institution_code',context_json->'origin_institution_code')
                  WHERE request_id = $1 AND consumed_at IS NULL",
                 &[
                     &request_id,
@@ -153,9 +167,7 @@ impl Db {
             .map_err(|e| format!("promote chain sign session failed: {e}"))
         })
     }
-
 }
-
 
 /// HTTP 提交与后台恢复共用数据库租约；网络等待期间只持有租约，不占用 SQL 连接/事务。
 pub(crate) struct SessionLease {
@@ -168,35 +180,53 @@ impl SessionLease {
     pub(crate) fn acquire(db: &Db, request_id: &str) -> Result<Option<Self>, String> {
         let request_id = request_id.to_string();
         let token = uuid::Uuid::new_v4().to_string();
-        let claimed = db.with_client(|conn| conn.execute("UPDATE chain_sign_sessions SET processing_token=$2,processing_until=now()+interval '90 seconds',recovery_checked_at=now() WHERE request_id=$1 AND consumed_at IS NULL AND (processing_until IS NULL OR processing_until<now())", &[&request_id,&token]).map_err(|e| e.to_string()))?;
-        if claimed != 1 { return Ok(None); }
-        let renew_db = db.clone(); let renew_id = request_id.clone(); let renew_token = token.clone();
+        let claimed = db.with_client(|conn| conn.execute("UPDATE signing SET processing_token=$2,processing_until=now()+interval '90 seconds',checked_at=now() WHERE request_id=$1 AND consumed_at IS NULL AND (processing_until IS NULL OR processing_until<now())", &[&request_id,&token]).map_err(|e| e.to_string()))?;
+        if claimed != 1 {
+            return Ok(None);
+        }
+        let renew_db = db.clone();
+        let renew_id = request_id.clone();
+        let renew_token = token.clone();
         let renew = tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(20)).await;
-                let renewed = renew_db.with_client(|conn| conn.execute("UPDATE chain_sign_sessions SET processing_until=now()+interval '90 seconds' WHERE request_id=$1 AND processing_token=$2 AND consumed_at IS NULL AND processing_until>now()", &[&renew_id,&renew_token]).map_err(|e| e.to_string()));
-                if !matches!(renewed, Ok(1)) { break; }
+                let renewed = renew_db.with_client(|conn| conn.execute("UPDATE signing SET processing_until=now()+interval '90 seconds' WHERE request_id=$1 AND processing_token=$2 AND consumed_at IS NULL AND processing_until>now()", &[&renew_id,&renew_token]).map_err(|e| e.to_string()));
+                if !matches!(renewed, Ok(1)) {
+                    break;
+                }
             }
         });
-        Ok(Some(Self { db: db.clone(), request_id, token, renew }))
+        Ok(Some(Self {
+            db: db.clone(),
+            request_id,
+            token,
+            renew,
+        }))
     }
 
     pub(crate) fn update_context(&self, context: &serde_json::Value) -> Result<(), String> {
-        let updated = self.db.with_client(|conn| conn.execute("UPDATE chain_sign_sessions SET context=$3 || jsonb_build_object('origin_binding_id',context->'origin_binding_id','origin_institution_cid_number',context->'origin_institution_cid_number','origin_institution_code',context->'origin_institution_code') WHERE request_id=$1 AND processing_token=$2 AND processing_until>now() AND consumed_at IS NULL", &[&self.request_id,&self.token,&context]).map_err(|e| e.to_string()))?;
-        if updated != 1 { return Err("chain session lease lost while saving recovery context".into()); }
+        let updated = self.db.with_client(|conn| conn.execute("UPDATE signing SET context_json=$3 || jsonb_build_object('origin_binding_id',context_json->'origin_binding_id','origin_institution_cid',context_json->'origin_institution_cid','origin_institution_code',context_json->'origin_institution_code') WHERE request_id=$1 AND processing_token=$2 AND processing_until>now() AND consumed_at IS NULL", &[&self.request_id,&self.token,&context]).map_err(|e| e.to_string()))?;
+        if updated != 1 {
+            return Err("chain session lease lost while saving recovery context".into());
+        }
         Ok(())
     }
 
     /// 在正式写事务中核对租约并锁住会话，防止超时请求覆盖另一个恢复者。
-    pub(crate) fn verify_conn(&self, conn: &mut impl postgres::GenericClient) -> Result<(), String> {
-        let row = conn.query_opt("SELECT request_id FROM chain_sign_sessions WHERE request_id=$1 AND processing_token=$2 AND processing_until>now() AND consumed_at IS NULL FOR UPDATE", &[&self.request_id,&self.token]).map_err(|e| e.to_string())?;
-        if row.is_none() { return Err("chain session lease lost or already consumed".into()); }
+    pub(crate) fn verify_conn(
+        &self,
+        conn: &mut impl postgres::GenericClient,
+    ) -> Result<(), String> {
+        let row = conn.query_opt("SELECT request_id FROM signing WHERE request_id=$1 AND processing_token=$2 AND processing_until>now() AND consumed_at IS NULL FOR UPDATE", &[&self.request_id,&self.token]).map_err(|e| e.to_string())?;
+        if row.is_none() {
+            return Err("chain session lease lost or already consumed".into());
+        }
         Ok(())
     }
 }
 impl Drop for SessionLease {
     fn drop(&mut self) {
         self.renew.abort();
-        let _ = self.db.with_client(|conn| conn.execute("UPDATE chain_sign_sessions SET processing_token=NULL,processing_until=NULL WHERE request_id=$1 AND processing_token=$2", &[&self.request_id,&self.token]).map(|_| ()).map_err(|e| e.to_string()));
+        let _ = self.db.with_client(|conn| conn.execute("UPDATE signing SET processing_token=NULL,processing_until=NULL WHERE request_id=$1 AND processing_token=$2", &[&self.request_id,&self.token]).map(|_| ()).map_err(|e| e.to_string()));
     }
 }

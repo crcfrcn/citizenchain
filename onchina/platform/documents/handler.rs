@@ -29,11 +29,11 @@ impl Db {
         self.with_client(move |conn| {
             let rows = conn
                 .query(
-                    "SELECT id, cid_number, file_name, doc_type, file_size, file_path,
-                            uploader_account_id, uploaded_at
-                     FROM docs
+                    "SELECT row_id, cid_number, file_name, doc_type, file_size, file_path,
+                            uploader_account, uploaded_at
+                     FROM attachment
                      WHERE cid_number = $1
-                     ORDER BY uploaded_at DESC, id DESC",
+                     ORDER BY uploaded_at DESC, row_id DESC",
                     &[&cid_number],
                 )
                 .map_err(|e| format!("query documents failed: {e}"))?;
@@ -64,11 +64,11 @@ impl Db {
                 .map_err(|_| "document file size too large".to_string())?;
             let row = conn
                 .query_one(
-                    "INSERT INTO docs (
+                    "INSERT INTO attachment (
                         cid_number, province_code, city_code, file_name, doc_type, file_size,
-                        file_path, uploader_account_id, uploaded_at
+                        file_path, uploader_account, uploaded_at
                      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                     RETURNING id",
+                     RETURNING row_id",
                     &[
                         &doc.cid_number,
                         &province_code,
@@ -100,10 +100,10 @@ impl Db {
         self.with_client(move |conn| {
             let row = conn
                 .query_opt(
-                    "SELECT id, cid_number, file_name, doc_type, file_size, file_path,
-                            uploader_account_id, uploaded_at
-                     FROM docs
-                     WHERE cid_number = $1 AND id = $2",
+                    "SELECT row_id, cid_number, file_name, doc_type, file_size, file_path,
+                            uploader_account, uploaded_at
+                     FROM attachment
+                     WHERE cid_number = $1 AND row_id = $2",
                     &[&cid_number, &doc_id],
                 )
                 .map_err(|e| format!("query document failed: {e}"))?;
@@ -130,7 +130,7 @@ impl Db {
         self.with_client(move |conn| {
             let affected = conn
                 .execute(
-                    "DELETE FROM docs WHERE cid_number = $1 AND id = $2",
+                    "DELETE FROM attachment WHERE cid_number = $1 AND row_id = $2",
                     &[&cid_number, &doc_id],
                 )
                 .map_err(|e| format!("delete document failed: {e}"))?;
@@ -231,12 +231,10 @@ pub(crate) async fn upload_document(
                     }
                 }
             }
-            "doc_type" => {
-                match field.text().await {
-                    Ok(text) => doc_type = Some(text.trim().to_string()),
-                    Err(error) => return api_error(error.status(), 1001, "资料类型字段读取失败"),
-                }
-            }
+            "doc_type" => match field.text().await {
+                Ok(text) => doc_type = Some(text.trim().to_string()),
+                Err(error) => return api_error(error.status(), 1001, "资料类型字段读取失败"),
+            },
             _ => {}
         }
     }
@@ -257,9 +255,9 @@ pub(crate) async fn upload_document(
     }
     let grant_payload = serde_json::json!({
         "target": cid_number.clone(),
-        "file_name": file_name.clone(),
-        "doc_type": doc_type.clone(),
-        "file_size": file_data.len(),
+        "fileName": file_name.clone(),
+        "docType": doc_type.clone(),
+        "fileSize": file_data.len(),
     });
     if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
         return resp;
@@ -293,7 +291,9 @@ pub(crate) async fn upload_document(
     let stored_path = format!("{doc_dir}/{stored_name}");
     if let Err(e) = std::fs::write(&stored_path, &file_data) {
         if let Err(cleanup) = std::fs::remove_file(&stored_path) {
-            if cleanup.kind() != std::io::ErrorKind::NotFound { tracing::error!(error = %cleanup, "remove partial upload failed"); }
+            if cleanup.kind() != std::io::ErrorKind::NotFound {
+                tracing::error!(error = %cleanup, "remove partial upload failed");
+            }
         }
         tracing::error!(error = %e, "write document file failed");
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "write file failed");
@@ -312,7 +312,9 @@ pub(crate) async fn upload_document(
         Ok(v) => v,
         Err(err) => {
             if let Err(cleanup) = std::fs::remove_file(&stored_path) {
-                if cleanup.kind() != std::io::ErrorKind::NotFound { tracing::error!(error = %cleanup, "remove uncommitted upload failed"); }
+                if cleanup.kind() != std::io::ErrorKind::NotFound {
+                    tracing::error!(error = %cleanup, "remove uncommitted upload failed");
+                }
             }
             tracing::error!(error = %err, "insert document failed");
             return api_error(
@@ -328,11 +330,11 @@ pub(crate) async fn upload_document(
         &ctx.account_id,
         Some(cid_number.clone()),
         serde_json::json!({
-            "cid_number": cid_number.clone(),
-            "doc_id": doc.id,
-            "file_name": doc.file_name.clone(),
-            "doc_type": doc.doc_type.clone(),
-            "file_size": doc.file_size,
+            "cidNumber": cid_number.clone(),
+            "docId": doc.id,
+            "fileName": doc.file_name.clone(),
+            "docType": doc.doc_type.clone(),
+            "fileSize": doc.file_size,
         }),
     );
     Json(ApiResponse {
@@ -390,11 +392,11 @@ pub(crate) async fn download_document(
         &ctx.account_id,
         Some(cid_number.clone()),
         serde_json::json!({
-            "cid_number": cid_number.clone(),
-            "doc_id": doc.id,
-            "file_name": doc.file_name.clone(),
-            "doc_type": doc.doc_type.clone(),
-            "file_size": doc.file_size,
+            "cidNumber": cid_number.clone(),
+            "docId": doc.id,
+            "fileName": doc.file_name.clone(),
+            "docType": doc.doc_type.clone(),
+            "fileSize": doc.file_size,
         }),
     );
     let safe_name = doc
@@ -460,8 +462,8 @@ pub(crate) async fn delete_document(
     };
     let grant_payload = serde_json::json!({
         "target": cid_number.clone(),
-        "doc_id": doc_id,
-        "file_name": doc.file_name.clone(),
+        "docId": doc_id,
+        "fileName": doc.file_name.clone(),
     });
     if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
         return resp;
@@ -491,14 +493,15 @@ pub(crate) async fn delete_document(
         &ctx.account_id,
         Some(cid_number.clone()),
         serde_json::json!({
-            "cid_number": cid_number.clone(),
-            "doc_id": doc.id,
-            "file_name": doc.file_name.clone(),
-            "doc_type": doc.doc_type.clone(),
-            "file_size": doc.file_size,
+            "cidNumber": cid_number.clone(),
+            "docId": doc.id,
+            "fileName": doc.file_name.clone(),
+            "docType": doc.doc_type.clone(),
+            "fileSize": doc.file_size,
         }),
     );
     #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
     struct DeleteOutput {
         deleted: bool,
     }

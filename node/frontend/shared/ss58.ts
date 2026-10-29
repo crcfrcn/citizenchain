@@ -7,9 +7,9 @@ const BASE58_INDEX = new Map<string, number>(
 );
 
 /** 将唯一账户 ID 编码为 CitizenChain SS58 展示地址（prefix = 2027）。 */
-export function accountIdToSs58(account_id: string): string {
-  if (!/^0x[0-9a-f]{64}$/.test(account_id)) return '无效账户 ID';
-  const clean = account_id.slice(2);
+export function accountIdToSs58(accountId: string): string {
+  if (!/^0x[0-9a-f]{64}$/.test(accountId)) return '无效账户 ID';
+  const clean = accountId.slice(2);
   const accountIdBytes = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
     accountIdBytes[i] = parseInt(clean.substring(i * 2, i * 2 + 2), 16);

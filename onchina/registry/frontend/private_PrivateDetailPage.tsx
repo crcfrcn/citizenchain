@@ -65,7 +65,7 @@ export const PrivateDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, 
       .finally(() => {
         if (!cached) setLoading(false);
       });
-  }, [auth.access_token, detailCacheKey, cidNumber]);
+  }, [auth.accessToken, detailCacheKey, cidNumber]);
 
   useEffect(() => {
     load();
@@ -76,15 +76,15 @@ export const PrivateDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, 
     payload: unknown,
   ): Promise<AdminSecurityGrantOutput> => {
     const prepared = await prepareAdminAction(auth, actionType, payload);
-    if (prepared.auth_type !== 'PASSKEY_COLD_SIGN' || !prepared.sign_request) {
+    if (prepared.authType !== 'PASSKEY_COLD_SIGN' || !prepared.signRequest) {
       throw new Error('该操作缺少公民钱包签名请求');
     }
     return new Promise<AdminSecurityGrantOutput>((resolve, reject) => {
       setSecurityModal({
-        actionId: prepared.action_id,
-        signRequest: prepared.sign_request || '',
-        payloadHash: prepared.payload_hash,
-          actionType: prepared.action_type,
+        actionId: prepared.actionId,
+        signRequest: prepared.signRequest || '',
+        payloadHash: prepared.payloadHash,
+          actionType: prepared.actionType,
         resolve,
         reject,
       });
@@ -96,18 +96,18 @@ export const PrivateDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, 
     setSecurityCommitLoading(true);
     try {
       const signed = parseSignedReceiptPayload(raw, securityModal.actionId);
-      if (signed.challenge_id !== securityModal.actionId) {
+      if (signed.challengeId !== securityModal.actionId) {
         throw new Error('签名响应与当前请求不匹配');
       }
-      if (!signed.account_id) {
+      if (!signed.accountId) {
         throw new Error('签名响应缺少 account_id');
       }
       const grant = await commitAdminAction<AdminSecurityGrantOutput>(auth, {
-        action_id: securityModal.actionId,
-        account_id: signed.account_id,
+        actionId: securityModal.actionId,
+        accountId: signed.accountId,
         signature: signed.signature,
-        payload_hash: securityModal.payloadHash,
-        action_type: securityModal.actionType,
+        payloadHash: securityModal.payloadHash,
+        actionType: securityModal.actionType,
       });
       securityModal.resolve(grant);
       setSecurityModal(null);

@@ -17,7 +17,7 @@ workspace = true
 path = "lib.rs"
 
 [dependencies]
-citizenchain = { workspace = true, default-features = true }
+runtime = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true }
 frame-metadata-hash-extension = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }

@@ -59,7 +59,7 @@ pub fn do_propose_l2_fee_rate<T: Config>(
             actor_cid_number.as_slice(),
             actor_role_code,
             &who,
-            entity_primitives::business_action::ACTION_OFFCHAIN_PROPOSE_FEE_RATE,
+            entitybase::business_action::ACTION_OFFCHAIN_PROPOSE_FEE_RATE,
         ),
         Error::<T>::UnauthorizedAdmin
     );
@@ -141,15 +141,4 @@ pub fn do_set_max_l2_fee_rate<T: Config>(new_max: u32) -> DispatchResult {
 /// 查询清算行当前生效费率。未配置时返回 0(调用方自己决定是否用全局默认)。
 pub fn current_rate_bp<T: Config>(bank_cid: &crate::InstitutionCidNumber) -> u32 {
     L2FeeRateBp::<T>::get(bank_cid)
-}
-
-#[cfg(test)]
-mod delay_tests {
-    use super::*;
-
-    #[test]
-    fn seven_day_delay_uses_fixed_six_minute_block_calendar() {
-        assert_eq!(primitives::pow_const::BLOCKS_PER_DAY, 240);
-        assert_eq!(RATE_CHANGE_DELAY_BLOCKS, 1_680);
-    }
 }

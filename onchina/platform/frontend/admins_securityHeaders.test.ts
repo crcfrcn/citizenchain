@@ -66,7 +66,7 @@ describe('前端 header 名与 Rust 后端一致(直读后端源码)', () => {
 });
 
 describe('三档鉴权的前端头部组装', () => {
-  const auth = { account_id: '0x' + '11'.repeat(32) } as never;
+  const auth = { accountId: '0x' + '11'.repeat(32) } as never;
 
   it('本地写(Passkey 档)只带 passkey 断言,不得带冷签 grant 头', async () => {
     const headers = await passkeySubmitHeaders(auth);
@@ -77,7 +77,7 @@ describe('三档鉴权的前端头部组装', () => {
 
   it('链上写(PasskeyColdSign 档)必须同时带 grant 与 passkey 两个头', async () => {
     const headers = await securityGrantSubmitHeaders(auth, {
-      grant_id: 'grant-123',
+      grantId: 'grant-123',
     } as never);
     // 缺任一个后端都 fail-closed;这里钉死"两者俱全"这个前置条件。
     expect(headers[SECURITY_GRANT_HEADER]).toBe('grant-123');
@@ -94,7 +94,7 @@ describe('三档鉴权的前端头部组装', () => {
 });
 
 describe('实际业务API补齐一次Passkey且不改变提交字段', () => {
-  const auth = { access_token: 'test-session', account_id: '0x' + '11'.repeat(32) } as never;
+  const auth = { accessToken: 'test-session', accountId: '0x' + '11'.repeat(32) } as never;
 
   it('公民编辑和资料上传删除均携带一次性断言', async () => {
     const api = await import('../../registry/frontend/citizens_api');
@@ -122,7 +122,7 @@ describe('实际业务API补齐一次Passkey且不改变提交字段', () => {
     const { editCitizen } = await import('../../registry/frontend/citizens_api');
     const { assertPasskey } = await import('./authentication_passkeyClient');
     const fetcher = vi.spyOn(globalThis, 'fetch');
-    const payload = { family_name: '测', given_name: '试', city_code: '001' } as never;
+    const payload = { familyName: '测', givenName: '试', cityCode: '001' } as never;
     try {
       vi.mocked(assertPasskey).mockClear();
       fetcher.mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
@@ -144,14 +144,14 @@ describe('实际业务API补齐一次Passkey且不改变提交字段', () => {
     const { assertPasskey } = await import('./authentication_passkeyClient');
     const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
     try {
-      for (const action_type of ['CREATE_SUBORDINATE_REGISTRY', 'DELETE_SUBORDINATE_REGISTRY', 'NODE_BINDING_UNBIND', 'INSTITUTION_UPDATE'] as const) {
+      for (const actionType of ['CREATE_SUBORDINATE_REGISTRY', 'DELETE_SUBORDINATE_REGISTRY', 'NODE_BINDING_UNBIND', 'INSTITUTION_UPDATE'] as const) {
         vi.mocked(assertPasskey).mockClear();
         fetcher.mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
-        await commitAdminAction(auth, { action_id: 'action', action_type, payload_hash: 'hash', account_id: 'account', signature: 'signature' });
-        expect(assertPasskey).toHaveBeenCalledTimes(action_type === 'INSTITUTION_UPDATE' ? 0 : 1);
+        await commitAdminAction(auth, { actionId: 'action', actionType, payloadHash: 'hash', accountId: 'account', signature: 'signature' });
+        expect(assertPasskey).toHaveBeenCalledTimes(actionType === 'INSTITUTION_UPDATE' ? 0 : 1);
         const calls = fetcher.mock.calls;
         const body = JSON.parse(String(calls[calls.length - 1]?.[1]?.body));
-        expect(body).toEqual({ action_id: 'action', payload_hash: 'hash', account_id: 'account', signature: 'signature' });
+        expect(body).toEqual({ actionId: 'action', payloadHash: 'hash', accountId: 'account', signature: 'signature' });
       }
     } finally { fetcher.mockRestore(); }
   });
@@ -161,7 +161,7 @@ describe('实际业务API补齐一次Passkey且不改变提交字段', () => {
     const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
     try {
       vi.mocked(assertPasskey).mockRejectedValueOnce(new Error('cancelled'));
-      await expect(commitAdminAction(auth, { action_id: 'action', action_type: 'NODE_BINDING_UNBIND', payload_hash: 'hash' })).rejects.toThrow('cancelled');
+      await expect(commitAdminAction(auth, { actionId: 'action', actionType: 'NODE_BINDING_UNBIND', payloadHash: 'hash' })).rejects.toThrow('cancelled');
       expect(fetcher).not.toHaveBeenCalled();
     } finally { fetcher.mockRestore(); }
   });
@@ -172,8 +172,8 @@ describe('实际业务API补齐一次Passkey且不改变提交字段', () => {
     const { prepareRegisterInstitutionAdmins } = await import('../../registry/frontend/admins_cityRegistryAdminsApi');
     const { proposeLegislation, castRepresentativeVote } = await import('../../legislation/frontend/legislation_api');
     const { proposePlatformPrice } = await import('../../private/frontend/membership_api');
-    const governance = { cid_number: 'fixture-institution', proposer_role_code: 'REPRESENTATIVE' };
-    const registration = { cid_number: 'fixture-institution', actor_role_code: 'REGISTRY-ROLE', admins: [{ account_id: 'fixture-account', family_name: '测', given_name: '试' }] };
+    const governance = { cidNumber: 'fixture-institution', proposerRoleCode: 'REPRESENTATIVE' };
+    const registration = { cidNumber: 'fixture-institution', actorRoleCode: 'REGISTRY-ROLE', admins: [{ accountId: 'fixture-account', familyName: '测', givenName: '试' }] };
     const legislation: import('../../legislation/frontend/legislation_types').ProposeLawInput = {
       lawAction: 'enact', proposerRoleCode: 'REPRESENTATIVE', tier: 1,
       voteType: 2, title: '测试法律', chapters: [], effectiveAt: 1000, lawId: null,
@@ -183,11 +183,11 @@ describe('实际业务API补齐一次Passkey且不改变提交字段', () => {
       { path: '/api/admin/institution/admins/register/prepare', payload: registration, run: () => prepareRegisterInstitutionAdmins(auth, registration) },
       { path: '/api/legislation/propose', payload: legislation, run: () => proposeLegislation(auth, legislation) },
       { path: '/api/legislation/representative-vote', payload: { proposalId: 7, voterRoleCode: 'REPRESENTATIVE', approve: true }, run: () => castRepresentativeVote(auth, 7, 'REPRESENTATIVE', true) },
-      { path: '/api/membership/platform-prices/propose', payload: { proposer_role_code: 'COMMITTEE_MEMBER', membership_level: 'freedom', new_price_fen: '100' }, run: () => proposePlatformPrice(auth, 'COMMITTEE_MEMBER', 'freedom', '100') },
+      { path: '/api/membership/platform-prices/propose', payload: { proposerRoleCode: 'COMMITTEE_MEMBER', membershipLevel: 'freedom', newPriceFen: '100' }, run: () => proposePlatformPrice(auth, 'COMMITTEE_MEMBER', 'freedom', '100') },
     ];
     const assertion = vi.mocked(assertPasskey);
     const fetcher = vi.spyOn(globalThis, 'fetch');
-    const prepared = { request_id: 'fixture-request', sign_request: 'fixture-sign-request' };
+    const prepared = { requestId: 'fixture-request', signRequest: 'fixture-sign-request' };
     try {
       for (const operation of operations) {
         assertion.mockReset(); fetcher.mockReset();
@@ -381,10 +381,10 @@ describe('模块前端装载与重启边界', () => {
     const context = await fixture([asset('generic'), asset('instance')]);
     try {
       await context.loader.initializeModules();
-      const auth = { institution_code: 'FRG', workspace: { workspace_modules: ['instance'] } } as never;
+      const auth = { institutionCode: 'FRG', workspace: { workspace_modules: ['instance'] } } as never;
       expect(context.loader.workspaceView(auth)).toBe(context.views.instance);
-      expect(() => context.loader.workspaceView({ institution_code: 'FRG' } as never)).toThrow('归属冲突');
-      expect(context.loader.workspaceView({ institution_code: 'UNKNOWN' } as never)).toBeNull();
+      expect(() => context.loader.workspaceView({ institutionCode: 'FRG' } as never)).toThrow('归属冲突');
+      expect(context.loader.workspaceView({ institutionCode: 'UNKNOWN' } as never)).toBeNull();
     } finally { context.dispose(); }
   });
 });
@@ -424,8 +424,8 @@ describe('登记管理员原有请求参数衔接', () => {
   it('原URL、Bearer与管理员集合保持，透传操作注册局岗位码', async () => {
     const { prepareRegisterInstitutionAdmins } = await import('../../registry/frontend/admins_cityRegistryAdminsApi');
     const { assertPasskey } = await import('./authentication_passkeyClient');
-    const auth = { access_token: 'test-session' } as never;
-    const input = { cid_number: 'target-fixture-cid', admins: [{ account_id: 'fixture-account', family_name: '测', given_name: '试' }], actor_role_code: 'REGISTRY-ROLE' };
+    const auth = { accessToken: 'test-session' } as never;
+    const input = { cidNumber: 'target-fixture-cid', admins: [{ accountId: 'fixture-account', familyName: '测', givenName: '试' }], actorRoleCode: 'REGISTRY-ROLE' };
     const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
     try {
       vi.mocked(assertPasskey).mockClear();
@@ -533,8 +533,8 @@ describe('登记管理员原有请求参数衔接', () => {
       if (!golden) throw new Error('缺少模块工作台金标');
       const capabilities = { ...EMPTY_CAPABILITIES };
       for (const flag of golden.flags) capabilities[flag as keyof typeof capabilities] = true;
-      const auth = { access_token: 'fixture-session', account_id: 'fixture-account', institution_cid_number: 'fixture-institution', institution_code: golden.code,
-        family_name: '测', given_name: '试', capabilities,
+      const auth = { accessToken: 'fixture-session', accountId: 'fixture-account', institutionCidNumber: 'fixture-institution', institutionCode: golden.code,
+        familyName: '测', givenName: '试', capabilities,
         workspace: { workspace_kind: golden.kind, workspace_title: 'fixture', workspace_sections: golden.sections, workspace_modules: [] } };
       stored = JSON.stringify(auth);
       const View = loader.moduleView<Record<string, unknown>>(asset.id, asset.workspace ?? asset.exports[0]);

@@ -29,7 +29,7 @@ use primitives::sign::{
     DECRYPT_ADMIN_PAYLOAD_LEN, OP_SIGN_DECRYPT,
 };
 
-use crate::transaction::offchain::types::{DecryptAdminRequestResult, DecryptedAdminInfo};
+use crate::offchain::types::{DecryptAdminRequestResult, DecryptedAdminInfo};
 
 const DEFAULT_TTL_SECS: u64 = 90;
 
@@ -80,17 +80,12 @@ fn now_ms() -> u64 {
 
 /// 复用 primitives 唯一原语拼装固定 92B challenge payload。
 fn build_challenge_payload(
-    signer_public_key_bytes: &[u8; 32],
+    public_key_bytes: &[u8; 32],
     cid_number: &str,
     timestamp: u64,
 ) -> Option<Vec<u8>> {
     let nonce: [u8; 16] = rand::thread_rng().gen();
-    decrypt_admin_payload(
-        cid_number.as_bytes(),
-        signer_public_key_bytes,
-        timestamp,
-        &nonce,
-    )
+    decrypt_admin_payload(cid_number.as_bytes(), public_key_bytes, timestamp, &nonce)
 }
 
 /// 验签前锁死当前共享协议长度与二进制域，旧 108B 布局直接拒绝。
@@ -121,9 +116,9 @@ pub fn build_decrypt_admin_request(
     if cid_number.is_empty() || cid_number.len() > DECRYPT_ADMIN_CID_LEN {
         return Err("cid_number 超出链上 CID_NUMBER_MAX_BYTES 范围".to_string());
     }
-    let signer_public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
+    let public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
         .map_err(|e| format!("公钥解码失败:{e}"))?;
-    let signer_public_key_array: [u8; 32] = signer_public_key_bytes
+    let signer_public_key_array: [u8; 32] = public_key_bytes
         .as_slice()
         .try_into()
         .map_err(|_| "公钥长度必须为 32 字节".to_string())?;
@@ -145,7 +140,7 @@ pub fn build_decrypt_admin_request(
         body: SignRequestBody {
             action: primitives::sign::QR_ACTION_DECRYPT_ADMIN,
             sig_alg: 1,
-            signer_public_key: public_key_b64(&signer_public_key_bytes)?,
+            signer_public_key: public_key_b64(&public_key_bytes)?,
             payload: payload_b64(&payload),
         },
     };
@@ -178,7 +173,7 @@ pub fn build_decrypt_admin_request(
 #[serde(rename_all = "camelCase")]
 pub struct VerifyDecryptAdminInput {
     pub request_id: String,
-    #[serde(rename = "signer_public_key")]
+
     pub signer_public_key: String,
     pub expected_payload_hash: String,
     pub response_json: String,
@@ -259,13 +254,12 @@ pub fn verify_and_decrypt_admin(
         return Err(format!("签名长度无效:期望 128 hex,实际 {}", sig_hex.len()));
     }
     let signature_bytes = hex::decode(sig_hex).map_err(|e| format!("签名解码失败:{e}"))?;
-    let signer_public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
+    let public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
         .map_err(|e| format!("公钥解码失败:{e}"))?;
     use sp_core::crypto::Pair;
     use sp_core::sr25519::{Public, Signature};
     let public = Public::from_raw(
-        <[u8; 32]>::try_from(signer_public_key_bytes.as_slice())
-            .map_err(|_| "公钥长度必须为 32 字节")?,
+        <[u8; 32]>::try_from(public_key_bytes.as_slice()).map_err(|_| "公钥长度必须为 32 字节")?,
     );
     let signature = Signature::from_raw(
         <[u8; 64]>::try_from(signature_bytes.as_slice()).map_err(|_| "签名长度必须为 64 字节")?,

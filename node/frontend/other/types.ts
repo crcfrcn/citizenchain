@@ -26,7 +26,7 @@ export type OtherTabItem = OtherRuntimeConstitutionTabItem | OtherTextTabItem;
 
 export type RuntimeConstitutionDocument = {
   html: string;
-  blake2_256: string;
+  blake2256: string;
   source: string;
 };
 

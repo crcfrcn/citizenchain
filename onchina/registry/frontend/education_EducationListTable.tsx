@@ -17,8 +17,8 @@ import { notice } from '../../platform/frontend/helpers_notice';
 
 interface Props {
   auth: AdminAuth;
-  province_name: string;
-  city_name: string;
+  provinceName: string;
+  cityName: string;
   onSelectInstitution?: (cidNumber: string) => void;
   refreshKey?: number;
   searchQuery?: string;
@@ -26,8 +26,8 @@ interface Props {
 
 export const EducationListTable: React.FC<Props> = ({
   auth,
-  province_name,
-  city_name,
+  provinceName,
+  cityName,
   onSelectInstitution,
   refreshKey,
   searchQuery,
@@ -38,7 +38,7 @@ export const EducationListTable: React.FC<Props> = ({
   const [searchLoading, setSearchLoading] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [cursorStack, setCursorStack] = useState<string[]>([]);
-  const directCacheKey = educationCommitteeCacheKey(auth, province_name, city_name);
+  const directCacheKey = educationCommitteeCacheKey(auth, provinceName, cityName);
 
   const loadDirectRows = () => {
     const cachedRows = readCachedEducationCommitteeRows(directCacheKey);
@@ -48,14 +48,14 @@ export const EducationListTable: React.FC<Props> = ({
     let cancelled = false;
     if (!hasImmediateRows) setDirectLoading(true);
     listEducationInstitutions(auth, {
-      province_name,
-      city_name: city_name || undefined,
-      page_size: 50,
+      provinceName,
+      cityName: cityName || undefined,
+      pageSize: 50,
     })
       .then((data) => {
         if (cancelled) return;
         setDirectRows(data.items);
-        writeCachedEducationCommitteeRows(directCacheKey, auth, province_name, city_name, data.items);
+        writeCachedEducationCommitteeRows(directCacheKey, auth, provinceName, cityName, data.items);
       })
       .catch((err) => {
         if (!cancelled) notice.error(err, '');
@@ -79,11 +79,11 @@ export const EducationListTable: React.FC<Props> = ({
     let cancelled = false;
     setSearchLoading(true);
     listEducationInstitutions(auth, {
-      province_name,
-      city_name: city_name || undefined,
+      provinceName,
+      cityName: cityName || undefined,
       q: exactQuery,
       cursor,
-      page_size: 50,
+      pageSize: 50,
     })
       .then((data) => {
         if (cancelled) return;
@@ -104,13 +104,13 @@ export const EducationListTable: React.FC<Props> = ({
   useEffect(() => {
     return loadDirectRows();
   }, [
-    auth.access_token,
-    auth.account_id,
-    auth.institution_code,
-    auth.scope_province_name,
-    auth.scope_city_name,
-     province_name,
-     city_name,
+    auth.accessToken,
+    auth.accountId,
+    auth.institutionCode,
+    auth.scopeProvinceName,
+    auth.scopeCityName,
+     provinceName,
+     cityName,
     refreshKey,
     directCacheKey,
   ]);
@@ -119,13 +119,13 @@ export const EducationListTable: React.FC<Props> = ({
     setCursorStack([]);
     return loadSearchRows(null);
   }, [
-    auth.access_token,
-    auth.account_id,
-    auth.institution_code,
-    auth.scope_province_name,
-    auth.scope_city_name,
-     province_name,
-     city_name,
+    auth.accessToken,
+    auth.accountId,
+    auth.institutionCode,
+    auth.scopeProvinceName,
+    auth.scopeCityName,
+     provinceName,
+     cityName,
     refreshKey,
     searchQuery,
   ]);
@@ -134,8 +134,8 @@ export const EducationListTable: React.FC<Props> = ({
   const rows = useMemo(() => {
     const seen = new Set<string>();
     return [...directRows, ...searchRows].filter((row) => {
-      if (seen.has(row.cid_number)) return false;
-      seen.add(row.cid_number);
+      if (seen.has(row.cidNumber)) return false;
+      seen.add(row.cidNumber);
       return true;
     });
   }, [directRows, searchRows]);
@@ -148,10 +148,10 @@ export const EducationListTable: React.FC<Props> = ({
         align: 'center',
         render: (_v, _row, index) => cursorStack.length * 50 + index + 1,
       },
-      { title: '身份ID', dataIndex: 'cid_number', width: 260, align: 'center' },
+      { title: '身份ID', dataIndex: 'cidNumber', width: 260, align: 'center' },
       {
         title: '机构全称',
-        dataIndex: 'cid_full_name',
+        dataIndex: 'cidFullName',
         width: 180,
         align: 'center',
         render: (v: string | null) =>
@@ -163,8 +163,8 @@ export const EducationListTable: React.FC<Props> = ({
         width: 150,
         align: 'center',
         render: (_v, r) =>
-          r.education_type
-            ? EDUCATION_TYPE_LABEL[r.education_type] ?? r.education_type
+          r.educationType
+            ? EDUCATION_TYPE_LABEL[r.educationType] ?? r.educationType
             : '分校',
       },
       {
@@ -174,15 +174,15 @@ export const EducationListTable: React.FC<Props> = ({
         align: 'center',
         render: (_v, r) => (
           <span>
-            {SUBJECT_PROPERTY_LABEL[r.subject_property] ?? r.subject_property}
+            {SUBJECT_PROPERTY_LABEL[r.subjectProperty] ?? r.subjectProperty}
             <Typography.Text type="secondary" style={{ marginLeft: 6, fontSize: 12 }}>
               ({r.p1 === '1' ? '盈利' : '非盈利'})
             </Typography.Text>
           </span>
         ),
       },
-      { title: '省/市', render: (_v, r) => `${r.province_name}/${r.city_name}`, width: 160, align: 'center' },
-      { title: '账户数', dataIndex: 'account_count', width: 90, align: 'center' },
+      { title: '省/市', render: (_v, r) => `${r.provinceName}/${r.cityName}`, width: 160, align: 'center' },
+      { title: '账户数', dataIndex: 'accountCount', width: 90, align: 'center' },
     ],
     [cursorStack.length],
   );
@@ -205,12 +205,12 @@ export const EducationListTable: React.FC<Props> = ({
   return (
     <div>
       <Table<InstitutionListRow>
-        rowKey={(r) => r.cid_number}
+        rowKey={(r) => r.cidNumber}
         loading={loading}
         dataSource={rows}
         pagination={false}
         onRow={(row) => ({
-          onClick: () => onSelectInstitution?.(row.cid_number),
+          onClick: () => onSelectInstitution?.(row.cidNumber),
           style: onSelectInstitution ? { cursor: 'pointer' } : undefined,
         })}
         columns={columns}
