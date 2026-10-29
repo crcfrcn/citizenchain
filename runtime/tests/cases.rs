@@ -3457,3 +3457,85 @@ fn square_subscription_calldata_matches_owner_fixture_and_real_runtime_index() {
     });
     assert_eq!(hex::encode(call.encode()), vector["hex"].as_str().unwrap());
 }
+
+
+/// 基准专属主体必须通过实际Runtime的FRG岗位及辖区授权，不消费合成权限替身。
+#[cfg(feature = "runtime-benchmarks")]
+#[test]
+fn address_benchmark_authority_uses_real_runtime_roles_and_scope() {
+    use address::AddressUpdateAuthority;
+
+    new_test_ext().execute_with(|| {
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        for action in 0..=4 {
+            let actor = RuntimeAddressAuthority::benchmark_authority(action)
+                .expect("真实Runtime必须准备地址基准主体");
+            let cid = core::str::from_utf8(actor.actor_cid_number.as_slice())
+                .expect("真实FRG CID必须是UTF-8");
+            assert_eq!(
+                primitives::cid::code::institution_code_from_cid_number(cid),
+                Some(primitives::cid::code::FRG),
+            );
+            if action == 0 {
+                assert!(RuntimeAddressAuthority::can_update_catalog(
+                    &actor.caller,
+                    actor.actor_cid_number.as_slice(),
+                    actor.actor_role_code.as_slice(),
+                    action,
+                ));
+            } else {
+                assert!(RuntimeAddressAuthority::can_update_address(
+                    &actor.caller,
+                    actor.actor_cid_number.as_slice(),
+                    actor.actor_role_code.as_slice(),
+                    &actor.province_code,
+                    &actor.city_code,
+                    action,
+                ));
+                let other = primitives::cid::code::PROVINCE_CODE_INFOS.iter()
+                    .find(|entry| entry.province_code.as_slice() != actor.province_code.as_slice())
+                    .expect("行政区真源必须提供另一真实省份");
+                assert!(!RuntimeAddressAuthority::can_update_address(
+                    &actor.caller,
+                    actor.actor_cid_number.as_slice(),
+                    actor.actor_role_code.as_slice(),
+                    other.province_code.as_slice(),
+                    &actor.city_code,
+                    action,
+                ));
+            }
+        }
+        assert!(RuntimeAddressAuthority::benchmark_authority(5).is_none());
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+    });
+}
+
+/// 空的临时基准状态只能经既有genesis公开入口补齐，随后仍须通过实际权限。
+#[cfg(feature = "runtime-benchmarks")]
+#[test]
+fn address_benchmark_authority_initializes_missing_runtime_state() {
+    use address::AddressUpdateAuthority;
+
+    let storage = frame_system::GenesisConfig::<Runtime>::default()
+        .build_storage().expect("系统初始存储必须可构建");
+    sp_io::TestExternalities::new(storage).execute_with(|| {
+        System::set_block_number(1);
+        let actor = RuntimeAddressAuthority::benchmark_authority(3)
+            .expect("空的基准状态必须经原初始化入口准备真实岗位");
+        assert!(<PublicAdmins as adminbase::InstitutionAdminQuery<AccountId>>::institution_admins_exist(
+            primitives::cid::code::FRG,
+            actor.actor_cid_number.as_slice(),
+        ));
+        assert!(RuntimeAddressAuthority::can_update_address(
+            &actor.caller,
+            actor.actor_cid_number.as_slice(),
+            actor.actor_role_code.as_slice(),
+            &actor.province_code,
+            &actor.city_code,
+            3,
+        ));
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(RuntimeAddressAuthority::benchmark_authority(5).is_none());
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+    });
+}

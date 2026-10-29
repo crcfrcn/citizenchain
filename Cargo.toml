@@ -170,6 +170,7 @@ sc-rpc = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efc
 sc-rpc-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 sc-rpc-server = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 pallet-timestamp = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+pallet-staking = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
 pallet-transaction-payment = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
 pallet-transaction-payment-rpc = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 substrate-frame-rpc-system = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }

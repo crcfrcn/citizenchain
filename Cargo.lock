@@ -9717,6 +9717,7 @@ dependencies = [
  "onchain",
  "pallet-revive",
  "pallet-revive-eth-rpc",
+ "pallet-staking",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",

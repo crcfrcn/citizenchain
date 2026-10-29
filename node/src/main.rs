@@ -29,11 +29,11 @@ mod governance;
 mod home;
 mod mining;
 /// 机构与个人多签转账的签名请求及提交入口。
-pub mod multisig;
+pub(crate) mod multisig;
 /// 链下支付、清算行节点与结算工作器入口。
-pub mod offchain;
+pub(crate) mod offchain;
 /// 钱包管理与链上转账入口。
-pub mod onchain;
+pub(crate) mod onchain;
 mod other;
 mod settings;
 mod shared;
@@ -371,7 +371,7 @@ fn clean_stale_onchina_processes_before_start() -> Result<(), String> {
 }
 
 /// 返回由本节点桌面端拉起的 onchina 子进程是否仍在运行。
-pub fn is_onchina_running() -> bool {
+pub(crate) fn is_onchina_running() -> bool {
     let mut guard = match ONCHINA_CHILD.lock() {
         Ok(guard) => guard,
         Err(err) => {
@@ -387,7 +387,7 @@ pub fn is_onchina_running() -> bool {
 ///
 /// 找不到二进制时返回明确错误,由设置页展示给用户
 /// (开发期先 `cargo build -p onchina` 生成二进制)。
-pub fn start_onchina(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn start_onchina(app: &AppHandle) -> Result<(), String> {
     let mut guard = match ONCHINA_CHILD.lock() {
         Ok(guard) => guard,
         Err(err) => return Err(format!("获取链上中国平台子进程锁失败:{err}")),
@@ -430,7 +430,7 @@ fn wait_onchina_exit(child: &mut Child, timeout: Duration) -> Result<(), String>
 }
 
 /// 关闭父管道，等待宿主排空、模块停止及宿主退出；不直接强杀宿主而遗留模块。
-pub fn stop_onchina_checked() -> Result<(), String> {
+pub(crate) fn stop_onchina_checked() -> Result<(), String> {
     let mut guard = ONCHINA_CHILD.lock().map_err(|error| format!("获取链上中国平台子进程锁失败:{error}"))?;
     if let Some(child) = guard.as_mut() {
         drop(child.stdin.take());
@@ -443,7 +443,7 @@ pub fn stop_onchina_checked() -> Result<(), String> {
 }
 
 /// 停止 onchina 子进程(App 退出时调用)。
-pub fn stop_onchina() {
+pub(crate) fn stop_onchina() {
     if let Err(err) = stop_onchina_checked() {
         eprintln!("[onchina] 停止 onchina 控制台子进程失败:{err}");
     }

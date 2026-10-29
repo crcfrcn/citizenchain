@@ -107,6 +107,8 @@ legislationvote = { path = "../runtime/votingengine/legislationvote", default-fe
 # 基准CLI仅由runtime-benchmarks启用；frame-benchmarking仍供生产Runtime API安全检查使用。
 frame-benchmarking-cli = { workspace = true, default-features = true, optional = true }
 frame-benchmarking = { workspace = true, default-features = true }
+# 基准CLI已带入同一SDK的staking；仅对齐其try-runtime条件接口，普通节点不启用。
+pallet-staking = { workspace = true, optional = true }
 
 # Local Dependencies
 chain-signing = { path = "../crates/signing" }
@@ -164,11 +166,13 @@ gpu-mining = ["ocl"]
 # 显式启用时仍提供完整基准命令与Runtime基准功能。
 runtime-benchmarks = [
     "frame-benchmarking-cli/runtime-benchmarks",
+	"dep:pallet-staking",
 	"runtime/runtime-benchmarks",
 ]
 # Enable features that allow the runtime to be tried and debugged. Name might be subject to change
 # in the near future.
 try-runtime = [
+	"pallet-staking?/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"runtime/try-runtime",

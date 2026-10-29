@@ -2685,6 +2685,8 @@ macOS使用Tauri官方`--bundles app,dmg`一次打包，保留App供原有codesi
 
 节点默认Cargo特性仅std；custom-protocol仍可显式启用，正式Tauri CLI按官方实现自动启用tauri/custom-protocol，桌面正式包继续嵌入已构建前端。普通cargo test不再把前端源码及node_modules作为生产资源嵌入。benchmark模块、CLI入口与依赖仅在既有runtime-benchmarks特性下编译；生产Runtime升级安全检查仍使用frame-benchmarking的API标识，原防护不变。
 
+基准CLI引入的既有pallet-staking通过同一固定SDK声明为可选依赖，仅随runtime-benchmarks启用；try-runtime通过Cargo弱依赖特性同步其条件接口，避免session与staking的MigrateDisabledValidators定义不一致。仅启用try-runtime不引入staking，普通节点和正式Runtime不注册该pallet，生产功能、权重及冻结创世输入保持。
+
 逐项核对源码、测试、构建脚本和特性后，删除Node未用的async-channel、sp-genesis-builder、frame-metadata-hash-extension、sysinfo、unicode-normalization直接声明；删除OnChina未用的hex-literal、aes-gcm、hkdf、zeroize、pallet-transaction-payment、frame-metadata-hash-extension、sp-runtime直接声明。其它组件实际引用的传递依赖继续由原锁保留，不删除chain-signing的签名实现依赖。QR独立workspace仅保留实际继承的serde、serde_json、thiserror三项目录；删除其余56项未继承目录不代表减少已参与编译的依赖。
 
 OnChina按真实Cargo入口用一次cargo build和重复--bin选项编译所选目标，完整构建仍保留宿主及四个模块共五个程序。每个前端入口保留原类型检查、真实声明和产物验收；共享tsconfig.node.json工具配置每次构建仅检查一次，单模块构建也独立检查一次，原全量typecheck和业务测试保持。仅合并调用次数，不宣称省去必要二进制编译。
@@ -2737,6 +2739,8 @@ TLS集成回归中的阻塞HTTP客户端必须在原阻塞线程内创建、请�
 
 `node/src/main.rs`直接拥有OnChina子进程启动、状态查询、父管道关闭和退出等待实现，
 并直接挂载`node/src/multisig`、`node/src/offchain`、`node/src/onchain`三个既有目录。
+三模块和四个进程入口显式为pub(crate)，保持原私有聚合模块下的有效访问边界，
+不新增对外Rust接口；桌面命令仍通过原注册表公开。
 Rust调用统一为`crate::multisig/offchain/onchain`及主入口进程函数；不保留旧聚合模块、
 转发函数或兼容别名。桌面命令名、RPC、交易编码、手续费、清算逻辑与启动/停止行为保持。
 父管道生命周期测试随实现在main.rs保留，子进程精确用例名为
