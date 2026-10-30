@@ -1,8 +1,6 @@
-import { invoke } from '../tauri';
-import type {
-  VoteSignRequestResult,
-  VoteSubmitResult,
-} from '../governance/types';
+import { invoke } from "../client/tauri";
+import type { VoteSignRequestResult, VoteSubmitResult } from "../client/signing";
+
 
 export type ProposeUpgradeRequestResult = VoteSignRequestResult;
 export type PowDifficultyParams = {

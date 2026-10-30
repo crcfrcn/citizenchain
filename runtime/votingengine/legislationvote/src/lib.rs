@@ -1,7 +1,7 @@
 //! # 立法投票 pallet (legislationvote)
 //!
 //! 立法机构专属投票模式(ADR-027,公民宪法第45/46条)。投票引擎「头等模式」:
-//! `PROPOSAL_KIND_LEGISLATION`,共享核心 `votingengine`(Proposals/VotePlan/VoterSnapshot/
+//! `PROPOSAL_KIND_LEGISLATION`,共享核心 `votebase`(Proposals/VotePlan/VoterSnapshot/
 //! 状态机/公投快照验签/清理/反向索引),只本地保管计票账本。内部/联合/选举投票
 //! sub-pallet 逻辑零改动。
 //!
@@ -13,12 +13,13 @@
 //! - `STAGE_LEG_OVERRIDE` 三人会签(省行政区/国家):立法院院长 + 参议长 + 众议长,全签=生效/任一否决或超时=否决。
 //!
 //! 计票口径:按建案时冻结的议员/委员岗位席位票据总数计算参与率和赞成率
-//! (`votingengine::types` 的立法阈值纯函数)；投票期满 finalize 统一判定，
+//! (`votebase::types` 的立法阈值纯函数)；投票期满 finalize 统一判定，
 //! 结果已确定时可提前决。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 
 pub mod cleanup;
@@ -49,7 +50,7 @@ use sp_runtime::DispatchError;
 
 use primitives::count_const::VOTING_DURATION_BLOCKS;
 
-use votingengine::{
+use votebase::{
     pallet::{Proposals, ProposalsByExpiry},
     types::{InstitutionCode, ProposalSubjectCidNumbers, VotePlanOf},
     AuthorizationSubject, InternalProposalMutexKind, PopulationScope, Proposal,
@@ -60,7 +61,7 @@ use votingengine::{
 
 use crate::rules::{representative_decided, representative_final_passed};
 
-/// 法律全文大对象类型标记(写入 votingengine `ProposalObject`),与 legislation 对齐。
+/// 法律全文大对象类型标记(写入 votebase `ProposalObject`),与 legislation 对齐。
 pub const PROPOSAL_OBJECT_KIND_LAW_TEXT: u8 = 2;
 
 /// 护宪大法官法定人数(宪法第20条):7 人。
@@ -112,11 +113,11 @@ pub mod pallet {
     }
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config {
+    pub trait Config: frame_system::Config + votebase::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// 只提供岗位任职事实；业务权限由调用本引擎的业务模块校验。
-        type InstitutionRoleProvider: votingengine::InstitutionRoleProvider<Self::AccountId>;
+        type InstitutionRoleProvider: votebase::InstitutionRoleProvider<Self::AccountId>;
         type WeightInfo: crate::weights::WeightInfo;
     }
 
@@ -142,7 +143,7 @@ pub mod pallet {
         u64,
         Blake2_128Concat,
         u32,
-        votingengine::VoteCountU32,
+        votebase::VoteCountU32,
         ValueQuery,
     >;
 
@@ -156,7 +157,7 @@ pub mod pallet {
         Blake2_128Concat,
         (
             u32,
-            votingengine::types::InstitutionVoteTicket<T::AccountId>,
+            votebase::types::InstitutionVoteTicket<T::AccountId>,
         ),
         bool,
         OptionQuery,
@@ -165,7 +166,7 @@ pub mod pallet {
     /// 公投计票(特别案)。
     #[pallet::storage]
     pub type LegReferendumTally<T: Config> =
-        StorageMap<_, Blake2_128Concat, u64, votingengine::VoteCountU64, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, u64, votebase::VoteCountU64, ValueQuery>;
 
     /// 立法公投票据：`(proposal_id, 永久公民 CID) → 完整公民主体 + 票值`。
     ///
@@ -176,8 +177,8 @@ pub mod pallet {
         Blake2_128Concat,
         u64,
         Blake2_128Concat,
-        votingengine::types::CidNumber,
-        votingengine::CitizenReferendumTicket<T::AccountId>,
+        votebase::types::CidNumber,
+        votebase::CitizenReferendumTicket<T::AccountId>,
         OptionQuery,
     >;
 
@@ -218,7 +219,7 @@ pub mod pallet {
             proposal_id: u64,
             body_index: u32,
             who: T::AccountId,
-            voter_role_code: votingengine::types::RoleCode,
+            voter_role_code: votebase::types::RoleCode,
             approve: bool,
         },
         /// 当前代表机构通过，推进至下一代表机构。
@@ -231,7 +232,7 @@ pub mod pallet {
         /// 一张公投票已投出。
         LegislationReferendumVoteCast {
             proposal_id: u64,
-            voter_subject: votingengine::CitizenSubject<T::AccountId>,
+            voter_subject: votebase::CitizenSubject<T::AccountId>,
             approve: bool,
         },
         /// 内部全过(非特别案),推进至行政签署阶段。
@@ -300,7 +301,7 @@ pub mod pallet {
         pub fn cast_representative_vote(
             origin: OriginFor<T>,
             proposal_id: u64,
-            voter_role_code: votingengine::types::RoleCode,
+            voter_role_code: votebase::types::RoleCode,
             approve: bool,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -370,11 +371,11 @@ pub mod pallet {
     }
 }
 // 业务方法
-// trait 实现(供 votingengine 核心 + 业务壳接入)
+// trait 实现(供 votebase 核心 + 业务壳接入)
 impl<T: Config> crate::LegislationVoteEngine<T::AccountId> for Pallet<T> {
     fn create_representative_vote(
         who: T::AccountId,
-        actor_cid_number: votingengine::types::CidNumber,
+        actor_cid_number: votebase::types::CidNumber,
         vote_plan: VotePlanOf<T::AccountId>,
         route: RepresentativeRoute,
         rule: RepresentativeVoteRule,
@@ -399,11 +400,11 @@ impl<T: Config> crate::LegislationVoteEngine<T::AccountId> for Pallet<T> {
             };
             let now = <frame_system::Pallet<T>>::block_number();
             if let Err(err) =
-                <votingengine::Pallet<T>>::register_proposal_data(id, module_tag, data, now)
+                <votebase::Pallet<T>>::register_proposal_data(id, module_tag, data, now)
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
-            if <votingengine::Pallet<T>>::is_subject_voter_in_snapshot(
+            if <votebase::Pallet<T>>::is_subject_voter_in_snapshot(
                 id,
                 AuthorizationSubject::Institution(first_body.clone()),
                 &who,
@@ -420,7 +421,7 @@ impl<T: Config> crate::LegislationVoteEngine<T::AccountId> for Pallet<T> {
 
     fn create_legislation_vote(
         who: T::AccountId,
-        actor_cid_number: votingengine::types::CidNumber,
+        actor_cid_number: votebase::types::CidNumber,
         vote_plan: VotePlanOf<T::AccountId>,
         route: RepresentativeRoute,
         rule: RepresentativeVoteRule,
@@ -451,11 +452,11 @@ impl<T: Config> crate::LegislationVoteEngine<T::AccountId> for Pallet<T> {
             };
             let now = <frame_system::Pallet<T>>::block_number();
             if let Err(err) =
-                <votingengine::Pallet<T>>::register_proposal_data(id, module_tag, data, now)
+                <votebase::Pallet<T>>::register_proposal_data(id, module_tag, data, now)
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
-            if let Err(err) = <votingengine::Pallet<T>>::store_proposal_object(
+            if let Err(err) = <votebase::Pallet<T>>::store_proposal_object(
                 id,
                 PROPOSAL_OBJECT_KIND_LAW_TEXT,
                 object_data,
@@ -464,7 +465,7 @@ impl<T: Config> crate::LegislationVoteEngine<T::AccountId> for Pallet<T> {
             }
             // 发起人若属表决院(国家/省两院:发起院=众议会/教委会)则自动赞成一票;
             // 市行政区 市自治会/市教委会 委员提案时发起人不在表决院(市立法会),不自动投票。
-            if <votingengine::Pallet<T>>::is_subject_voter_in_snapshot(
+            if <votebase::Pallet<T>>::is_subject_voter_in_snapshot(
                 id,
                 AuthorizationSubject::Institution(first_body.clone()),
                 &who,
@@ -483,7 +484,7 @@ impl<T: Config> crate::LegislationVoteEngine<T::AccountId> for Pallet<T> {
     /// 没有提案人口快照(即非特别案)或提案不存在 → `None`。
     /// 公投计票 `LegReferendumTally` 在提案 90 天清理前一直保留,故核心修宪写入(护宪终审同块)时可读到。
     fn referendum_result(proposal_id: u64) -> Option<(u64, u64, u64)> {
-        let eligible = <votingengine::Pallet<T>>::population_eligible_total_of(proposal_id)?;
+        let eligible = <votebase::Pallet<T>>::population_eligible_total_of(proposal_id)?;
         if eligible == 0 {
             return None;
         }
@@ -503,7 +504,7 @@ impl<T: Config> crate::LegislationVoteEngine<T::AccountId> for Pallet<T> {
 }
 
 impl<T: Config>
-    votingengine::traits::LegislationProposalFinalizer<
+    votebase::traits::LegislationProposalFinalizer<
         frame_system::pallet_prelude::BlockNumberFor<T>,
         T::AccountId,
     > for Pallet<T>

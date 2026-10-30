@@ -7,11 +7,11 @@ use frame_support::{
 };
 use frame_system as system;
 
-// 引擎核心 storage / 类型 / trait(住在 votingengine 主 crate)。
+// 引擎核心 storage / 类型 / trait(住在 votebase 主 crate)。
 // `use super::*` 拉进 internalvote 自有的 pallet items(Pallet/Event/Error/Config/InternalVotesByTicket/...);
-// 这里追加 votingengine 的 storage 与 trait 名,让测试代码用短名引用。
+// 这里追加 votebase 的 storage 与 trait 名,让测试代码用短名引用。
 use primitives::cid::code::PRS;
-use votingengine::pallet::{
+use votebase::pallet::{
     AdminSnapshot, AutoFinalizeDeadLetters, AutoFinalizeRetryStates, CurrentProposalYear,
     ExecutionRetryDeadlines, NextProposalId, PendingCleanupQueue, PendingCleanupQueueHead,
     PendingCleanupQueueTail, PendingExecutionRetryExpirations, PendingExpiryBucket,
@@ -20,7 +20,7 @@ use votingengine::pallet::{
     ProposalsByOwner, ProposalsByYear, ScheduledCleanupHead, ScheduledCleanupTail,
     ScheduledCleanups, YearProposalCounter,
 };
-use votingengine::types::{
+use votebase::types::{
     code_bytes, CidNumber, InstitutionCode, ProposalSubject, RoleSubject, NJD, NRC, PMUL, PRB, PRC,
 };
 // 个人多签按账户键测试；公权、私权法人按机构 CID 键测试。
@@ -37,11 +37,11 @@ use sp_runtime::{
     traits::{Hash as _, IdentityLookup},
     AccountId32, BuildStorage, DispatchError,
 };
-use votingengine::traits::{
+use votebase::traits::{
     InternalAdminProvider, InternalVoteEngine, InternalVoteResultCallback, JointVoteEngine,
     JointVoteResultCallback,
 };
-use votingengine::{
+use votebase::{
     PendingCleanupStage, Proposal, ProposalExecutionOutcome, VoteCountU32, VoteCountU64,
     PROPOSAL_KIND_JOINT, STAGE_INTERNAL, STAGE_JOINT, STAGE_REFERENDUM, STATUS_EXECUTED,
     STATUS_EXECUTION_FAILED, STATUS_PASSED, STATUS_REJECTED, STATUS_VOTING,
@@ -70,7 +70,7 @@ mod runtime {
     pub type System = frame_system;
 
     #[runtime::pallet_index(1)]
-    pub type VotingEngine = votingengine;
+    pub type VotingEngine = votebase;
 
     #[runtime::pallet_index(2)]
     pub type InternalVote = super;
@@ -86,14 +86,14 @@ impl system::Config for Test {
     type Lookup = IdentityLookup<Self::AccountId>;
 }
 
-impl votingengine::Config for Test {
+impl votebase::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
-    type MaxAutoFinalizeWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxExecutionWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxCleanupWeightPerBlock = votingengine::BlockWeightFraction<Test, 8>;
+    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Test, 8>;
     type MaxProposalsPerExpiry = ConstU32<128>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;
@@ -414,7 +414,7 @@ impl InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     }
 }
 
-impl votingengine::InstitutionRoleProvider<AccountId32> for TestInternalAdminProvider {
+impl votebase::InstitutionRoleProvider<AccountId32> for TestInternalAdminProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         Self::active_accounts_for_role(cid_number, role_code).contains(who)
     }
@@ -423,7 +423,7 @@ impl votingengine::InstitutionRoleProvider<AccountId32> for TestInternalAdminPro
         let Ok(cid_text) = core::str::from_utf8(cid_number) else {
             return Vec::new();
         };
-        let Some(code) = votingengine::types::institution_code_from_cid_number(cid_text) else {
+        let Some(code) = votebase::types::institution_code_from_cid_number(cid_text) else {
             return Vec::new();
         };
         let expected_role = test_institution_role(code);
@@ -454,25 +454,25 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
         TEST_NOW_SECS.with(|secs| core::time::Duration::from_secs(*secs.borrow()))
     }
 }
-impl votingengine::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         (who == &nrc_admin(0)).then(|| test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         (who == &nrc_admin(0)).then(|| test_citizen_subject(who))
     }
 
     fn population_data(
-        scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::PopulationData> {
-        Some(votingengine::PopulationData {
+        scope: &votebase::PopulationScope,
+    ) -> Option<votebase::PopulationData> {
+        Some(votebase::PopulationData {
             scope: scope.clone(),
             eligible_total: TEST_POPULATION_COUNT.with(|count| *count.borrow()),
             eligibility_revision: 1,
@@ -482,14 +482,14 @@ impl votingengine::CitizenIdentityReader<AccountId32> for TestCitizenIdentityRea
 
     fn voting_subject_at(
         who: &AccountId32,
-        _population_data: &votingengine::PopulationData,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _population_data: &votebase::PopulationData,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         (who == &nrc_admin(0)).then(|| test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votingengine::CitizenSubject<AccountId32> {
-    votingengine::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
+    votebase::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -591,13 +591,13 @@ fn subject_cids_for(actor_cid_number: &CidNumber) -> Vec<Vec<u8>> {
 
 fn internal_mutex_for(
     actor_cid_number: CidNumber,
-) -> Option<votingengine::InternalProposalMutexState> {
+) -> Option<votebase::InternalProposalMutexState> {
     VotingEngine::internal_proposal_mutex(ProposalSubject::InstitutionCid(actor_cid_number))
 }
 
 fn personal_mutex_for(
     personal_account_id: AccountId32,
-) -> Option<votingengine::InternalProposalMutexState> {
+) -> Option<votebase::InternalProposalMutexState> {
     VotingEngine::internal_proposal_mutex(ProposalSubject::PersonalAccount(personal_account_id))
 }
 
@@ -742,7 +742,7 @@ fn try_create_joint_proposal_for(
     business_object_hash.copy_from_slice(hash.as_ref());
     let actor_text = core::str::from_utf8(actor_cid_number.as_slice())
         .map_err(|_| DispatchError::Other("invalid actor CID"))?;
-    let actor_code = votingengine::types::institution_code_from_cid_number(actor_text)
+    let actor_code = votebase::types::institution_code_from_cid_number(actor_text)
         .ok_or(DispatchError::Other("invalid actor CID"))?;
     let proposer_role_code = if matches!(actor_code, NRC | PRC) {
         primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
@@ -750,7 +750,7 @@ fn try_create_joint_proposal_for(
         primitives::governance_skeleton::ROLE_CODE_DIRECTOR
     };
     let proposer_subject =
-        votingengine::types::AuthorizationSubject::Institution(votingengine::types::RoleSubject {
+        votebase::types::AuthorizationSubject::Institution(votebase::types::RoleSubject {
             cid_number: actor_cid_number.clone(),
             role_code: proposer_role_code
                 .to_vec()
@@ -760,8 +760,8 @@ fn try_create_joint_proposal_for(
     let voter_subjects = CHINA_CB
         .iter()
         .map(|entry| {
-            votingengine::types::AuthorizationSubject::Institution(
-                votingengine::types::RoleSubject {
+            votebase::types::AuthorizationSubject::Institution(
+                votebase::types::RoleSubject {
                     cid_number: bounded_cid(entry.cid_number.as_bytes()),
                     role_code: primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                         .to_vec()
@@ -771,8 +771,8 @@ fn try_create_joint_proposal_for(
             )
         })
         .chain(CHINA_CH.iter().map(|entry| {
-            votingengine::types::AuthorizationSubject::Institution(
-                votingengine::types::RoleSubject {
+            votebase::types::AuthorizationSubject::Institution(
+                votebase::types::RoleSubject {
                     cid_number: bounded_cid(entry.cid_number.as_bytes()),
                     role_code: primitives::governance_skeleton::ROLE_CODE_DIRECTOR
                         .to_vec()
@@ -786,15 +786,15 @@ fn try_create_joint_proposal_for(
         .to_vec()
         .try_into()
         .map_err(|_| DispatchError::Other("invalid module tag"))?;
-    let vote_plan = votingengine::types::VotePlanOf::try_new(
-        votingengine::types::BusinessActionId {
+    let vote_plan = votebase::types::VotePlanOf::try_new(
+        votebase::types::BusinessActionId {
             module_tag: module_tag.clone(),
             action_code: 0,
         },
         module_tag,
         proposer_subject,
         voter_subjects,
-        votingengine::types::VotingEngineKind::Joint,
+        votebase::types::VotingEngineKind::Joint,
         business_object_hash,
     )
     .map_err(|_| DispatchError::Other("invalid joint vote plan"))?;
@@ -848,7 +848,7 @@ fn create_internal_proposal_via_engine(
 fn internal_vote_plan(
     actor_cid_number: &CidNumber,
     data: &[u8],
-) -> votingengine::types::VotePlanOf<AccountId32> {
+) -> votebase::types::VotePlanOf<AccountId32> {
     internal_vote_plan_with_owner(actor_cid_number, b"test", data)
 }
 
@@ -856,27 +856,27 @@ fn internal_vote_plan_with_owner(
     actor_cid_number: &CidNumber,
     module_tag: &[u8],
     data: &[u8],
-) -> votingengine::types::VotePlanOf<AccountId32> {
+) -> votebase::types::VotePlanOf<AccountId32> {
     let actor_text = core::str::from_utf8(actor_cid_number.as_slice()).expect("valid CID");
-    let code = votingengine::types::institution_code_from_cid_number(actor_text)
+    let code = votebase::types::institution_code_from_cid_number(actor_text)
         .expect("known institution code");
     let role_code = test_institution_role(code);
     let owner: BoundedVec<u8, ConstU32<32>> = module_tag.to_vec().try_into().expect("owner");
-    let role_subject = votingengine::types::RoleSubject {
+    let role_subject = votebase::types::RoleSubject {
         cid_number: actor_cid_number.clone(),
         role_code: role_code.to_vec().try_into().expect("role code"),
     };
-    votingengine::types::VotePlanOf::try_new(
-        votingengine::types::BusinessActionId {
+    votebase::types::VotePlanOf::try_new(
+        votebase::types::BusinessActionId {
             module_tag: owner.clone(),
             action_code: 0,
         },
         owner,
-        votingengine::types::AuthorizationSubject::Institution(role_subject.clone()),
-        vec![votingengine::types::AuthorizationSubject::Institution(
+        votebase::types::AuthorizationSubject::Institution(role_subject.clone()),
+        vec![votebase::types::AuthorizationSubject::Institution(
             role_subject,
         )],
-        votingengine::types::VotingEngineKind::Internal,
+        votebase::types::VotingEngineKind::Internal,
         sp_io::hashing::blake2_256(data),
     )
     .expect("valid internal vote plan")
@@ -935,7 +935,7 @@ fn cast_internal_vote_via_extrinsic(
     let proposal = VotingEngine::proposals(proposal_id).expect("测试提案存在");
     let ticket_claim = if let Some(actor_cid_number) = proposal.actor_cid_number {
         let actor_text = core::str::from_utf8(actor_cid_number.as_slice()).expect("测试 CID 合法");
-        let code = votingengine::types::institution_code_from_cid_number(actor_text)
+        let code = votebase::types::institution_code_from_cid_number(actor_text)
             .expect("测试机构码合法");
         InternalVoteTicketClaim::InstitutionRole(
             test_institution_role(code)
@@ -989,11 +989,11 @@ fn insert_joint_referendum_proposal(proposal_id: u64, eligible_total: u64, end: 
             end,
         },
     );
-    votingengine::ProposalPopulationSnapshots::<Test>::insert(
+    votebase::ProposalPopulationSnapshots::<Test>::insert(
         proposal_id,
-        votingengine::ProposalPopulationSnapshot {
-            population_data: votingengine::PopulationData {
-                scope: votingengine::PopulationScope::Country,
+        votebase::ProposalPopulationSnapshot {
+            population_data: votebase::PopulationData {
+                scope: votebase::PopulationScope::Country,
                 eligible_total,
                 eligibility_revision: proposal_id,
                 eligibility_date: 20_000,

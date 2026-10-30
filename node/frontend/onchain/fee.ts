@@ -1,3 +1,4 @@
+
 // 首页交易手续费预估：与 runtime onchain_transaction::calculate_onchain_fee 保持同一口径。
 
 const ONCHAIN_MIN_FEE_FEN = 10;

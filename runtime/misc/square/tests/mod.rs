@@ -334,3 +334,5 @@ pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
 
 mod post;
 mod subscription;
+
+mod property;

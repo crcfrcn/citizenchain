@@ -1,4 +1,6 @@
 [package]
+# 测试源统一归tests；独立目标只显式注册，避免重复发现。
+autotests = false
 name = "address" # 地址变更上链模块
 edition.workspace = true
 version.workspace = true

@@ -17,7 +17,7 @@ impl<T: Config> Pallet<T> {
     /// 行政签署：只认建案时冻结的行政机构 LR 岗位任职。
     pub fn do_executive_sign(who: T::AccountId, proposal_id: u64, approve: bool) -> DispatchResult {
         let proposal =
-            Proposals::<T>::get(proposal_id).ok_or(votingengine::Error::<T>::ProposalNotFound)?;
+            Proposals::<T>::get(proposal_id).ok_or(votebase::Error::<T>::ProposalNotFound)?;
         ensure!(
             proposal.status == STATUS_VOTING,
             Error::<T>::NotInExpectedStage
@@ -30,7 +30,7 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::ProposalMetaMissing)?;
         let executive = meta.executive.ok_or(Error::<T>::NotLegalRepresentative)?;
         ensure!(
-            <votingengine::Pallet<T>>::is_subject_voter_in_snapshot(
+            <votebase::Pallet<T>>::is_subject_voter_in_snapshot(
                 proposal_id,
                 AuthorizationSubject::Institution(executive),
                 &who,
@@ -49,14 +49,14 @@ impl<T: Config> Pallet<T> {
             Self::advance_to_override(proposal_id)
         } else {
             // 市行政区:无救济,否决即否决。
-            <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
+            <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
         }
     }
 
     /// 三人会签:院长/参议长/众议长各一票,任一否决=否决,集齐 3 个不同身份赞成=生效。
     pub fn do_override_sign(who: T::AccountId, proposal_id: u64, approve: bool) -> DispatchResult {
         let proposal =
-            Proposals::<T>::get(proposal_id).ok_or(votingengine::Error::<T>::ProposalNotFound)?;
+            Proposals::<T>::get(proposal_id).ok_or(votebase::Error::<T>::ProposalNotFound)?;
         ensure!(
             proposal.status == STATUS_VOTING,
             Error::<T>::NotInExpectedStage
@@ -69,7 +69,7 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::ProposalMetaMissing)?;
         ensure!(
             meta.override_signers.iter().any(|subject| {
-                <votingengine::Pallet<T>>::is_subject_voter_in_snapshot(
+                <votebase::Pallet<T>>::is_subject_voter_in_snapshot(
                     proposal_id,
                     AuthorizationSubject::Institution(subject.clone()),
                     &who,
@@ -89,7 +89,7 @@ impl<T: Config> Pallet<T> {
         });
         if !approve {
             // 任一否决即否决。
-            return <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED);
+            return <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED);
         }
         signs
             .try_push((who, true))
@@ -111,18 +111,18 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         ensure!(
             proposal.stage == STAGE_LEG_SIGN,
-            votingengine::Error::<T>::InvalidProposalStage
+            votebase::Error::<T>::InvalidProposalStage
         );
         ensure!(
             proposal.status == STATUS_VOTING,
-            votingengine::Error::<T>::ProposalAlreadyFinalized
+            votebase::Error::<T>::ProposalAlreadyFinalized
         );
         ensure!(
             crate::legislation::signing::is_expired(
                 <frame_system::Pallet<T>>::block_number(),
                 proposal.end,
             ),
-            votingengine::Error::<T>::VoteNotExpired
+            votebase::Error::<T>::VoteNotExpired
         );
         let meta = pallet::LegislationMetas::<T>::get(proposal_id)
             .ok_or(Error::<T>::ProposalMetaMissing)?;
@@ -140,19 +140,19 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         ensure!(
             proposal.stage == STAGE_LEG_OVERRIDE,
-            votingengine::Error::<T>::InvalidProposalStage
+            votebase::Error::<T>::InvalidProposalStage
         );
         ensure!(
             proposal.status == STATUS_VOTING,
-            votingengine::Error::<T>::ProposalAlreadyFinalized
+            votebase::Error::<T>::ProposalAlreadyFinalized
         );
         ensure!(
             crate::legislation::signing::is_expired(
                 <frame_system::Pallet<T>>::block_number(),
                 proposal.end,
             ),
-            votingengine::Error::<T>::VoteNotExpired
+            votebase::Error::<T>::VoteNotExpired
         );
-        <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
+        <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
     }
 }

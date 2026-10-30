@@ -9,7 +9,7 @@
 //! 全新创世:双层 ID 自创世第一块即终态布局,无回填迁移。
 
 use super::*;
-// 这些 storage 在 votingengine 主 crate;dual_id 测试通过 super::* 拿到 votingengine::pallet 的 re-import。
+// 这些 storage 在 votebase 主 crate;dual_id 测试通过 super::* 拿到 votebase::pallet 的 re-import。
 
 /// 走 `_with_data` 路径触发 `register_proposal_data` 与反向索引写入。
 fn create_institution_proposal_with_data_via_engine(
@@ -107,7 +107,7 @@ fn reverse_indexes_populated_after_register_proposal_data() {
         let display = ProposalDisplayId::<Test>::get(id).unwrap();
         assert!(ProposalsByYear::<Test>::contains_key(display.year, id));
         // ProposalsByOwner — 用注册时传入的 module_tag
-        let owner = votingengine::pallet::ProposalOwner::<Test>::get(id).expect("owner present");
+        let owner = votebase::pallet::ProposalOwner::<Test>::get(id).expect("owner present");
         assert!(ProposalsByOwner::<Test>::contains_key(owner, id));
     });
 }
@@ -123,12 +123,12 @@ fn final_cleanup_removes_indexes_and_display_id() {
             b"cleanup-tag",
         );
         let display = ProposalDisplayId::<Test>::get(id).unwrap();
-        let owner = votingengine::pallet::ProposalOwner::<Test>::get(id).expect("owner present");
+        let owner = votebase::pallet::ProposalOwner::<Test>::get(id).expect("owner present");
 
         // 走完整 FinalCleanup 路径
         VotingEngine::cleanup_proposal_indexes(id);
-        votingengine::pallet::Proposals::<Test>::remove(id);
-        votingengine::pallet::ProposalOwner::<Test>::remove(id);
+        votebase::pallet::Proposals::<Test>::remove(id);
+        votebase::pallet::ProposalOwner::<Test>::remove(id);
 
         assert!(!ProposalDisplayId::<Test>::contains_key(id));
         assert!(!ProposalsByCode::<Test>::contains_key(NRC, id));

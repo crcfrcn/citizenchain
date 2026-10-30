@@ -10,7 +10,7 @@ use primitives::{account_derive::RESERVED_NAME_FEE, fee_policy::OnchainFeeCharge
 use scale_info::TypeInfo;
 use sp_runtime::traits::{CheckedAdd, Zero};
 
-use votingengine::{
+use votebase::{
     types::{
         AuthorizationSubject, BusinessActionId, CidNumber, InstitutionCode, RoleCode, RoleSubject,
         VotePlanOf, VotingEngineKind, NRC, PRB, PRC,
@@ -21,6 +21,7 @@ use votingengine::{
 
 pub use pallet::*;
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 pub mod weights;
 
@@ -50,17 +51,17 @@ pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo;
     use entitybase::InstitutionMultisigQuery;
-    use votingengine::InternalVoteEngine;
+    use votebase::InternalVoteEngine;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config {
+    pub trait Config: frame_system::Config + votebase::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: Currency<Self::AccountId>;
 
         /// 通过统一内部投票引擎创建提案，返回真实 proposal_id。
-        type InternalVoteEngine: votingengine::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
 
         /// 机构岗位业务授权真源，由 runtime 路由到公权或私权机构目录。
         type InstitutionRoleAuthorization: entitybase::InstitutionRoleAuthorizationQuery<
@@ -83,7 +84,7 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
-    // 提案数据、元数据、活跃提案列表均已移至 votingengine 统一管控。
+    // 提案数据、元数据、活跃提案列表均已移至 votebase 统一管控。
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -225,9 +226,9 @@ pub mod pallet {
             .map(|role| {
                 Ok(AuthorizationSubject::Institution(RoleSubject {
                     cid_number: CidNumber::try_from(role.cid_number)
-                        .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                        .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                     role_code: RoleCode::try_from(role.role_code)
-                        .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                        .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                 }))
             })
             .collect::<Result<Vec<_>, sp_runtime::DispatchError>>()?;
@@ -239,7 +240,7 @@ pub mod pallet {
             > = crate::MODULE_TAG
                 .to_vec()
                 .try_into()
-                .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?;
+                .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
             VotePlanOf::<T::AccountId>::try_new(
                 BusinessActionId {
                     module_tag: owner.clone(),
@@ -248,22 +249,22 @@ pub mod pallet {
                 owner,
                 AuthorizationSubject::Institution(RoleSubject {
                     cid_number: CidNumber::try_from(cid_number.to_vec())
-                        .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                        .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                     role_code: RoleCode::try_from(proposer_role_code.to_vec())
-                        .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                        .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                 }),
                 voter_subjects,
                 VotingEngineKind::Internal,
                 sp_io::hashing::blake2_256(encoded),
             )
-            .map_err(|_| votingengine::Error::<T>::InvalidVotePlan.into())
+            .map_err(|_| votebase::Error::<T>::InvalidVotePlan.into())
         }
 
         pub(crate) fn try_execute_destroy_from_action(
             proposal_id: u64,
             action: DestroyAction<T::AccountId, BalanceOf<T>>,
         ) -> DispatchResult {
-            let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             let actual_org = T::InstitutionQuery::lookup_org(&action.institution_account_id)
                 .ok_or(Error::<T>::InvalidInstitution)?;
@@ -272,8 +273,8 @@ pub mod pallet {
             // PASSED 是可执行/可重试态；每次自动执行和统一重试都重新绑定
             // owner、投票模式、机构码、机构账户和 CID，不能只信任业务载荷。
             ensure!(
-                votingengine::Pallet::<T>::is_callback_execution_scope(proposal_id)
-                    && votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG,)
+                votebase::Pallet::<T>::is_callback_execution_scope(proposal_id)
+                    && votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG,)
                     && proposal.kind == PROPOSAL_KIND_INTERNAL
                     && proposal.stage == STAGE_INTERNAL
                     && proposal.status == STATUS_PASSED
@@ -345,7 +346,7 @@ pub mod pallet {
 // ──── 投票终态回调:把已通过的销毁提案落地到链上 ────
 //
 // 投票统一由投票引擎承担,提案通过(或否决)经
-// [`votingengine::InternalVoteResultCallback`] 广播回来。
+// [`votebase::InternalVoteResultCallback`] 广播回来。
 // 本 Executor 按 `MODULE_TAG` 前缀认领本模块的提案,非己方返回 Ignored。
 pub struct InternalVoteExecutor<T>(core::marker::PhantomData<T>);
 
@@ -354,9 +355,9 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
         proposal_id: u64,
         approved: bool,
     ) -> Result<ProposalExecutionOutcome, sp_runtime::DispatchError> {
-        let raw = match votingengine::Pallet::<T>::get_proposal_data(proposal_id) {
+        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw)
-                if votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
+                if votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
                     && raw.starts_with(crate::MODULE_TAG) =>
             {
                 raw
@@ -384,5 +385,5 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
 }
 
 #[cfg(test)]
-#[path = "../tests.rs"]
+#[path = "../tests/mod.rs"]
 mod tests;

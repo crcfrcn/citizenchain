@@ -1,11 +1,6 @@
-// 清算行 offchain 网络 DTO 与页面状态机类型。
-//
-//
-// - 机构身份只读 DTO 收敛在同目录 institution/types.ts(供清算行结算直读链上机构事实)。
-// - 本文件只保留清算行节点声明、连通性检测、管理员解锁和 offchain 入口状态机。
+import type { InstitutionAdminInfo } from "../institution/council";
+import type { AccountWithBalance } from "../institution/types";
 
-import type { InstitutionAdminInfo } from '../governance/types';
-import type { AccountWithBalance } from '../institution/types';
 
 export type {
   AccountWithBalance,

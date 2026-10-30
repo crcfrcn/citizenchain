@@ -8,6 +8,7 @@
 pub use pallet::*;
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 pub mod benchmarks;
 mod weights;
 
@@ -561,5 +562,5 @@ pub mod pallet {
 }
 
 #[cfg(test)]
-#[path = "../tests.rs"]
+#[path = "../tests/mod.rs"]
 mod tests;

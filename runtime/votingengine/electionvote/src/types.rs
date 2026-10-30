@@ -6,7 +6,7 @@
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
-use votingengine::{
+use votebase::{
     types::{CidNumber, InstitutionVoteTicket, RoleCode},
     CitizenSubject,
 };
@@ -34,8 +34,8 @@ pub enum ElectionMode {
 impl ElectionMode {
     pub const fn stage(self) -> u8 {
         match self {
-            ElectionMode::Popular => votingengine::STAGE_ELECTION_POPULAR,
-            ElectionMode::Mutual => votingengine::STAGE_ELECTION_MUTUAL,
+            ElectionMode::Popular => votebase::STAGE_ELECTION_POPULAR,
+            ElectionMode::Mutual => votebase::STAGE_ELECTION_MUTUAL,
         }
     }
 }
@@ -50,7 +50,7 @@ impl ElectionMode {
 pub struct ElectionMeta {
     pub mode: ElectionMode,
     /// 普选固定人口作用域；互选为 None，资格来自 VotePlan 岗位任职快照。
-    pub population_scope: Option<votingengine::PopulationScope>,
+    pub population_scope: Option<votebase::PopulationScope>,
     /// 发起和拟任职机构的唯一 CID；不得再保存第二个目标机构 CID。
     pub actor_cid_number: CidNumber,
     /// 当选后拟任职的 entity 真实岗位码。

@@ -12,7 +12,7 @@ impl<T: Config> Pallet<T> {
         let end = now.saturating_add(Self::stage_duration());
         with_transaction(|| {
             let eligible_total =
-                match <votingengine::Pallet<T>>::population_eligible_total_of(proposal_id) {
+                match <votebase::Pallet<T>>::population_eligible_total_of(proposal_id) {
                     Some(total) => total,
                     None => {
                         return TransactionOutcome::Rollback(Err(
@@ -25,7 +25,7 @@ impl<T: Config> Pallet<T> {
                 |maybe| -> Result<frame_system::pallet_prelude::BlockNumberFor<T>, DispatchError> {
                     let p = maybe
                         .as_mut()
-                        .ok_or(votingengine::Error::<T>::ProposalNotFound)?;
+                        .ok_or(votebase::Error::<T>::ProposalNotFound)?;
                     let old = p.end;
                     p.stage = STAGE_LEG_REFERENDUM;
                     p.start = now;
@@ -38,12 +38,12 @@ impl<T: Config> Pallet<T> {
             };
             let old_expiry = old_end.saturating_add(One::one());
             ProposalsByExpiry::<T>::mutate(old_expiry, |ids| ids.retain(|&i| i != proposal_id));
-            if let Err(err) = <votingengine::Pallet<T>>::schedule_proposal_expiry(proposal_id, end)
+            if let Err(err) = <votebase::Pallet<T>>::schedule_proposal_expiry(proposal_id, end)
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
-            <votingengine::Pallet<T>>::release_internal_proposal_mutexes(proposal_id);
-            <votingengine::Pallet<T>>::emit_proposal_advanced_to_referendum(
+            <votebase::Pallet<T>>::release_internal_proposal_mutexes(proposal_id);
+            <votebase::Pallet<T>>::emit_proposal_advanced_to_referendum(
                 proposal_id,
                 end,
                 eligible_total,
@@ -64,25 +64,25 @@ impl<T: Config> Pallet<T> {
         proposal_id: u64,
         approve: bool,
     ) -> DispatchResult {
-        let proposal = <votingengine::Pallet<T>>::ensure_open_proposal(proposal_id)?;
+        let proposal = <votebase::Pallet<T>>::ensure_open_proposal(proposal_id)?;
         ensure!(
             proposal.kind == PROPOSAL_KIND_LEGISLATION,
-            votingengine::Error::<T>::InvalidProposalKind
+            votebase::Error::<T>::InvalidProposalKind
         );
         ensure!(
             proposal.stage == STAGE_LEG_REFERENDUM,
-            votingengine::Error::<T>::InvalidProposalStage
+            votebase::Error::<T>::InvalidProposalStage
         );
-        let eligible_total = <votingengine::Pallet<T>>::population_eligible_total_of(proposal_id)
+        let eligible_total = <votebase::Pallet<T>>::population_eligible_total_of(proposal_id)
             .ok_or(Error::<T>::CitizenEligibleTotalNotSet)?;
         ensure!(eligible_total > 0, Error::<T>::CitizenEligibleTotalNotSet);
         let voter_subject =
-            <votingengine::Pallet<T>>::voting_subject_at_population_snapshot(proposal_id, &who)
+            <votebase::Pallet<T>>::voting_subject_at_population_snapshot(proposal_id, &who)
                 .ok_or(Error::<T>::CitizenNotEligible)?;
         let voter_cid_number = voter_subject.cid_number.clone();
         ensure!(
             !pallet::LegReferendumVotesByCid::<T>::contains_key(proposal_id, &voter_cid_number,),
-            votingengine::Error::<T>::AlreadyVoted
+            votebase::Error::<T>::AlreadyVoted
         );
         let current_tally = pallet::LegReferendumTally::<T>::get(proposal_id);
         ensure!(
@@ -93,7 +93,7 @@ impl<T: Config> Pallet<T> {
         pallet::LegReferendumVotesByCid::<T>::insert(
             proposal_id,
             voter_cid_number,
-            votingengine::CitizenReferendumTicket {
+            votebase::CitizenReferendumTicket {
                 voter_subject: voter_subject.clone(),
                 approve,
             },
@@ -120,18 +120,18 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         ensure!(
             proposal.stage == STAGE_LEG_REFERENDUM,
-            votingengine::Error::<T>::InvalidProposalStage
+            votebase::Error::<T>::InvalidProposalStage
         );
         ensure!(
             proposal.status == STATUS_VOTING,
-            votingengine::Error::<T>::ProposalAlreadyFinalized
+            votebase::Error::<T>::ProposalAlreadyFinalized
         );
         ensure!(
             <frame_system::Pallet<T>>::block_number() > proposal.end,
-            votingengine::Error::<T>::VoteNotExpired
+            votebase::Error::<T>::VoteNotExpired
         );
         let tally = pallet::LegReferendumTally::<T>::get(proposal_id);
-        let eligible_total = <votingengine::Pallet<T>>::population_eligible_total_of(proposal_id)
+        let eligible_total = <votebase::Pallet<T>>::population_eligible_total_of(proposal_id)
             .ok_or(Error::<T>::CitizenEligibleTotalNotSet)?;
         if crate::legislation::referendum::passed(eligible_total, tally.yes, tally.no) {
             // 公投通过:修宪(特别案)转护宪大法官终审,否则直接生效。
@@ -139,7 +139,7 @@ impl<T: Config> Pallet<T> {
                 .ok_or(Error::<T>::ProposalMetaMissing)?;
             Self::finalize_or_guard(proposal_id, meta.needs_guard)
         } else {
-            <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
+            <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
         }
     }
 }

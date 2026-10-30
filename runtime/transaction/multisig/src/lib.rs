@@ -23,7 +23,7 @@ use alloc::{vec, vec::Vec};
 use primitives::account_derive::{RESERVED_NAME_FEE, RESERVED_NAME_MAIN};
 use primitives::cid::china::china_cb::{CHINA_CB, SAFETY_FUND_ACCOUNT};
 use primitives::fee_policy::OnchainFeeCharger;
-use votingengine::{
+use votebase::{
     types::{
         institution_code_from_cid_number, AuthorizationSubject, BusinessActionId, CidNumber,
         InstitutionCode, RoleCode, RoleSubject, VotePlanOf, VotingEngineKind, NRC, PMUL, PRB,
@@ -39,6 +39,7 @@ const SAFETY_FUND_OWNER_DATA: &[u8] = b"multisig:safety";
 const SWEEP_OWNER_DATA: &[u8] = b"multisig:sweep";
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 pub mod weights;
 
@@ -120,11 +121,11 @@ pub mod pallet {
     use entitybase::ProtectedSourceChecker;
     use frame_support::traits::ExistenceRequirement;
     use primitives::institution_asset::{InstitutionAsset, InstitutionAssetAction};
-    use votingengine::InternalAdminProvider;
-    use votingengine::InternalVoteEngine;
+    use votebase::InternalAdminProvider;
+    use votebase::InternalVoteEngine;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config {
+    pub trait Config: frame_system::Config + votebase::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -132,7 +133,7 @@ pub mod pallet {
         type Currency: Currency<Self::AccountId>;
 
         /// 内部投票引擎。
-        type InternalVoteEngine: votingengine::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
 
         /// 机构岗位业务授权真源；个人多签不经过该接口。
         type InstitutionRoleAuthorization: entitybase::InstitutionRoleAuthorizationQuery<
@@ -168,8 +169,8 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
-    // 活跃提案数限制已移至 votingengine::active_proposal_limit 全局管控。
-    // 提案业务数据和元数据已统一存储到 votingengine（ProposalData / ProposalMeta）。
+    // 活跃提案数限制已移至 votebase::active_proposal_limit 全局管控。
+    // 提案业务数据和元数据已统一存储到 votebase（ProposalData / ProposalMeta）。
 
     /// 安全基金转账提案动作存储。
     #[pallet::storage]
@@ -334,7 +335,7 @@ pub mod pallet {
             if actor_cid_number.is_none() {
                 ensure!(proposer_role_code.is_none(), Error::<T>::UnauthorizedAdmin);
                 ensure!(
-                    <T as votingengine::Config>::InternalAdminProvider::is_personal_admin(
+                    <T as votebase::Config>::InternalAdminProvider::is_personal_admin(
                         funding_account_id.clone(),
                         &who,
                     ),
@@ -365,7 +366,7 @@ pub mod pallet {
                 Error::<T>::BeneficiaryIsProtectedAddress
             );
 
-            // 活跃提案数由 votingengine 在 create_internal_proposal 中统一检查
+            // 活跃提案数由 votebase 在 create_internal_proposal 中统一检查
 
             // 预检与执行一致：机构本金账户只承担本金，金额手续费由同 CID 费用账户承担；
             // 个人多签没有机构费用账户，继续由个人资金账户承担本金和执行手续费。
@@ -434,7 +435,7 @@ pub mod pallet {
             };
 
             // 从投票引擎回读 proposal.end 作为 expires_at,供 citizenapp 倒计时。
-            let expires_at = votingengine::Pallet::<T>::proposals(proposal_id)
+            let expires_at = votebase::Pallet::<T>::proposals(proposal_id)
                 .map(|p| p.end)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
 
@@ -540,7 +541,7 @@ pub mod pallet {
             );
 
             // 从投票引擎回读 proposal.end 作为 expires_at。
-            let expires_at = votingengine::Pallet::<T>::proposals(proposal_id)
+            let expires_at = votebase::Pallet::<T>::proposals(proposal_id)
                 .map(|p| p.end)
                 .ok_or(Error::<T>::SafetyFundProposalNotFound)?;
 
@@ -607,7 +608,7 @@ pub mod pallet {
             );
 
             let main_account = Self::resolve_main_account(&actor_cid_number)?;
-            let expires_at = votingengine::Pallet::<T>::proposals(proposal_id)
+            let expires_at = votebase::Pallet::<T>::proposals(proposal_id)
                 .map(|p| p.end)
                 .ok_or(Error::<T>::SweepProposalNotFound)?;
 
@@ -704,9 +705,9 @@ pub mod pallet {
             .map(|role| {
                 Ok(AuthorizationSubject::Institution(RoleSubject {
                     cid_number: CidNumber::try_from(role.cid_number)
-                        .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                        .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                     role_code: RoleCode::try_from(role.role_code)
-                        .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                        .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                 }))
             })
             .collect::<Result<Vec<_>, sp_runtime::DispatchError>>()?;
@@ -718,7 +719,7 @@ pub mod pallet {
             > = crate::MODULE_TAG
                 .to_vec()
                 .try_into()
-                .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?;
+                .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
             VotePlanOf::<T::AccountId>::try_new(
                 BusinessActionId {
                     module_tag: owner.clone(),
@@ -727,15 +728,15 @@ pub mod pallet {
                 owner,
                 AuthorizationSubject::Institution(RoleSubject {
                     cid_number: CidNumber::try_from(cid_number.to_vec())
-                        .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                        .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                     role_code: RoleCode::try_from(proposer_role_code.to_vec())
-                        .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                        .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                 }),
                 voter_subjects,
                 VotingEngineKind::Internal,
                 sp_io::hashing::blake2_256(proposal_data),
             )
-            .map_err(|_| votingengine::Error::<T>::InvalidVotePlan.into())
+            .map_err(|_| votebase::Error::<T>::InvalidVotePlan.into())
         }
 
         /// 复核内部投票提案与具体资金业务的完整绑定。
@@ -749,11 +750,11 @@ pub mod pallet {
             funding_account_id: &T::AccountId,
             subject_cid_numbers: &[Vec<u8>],
         ) -> DispatchResult {
-            let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             ensure!(
-                votingengine::Pallet::<T>::is_callback_execution_scope(proposal_id)
-                    && votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG,)
+                votebase::Pallet::<T>::is_callback_execution_scope(proposal_id)
+                    && votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG,)
                     && proposal.kind == PROPOSAL_KIND_INTERNAL
                     && proposal.stage == STAGE_INTERNAL
                     && proposal.status == STATUS_PASSED
@@ -979,7 +980,7 @@ pub mod pallet {
         }
 
         pub(crate) fn try_execute_transfer_from_callback(proposal_id: u64) -> DispatchResult {
-            let raw = votingengine::Pallet::<T>::get_proposal_data(proposal_id)
+            let raw = votebase::Pallet::<T>::get_proposal_data(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             let tag = crate::MODULE_TAG;
             ensure!(
@@ -1089,14 +1090,14 @@ pub mod pallet {
 // ──── 投票终态回调:把已通过的 3 组业务提案(转账/安全基金/手续费划转)落地到链上 ────
 //
 // 统一状态机整改后业务模块不再持有独立 vote/finalize call,提案通过(或否决)
-// 由投票引擎通过 [`votingengine::InternalVoteResultCallback`] 广播回来。
+// 由投票引擎通过 [`votebase::InternalVoteResultCallback`] 广播回来。
 // 本 Executor 按 `MODULE_TAG` 前缀 + 独立存储键认领对应业务:
 // - `MODULE_TAG` 前缀 `multisig` → transfer
 // - `SafetyFundProposalActions[id]` 存在 → safety_fund
 // - `SweepProposalActions[id]` 存在 → sweep
 //
 // 失败语义:执行失败发 ExecutionFailed 事件,提案保留 PASSED 状态,快照管理员
-// 可通过 VotingEngine::retry_passed_proposal 手动重试,实际权限由 votingengine 统一校验。
+// 可通过 VotingEngine::retry_passed_proposal 手动重试,实际权限由 votebase 统一校验。
 pub struct InternalVoteExecutor<T>(core::marker::PhantomData<T>);
 
 impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
@@ -1108,7 +1109,7 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
         let is_sweep = SweepProposalActions::<T>::contains_key(proposal_id);
         let is_transfer = !is_safety_fund
             && !is_sweep
-            && votingengine::Pallet::<T>::get_proposal_data(proposal_id)
+            && votebase::Pallet::<T>::get_proposal_data(proposal_id)
                 .map(|raw| raw.starts_with(crate::MODULE_TAG))
                 .unwrap_or(false);
 
@@ -1127,7 +1128,7 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
             if let Err(_e) = exec_result {
                 // 执行失败:发事件,提案保留 PASSED,供 VotingEngine 统一重试入口处理。
                 if is_transfer {
-                    if let Some(raw) = votingengine::Pallet::<T>::get_proposal_data(proposal_id) {
+                    if let Some(raw) = votebase::Pallet::<T>::get_proposal_data(proposal_id) {
                         if raw.len() >= crate::MODULE_TAG.len()
                             && raw.starts_with(crate::MODULE_TAG)
                         {

@@ -1,6 +1,7 @@
-import { formatBalance } from '../shared/format';
-import { accountIdToSs58 } from '../shared/ss58';
-import type { MultisigTransferProposalDetails } from './types';
+import { formatBalance } from "../client/format";
+import { accountIdToSs58 } from "../client/ss58";
+import type { MultisigTransferProposalDetails } from "./types";
+
 
 type Props = {
   info: MultisigTransferProposalDetails;

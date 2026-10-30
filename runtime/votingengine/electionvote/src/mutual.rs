@@ -11,9 +11,9 @@ impl<T: Config> Pallet<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn do_create_mutual_election(
         who: T::AccountId,
-        vote_plan: votingengine::types::VotePlanOf<T::AccountId>,
-        actor_cid_number: votingengine::types::CidNumber,
-        role_code: votingengine::types::RoleCode,
+        vote_plan: votebase::types::VotePlanOf<T::AccountId>,
+        actor_cid_number: votebase::types::CidNumber,
+        role_code: votebase::types::RoleCode,
         seat_count: u16,
         term_start: u32,
         term_end: u32,
@@ -36,13 +36,13 @@ impl<T: Config> Pallet<T> {
     pub fn do_cast_mutual_vote(
         who: T::AccountId,
         proposal_id: u64,
-        voter_role_code: votingengine::types::RoleCode,
+        voter_role_code: votebase::types::RoleCode,
         candidate_subject: CitizenSubjectOf<T>,
     ) -> DispatchResult {
         Self::do_cast_election_vote(
             who,
             proposal_id,
-            votingengine::STAGE_ELECTION_MUTUAL,
+            votebase::STAGE_ELECTION_MUTUAL,
             Some(voter_role_code),
             candidate_subject,
         )

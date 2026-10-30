@@ -1,3 +1,11 @@
+import { sanitizeError } from "../client/tauri";
+import { adminsChangeApi } from "../institution/admins";
+import { accountIdToSs58 } from "../client/ss58";
+import { CitizenSignatureModal } from "../desktop/CitizenSignatureModal";
+import type { ActivatedAdmin, AdminSignerMatch } from "../institution/council";
+import type { VoteSignRequestResult } from "../client/signing";
+import { offchainApi } from "./api";
+import type { ConnectivityTestReport } from "./types";
 // 声明清算行节点页:peer_id(自动)+ rpc_domain/port(手填)+ 4 重连通性自测 + QR 签名提交。
 //
 // 校验序列:
@@ -10,13 +18,6 @@
 //    自测的远端校验形成闭环——远端必须返回与本字段相同的 PeerId 才放行)。
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sanitizeError } from '../tauri';
-import { adminsChangeApi } from '../admins/api';
-import { accountIdToSs58 } from '../shared/ss58';
-import { CitizenSignatureModal } from '../protocol/CitizenSignatureModal';
-import type { ActivatedAdmin, AdminSignerMatch, VoteSignRequestResult } from '../governance/types';
-import { offchainApi } from './api';
-import type { ConnectivityTestReport } from './types';
 
 type Props = {
   cidNumber: string;

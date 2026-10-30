@@ -1,0 +1,40 @@
+[package]
+name = "nodeproposal"
+description = "CitizenChain nodeproposal"
+publish = false
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { workspace = true, default-features = true }
+entitybase = { path = "../../runtime/entity/entitybase", default-features = true }
+hex = "=0.4.3"
+identity = { path = "../../runtime/misc/identity", default-features = true }
+nodeclient = { path = "../client" }
+nodecontrol = { path = "../control" }
+nodedesktop = { path = "../desktop" }
+nodedestroy = { path = "../destroy" }
+nodeinstitution = { path = "../institution" }
+nodemultisig = { path = "../multisig" }
+noderesolutionissue = { path = "../resolutionissue" }
+nodeupgrade = { path = "../upgrade" }
+primitives = { path = "../../runtime/primitives" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, default-features = true }
+sha2 = "=0.10.9"
+sp-runtime = { workspace = true, default-features = true }
+tauri = { version = "=2.11.5", features = [] }
+votebase = { path = "../../runtime/votingengine/votebase", default-features = true }
+
+[dev-dependencies]
+difficulty = { path = "../../runtime/misc/difficulty", default-features = true }
+
+[features]

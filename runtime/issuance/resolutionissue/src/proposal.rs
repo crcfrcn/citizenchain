@@ -22,7 +22,7 @@ use primitives::{
 use sp_runtime::traits::{Hash as HashT, Zero};
 use sp_runtime::DispatchError;
 use sp_std::vec::Vec;
-use votingengine::{
+use votebase::{
     JointVoteEngine, PROPOSAL_KIND_JOINT, STAGE_JOINT, STAGE_REFERENDUM, STATUS_PASSED,
     STATUS_REJECTED,
 };
@@ -36,11 +36,11 @@ pub struct RecipientAmount<AccountId, Balance> {
     pub amount: Balance,
 }
 
-/// 存入 votingengine ProposalData 的业务数据结构。
+/// 存入 votebase ProposalData 的业务数据结构。
 #[derive(Encode, Decode, Clone, Debug, PartialEq, Eq)]
 pub struct IssuanceProposalData<AccountId, Balance> {
-    pub actor_cid_number: votingengine::types::CidNumber,
-    pub proposer_role_code: votingengine::types::RoleCode,
+    pub actor_cid_number: votebase::types::CidNumber,
+    pub proposer_role_code: votebase::types::RoleCode,
     pub proposer_account_id: AccountId,
     pub reason: Vec<u8>,
     pub total_amount: Balance,
@@ -53,8 +53,8 @@ impl<T: Config> Pallet<T> {
         role_code: &[u8],
     ) -> Result<
         entitybase::RoleSubject<
-            votingengine::types::CidNumber,
-            votingengine::types::RoleCode,
+            votebase::types::CidNumber,
+            votebase::types::RoleCode,
         >,
         DispatchError,
     > {
@@ -72,10 +72,10 @@ impl<T: Config> Pallet<T> {
 
     /// 决议发行与协议升级使用完全相同的固定联合投票岗位集合。
     fn build_vote_plan(
-        actor_cid_number: &votingengine::types::CidNumber,
-        proposer_role_code: &votingengine::types::RoleCode,
+        actor_cid_number: &votebase::types::CidNumber,
+        proposer_role_code: &votebase::types::RoleCode,
         business_object_hash: [u8; 32],
-    ) -> Result<votingengine::types::VotePlanOf<T::AccountId>, DispatchError> {
+    ) -> Result<votebase::types::VotePlanOf<T::AccountId>, DispatchError> {
         let proposer_role =
             Self::bounded_role_subject(actor_cid_number.as_slice(), proposer_role_code.as_slice())?;
         let mut voters = Vec::new();
@@ -99,7 +99,7 @@ impl<T: Config> Pallet<T> {
             .to_vec()
             .try_into()
             .map_err(|_| Error::<T>::JointVoteCreateFailed)?;
-        votingengine::types::VotePlanOf::<T::AccountId>::try_new(
+        votebase::types::VotePlanOf::<T::AccountId>::try_new(
             BusinessActionId {
                 module_tag: module_tag.clone(),
                 action_code: entitybase::business_action::ACTION_RESOLUTION_ISSUANCE,
@@ -107,7 +107,7 @@ impl<T: Config> Pallet<T> {
             module_tag,
             AuthorizationSubject::Institution(proposer_role),
             voters,
-            votingengine::types::VotingEngineKind::Joint,
+            votebase::types::VotingEngineKind::Joint,
             business_object_hash,
         )
         .map_err(|_| Error::<T>::JointVoteCreateFailed.into())
@@ -115,8 +115,8 @@ impl<T: Config> Pallet<T> {
 
     pub(crate) fn create_resolution_issuance_proposal(
         proposer_account_id: T::AccountId,
-        actor_cid_number: votingengine::types::CidNumber,
-        proposer_role_code: votingengine::types::RoleCode,
+        actor_cid_number: votebase::types::CidNumber,
+        proposer_role_code: votebase::types::RoleCode,
         reason: ReasonOf<T>,
         total_amount: BalanceOf<T>,
         allocations: AllocationOf<T>,
@@ -124,12 +124,12 @@ impl<T: Config> Pallet<T> {
         ensure!(!reason.is_empty(), Error::<T>::EmptyReason);
         let actor_text = core::str::from_utf8(actor_cid_number.as_slice())
             .map_err(|_| Error::<T>::InvalidActorCid)?;
-        let actor_code = votingengine::types::institution_code_from_cid_number(actor_text)
+        let actor_code = votebase::types::institution_code_from_cid_number(actor_text)
             .ok_or(Error::<T>::InvalidActorCid)?;
         ensure!(
             matches!(
                 actor_code,
-                votingengine::types::NRC | votingengine::types::PRC
+                votebase::types::NRC | votebase::types::PRC
             ),
             Error::<T>::InvalidActorCid
         );
@@ -210,13 +210,13 @@ impl<T: Config> Pallet<T> {
     pub fn load_proposal_data(
         proposal_id: u64,
     ) -> Option<IssuanceProposalData<T::AccountId, BalanceOf<T>>> {
-        let raw = votingengine::Pallet::<T>::get_proposal_data(proposal_id)?;
+        let raw = votebase::Pallet::<T>::get_proposal_data(proposal_id)?;
         Self::decode_tagged_data(&raw)
     }
 
     /// 判断指定提案是否属于本模块。
     pub fn owns_proposal(proposal_id: u64) -> bool {
-        votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
+        votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
     }
 
     fn decode_tagged_data(raw: &[u8]) -> Option<IssuanceProposalData<T::AccountId, BalanceOf<T>>> {
@@ -234,7 +234,7 @@ impl<T: Config> Pallet<T> {
         approved: bool,
     ) -> Result<FinalizeOutcome, DispatchError> {
         // 联合投票终结、发行执行和计数递减必须在同一事务里提交；
-        // votingengine 负责在外层终态转换后统一登记提案清理。
+        // votebase 负责在外层终态转换后统一登记提案清理。
         with_transaction(|| {
             if let Err(err) = Self::ensure_vote_engine_callback_context(proposal_id, approved) {
                 return TransactionOutcome::Rollback(Err(err));
@@ -313,16 +313,16 @@ impl<T: Config> Pallet<T> {
     }
 
     fn ensure_vote_engine_callback_context(proposal_id: u64, approved: bool) -> DispatchResult {
-        // 决议发行只接受 votingengine 在终态转换事务内发起的回调，
+        // 决议发行只接受 votebase 在终态转换事务内发起的回调，
         // 不再提供任何 Root 或外部来源可直接触发的手工 finalize 路径。
         ensure!(
-            votingengine::pallet::CallbackExecutionScopes::<T>::contains_key(proposal_id),
+            votebase::pallet::CallbackExecutionScopes::<T>::contains_key(proposal_id),
             Error::<T>::ProposalNotFinalizable
         );
-        let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+        let proposal = votebase::Pallet::<T>::proposals(proposal_id)
             .ok_or(Error::<T>::ProposalNotFound)?;
         ensure!(
-            votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG),
+            votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG),
             Error::<T>::ProposalNotFinalizable
         );
         // 联合机构全票通过时停留在 STAGE_JOINT；非全票转公投后，合法通过

@@ -1,12 +1,12 @@
+import { sanitizeError } from "../client/tauri";
+import { accountIdToSs58 } from "../client/ss58";
+import { CitizenSignaturePanel } from "../desktop/CitizenSignaturePanel";
+import { runtimeUpgradeApi as api } from "./api";
+import type { AdminSignerMatch } from "../institution/council";
+import type { PowDifficultyParams, ProposeUpgradeRequestResult } from "./api";
 // 运行期协议升级页：提交 WASM 提案,走联合投票流程。
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { sanitizeError } from '../tauri';
-import { accountIdToSs58 } from '../shared/ss58';
-import { CitizenSignaturePanel } from '../protocol/CitizenSignaturePanel';
-import { runtimeUpgradeApi as api } from './api';
-import type { AdminSignerMatch } from '../governance/types';
-import type { PowDifficultyParams, ProposeUpgradeRequestResult } from './api';
 
 type FlowStep = 'form' | 'qr' | 'submit' | 'done' | 'error';
 

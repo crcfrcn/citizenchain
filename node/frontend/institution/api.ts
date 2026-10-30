@@ -1,9 +1,6 @@
-import { invoke } from '../tauri';
-import type {
-  EligibleClearingBankCandidate,
-  InstitutionDetail,
-  InstitutionProposalPage,
-} from './types';
+import { invoke } from "../client/tauri";
+import type { EligibleClearingBankCandidate, InstitutionDetail, InstitutionProposalPage } from "./types";
+
 
 // 清算行机构身份只读 Tauri API。机构创建归 onchina 控制台,节点不承接。
 export const institutionReadApi = {

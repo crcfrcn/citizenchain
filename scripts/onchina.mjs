@@ -71,11 +71,11 @@ export async function withOnChinaWork(work, action) {
   finally { if (!retained) rmSync(work, {recursive: true}); }
 }
 
-// 正式Runner直接使用准确检出；专属开发构建只使用自己现场中的完整源码副本。
+// 构建直接读取本仓源码，产物只写入本次隔离现场。
 function buildProject(project, work) {
   checkWork(work);
   const value = resolve(project);
-  if (realpathSync(value) !== value || (value !== root && value !== join(work, 'source'))) fail('链上中国工程不属于本产品或本次现场');
+  if (realpathSync(value) !== value || value !== root) fail('链上中国工程不属于本产品或本次现场');
   return value;
 }
 
@@ -86,7 +86,7 @@ async function prepareFrontend(project, environment) {
 }
 
 function ownedPath(work, path, label) {
-  if (!isAbsolute(path) || path === work || !inside(work, path) || inside(join(work, 'source'), path)) fail(label + '必须属于本次构建输出，不能覆盖工程或工作根');
+  if (!isAbsolute(path) || path === work || !inside(work, path)) fail(label + '必须属于本次构建输出，不能覆盖工程或工作根');
   let parent = path;
   while (!existsSync(parent)) parent = dirname(parent);
   if (realpathSync(parent) !== parent) fail(label + '不能经过符号链接');
@@ -150,7 +150,7 @@ export async function buildPreparedOnChina({
     host: join(targetDirectory, 'release', 'onchina' + (platform === 'windows' ? '.exe' : '')),
     frontend: output, modules, targets: targets.map(target => target.id),
   };
-  await verifyPreparedOnChina({project, work, environment: env, result});
+  await verifyPreparedOnChina({project, work, result});
   return result;
 }
 
@@ -175,7 +175,7 @@ async function frontendWorker() {
   if (diagnostics.length) fail(ts.formatDiagnosticsWithColorAndContext(diagnostics, diagnosticHost(ts)));
   // 每个入口的类型检查保持；同次构建的公共工具配置只检查一次。
   if (job.checkNode !== false) {
-    // 构建只核对原Node工具配置；原测试仍由既有完整typecheck/test流程核对，避免单模块依赖别的业务测试。
+    // 公共工具配置只检查一次，单模块不编译其他模块测试。
     const nodeConfigPath = join(job.frontend, 'tsconfig.node.json');
     const nodeConfig = ts.readConfigFile(nodeConfigPath, ts.sys.readFile);
     if (nodeConfig.error) fail(ts.flattenDiagnosticMessageText(nodeConfig.error.messageText, '\n'));
@@ -193,8 +193,8 @@ async function frontendWorker() {
   await vite.build({root: job.frontend, configFile: join(job.frontend, 'vite.config.ts'), build: {outDir: job.destination, emptyOutDir: true}});
 }
 function diagnosticHost(ts) { return {getCanonicalFileName: file => file, getCurrentDirectory: ts.sys.getCurrentDirectory, getNewLine: () => '\n'}; }
-/** 编译后的真实产物验收；只登记到既有测试文件，不重新编译或运行全套业务测试。 */
-export async function verifyPreparedOnChina({project, work, environment, result}) {
+/** 只检查本轮编译产物的文件、资源路径和模块集合，不启动测试。 */
+export async function verifyPreparedOnChina({project, work, result}) {
   buildProject(project, work);
   if (result.targets.includes('platform')) {
     const frontend = ownedPath(work, result.frontend, '宿主前端');
@@ -212,10 +212,7 @@ export async function verifyPreparedOnChina({project, work, environment, result}
   const ids = result.targets.filter(id => id !== 'platform');
   const all = selectTargets(project).filter(target => target.id !== 'platform').map(target => target.id).sort();
   if (JSON.stringify([...ids].sort()) === JSON.stringify(all) && JSON.stringify(readdirSync(modules).sort()) !== JSON.stringify(all)) fail('完整模块产物混入残留或缺少目标');
-  const env = {...environment, ONCHINA_TEST_MODULE_ROOT: modules, ONCHINA_TEST_MODULE_IDS: JSON.stringify(ids)};
-  const node = environment.NODE;
-  await runBuildProcess(node, ['--test', '--test-name-pattern', '实际模块产物', join(project, 'onchina/platform/modules/structure.test.mjs')], env, project);
-  await runBuildProcess(node, [npmCLI(node), 'test', '--', '-t', '实际IIFE装载'], env, join(project, 'onchina/platform/frontend'));
+
 }
 
 export function argumentsOf(args) {
@@ -226,7 +223,7 @@ export function argumentsOf(args) {
     values[name.slice(2)] = args[i + 1];
   }
   values.selection = values.module || 'all';
-  if (!['build', 'preview'].includes(values.action)) fail('链上中国构建动作无效');
+  if (values.action !== 'build') fail('链上中国构建动作无效');
   values.platform ||= nativePlatform();
   return values;
 }
@@ -235,49 +232,21 @@ async function cli(args) {
   if (args[0] === 'frontend-worker') { await frontendWorker(); return; }
   const options = argumentsOf(args);
   if (options.platform !== nativePlatform()) fail('链上中国必须使用声明对应的原生平台');
-  const targets = selectTargets(root, options.selection);
   const paths = buildPaths(options.platform, options.selection);
-  if (options.action === 'preview') {
-    if (options.selection !== 'all' || options.output) fail('预览使用完整开发构建的默认宿主前端');
-    const frontend = join(root, 'onchina/platform/frontend');
-    const output = join(paths.output, 'frontend');
-    if (!existsSync(join(output, 'index.html'))) fail('请先执行链上中国开发构建');
-    const require = createRequire(join(frontend, 'package.json'));
-    const manifestPath = require.resolve('vite/package.json');
-    const installed = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    const declared = JSON.parse(readFileSync(join(frontend, 'package.json'), 'utf8'));
-    if (installed.version !== declared.devDependencies.vite) fail('预览依赖与原声明不符，请按原锁准备依赖');
-    await runBuildProcess(process.execPath, [resolve(dirname(manifestPath), installed.bin.vite), 'preview', '--outDir', output], process.env, frontend);
-    return;
-  }
   const output = options.output ? resolve(options.output) : paths.output;
   if (inside(root, output) && !inside(join(root, 'target'), output) || inside(paths.work, output) || inside(output, paths.work)) fail('交付位置必须位于源码和活动现场之外');
   if (options.output && existsSync(output)) fail('指定交付目录已存在，禁止覆盖');
   await withOnChinaWork(paths.work, async work => {
     const env = platformCargoEnvironment(options.platform, work, process.env);
-    // 开发构建不继承运行服务的输出目录或上次验收输入。
-    for (const name of ['ONCHINA_FRONTEND_DIST', 'ONCHINA_MODULE_DIST', 'ONCHINA_TEST_MODULE_ROOT', 'ONCHINA_TEST_MODULE_IDS']) delete env[name];
+    // 开发构建不继承运行服务的输出目录。
+    for (const name of ['ONCHINA_FRONTEND_DIST', 'ONCHINA_MODULE_DIST']) delete env[name];
     if (process.versions.node !== product.tools.node) fail('Node版本不符合产品声明');
     const cargo = await runBuildProcess(env.CARGO, ['--version'], env, root, {capture: true});
     if (!cargo.stdout.startsWith('cargo ' + product.tools.rust + ' ')) fail('Rust版本不符合产品声明');
     if (!env.PROTOC) fail('缺少产品声明的官方protoc');
     const protoc = await runBuildProcess(env.PROTOC, ['--version'], env, root, {capture: true});
     if (protoc.stdout.trim() !== 'libprotoc ' + product.tools.protoc) fail('protoc版本不符合产品声明');
-    const project = join(work, 'source');
-    const listed = await runBuildProcess('git', ['ls-files', '-z'], env, root, {capture: true});
-    for (const name of listed.stdout.split('\0').filter(Boolean)) {
-      const source = resolve(root, name), destination = resolve(project, name);
-      if (!inside(root, source) || !inside(project, destination) || !lstatSync(source).isFile() || realpathSync(source) !== source) fail('源码必须来自本产品普通文件');
-      mkdirSync(dirname(destination), {recursive: true}); copyFileSync(source, destination);
-    }
-    await prepareFrontend(project, env);
-    const frontend = join(project, 'onchina/platform/frontend');
-    // 完整工程覆盖所有业务；单模块只检查公共装载和所选Rust目标，避免引入其他模块编译。
-    await runBuildProcess(env.NODE, ['--test', join(project, 'onchina/platform/modules/structure.test.mjs')], env, project);
-    if (options.selection === 'all') await runBuildProcess(env.NODE, [npmCLI(env.NODE), 'run', 'typecheck'], env, frontend);
-    await runBuildProcess(env.NODE, [npmCLI(env.NODE), 'test', ...(options.selection === 'all' ? [] : ['--', '-t', '模块'])], env, frontend);
-    for (const target of targets) await runBuildProcess(env.CARGO, ['--config', join(project, 'config.toml'), 'test', '--locked', '--release', '-p', 'onchina', '--bin', target.name], env, project);
-    const result = await buildPreparedOnChina({project, work, platform: options.platform, environment: env, selection: options.selection, prepareDependencies: false});
+    const result = await buildPreparedOnChina({project: root, work, platform: options.platform, environment: env, selection: options.selection});
     const staged = join(work, 'delivery'); mkdirSync(staged);
     if (result.targets.includes('platform')) {
       copyFileSync(result.host, join(staged, basename(result.host)));

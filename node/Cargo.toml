@@ -1,20 +1,24 @@
 [package]
 name = "node"
 description = "CitizenChain node built with Substrate."
-default-run = "citizenchain"
-homepage.workspace = true
 publish = false
-edition.workspace = true   # 默认 Rust 版本
-version.workspace = true   # 版本号
-authors.workspace = true   # 作者
-repository.workspace = true  #项目仓库
-license = "MIT"        # 授权协议 MIT
-
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+autotests = false
+default-run = "citizenchain"
 build = "build.rs"
 
 [[bin]]
 name = "citizenchain"
 path = "src/main.rs"
+
+[[test]]
+name = "build"
+path = "src/tests/mod.rs"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -23,132 +27,101 @@ targets = ["x86_64-unknown-linux-gnu"]
 workspace = true
 
 [dependencies]
-hex = "=0.4.3"
-qr-protocol = { path = "../crates/protocol" } # 仓库级 QR_V1 协议真源：registry + 载荷编解码
-hex-literal = "0.4"
+chain-signing = { path = "../crates/signing" }
 clap = { workspace = true }
+codec = { workspace = true, default-features = true }
+ed25519-dalek = "=2.2.0"
+# 默认元数据须包含SDK测试Runtime；基准命令仍只由runtime-benchmarks开放。
+frame-benchmarking-cli = { workspace = true, default-features = true }
+frame-metadata = "=23.0.1"
+frame-support = { workspace = true, default-features = true }
+frame-system = { workspace = true, default-features = true }
+fullnodeissue = { path = "../runtime/issuance/fullnodeissue", default-features = true }
 futures = { workspace = true }
-jsonrpsee = { workspace = true }
-log = { workspace = true, default-features = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true, default-features = true }
-primitives = { path = "../runtime/primitives" }
 genesis = { path = "../runtime/genesis" }
-ocl = { version = "0.19", optional = true }
-rcgen = { version = "=0.13.2", default-features = false, features = ["ring"] }
-# TLS 复用统一 rustls 版本，证书材料仅由运行环境提供。
-rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std"] }
-tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring"] }
-tower = { version = "=0.4.13", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors"] }
+grandpakey = { path = "../runtime/governance/grandpakey", default-features = true }
+hex = "=0.4.3"
+identity = { path = "../runtime/misc/identity", default-features = true }
+jsonrpsee = { workspace = true }
+libp2p-identity = { version = "0.2", features = ["ed25519", "peerid"] }
+log = { workspace = true, default-features = true }
+nodeclient = { path = "client" }
+nodecontrol = { path = "control" }
+nodedesktop = { path = "desktop" }
+nodedestroy = { path = "destroy" }
+nodegrandpakey = { path = "grandpakey" }
+nodeguard = { path = "guard" }
+nodeinstitution = { path = "institution" }
+nodemining = { path = "mining" }
+nodemultisig = { path = "multisig" }
+nodeoffchain = { path = "offchain" }
+nodeonchain = { path = "onchain" }
+nodeproposal = { path = "proposal" }
+noderesolutionissue = { path = "resolutionissue" }
+nodeupgrade = { path = "upgrade" }
+onchain = { path = "../runtime/transaction/onchain", default-features = true }
 pallet-revive = { workspace = true, default-features = true }
 pallet-revive-eth-rpc = { workspace = true }
-sc-rpc-api = { workspace = true }
-sc-rpc-server = { workspace = true }
-
-# substrate client
+pallet-staking = { workspace = true, optional = true }
+pallet-transaction-payment = { workspace = true, default-features = true }
+pallet-transaction-payment-rpc = { workspace = true, default-features = true }
+primitives = { path = "../runtime/primitives" }
+reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "json", "query", "rustls"] }
+runtime = { workspace = true }
 sc-basic-authorship = { workspace = true, default-features = true }
+sc-chain-spec = { workspace = true, default-features = true }
 sc-cli = { workspace = true, default-features = true }
 sc-client-api = { workspace = true, default-features = true }
 sc-consensus = { workspace = true, default-features = true }
 sc-consensus-grandpa = { workspace = true, default-features = true }
 sc-consensus-pow = { workspace = true, default-features = true }
-sc-chain-spec = { workspace = true, default-features = true }
-sc-executor = { workspace = true, default-features = true }
 sc-network = { workspace = true, default-features = true }
 sc-offchain = { workspace = true, default-features = true }
 sc-service = { workspace = true, default-features = true }
-
 sc-telemetry = { workspace = true, default-features = true }
 sc-transaction-pool = { workspace = true, default-features = true }
 sc-transaction-pool-api = { workspace = true, default-features = true }
-sp-consensus-pow = { workspace = true, default-features = true }
-sp-consensus-grandpa = { workspace = true, default-features = true }
-sp-core = { workspace = true, default-features = true }
-sp-crypto-hashing = { workspace = true, default-features = true }
-sp-keystore = { workspace = true, default-features = true }
-
-# substrate primitives
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, default-features = true }
 sp-api = { workspace = true, default-features = true }
 sp-block-builder = { workspace = true, default-features = true }
 sp-blockchain = { workspace = true, default-features = true }
 sp-consensus = { workspace = true, default-features = true }
+sp-consensus-grandpa = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+sp-crypto-hashing = { workspace = true, default-features = true }
 sp-inherents = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }
 sp-keyring = { workspace = true, default-features = true }
+sp-keystore = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
-sp-state-machine = { workspace = true, default-features = true }
 sp-storage = { workspace = true, default-features = true }
 sp-timestamp = { workspace = true, default-features = true }
-async-trait = { workspace = true }
-
-# frame and pallets
-frame-metadata = "=23.0.1"
-scale-value = "=0.18.2"
-scale-info = { workspace = true, default-features = true }
-frame-system = { workspace = true, default-features = true }
-pallet-transaction-payment = { workspace = true, default-features = true }
-pallet-transaction-payment-rpc = { workspace = true, default-features = true }
 substrate-frame-rpc-system = { workspace = true, default-features = true }
-codec = { workspace = true, default-features = true }
-entitybase = { path = "../runtime/entity/entitybase", default-features = true }
-adminbase = { path = "../runtime/admins/adminbase", default-features = true }
-identity = { path = "../runtime/misc/identity", default-features = true }
-publicadmin = { path = "../runtime/admins/publicadmin", default-features = true }
-publicentity = { path = "../runtime/entity/publicentity", default-features = true }
-pallet-timestamp = { workspace = true, default-features = true }
-votingengine = { path = "../runtime/votingengine", default-features = true }
-# NodeGuard 直接匹配五类实际投票 call，避免依赖 runtime 自报费用分类。
-internalvote = { path = "../runtime/votingengine/internalvote", default-features = true }
-jointvote = { path = "../runtime/votingengine/jointvote", default-features = true }
-electionvote = { path = "../runtime/votingengine/electionvote", default-features = true }
-legislationvote = { path = "../runtime/votingengine/legislationvote", default-features = true }
-
-# 基准CLI仅由runtime-benchmarks启用；frame-benchmarking仍供生产Runtime API安全检查使用。
-frame-benchmarking-cli = { workspace = true, default-features = true, optional = true }
-frame-benchmarking = { workspace = true, default-features = true }
-# 基准CLI已带入同一SDK的staking；仅对齐其try-runtime条件接口，普通节点不启用。
-pallet-staking = { workspace = true, optional = true }
-
-# Local Dependencies
-chain-signing = { path = "../crates/signing" }
-runtime = { workspace = true }
-grandpakey = { path = "../runtime/governance/grandpakey", default-features = true }
-difficulty = { path = "../runtime/misc/difficulty", default-features = true }
-fullnodeissue = { path = "../runtime/issuance/fullnodeissue", default-features = true }
-onchain = { path = "../runtime/transaction/onchain", default-features = true }
-# 扫码支付 Step 2b-ii-β-2-a 新增:node 端 pool_submitter 需要直接 use
-# offchain 的 batch_item / pallet::Call 类型构造 extrinsic。
-offchain = { path = "../runtime/transaction/offchain", default-features = true }
-frame-support = { workspace = true, default-features = true }
-frame-system-rpc-runtime-api = { workspace = true, default-features = true }
-
-# 桌面 GUI（Tauri）
 tauri = { version = "=2.11.5", features = [] }
-# Tauri Rust crate 与 npm 包必须逐对准确固定；统一依赖门禁同时校验 core 主/次版本和插件版本。
 tauri-plugin-dialog = "=2.6.0"
-libc = "0.2"
-bs58 = "=0.5.1"
-blake2b_simd = "1"
-libp2p-identity = { version = "0.2", features = ["ed25519", "peerid"] }
-ed25519-dalek = "=2.2.0"
-sha2 = "=0.10.9"
-rand = { workspace = true, default-features = true }
-reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "json", "query", "rustls"] }
-thiserror = { workspace = true }
-twox-hash = "=2.1.4"
-zeroize = "=1.9.0"
 tokio = { workspace = true, default-features = true, features = ["time"] }
+zeroize = "=1.9.0"
 
 [dev-dependencies]
-# Ethereum 服务验收直接装配正式原生 RPC，复用同一链客户端与交易池。
-sc-rpc = { workspace = true }
-# 区块链测试 harness 只进 dev-dependencies，用于复用坏块/坏导入态验收矩阵。
+nodedesktop = { path = "desktop", features = ["test-support"] }
+nodeguard = { path = "guard", features = ["test-support"] }
+async-trait = { workspace = true }
 blockchain-harness = { path = "../crates/harness" }
-# 普通块坏注入验收专用：按真实 BlockBuilder 生成合法 proposal，再篡改预计算状态变更。
+json-patch = "3"
+rcgen = { version = "=0.13.2", default-features = false, features = ["ring"] }
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std"] }
 sc-block-builder = { workspace = true, default-features = true }
-# P2P 坏块注入验收专用：读取真实同步服务连接数、请求数并主动广播测试坏块。
 sc-network-sync = { workspace = true, default-features = true }
+sc-rpc = { workspace = true }
+sc-rpc-api = { workspace = true }
+sc-rpc-server = { workspace = true }
+serde_json = { workspace = true, default-features = true }
+sp-consensus-pow = { workspace = true, default-features = true }
+sp-state-machine = { workspace = true, default-features = true }
+substrate-build-script-utils = { workspace = true, default-features = true }
+tauri-build = { version = "=2.6.3", features = [] }
+tauri-utils = "=2.9.3"
 
 [build-dependencies]
 serde_json = { workspace = true, default-features = true }
@@ -158,23 +131,10 @@ substrate-build-script-utils = { workspace = true, default-features = true }
 tauri-build = { version = "=2.6.3", features = [] }
 
 [features]
-# 普通Cargo测试不嵌入前端源码；正式Tauri CLI自动启用tauri/custom-protocol。
 default = ["std"]
 std = ["runtime/std"]
 custom-protocol = ["tauri/custom-protocol"]
-gpu-mining = ["ocl"]
-# 显式启用时仍提供完整基准命令与Runtime基准功能。
-runtime-benchmarks = [
-    "frame-benchmarking-cli/runtime-benchmarks",
-	"dep:pallet-staking",
-	"runtime/runtime-benchmarks",
-]
-# Enable features that allow the runtime to be tried and debugged. Name might be subject to change
-# in the near future.
-try-runtime = [
-	"pallet-staking?/try-runtime",
-	"frame-system/try-runtime",
-	"pallet-transaction-payment/try-runtime",
-	"runtime/try-runtime",
-	"sp-runtime/try-runtime",
-]
+gpu-mining = ["nodemining/gpu-mining"]
+runtime-benchmarks = ["frame-benchmarking-cli/runtime-benchmarks", "dep:pallet-staking", "runtime/runtime-benchmarks"]
+try-runtime = ["pallet-staking/try-runtime", "frame-system/try-runtime", "pallet-transaction-payment/try-runtime", "runtime/try-runtime", "sp-runtime/try-runtime"]
+test-support = ["nodeguard/test-support"]

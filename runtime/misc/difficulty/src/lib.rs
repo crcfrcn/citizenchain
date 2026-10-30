@@ -20,6 +20,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 pub mod weights;
 
@@ -462,5 +463,5 @@ pub mod pallet {
 }
 
 #[cfg(test)]
-#[path = "../tests.rs"]
+#[path = "../tests/mod.rs"]
 mod tests;

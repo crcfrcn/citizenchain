@@ -1,4 +1,5 @@
-export type { AdminSignerMatch } from '../governance/types';
+
+export type { AdminSignerMatch } from '../institution/council';
 
 export type VoteSignRequestResult = {
   requestJson: string;

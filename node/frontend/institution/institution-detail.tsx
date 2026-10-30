@@ -1,5 +1,11 @@
-import { accountIdToSs58 } from '../shared/ss58';
-import { formatBalance } from '../shared/format';
+import { accountIdToSs58 } from "../client/ss58";
+import { formatBalance } from "../client/format";
+import { sanitizeError } from "../client/tauri";
+import { offchainApi } from "../offchain/api";
+import type { ClearingBankNodeOnChainInfo } from "../offchain/types";
+import { institutionReadApi } from "./api";
+import type { InstitutionDetail, InstitutionProposalItem } from "./types";
+
 // 清算行机构详情页(链上 organization-manage::Institutions[cid_number] 已存在时展示)。
 //
 // 风格参考 governance/InstitutionDetailPage 的卡片栅格 + 折叠子页入口,
@@ -10,11 +16,6 @@ import { formatBalance } from '../shared/format';
 //   - 已声明 → 内联展示节点对外端点信息
 
 import { useEffect, useState } from 'react';
-import { sanitizeError } from '../tauri';
-import { offchainApi } from '../offchain/api';
-import type { ClearingBankNodeOnChainInfo } from '../offchain/types';
-import { institutionReadApi } from './api';
-import type { InstitutionDetail, InstitutionProposalItem } from './types';
 
 type Props = {
   cidNumber: string;

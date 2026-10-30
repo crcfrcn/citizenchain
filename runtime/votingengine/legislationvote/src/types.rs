@@ -10,10 +10,10 @@ use scale_info::TypeInfo;
 use sp_runtime::sp_std::vec::Vec;
 use sp_runtime::Debug;
 use sp_runtime::DispatchError;
-use votingengine::types::{CidNumber, ProposalSubjectCidNumbers, RoleCode, VotePlanOf};
+use votebase::types::{CidNumber, ProposalSubjectCidNumbers, RoleCode, VotePlanOf};
 
 /// 单个立法机关表决提案最多串联的代表机构数量。
-pub const MAX_REPRESENTATIVE_BODIES: u32 = votingengine::types::MAX_REPRESENTATIVE_BODIES;
+pub const MAX_REPRESENTATIVE_BODIES: u32 = votebase::types::MAX_REPRESENTATIVE_BODIES;
 
 /// 参加表决的机构引用。
 pub type RepresentativeBody = RoleSubject<CidNumber, RoleCode>;

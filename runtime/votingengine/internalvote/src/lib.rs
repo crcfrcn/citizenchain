@@ -8,7 +8,7 @@
 //! 投票引擎的模式校验与调用方业务 pallet 的业务权限校验。
 //!
 //! 共用基础设施(Proposals 主 storage / 双层 ID / 反向索引 / 状态机骨架 / 快照 / 锁 / 清理)
-//! 仍归 [`votingengine`] 引擎核心,本 pallet 通过 `Config: votingengine::Config` 直接访问。
+//! 仍归 [`votebase`] 引擎核心,本 pallet 通过 `Config: votebase::Config` 直接访问。
 //!
 //! 本 pallet 自有:
 //! - storage:`InternalVotesByTicket` / `InternalTallies` / `InternalThresholdSnapshot`
@@ -17,8 +17,8 @@
 //! - extrinsic:`cast(proposal_id, ticket_claim, approve)`
 //! - 业务函数:`do_create_internal_proposal*` / `do_internal_vote` / `do_finalize_internal_timeout`
 //! - trait impl:`InternalVoteEngine`(供业务 pallet 创建提案)
-//! - trait impl:`InternalProposalFinalizer`(votingengine 主 pallet finalize 路径反向调用)
-//! - trait impl:`InternalCleanupHandler`(votingengine 主 pallet cleanup 状态机反向调用)
+//! - trait impl:`InternalProposalFinalizer`(votebase 主 pallet finalize 路径反向调用)
+//! - trait impl:`InternalCleanupHandler`(votebase 主 pallet cleanup 状态机反向调用)
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -34,7 +34,7 @@ use sp_runtime::{Debug, DispatchError};
 
 use primitives::count_const::VOTING_DURATION_BLOCKS;
 
-use votingengine::{
+use votebase::{
     pallet::{AdminSnapshot, Proposals},
     types::{
         institution_code_from_cid_number, is_personal_code, is_valid_governance_code,
@@ -53,6 +53,7 @@ mod threshold;
 mod vote;
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 
 pub use pallet::*;
@@ -109,11 +110,11 @@ pub mod pallet {
     pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config {
+    pub trait Config: frame_system::Config + votebase::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// 只读取岗位有效任职；业务权限已由业务 pallet 前置校验。
-        type InstitutionRoleProvider: votingengine::InstitutionRoleProvider<Self::AccountId>;
+        type InstitutionRoleProvider: votebase::InstitutionRoleProvider<Self::AccountId>;
         type WeightInfo: crate::weights::WeightInfo;
     }
 
@@ -136,7 +137,7 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn internal_tally)]
     pub type InternalTallies<T: Config> =
-        StorageMap<_, Blake2_128Concat, u64, votingengine::VoteCountU32, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, u64, votebase::VoteCountU32, ValueQuery>;
 
     /// 内部投票阈值快照:提案创建时锁定阈值,投票期间不受账户状态变化影响。
     #[pallet::storage]
@@ -224,34 +225,34 @@ fn is_valid_institution_context(institution_code: InstitutionCode, cid_number: &
 }
 
 fn is_personal_admin<T: Config>(personal_account_id: T::AccountId, who: &T::AccountId) -> bool {
-    <T as votingengine::Config>::InternalAdminProvider::is_personal_admin(personal_account_id, who)
+    <T as votebase::Config>::InternalAdminProvider::is_personal_admin(personal_account_id, who)
 }
 
 fn active_institution_threshold<T: Config>(
     institution_code: InstitutionCode,
     cid_number: &CidNumber,
 ) -> Option<u32> {
-    <T as votingengine::Config>::InternalAdminProvider::institution_threshold(
+    <T as votebase::Config>::InternalAdminProvider::institution_threshold(
         institution_code,
         cid_number.as_slice(),
     )
 }
 // 业务方法
 // trait 实现
-impl<T: Config> votingengine::InternalVoteEngine<T::AccountId> for Pallet<T> {
+impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
     fn create_institution_proposal_with_data(
         who: T::AccountId,
         institution_code: InstitutionCode,
         actor_cid_number: sp_std::vec::Vec<u8>,
         execution_account_id: Option<T::AccountId>,
         subject_cid_numbers: sp_std::vec::Vec<sp_std::vec::Vec<u8>>,
-        vote_plan: votingengine::types::VotePlanOf<T::AccountId>,
+        vote_plan: votebase::types::VotePlanOf<T::AccountId>,
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u64, DispatchError> {
         with_transaction(|| {
             if sp_io::hashing::blake2_256(&data) != vote_plan.business_object_hash {
                 return TransactionOutcome::Rollback(Err(
-                    votingengine::Error::<T>::InvalidVotePlan.into(),
+                    votebase::Error::<T>::InvalidVotePlan.into(),
                 ));
             }
             let proposal_id = match Self::do_create_institution_proposal(
@@ -266,7 +267,7 @@ impl<T: Config> votingengine::InternalVoteEngine<T::AccountId> for Pallet<T> {
                 Err(err) => return TransactionOutcome::Rollback(Err(err)),
             };
             if let Err(err) =
-                votingengine::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
+                votebase::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
@@ -305,13 +306,13 @@ impl<T: Config> votingengine::InternalVoteEngine<T::AccountId> for Pallet<T> {
         who: T::AccountId,
         institution_code: InstitutionCode,
         actor_cid_number: sp_std::vec::Vec<u8>,
-        vote_plan: votingengine::types::VotePlanOf<T::AccountId>,
+        vote_plan: votebase::types::VotePlanOf<T::AccountId>,
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u64, DispatchError> {
         with_transaction(|| {
             if sp_io::hashing::blake2_256(&data) != vote_plan.business_object_hash {
                 return TransactionOutcome::Rollback(Err(
-                    votingengine::Error::<T>::InvalidVotePlan.into(),
+                    votebase::Error::<T>::InvalidVotePlan.into(),
                 ));
             }
             let proposal_id = match Self::do_create_institution_proposal_with_mutex(
@@ -328,7 +329,7 @@ impl<T: Config> votingengine::InternalVoteEngine<T::AccountId> for Pallet<T> {
                 Err(err) => return TransactionOutcome::Rollback(Err(err)),
             };
             if let Err(err) =
-                votingengine::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
+                votebase::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
@@ -444,7 +445,7 @@ impl<T: Config> votingengine::InternalVoteEngine<T::AccountId> for Pallet<T> {
 }
 
 impl<T: Config>
-    votingengine::traits::InternalProposalFinalizer<
+    votebase::traits::InternalProposalFinalizer<
         frame_system::pallet_prelude::BlockNumberFor<T>,
         T::AccountId,
     > for Pallet<T>

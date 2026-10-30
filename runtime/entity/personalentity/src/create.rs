@@ -28,7 +28,7 @@ use crate::types::{PersonalAccount, PersonalCreateAction, PersonalStatus};
 use crate::BalanceOf;
 use crate::ACTION_CREATE;
 use primitives::multisig::{AccountValidator, ProtectedSourceChecker, ReservedAccountGuard};
-use votingengine::InternalVoteEngine;
+use votebase::InternalVoteEngine;
 
 pub(crate) fn do_propose_create<T: Config>(
     who: T::AccountId,
@@ -124,7 +124,7 @@ pub(crate) fn do_propose_create<T: Config>(
         TransactionOutcome::Commit(Ok(proposal_id))
     })?;
 
-    let expires_at = votingengine::Pallet::<T>::proposals(proposal_id)
+    let expires_at = votebase::Pallet::<T>::proposals(proposal_id)
         .map(|p| p.end)
         .ok_or(Error::<T>::VoteEngineError)?;
 

@@ -12,7 +12,7 @@ use frame_system as system;
 use sp_core::{sr25519, Pair as PairT};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
 use std::cell::RefCell;
-use votingengine::types::{InstitutionCode, PMUL};
+use votebase::types::{InstitutionCode, PMUL};
 
 type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -41,7 +41,7 @@ mod runtime {
     pub type Balances = pallet_balances;
 
     #[runtime::pallet_index(2)]
-    pub type VotingEngine = votingengine;
+    pub type VotingEngine = votebase;
 
     #[runtime::pallet_index(3)]
     pub type InternalVote = internalvote;
@@ -136,24 +136,24 @@ impl primitives::fee_policy::OnchainFeeCharger<AccountId32, Balance> for TestOnc
 }
 
 pub struct TestCitizenIdentityReader;
-impl votingengine::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votingengine::CitizenSubject<AccountId32> {
-    votingengine::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
+    votebase::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -163,7 +163,7 @@ fn test_citizen_subject(who: &AccountId32) -> votingengine::CitizenSubject<Accou
 }
 
 pub struct TestInternalAdminProvider;
-impl votingengine::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         _institution_code: InstitutionCode,
         _cid_number: &[u8],
@@ -209,14 +209,14 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
 
 // ─── Pallet Config 实现 ─────────────────────────────────────────────────
 
-impl votingengine::Config for Test {
+impl votebase::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
-    type MaxAutoFinalizeWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxExecutionWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxCleanupWeightPerBlock = votingengine::BlockWeightFraction<Test, 8>;
+    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Test, 8>;
     type MaxProposalsPerExpiry = ConstU32<128>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;
@@ -343,12 +343,12 @@ pub fn admin_records(admin_accounts: alloc::vec::Vec<AccountId32>) -> pallet::Ad
 }
 
 pub fn last_proposal_id() -> u64 {
-    votingengine::Pallet::<Test>::next_proposal_id().saturating_sub(1)
+    votebase::Pallet::<Test>::next_proposal_id().saturating_sub(1)
 }
 
 /// 走投票引擎公开 `internal_vote` extrinsic,让前 n 个 admin 各投一张赞成票。
 pub fn cast_yes_votes(admins: &[AccountId32], n: usize, pid: u64) -> sp_runtime::DispatchResult {
-    use votingengine::STATUS_VOTING;
+    use votebase::STATUS_VOTING;
     for who in admins.iter().take(n) {
         <internalvote::Pallet<Test>>::do_internal_vote(
             who.clone(),
@@ -374,7 +374,7 @@ pub fn cast_yes_votes(admins: &[AccountId32], n: usize, pid: u64) -> sp_runtime:
 
 /// 走投票引擎让前 n 个 admin 各投一张反对票。
 pub fn cast_no_votes(admins: &[AccountId32], n: usize, pid: u64) -> sp_runtime::DispatchResult {
-    use votingengine::STATUS_VOTING;
+    use votebase::STATUS_VOTING;
     for who in admins.iter().take(n) {
         <internalvote::Pallet<Test>>::do_internal_vote(
             who.clone(),
@@ -438,7 +438,7 @@ pub fn seed_active_multisig(
     let _ = Balances::deposit_creating(&account_id, initial_balance);
 }
 
-pub fn new_test_ext() -> sp_io::TestExternalities {
+pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
     let storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .expect("test storage should build");

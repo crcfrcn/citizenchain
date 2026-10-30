@@ -1,4 +1,6 @@
 [package]
+# 测试源统一归tests；独立目标只显式注册，避免重复发现。
+autotests = false
 name = "destroy"  # 决议销毁模块
 edition.workspace = true   # 默认 Rust 版本
 version.workspace = true   # 版本号
@@ -19,7 +21,7 @@ sp-std = { workspace = true }
 
 primitives = { path = "../../primitives", default-features = false }
 entitybase = { path = "../../entity/entitybase", default-features = false }
-votingengine = { path = "../../votingengine", default-features = false }
+votebase = { path = "../../votingengine/votebase", default-features = false }
 
 [features]
 default = ["std"]
@@ -35,7 +37,7 @@ std = [
     "sp-std/std",
     "primitives/std",
     "entitybase/std",
-    "votingengine/std",
+    "votebase/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",

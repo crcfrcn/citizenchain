@@ -8,7 +8,7 @@
 //!
 use frame_support::{ensure, pallet_prelude::DispatchResult};
 
-use votingengine::{Proposal, PROPOSAL_KIND_JOINT, STATUS_PASSED};
+use votebase::{Proposal, PROPOSAL_KIND_JOINT, STATUS_PASSED};
 
 use super::pallet::{Config, Error, Event, Pallet, ReferendumTallies, ReferendumVotesByCid};
 use super::{is_jointreferendum_vote_passed, is_jointreferendum_vote_rejected};
@@ -20,27 +20,27 @@ impl<T: Config> Pallet<T> {
         proposal_id: u64,
         approve: bool,
     ) -> DispatchResult {
-        let proposal = <votingengine::Pallet<T>>::ensure_open_proposal(proposal_id)?;
+        let proposal = <votebase::Pallet<T>>::ensure_open_proposal(proposal_id)?;
 
         ensure!(
             proposal.kind == PROPOSAL_KIND_JOINT,
-            votingengine::Error::<T>::InvalidProposalKind
+            votebase::Error::<T>::InvalidProposalKind
         );
         ensure!(
-            proposal.stage == votingengine::STAGE_REFERENDUM,
-            votingengine::Error::<T>::InvalidProposalStage
+            proposal.stage == votebase::STAGE_REFERENDUM,
+            votebase::Error::<T>::InvalidProposalStage
         );
-        let eligible_total = <votingengine::Pallet<T>>::population_eligible_total_of(proposal_id)
+        let eligible_total = <votebase::Pallet<T>>::population_eligible_total_of(proposal_id)
             .ok_or(Error::<T>::CitizenEligibleTotalNotSet)?;
         ensure!(eligible_total > 0, Error::<T>::CitizenEligibleTotalNotSet);
         let voter_subject =
-            <votingengine::Pallet<T>>::voting_subject_at_population_snapshot(proposal_id, &who)
+            <votebase::Pallet<T>>::voting_subject_at_population_snapshot(proposal_id, &who)
                 .ok_or(Error::<T>::CitizenNotEligible)?;
         let voter_cid_number = voter_subject.cid_number.clone();
 
         ensure!(
             !ReferendumVotesByCid::<T>::contains_key(proposal_id, &voter_cid_number),
-            votingengine::Error::<T>::AlreadyVoted
+            votebase::Error::<T>::AlreadyVoted
         );
         let current_tally = ReferendumTallies::<T>::get(proposal_id);
         ensure!(
@@ -51,7 +51,7 @@ impl<T: Config> Pallet<T> {
         ReferendumVotesByCid::<T>::insert(
             proposal_id,
             voter_cid_number,
-            votingengine::CitizenReferendumTicket {
+            votebase::CitizenReferendumTicket {
                 voter_subject: voter_subject.clone(),
                 approve,
             },
@@ -72,11 +72,11 @@ impl<T: Config> Pallet<T> {
         });
 
         if is_jointreferendum_vote_passed(tally.yes, eligible_total) {
-            <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
+            <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
         } else if is_jointreferendum_vote_rejected(tally.no, eligible_total) {
-            <votingengine::Pallet<T>>::set_status_and_emit(
+            <votebase::Pallet<T>>::set_status_and_emit(
                 proposal_id,
-                votingengine::STATUS_REJECTED,
+                votebase::STATUS_REJECTED,
             )?;
         }
 
@@ -89,25 +89,25 @@ impl<T: Config> Pallet<T> {
         proposal_id: u64,
     ) -> DispatchResult {
         ensure!(
-            proposal.stage == votingengine::STAGE_REFERENDUM,
-            votingengine::Error::<T>::InvalidProposalStage
+            proposal.stage == votebase::STAGE_REFERENDUM,
+            votebase::Error::<T>::InvalidProposalStage
         );
         ensure!(
-            proposal.status == votingengine::STATUS_VOTING,
-            votingengine::Error::<T>::ProposalAlreadyFinalized
+            proposal.status == votebase::STATUS_VOTING,
+            votebase::Error::<T>::ProposalAlreadyFinalized
         );
         ensure!(
             <frame_system::Pallet<T>>::block_number() > proposal.end,
-            votingengine::Error::<T>::VoteNotExpired
+            votebase::Error::<T>::VoteNotExpired
         );
         let tally = ReferendumTallies::<T>::get(proposal_id);
-        let eligible_total = <votingengine::Pallet<T>>::population_eligible_total_of(proposal_id)
+        let eligible_total = <votebase::Pallet<T>>::population_eligible_total_of(proposal_id)
             .ok_or(Error::<T>::CitizenEligibleTotalNotSet)?;
         let status = if is_jointreferendum_vote_passed(tally.yes, eligible_total) {
             STATUS_PASSED
         } else {
-            votingengine::STATUS_REJECTED
+            votebase::STATUS_REJECTED
         };
-        <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, status)
+        <votebase::Pallet<T>>::set_status_and_emit(proposal_id, status)
     }
 }

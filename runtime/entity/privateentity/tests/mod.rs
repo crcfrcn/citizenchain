@@ -11,7 +11,7 @@ use frame_support::{
 };
 use frame_system as system;
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use votingengine::types::InstitutionCode;
+use votebase::types::InstitutionCode;
 
 type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -40,7 +40,7 @@ mod runtime {
     pub type Balances = pallet_balances;
 
     #[runtime::pallet_index(2)]
-    pub type VotingEngine = votingengine;
+    pub type VotingEngine = votebase;
 
     #[runtime::pallet_index(3)]
     pub type InternalVote = internalvote;
@@ -194,24 +194,24 @@ impl crate::traits::RegistryAuthority<AccountId32> for TestRegistryAuthority {
 }
 
 pub struct TestCitizenIdentityReader;
-impl votingengine::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votingengine::CitizenSubject<AccountId32> {
-    votingengine::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
+    votebase::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -222,7 +222,7 @@ fn test_citizen_subject(who: &AccountId32) -> votingengine::CitizenSubject<Accou
 
 /// 投票引擎只按机构 CID 查询管理员；机构账户不参与授权寻址。
 pub struct TestInternalAdminProvider;
-impl votingengine::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -244,14 +244,14 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-impl votingengine::Config for Test {
+impl votebase::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
-    type MaxAutoFinalizeWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxExecutionWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxCleanupWeightPerBlock = votingengine::BlockWeightFraction<Test, 8>;
+    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Test, 8>;
     type MaxProposalsPerExpiry = ConstU32<128>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;
@@ -285,7 +285,7 @@ impl internalvote::Config for Test {
 
 pub struct TestInstitutionRoleProvider;
 
-impl votingengine::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
+impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         <crate::Pallet<Test> as entitybase::InstitutionRoleQuery<AccountId32>>::is_active_assignment(
             cid_number, who, role_code,
@@ -518,8 +518,8 @@ pub fn create_institution(
     let target_admins = [admin(1), admin(2)];
     // 测试机构均非 UNIN，无父级可传。
     let protocol_accounts =
-        crate::institution::accounts::build_required_protocol_accounts::<Test>(&cid_number, None)?;
-    let (created_accounts, _, _, _) = crate::institution::accounts::validate_initial_accounts::<
+        crate::tests::accounts::build_required_protocol_accounts::<Test>(&cid_number, None)?;
+    let (created_accounts, _, _, _) = crate::tests::accounts::validate_initial_accounts::<
         Test,
     >(&cid_number, &protocol_accounts, None)?;
     PrivateManage::store_default_legal_representative_role(&cid_number)?;
@@ -660,3 +660,6 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 }
 
 mod cases;
+
+// 原仅供测试的账户构造，统一归所属测试目录。
+mod accounts;

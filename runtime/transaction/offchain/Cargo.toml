@@ -23,7 +23,7 @@ log = { version = "0.4", default-features = false }
 
 primitives = { path = "../../primitives", default-features = false }
 entitybase = { path = "../../entity/entitybase", default-features = false }
-votingengine = { path = "../../votingengine", default-features = false }
+votebase = { path = "../../votingengine/votebase", default-features = false }
 
 [features]
 default = ["std"]
@@ -47,5 +47,5 @@ std = [
     "log/std",
     "primitives/std",
     "entitybase/std",
-    "votingengine/std",
+    "votebase/std",
 ]

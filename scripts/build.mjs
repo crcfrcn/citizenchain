@@ -1,10 +1,8 @@
-// 按官方要求或推荐实现；必需的工具依赖有就复用，没有就下载；使用最简单的实现方式；本脚本只允许放编译构建代码和注释，禁止增加无关内容，禁止增加复杂的校验阻断。
-// config.mjs：只负责配置声明；build.mjs：只负责编译构建实现和必要注释；*.yml：负责全部GitHub流程，包括版本、作业编排、发布及历史清理。
 import {spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep, delimiter} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {product, artifactNames, deliveryVersion} from './config.mjs';
+import {product} from './config.mjs';
 
 const root = realpathSync(resolve(import.meta.dirname, '..'));
 const fail = message => { throw Error(message); };
@@ -19,15 +17,16 @@ export function checkWork(work) {
   if (realpathSync(parent) !== parent || !lstatSync(parent).isDirectory()) fail('编译输出不能经过链接');
   return work;
 }
+// 编译只检查平台、版本和本轮输出目录；GitHub身份由工作流核对。
+function buildVersion(value) {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(value)
+      || value.split('.').some(part => BigInt(part) >= 2n ** 64n)) fail('编译版本必须是规范X.Y.Z');
+  return value;
+}
 export function assertBuildWork(work, platform, env = process.env) {
-  const declared = product.platforms[platform];
-  if (!Object.hasOwn(product.platforms,platform) || env.GITHUB_ACTIONS !== 'true' || env.GITHUB_REPOSITORY !== product.repository
-      || env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.GITHUB_REF !== 'refs/heads/main'
-      || env.GITHUB_WORKFLOW_REF !== `${product.repository}/.github/workflows/${declared.workflow}@refs/heads/main`
-      || !/^[a-f0-9]{40}$/u.test(env.GITHUB_SHA || '') || env.CITIZENCHAIN_SOURCE_SHA !== env.GITHUB_SHA
-      || work !== join(root, 'target/build', platform)) fail('编译只接受本产品准确平台的 GitHub main 任务');
-  deliveryVersion(env.CITIZENCHAIN_RELEASE_VERSION);
-  checkWork(work);
+  if (!product.platforms[platform] || work !== join(root, 'target/build', platform)) fail('编译平台或输出目录无效');
+  buildVersion(env.CITIZENCHAIN_RELEASE_VERSION);
+  return checkWork(work);
 }
 // 只执行真实编译工具；继承输出或捕获模块 --describe 的有界公开结果。
 export async function runBuildProcess(command, args, env, cwd, {capture = false, timeout} = {}) {
@@ -163,6 +162,7 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
   const cargoVersion = await run(env.CARGO, ['--version'], {capture: true});
   if (!cargoVersion.stdout.startsWith('cargo ' + product.tools.rust + ' ')) fail('Rust 版本不符合产品声明');
   if ((await run(env.PROTOC, ['--version'], {capture: true})).stdout.trim() !== 'libprotoc ' + product.tools.protoc) fail('protoc 版本不符合产品声明');
+  const expected = [declared.artifact.replace('{version}', buildVersion(process.env.CITIZENCHAIN_RELEASE_VERSION))];
   const artifact = join(work, 'artifact');
   if (existsSync(artifact)) fail('本轮产物目录已存在，禁止混用旧包');
   mkdirSync(artifact);
@@ -228,9 +228,8 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
       for (const name of ['onchina-bin/onchina', 'onchina-frontend/dist/index.html', 'postgres/linux/bin/initdb', 'postgres/linux/bin/postgres', 'china.sqlite']) if (!lstatSync(join(installed, 'usr/lib/citizenchain', name)).isFile()) fail('DEB 缺少完整运行资源');
     }
     if(platform.startsWith('linux-'))for(const id of readdirSync(onchina.modules))for(const name of ['onchina-'+id,'frontend/module.js','frontend/module.css'])if(!lstatSync(join(work,'installed/usr/lib/citizenchain/onchina-bin/modules',id,name)).isFile())fail('DEB模块完整产物缺失');
-    copyFileSync(installer, join(artifact, artifactNames(platform, process.env.CITIZENCHAIN_RELEASE_VERSION)[0]));
+    copyFileSync(installer, join(artifact, expected[0]));
   }
-  const expected = artifactNames(platform, process.env.CITIZENCHAIN_RELEASE_VERSION);
   if (JSON.stringify(readdirSync(artifact).sort()) !== JSON.stringify(expected.sort())) fail('完整产物集合不符');
   for (const name of expected) {
     const info = lstatSync(join(artifact, name));
@@ -238,16 +237,16 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
   }
   process.stdout.write('完整编译产物：' + artifact + '\n');
 }
-// 本机编译使用真实本机环境；GitHub身份校验仍只用于原GitHub入口。
+// 本机编译复用同一编译实现，并向安装器交付本轮产物。
 async function compile(platform){
- if(platform!=='macos'||process.platform!=='darwin'||process.arch!=='arm64'||process.env.GITHUB_ACTIONS==='true')fail('本机公民链编译只支持ARM64 macOS');
+ if(platform!=='macos'||process.platform!=='darwin'||process.arch!=='arm64')fail('本机公民链编译只支持ARM64 macOS');
  const parent=join(root,'target/build');mkdirSync(parent,{recursive:true});checkWork(join(parent,'candidate'));
  const work=mkdtempSync(join(parent,'local-'));
  const environment={...process.env,PATH:process.env.HOME+'/.cargo/bin:/opt/homebrew/bin:'+(process.env.PATH||'/usr/bin:/bin'),
   CARGO:'cargo',CARGO_HOME:process.env.HOME+'/.cargo',RUSTUP_TOOLCHAIN:product.tools.rust,
   CARGO_NET_OFFLINE:'true',GIT_ALLOW_PROTOCOL:'file',
   CITIZENCHAIN_RELEASE_VERSION:/^version\s*=\s*"([^"]+)"/mu.exec(readFileSync(join(root,'Cargo.toml'),'utf8'))?.[1]};
- deliveryVersion(environment.CITIZENCHAIN_RELEASE_VERSION);
+ buildVersion(environment.CITIZENCHAIN_RELEASE_VERSION);
  let safe=true;
  try{
   const run=(file,args,options)=>runBuildProcess(file,args,environment,work,options);

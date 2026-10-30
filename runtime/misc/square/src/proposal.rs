@@ -12,7 +12,7 @@ use frame_support::ensure;
 use scale_info::TypeInfo;
 use sp_runtime::{Debug, DispatchResult};
 use sp_std::vec::Vec;
-use votingengine::{
+use votebase::{
     types::{
         AuthorizationSubject, BusinessActionId, CidNumber, RoleCode, RoleSubject, VotePlanOf,
         VotingEngineKind,
@@ -24,22 +24,22 @@ use votingengine::{
     Clone, Encode, Decode, DecodeWithMemTracking, Eq, PartialEq, Debug, TypeInfo, MaxEncodedLen,
 )]
 pub struct PlatformPriceUpdateAction {
-    pub actor_cid_number: votingengine::types::CidNumber,
+    pub actor_cid_number: votebase::types::CidNumber,
     pub membership_level: MembershipLevel,
     pub new_price_fen: u128,
 }
 
 pub(crate) fn propose_price_change<T: Config>(
     who: T::AccountId,
-    actor_cid_number: votingengine::types::CidNumber,
-    proposer_role_code: votingengine::types::RoleCode,
+    actor_cid_number: votebase::types::CidNumber,
+    proposer_role_code: votebase::types::RoleCode,
     membership_level: MembershipLevel,
     new_price_fen: u128,
 ) -> DispatchResult {
     ensure!(new_price_fen > 0, Error::<T>::InvalidPlatformPrice);
     let actor_text = core::str::from_utf8(actor_cid_number.as_slice())
         .map_err(|_| Error::<T>::InvalidInstitution)?;
-    let institution_code = votingengine::types::institution_code_from_cid_number(actor_text)
+    let institution_code = votebase::types::institution_code_from_cid_number(actor_text)
         .ok_or(Error::<T>::InvalidInstitution)?;
     // 平台机构永久固定为公民链基金会，直接以创世常量断言（机构码 SFGY + 准确 CID）。
     ensure!(
@@ -132,20 +132,20 @@ pub(crate) fn propose_price_change<T: Config>(
 /// 平台调价终态执行器。业务模块只接收统一投票引擎广播的最终结果。
 pub struct InternalVoteExecutor<T>(core::marker::PhantomData<T>);
 
-impl<T> votingengine::InternalVoteResultCallback for InternalVoteExecutor<T>
+impl<T> votebase::InternalVoteResultCallback for InternalVoteExecutor<T>
 where
-    T: Config + votingengine::Config,
+    T: Config + votebase::Config,
 {
     fn on_internal_vote_finalized(
         proposal_id: u64,
         approved: bool,
-    ) -> Result<votingengine::ProposalExecutionOutcome, sp_runtime::DispatchError> {
-        use votingengine::{
+    ) -> Result<votebase::ProposalExecutionOutcome, sp_runtime::DispatchError> {
+        use votebase::{
             ProposalExecutionOutcome, PROPOSAL_KIND_INTERNAL, STAGE_INTERNAL, STATUS_PASSED,
         };
-        let raw = match votingengine::Pallet::<T>::get_proposal_data(proposal_id) {
+        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw)
-                if votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
+                if votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
                     && raw.starts_with(crate::MODULE_TAG) =>
             {
                 raw
@@ -157,10 +157,10 @@ where
         }
         let action = PlatformPriceUpdateAction::decode(&mut &raw[crate::MODULE_TAG.len()..])
             .map_err(|_| Error::<T>::ProposalActionNotFound)?;
-        let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+        let proposal = votebase::Pallet::<T>::proposals(proposal_id)
             .ok_or(Error::<T>::ProposalActionNotFound)?;
         ensure!(
-            votingengine::Pallet::<T>::is_callback_execution_scope(proposal_id)
+            votebase::Pallet::<T>::is_callback_execution_scope(proposal_id)
                 && proposal.kind == PROPOSAL_KIND_INTERNAL
                 && proposal.stage == STAGE_INTERNAL
                 && proposal.status == STATUS_PASSED

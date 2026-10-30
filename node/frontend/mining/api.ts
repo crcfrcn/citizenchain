@@ -1,5 +1,6 @@
-import { invoke } from '../tauri';
-import type { MiningDashboard, NetworkOverview } from './types';
+import { invoke } from "../client/tauri";
+import type { MiningDashboard, NetworkOverview } from "./types";
+
 
 // 挖矿 tab 专用 Tauri API。
 export const miningApi = {

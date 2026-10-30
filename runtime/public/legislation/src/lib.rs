@@ -17,10 +17,10 @@ pub use pallet::*;
 pub use types::{LawAction, LawStatus, Tier, VoteType};
 use primitives::genesis::LawRegion;
 
-/// 模块标识前缀,用于在 votingengine `ProposalData` 中区分本模块提案,防止跨模块误解码。
+/// 模块标识前缀,用于在 votebase `ProposalData` 中区分本模块提案,防止跨模块误解码。
 pub const MODULE_TAG: &[u8] = b"leg-yuan";
 
-/// 法律全文大对象类型标记(写入 votingengine `ProposalObject`)。
+/// 法律全文大对象类型标记(写入 votebase `ProposalObject`)。
 pub const PROPOSAL_OBJECT_KIND_LAW_TEXT: u8 = 2;
 
 /// 内置公民宪法(章>节>条>款)SCALE 创世种子。
@@ -59,7 +59,7 @@ pub mod pallet {
     use primitives::genesis::GENESIS_LAW_VERSION_LABELS;
     use sp_runtime::sp_std::{collections::btree_set::BTreeSet, vec::Vec};
     use sp_runtime::DispatchError;
-    use votingengine::{ProposalExecutionOutcome, VotePlanOf, VotingEngineKind};
+    use votebase::{ProposalExecutionOutcome, VotePlanOf, VotingEngineKind};
 
     // 受 Config 常量约束的有界字符串别名。
     pub type TitleOf<T> = BoundedVec<u8, <T as Config>::MaxTitleLen>;
@@ -68,7 +68,7 @@ pub mod pallet {
     /// 院序列只保存机构 CID；机构码由 CID 解析，账户不得充当立法机构身份。
     /// 单院(市立法会)= 1 项;两院(国家/省立法院)= `[众议会, 参议会]`;教委会模式 = `[教委会, 参议会]`。
     pub type Houses = BoundedVec<
-        votingengine::types::CidNumber,
+        votebase::types::CidNumber,
         ConstU32<{ legislationvote::MAX_REPRESENTATIVE_BODIES }>,
     >;
 
@@ -245,7 +245,7 @@ pub mod pallet {
         pub title_en: Option<TitleOf<T>>,
     }
 
-    /// 提案摘要:序列化后(带 MODULE_TAG 前缀)存入 votingengine `ProposalData`;
+    /// 提案摘要:序列化后(带 MODULE_TAG 前缀)存入 votebase `ProposalData`;
     /// 法律全文条文单独写入 `ProposalObject`,通过回调读回组装新版本。
     #[derive(
         Encode,
@@ -268,13 +268,13 @@ pub mod pallet {
         /// 原法律院序列；实际发起机构单独保存在 actor_cid_number。
         pub houses: Houses,
         /// 实际发起机构。与表决院分离，市教育案等场景不一定等于 houses[0]。
-        pub actor_cid_number: votingengine::types::CidNumber,
+        pub actor_cid_number: votebase::types::CidNumber,
         /// 发起账户在发起机构内实际任职的岗位码；管理员身份本身不产生权限。
-        pub proposer_role_code: votingengine::types::RoleCode,
+        pub proposer_role_code: votebase::types::RoleCode,
         /// 行政签署机构。
-        pub executive_cid_number: votingengine::types::CidNumber,
+        pub executive_cid_number: votebase::types::CidNumber,
         /// 两院级三人会签归口立法机构；市级单院必须为空。
-        pub legislature_cid_number: Option<votingengine::types::CidNumber>,
+        pub legislature_cid_number: Option<votebase::types::CidNumber>,
         pub vote_type: VoteType,
         pub title: TitleOf<T>,
         pub title_en: Option<TitleOf<T>>,
@@ -284,7 +284,7 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config:
-        frame_system::Config + votingengine::Config + pallet_timestamp::Config<Moment = u64>
+        frame_system::Config + votebase::Config + pallet_timestamp::Config<Moment = u64>
     {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -294,7 +294,7 @@ pub mod pallet {
 
         /// 机构存在性只按 CID 查询，不允许通过某个账户反推机构身份。
         type InstitutionCidQuery: entitybase::InstitutionCidQuery<
-            votingengine::types::CidNumber,
+            votebase::types::CidNumber,
         >;
 
         /// 机构岗位权限、有效任职与 CID 顶层能力的统一查询入口。
@@ -390,7 +390,7 @@ pub mod pallet {
     /// 核心修宪(第一章总则核心条款,走特别案)的**永久公投凭据**:`version → (eligible, yes, no)`。
     /// 宪法(law_id=0)专用;`write_law_version` 对核心章改动版本写入(需过公投口径
     /// `primitives::constitution::referendum_passed`),供节点守卫逐块背书(第十九条,ADR-027 §6.3)。
-    /// 永久保留(votingengine 90 天清理不涉及本表),故节点可对生效/待生效版本随时校验。
+    /// 永久保留(votebase 90 天清理不涉及本表),故节点可对生效/待生效版本随时校验。
     #[pallet::storage]
     pub type ConstitutionAmendmentProof<T: Config> =
         StorageMap<_, Blake2_128Concat, u32, (u64, u64, u64), OptionQuery>;
@@ -398,7 +398,7 @@ pub mod pallet {
     /// 修宪的**永久护宪终审凭据**:`version → 护宪大法官赞成票数`。
     /// **所有** tier=宪法 的 Amend 版本(含一般章重要案)写入(需过 4/7 口径
     /// `primitives::constitution::guard_review_passed`),供节点守卫逐块背书(第21条,ADR-027 §6.3)。
-    /// 永久保留(votingengine 90 天清理不涉及本表)。
+    /// 永久保留(votebase 90 天清理不涉及本表)。
     #[pallet::storage]
     pub type ConstitutionGuardVoteProof<T: Config> =
         StorageMap<_, Blake2_128Concat, u32, u32, OptionQuery>;
@@ -597,7 +597,7 @@ pub mod pallet {
         LawAlreadyRepealed,
         /// 立法投票引擎建提案失败
         VoteEngineCreateFailed,
-        /// votingengine 提案载荷缺失或解码失败
+        /// votebase 提案载荷缺失或解码失败
         ProposalPayloadInvalid,
         /// 待生效版本队列超上限
         // 保留原错误编码；已删除的法律数量限制不导致其余错误重新编号。
@@ -645,10 +645,10 @@ pub mod pallet {
             tier: Tier,
             region: LawRegion,
             houses: Houses,
-            actor_cid_number: votingengine::types::CidNumber,
-            proposer_role_code: votingengine::types::RoleCode,
-            executive_cid_number: votingengine::types::CidNumber,
-            legislature_cid_number: Option<votingengine::types::CidNumber>,
+            actor_cid_number: votebase::types::CidNumber,
+            proposer_role_code: votebase::types::RoleCode,
+            executive_cid_number: votebase::types::CidNumber,
+            legislature_cid_number: Option<votebase::types::CidNumber>,
             vote_type: VoteType,
             title: TitleOf<T>,
             title_en: Option<TitleOf<T>>,
@@ -713,10 +713,10 @@ pub mod pallet {
         pub fn propose_amend_law(
             origin: OriginFor<T>,
             law_id: u64,
-            actor_cid_number: votingengine::types::CidNumber,
-            proposer_role_code: votingengine::types::RoleCode,
-            executive_cid_number: votingengine::types::CidNumber,
-            legislature_cid_number: Option<votingengine::types::CidNumber>,
+            actor_cid_number: votebase::types::CidNumber,
+            proposer_role_code: votebase::types::RoleCode,
+            executive_cid_number: votebase::types::CidNumber,
+            legislature_cid_number: Option<votebase::types::CidNumber>,
             vote_type: VoteType,
             title: TitleOf<T>,
             title_en: Option<TitleOf<T>>,
@@ -801,10 +801,10 @@ pub mod pallet {
         pub fn propose_repeal_law(
             origin: OriginFor<T>,
             law_id: u64,
-            actor_cid_number: votingengine::types::CidNumber,
-            proposer_role_code: votingengine::types::RoleCode,
-            executive_cid_number: votingengine::types::CidNumber,
-            legislature_cid_number: Option<votingengine::types::CidNumber>,
+            actor_cid_number: votebase::types::CidNumber,
+            proposer_role_code: votebase::types::RoleCode,
+            executive_cid_number: votebase::types::CidNumber,
+            legislature_cid_number: Option<votebase::types::CidNumber>,
             vote_type: VoteType,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -869,8 +869,8 @@ pub mod pallet {
         /// ADR-027 修订:提案方与表决院解耦——市行政区 市自治会/市教委会 委员可提案,
         /// 但表决院恒为 houses[0]=市立法会,故 auth 校验对 proposer_body 而非 houses[0]。
         fn ensure_legislator(
-            actor_cid_number: &votingengine::types::CidNumber,
-            proposer_role_code: &votingengine::types::RoleCode,
+            actor_cid_number: &votebase::types::CidNumber,
+            proposer_role_code: &votebase::types::RoleCode,
             who: &T::AccountId,
             action_code: u32,
         ) -> DispatchResult {
@@ -895,18 +895,18 @@ pub mod pallet {
         }
 
         fn institution_code_for_cid(
-            cid_number: &votingengine::types::CidNumber,
+            cid_number: &votebase::types::CidNumber,
         ) -> Result<InstitutionCode, DispatchError> {
             let text = core::str::from_utf8(cid_number.as_slice())
                 .map_err(|_| Error::<T>::RoutingMismatch)?;
-            votingengine::types::institution_code_from_cid_number(text)
+            votebase::types::institution_code_from_cid_number(text)
                 .ok_or_else(|| Error::<T>::RoutingMismatch.into())
         }
 
         /// 校验一项路由机构 CID 确实存在，且 CID 中的机构码符合该法律路线。
         /// 返回 CID 的 R5 行政区段，供省/市级整条路由做同域绑定。
         fn ensure_route_institution(
-            cid_number: &votingengine::types::CidNumber,
+            cid_number: &votebase::types::CidNumber,
             expected_code: InstitutionCode,
         ) -> Result<Vec<u8>, DispatchError> {
             ensure!(
@@ -929,7 +929,7 @@ pub mod pallet {
 
         /// 校验机构属于允许的发起机构码之一，并返回行政区段。
         fn ensure_route_institution_one_of(
-            cid_number: &votingengine::types::CidNumber,
+            cid_number: &votebase::types::CidNumber,
             expected_codes: &[InstitutionCode],
         ) -> Result<Vec<u8>, DispatchError> {
             ensure!(
@@ -956,11 +956,11 @@ pub mod pallet {
         fn ensure_routing(
             tier: Tier,
             region: LawRegion,
-            actor_cid_number: &votingengine::types::CidNumber,
+            actor_cid_number: &votebase::types::CidNumber,
             houses: &Houses,
-            executive_cid_number: &votingengine::types::CidNumber,
+            executive_cid_number: &votebase::types::CidNumber,
             vote_type: VoteType,
-            legislature_cid_number: &Option<votingengine::types::CidNumber>,
+            legislature_cid_number: &Option<votebase::types::CidNumber>,
         ) -> DispatchResult {
             let education = vote_type.is_education();
             let (expected_proposers, expected_houses, expected_executive, expected_legislature): (
@@ -1370,7 +1370,7 @@ pub mod pallet {
         /// 每个代表机构阶段必须解析为一个非 LR 表决岗位。岗位码来自 entity 权限真源，
         /// 不是客户端或投票引擎硬编码；LR 的同动作 Vote 仅用于后续签署阶段。
         fn representative_vote_subject(
-            cid_number: &votingengine::types::CidNumber,
+            cid_number: &votebase::types::CidNumber,
             action_code: u32,
         ) -> Result<RepresentativeBody, DispatchError> {
             let action = Self::business_action(action_code);
@@ -1474,8 +1474,8 @@ pub mod pallet {
                 let njd = CHINA_SF
                     .iter()
                     .find(|entry| {
-                        votingengine::types::institution_code_from_cid_number(entry.cid_number)
-                            == Some(votingengine::types::NJD)
+                        votebase::types::institution_code_from_cid_number(entry.cid_number)
+                            == Some(votebase::types::NJD)
                     })
                     .ok_or(Error::<T>::InvalidLegislationRole)?;
                 Some(Self::fixed_vote_subject(
@@ -1500,14 +1500,14 @@ pub mod pallet {
             let mut voter_subjects = route
                 .bodies()
                 .into_iter()
-                .map(votingengine::types::AuthorizationSubject::Institution)
+                .map(votebase::types::AuthorizationSubject::Institution)
                 .collect::<Vec<_>>();
             voter_subjects.extend(
                 executive
                     .into_iter()
                     .chain(override_signers)
                     .chain(guard)
-                    .map(votingengine::types::AuthorizationSubject::Institution),
+                    .map(votebase::types::AuthorizationSubject::Institution),
             );
             let owner: BoundedVec<
                 u8,
@@ -1522,7 +1522,7 @@ pub mod pallet {
                     action_code,
                 },
                 owner,
-                votingengine::types::AuthorizationSubject::Institution(proposer_subject),
+                votebase::types::AuthorizationSubject::Institution(proposer_subject),
                 voter_subjects,
                 VotingEngineKind::Legislation,
                 sp_io::hashing::blake2_256(&(data.clone(), object.clone()).encode()),
@@ -1678,7 +1678,7 @@ pub mod pallet {
             proposal_id: u64,
             approved: bool,
         ) -> Result<ProposalExecutionOutcome, DispatchError> {
-            if !votingengine::Pallet::<T>::is_proposal_owner(proposal_id, MODULE_TAG) {
+            if !votebase::Pallet::<T>::is_proposal_owner(proposal_id, MODULE_TAG) {
                 return Ok(ProposalExecutionOutcome::Ignored);
             }
             if !approved {
@@ -1692,9 +1692,9 @@ pub mod pallet {
             Ok(ProposalExecutionOutcome::Executed)
         }
 
-        /// 从 votingengine ProposalData 读回并解码本模块提案摘要(先校验 MODULE_TAG 前缀)。
+        /// 从 votebase ProposalData 读回并解码本模块提案摘要(先校验 MODULE_TAG 前缀)。
         fn load_summary(proposal_id: u64) -> Result<LawProposalSummary<T>, DispatchError> {
-            let raw = votingengine::Pallet::<T>::get_proposal_data(proposal_id)
+            let raw = votebase::Pallet::<T>::get_proposal_data(proposal_id)
                 .ok_or(Error::<T>::ProposalPayloadInvalid)?;
             let tag = MODULE_TAG;
             if raw.len() < tag.len() || &raw[..tag.len()] != tag {
@@ -1704,9 +1704,9 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::ProposalPayloadInvalid.into())
         }
 
-        /// 从 votingengine ProposalObject 读回并解码法律全文(章>节>条>款)。
+        /// 从 votebase ProposalObject 读回并解码法律全文(章>节>条>款)。
         fn load_chapters(proposal_id: u64) -> Result<ChaptersOf<T>, DispatchError> {
-            let raw = votingengine::Pallet::<T>::get_proposal_object(proposal_id)
+            let raw = votebase::Pallet::<T>::get_proposal_object(proposal_id)
                 .ok_or(Error::<T>::ProposalPayloadInvalid)?;
             ChaptersOf::<T>::decode(&mut &raw[..])
                 .map_err(|_| Error::<T>::ProposalPayloadInvalid.into())
@@ -1831,12 +1831,12 @@ pub mod pallet {
 }
 
 /// 立法投票终态回调接入:投票引擎在立法提案达终态时按 kind 广播到此,
-/// 由本业务壳认领并写入法律(runtime 装配 `votingengine::Config::LegislationVoteResultCallback = LegislationYuan`)。
-impl<T: pallet::Config> votingengine::LegislationVoteResultCallback for pallet::Pallet<T> {
+/// 由本业务壳认领并写入法律(runtime 装配 `votebase::Config::LegislationVoteResultCallback = LegislationYuan`)。
+impl<T: pallet::Config> votebase::LegislationVoteResultCallback for pallet::Pallet<T> {
     fn on_legislation_vote_finalized(
         vote_proposal_id: u64,
         approved: bool,
-    ) -> Result<votingengine::ProposalExecutionOutcome, sp_runtime::DispatchError> {
+    ) -> Result<votebase::ProposalExecutionOutcome, sp_runtime::DispatchError> {
         pallet::Pallet::<T>::apply_legislation_vote_result(vote_proposal_id, approved)
     }
 }

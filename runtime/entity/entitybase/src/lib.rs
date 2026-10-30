@@ -274,5 +274,5 @@ impl<AccountId> RegistryAuthority<AccountId> for () {
 
 
 #[cfg(test)]
-#[path = "../tests.rs"]
+#[path = "../tests/mod.rs"]
 mod tests;

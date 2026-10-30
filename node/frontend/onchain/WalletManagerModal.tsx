@@ -1,10 +1,11 @@
-import { accountIdToSs58 } from '../shared/ss58';
+import { accountIdToSs58 } from "../client/ss58";
+import { sanitizeError } from "../client/tauri";
+import { AddressScanModal } from "../desktop/AddressScanModal";
+import { transactionApi as api } from "./api";
+import type { SignMode, Wallet, WalletStore, WalletBalanceState } from "./types";
+
 import scanIcon from "../../../icons/scan.svg?url";
 import { useState, useEffect } from 'react';
-import { sanitizeError } from '../tauri';
-import { AddressScanModal } from '../protocol/AddressScanModal';
-import { transactionApi as api } from './api';
-import type { SignMode, Wallet, WalletStore, WalletBalanceState } from './types';
 
 type Props = {
   wallets: Wallet[];

@@ -9,6 +9,7 @@ extern crate alloc;
 
 pub use pallet::*;
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 pub mod weights;
 

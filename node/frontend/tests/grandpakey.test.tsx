@@ -1,0 +1,10 @@
+import {beforeEach, expect, it, vi} from 'vitest';
+import {grandpaKeyChangeApi} from '../grandpakey/api';
+const mocks=vi.hoisted(()=>({invoke:vi.fn()}));
+vi.mock('../client/tauri',()=>({invoke:mocks.invoke}));
+const api=grandpaKeyChangeApi as unknown as Record<string,(...args:unknown[])=>Promise<unknown>>;
+beforeEach(()=>mocks.invoke.mockReset());
+it("getStatus保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["getStatus"](...[])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("get_grandpa_key_change_status"); });
+it("buildRequest保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["buildRequest"](...["44","public",false,"合成口令"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("build_grandpa_key_change_request", {"actorCidNumber":"44","signerPublicKey":"public","emergencyRecovery":false,"unlockPassword":"合成口令"}); });
+it("submit保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["submit"](...["request","public","digest",3,9,"response"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("submit_grandpa_key_change", {"requestId":"request","expectedPublicKey":"public","expectedPayloadHash":"digest","signNonce":3,"signBlockNumber":9,"responseJson":"response"}); });
+it('IPC失败保留拒绝状态且不自动重放', async()=>{const failure=new Error('合成失败');mocks.invoke.mockRejectedValueOnce(failure);await expect(api["getStatus"](...[])).rejects.toBe(failure);expect(mocks.invoke).toHaveBeenCalledOnce();});

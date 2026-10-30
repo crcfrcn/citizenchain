@@ -32,8 +32,8 @@ impl<T: Config> Pallet<T> {
         proposal_id: u64,
         subject: ProposalSubject<T::AccountId>,
     ) -> Result<u32, DispatchError> {
-        <votingengine::Pallet<T>>::snapshot_admins_len(proposal_id, subject)
-            .ok_or(votingengine::Error::<T>::MissingAdminSnapshot.into())
+        <votebase::Pallet<T>>::snapshot_admins_len(proposal_id, subject)
+            .ok_or(votebase::Error::<T>::MissingAdminSnapshot.into())
     }
 }
 
@@ -42,15 +42,15 @@ impl<T: Config> Pallet<T> {
         proposal_id: u64,
     ) -> Result<T::AccountId, DispatchError> {
         let proposal =
-            Proposals::<T>::get(proposal_id).ok_or(votingengine::Error::<T>::ProposalNotFound)?;
+            Proposals::<T>::get(proposal_id).ok_or(votebase::Error::<T>::ProposalNotFound)?;
         ensure!(
-            proposal.internal_code == Some(votingengine::types::PMUL)
+            proposal.internal_code == Some(votebase::types::PMUL)
                 && proposal.actor_cid_number.is_none(),
-            votingengine::Error::<T>::InvalidInstitution
+            votebase::Error::<T>::InvalidInstitution
         );
         proposal
             .execution_account_id
-            .ok_or(votingengine::Error::<T>::InvalidInstitution.into())
+            .ok_or(votebase::Error::<T>::InvalidInstitution.into())
     }
 
     pub(crate) fn apply_executed_threshold_side_effect(proposal_id: u64) -> DispatchResult {

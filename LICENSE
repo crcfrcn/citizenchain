@@ -26,7 +26,7 @@ Third-party scope
 The MIT terms above apply to independently authored CitizenChain code only.
 Upstream files and derived modifications retain their original notices:
 
-- node/vendor: GPL-3.0-or-later WITH Classpath-exception-2.0; see
+- node/grandpa: GPL-3.0-or-later WITH Classpath-exception-2.0; see
   LICENSE-GPL-3.0 and the SPDX notices in the source files.
 - runtime/genesis/src/config.rs: Apache-2.0; see LICENSE-APACHE-2.0 and the
   Parity Technologies copyright notice retained in the source file.

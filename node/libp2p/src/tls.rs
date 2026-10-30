@@ -205,3 +205,7 @@ impl From<io::Error> for Error {
         Error::Io(e)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/tls.rs"]
+mod tests;

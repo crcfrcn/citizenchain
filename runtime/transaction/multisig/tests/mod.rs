@@ -11,11 +11,11 @@ use primitives::cid::china::china_sf::CHINA_SF;
 use primitives::cid::china::china_zf::CHINA_ZF;
 use sp_core::{sr25519, Pair as PairT};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use votingengine::types::{
+use votebase::types::{
     code_bytes, institution_code_from_cid_number, InstitutionCode, FRG, NJD, PRC,
 };
-use votingengine::InstitutionRoleProvider as _;
-use votingengine::{STATUS_EXECUTED, STATUS_REJECTED, STATUS_VOTING};
+use votebase::InstitutionRoleProvider as _;
+use votebase::{STATUS_EXECUTED, STATUS_REJECTED, STATUS_VOTING};
 
 // 测试用机构码:个人多签 / 私权法人,均属"注册多签动态账户"。
 const PERSONAL_CODE: InstitutionCode = PMUL;
@@ -48,7 +48,7 @@ mod runtime {
     pub type Balances = pallet_balances;
 
     #[runtime::pallet_index(2)]
-    pub type VotingEngine = votingengine;
+    pub type VotingEngine = votebase;
 
     #[runtime::pallet_index(99)]
     pub type InternalVote = internalvote;
@@ -103,24 +103,24 @@ impl entitybase::ReservedAccountGuard<AccountId32> for TestReservedAccountChecke
 }
 
 pub struct TestCitizenIdentityReader;
-impl votingengine::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votingengine::CitizenSubject<AccountId32> {
-    votingengine::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
+    votebase::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -130,7 +130,7 @@ fn test_citizen_subject(who: &AccountId32) -> votingengine::CitizenSubject<Accou
 }
 
 pub struct TestInternalAdminProvider;
-impl votingengine::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -188,7 +188,7 @@ fn propose_transfer(
 ) -> sp_runtime::DispatchResult {
     let proposer_role_code = actor_cid_number.as_ref().map(|cid_number| {
         let cid_text = core::str::from_utf8(cid_number.as_slice()).expect("valid test CID");
-        let code = votingengine::types::institution_code_from_cid_number(cid_text)
+        let code = votebase::types::institution_code_from_cid_number(cid_text)
             .expect("known test institution");
         test_role_code(code)
             .to_vec()
@@ -206,7 +206,7 @@ fn propose_transfer(
     )
 }
 
-impl votingengine::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
+impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         Self::active_accounts_for_role(cid_number, role_code).contains(who)
     }
@@ -214,7 +214,7 @@ impl votingengine::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleP
     fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
         let Some(code) = core::str::from_utf8(cid_number)
             .ok()
-            .and_then(votingengine::types::institution_code_from_cid_number)
+            .and_then(votebase::types::institution_code_from_cid_number)
         else {
             return Vec::new();
         };
@@ -233,7 +233,7 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitut
     ) -> bool {
         let Some(code) = core::str::from_utf8(role_subject.cid_number.as_slice())
             .ok()
-            .and_then(votingengine::types::institution_code_from_cid_number)
+            .and_then(votebase::types::institution_code_from_cid_number)
         else {
             return false;
         };
@@ -268,7 +268,7 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitut
     ) -> Vec<entitybase::RoleSubject<Vec<u8>, Vec<u8>>> {
         let Some(code) = core::str::from_utf8(cid_number)
             .ok()
-            .and_then(votingengine::types::institution_code_from_cid_number)
+            .and_then(votebase::types::institution_code_from_cid_number)
         else {
             return Vec::new();
         };
@@ -433,14 +433,14 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-impl votingengine::Config for Test {
+impl votebase::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
-    type MaxAutoFinalizeWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxExecutionWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxCleanupWeightPerBlock = votingengine::BlockWeightFraction<Test, 8>;
+    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Test, 8>;
     type MaxProposalsPerExpiry = ConstU32<128>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;
@@ -754,7 +754,7 @@ fn beneficiary_account_id() -> AccountId32 {
 
 /// 获取最近一次 create_internal_proposal 分配的 proposal_id。
 fn last_proposal_id() -> u64 {
-    votingengine::Pallet::<Test>::next_proposal_id().saturating_sub(1)
+    votebase::Pallet::<Test>::next_proposal_id().saturating_sub(1)
 }
 
 /// 返回 `(institution_code, seed_context)` 对应的前 `count` 个 sr25519 测试 keypair。
@@ -814,14 +814,14 @@ fn cast_transfer_votes_n(
     pid: u64,
 ) -> frame_support::dispatch::DispatchResult {
     let proposal =
-        VotingEngine::proposals(pid).ok_or(votingengine::Error::<Test>::ProposalNotFound)?;
+        VotingEngine::proposals(pid).ok_or(votebase::Error::<Test>::ProposalNotFound)?;
     let ticket_claim = match proposal.actor_cid_number {
         None => internalvote::InternalVoteTicketClaim::Personal,
         Some(actor_cid_number) => {
             let institution_code = core::str::from_utf8(actor_cid_number.as_slice())
                 .ok()
-                .and_then(votingengine::types::institution_code_from_cid_number)
-                .ok_or(votingengine::Error::<Test>::InvalidInstitution)?;
+                .and_then(votebase::types::institution_code_from_cid_number)
+                .ok_or(votebase::Error::<Test>::InvalidInstitution)?;
             internalvote::InternalVoteTicketClaim::InstitutionRole(
                 test_role_code(institution_code)
                     .to_vec()
@@ -848,7 +848,7 @@ fn cast_transfer_votes_n(
         .map(|proposal| proposal.status != STATUS_VOTING)
         .unwrap_or(false)
     {
-        // 通过判定只入队；转账回调由 votingengine 维护管线异步执行。
+        // 通过判定只入队；转账回调由 votebase 维护管线异步执行。
         <VotingEngine as Hooks<u64>>::on_initialize(System::block_number());
     }
     Ok(())
@@ -884,7 +884,7 @@ fn new_test_ext() -> sp_io::TestExternalities {
         INSTITUTION_ACCOUNTS.with(|accounts| accounts.borrow_mut().clear());
         INSTITUTION_NAMED_ACCOUNTS.with(|accounts| accounts.borrow_mut().clear());
         // 为储备治理三档注入 sr25519 派生 admin。
-        // 注入数量必须覆盖 votingengine 的固定制度阈值,保证投票测试走真实状态机。
+        // 注入数量必须覆盖 votebase 的固定制度阈值,保证投票测试走真实状态机。
         // 管理员提供器只按 `(institution_code, actor_cid_number)` 读取本测试注入值。
         let frg = frg_main_account();
         let njd = njd_main_account();

@@ -1,0 +1,40 @@
+[package]
+name = "nodeinstitution"
+description = "CitizenChain nodeinstitution"
+publish = false
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+sp-crypto-hashing = { workspace = true, default-features = true }
+adminbase = { path = "../../runtime/admins/adminbase", default-features = true }
+codec = { workspace = true, default-features = true }
+entitybase = { path = "../../runtime/entity/entitybase", default-features = true }
+hex = "=0.4.3"
+identity = { path = "../../runtime/misc/identity", default-features = true }
+nodeclient = { path = "../client" }
+nodecontrol = { path = "../control" }
+nodedesktop = { path = "../desktop" }
+primitives = { path = "../../runtime/primitives" }
+rand = { workspace = true, default-features = true }
+reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "json", "query", "rustls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+tauri = { version = "=2.11.5", features = [] }
+tokio = { workspace = true, default-features = true, features = ["time"] }
+
+[dev-dependencies]
+frame-support = { workspace = true, default-features = true }
+votebase = { path = "../../runtime/votingengine/votebase", default-features = true }
+
+[features]

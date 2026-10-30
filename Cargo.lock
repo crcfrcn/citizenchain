@@ -4443,7 +4443,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -4858,7 +4858,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -6550,7 +6550,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -7306,6 +7306,7 @@ dependencies = [
  "frame-system",
  "parity-scale-codec",
  "primitives",
+ "proptest",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -7542,7 +7543,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -7859,7 +7860,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -8228,7 +8229,7 @@ dependencies = [
  "scale-info",
  "sp-io",
  "sp-runtime",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -8245,7 +8246,7 @@ dependencies = [
  "scale-info",
  "sp-io",
  "sp-runtime",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -9519,7 +9520,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -9680,53 +9681,47 @@ checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
 name = "node"
 version = "1.0.0"
 dependencies = [
- "adminbase",
  "async-trait",
- "blake2b_simd",
  "blockchain-harness",
- "bs58",
  "chain-signing",
  "clap",
- "difficulty",
  "ed25519-dalek",
- "electionvote",
- "entitybase",
- "frame-benchmarking",
  "frame-benchmarking-cli",
  "frame-metadata",
  "frame-support",
  "frame-system",
- "frame-system-rpc-runtime-api",
  "fullnodeissue",
  "futures 0.3.34",
  "genesis",
  "grandpakey",
  "hex",
- "hex-literal",
  "identity",
- "internalvote",
- "jointvote",
  "json-patch",
  "jsonrpsee",
- "legislationvote",
- "libc",
  "libp2p-identity",
  "log",
- "ocl",
- "offchain",
+ "nodeclient",
+ "nodecontrol",
+ "nodedesktop",
+ "nodedestroy",
+ "nodegrandpakey",
+ "nodeguard",
+ "nodeinstitution",
+ "nodemining",
+ "nodemultisig",
+ "nodeoffchain",
+ "nodeonchain",
+ "nodeproposal",
+ "noderesolutionissue",
+ "nodeupgrade",
  "onchain",
  "pallet-revive",
  "pallet-revive-eth-rpc",
  "pallet-staking",
- "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
  "primitives",
- "publicadmin",
- "publicentity",
- "qr-protocol",
- "rand 0.8.8",
  "rcgen 0.13.2",
  "reqwest",
  "runtime",
@@ -9739,7 +9734,6 @@ dependencies = [
  "sc-consensus",
  "sc-consensus-grandpa",
  "sc-consensus-pow",
- "sc-executor",
  "sc-network",
  "sc-network-sync",
  "sc-offchain",
@@ -9750,11 +9744,8 @@ dependencies = [
  "sc-telemetry",
  "sc-transaction-pool",
  "sc-transaction-pool-api",
- "scale-info",
- "scale-value",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
@@ -9777,14 +9768,407 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-utils",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "nodeclient"
+version = "1.0.0"
+dependencies = [
+ "blake2b_simd",
+ "bs58",
+ "chain-signing",
+ "entitybase",
+ "frame-metadata",
+ "futures 0.3.34",
+ "hex",
+ "jsonrpsee",
+ "nodedesktop",
+ "parity-scale-codec",
+ "primitives",
+ "qr-protocol",
+ "rand 0.8.8",
+ "runtime",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-consensus-grandpa",
+ "sc-consensus-pow",
+ "sc-executor",
+ "sc-network",
+ "sc-rpc-api",
+ "sc-service",
+ "sc-telemetry",
+ "sc-transaction-pool",
+ "sc-transaction-pool-api",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sp-api",
+ "sp-consensus",
+ "sp-core",
+ "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
+ "sp-io",
+ "sp-keystore",
+ "sp-runtime",
+ "sp-storage",
+ "tokio",
+]
+
+[[package]]
+name = "nodecontrol"
+version = "1.0.0"
+dependencies = [
+ "blake2b_simd",
+ "bs58",
+ "ed25519-dalek",
+ "hex",
+ "identity",
+ "libc",
+ "libp2p-identity",
+ "nodeclient",
+ "nodedesktop",
+ "primitives",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "nodedesktop"
+version = "1.0.0"
+dependencies = [
+ "blake2b_simd",
+ "bs58",
+ "futures 0.3.34",
+ "hex",
+ "json-patch",
+ "jsonrpsee",
+ "libc",
+ "log",
+ "nodeclient",
+ "parity-scale-codec",
+ "rand 0.8.8",
+ "rcgen 0.13.2",
+ "reqwest",
+ "runtime",
+ "rustls",
+ "sc-client-api",
+ "sc-rpc-api",
+ "sc-rpc-server",
+ "sc-transaction-pool-api",
+ "serde_json",
+ "sp-api",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
+ "sp-keystore",
+ "sp-runtime",
+ "substrate-build-script-utils",
+ "substrate-frame-rpc-system",
+ "tauri",
+ "tauri-build",
+ "tauri-utils",
  "thiserror 2.0.20",
  "tokio",
  "tokio-rustls",
  "tower 0.4.13",
  "tower-http 0.6.11",
- "twox-hash 2.1.4",
- "votingengine",
+]
+
+[[package]]
+name = "nodedestroy"
+version = "1.0.0"
+dependencies = [
+ "entitybase",
+ "hex",
+ "nodeclient",
+ "nodeinstitution",
+ "parity-scale-codec",
+ "primitives",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nodegrandpakey"
+version = "1.0.0"
+dependencies = [
+ "ed25519-dalek",
+ "grandpakey",
+ "hex",
+ "identity",
+ "nodeclient",
+ "nodecontrol",
+ "nodedesktop",
+ "parity-scale-codec",
+ "primitives",
+ "rand 0.8.8",
+ "runtime",
+ "serde",
+ "serde_json",
+ "sp-consensus-grandpa",
+ "sp-core",
+ "sp-runtime",
+ "tauri",
+]
+
+[[package]]
+name = "nodeguard"
+version = "1.0.0"
+dependencies = [
+ "adminbase",
+ "async-trait",
+ "blockchain-harness",
+ "chain-signing",
+ "electionvote",
+ "entitybase",
+ "frame-benchmarking",
+ "frame-metadata",
+ "frame-system",
+ "futures 0.3.34",
+ "genesis",
+ "hex",
+ "hex-literal",
+ "identity",
+ "internalvote",
+ "jointvote",
+ "legislationvote",
+ "log",
+ "node",
+ "nodeclient",
+ "nodedesktop",
+ "offchain",
+ "onchain",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "primitives",
+ "publicadmin",
+ "publicentity",
+ "runtime",
+ "sc-block-builder",
+ "sc-chain-spec",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-executor",
+ "sc-network",
+ "sc-service",
+ "scale-info",
+ "scale-value",
+ "serde_json",
+ "sp-api",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-consensus-pow",
+ "sp-core",
+ "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
+ "sp-io",
+ "sp-keyring",
+ "sp-runtime",
+ "sp-state-machine",
+ "sp-storage",
+ "tokio",
+ "votebase",
+]
+
+[[package]]
+name = "nodeinstitution"
+version = "1.0.0"
+dependencies = [
+ "adminbase",
+ "entitybase",
+ "frame-support",
+ "hex",
+ "identity",
+ "nodeclient",
+ "nodecontrol",
+ "nodedesktop",
+ "parity-scale-codec",
+ "primitives",
+ "rand 0.8.8",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
+ "sp-runtime",
+ "tauri",
+ "tokio",
+ "votebase",
+]
+
+[[package]]
+name = "nodemining"
+version = "1.0.0"
+dependencies = [
+ "frame-metadata",
+ "futures 0.3.34",
+ "hex",
+ "identity",
+ "log",
+ "nodeclient",
+ "nodecontrol",
+ "nodedesktop",
+ "ocl",
+ "parity-scale-codec",
+ "primitives",
+ "runtime",
+ "sc-client-api",
+ "sc-consensus-pow",
+ "sc-network",
+ "sc-service",
+ "sc-telemetry",
+ "sc-transaction-pool-api",
+ "serde",
+ "serde_json",
+ "sp-api",
+ "sp-consensus",
+ "sp-consensus-pow",
+ "sp-core",
+ "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
+ "sp-keystore",
+ "sp-runtime",
+ "sp-storage",
+ "tauri",
+]
+
+[[package]]
+name = "nodemultisig"
+version = "1.0.0"
+dependencies = [
+ "hex",
+ "identity",
+ "nodeclient",
+ "nodecontrol",
+ "nodedesktop",
+ "primitives",
+ "serde",
+ "serde_json",
+ "tauri",
+]
+
+[[package]]
+name = "nodeoffchain"
+version = "1.0.0"
+dependencies = [
+ "blake2b_simd",
+ "chain-signing",
+ "frame-support",
+ "frame-system",
+ "frame-system-rpc-runtime-api",
+ "futures 0.3.34",
+ "hex",
+ "identity",
+ "jsonrpsee",
+ "log",
+ "nodeclient",
+ "nodecontrol",
+ "nodedesktop",
+ "offchain",
+ "parity-scale-codec",
+ "primitives",
+ "rand 0.8.8",
+ "runtime",
+ "sc-client-api",
+ "sc-service",
+ "sc-transaction-pool",
+ "sc-transaction-pool-api",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sp-api",
+ "sp-blockchain",
+ "sp-core",
+ "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
+ "sp-io",
+ "sp-runtime",
+ "sp-storage",
+ "tauri",
+ "tokio",
  "zeroize",
+]
+
+[[package]]
+name = "nodeonchain"
+version = "1.0.0"
+dependencies = [
+ "chain-signing",
+ "hex",
+ "nodeclient",
+ "nodecontrol",
+ "nodedesktop",
+ "nodeinstitution",
+ "onchain",
+ "parity-scale-codec",
+ "primitives",
+ "qr-protocol",
+ "runtime",
+ "serde",
+ "serde_json",
+ "tauri",
+]
+
+[[package]]
+name = "nodeproposal"
+version = "1.0.0"
+dependencies = [
+ "difficulty",
+ "entitybase",
+ "hex",
+ "identity",
+ "nodeclient",
+ "nodecontrol",
+ "nodedesktop",
+ "nodedestroy",
+ "nodeinstitution",
+ "nodemultisig",
+ "noderesolutionissue",
+ "nodeupgrade",
+ "parity-scale-codec",
+ "primitives",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sp-runtime",
+ "tauri",
+ "votebase",
+]
+
+[[package]]
+name = "noderesolutionissue"
+version = "1.0.0"
+dependencies = [
+ "entitybase",
+ "hex",
+ "nodeclient",
+ "parity-scale-codec",
+ "primitives",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nodeupgrade"
+version = "1.0.0"
+dependencies = [
+ "difficulty",
+ "entitybase",
+ "hex",
+ "identity",
+ "nodeclient",
+ "nodecontrol",
+ "nodedesktop",
+ "parity-scale-codec",
+ "primitives",
+ "runtime",
+ "serde",
+ "serde_json",
+ "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
+ "tauri",
 ]
 
 [[package]]
@@ -10302,7 +10686,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -10352,6 +10736,7 @@ dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
  "primitives",
+ "proptest",
  "scale-info",
  "sp-io",
  "sp-runtime",
@@ -10376,7 +10761,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -13039,7 +13424,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -13061,7 +13446,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -14316,6 +14701,7 @@ dependencies = [
  "frame-support",
  "hex-literal",
  "parity-scale-codec",
+ "proptest",
  "scale-info",
  "serde_json",
  "sp-api",
@@ -14356,7 +14742,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -14379,7 +14765,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -14673,7 +15059,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -14697,7 +15083,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -15257,7 +15643,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -15770,7 +16156,7 @@ dependencies = [
  "square",
  "substrate-wasm-builder",
  "upgrade",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -19455,13 +19841,14 @@ dependencies = [
  "pallet-balances",
  "parity-scale-codec",
  "primitives",
+ "proptest",
  "scale-info",
  "serde",
  "serde_json",
  "sp-io",
  "sp-runtime",
  "sp-std",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -21692,7 +22079,7 @@ dependencies = [
  "scale-info",
  "sp-io",
  "sp-runtime",
- "votingengine",
+ "votebase",
 ]
 
 [[package]]
@@ -21804,7 +22191,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
-name = "votingengine"
+name = "votebase"
 version = "1.0.0"
 dependencies = [
  "entitybase",
@@ -21814,6 +22201,7 @@ dependencies = [
  "identity",
  "parity-scale-codec",
  "primitives",
+ "proptest",
  "scale-info",
  "sp-io",
  "sp-runtime",

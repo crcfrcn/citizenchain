@@ -61,7 +61,7 @@ pub enum AssetState {
 #[scale_info(skip_type_params(MaxName, MaxSymbol, MaxDescription))]
 pub struct OnchainAssetMeta<AccountId> {
     /// 发行机构唯一 CID。
-    pub actor_cid_number: votingengine::types::CidNumber,
+    pub actor_cid_number: votebase::types::CidNumber,
     /// 资产执行账户；不得作为机构身份或管理员寻址 key。
     pub execution_account_id: AccountId,
     /// 资产种类(第一期只 Plain)。

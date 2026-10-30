@@ -1,11 +1,18 @@
 import {fileURLToPath} from 'node:url';
 import { defineConfig, normalizePath, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createSecureContext } from 'node:tls';
 import { Agent } from 'node:https';
+
+// 预览使用同平台既有开发产物；平台坐标只读取产品静态声明。
+const {product} = createRequire(import.meta.url)('../../../scripts/config.mjs');
+const platform = Object.entries(product.platforms as Record<string, {host: string; arch: string}>)
+  .find(([id, value]) => id !== 'wasm' && value.host === process.platform && value.arch === process.arch)?.[0];
+if (!platform) throw new Error('本产品未声明当前原生平台');
+const output = join(fileURLToPath(new URL('../../../', import.meta.url)), 'target/onchina', platform, 'all/frontend');
 
 // 开发及预览必须显式提供证书和私钥；构建静态资源不启动TLS服务。
 function developmentTLS() {
@@ -108,7 +115,7 @@ export default defineConfig(({ command }) => {
   // 本仓扫码组件与宿主共用同一React实例，避免链接包加载第二套Hooks运行库。
   resolve: { dedupe: dependencies },
   build: {
-    outDir: process.env.ONCHINA_FRONTEND_DIST || join(tmpdir(), 'citizenchain', 'onchina-frontend'),
+    outDir: process.env.ONCHINA_FRONTEND_DIST || output,
     ...(module ? {
       lib: { entry: module.entry, formats: ['iife'] as ('iife')[], name: 'OnChinaModules.' + module.descriptor.id, fileName: () => 'module.js', cssFileName: 'module' },
       cssCodeSplit: false,

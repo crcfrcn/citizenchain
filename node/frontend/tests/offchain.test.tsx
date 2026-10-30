@@ -1,0 +1,10 @@
+import {beforeEach, expect, it, vi} from 'vitest';
+import {offchainApi} from '../offchain/api';
+const mocks=vi.hoisted(()=>({invoke:vi.fn()}));
+vi.mock('../client/tauri',()=>({invoke:mocks.invoke}));
+const api=offchainApi as unknown as Record<string,(...args:unknown[])=>Promise<unknown>>;
+beforeEach(()=>mocks.invoke.mockReset());
+it("testClearingBankEndpointConnectivity保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["testClearingBankEndpointConnectivity"](...["test.example",443,"peer"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("test_clearing_bank_endpoint_connectivity", {"domain":"test.example","port":443,"expectedPeerId":"peer"}); });
+it("buildRegisterClearingBankRequest保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["buildRegisterClearingBankRequest"](...["public","44","peer","test.example",443])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("build_register_clearing_bank_request", {"signerPublicKey":"public","actorCidNumber":"44","peerId":"peer","rpcDomain":"test.example","rpcPort":443}); });
+it("lockDecryptedAdmin保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["lockDecryptedAdmin"](...["public"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("lock_decrypted_admin", {"signerPublicKey":"public"}); });
+it('IPC失败保留拒绝状态且不自动重放', async()=>{const failure=new Error('合成失败');mocks.invoke.mockRejectedValueOnce(failure);await expect(api["testClearingBankEndpointConnectivity"](...["test.example",443,"peer"])).rejects.toBe(failure);expect(mocks.invoke).toHaveBeenCalledOnce();});

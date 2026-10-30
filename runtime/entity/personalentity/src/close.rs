@@ -30,7 +30,7 @@ use crate::types::{PersonalCloseAction, PersonalStatus};
 use crate::BalanceOf;
 use crate::ACTION_CLOSE;
 use primitives::multisig::{AccountValidator, ProtectedSourceChecker, ReservedAccountGuard};
-use votingengine::InternalVoteEngine;
+use votebase::InternalVoteEngine;
 
 pub(crate) fn do_propose_close<T: Config>(
     who: T::AccountId,
@@ -77,7 +77,7 @@ pub(crate) fn do_propose_close<T: Config>(
 
     // 个人多签治理账户直接使用个人多签账户地址。
     let institution = account_id.clone();
-    let institution_code = votingengine::types::PMUL;
+    let institution_code = votebase::types::PMUL;
     ensure!(
         Pallet::<T>::is_active_account_admin(institution_code, institution.clone(), &who),
         Error::<T>::PermissionDenied

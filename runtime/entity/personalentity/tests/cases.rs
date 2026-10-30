@@ -6,7 +6,7 @@ use frame_support::{
     BoundedVec,
 };
 use sp_runtime::DispatchError;
-use votingengine::{STATUS_EXECUTED, STATUS_EXECUTION_FAILED, STATUS_REJECTED, STATUS_VOTING};
+use votebase::{STATUS_EXECUTED, STATUS_EXECUTION_FAILED, STATUS_REJECTED, STATUS_VOTING};
 
 const CREATE_AMOUNT: Balance = 1_000;
 const CREATE_FEE: Balance = 10; // calculate_onchain_fee(1000) = max(1000*0.001, 10) = 10
@@ -78,9 +78,9 @@ fn overwrite_create_proposal_fee(pid: u64, fee: Balance) {
     let mut data = alloc::vec::Vec::from(crate::MODULE_TAG);
     data.push(crate::ACTION_CREATE);
     data.extend_from_slice(&action.encode());
-    let bounded: BoundedVec<u8, <Test as votingengine::Config>::MaxProposalDataLen> =
+    let bounded: BoundedVec<u8, <Test as votebase::Config>::MaxProposalDataLen> =
         BoundedVec::try_from(data).expect("proposal data fits");
-    votingengine::ProposalData::<Test>::insert(pid, bounded);
+    votebase::ProposalData::<Test>::insert(pid, bounded);
 }
 
 // ─── 1. propose_create:写 Pending + reserve fee + 发事件 ─────────────
@@ -159,7 +159,7 @@ fn propose_create_writes_pending_and_reserves_fee() {
         );
 
         // 投票引擎里提案在投票中
-        let proposal = votingengine::Pallet::<Test>::proposals(pid).expect("proposal exists");
+        let proposal = votebase::Pallet::<Test>::proposals(pid).expect("proposal exists");
         assert_eq!(proposal.status, STATUS_VOTING);
     });
 }
@@ -189,7 +189,7 @@ fn create_executes_when_internal_vote_reaches_threshold() {
         process_pending_execution();
 
         // 提案进入 EXECUTED
-        let proposal = votingengine::Pallet::<Test>::proposals(pid).expect("proposal exists");
+        let proposal = votebase::Pallet::<Test>::proposals(pid).expect("proposal exists");
         assert_eq!(proposal.status, STATUS_EXECUTED);
 
         // 多签账户激活,资金到位,Pending 已清
@@ -232,7 +232,7 @@ fn create_rejected_cleanup_releases_reserve_and_emits_event() {
         // 一票否决:全员通过制度下,只要有人反对就立刻进 STATUS_REJECTED
         assert_ok!(cast_no_votes(&admin_accounts[1..], 1, pid));
 
-        let proposal = votingengine::Pallet::<Test>::proposals(pid).expect("proposal exists");
+        let proposal = votebase::Pallet::<Test>::proposals(pid).expect("proposal exists");
         assert_eq!(proposal.status, STATUS_REJECTED);
 
         // 拒绝路径下 Executor 应已 cleanup,reserve 释放,storage 清空
@@ -470,7 +470,7 @@ fn close_executes_when_internal_vote_reaches_threshold() {
         assert_ok!(cast_yes_votes(&admins_acc[1..], 2, pid));
         process_pending_execution();
 
-        let proposal = votingengine::Pallet::<Test>::proposals(pid).expect("proposal exists");
+        let proposal = votebase::Pallet::<Test>::proposals(pid).expect("proposal exists");
         assert_eq!(proposal.status, STATUS_EXECUTED);
 
         // amount 1000 → fee = max(1, 10) = 10,beneficiary_account_id 收 990
@@ -567,7 +567,7 @@ fn create_execution_failed_terminal_cleans_pending_and_emits_once() {
         assert_ok!(cast_yes_votes(&admin_accounts[1..], 2, pid));
         process_pending_execution();
 
-        let proposal = votingengine::Pallet::<Test>::proposals(pid).expect("proposal exists");
+        let proposal = votebase::Pallet::<Test>::proposals(pid).expect("proposal exists");
         assert_eq!(proposal.status, STATUS_EXECUTION_FAILED);
         assert_eq!(Balances::reserved_balance(&c), 0);
         assert!(!pallet::PendingPersonalCreate::<Test>::contains_key(pid));
@@ -597,7 +597,7 @@ fn close_execution_failed_terminal_keeps_account_and_clears_pending() {
         assert_ok!(cast_yes_votes(&admins_acc[1..], 2, pid));
         process_pending_execution();
 
-        let proposal = votingengine::Pallet::<Test>::proposals(pid).expect("proposal exists");
+        let proposal = votebase::Pallet::<Test>::proposals(pid).expect("proposal exists");
         assert_eq!(proposal.status, STATUS_EXECUTION_FAILED);
         assert!(pallet::PersonalAccounts::<Test>::contains_key(&dq));
         assert!(!pallet::PendingCloseProposal::<Test>::contains_key(&dq));

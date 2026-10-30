@@ -1,4 +1,5 @@
-import type { InstitutionAdminInfo } from '../governance/types';
+import type { InstitutionAdminInfo } from "./council";
+
 
 // 清算行机构身份只读 DTO,与 Tauri 后端 transaction/offchain_transaction/institution_read/types.rs 对齐。
 

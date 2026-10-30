@@ -874,11 +874,11 @@ fn genesis_build_seeds_default_platform_prices() {
 }
 
 // 平台调价治理：可测的前置校验（零价 / 非基金会）。完整「投票通过→执行→改价」
-// 路径需 votingengine 集成夹具，列为跟进项。
+// 路径需 votebase 集成夹具，列为跟进项。
 #[test]
 fn propose_platform_price_rejects_zero_price() {
     new_test_ext().execute_with(|| {
-        let cid = votingengine::types::CidNumber::try_from(
+        let cid = votebase::types::CidNumber::try_from(
             primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION
                 .cid_number
                 .as_bytes()
@@ -904,7 +904,7 @@ fn propose_platform_price_rejects_zero_price() {
 #[test]
 fn propose_platform_price_rejects_non_foundation_institution() {
     new_test_ext().execute_with(|| {
-        let cid = votingengine::types::CidNumber::try_from(b"GD001-CTZN1-000000001-2026".to_vec())
+        let cid = votebase::types::CidNumber::try_from(b"GD001-CTZN1-000000001-2026".to_vec())
             .expect("cid fits");
         assert_noop!(
             SquarePost::propose_set_platform_price(

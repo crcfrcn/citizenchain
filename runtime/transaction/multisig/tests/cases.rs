@@ -29,8 +29,8 @@ fn nrc_transfer_executes_when_internal_vote_reaches_threshold() {
         assert_eq!(Balances::free_balance(&funding_account_id), 9_000);
         assert_eq!(Balances::free_balance(nrc_fee_account()), 9_990);
         assert_eq!(Balances::free_balance(&dest), 1_000);
-        // 提案数据仍保留（由 votingengine 延迟清理）
-        assert!(votingengine::Pallet::<Test>::get_proposal_data(pid).is_some());
+        // 提案数据仍保留（由 votebase 延迟清理）
+        assert!(votebase::Pallet::<Test>::get_proposal_data(pid).is_some());
     });
 }
 
@@ -60,7 +60,7 @@ fn prc_transfer_executes_when_internal_vote_reaches_threshold() {
         assert_eq!(Balances::free_balance(&funding_account_id), 8_000);
         assert_eq!(Balances::free_balance(prc_fee_account()), 9_990);
         assert_eq!(Balances::free_balance(&dest), 2_000);
-        assert!(votingengine::Pallet::<Test>::get_proposal_data(pid).is_some());
+        assert!(votebase::Pallet::<Test>::get_proposal_data(pid).is_some());
     });
 }
 
@@ -90,7 +90,7 @@ fn prb_transfer_executes_when_internal_vote_reaches_threshold() {
         assert_eq!(Balances::free_balance(&funding_account_id), 7_000);
         assert_eq!(Balances::free_balance(prb_fee_account()), 9_990);
         assert_eq!(Balances::free_balance(&dest), 3_000);
-        assert!(votingengine::Pallet::<Test>::get_proposal_data(pid).is_some());
+        assert!(votebase::Pallet::<Test>::get_proposal_data(pid).is_some());
     });
 }
 
@@ -109,7 +109,7 @@ fn frg_and_njd_can_create_multisig_transfer_internal_proposals() {
                 1_000,
                 BoundedVec::default(),
             ));
-            let proposal = votingengine::Pallet::<Test>::proposals(last_proposal_id())
+            let proposal = votebase::Pallet::<Test>::proposals(last_proposal_id())
                 .expect("transfer proposal should exist");
             assert_eq!(proposal.internal_code, Some(institution_code));
             assert_eq!(proposal.status, STATUS_VOTING);
@@ -183,7 +183,7 @@ fn personal_account_transfer_executes_when_internal_vote_reaches_threshold() {
         assert_eq!(Balances::free_balance(&personal_account_id), 8_490);
         assert_eq!(Balances::free_balance(&dest), 1_500);
         assert_eq!(
-            votingengine::Pallet::<Test>::proposals(pid)
+            votebase::Pallet::<Test>::proposals(pid)
                 .expect("proposal should exist")
                 .status,
             STATUS_EXECUTED
@@ -223,7 +223,7 @@ fn institution_account_transfer_executes_when_internal_vote_reaches_threshold() 
         assert_eq!(Balances::free_balance(institution_fee_account()), 9_990);
         assert_eq!(Balances::free_balance(&dest), 2_000);
         assert_eq!(
-            votingengine::Pallet::<Test>::proposals(pid)
+            votebase::Pallet::<Test>::proposals(pid)
                 .expect("proposal should exist")
                 .status,
             STATUS_EXECUTED
@@ -397,7 +397,7 @@ fn multiple_proposals_allowed_within_limit() {
             BoundedVec::default(),
         ));
 
-        // 活跃提案数限制由 votingengine 全局管控（上限 10），第二个提案可以成功
+        // 活跃提案数限制由 votebase 全局管控（上限 10），第二个提案可以成功
         assert_ok!(propose_transfer(
             RuntimeOrigin::signed(nrc_admin(0)),
             Some(nrc_actor_cid()),
@@ -460,16 +460,16 @@ fn rejected_proposal_does_not_block_new_proposal() {
         ));
         let pid1 = last_proposal_id();
 
-        let end = votingengine::Pallet::<Test>::proposals(pid1)
+        let end = votebase::Pallet::<Test>::proposals(pid1)
             .expect("proposal should exist")
             .end;
         System::set_block_number(end + 1);
-        assert_ok!(votingengine::Pallet::<Test>::finalize_proposal(
+        assert_ok!(votebase::Pallet::<Test>::finalize_proposal(
             RuntimeOrigin::signed(nrc_admin(0)),
             pid1
         ));
         assert_eq!(
-            votingengine::Pallet::<Test>::proposals(pid1)
+            votebase::Pallet::<Test>::proposals(pid1)
                 .expect("proposal should exist")
                 .status,
             STATUS_REJECTED
@@ -555,13 +555,13 @@ fn retry_passed_transfer_succeeds_after_failed_auto_execution() {
             pid,
         ));
         assert_eq!(
-            votingengine::Pallet::<Test>::proposals(pid)
+            votebase::Pallet::<Test>::proposals(pid)
                 .expect("proposal should exist")
                 .status,
             STATUS_PASSED
         );
         assert_eq!(Balances::free_balance(&dest), 0);
-        assert!(votingengine::Pallet::<Test>::get_proposal_data(pid).is_some());
+        assert!(votebase::Pallet::<Test>::get_proposal_data(pid).is_some());
 
         // 补充余额后通过投票引擎统一入口手动重试。
         let _ = Balances::deposit_creating(&funding_account_id, 9_000);
@@ -596,7 +596,7 @@ fn retry_passed_transfer_rejects_non_passed_proposal() {
         // 提案仍在投票中，不能手动重试。
         assert_noop!(
             VotingEngine::retry_passed_proposal(RuntimeOrigin::signed(nrc_admin(0)), pid),
-            votingengine::Error::<Test>::ProposalNotRetryable
+            votebase::Error::<Test>::ProposalNotRetryable
         );
     });
 }
@@ -643,7 +643,7 @@ fn retry_passed_transfer_rejects_non_admin() {
         // 统一重试入口只允许快照管理员手动重试。
         assert_noop!(
             VotingEngine::retry_passed_proposal(RuntimeOrigin::signed(outsider), pid),
-            votingengine::Error::<Test>::NoPermission
+            votebase::Error::<Test>::NoPermission
         );
         assert_eq!(Balances::free_balance(&dest), 0);
     });
@@ -674,7 +674,7 @@ fn executed_transfer_cannot_be_executed_again() {
 
         // 自动执行成功，状态变为 EXECUTED
         assert_eq!(
-            votingengine::Pallet::<Test>::proposals(pid)
+            votebase::Pallet::<Test>::proposals(pid)
                 .expect("proposal should exist")
                 .status,
             STATUS_EXECUTED
@@ -683,7 +683,7 @@ fn executed_transfer_cannot_be_executed_again() {
         // 已执行提案再次走统一重试入口应被拒绝。
         assert_noop!(
             VotingEngine::retry_passed_proposal(RuntimeOrigin::signed(nrc_admin(0)), pid),
-            votingengine::Error::<Test>::ProposalNotRetryable
+            votebase::Error::<Test>::ProposalNotRetryable
         );
     });
 }

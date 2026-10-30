@@ -1,10 +1,10 @@
+import { sanitizeError } from "../client/tauri";
+import { transactionApi as api } from "./api";
+import type { TransferDraft, Wallet, WalletStore, WalletBalanceState } from "./types";
+import { WalletManagerModal } from "./WalletManagerModal";
+import { TransferForm } from "./TransferForm";
+import { TransferSigningFlow } from "./TransferSigningFlow";
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { sanitizeError } from '../tauri';
-import { transactionApi as api } from './api';
-import type { TransferDraft, Wallet, WalletStore, WalletBalanceState } from './types';
-import { WalletManagerModal } from './WalletManagerModal';
-import { TransferForm } from './TransferForm';
-import { TransferSigningFlow } from './TransferSigningFlow';
 
 export function TransactionPanel() {
   const [wallets, setWallets] = useState<Wallet[]>([]);

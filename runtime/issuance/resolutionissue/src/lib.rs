@@ -7,17 +7,18 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 pub mod execution;
 pub mod proposal;
 #[cfg(test)]
-#[path = "../tests.rs"]
+#[path = "../tests/mod.rs"]
 mod tests;
 pub mod validation;
 pub mod weights;
 
 pub use pallet::*;
-use votingengine::JointVoteResultCallback;
+use votebase::JointVoteResultCallback;
 
 /// 模块标识前缀，用于在投票引擎 ProposalData 中识别决议发行提案。
 ///
@@ -35,7 +36,7 @@ pub mod pallet {
     #[cfg(feature = "std")]
     use sp_runtime::traits::Zero;
     use sp_std::vec::Vec;
-    use votingengine::JointVoteEngine;
+    use votebase::JointVoteEngine;
 
     pub type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -53,7 +54,7 @@ pub mod pallet {
     }
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config {
+    pub trait Config: frame_system::Config + votebase::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -174,8 +175,8 @@ pub mod pallet {
         /// 决议发行提案已创建，联合投票已发起。
         ResolutionIssuanceProposed {
             proposal_id: u64,
-            actor_cid_number: votingengine::types::CidNumber,
-            proposer_role_code: votingengine::types::RoleCode,
+            actor_cid_number: votebase::types::CidNumber,
+            proposer_role_code: votebase::types::RoleCode,
             proposer_account_id: T::AccountId,
             total_amount: BalanceOf<T>,
             allocation_count: u32,
@@ -234,13 +235,13 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// 创建“决议发行”联合投票提案。
         /// 本模块只提交决议发行业务内容；人口快照、联合签名、
-        /// 投票资格和计票流程全部由 votingengine 负责。
+        /// 投票资格和计票流程全部由 votebase 负责。
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::propose_issuance())]
         pub fn propose_issuance(
             origin: OriginFor<T>,
-            actor_cid_number: votingengine::types::CidNumber,
-            proposer_role_code: votingengine::types::RoleCode,
+            actor_cid_number: votebase::types::CidNumber,
+            proposer_role_code: votebase::types::RoleCode,
             reason: ReasonOf<T>,
             total_amount: BalanceOf<T>,
             allocations: AllocationOf<T>,
@@ -267,16 +268,16 @@ impl<T: pallet::Config> JointVoteResultCallback for pallet::Pallet<T> {
     fn on_joint_vote_finalized(
         vote_proposal_id: u64,
         approved: bool,
-    ) -> Result<votingengine::ProposalExecutionOutcome, sp_runtime::DispatchError> {
+    ) -> Result<votebase::ProposalExecutionOutcome, sp_runtime::DispatchError> {
         let outcome = pallet::Pallet::<T>::apply_joint_vote_result(vote_proposal_id, approved)?;
         Ok(match outcome {
             pallet::FinalizeOutcome::ApprovedExecutionSucceeded => {
-                votingengine::ProposalExecutionOutcome::Executed
+                votebase::ProposalExecutionOutcome::Executed
             }
             pallet::FinalizeOutcome::ApprovedExecutionFailed => {
-                votingengine::ProposalExecutionOutcome::FatalFailed
+                votebase::ProposalExecutionOutcome::FatalFailed
             }
-            pallet::FinalizeOutcome::Rejected => votingengine::ProposalExecutionOutcome::Executed,
+            pallet::FinalizeOutcome::Rejected => votebase::ProposalExecutionOutcome::Executed,
         })
     }
 }

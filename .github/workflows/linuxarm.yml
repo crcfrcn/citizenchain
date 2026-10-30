@@ -1,4 +1,4 @@
-# 四端准备、测试、编译、正式交付及历史清理均在同一Run内完成。
+# 本平台GitHub任务归本工作流；编译调用产品编译入口。
 ---
 name: 公民链·LinuxARM
 run-name: 公民链·LinuxARM·${{ github.run_number }}
@@ -121,26 +121,34 @@ jobs:
       run: |
         set -euo pipefail
         mkdir -p "$CITIZENCHAIN_WORK_DIR"
-        node --test scripts/config.mjs scripts/runtime.mjs scripts/build.test.mjs
         npm ci --prefix crates/scanner --include=dev
         npm ci --prefix node/frontend --include=dev
         npm ci --prefix onchina/platform/frontend --include=dev
-        node --test --test-concurrency=1 onchina/platform/modules/structure.test.mjs node/frontend/metamask.mjs
+        node --test --test-concurrency=1 onchina/platform/modules/structure.test.mjs node/frontend/tests/metamask.test.mjs
         cargo test --manifest-path crates/protocol/Cargo.toml --locked
         npm run check --prefix crates/scanner
         npm test --prefix crates/scanner
         npm run test:local-doc --prefix node/frontend
-        npm run test:transfer --prefix node/frontend
+        npm run test:types --prefix node/frontend
+        npm test --prefix node/frontend
         npm run typecheck --prefix onchina/platform/frontend
         npm test --prefix onchina/platform/frontend
         export TAURI_CONFIG="$(node -e 'console.log(JSON.stringify({build:{beforeBuildCommand:null,frontendDist:process.env.GITHUB_WORKSPACE+"/node/frontend"}}))')"
-        # 唯一Runtime入口提供测试依赖WASM，原测试和金标不跳过。
-        node scripts/runtime.mjs test
+        export NODE="$(node -p process.execPath)" CITIZENCHAIN_BUILD_PLATFORM="$PLATFORM"
+        export WASM_BUILD_FROM_SOURCE=1 CITIZENCHAIN_PRODUCTION_WASM_BUILD=1
+        unset SKIP_WASM_BUILD WASM_FILE DOCS_RS
+        for key in $(compgen -v); do
+          case "$key" in APPLE_*|*_TOKEN|*_PASSWORD|*_PRIVATE_KEY|*_SECRET|NODE_OPTIONS|NODE_PATH|NODE_TEST_CONTEXT|SKIP_*_WASM_BUILD) unset "$key" ;; esac
+        done
+        cargo --config config.toml clean -p runtime --locked
+        cargo --config config.toml test --locked --release --workspace --all-targets
     - name: 编译及核对完整产物
       id: compile
       shell: bash
       run: |
         set -euo pipefail
+        test "$(git rev-parse HEAD)" = "$CITIZENCHAIN_SOURCE_SHA"
+        git diff --quiet HEAD
         node scripts/build.mjs linux-arm
     - name: 输出失败资源链接
       if: ${{ failure() && steps.compile.outcome == 'failure' }}
@@ -150,6 +158,14 @@ jobs:
         if [ -d "$CITIZENCHAIN_WORK_DIR/resources" ]; then
           find "$CITIZENCHAIN_WORK_DIR/resources" -type l -exec ls -ld {} +
         fi
+    - name: 验收链上中国实际模块产物
+      shell: bash
+      run: |
+        set -euo pipefail
+        export ONCHINA_TEST_MODULE_ROOT="$(node -e 'console.log(require("node:fs").realpathSync(require("node:path").join(process.env.CITIZENCHAIN_WORK_DIR,"onchina-modules")))')"
+        export ONCHINA_TEST_MODULE_IDS="$(node -e 'console.log(JSON.stringify(require("node:fs").readdirSync(process.env.ONCHINA_TEST_MODULE_ROOT,{withFileTypes:true}).filter(entry=>entry.isDirectory()).map(entry=>entry.name)))')"
+        node --test --test-name-pattern '实际模块产物' onchina/platform/modules/structure.test.mjs
+        npm test --prefix onchina/platform/frontend -- -t '实际IIFE装载'
     - name: 记录实际产物原始字节
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
       id: assets
@@ -157,17 +173,20 @@ jobs:
         retries: 0
         script: |
           const {pathToFileURL}=await import('node:url');
-          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
-          const p=process.env.PLATFORM,repo=context.repo;
+          const {product}=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
           const {createReadStream,lstatSync,readdirSync}=await import('node:fs');
           const {createHash}=await import('node:crypto');
-          const directory=process.env.GITHUB_WORKSPACE+'/target/build/'+p+'/artifact';
-          const names=cfg.artifactNames(p,process.env.CITIZENCHAIN_RELEASE_VERSION);
+          const p=process.env.PLATFORM,version=process.env.CITIZENCHAIN_RELEASE_VERSION,declared=product.platforms[p];
+          const names=declared.files||[declared.artifact.replace('{version}',version)];
+          const tag=product.title+'·'+declared.name+'·v'+version,directory=process.env.GITHUB_WORKSPACE+'/target/build/'+p+'/artifact';
           if(JSON.stringify(readdirSync(directory).sort())!==JSON.stringify([...names].sort()))throw Error('完整产物集合不符');
           const assets=[];
-          for(const name of names){const path=directory+'/'+name,info=lstatSync(path);if(!info.isFile()||info.isSymbolicLink()||info.size<=0)throw Error('产物不是非空普通文件');
-           const hash=createHash('sha256');for await(const bytes of createReadStream(path))hash.update(bytes);
-           assets.push({name,label:cfg.artifactLabel(p,process.env.CITIZENCHAIN_RELEASE_VERSION,name),size:info.size,sha256:hash.digest('hex')});}
+          for(const name of names){
+            const path=directory+'/'+name,info=lstatSync(path);
+            if(!info.isFile()||info.isSymbolicLink()||info.size<=0)throw Error('产物不是非空普通文件');
+            const hash=createHash('sha256');for await(const bytes of createReadStream(path))hash.update(bytes);
+            assets.push({name,label:tag+(p==='wasm'?name.slice('runtime'.length):declared.extension),size:info.size,sha256:hash.digest('hex')});
+          }
           core.setOutput('assets',JSON.stringify(assets));
     - name: 保存本平台官方增量缓存
       if: success() || failure()
@@ -220,36 +239,43 @@ jobs:
         retries: 0
         script: |
           const {pathToFileURL}=await import('node:url');
-          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
-          const p=process.env.PLATFORM,repo=context.repo;
-          const {readFileSync,writeFileSync,mkdirSync,createReadStream}=await import('node:fs');
+          const {product}=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
+          const {readFileSync,writeFileSync,createReadStream}=await import('node:fs');
           const {createHash}=await import('node:crypto');
           const {execFileSync}=await import('node:child_process');
-          const tag=cfg.releaseName(p,process.env.CITIZENCHAIN_RELEASE_VERSION),assets=JSON.parse(process.env.SOURCE_ASSETS);
-          const names=cfg.artifactNames(p,process.env.CITIZENCHAIN_RELEASE_VERSION);
-          if(JSON.stringify(assets.map(asset=>asset.name).sort())!==JSON.stringify([...names].sort()))throw Error('生产Run产物声明不完整');
-          const hashFile=async path=>{const hash=createHash('sha256');for await(const bytes of createReadStream(path))hash.update(bytes);return hash.digest('hex');};
-          const source=process.env.RUNNER_TEMP+'/artifact';
-          for(const asset of assets){const bytes=readFileSync(source+'/'+asset.name);if(bytes.length!==asset.size||await hashFile(source+'/'+asset.name)!==asset.sha256)throw Error('Actions附件偏离生产Run原始字节');}
-          const proof={schema:1,repository:cfg.product.repository,product_id:cfg.product.id,platform:p,workflow:'.github/workflows/'+cfg.product.platforms[p].workflow,
-           run_id:context.runId,run_attempt:Number(process.env.GITHUB_RUN_ATTEMPT),source_sha:context.sha,version:process.env.CITIZENCHAIN_RELEASE_VERSION,tag,assets};
+          const p=process.env.PLATFORM,version=process.env.CITIZENCHAIN_RELEASE_VERSION,declared=product.platforms[p];
+          const tag=product.title+'·'+declared.name+'·v'+version,assets=JSON.parse(process.env.SOURCE_ASSETS);
+          const names=declared.files||[declared.artifact.replace('{version}',version)],source=process.env.RUNNER_TEMP+'/artifact';
+          if(context.sha!==process.env.CITIZENCHAIN_SOURCE_SHA||context.ref!=='refs/heads/main')throw Error('发布源码身份不符');
+          if(JSON.stringify(assets.map(asset=>asset.name).sort())!==JSON.stringify([...names].sort()))throw Error('正式产物集合不完整');
+          for(const asset of assets){
+            const bytes=readFileSync(source+'/'+asset.name),hash=createHash('sha256');
+            for await(const chunk of createReadStream(source+'/'+asset.name))hash.update(chunk);
+            if(bytes.length!==asset.size||hash.digest('hex')!==asset.sha256)throw Error('正式产物字节不符');
+          }
+          const proof={schema:1,repository:product.repository,product_id:product.id,platform:p,workflow:'.github/workflows/'+declared.workflow,
+            run_id:context.runId,run_attempt:Number(process.env.GITHUB_RUN_ATTEMPT),source_sha:context.sha,version,tag,assets};
+          if(p==='wasm'){
+            const runtime=JSON.parse(process.env.RUNTIME_BUILD);
+            if(String(runtime.spec_version)!==version||process.env.BUILT_VERSION!==version||runtime.source_sha!==context.sha)throw Error('WASM实际版本不符');
+            proof.runtime=runtime;
+          }
           const notes=process.env.RUNNER_TEMP+'/release-notes.txt';writeFileSync(notes,'<!-- automation:'+JSON.stringify(proof)+' -->\n');
-          const gh=args=>execFileSync('gh',args,{stdio:['ignore','pipe','pipe'],encoding:'utf8',maxBuffer:4*1024*1024});
-          gh(['release','create',tag,...assets.map(asset=>source+'/'+asset.name+'#'+asset.label),'--repo',cfg.product.repository,'--target',context.sha,'--title',tag,'--notes-file',notes,'--draft','--latest=false']);
-          let draft=(await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100})).filter(value=>value.tag_name===tag);
-          if(draft.length!==1)throw Error('本轮草稿不唯一');
-          const run=(await github.rest.actions.getWorkflowRun({...repo,run_id:context.runId})).data;
-          cfg.assertRelease(p,draft[0],run,{draft:true});
-          const downloaded=process.env.RUNNER_TEMP+'/release-download';mkdirSync(downloaded);
-          gh(['release','download',tag,'--repo',cfg.product.repository,'--dir',downloaded]);
-          for(const asset of assets)if(!readFileSync(downloaded+'/'+asset.name).equals(readFileSync(source+'/'+asset.name)))throw Error('正式附件回读字节不符');
-          gh(['release','edit',tag,'--repo',cfg.product.repository,'--draft=false','--latest=false']);
-          const published=(await github.rest.repos.getRelease({...repo,release_id:draft[0].id})).data;
-          cfg.assertRelease(p,published,run);
-          const ref=(await github.rest.git.getRef({...repo,ref:'tags/'+tag})).data;
+          execFileSync('gh',['release','create',tag,...assets.map(asset=>source+'/'+asset.name+'#'+asset.label),
+            '--repo',product.repository,'--target',context.sha,'--title',tag,'--notes-file',notes,'--draft','--latest=false'],{stdio:['ignore','pipe','pipe']});
+          const drafts=(await github.paginate(github.rest.repos.listReleases,{...context.repo,per_page:100})).filter(value=>value.tag_name===tag);
+          if(drafts.length!==1)throw Error('本轮草稿不唯一');
+          const published=drafts[0];
+          if(!published.draft||published.prerelease||published.assets.length!==assets.length)throw Error('本轮草稿或附件状态不符');
+          for(const asset of published.assets){
+            const original=assets.find(value=>value.name===asset.name);
+            if(!original||asset.state!=='uploaded'||asset.size!==original.size||asset.digest!=='sha256:'+original.sha256||asset.label!==original.label)throw Error('正式附件回读不符');
+          }
+          const result=(await github.rest.repos.updateRelease({...context.repo,release_id:published.id,draft:false})).data;
+          if(result.draft||result.prerelease||!result.published_at)throw Error('正式Release发布未确认');
+          const ref=(await github.rest.git.getRef({...context.repo,ref:'tags/'+tag})).data;
           if(ref.object.type!=='commit'||ref.object.sha!==context.sha)throw Error('正式Tag提交不符');
-          for(const asset of published.assets)if(new URL(asset.browser_download_url).href!=='https://github.com/'+cfg.product.repository+'/releases/download/'+encodeURIComponent(tag)+'/'+encodeURIComponent(asset.name))throw Error('正式附件下载地址不符');
-          core.info('正式Tag、Release及完整附件已确认：'+tag);
+          core.info('正式交付已确认：'+tag);
   cleanup:
     name: 公民链·LinuxARM·v${{ needs.prepare.outputs.version }}
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
@@ -261,76 +287,46 @@ jobs:
       actions: write
     env:
       PLATFORM: linux-arm
-      CITIZENCHAIN_RELEASE_VERSION: "${{ needs.prepare.outputs.version }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ github.sha }}"
-      JOB_RESULTS: '{"prepare":"${{ needs.prepare.result }}","build":"${{ needs.build.result }}","release":"${{ needs.release.result }}"}'
     steps:
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       with:
         ref: "${{ github.sha }}"
         persist-credentials: false
-    - name: 清理本平台历史，不派发、不重编、不取消
+    - name: 清理本平台已完成历史
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
       with:
         retries: 0
         script: |
           const {pathToFileURL}=await import('node:url');
-          const cfg=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
-          const p=process.env.PLATFORM,repo=context.repo,results=JSON.parse(process.env.JOB_RESULTS);
-          const getRun=id=>github.rest.actions.getWorkflowRun({...repo,run_id:id}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
-          const original=async()=>{const run=await getRun(context.runId);cfg.assertRun(p,run,context.runId);
-           if(run.head_sha!==context.sha||run.head_sha!==process.env.CITIZENCHAIN_SOURCE_SHA||run.run_attempt!==Number(process.env.GITHUB_RUN_ATTEMPT)
-            )throw Error('本轮源码、attempt或交付版本变化');return run;};
-          const rows=()=>github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:cfg.product.platforms[p].workflow,branch:'main',per_page:100});
-          const plan=async()=>cfg.nativeCleanupPlan(p,await original(),results,await rows());
-          const getRelease=id=>github.rest.repos.getRelease({...repo,release_id:id}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
-          const getTag=tag=>github.rest.git.getRef({...repo,ref:'tags/'+tag}).then(value=>value.data).catch(error=>{if(error.status===404)return null;throw error;});
-          let assetError;
-          try{
-          const initial=await plan(),releases=await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100});
-          const prefix=cfg.product.title+'·'+cfg.product.platforms[p].name+'·v';
-          const proven=releases.filter(value=>value.tag_name.startsWith(prefix)).map(release=>({release,proof:cfg.readReleaseProof(p,release)}));
-          // 成功保留项可以是当前仍在运行的候选，但必须已有完整正式交付；不伪造最终conclusion。
-          let latest;
-          if(initial.success){const matches=proven.filter(value=>value.proof.run_id===initial.success.id);if(matches.length!==1)throw Error('成功保留项没有唯一完整正式交付');
-           latest=matches[0];cfg.assertRelease(p,latest.release,initial.success);
-           const ref=await getTag(latest.proof.tag);if(!ref||ref.object.type!=='commit'||ref.object.sha!==initial.success.head_sha)throw Error('成功保留项Tag提交不符');}
-          for(const item of proven){
-           if(item.release.id===latest?.release.id)continue;
-           const fresh=await plan();if(fresh.success?.id!==initial.success?.id||fresh.failure?.id!==initial.failure?.id)throw Error('保留集合变化，停止删除');
-           const run=await getRun(item.proof.run_id);
-           if(!run){
-            // 旧Run已删除时只核对真实交付；没有本轮完整替代就保留旧正式产物。
-            const current=await getRelease(item.release.id);if(!current)continue;
-            const proof=cfg.assertReleaseAssets(p,current),ref=await getTag(proof.tag);
-            if(JSON.stringify(proof)!==JSON.stringify(item.proof))throw Error('旧正式交付来源变化');
-            if(!ref||ref.object.type!=='commit'||ref.object.sha!==proof.source_sha)throw Error('旧正式Tag提交变化');
-            if(initial.success?.id!==context.runId||results.release!=='success'){core.warning('旧Run已缺失，保留尚无本轮替代的正式交付：'+proof.tag);continue;}
-            const replacement=await getRelease(latest.release.id);if(!replacement)throw Error('替代正式交付不存在');
-            const newer=cfg.assertRelease(p,replacement,await original()),newRef=await getTag(newer.tag);
-            if(!newRef||newRef.object.type!=='commit'||newRef.object.sha!==newer.source_sha)throw Error('替代正式Tag提交变化');
-            if(cfg.compareDeliveryVersions(newer.version,proof.version)<=0)throw Error('替代正式版本没有递增');
-            if(current.immutable)throw Error('旧Release不可变，未修改仓库设置');
-            await github.rest.git.deleteRef({...repo,ref:'tags/'+proof.tag});if(await getTag(proof.tag))throw Error('Tag删除未确认');
-            await github.rest.repos.deleteRelease({...repo,release_id:current.id});if(await getRelease(current.id))throw Error('Release删除未确认');
-            continue;
-           }
-           cfg.assertRun(p,run,item.proof.run_id);
-           // 本轮发布Job已失败时允许撤除其准确部分交付；其他活动Run的任何资产都保护。
-           const ownFailedRelease=run.id===context.runId&&results.release==='failure';
-           if(run.status!=='completed'&&!ownFailedRelease)continue;
-           const current=await getRelease(item.release.id);if(!current)continue;
-           const proof=cfg.assertRelease(p,current,run,{partial:ownFailedRelease||run.conclusion!=='success',draft:true});
-           if(current.immutable)throw Error('旧Release不可变，未修改仓库设置');
-           const ref=await getTag(proof.tag);
-           if(ref){if(ref.object.type!=='commit'||ref.object.sha!==run.head_sha)throw Error('旧Tag提交变化');
-            await github.rest.git.deleteRef({...repo,ref:'tags/'+proof.tag});if(await getTag(proof.tag))throw Error('Tag删除未确认');}
-           await github.rest.repos.deleteRelease({...repo,release_id:current.id});if(await getRelease(current.id))throw Error('Release删除未确认');
+          const {product}=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
+          const p=process.env.PLATFORM,repo=context.repo,workflow=product.platforms[p].workflow;
+          const prefix=product.title+'·'+product.platforms[p].name+'·v';
+          const rows=()=>github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:workflow,branch:'main',per_page:100});
+          const terminal=(await rows()).filter(run=>run.id!==context.runId&&run.status==='completed'&&run.path==='.github/workflows/'+workflow);
+          const builds=terminal.filter(run=>run.event==='workflow_dispatch').sort((a,b)=>b.run_number-a.run_number||b.id-a.id);
+          const keep=new Set([builds.find(run=>run.conclusion==='success')?.id,builds.find(run=>run.conclusion!=='success')?.id]);
+          const obsolete=terminal.filter(run=>run.event==='workflow_dispatch'&&!keep.has(run.id)
+            ||run.event==='repository_dispatch'&&run.display_title.startsWith(prefix));
+          const releases=await github.paginate(github.rest.repos.listReleases,{...repo,per_page:100});
+          for(const old of obsolete){
+            const current=(await github.rest.actions.getWorkflowRun({...repo,run_id:old.id})).data;
+            if(current.status!=='completed'||current.head_sha!==old.head_sha||current.run_attempt!==old.run_attempt||current.conclusion!==old.conclusion)throw Error('旧Run终态变化，停止删除');
+            for(const release of releases.filter(value=>value.tag_name.startsWith(prefix))){
+              const lines=String(release.body||'').split(/\r?\n/u).filter(line=>line.startsWith('<!-- automation:')&&line.endsWith(' -->'));
+              if(lines.length!==1)continue;
+              const proof=JSON.parse(lines[0].slice(16,-4));
+              if(proof.run_id!==old.id)continue;
+              if(proof.source_sha!==old.head_sha||release.target_commitish!==old.head_sha||proof.tag!==release.tag_name)throw Error('旧Release归属不符');
+              try{
+                const tag=(await github.rest.git.getRef({...repo,ref:'tags/'+release.tag_name})).data;
+                if(tag.object.type!=='commit'||tag.object.sha!==old.head_sha)throw Error('旧Tag提交变化');
+                await github.rest.git.deleteRef({...repo,ref:'tags/'+release.tag_name});
+              }catch(error){if(error.status!==404)throw error;}
+              await github.rest.repos.deleteRelease({...repo,release_id:release.id});
+            }
+            await github.rest.actions.deleteWorkflowRun({...repo,run_id:old.id});
+            try{await github.rest.actions.getWorkflowRun({...repo,run_id:old.id});throw Error('旧Run删除未确认');}catch(error){if(error.status!==404)throw error;}
           }
-          }catch(error){assetError=error;}
-          // 旧资产错误独立汇总，不能阻断多余终态Run的实际删除与回读。
-          const retained=await cfg.cleanupNativeRuns(p,{list:rows,get:getRun,remove:id=>github.rest.actions.deleteWorkflowRun({...repo,run_id:id})},await original(),results,Boolean(assetError));
-          if(assetError)throw assetError;
-          await core.summary.addHeading('原Run内四端历史清理').addRaw('本轮编译交付候选：'+(results.prepare==='success'&&results.build==='success'&&results.release==='success'?'success':'failure')+'；清理操作及删除回读已确认。\n')
-           .addRaw('本轮最终conclusion仍由GitHub在Job结束后确定；异常中断可能无法保持两条记录，不能恢复已删除Run。\n')
-           .addRaw('其他活动任务保持；没有派发收尾、重编或取消请求。').write();
+          const remaining=await rows();
+          if(obsolete.some(old=>remaining.some(run=>run.id===old.id)))throw Error('历史删除回读未通过');
+          await core.summary.addHeading('已完成历史清理').addRaw('仅按真实已完成结果保留最近成功、最近非成功；活动Run保持。当前Run尚未终态，严格最终两条尚未确认。').write();

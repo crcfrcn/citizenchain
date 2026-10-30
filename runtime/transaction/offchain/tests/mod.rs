@@ -242,7 +242,7 @@ impl offchain::Config for Test {
 
 // ─── 公共 setup ───────────────────────────────────────────────────────────
 
-fn new_test_ext() -> TestExternalities {
+pub(crate) fn new_test_ext() -> TestExternalities {
     let mut t: TestExternalities = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap()

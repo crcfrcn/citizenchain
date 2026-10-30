@@ -1,7 +1,7 @@
 //! 内部投票提案创建、机构岗位/个人管理员资格快照和互斥登记。
 
 use super::*;
-use votingengine::InstitutionRoleProvider;
+use votebase::InstitutionRoleProvider;
 
 impl<T: Config> Pallet<T> {
     /// 创建机构内部提案。机构身份只使用 CID，账户只在确有资产执行时写入。
@@ -42,21 +42,21 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidInternalCode
         );
         let actor_cid_number = CidNumber::try_from(actor_cid_number)
-            .map_err(|_| votingengine::Error::<T>::InvalidInstitution)?;
+            .map_err(|_| votebase::Error::<T>::InvalidInstitution)?;
         ensure!(
             is_valid_institution_context(institution_code, actor_cid_number.as_slice()),
-            votingengine::Error::<T>::InvalidInstitution
+            votebase::Error::<T>::InvalidInstitution
         );
         Self::ensure_institution_vote_plan(&actor_cid_number, &who, vote_plan)?;
 
         let now = <frame_system::Pallet<T>>::block_number();
         let end = now.saturating_add(Self::internal_stage_duration());
         let subject_cid_numbers =
-            <votingengine::Pallet<T>>::bound_subject_cid_numbers(subject_cid_numbers)?;
+            <votebase::Pallet<T>>::bound_subject_cid_numbers(subject_cid_numbers)?;
         let proposal = Proposal {
             kind: PROPOSAL_KIND_INTERNAL,
             stage: STAGE_INTERNAL,
-            status: votingengine::STATUS_VOTING,
+            status: votebase::STATUS_VOTING,
             internal_code: Some(institution_code),
             actor_cid_number: Some(actor_cid_number.clone()),
             execution_account_id,
@@ -75,7 +75,7 @@ impl<T: Config> Pallet<T> {
                     AuthorizationSubject::Institution(role_subject) => role_subject,
                     AuthorizationSubject::PersonalMultisig(_) => {
                         return TransactionOutcome::Rollback(Err(
-                            votingengine::Error::<T>::InvalidVotePlan.into(),
+                            votebase::Error::<T>::InvalidVotePlan.into(),
                         ))
                     }
                 };
@@ -84,19 +84,19 @@ impl<T: Config> Pallet<T> {
                     role_subject.role_code.as_slice(),
                 );
                 if let Err(err) =
-                    <votingengine::Pallet<T>>::snapshot_role_voters(id, subject.clone(), voters)
+                    <votebase::Pallet<T>>::snapshot_role_voters(id, subject.clone(), voters)
                 {
                     return TransactionOutcome::Rollback(Err(err));
                 }
             }
-            let snapshot_size = match <votingengine::Pallet<T>>::institution_ticket_count(
+            let snapshot_size = match <votebase::Pallet<T>>::institution_ticket_count(
                 id,
                 actor_cid_number.clone(),
             ) {
                 Some(size) => size,
                 None => {
                     return TransactionOutcome::Rollback(Err(
-                        votingengine::Error::<T>::MissingVoterSnapshot.into(),
+                        votebase::Error::<T>::MissingVoterSnapshot.into(),
                     ))
                 }
             };
@@ -124,17 +124,17 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         ensure!(
             vote_plan.voting_engine == VotingEngineKind::Internal,
-            votingengine::Error::<T>::InvalidVotePlan
+            votebase::Error::<T>::InvalidVotePlan
         );
         let proposer_role = match &vote_plan.proposer_subject {
             AuthorizationSubject::Institution(role_subject) => role_subject,
             AuthorizationSubject::PersonalMultisig(_) => {
-                return Err(votingengine::Error::<T>::InvalidVotePlan.into())
+                return Err(votebase::Error::<T>::InvalidVotePlan.into())
             }
         };
         ensure!(
             proposer_role.cid_number == *actor_cid_number,
-            votingengine::Error::<T>::InvalidVotePlan
+            votebase::Error::<T>::InvalidVotePlan
         );
         ensure!(
             T::InstitutionRoleProvider::is_active_assignment(
@@ -142,7 +142,7 @@ impl<T: Config> Pallet<T> {
                 who,
                 proposer_role.role_code.as_slice(),
             ),
-            votingengine::Error::<T>::NoPermission
+            votebase::Error::<T>::NoPermission
         );
         for subject in vote_plan.voter_subjects.iter() {
             ensure!(
@@ -151,7 +151,7 @@ impl<T: Config> Pallet<T> {
                     AuthorizationSubject::Institution(role_subject)
                         if role_subject.cid_number == *actor_cid_number
                 ),
-                votingengine::Error::<T>::InvalidVotePlan
+                votebase::Error::<T>::InvalidVotePlan
             );
         }
         Ok(())
@@ -164,7 +164,7 @@ impl<T: Config> Pallet<T> {
     ) -> Result<u64, DispatchError> {
         ensure!(
             is_personal_admin::<T>(personal_account_id.clone(), &who),
-            votingengine::Error::<T>::NoPermission
+            votebase::Error::<T>::NoPermission
         );
         Self::do_create_active_personal_proposal(
             who,
@@ -182,7 +182,7 @@ impl<T: Config> Pallet<T> {
     ) -> Result<u64, DispatchError> {
         ensure!(
             is_personal_admin::<T>(personal_account_id.clone(), &who),
-            votingengine::Error::<T>::NoPermission
+            votebase::Error::<T>::NoPermission
         );
         Self::do_create_active_personal_proposal(
             who,
@@ -203,7 +203,7 @@ impl<T: Config> Pallet<T> {
         Self::ensure_dynamic_threshold(new_admins_len, new_threshold)?;
         ensure!(
             is_personal_admin::<T>(personal_account_id.clone(), &who),
-            votingengine::Error::<T>::NoPermission
+            votebase::Error::<T>::NoPermission
         );
         let proposal_id = Self::do_create_active_personal_proposal(
             who,
@@ -232,17 +232,17 @@ impl<T: Config> Pallet<T> {
     ) -> Result<u64, DispatchError> {
         ensure!(
             !admins.is_empty(),
-            votingengine::Error::<T>::MissingAdminSnapshot
+            votebase::Error::<T>::MissingAdminSnapshot
         );
         ensure!(
             admins.iter().any(|admin| admin == &who),
-            votingengine::Error::<T>::NoPermission
+            votebase::Error::<T>::NoPermission
         );
         for i in 0..admins.len() {
             for j in i.saturating_add(1)..admins.len() {
                 ensure!(
                     admins[i] != admins[j],
-                    votingengine::Error::<T>::InvalidInstitution
+                    votebase::Error::<T>::InvalidInstitution
                 );
             }
         }
@@ -250,18 +250,18 @@ impl<T: Config> Pallet<T> {
         Self::ensure_dynamic_threshold(admins_len, dynamic_threshold)?;
         let bounded_admins: BoundedVec<
             T::AccountId,
-            <T as votingengine::Config>::MaxAdminsPerInstitution,
+            <T as votebase::Config>::MaxAdminsPerInstitution,
         > = admins
             .try_into()
-            .map_err(|_| votingengine::Error::<T>::InvalidInstitution)?;
+            .map_err(|_| votebase::Error::<T>::InvalidInstitution)?;
 
         let now = <frame_system::Pallet<T>>::block_number();
         let end = now.saturating_add(Self::internal_stage_duration());
         let proposal = Proposal {
             kind: PROPOSAL_KIND_INTERNAL,
             stage: STAGE_INTERNAL,
-            status: votingengine::STATUS_VOTING,
-            internal_code: Some(votingengine::types::PMUL),
+            status: votebase::STATUS_VOTING,
+            internal_code: Some(votebase::types::PMUL),
             actor_cid_number: None,
             execution_account_id: Some(personal_account_id.clone()),
             subject_cid_numbers: ProposalSubjectCidNumbers::default(),
@@ -302,8 +302,8 @@ impl<T: Config> Pallet<T> {
         let proposal = Proposal {
             kind: PROPOSAL_KIND_INTERNAL,
             stage: STAGE_INTERNAL,
-            status: votingengine::STATUS_VOTING,
-            internal_code: Some(votingengine::types::PMUL),
+            status: votebase::STATUS_VOTING,
+            internal_code: Some(votebase::types::PMUL),
             actor_cid_number: None,
             execution_account_id: Some(personal_account_id.clone()),
             subject_cid_numbers: ProposalSubjectCidNumbers::default(),
@@ -316,7 +316,7 @@ impl<T: Config> Pallet<T> {
                 Ok(id) => id,
                 Err(err) => return TransactionOutcome::Rollback(Err(err)),
             };
-            if let Err(err) = <votingengine::Pallet<T>>::snapshot_personal_admins(
+            if let Err(err) = <votebase::Pallet<T>>::snapshot_personal_admins(
                 id,
                 personal_account_id.clone(),
                 false,
@@ -324,9 +324,9 @@ impl<T: Config> Pallet<T> {
                 return TransactionOutcome::Rollback(Err(err));
             }
             let subject = ProposalSubject::PersonalAccount(personal_account_id.clone());
-            if !<votingengine::Pallet<T>>::is_admin_in_snapshot(id, subject.clone(), &who) {
+            if !<votebase::Pallet<T>>::is_admin_in_snapshot(id, subject.clone(), &who) {
                 return TransactionOutcome::Rollback(Err(
-                    votingengine::Error::<T>::NoPermission.into()
+                    votebase::Error::<T>::NoPermission.into()
                 ));
             }
             let snapshot_size = match Self::snapshot_admins_len_or_missing(id, subject) {
@@ -361,10 +361,10 @@ impl<T: Config> Pallet<T> {
         proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
         mutex_kind: InternalProposalMutexKind,
     ) -> Result<u64, DispatchError> {
-        let id = <votingengine::Pallet<T>>::allocate_proposal_id()?;
-        votingengine::limit::try_add_active_proposals::<T>(proposal.subject_keys(), id)?;
+        let id = <votebase::Pallet<T>>::allocate_proposal_id()?;
+        votebase::limit::try_add_active_proposals::<T>(proposal.subject_keys(), id)?;
         for subject in proposal.subject_keys() {
-            <votingengine::Pallet<T>>::acquire_internal_proposal_mutex(id, subject, mutex_kind)?;
+            <votebase::Pallet<T>>::acquire_internal_proposal_mutex(id, subject, mutex_kind)?;
         }
         Ok(id)
     }
@@ -379,10 +379,10 @@ impl<T: Config> Pallet<T> {
         InternalThresholdSnapshot::<T>::insert(id, threshold);
         InternalProposalRoles::<T>::insert(id, role);
         Proposals::<T>::insert(id, proposal);
-        if let Err(err) = <votingengine::Pallet<T>>::schedule_proposal_expiry(id, end) {
+        if let Err(err) = <votebase::Pallet<T>>::schedule_proposal_expiry(id, end) {
             return TransactionOutcome::Rollback(Err(err));
         }
-        <votingengine::Pallet<T>>::emit_proposal_created(
+        <votebase::Pallet<T>>::emit_proposal_created(
             id,
             PROPOSAL_KIND_INTERNAL,
             STAGE_INTERNAL,
@@ -398,25 +398,25 @@ impl<T: Config> Pallet<T> {
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u64, DispatchError> {
         let now = <frame_system::Pallet<T>>::block_number();
-        <votingengine::Pallet<T>>::register_proposal_data(proposal_id, module_tag, data, now)?;
+        <votebase::Pallet<T>>::register_proposal_data(proposal_id, module_tag, data, now)?;
         let proposal =
-            Proposals::<T>::get(proposal_id).ok_or(votingengine::Error::<T>::ProposalNotFound)?;
+            Proposals::<T>::get(proposal_id).ok_or(votebase::Error::<T>::ProposalNotFound)?;
         let ticket_claim = if proposal.actor_cid_number.is_some() {
-            let vote_plan = votingengine::ProposalVotePlans::<T>::get(proposal_id)
-                .ok_or(votingengine::Error::<T>::InvalidVotePlan)?;
+            let vote_plan = votebase::ProposalVotePlans::<T>::get(proposal_id)
+                .ok_or(votebase::Error::<T>::InvalidVotePlan)?;
             let proposer_role = match vote_plan.proposer_subject {
                 AuthorizationSubject::Institution(role_subject) => role_subject,
                 AuthorizationSubject::PersonalMultisig(_) => {
-                    return Err(votingengine::Error::<T>::InvalidVotePlan.into())
+                    return Err(votebase::Error::<T>::InvalidVotePlan.into())
                 }
             };
             let subject = AuthorizationSubject::Institution(proposer_role.clone());
-            <votingengine::Pallet<T>>::is_subject_voter_in_snapshot(proposal_id, subject, &who)
+            <votebase::Pallet<T>>::is_subject_voter_in_snapshot(proposal_id, subject, &who)
                 .then_some(InternalVoteTicketClaim::InstitutionRole(
                     proposer_role.role_code,
                 ))
         } else if let Some(personal_account_id) = proposal.execution_account_id {
-            <votingengine::Pallet<T>>::is_admin_in_snapshot(
+            <votebase::Pallet<T>>::is_admin_in_snapshot(
                 proposal_id,
                 ProposalSubject::PersonalAccount(personal_account_id),
                 &who,

@@ -28,7 +28,7 @@ use frame_support::{
 use frame_system::pallet_prelude::*;
 use sp_runtime::DispatchResult;
 use sp_std::collections::btree_set::BTreeSet;
-use votingengine::{
+use votebase::{
     types::{InstitutionCode, PMUL},
     InternalVoteResultCallback, ProposalExecutionOutcome, ProposalSubject, PROPOSAL_KIND_INTERNAL,
     STAGE_INTERNAL, STATUS_EXECUTION_FAILED, STATUS_PASSED, STATUS_REJECTED, STATUS_VOTING,
@@ -37,10 +37,11 @@ use votingengine::{
 pub use pallet::*;
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 
 #[cfg(test)]
-#[path = "../tests.rs"]
+#[path = "../tests/mod.rs"]
 mod tests;
 
 pub mod weights;
@@ -55,15 +56,15 @@ const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo;
-    use votingengine::InternalVoteEngine;
+    use votebase::InternalVoteEngine;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config {
+    pub trait Config: frame_system::Config + votebase::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// 内部投票引擎。
-        type InternalVoteEngine: votingengine::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
 
         /// 单个个人多签账户管理员最大数量上限。
         #[pallet::constant]
@@ -295,10 +296,10 @@ pub mod pallet {
             require_callback_scope: bool,
         ) -> DispatchResult {
             ensure!(
-                votingengine::Pallet::<T>::is_proposal_owner(proposal_id, module_tag),
+                votebase::Pallet::<T>::is_proposal_owner(proposal_id, module_tag),
                 Error::<T>::InvalidLifecycleScope
             );
-            let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::InvalidLifecycleScope)?;
             ensure!(
                 proposal.kind == PROPOSAL_KIND_INTERNAL,
@@ -323,7 +324,7 @@ pub mod pallet {
             );
             if require_callback_scope {
                 ensure!(
-                    votingengine::Pallet::<T>::is_callback_execution_scope(proposal_id),
+                    votebase::Pallet::<T>::is_callback_execution_scope(proposal_id),
                     Error::<T>::InvalidLifecycleScope
                 );
             }
@@ -584,7 +585,7 @@ pub mod pallet {
             proposal_id: u64,
             action: AdminSetChangeAction<T::AccountId, AdminsOf<T>>,
         ) -> DispatchResult {
-            let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             ensure!(
                 proposal.kind == PROPOSAL_KIND_INTERNAL && proposal.stage == STAGE_INTERNAL,
@@ -603,7 +604,7 @@ pub mod pallet {
                 proposal.internal_code == Some(PMUL),
                 Error::<T>::ProposalActionNotFound
             );
-            votingengine::Pallet::<T>::ensure_admin_set_mutation_lock_owner(
+            votebase::Pallet::<T>::ensure_admin_set_mutation_lock_owner(
                 ProposalSubject::PersonalAccount(action.personal_account_id.clone()),
                 proposal_id,
             )?;
@@ -687,7 +688,7 @@ impl<T: pallet::Config> AdminAccountLifecycle<T::AccountId, Admin<T::AccountId>>
         module_tag: &[u8],
         personal_account_id: T::AccountId,
     ) -> DispatchResult {
-        let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+        let proposal = votebase::Pallet::<T>::proposals(proposal_id)
             .ok_or(pallet::Error::<T>::ProposalActionNotFound)?;
         ensure!(
             matches!(proposal.status, STATUS_REJECTED | STATUS_EXECUTION_FAILED),
@@ -800,10 +801,10 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
         proposal_id: u64,
         approved: bool,
     ) -> Result<ProposalExecutionOutcome, sp_runtime::DispatchError> {
-        if !votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG) {
+        if !votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG) {
             return Ok(ProposalExecutionOutcome::Ignored);
         }
-        let raw = votingengine::Pallet::<T>::get_proposal_data(proposal_id)
+        let raw = votebase::Pallet::<T>::get_proposal_data(proposal_id)
             .ok_or(pallet::Error::<T>::ProposalActionNotFound)?;
 
         if !approved {

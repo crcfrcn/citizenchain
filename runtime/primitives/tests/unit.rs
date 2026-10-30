@@ -13,3 +13,6 @@ mod genesis;
 mod governance;
 #[path = "sign.rs"]
 mod sign;
+
+#[path = "property.rs"]
+mod property;

@@ -10,7 +10,7 @@ use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use codec::Encode;
 use sp_runtime::{traits::Zero, DispatchResult};
-use votingengine::InternalVoteEngine;
+use votebase::InternalVoteEngine;
 
 use frame_support::ensure;
 
@@ -131,14 +131,14 @@ pub(crate) fn execute_institution_add_account_with_finalizer<T: Config>(
         Institutions::<T>::get(&action.actor_cid_number).ok_or(Error::<T>::InstitutionNotFound)?;
     let institution_code = info.institution_code;
 
-    let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+    let proposal = votebase::Pallet::<T>::proposals(proposal_id)
         .ok_or(Error::<T>::ProposalActionNotFound)?;
     ensure!(
-        votingengine::Pallet::<T>::is_callback_execution_scope(proposal_id)
-            && votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
-            && proposal.kind == votingengine::PROPOSAL_KIND_INTERNAL
-            && proposal.stage == votingengine::STAGE_INTERNAL
-            && proposal.status == votingengine::STATUS_PASSED
+        votebase::Pallet::<T>::is_callback_execution_scope(proposal_id)
+            && votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
+            && proposal.kind == votebase::PROPOSAL_KIND_INTERNAL
+            && proposal.stage == votebase::STAGE_INTERNAL
+            && proposal.status == votebase::STATUS_PASSED
             && proposal.internal_code == Some(institution_code)
             && proposal.actor_cid_number.as_ref().map(|cid| cid.as_slice())
                 == Some(action.actor_cid_number.as_slice())

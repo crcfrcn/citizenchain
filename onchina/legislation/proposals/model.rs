@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// 提案类型(可扩展维度)。
 ///
 /// onchina 侧的提案分类维度,决定走哪条提案数据模板与提交链路。
-/// - `Law` 映射链端 `votingengine::PROPOSAL_KIND_LEGISLATION`(本轮实现);
+/// - `Law` 映射链端 `votebase::PROPOSAL_KIND_LEGISLATION`(本轮实现);
 /// - `Personnel` / `Budget` 为未来链端新增提案种类预留,本轮只定义结构、不接链。
 // Phase 0 落地并单测;Phase 1 起由 `category::proposable_candidates` 与 `onchina/legislation/laws/chain_propose.rs` 消费。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

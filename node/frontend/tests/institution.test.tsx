@@ -1,0 +1,10 @@
+import {beforeEach, expect, it, vi} from 'vitest';
+import {adminsChangeApi} from '../institution/admins';
+const mocks=vi.hoisted(()=>({invoke:vi.fn()}));
+vi.mock('../client/tauri',()=>({invoke:mocks.invoke}));
+const api=adminsChangeApi as unknown as Record<string,(...args:unknown[])=>Promise<unknown>>;
+beforeEach(()=>mocks.invoke.mockReset());
+it("buildActivateAdminRequest保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["buildActivateAdminRequest"](...["public","44",{"cidNumber":"44","institutionCode":"NRC"}])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("build_activate_admin_request", {"signerPublicKey":"public","cidNumber":"44","expectedInstitutionCode":"NRC"}); });
+it("getActivatedAdmins保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["getActivatedAdmins"](...["44"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("get_activated_admins", {"cidNumber":"44","expectedInstitutionCode":null}); });
+it("getInstitutionAdminsState保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["getInstitutionAdminsState"](...[{"cidNumber":"44","institutionCode":"NRC"}])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("get_institution_admins_state", {"cidNumber":"44","expectedInstitutionCode":"NRC"}); });
+it('IPC失败保留拒绝状态且不自动重放', async()=>{const failure=new Error('合成失败');mocks.invoke.mockRejectedValueOnce(failure);await expect(api["buildActivateAdminRequest"](...["public","44",{"cidNumber":"44","institutionCode":"NRC"}])).rejects.toBe(failure);expect(mocks.invoke).toHaveBeenCalledOnce();});

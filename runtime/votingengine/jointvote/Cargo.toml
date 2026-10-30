@@ -1,4 +1,6 @@
 [package]
+# 测试源统一归tests；独立目标只显式注册，避免重复发现。
+autotests = false
 name = "jointvote"  # 联合投票 pallet(内部投票阶段 + 全民公投阶段)
 edition.workspace = true
 version.workspace = true
@@ -17,7 +19,7 @@ sp-std = { workspace = true }
 sp-io = { workspace = true }
 
 primitives = { path = "../../primitives", default-features = false }
-votingengine = { path = "..", default-features = false }
+votebase = { path = "../votebase", default-features = false }
 
 [features]
 default = ["std"]
@@ -31,14 +33,14 @@ std = [
     "sp-std/std",
     "sp-io/std",
     "primitives/std",
-    "votingengine/std",
+    "votebase/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
-    "votingengine/runtime-benchmarks",
+    "votebase/runtime-benchmarks",
 ]
-try-runtime = ["votingengine/try-runtime"]
+try-runtime = ["votebase/try-runtime"]
 

@@ -474,7 +474,7 @@ fn proposal_operation_route(
     who: &AccountId,
     proposal_id: u64,
 ) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
-    let Some(proposal) = votingengine::Pallet::<Runtime>::proposals(proposal_id) else {
+    let Some(proposal) = votebase::Pallet::<Runtime>::proposals(proposal_id) else {
         return primitives::fee_policy::FeeRoute::Reject;
     };
     match proposal.actor_cid_number {
@@ -614,12 +614,12 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
                 institution_account_id,
             ),
 
-            RuntimeCall::VotingEngine(votingengine::pallet::Call::finalize_proposal { .. }) => {
+            RuntimeCall::VotingEngine(votebase::pallet::Call::finalize_proposal { .. }) => {
                 FeeRoute::Free
             }
             RuntimeCall::VotingEngine(
-                votingengine::pallet::Call::retry_passed_proposal { proposal_id }
-                | votingengine::pallet::Call::cancel_passed_proposal { proposal_id, .. },
+                votebase::pallet::Call::retry_passed_proposal { proposal_id }
+                | votebase::pallet::Call::cancel_passed_proposal { proposal_id, .. },
             ) => proposal_operation_route(who, *proposal_id),
 
             RuntimeCall::CitizenIdentity(
@@ -1781,7 +1781,7 @@ impl square::SquarePostCitizenIdentityProvider<AccountId>
     #[allow(clippy::expect_used)]
     fn benchmark_seed_identity(account_id: &AccountId) -> Vec<u8> {
         // Benchmark 接口必须返回有效 CID；种子未形成双向绑定时立即停止，禁止伪造默认身份。
-        <RuntimeCitizenIdentityReader as votingengine::CitizenIdentityReader<AccountId>>::benchmark_seed_identity(
+        <RuntimeCitizenIdentityReader as votebase::CitizenIdentityReader<AccountId>>::benchmark_seed_identity(
             account_id,
             &identity::PopulationScope::Country,
         );
@@ -1946,7 +1946,7 @@ impl entitybase::InstitutionMultisigQuery<AccountId> for RuntimeInstitutionQuery
         }
     }
 
-    fn lookup_org(addr: &AccountId) -> Option<votingengine::types::InstitutionCode> {
+    fn lookup_org(addr: &AccountId) -> Option<votebase::types::InstitutionCode> {
         match (
             publicentity::Pallet::<Runtime>::lookup_org(addr),
             privateentity::Pallet::<Runtime>::lookup_org(addr),
@@ -1977,10 +1977,10 @@ impl entitybase::InstitutionMultisigQuery<AccountId> for RuntimeInstitutionQuery
 /// 机构存在性统一按 CID 查询；公权、私权只是存储分区，不形成第二身份。
 pub struct RuntimeInstitutionCidQuery;
 
-impl entitybase::InstitutionCidQuery<votingengine::types::CidNumber>
+impl entitybase::InstitutionCidQuery<votebase::types::CidNumber>
     for RuntimeInstitutionCidQuery
 {
-    fn cid_exists(cid_number: &votingengine::types::CidNumber) -> bool {
+    fn cid_exists(cid_number: &votebase::types::CidNumber) -> bool {
         publicentity::Institutions::<Runtime>::contains_key(cid_number)
             || privateentity::Institutions::<Runtime>::contains_key(cid_number)
     }
@@ -2553,7 +2553,7 @@ pub(crate) fn is_nrc_admin(who: &AccountId) -> bool {
 
     // 创世后只信任链上管理员治理模块中的统一账户表。
     RuntimeInstitutionAdminQuery::is_institution_admin(
-        votingengine::types::NRC,
+        votebase::types::NRC,
         nrc_cid_number,
         who,
     )
@@ -2665,28 +2665,28 @@ impl legislation::Config for Runtime {
 
 pub struct RuntimeJointVoteResultCallback;
 
-impl votingengine::JointVoteResultCallback for RuntimeJointVoteResultCallback {
+impl votebase::JointVoteResultCallback for RuntimeJointVoteResultCallback {
     fn on_joint_vote_finalized(
         vote_proposal_id: u64,
         approved: bool,
-    ) -> Result<votingengine::ProposalExecutionOutcome, sp_runtime::DispatchError> {
+    ) -> Result<votebase::ProposalExecutionOutcome, sp_runtime::DispatchError> {
         #[cfg(feature = "runtime-benchmarks")]
         {
             let _ = (vote_proposal_id, approved);
-            Ok(votingengine::ProposalExecutionOutcome::Ignored)
+            Ok(votebase::ProposalExecutionOutcome::Ignored)
         }
 
         #[cfg(not(feature = "runtime-benchmarks"))]
         {
             if resolutionissue::Pallet::<Runtime>::owns_proposal(vote_proposal_id) {
-                return <ResolutionIssuance as votingengine::JointVoteResultCallback>::on_joint_vote_finalized(
+                return <ResolutionIssuance as votebase::JointVoteResultCallback>::on_joint_vote_finalized(
                 vote_proposal_id,
                 approved,
             );
             }
 
             if upgrade::Pallet::<Runtime>::owns_proposal(vote_proposal_id) {
-                return <RuntimeUpgrade as votingengine::JointVoteResultCallback>::on_joint_vote_finalized(
+                return <RuntimeUpgrade as votebase::JointVoteResultCallback>::on_joint_vote_finalized(
                     vote_proposal_id,
                     approved,
                 );
@@ -2699,14 +2699,14 @@ impl votingengine::JointVoteResultCallback for RuntimeJointVoteResultCallback {
     }
 }
 
-impl votingengine::Config for Runtime {
+impl votebase::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<2_048>;
-    type MaxAutoFinalizeWeightPerBlock = votingengine::BlockWeightFraction<Runtime, 4>;
-    type MaxExecutionWeightPerBlock = votingengine::BlockWeightFraction<Runtime, 4>;
-    type MaxCleanupWeightPerBlock = votingengine::BlockWeightFraction<Runtime, 8>;
+    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Runtime, 4>;
+    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Runtime, 4>;
+    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Runtime, 8>;
     type MaxProposalsPerExpiry = ConstU32<2_048>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;
@@ -2745,7 +2745,7 @@ impl votingengine::Config for Runtime {
     type InternalAdminProvider = RuntimeInternalAdminProvider;
     type MaxAdminsPerInstitution = MaxAdminsPerInstitution;
     type TimeProvider = pallet_timestamp::Pallet<Runtime>;
-    type WeightInfo = votingengine::weights::SubstrateWeight<Runtime>;
+    type WeightInfo = votebase::weights::SubstrateWeight<Runtime>;
     // 四类 timeout / cleanup / mode 终态副作用通过递归 Track tuple 派发。
     type TrackHandlers = (
         InternalVote,
@@ -2757,7 +2757,7 @@ impl votingengine::Config for Runtime {
     type ElectionVoteResultCallback = ElectionVote;
 }
 
-// Sub-pallet Config 注入。共用基础设施 votingengine::Config 已 impl 完;
+// Sub-pallet Config 注入。共用基础设施 votebase::Config 已 impl 完;
 // sub-pallet 各自 Config 需 RuntimeEvent + 自家 WeightInfo。
 impl internalvote::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
@@ -2811,9 +2811,9 @@ impl ::genesis::Config for Runtime {
 
 pub struct RuntimeInternalAdminProvider;
 
-impl votingengine::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvider {
+impl votebase::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvider {
     fn is_institution_admin(
-        institution_code: votingengine::types::InstitutionCode,
+        institution_code: votebase::types::InstitutionCode,
         cid_number: &[u8],
         who: &AccountId,
     ) -> bool {
@@ -2860,10 +2860,10 @@ impl votingengine::InternalAdminProvider<AccountId> for RuntimeInternalAdminProv
     }
 
     fn institution_threshold(
-        institution_code: votingengine::types::InstitutionCode,
+        institution_code: votebase::types::InstitutionCode,
         cid_number: &[u8],
     ) -> Option<u32> {
-        let cid = votingengine::types::CidNumber::try_from(cid_number.to_vec()).ok()?;
+        let cid = votebase::types::CidNumber::try_from(cid_number.to_vec()).ok()?;
         if adminbase::is_public_admin_code(&institution_code) {
             return publicentity::InstitutionGovernanceThresholds::<Runtime>::get(cid);
         }
@@ -2875,7 +2875,7 @@ impl votingengine::InternalAdminProvider<AccountId> for RuntimeInternalAdminProv
 
     fn is_pending_personal_admin(personal_account_id: AccountId, who: &AccountId) -> bool {
         RuntimeAdminAccountQuery::is_pending_account_admin_for_snapshot(
-            votingengine::types::PMUL,
+            votebase::types::PMUL,
             personal_account_id,
             who,
         )
@@ -2885,14 +2885,14 @@ impl votingengine::InternalAdminProvider<AccountId> for RuntimeInternalAdminProv
         personal_account_id: AccountId,
     ) -> Option<alloc::vec::Vec<AccountId>> {
         RuntimeAdminAccountQuery::pending_account_admins_for_snapshot(
-            votingengine::types::PMUL,
+            votebase::types::PMUL,
             personal_account_id,
         )
     }
 
     fn is_personal_admin(personal_account_id: AccountId, who: &AccountId) -> bool {
         RuntimeAdminAccountQuery::is_active_account_admin(
-            votingengine::types::PMUL,
+            votebase::types::PMUL,
             personal_account_id,
             who,
         )
@@ -2900,7 +2900,7 @@ impl votingengine::InternalAdminProvider<AccountId> for RuntimeInternalAdminProv
 
     fn get_personal_admins(personal_account_id: AccountId) -> Option<Vec<AccountId>> {
         RuntimeAdminAccountQuery::active_account_admins(
-            votingengine::types::PMUL,
+            votebase::types::PMUL,
             personal_account_id,
         )
     }
@@ -3009,7 +3009,7 @@ fn institution_role_directory(cid_number: &[u8]) -> Option<bool> {
 /// 内部投票与联合投票统一读取公权或私权机构的岗位任职快照。
 pub struct RuntimeInstitutionRoleProvider;
 
-impl votingengine::InstitutionRoleProvider<AccountId> for RuntimeInstitutionRoleProvider {
+impl votebase::InstitutionRoleProvider<AccountId> for RuntimeInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId, role_code: &[u8]) -> bool {
         match institution_role_directory(cid_number) {
             Some(true) => <publicentity::Pallet<Runtime> as InstitutionRoleQuery<
@@ -3037,7 +3037,7 @@ impl votingengine::InstitutionRoleProvider<AccountId> for RuntimeInstitutionRole
 
 pub struct RuntimeCitizenIdentityReader;
 
-impl votingengine::CitizenIdentityReader<AccountId> for RuntimeCitizenIdentityReader {
+impl votebase::CitizenIdentityReader<AccountId> for RuntimeCitizenIdentityReader {
     fn citizen_subject(who: &AccountId) -> Option<identity::CitizenSubject<AccountId>> {
         <identity::Pallet<Runtime> as identity::CitizenIdentityProvider<
             AccountId,

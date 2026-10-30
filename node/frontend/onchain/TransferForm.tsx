@@ -1,8 +1,8 @@
+import { AddressScanModal } from "../desktop/AddressScanModal";
+import { calculateTransferFeeYuan } from "./fee";
+import type { Wallet } from "./types";
 import scanIcon from "../../../icons/scan.svg?url";
 import { useState } from 'react';
-import { AddressScanModal } from '../protocol/AddressScanModal';
-import { calculateTransferFeeYuan } from './fee';
-import type { Wallet } from './types';
 
 type Props = {
   activeWallet: Wallet | null;

@@ -1,4 +1,6 @@
 [package]
+# 测试源统一归tests；独立目标只显式注册，避免重复发现。
+autotests = false
 name = "difficulty"  # PoW 动态难度调整模块
 edition.workspace = true
 version.workspace = true

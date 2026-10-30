@@ -17,6 +17,7 @@ extern crate alloc;
 
 pub mod config;
 pub mod institution;
+mod roles;
 pub mod weights;
 
 pub use pallet::*;

@@ -1,0 +1,34 @@
+[package]
+name = "nodeonchain"
+description = "CitizenChain nodeonchain"
+publish = false
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+hex = "=0.4.3"
+nodeclient = { path = "../client" }
+nodecontrol = { path = "../control" }
+nodedesktop = { path = "../desktop" }
+nodeinstitution = { path = "../institution" }
+primitives = { path = "../../runtime/primitives" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, default-features = true }
+tauri = { version = "=2.11.5", features = [] }
+
+[dev-dependencies]
+chain-signing = { path = "../../crates/signing" }
+codec = { workspace = true, default-features = true }
+onchain = { path = "../../runtime/transaction/onchain", default-features = true }
+qr-protocol = { path = "../../crates/protocol" }
+runtime = { workspace = true }
+
+[features]

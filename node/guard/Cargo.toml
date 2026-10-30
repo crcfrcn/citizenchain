@@ -1,0 +1,75 @@
+[package]
+name = "nodeguard"
+description = "CitizenChain nodeguard"
+publish = false
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+sc-service = { workspace = true, default-features = true, optional = true }
+adminbase = { path = "../../runtime/admins/adminbase", default-features = true }
+async-trait = { workspace = true }
+chain-signing = { path = "../../crates/signing" }
+codec = { workspace = true, default-features = true }
+electionvote = { path = "../../runtime/votingengine/electionvote", default-features = true }
+entitybase = { path = "../../runtime/entity/entitybase", default-features = true }
+frame-benchmarking = { workspace = true, default-features = true }
+frame-metadata = "=23.0.1"
+frame-system = { workspace = true, default-features = true }
+genesis = { path = "../../runtime/genesis" }
+hex = "=0.4.3"
+identity = { path = "../../runtime/misc/identity", default-features = true }
+internalvote = { path = "../../runtime/votingengine/internalvote", default-features = true }
+jointvote = { path = "../../runtime/votingengine/jointvote", default-features = true }
+legislationvote = { path = "../../runtime/votingengine/legislationvote", default-features = true }
+log = { workspace = true, default-features = true }
+nodeclient = { path = "../client" }
+nodedesktop = { path = "../desktop" }
+offchain = { path = "../../runtime/transaction/offchain", default-features = true }
+onchain = { path = "../../runtime/transaction/onchain", default-features = true }
+pallet-timestamp = { workspace = true, default-features = true }
+primitives = { path = "../../runtime/primitives" }
+publicadmin = { path = "../../runtime/admins/publicadmin", default-features = true }
+publicentity = { path = "../../runtime/entity/publicentity", default-features = true }
+runtime = { workspace = true }
+sc-client-api = { workspace = true, default-features = true }
+sc-consensus = { workspace = true, default-features = true }
+sc-executor = { workspace = true, default-features = true }
+scale-info = { workspace = true, default-features = true }
+scale-value = "=0.18.2"
+sp-api = { workspace = true, default-features = true }
+sp-block-builder = { workspace = true, default-features = true }
+sp-blockchain = { workspace = true, default-features = true }
+sp-consensus = { workspace = true, default-features = true }
+sp-consensus-pow = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+sp-crypto-hashing = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+sp-state-machine = { workspace = true, default-features = true }
+sp-storage = { workspace = true, default-features = true }
+votebase = { path = "../../runtime/votingengine/votebase", default-features = true }
+
+[dev-dependencies]
+blockchain-harness = { path = "../../crates/harness" }
+futures = { workspace = true }
+hex-literal = "0.4"
+node = { path = "..", features = ["test-support"] }
+sc-block-builder = { workspace = true, default-features = true }
+sc-chain-spec = { workspace = true, default-features = true }
+sc-network = { workspace = true, default-features = true }
+sc-service = { workspace = true, default-features = true }
+serde_json = { workspace = true, default-features = true }
+sp-keyring = { workspace = true, default-features = true }
+tokio = { workspace = true, default-features = true, features = ["time"] }
+
+[features]
+test-support = ["dep:sc-service"]

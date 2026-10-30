@@ -12,6 +12,7 @@
 
 pub use pallet::*;
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarking;
 pub mod billing;
 pub mod proposal;
@@ -183,7 +184,7 @@ pub mod pallet {
         type InstitutionAccountQuery: entitybase::InstitutionMultisigQuery<Self::AccountId>;
 
         /// 平台调价只能经统一内部投票引擎创建提案。
-        type InternalVoteEngine: votingengine::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
 
         /// 公民链基金会岗位业务授权真源。
         type InstitutionRoleAuthorization: entitybase::InstitutionRoleAuthorizationQuery<
@@ -362,7 +363,7 @@ pub mod pallet {
         /// 平台价格调整提案已交给统一投票引擎。
         PlatformPriceChangeProposed {
             proposal_id: u64,
-            actor_cid_number: votingengine::types::CidNumber,
+            actor_cid_number: votebase::types::CidNumber,
             membership_level: MembershipLevel,
             new_price_fen: u128,
         },
@@ -620,8 +621,8 @@ pub mod pallet {
         #[pallet::weight(T::WeightInfo::propose_set_platform_price())]
         pub fn propose_set_platform_price(
             origin: OriginFor<T>,
-            actor_cid_number: votingengine::types::CidNumber,
-            proposer_role_code: votingengine::types::RoleCode,
+            actor_cid_number: votebase::types::CidNumber,
+            proposer_role_code: votebase::types::RoleCode,
             membership_level: MembershipLevel,
             new_price_fen: u128,
         ) -> DispatchResult {

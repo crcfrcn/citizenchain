@@ -12,7 +12,7 @@
     "build": "node ../../../scripts/onchina.mjs build",
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "preview": "node ../../../scripts/onchina.mjs preview"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@ant-design/icons": "5.6.1",

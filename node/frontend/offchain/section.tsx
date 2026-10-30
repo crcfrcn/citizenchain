@@ -1,3 +1,13 @@
+import { sanitizeError } from "../client/tauri";
+import { institutionReadApi } from "../institution/api";
+import { ClearingBankAddPage } from "../institution/add-candidate";
+import { ClearingBankInstitutionDetailPage } from "../institution/institution-detail";
+import { OtherAccountsListPage } from "../institution/other-accounts";
+import type { AccountWithBalance, EligibleClearingBankCandidate, InstitutionDetail } from "../institution/types";
+import { offchainApi } from "./api";
+import type { ClearingBankView } from "./types";
+import { ClearingBankDeclareNodePage } from "./node-register";
+import { ClearingBankAdminListPage } from "./admin-unlock";
 // 清算行 tab 主入口。视图状态机驱动机构查看/节点声明流程。
 //
 // 状态机:
@@ -13,20 +23,6 @@
 //   declare-node                 多签 Active 但本机未声明节点 → 填 RPC + 自测 + 签名声明
 
 import { useEffect, useState, useCallback } from 'react';
-import { sanitizeError } from '../tauri';
-import { institutionReadApi } from '../institution/api';
-import { ClearingBankAddPage } from '../institution/add-candidate';
-import { ClearingBankInstitutionDetailPage } from '../institution/institution-detail';
-import { OtherAccountsListPage } from '../institution/other-accounts';
-import type {
-  AccountWithBalance,
-  EligibleClearingBankCandidate,
-  InstitutionDetail,
-} from '../institution/types';
-import { offchainApi } from './api';
-import type { ClearingBankView } from './types';
-import { ClearingBankDeclareNodePage } from './node-register';
-import { ClearingBankAdminListPage } from './admin-unlock';
 import './styles.css';
 
 const STORAGE_KEY = 'gmb-clearing-bank-known-cids';

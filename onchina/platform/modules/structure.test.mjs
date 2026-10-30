@@ -226,15 +226,15 @@ test('专属现场互斥、普通失败清理、退出未确认保留',async()=>
  }finally{rmSync(directory,{recursive:true,force:true});}
 });
 
-test('npm入口、平台隔离与四端前置验收登记保持闭环',async()=>{
+test('npm入口、平台隔离与四端独立验收登记保持闭环',async()=>{
  const {argumentsOf,buildPaths}=await import('../../../scripts/onchina.mjs');
- const {product,artifactNames}=await import('../../../scripts/config.mjs');
+ const {product}=await import('../../../scripts/config.mjs');
  const pkg=JSON.parse(source('platform/frontend/package.json'));
  assert.equal(pkg.scripts.build,'node ../../../scripts/onchina.mjs build');
  assert.equal(pkg.scripts.dev,'npm run build && npm run preview');
- assert.equal(pkg.scripts.preview,'node ../../../scripts/onchina.mjs preview');
+ assert.equal(pkg.scripts.preview,'vite preview');
  assert.equal(argumentsOf(['build','--platform','macos','--module','registry']).selection,'registry');
- for(const action of ['prepared','frontend','missing'])assert.throws(()=>argumentsOf([action]),/动作无效/);
+ for(const action of ['preview','prepared','frontend','missing'])assert.throws(()=>argumentsOf([action]),/动作无效/);
  assert.throws(()=>argumentsOf(['build','--project','/tmp/foreign']),/参数无效/);
  for(const [id,declared]of Object.entries(product.platforms).filter(([id])=>id!=='wasm')){
   const paths=buildPaths(id,'registry');
@@ -247,9 +247,14 @@ test('npm入口、平台隔离与四端前置验收登记保持闭环',async()=>
   for(const command of ['onchina/platform/modules/structure.test.mjs','npm run typecheck --prefix onchina/platform/frontend','npm test --prefix onchina/platform/frontend']){
    const index=workflow.indexOf(command);assert.ok(index>=0&&index<compile,id+': '+command);
   }
+  const acceptance=workflow.indexOf('    - name: 验收链上中国实际模块产物');
+  const recorded=workflow.indexOf('    - name: 记录实际产物原始字节');
+  assert.ok(acceptance>compile&&acceptance<recorded,id+': actual artifacts before publication');
+  assert.ok(workflow.includes("--test-name-pattern '实际模块产物'"));
+  assert.ok(workflow.includes("-- -t '实际IIFE装载'"));
  }
  // App仅供macOS核对，正式交付集合仍只有一个DMG。
- assert.deepEqual(artifactNames('macos','1.0.0'),['citizenchain-macOS-v1.0.0.dmg']);
+ assert.equal(product.platforms.macos.artifact.replace('{version}','1.0.0'),'citizenchain-macOS-v1.0.0.dmg');
  assert.throws(()=>buildPaths('wasm'),/目标无效/);
  assert.throws(()=>buildPaths('macos','../escape'),/目标无效/);
 });
@@ -265,7 +270,7 @@ test('宿主产物验收读取真实资源并拒绝缺失、越界和覆盖工�
    writeFileSync(join(frontend,'assets/main.js'),'/* fixture */');
    writeFileSync(join(frontend,'assets/main.css'),'/* fixture */');
    const html=join(frontend,'index.html');
-   const input={project:root,work,environment:{},result:{targets:['platform'],frontend}};
+   const input={project:root,work,result:{targets:['platform'],frontend}};
    writeFileSync(html,'<script src="./assets/main.js"></script><link href="./assets/main.css">');
    await verifyPreparedOnChina(input);
    rmSync(join(frontend,'assets/main.css'));
@@ -274,7 +279,7 @@ test('宿主产物验收读取真实资源并拒绝缺失、越界和覆盖工�
    await assert.rejects(verifyPreparedOnChina(input),/越界或缺失/);
    writeFileSync(html,'<div>fixture</div>');
    await assert.rejects(verifyPreparedOnChina(input),/缺少真实脚本/);
-   await assert.rejects(verifyPreparedOnChina({...input,result:{targets:['platform'],frontend:join(work,'source')}}),/不能覆盖工程/);
+   await assert.rejects(verifyPreparedOnChina({...input,result:{targets:['platform'],frontend:root}}),/不能覆盖工程/);
   });
   assert.equal(existsSync(work),false);
  }finally{rmSync(directory,{recursive:true,force:true});}
@@ -292,8 +297,13 @@ test('两Linux失败资源诊断保留原编译退出码且只读取链接', {sk
    const script=value=>value.split('      run: |\n')[1].split('\n').filter(line=>line.startsWith('        ')).map(line=>line.slice(8)).join('\n');
    const compile=block('编译及核对完整产物'),diagnostic=block('输出失败资源链接');
    assert.match(compile,/^      id: compile$/mu);
-   assert.equal(script(compile),'set -euo pipefail\nnode scripts/build.mjs '+platform);
-   assert.throws(()=>execFileSync('bash',['-e','-c','node(){ return 23; };\n'+script(compile)],{stdio:'pipe'}),error=>error.status===23);
+   const compileRun=(head,dirty='0')=>execFileSync('bash',['-e','-c',
+    'git(){ if [ "$1" = rev-parse ]; then printf "%s" "$ONCHINA_TEST_HEAD"; else return "$ONCHINA_TEST_DIFF"; fi; };\n'+
+    'node(){ printf "fixture-compile"; return 23; };\n'+script(compile)],
+    {stdio:'pipe',env:{...process.env,CITIZENCHAIN_SOURCE_SHA:'a'.repeat(40),ONCHINA_TEST_HEAD:head,ONCHINA_TEST_DIFF:dirty}});
+   assert.throws(()=>compileRun('a'.repeat(40)),error=>error.status===23&&error.stdout.toString()==='fixture-compile');
+   assert.throws(()=>compileRun('b'.repeat(40)),error=>error.status===1&&!error.stdout.length);
+   assert.throws(()=>compileRun('a'.repeat(40),'7'),error=>error.status===7&&!error.stdout.length);
    assert.match(diagnostic,/if: \$\{\{ failure\(\) && steps\.compile\.outcome == 'failure' \}\}/u);
    const run=()=>execFileSync('bash',['-e','-c',script(diagnostic)],{encoding:'utf8',env:{...process.env,CITIZENCHAIN_WORK_DIR:work}});
    assert.equal(run(),'');
@@ -416,15 +426,16 @@ test('合并Cargo仍交付五目标、单模块独立检查且失败原样终止
  execFileSync(process.execPath,['--experimental-test-module-mocks','--input-type=module','-e',script],{cwd:root,stdio:'pipe'});
 });
 
-test('默认节点编译排除前端嵌入和基准CLI并保留显式能力及生产防护',()=>{
+test('默认节点保留基准命令开关、完整元数据依赖及生产防护',()=>{
  const manifest=readFileSync(join(root,'node/Cargo.toml'),'utf8');
  assert.match(manifest,/^default = \["std"\]$/mu);
  assert.match(manifest,/^custom-protocol = \["tauri\/custom-protocol"\]$/mu);
- assert.match(manifest,/^frame-benchmarking-cli = .*optional = true/mu);
+ assert.match(manifest,/^frame-benchmarking-cli = \{ workspace = true, default-features = true \}$/mu);
+ assert.match(manifest,/"pallet-staking\/try-runtime"/u);
  assert.match(manifest,/"frame-benchmarking-cli\/runtime-benchmarks"/u);
- assert.match(readFileSync(join(root,'node/src/core/mod.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*pub\(crate\) mod benchmarking;/u);
- assert.match(readFileSync(join(root,'node/src/core/cli.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*#\[command\(subcommand\)\]\s*Benchmark\(/u);
- assert.match(readFileSync(join(root,'node/src/core/command.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*Some\(Subcommand::Benchmark/u);
- assert.match(manifest,/^frame-benchmarking = /mu);
- assert.match(readFileSync(join(root,'node/src/guard/runtime_policy.rs'),'utf8'),/dyn frame_benchmarking::Benchmark<runtime::Block>/u);
+ assert.match(readFileSync(join(root,'node/src/lib.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*pub mod benchmarks;/u);
+ assert.match(readFileSync(join(root,'node/src/cli.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*#\[command\(subcommand\)\]\s*Benchmark\(/u);
+ assert.match(readFileSync(join(root,'node/src/command.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*Some\(crate::cli::Subcommand::Benchmark/u);
+ assert.match(readFileSync(join(root,'node/guard/Cargo.toml'),'utf8'),/^frame-benchmarking = /mu);
+ assert.match(readFileSync(join(root,'node/guard/src/policy.rs'),'utf8'),/dyn frame_benchmarking::Benchmark<runtime::Block>/u);
 });

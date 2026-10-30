@@ -366,7 +366,7 @@ fn generated_qr_body_validators_are_current() {
     );
     let cases = [
         (
-            "node/frontend/protocol/qrBodies.g.ts",
+            "node/frontend/client/qrBodies.g.ts",
             export_qr_bodies_typescript().expect("TS body schema 必须可生成"),
         ),
         (

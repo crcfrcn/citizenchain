@@ -1,7 +1,7 @@
 use super::*;
 use frame_support::traits::GetCallName;
 use frame_support::{assert_noop, assert_ok};
-use votingengine::{types::code_bytes, InternalVoteEngine as _};
+use votebase::{types::code_bytes, InternalVoteEngine as _};
 
 #[test]
 fn direct_institution_creation_call_is_permanently_absent() {
@@ -807,7 +807,7 @@ fn duplicate_add_proposal_is_rejected_while_pending() {
 }
 
 #[test]
-fn rejected_add_is_cleaned_only_by_votingengine_callback() {
+fn rejected_add_is_cleaned_only_by_votebase_callback() {
     new_test_ext().execute_with(|| {
         let cid_number = generated_cid("private-add-rejected", "SFLP");
         assert_ok!(create_institution(
@@ -831,11 +831,11 @@ fn rejected_add_is_cleaned_only_by_votingengine_callback() {
         );
 
         assert_eq!(
-            <crate::InternalVoteExecutor<Test> as votingengine::InternalVoteResultCallback>::on_internal_vote_finalized(
+            <crate::InternalVoteExecutor<Test> as votebase::InternalVoteResultCallback>::on_internal_vote_finalized(
                 proposal_id,
                 false,
             ),
-            Ok(votingengine::ProposalExecutionOutcome::Executed)
+            Ok(votebase::ProposalExecutionOutcome::Executed)
         );
         // 否决由投票引擎回调清 Pending,账户不落库。
         assert!(!pallet::InstitutionPendingAdd::<Test>::contains_key(
@@ -899,7 +899,7 @@ fn only_named_account_can_be_closed_and_institution_stays_alive() {
 }
 
 #[test]
-fn rejected_close_is_cleaned_only_by_votingengine_callback() {
+fn rejected_close_is_cleaned_only_by_votebase_callback() {
     new_test_ext().execute_with(|| {
         let cid_number = generated_cid("private-close-rejected", "SFLP");
         assert_ok!(create_institution(
@@ -927,11 +927,11 @@ fn rejected_close_is_cleaned_only_by_votingengine_callback() {
         );
 
         assert_eq!(
-            <crate::InternalVoteExecutor<Test> as votingengine::InternalVoteResultCallback>::on_internal_vote_finalized(
+            <crate::InternalVoteExecutor<Test> as votebase::InternalVoteResultCallback>::on_internal_vote_finalized(
                 proposal_id,
                 false,
             ),
-            Ok(votingengine::ProposalExecutionOutcome::Executed)
+            Ok(votebase::ProposalExecutionOutcome::Executed)
         );
         assert!(!pallet::InstitutionPendingClose::<Test>::contains_key(
             &named_account

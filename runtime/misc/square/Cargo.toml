@@ -20,9 +20,10 @@ sp-std = { workspace = true }
 sp-io = { workspace = true }
 primitives = { path = "../../primitives", default-features = false }              # 统一常量：费用账户派生名
 entitybase = { path = "../../entity/entitybase", default-features = false } # 机构账户查询 trait
-votingengine = { path = "../../votingengine", default-features = false }             # 平台调价统一内部投票
+votebase = { path = "../../votingengine/votebase", default-features = false }             # 平台调价统一内部投票
 
 [dev-dependencies]
+proptest = { workspace = true }
 pallet-balances = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, default-features = false, features = ["std"] } # 金标 SCALE 向量 fixture
 
@@ -37,7 +38,7 @@ try-runtime = [
     "frame-support/try-runtime",
     "frame-system/try-runtime",
     "sp-runtime/try-runtime",
-    "votingengine/try-runtime",
+    "votebase/try-runtime",
 ]
 std = [
     "codec/std",
@@ -50,5 +51,5 @@ std = [
     "sp-io/std",
     "primitives/std",
     "entitybase/std",
-    "votingengine/std",
+    "votebase/std",
 ]

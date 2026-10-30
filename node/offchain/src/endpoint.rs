@@ -1,0 +1,73 @@
+use crate::types::ClearingBankNodeOnChainInfo;
+use codec::DecodeAll;
+use codec::Encode;
+use sp_core::ConstU32;
+use sp_runtime::AccountId32;
+use sp_runtime::BoundedVec;
+
+// 直接解码现有offchain公开节点信息，不另维护字段序镜像。
+/// SCALE 编码 cid_number 的全仓统一 `BoundedVec<u8, ConstU32<32>>` 形式。
+///
+/// 字段编码:`Compact<u32>(len)` + `bytes`。
+fn encode_cid_key_data(cid_number: &str) -> Result<Vec<u8>, String> {
+    let raw = cid_number.as_bytes();
+    if raw.is_empty() || raw.len() > primitives::core_const::CID_NUMBER_MAX_BYTES as usize {
+        return Err(format!(
+            "cid_number 长度必须在链上 CID_NUMBER_MAX_BYTES 范围内,实际:{}",
+            raw.len()
+        ));
+    }
+    let bv: BoundedVec<u8, ConstU32<{ primitives::core_const::CID_NUMBER_MAX_BYTES }>> = raw
+        .to_vec()
+        .try_into()
+        .map_err(|_| "cid_number 超出链上 CID_NUMBER_MAX_BYTES".to_string())?;
+    Ok(bv.encode())
+}
+
+/// 构造 `OffchainTransaction::ClearingBankNodes(cid_number)` 的 storage key(hex 含 0x 前缀)。
+pub fn clearing_bank_nodes_key(cid_number: &str) -> Result<String, String> {
+    let key_data = encode_cid_key_data(cid_number)?;
+    Ok(nodeclient::query::map_key(
+        "OffchainTransaction",
+        "ClearingBankNodes",
+        &key_data,
+    ))
+}
+
+/// 链上查询单条清算行节点声明信息。返回 None 表示该 cid_number 尚未注册节点。
+pub(crate) fn fetch_clearing_bank_node(
+    cid_number: &str,
+) -> Result<Option<ClearingBankNodeOnChainInfo>, String> {
+    let key = clearing_bank_nodes_key(cid_number)?;
+    // (ADR-017):节点声明属于业务读取,按 finalized 口径,禁止 best。
+    match nodeclient::query::fetch_finalized_storage(&key)? {
+        None => Ok(None),
+        Some(hex_data) => {
+            let clean = hex_data.strip_prefix("0x").unwrap_or(&hex_data);
+            let bytes = hex::decode(clean).map_err(|e| format!("storage hex 解码失败:{e}"))?;
+            let info =
+                offchain::ClearingBankNodeInfo::<AccountId32, u32>::decode_all(&mut &bytes[..])
+                    .map_err(|e| format!("ClearingBankNodeInfo SCALE 解码失败:{e}"))?;
+
+            let peer_id = String::from_utf8(info.peer_id.into_inner())
+                .map_err(|_| "PeerId 编码非 UTF-8".to_string())?;
+            let rpc_domain = String::from_utf8(info.rpc_domain.into_inner())
+                .map_err(|_| "RPC 域名编码非 UTF-8".to_string())?;
+
+            let registered_by_bytes: [u8; 32] = info.registrar_account_id.into();
+            let registrar_account_id = format!("0x{}", hex::encode(registered_by_bytes));
+
+            Ok(Some(ClearingBankNodeOnChainInfo {
+                cid_number: cid_number.to_string(),
+                peer_id,
+                rpc_domain,
+                rpc_port: info.rpc_port,
+                registered_at: info.registered_at as u64,
+                registrar_account_id,
+            }))
+        }
+    }
+}
+#[cfg(test)]
+#[path = "../tests/endpoint.rs"]
+mod tests;

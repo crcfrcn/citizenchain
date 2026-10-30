@@ -1,5 +1,6 @@
-import { invoke } from '../tauri';
-import type { TransferSignRequestResult, TransferSubmitResult, Wallet, WalletStore } from './types';
+import { invoke } from "../client/tauri";
+import type { TransferSignRequestResult, TransferSubmitResult, Wallet, WalletStore } from "./types";
+
 
 // 首页交易面板专用 Tauri API；账户唯一键统一使用 account_id。
 export const transactionApi = {

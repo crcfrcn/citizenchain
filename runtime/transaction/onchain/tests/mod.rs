@@ -313,3 +313,5 @@ mod benchmark_tests {
         run_case(b"transfer_empty_remark");
     }
 }
+
+mod property;

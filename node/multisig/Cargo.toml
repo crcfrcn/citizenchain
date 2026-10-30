@@ -1,0 +1,29 @@
+[package]
+name = "nodemultisig"
+description = "CitizenChain nodemultisig"
+publish = false
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+hex = "=0.4.3"
+identity = { path = "../../runtime/misc/identity", default-features = true }
+nodeclient = { path = "../client" }
+nodecontrol = { path = "../control" }
+nodedesktop = { path = "../desktop" }
+primitives = { path = "../../runtime/primitives" }
+serde = { workspace = true, features = ["derive"] }
+tauri = { version = "=2.11.5", features = [] }
+
+[dev-dependencies]
+serde_json = { workspace = true, default-features = true }
+
+[features]

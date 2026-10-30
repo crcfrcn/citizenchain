@@ -19,7 +19,7 @@ sp-std = { workspace = true }
 sp-io = { workspace = true }
 
 primitives = { path = "../../primitives", default-features = false }
-votingengine = { path = "..", default-features = false }
+votebase = { path = "../votebase", default-features = false }
 
 [features]
 default = ["std"]
@@ -33,16 +33,16 @@ std = [
     "sp-std/std",
     "sp-io/std",
     "primitives/std",
-    "votingengine/std",
+    "votebase/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
-    "votingengine/runtime-benchmarks",
+    "votebase/runtime-benchmarks",
 ]
-try-runtime = ["votingengine/try-runtime"]
+try-runtime = ["votebase/try-runtime"]
 
 [dev-dependencies]
 sp-io = { workspace = true }

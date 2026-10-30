@@ -7,7 +7,7 @@
 //!
 //! 与机构多签 (`publicentity/privateentity`) 完全独立的 storage / event / error / extrinsic 命名空间;
 //! 共用基础设施仅限于 `primitives::core_const` 派生函数、
-//! `primitives::multisig` 校验抽象、`votingengine::InternalVoteEngine` 和
+//! `primitives::multisig` 校验抽象、`votebase::InternalVoteEngine` 和
 //! `adminbase` 管理员生命周期 trait。个人多签管理员真源属于 `personaladmin`。
 
 /// 模块标识前缀(8 字节,与机构生命周期模块 tag 长度对齐)。
@@ -28,6 +28,7 @@ pub mod types;
 pub mod weights;
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 
 #[cfg(test)]
@@ -47,7 +48,7 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::*;
 use sp_std::prelude::*;
-use votingengine::{
+use votebase::{
     InternalVoteEngine, InternalVoteResultCallback, ProposalExecutionOutcome,
     PROPOSAL_KIND_INTERNAL, STAGE_INTERNAL, STATUS_EXECUTION_FAILED, STATUS_PASSED,
     STATUS_REJECTED, STATUS_VOTING,
@@ -63,14 +64,14 @@ pub mod pallet {
     const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config {
+    pub trait Config: frame_system::Config + votebase::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
 
         /// 内部投票引擎
-        type InternalVoteEngine: votingengine::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
 
         type AccountValidator: primitives::multisig::AccountValidator<Self::AccountId>;
         type ReservedAccountChecker: primitives::multisig::ReservedAccountGuard<Self::AccountId>;
@@ -312,7 +313,7 @@ pub mod pallet {
             crate::close::do_propose_close::<T>(who, account_id, beneficiary_account_id)
         }
 
-        // call_index(2) 已永久废弃：拒绝和执行失败清理由 votingengine 终态回调完成。
+        // call_index(2) 已永久废弃：拒绝和执行失败清理由 votebase 终态回调完成。
     }
 
     impl<T: Config> Pallet<T> {
@@ -421,10 +422,10 @@ pub mod pallet {
             require_callback_scope: bool,
         ) -> DispatchResult {
             ensure!(
-                votingengine::Pallet::<T>::is_proposal_owner(proposal_id, module_tag),
+                votebase::Pallet::<T>::is_proposal_owner(proposal_id, module_tag),
                 Error::<T>::ProposalActionNotFound
             );
-            let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             ensure!(
                 proposal.kind == PROPOSAL_KIND_INTERNAL,
@@ -440,7 +441,7 @@ pub mod pallet {
                 Error::<T>::ProposalActionNotFound
             );
             ensure!(
-                proposal.internal_code == Some(votingengine::types::PMUL),
+                proposal.internal_code == Some(votebase::types::PMUL),
                 Error::<T>::ProposalActionNotFound
             );
             ensure!(
@@ -449,7 +450,7 @@ pub mod pallet {
             );
             if require_callback_scope {
                 ensure!(
-                    votingengine::Pallet::<T>::is_callback_execution_scope(proposal_id),
+                    votebase::Pallet::<T>::is_callback_execution_scope(proposal_id),
                     Error::<T>::ProposalActionNotFound
                 );
             }
@@ -457,14 +458,14 @@ pub mod pallet {
         }
 
         pub fn active_admin_account_exists(
-            institution_code: votingengine::types::InstitutionCode,
+            institution_code: votebase::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> bool {
             T::PersonalAdminQuery::active_admin_account_exists(institution_code, account_id)
         }
 
         pub fn is_active_account_admin(
-            institution_code: votingengine::types::InstitutionCode,
+            institution_code: votebase::types::InstitutionCode,
             account_id: T::AccountId,
             who: &T::AccountId,
         ) -> bool {
@@ -472,28 +473,28 @@ pub mod pallet {
         }
 
         pub fn active_account_admins(
-            institution_code: votingengine::types::InstitutionCode,
+            institution_code: votebase::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> Option<Vec<T::AccountId>> {
             T::PersonalAdminQuery::active_account_admins(institution_code, account_id)
         }
 
         pub fn active_account_admins_len(
-            institution_code: votingengine::types::InstitutionCode,
+            institution_code: votebase::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> Option<u32> {
             T::PersonalAdminQuery::active_account_admins_len(institution_code, account_id)
         }
 
         pub fn pending_account_exists_for_snapshot(
-            institution_code: votingengine::types::InstitutionCode,
+            institution_code: votebase::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> bool {
             T::PersonalAdminQuery::pending_account_exists_for_snapshot(institution_code, account_id)
         }
 
         pub fn is_pending_account_admin_for_snapshot(
-            institution_code: votingengine::types::InstitutionCode,
+            institution_code: votebase::types::InstitutionCode,
             account_id: T::AccountId,
             who: &T::AccountId,
         ) -> bool {
@@ -505,14 +506,14 @@ pub mod pallet {
         }
 
         pub fn pending_account_admins_for_snapshot(
-            institution_code: votingengine::types::InstitutionCode,
+            institution_code: votebase::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> Option<Vec<T::AccountId>> {
             T::PersonalAdminQuery::pending_account_admins_for_snapshot(institution_code, account_id)
         }
 
         pub fn pending_account_admins_len_for_snapshot(
-            institution_code: votingengine::types::InstitutionCode,
+            institution_code: votebase::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> Option<u32> {
             T::PersonalAdminQuery::pending_account_admins_len_for_snapshot(
@@ -540,7 +541,7 @@ pub mod pallet {
                 crate::MODULE_TAG,
                 account_id,
                 Vec::new(),
-                votingengine::types::PMUL,
+                votebase::types::PMUL,
                 kind,
                 admins.iter().cloned().collect(),
                 creator_account_id.clone(),
@@ -569,7 +570,7 @@ pub mod pallet {
             proposal_id: u64,
             account_id: T::AccountId,
         ) -> DispatchResult {
-            let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             ensure!(
                 matches!(proposal.status, STATUS_REJECTED | STATUS_EXECUTION_FAILED),
@@ -622,7 +623,7 @@ pub mod pallet {
 // ──── 投票终态回调:个人多签创建/关闭提案的执行落地 ────
 //
 // 投票统一由投票引擎承担,提案通过(或否决)经
-// `votingengine::InternalVoteResultCallback` tuple 广播回来。
+// `votebase::InternalVoteResultCallback` tuple 广播回来。
 // 本 Executor 按 `MODULE_TAG + ACTION_*` 前缀认领本模块提案,
 // approved=true 分派 execute_create / execute_close;approved=false 清理 Pending 存储。
 // ──── PersonalMultisigQuery 实现:对 multisig-transfer / runtime config 暴露查询 ────
@@ -636,7 +637,7 @@ impl<T: pallet::Config> traits::PersonalMultisigQuery<T::AccountId> for pallet::
             return None;
         }
         let account_id = addr.clone();
-        let institution_code = votingengine::types::PMUL;
+        let institution_code = votebase::types::PMUL;
         let admins =
             pallet::Pallet::<T>::active_account_admins(institution_code, account_id.clone())?;
         let admins_len =
@@ -666,10 +667,10 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
         approved: bool,
     ) -> Result<ProposalExecutionOutcome, sp_runtime::DispatchError> {
         use frame_support::storage::{with_transaction, TransactionOutcome};
-        if !votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG) {
+        if !votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG) {
             return Ok(ProposalExecutionOutcome::Ignored);
         }
-        let raw = votingengine::Pallet::<T>::get_proposal_data(proposal_id)
+        let raw = votebase::Pallet::<T>::get_proposal_data(proposal_id)
             .ok_or(pallet::Error::<T>::ProposalActionNotFound)?;
 
         ensure!(
@@ -739,7 +740,7 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
     }
 
     fn on_execution_failed_terminal(proposal_id: u64) -> DispatchResult {
-        let raw = match votingengine::Pallet::<T>::get_proposal_data(proposal_id) {
+        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw) if raw.starts_with(crate::MODULE_TAG) => raw,
             _ => return Ok(()),
         };

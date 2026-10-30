@@ -18,7 +18,7 @@ use frame_support::{ensure, pallet_prelude::*, traits::StorageVersion, Blake2_12
 use frame_system::pallet_prelude::*;
 use primitives::cid::china::china_cb::CHINA_CB;
 use scale_info::TypeInfo;
-use votingengine::{
+use votebase::{
     types::{CidNumber, InstitutionCode, RoleCode, NRC, PRC},
     InternalVoteResultCallback, ProposalCancelDecision, ProposalExecutionOutcome,
     PROPOSAL_KIND_INTERNAL, STAGE_INTERNAL, STATUS_PASSED,
@@ -31,6 +31,7 @@ pub use proof::signing_digest as proof_signing_digest;
 pub use proof::{GrandpaKeyChangeKind, GrandpaKeyProofPayload};
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 mod proof;
 mod recovery;
@@ -73,7 +74,7 @@ pub struct PendingGrandpaKeyChangeState<AccountId, BlockNumber> {
 /// 只允许 NRC 与 PRC 使用本模块；PRB 没有 GRANDPA authority。
 fn cid_org(actor_cid_number: &[u8]) -> Option<InstitutionCode> {
     let actor_text = core::str::from_utf8(actor_cid_number).ok()?;
-    match votingengine::types::institution_code_from_cid_number(actor_text)? {
+    match votebase::types::institution_code_from_cid_number(actor_text)? {
         NRC => Some(NRC),
         PRC => Some(PRC),
         _ => None,
@@ -87,10 +88,10 @@ pub mod pallet {
     use super::*;
     use crate::{proof, weights::WeightInfo};
     use sp_std::vec::Vec;
-    use votingengine::InternalVoteEngine;
+    use votebase::InternalVoteEngine;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config + pallet_grandpa::Config {
+    pub trait Config: frame_system::Config + votebase::Config + pallet_grandpa::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -98,7 +99,7 @@ pub mod pallet {
         type GrandpaChangeDelay: Get<BlockNumberFor<Self>>;
 
         /// 紧急恢复只调用现有内部投票引擎创建提案，不在业务模块复制投票流程。
-        type InternalVoteEngine: votingengine::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
 
         /// `CID + 岗位码 + account_id` 机构岗位授权唯一真源。
         type InstitutionRoleAuthorization: entitybase::InstitutionRoleAuthorizationQuery<
@@ -518,13 +519,13 @@ pub mod pallet {
             proposal_id: u64,
             action: EmergencyGrandpaKeyRecoveryAction<T::AccountId, BlockNumberFor<T>>,
         ) -> DispatchResult {
-            let proposal = votingengine::Pallet::<T>::proposals(proposal_id)
+            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             let institution_code = cid_org(action.actor_cid_number.as_slice())
                 .ok_or(Error::<T>::InvalidInstitution)?;
             ensure!(
-                votingengine::Pallet::<T>::is_callback_execution_scope(proposal_id)
-                    && votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG,)
+                votebase::Pallet::<T>::is_callback_execution_scope(proposal_id)
+                    && votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG,)
                     && proposal.kind == PROPOSAL_KIND_INTERNAL
                     && proposal.stage == STAGE_INTERNAL
                     && proposal.status == STATUS_PASSED
@@ -571,9 +572,9 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
         proposal_id: u64,
         approved: bool,
     ) -> Result<ProposalExecutionOutcome, sp_runtime::DispatchError> {
-        let raw = match votingengine::Pallet::<T>::get_proposal_data(proposal_id) {
+        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw)
-                if votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
+                if votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
                     && raw.starts_with(crate::MODULE_TAG) =>
             {
                 raw
@@ -615,9 +616,9 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
     fn can_cancel_passed_proposal(
         proposal_id: u64,
     ) -> Result<ProposalCancelDecision, sp_runtime::DispatchError> {
-        let raw = match votingengine::Pallet::<T>::get_proposal_data(proposal_id) {
+        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw)
-                if votingengine::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
+                if votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
                     && raw.starts_with(crate::MODULE_TAG) =>
             {
                 raw
@@ -646,5 +647,5 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
 }
 
 #[cfg(test)]
-#[path = "../tests.rs"]
+#[path = "../tests/mod.rs"]
 mod tests;

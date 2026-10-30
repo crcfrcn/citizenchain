@@ -1,12 +1,12 @@
 //! 立法机关表决终局结果边界。
 //!
-//! 终局结果由 votingengine 核心交给回调元组；法律、任免和预算业务分别依据
+//! 终局结果由 votebase 核心交给回调元组；法律、任免和预算业务分别依据
 //! `ProposalOwner`/`MODULE_TAG` 认领。任一提案只能由一个业务模块返回非 `Ignored`，
 //! 本 pallet 不读取任何业务存储。
 
-/// 立法成功结果统一映射为 votingengine 的通过状态。
+/// 立法成功结果统一映射为 votebase 的通过状态。
 pub(crate) const fn approved_status() -> u8 {
-    votingengine::STATUS_PASSED
+    votebase::STATUS_PASSED
 }
 use crate::*;
 
@@ -21,7 +21,7 @@ impl<T: Config> Pallet<T> {
                 |maybe| -> Result<frame_system::pallet_prelude::BlockNumberFor<T>, DispatchError> {
                     let p = maybe
                         .as_mut()
-                        .ok_or(votingengine::Error::<T>::ProposalNotFound)?;
+                        .ok_or(votebase::Error::<T>::ProposalNotFound)?;
                     let old = p.end;
                     p.stage = new_stage;
                     p.start = now;
@@ -34,7 +34,7 @@ impl<T: Config> Pallet<T> {
             };
             let old_expiry = old_end.saturating_add(One::one());
             ProposalsByExpiry::<T>::mutate(old_expiry, |ids| ids.retain(|&i| i != proposal_id));
-            if let Err(err) = <votingengine::Pallet<T>>::schedule_proposal_expiry(proposal_id, end)
+            if let Err(err) = <votebase::Pallet<T>>::schedule_proposal_expiry(proposal_id, end)
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
@@ -45,7 +45,7 @@ impl<T: Config> Pallet<T> {
     /// 非特别案内部全过 → 进入行政签署阶段(市长/省长/总统)。
     pub(crate) fn advance_to_sign(proposal_id: u64) -> DispatchResult {
         Self::transition_stage(proposal_id, STAGE_LEG_SIGN)?;
-        <votingengine::Pallet<T>>::release_internal_proposal_mutexes(proposal_id);
+        <votebase::Pallet<T>>::release_internal_proposal_mutexes(proposal_id);
         Self::deposit_event(pallet::Event::<T>::LegislationAdvancedToSign { proposal_id });
         Ok(())
     }

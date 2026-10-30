@@ -11,11 +11,11 @@ use crate::weights::WeightInfo;
 use crate::*;
 use frame_support::{traits::Get, weights::Weight};
 
-impl<T: Config> votingengine::traits::LegislationCleanupHandler for Pallet<T> {
+impl<T: Config> votebase::traits::LegislationCleanupHandler for Pallet<T> {
     fn cleanup_legislation_representative_votes_chunk(
         proposal_id: u64,
         limit: u32,
-    ) -> votingengine::traits::CleanupChunkResult {
+    ) -> votebase::traits::CleanupChunkResult {
         let result =
             pallet::RepresentativeVotesByTicket::<T>::clear_prefix(proposal_id, limit, None);
         (
@@ -27,7 +27,7 @@ impl<T: Config> votingengine::traits::LegislationCleanupHandler for Pallet<T> {
     fn cleanup_legislation_referendum_votes_chunk(
         proposal_id: u64,
         limit: u32,
-    ) -> votingengine::traits::CleanupChunkResult {
+    ) -> votebase::traits::CleanupChunkResult {
         let result = pallet::LegReferendumVotesByCid::<T>::clear_prefix(proposal_id, limit, None);
         (
             result.unique,
@@ -50,41 +50,41 @@ impl<T: Config> votingengine::traits::LegislationCleanupHandler for Pallet<T> {
 }
 
 impl<T: Config>
-    votingengine::ProposalTrackHandler<
+    votebase::ProposalTrackHandler<
         frame_system::pallet_prelude::BlockNumberFor<T>,
         T::AccountId,
     > for Pallet<T>
 {
     fn handles(kind: u8) -> bool {
-        kind == votingengine::PROPOSAL_KIND_LEGISLATION
+        kind == votebase::PROPOSAL_KIND_LEGISLATION
     }
 
     fn finalize_timeout(
         proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
         proposal_id: u64,
     ) -> Option<DispatchResult> {
-        use votingengine::traits::LegislationProposalFinalizer;
+        use votebase::traits::LegislationProposalFinalizer;
 
         if !Self::handles(proposal.kind) {
             return None;
         }
         Some(match proposal.stage {
-            votingengine::STAGE_LEG_REPRESENTATIVE => {
+            votebase::STAGE_LEG_REPRESENTATIVE => {
                 Self::finalize_legislation_representative_timeout(proposal, proposal_id)
             }
-            votingengine::STAGE_LEG_REFERENDUM => {
+            votebase::STAGE_LEG_REFERENDUM => {
                 Self::finalize_legislation_referendum_timeout(proposal, proposal_id)
             }
-            votingengine::STAGE_LEG_SIGN => {
+            votebase::STAGE_LEG_SIGN => {
                 Self::finalize_legislation_sign_timeout(proposal, proposal_id)
             }
-            votingengine::STAGE_LEG_OVERRIDE => {
+            votebase::STAGE_LEG_OVERRIDE => {
                 Self::finalize_legislation_override_timeout(proposal, proposal_id)
             }
-            votingengine::STAGE_LEG_CONSTITUTION_GUARD => {
+            votebase::STAGE_LEG_CONSTITUTION_GUARD => {
                 Self::finalize_legislation_guard_timeout(proposal, proposal_id)
             }
-            _ => Err(votingengine::Error::<T>::InvalidProposalStage.into()),
+            _ => Err(votebase::Error::<T>::InvalidProposalStage.into()),
         })
     }
 
@@ -92,19 +92,19 @@ impl<T: Config>
         kind: u8,
         proposal_id: u64,
         limit: u32,
-    ) -> Option<votingengine::CleanupChunkResult> {
+    ) -> Option<votebase::CleanupChunkResult> {
         if !Self::handles(kind) {
             return None;
         }
         let limit = limit.max(1);
-        let (first, first_more) = <Self as votingengine::LegislationCleanupHandler>::cleanup_legislation_representative_votes_chunk(
+        let (first, first_more) = <Self as votebase::LegislationCleanupHandler>::cleanup_legislation_representative_votes_chunk(
             proposal_id,
             limit,
         );
         if first_more || first >= limit {
             return Some((first, true));
         }
-        let (second, second_more) = <Self as votingengine::LegislationCleanupHandler>::cleanup_legislation_referendum_votes_chunk(
+        let (second, second_more) = <Self as votebase::LegislationCleanupHandler>::cleanup_legislation_referendum_votes_chunk(
             proposal_id,
             limit.saturating_sub(first),
         );
@@ -113,7 +113,7 @@ impl<T: Config>
 
     fn cleanup_terminal(kind: u8, proposal_id: u64) -> Option<()> {
         Self::handles(kind).then(|| {
-            <Self as votingengine::LegislationCleanupHandler>::cleanup_legislation_terminal(
+            <Self as votebase::LegislationCleanupHandler>::cleanup_legislation_terminal(
                 proposal_id,
             )
         })
@@ -121,13 +121,13 @@ impl<T: Config>
 
     fn timeout_weight(stage: u8) -> Option<Weight> {
         let weight = match stage {
-            votingengine::STAGE_LEG_REPRESENTATIVE => {
+            votebase::STAGE_LEG_REPRESENTATIVE => {
                 <T as Config>::WeightInfo::cast_representative_vote()
             }
-            votingengine::STAGE_LEG_REFERENDUM => <T as Config>::WeightInfo::cast_referendum_vote(),
-            votingengine::STAGE_LEG_SIGN => <T as Config>::WeightInfo::executive_sign(),
-            votingengine::STAGE_LEG_OVERRIDE => <T as Config>::WeightInfo::override_sign(),
-            votingengine::STAGE_LEG_CONSTITUTION_GUARD => <T as Config>::WeightInfo::guard_vote(),
+            votebase::STAGE_LEG_REFERENDUM => <T as Config>::WeightInfo::cast_referendum_vote(),
+            votebase::STAGE_LEG_SIGN => <T as Config>::WeightInfo::executive_sign(),
+            votebase::STAGE_LEG_OVERRIDE => <T as Config>::WeightInfo::override_sign(),
+            votebase::STAGE_LEG_CONSTITUTION_GUARD => <T as Config>::WeightInfo::guard_vote(),
             u8::MAX => <T as Config>::WeightInfo::cast_representative_vote()
                 .max(<T as Config>::WeightInfo::cast_referendum_vote())
                 .max(<T as Config>::WeightInfo::executive_sign())
@@ -139,7 +139,7 @@ impl<T: Config>
     }
 
     fn cleanup_chunk_weight(kind: u8, limit: u32) -> Option<Weight> {
-        matches!(kind, votingengine::PROPOSAL_KIND_LEGISLATION | u8::MAX).then(|| {
+        matches!(kind, votebase::PROPOSAL_KIND_LEGISLATION | u8::MAX).then(|| {
             let limit = u64::from(limit.max(1));
             Weight::from_parts(10_000_000, 5_000)
                 .saturating_add(Weight::from_parts(1_100_000, 2_600).saturating_mul(limit))
@@ -148,7 +148,7 @@ impl<T: Config>
     }
 
     fn cleanup_terminal_weight(kind: u8) -> Option<Weight> {
-        matches!(kind, votingengine::PROPOSAL_KIND_LEGISLATION | u8::MAX).then(|| {
+        matches!(kind, votebase::PROPOSAL_KIND_LEGISLATION | u8::MAX).then(|| {
             Weight::from_parts(16_000_000, 18_000)
                 .saturating_add(T::DbWeight::get().reads_writes(1, 8))
         })

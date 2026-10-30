@@ -330,7 +330,7 @@ curl -ksS -i https://onchina.local:8964/api/admin/auth/check -H "authorization: 
 
 - 开发真源：`citizenchain/onchina/platform/codes/china.sqlite`
 - 生产读取：`ONCHINA_CHINA_DB` 指向随包只读 SQLite
-- 省级常量：`citizenchain/runtime/primitives/cid/code.rs`
+- 省级常量：`citizenchain/runtime/primitives/src/cid/code.rs`
 - 镇下完整地址：`addresses` 单表保存当前有效地址；开发库随安装包发布，链上 `AddressRegistry` 记录单条地址变更事实和当前哈希
 
 加载时必须校验：
@@ -697,7 +697,7 @@ schema 初始化和链上业务投影必须分离。schema 入口只允许幂等
 
 #### 4. 行政区和 CID 号真源
 
-- 国家码、省级行政区码和机构码常量唯一真源：`citizenchain/runtime/primitives/cid/code.rs`。
+- 国家码、省级行政区码和机构码常量唯一真源：`citizenchain/runtime/primitives/src/cid/code.rs`。
 - 市、镇和地址段开发真源：`citizenchain/onchina/platform/codes/china.sqlite`。
 - CID 号生成和校验唯一源码目录：`citizenchain/onchina/platform/codes/`。
 
@@ -816,7 +816,7 @@ OnChina 属于 `citizenchain`。不再保留独立 旧独立身份系统 CI、�
 
 - 修改 `citizenchain/onchina/**`：执行 OnChina 后端编译、测试和真实 HTTP 验收。
 - 修改 `citizenchain/onchina/*/frontend/**`：执行前端 build，并通过真实页面检查关键流程。
-- 修改节点桌面端 OnChina 启动入口：同步检查 `citizenchain/node/src/main.rs`、`citizenchain/node/src/settings/onchina_platform.rs` 和节点设置页，确认 OnChina 不随节点默认启动。
+- 修改节点桌面端 OnChina 启动入口：同步检查 `citizenchain/node/src/main.rs`、`citizenchain/node/src/platform.rs` 和节点设置页，确认 OnChina 不随节点默认启动。
 - 涉及 QR、签名、链交易载荷、CID 号格式时：必须同步更新 `CitizenChainOnChina.md` 和相关端实现。
 
 #### 10. 验收口径

@@ -3,7 +3,7 @@
 //!
 //! - 每个清算行主账户对应一个 `L2FeeRateBp` 费率(单位 bp,范围 1~10)。
 //! - 清算行有权岗位任职人可提案改费率,**延迟 7 天生效**(防突袭改价,给 L3 换行时间)。
-//! - 全局上限 `MaxL2FeeRateBp` 由联合投票调整(沿用 `votingengine`,
+//! - 全局上限 `MaxL2FeeRateBp` 由联合投票调整(沿用 `votebase`,
 //!   这里只定义 extrinsic 入口;具体联合投票执行回调另行对接)。
 //! - 在 `on_initialize` 每块扫描一次到期提案并激活(小成本,可优化为 cursor)。
 
@@ -90,7 +90,7 @@ pub fn do_propose_l2_fee_rate<T: Config>(
 ///
 /// 本步采用简单全表扫描(小规模清算行可接受,可优化为 cursor/batched)。
 /// 返回消耗的权重,供上层 on_initialize 累加。
-/// 单块最多激活的到期费率提案数。参照 votingengine 的 per-block 预算模式:
+/// 单块最多激活的到期费率提案数。参照 votebase 的 per-block 预算模式:
 /// 不做无界全表扫描,收集到上限即停,剩余到期项顺延下一块继续排空(移除即缩表,最终收敛)。
 const MAX_L2_FEE_ACTIVATIONS_PER_BLOCK: usize = 32;
 

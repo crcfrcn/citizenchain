@@ -38,3 +38,6 @@ std = [
     "sp-runtime/std",
     "primitives/std",
 ]
+
+[dev-dependencies]
+proptest = { workspace = true }

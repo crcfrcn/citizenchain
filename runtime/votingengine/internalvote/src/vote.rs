@@ -9,15 +9,15 @@ impl<T: Config> Pallet<T> {
         ticket_claim: InternalVoteTicketClaim,
         approve: bool,
     ) -> DispatchResult {
-        let proposal = <votingengine::Pallet<T>>::ensure_open_proposal(proposal_id)?;
+        let proposal = <votebase::Pallet<T>>::ensure_open_proposal(proposal_id)?;
 
         ensure!(
             proposal.kind == PROPOSAL_KIND_INTERNAL,
-            votingengine::Error::<T>::InvalidProposalKind
+            votebase::Error::<T>::InvalidProposalKind
         );
         ensure!(
             proposal.stage == STAGE_INTERNAL,
-            votingengine::Error::<T>::InvalidProposalStage
+            votebase::Error::<T>::InvalidProposalStage
         );
         let (ticket, voter_role_code, eligible, eligible_total) = if let Some(actor_cid_number) =
             proposal.actor_cid_number
@@ -25,10 +25,10 @@ impl<T: Config> Pallet<T> {
             let role_code = match ticket_claim {
                 InternalVoteTicketClaim::InstitutionRole(role_code) => role_code,
                 InternalVoteTicketClaim::Personal => {
-                    return Err(votingengine::Error::<T>::NoPermission.into())
+                    return Err(votebase::Error::<T>::NoPermission.into())
                 }
             };
-            let role_subject = votingengine::types::RoleSubject {
+            let role_subject = votebase::types::RoleSubject {
                 cid_number: actor_cid_number.clone(),
                 role_code: role_code.clone(),
             };
@@ -36,7 +36,7 @@ impl<T: Config> Pallet<T> {
             // 票据按【规范账户】防重：换绑前后归并为同一张票，杜绝新旧钱包各投一票。
             // 与下面的资格校验同源，同样只解析原始 `who`（绝不二次解析规范账户）。
             // 解析为 None 时资格校验必然失败，此处的回退值不会被采用。
-            let voter_account_id = <votingengine::Pallet<T>>::resolve_subject_voter(&subject, &who)
+            let voter_account_id = <votebase::Pallet<T>>::resolve_subject_voter(&subject, &who)
                 .unwrap_or_else(|| who.clone());
             (
                 InternalVoteTicket::Institution(InstitutionVoteTicket {
@@ -44,31 +44,31 @@ impl<T: Config> Pallet<T> {
                     voter_account_id,
                 }),
                 Some(role_code),
-                <votingengine::Pallet<T>>::is_subject_voter_in_snapshot(proposal_id, subject, &who),
-                <votingengine::Pallet<T>>::institution_ticket_count(proposal_id, actor_cid_number)
-                    .ok_or(votingengine::Error::<T>::MissingVoterSnapshot)?,
+                <votebase::Pallet<T>>::is_subject_voter_in_snapshot(proposal_id, subject, &who),
+                <votebase::Pallet<T>>::institution_ticket_count(proposal_id, actor_cid_number)
+                    .ok_or(votebase::Error::<T>::MissingVoterSnapshot)?,
             )
         } else {
             ensure!(
                 matches!(ticket_claim, InternalVoteTicketClaim::Personal),
-                votingengine::Error::<T>::NoPermission
+                votebase::Error::<T>::NoPermission
             );
             let personal_account_id = proposal
                 .execution_account_id
-                .ok_or(votingengine::Error::<T>::InvalidInstitution)?;
+                .ok_or(votebase::Error::<T>::InvalidInstitution)?;
             let subject = ProposalSubject::PersonalAccount(personal_account_id);
             (
                 InternalVoteTicket::Personal(who.clone()),
                 None,
-                <votingengine::Pallet<T>>::is_admin_in_snapshot(proposal_id, subject.clone(), &who),
-                <votingengine::Pallet<T>>::snapshot_admins_len(proposal_id, subject)
-                    .ok_or(votingengine::Error::<T>::MissingAdminSnapshot)?,
+                <votebase::Pallet<T>>::is_admin_in_snapshot(proposal_id, subject.clone(), &who),
+                <votebase::Pallet<T>>::snapshot_admins_len(proposal_id, subject)
+                    .ok_or(votebase::Error::<T>::MissingAdminSnapshot)?,
             )
         };
-        ensure!(eligible, votingengine::Error::<T>::NoPermission);
+        ensure!(eligible, votebase::Error::<T>::NoPermission);
         ensure!(
             !InternalVotesByTicket::<T>::contains_key(proposal_id, &ticket),
-            votingengine::Error::<T>::AlreadyVoted
+            votebase::Error::<T>::AlreadyVoted
         );
 
         InternalVotesByTicket::<T>::insert(proposal_id, ticket, approve);
@@ -91,12 +91,12 @@ impl<T: Config> Pallet<T> {
         let threshold = InternalThresholdSnapshot::<T>::get(proposal_id)
             .ok_or(Error::<T>::MissingThresholdSnapshot)?;
         if tally.yes >= threshold {
-            <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
+            <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
         } else {
             let casted = tally.yes.saturating_add(tally.no);
             let remaining = eligible_total.saturating_sub(casted);
             if tally.yes.saturating_add(remaining) < threshold {
-                <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)?;
+                <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)?;
             }
         }
 
@@ -109,16 +109,16 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         ensure!(
             proposal.stage == STAGE_INTERNAL,
-            votingengine::Error::<T>::InvalidProposalStage
+            votebase::Error::<T>::InvalidProposalStage
         );
         ensure!(
-            proposal.status == votingengine::STATUS_VOTING,
-            votingengine::Error::<T>::ProposalAlreadyFinalized
+            proposal.status == votebase::STATUS_VOTING,
+            votebase::Error::<T>::ProposalAlreadyFinalized
         );
         ensure!(
             <frame_system::Pallet<T>>::block_number() > proposal.end,
-            votingengine::Error::<T>::VoteNotExpired
+            votebase::Error::<T>::VoteNotExpired
         );
-        <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, votingengine::STATUS_REJECTED)
+        <votebase::Pallet<T>>::set_status_and_emit(proposal_id, votebase::STATUS_REJECTED)
     }
 }

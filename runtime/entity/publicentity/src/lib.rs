@@ -7,6 +7,7 @@ pub const MODULE_TAG: &[u8] = b"pub-mgmt";
 pub use pallet::*;
 pub mod add;
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 pub mod close;
 pub mod institution;
@@ -34,7 +35,7 @@ pub use traits::{
     AccountValidator, InstitutionCidQuery, InstitutionMultisigQuery, ProtectedSourceChecker,
     RegistryAuthority, ReservedAccountGuard,
 };
-use votingengine::{
+use votebase::{
     types::{
         AuthorizationSubject, BusinessActionId, CidNumber, InstitutionCode, RoleCode, RoleSubject,
         VotePlanOf, VotingEngineKind,
@@ -69,14 +70,14 @@ pub mod pallet {
     const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config {
+    pub trait Config: frame_system::Config + votebase::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
 
         /// 内部投票引擎
-        type InternalVoteEngine: votingengine::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
 
         /// 公权机构管理员集合写入口。
         type AdminLifecycle: InstitutionAdminLifecycle<Self::AccountId, Admin<Self::AccountId>>;
@@ -726,7 +727,7 @@ pub mod pallet {
             )
         }
 
-        // call_index(4) 已永久废弃：拒绝和执行失败清理由 votingengine 终态回调完成。
+        // call_index(4) 已永久废弃：拒绝和执行失败清理由 votebase 终态回调完成。
     }
 
     impl<T: Config> Pallet<T> {
@@ -1017,19 +1018,19 @@ pub mod pallet {
             > = crate::MODULE_TAG
                 .to_vec()
                 .try_into()
-                .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?;
+                .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
             let proposer_cid = CidNumber::try_from(cid_number.to_vec())
-                .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?;
+                .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
             let proposer_role = RoleCode::try_from(proposer_role_code.to_vec())
-                .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?;
+                .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
             let voter_subjects = voter_roles
                 .into_iter()
                 .map(|role| {
                     Ok(AuthorizationSubject::Institution(RoleSubject {
                         cid_number: CidNumber::try_from(role.cid_number)
-                            .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                            .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                         role_code: RoleCode::try_from(role.role_code)
-                            .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                            .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                     }))
                 })
                 .collect::<Result<Vec<_>, sp_runtime::DispatchError>>()?;
@@ -1047,7 +1048,7 @@ pub mod pallet {
                 VotingEngineKind::Internal,
                 sp_io::hashing::blake2_256(business_data),
             )
-            .map_err(|_| votingengine::Error::<T>::InvalidVotePlan.into())
+            .map_err(|_| votebase::Error::<T>::InvalidVotePlan.into())
         }
 
         pub(crate) fn do_register_institution_admins(
@@ -1271,7 +1272,7 @@ impl<T: pallet::Config> traits::InstitutionLegalRepresentativeQuery<T::AccountId
 // ──── 投票终态回调:把已通过的机构账户新增/关闭提案落地到链上 ────
 //
 // 投票统一由投票引擎承担,提案通过(或否决)经
-// [`votingengine::InternalVoteResultCallback`] 广播回来。
+// [`votebase::InternalVoteResultCallback`] 广播回来。
 // 本 Executor(机构侧)按 `MODULE_TAG + ACTION 字节` 认领机构管理提案:
 // - `ACTION_ADD_ACCOUNT` + approved → 分派到 `add::execute_institution_add_account_with_finalizer`;
 // - `ACTION_CLOSE` + approved → 分派到 `close::execute_institution_close_with_finalizer`;
@@ -1285,7 +1286,7 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
         approved: bool,
     ) -> Result<ProposalExecutionOutcome, sp_runtime::DispatchError> {
         use frame_support::storage::{with_transaction, TransactionOutcome};
-        let raw = match votingengine::Pallet::<T>::get_proposal_data(proposal_id) {
+        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw) if raw.starts_with(crate::MODULE_TAG) => raw,
             _ => return Ok(ProposalExecutionOutcome::Ignored),
         };
@@ -1394,7 +1395,7 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
     }
 
     fn on_execution_failed_terminal(proposal_id: u64) -> DispatchResult {
-        let raw = match votingengine::Pallet::<T>::get_proposal_data(proposal_id) {
+        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw) if raw.starts_with(crate::MODULE_TAG) => raw,
             _ => return Ok(()),
         };

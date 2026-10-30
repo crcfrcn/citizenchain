@@ -4,7 +4,7 @@ use super::*;
 use crate::weights::WeightInfo;
 use frame_support::{traits::Get, weights::Weight};
 
-impl<T: Config> votingengine::traits::InternalCleanupHandler for Pallet<T> {
+impl<T: Config> votebase::traits::InternalCleanupHandler for Pallet<T> {
     fn on_internal_proposal_executed(proposal_id: u64) -> DispatchResult {
         Self::apply_executed_threshold_side_effect(proposal_id)
     }
@@ -16,7 +16,7 @@ impl<T: Config> votingengine::traits::InternalCleanupHandler for Pallet<T> {
     fn cleanup_internal_votes_chunk(
         proposal_id: u64,
         limit: u32,
-    ) -> votingengine::traits::CleanupChunkResult {
+    ) -> votebase::traits::CleanupChunkResult {
         let result = InternalVotesByTicket::<T>::clear_prefix(proposal_id, limit, None);
         let has_remaining = result.maybe_cursor.is_some();
         (result.unique, has_remaining)
@@ -32,13 +32,13 @@ impl<T: Config> votingengine::traits::InternalCleanupHandler for Pallet<T> {
 }
 
 impl<T: Config>
-    votingengine::ProposalTrackHandler<
+    votebase::ProposalTrackHandler<
         frame_system::pallet_prelude::BlockNumberFor<T>,
         T::AccountId,
     > for Pallet<T>
 {
     fn handles(kind: u8) -> bool {
-        kind == votingengine::PROPOSAL_KIND_INTERNAL
+        kind == votebase::PROPOSAL_KIND_INTERNAL
     }
 
     fn finalize_timeout(
@@ -49,10 +49,10 @@ impl<T: Config>
             return None;
         }
         Some(match proposal.stage {
-            votingengine::STAGE_INTERNAL => {
+            votebase::STAGE_INTERNAL => {
                 Self::do_finalize_internal_timeout(proposal, proposal_id)
             }
-            _ => Err(votingengine::Error::<T>::InvalidProposalStage.into()),
+            _ => Err(votebase::Error::<T>::InvalidProposalStage.into()),
         })
     }
 
@@ -60,9 +60,9 @@ impl<T: Config>
         kind: u8,
         proposal_id: u64,
         limit: u32,
-    ) -> Option<votingengine::CleanupChunkResult> {
+    ) -> Option<votebase::CleanupChunkResult> {
         Self::handles(kind).then(|| {
-            <Self as votingengine::InternalCleanupHandler>::cleanup_internal_votes_chunk(
+            <Self as votebase::InternalCleanupHandler>::cleanup_internal_votes_chunk(
                 proposal_id,
                 limit,
             )
@@ -71,17 +71,17 @@ impl<T: Config>
 
     fn cleanup_terminal(kind: u8, proposal_id: u64) -> Option<()> {
         Self::handles(kind).then(|| {
-            <Self as votingengine::InternalCleanupHandler>::cleanup_internal_terminal(proposal_id)
+            <Self as votebase::InternalCleanupHandler>::cleanup_internal_terminal(proposal_id)
         })
     }
 
     fn timeout_weight(stage: u8) -> Option<Weight> {
-        matches!(stage, votingengine::STAGE_INTERNAL | u8::MAX)
+        matches!(stage, votebase::STAGE_INTERNAL | u8::MAX)
             .then(<T as Config>::WeightInfo::finalize_internal_timeout)
     }
 
     fn cleanup_chunk_weight(kind: u8, limit: u32) -> Option<Weight> {
-        matches!(kind, votingengine::PROPOSAL_KIND_INTERNAL | u8::MAX).then(|| {
+        matches!(kind, votebase::PROPOSAL_KIND_INTERNAL | u8::MAX).then(|| {
             let limit = u64::from(limit.max(1));
             Weight::from_parts(8_000_000, 3_000)
                 .saturating_add(Weight::from_parts(1_000_000, 2_600).saturating_mul(limit))
@@ -90,7 +90,7 @@ impl<T: Config>
     }
 
     fn cleanup_terminal_weight(kind: u8) -> Option<Weight> {
-        matches!(kind, votingengine::PROPOSAL_KIND_INTERNAL | u8::MAX).then(|| {
+        matches!(kind, votebase::PROPOSAL_KIND_INTERNAL | u8::MAX).then(|| {
             Weight::from_parts(12_000_000, 12_000)
                 .saturating_add(T::DbWeight::get().reads_writes(4, 6))
         })
@@ -98,7 +98,7 @@ impl<T: Config>
 
     fn on_proposal_executed(kind: u8, proposal_id: u64) -> Option<DispatchResult> {
         Self::handles(kind).then(|| {
-            <Self as votingengine::InternalCleanupHandler>::on_internal_proposal_executed(
+            <Self as votebase::InternalCleanupHandler>::on_internal_proposal_executed(
                 proposal_id,
             )
         })
@@ -106,7 +106,7 @@ impl<T: Config>
 
     fn on_proposal_terminal(kind: u8, proposal_id: u64, status: u8) -> Option<DispatchResult> {
         Self::handles(kind).then(|| {
-            <Self as votingengine::InternalCleanupHandler>::on_internal_proposal_terminal(
+            <Self as votebase::InternalCleanupHandler>::on_internal_proposal_terminal(
                 proposal_id,
                 status,
             )

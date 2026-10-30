@@ -1,11 +1,7 @@
-import { invoke } from '../tauri';
-import type { VoteSignRequestResult, VoteSubmitResult } from '../governance/types';
-import type {
-  ClearingBankNodeOnChainInfo,
-  ConnectivityTestReport,
-  DecryptAdminRequestResult,
-  DecryptedAdminInfo,
-} from './types';
+import { invoke } from "../client/tauri";
+import type { VoteSignRequestResult, VoteSubmitResult } from "../client/signing";
+import type { ClearingBankNodeOnChainInfo, ConnectivityTestReport, DecryptAdminRequestResult, DecryptedAdminInfo } from "./types";
+
 
 // 清算行 offchain 网络专用 Tauri API。机构身份只读命令归同目录 institution/api.ts。
 export const offchainApi = {

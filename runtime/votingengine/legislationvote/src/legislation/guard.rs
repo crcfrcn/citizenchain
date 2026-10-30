@@ -14,7 +14,7 @@ impl<T: Config> Pallet<T> {
         if needs_guard {
             Self::advance_to_guard(proposal_id)
         } else {
-            <votingengine::Pallet<T>>::set_status_and_emit(
+            <votebase::Pallet<T>>::set_status_and_emit(
                 proposal_id,
                 crate::result::approved_status(),
             )
@@ -32,7 +32,7 @@ impl<T: Config> Pallet<T> {
     /// 护宪大法官终审表决(仅修宪):7 人一人一票,4 名及以上赞成→生效;4 名及以上反对→否决。
     pub fn do_guard_vote(who: T::AccountId, proposal_id: u64, approve: bool) -> DispatchResult {
         let proposal =
-            Proposals::<T>::get(proposal_id).ok_or(votingengine::Error::<T>::ProposalNotFound)?;
+            Proposals::<T>::get(proposal_id).ok_or(votebase::Error::<T>::ProposalNotFound)?;
         ensure!(
             proposal.status == STATUS_VOTING,
             Error::<T>::NotInExpectedStage
@@ -45,7 +45,7 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::ProposalMetaMissing)?;
         let guard_subject = meta.guard.ok_or(Error::<T>::NotConstitutionGuard)?;
         let authorization_subject = AuthorizationSubject::Institution(guard_subject);
-        let members_len = <votingengine::Pallet<T>>::subject_voters_len(
+        let members_len = <votebase::Pallet<T>>::subject_voters_len(
             proposal_id,
             authorization_subject.clone(),
         )
@@ -55,7 +55,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidGuardMembersLen
         );
         ensure!(
-            <votingengine::Pallet<T>>::is_subject_voter_in_snapshot(
+            <votebase::Pallet<T>>::is_subject_voter_in_snapshot(
                 proposal_id,
                 authorization_subject,
                 &who,
@@ -80,10 +80,10 @@ impl<T: Config> Pallet<T> {
         pallet::LegGuardSigns::<T>::insert(proposal_id, signs);
         if crate::legislation::guard::decided(yes) {
             // 7 人多数通过:4 名及以上赞成 → 生效。
-            <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)
+            <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)
         } else if crate::legislation::guard::decided(no) {
             // 4 名及以上反对 → 已不可能达到 4 名赞成,否决。
-            <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
+            <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
         } else {
             Ok(())
         }
@@ -96,19 +96,19 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         ensure!(
             proposal.stage == STAGE_LEG_CONSTITUTION_GUARD,
-            votingengine::Error::<T>::InvalidProposalStage
+            votebase::Error::<T>::InvalidProposalStage
         );
         ensure!(
             proposal.status == STATUS_VOTING,
-            votingengine::Error::<T>::ProposalAlreadyFinalized
+            votebase::Error::<T>::ProposalAlreadyFinalized
         );
         ensure!(
             crate::legislation::signing::is_expired(
                 <frame_system::Pallet<T>>::block_number(),
                 proposal.end,
             ),
-            votingengine::Error::<T>::VoteNotExpired
+            votebase::Error::<T>::VoteNotExpired
         );
-        <votingengine::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
+        <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)
     }
 }

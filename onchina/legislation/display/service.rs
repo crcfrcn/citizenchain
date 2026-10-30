@@ -14,7 +14,7 @@ use crate::institutions::admins::chain_roles::{
 use super::chain_read::{fetch_active_proposal_ids, fetch_representative_ballots, BallotKey};
 use super::model::{ActiveProposalView, DisplayBoard, SeatView};
 
-/// 立法提案种类判别式(对齐链端 votingengine `PROPOSAL_KIND_LEGISLATION`)。
+/// 立法提案种类判别式(对齐链端 votebase `PROPOSAL_KIND_LEGISLATION`)。
 const PROPOSAL_KIND_LEGISLATION: u8 = 2;
 
 /// 装配本节点机构的大屏看板:名册 + 活跃立法提案(逐席投票)。

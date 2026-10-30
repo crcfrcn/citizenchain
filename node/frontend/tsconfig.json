@@ -17,30 +17,10 @@
     "jsx": "react-jsx",
     "strict": true,
     "paths": {
-      "*": [
-        "./node_modules/@types/*",
-        "./node_modules/*",
-        "../../target/node_modules/@types/*",
-        "../../target/node_modules/*"
-      ],
       "@gmb/scanner-react": [
         "../../crates/scanner/src/index.ts"
-      ],
-      "vite": [
-        "./node_modules/vite/dist/node/index.d.ts",
-        "../../target/node_modules/vite/dist/node/index.d.ts"
-      ],
-      "@vitejs/plugin-react": [
-        "./node_modules/@vitejs/plugin-react/dist/index.d.ts",
-        "../../target/node_modules/@vitejs/plugin-react/dist/index.d.ts"
       ]
     },
-    "typeRoots": [
-      "./node_modules/@types",
-      "./node_modules",
-      "../../target/node_modules/@types",
-      "../../target/node_modules"
-    ],
     "types": [
       "node",
       "react",
@@ -54,7 +34,6 @@
   ],
   "exclude": [
     "dist",
-    "node_modules",
-    "onchain/transfer.test.tsx"
+    "node_modules"
   ]
 }

@@ -1,4 +1,6 @@
 [package]
+# 测试源统一归tests；独立目标只显式注册，避免重复发现。
+autotests = false
 name = "adminbase"
 edition.workspace = true
 version.workspace = true
@@ -28,6 +30,6 @@ std = [
 try-runtime = []
 runtime-benchmarks = []
 
-# 单源码库直接归属模块根，逻辑crate及pallet路径保持。
+# 库入口归src，模块按真实职责平铺，测试唯一归同级tests。
 [lib]
-path = "lib.rs"
+path = "src/lib.rs"

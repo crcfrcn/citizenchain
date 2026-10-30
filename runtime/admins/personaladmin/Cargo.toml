@@ -1,4 +1,6 @@
 [package]
+# 测试源统一归tests；独立目标只显式注册，避免重复发现。
+autotests = false
 name = "personaladmin"  # 个人多签管理员
 edition.workspace = true
 version.workspace = true
@@ -7,6 +9,9 @@ repository.workspace = true
 license = "MIT"
 
 [dependencies]
+# 仅基准夹具装配真实依赖，不进入普通生产特性。
+internalvote = { path = "../../votingengine/internalvote", default-features = false, optional = true }
+
 codec = { workspace = true }
 scale-info = { workspace = true }
 frame-support = { workspace = true }
@@ -17,17 +22,22 @@ sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
 adminbase = { path = "../adminbase", default-features = false }
-votingengine = { path = "../../votingengine", default-features = false }
+votebase = { path = "../../votingengine/votebase", default-features = false }
 
 [features]
 default = ["std"]
 runtime-benchmarks = [
+    "dep:internalvote",
+    "internalvote/runtime-benchmarks",
+    "votebase/runtime-benchmarks",
     "frame-benchmarking/runtime-benchmarks",
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
 ]
 try-runtime = []
 std = [
+    "internalvote?/std",
+
     "codec/std",
     "scale-info/std",
     "frame-benchmarking?/std",
@@ -38,7 +48,7 @@ std = [
     "sp-runtime/std",
     "sp-std/std",
     "adminbase/std",
-    "votingengine/std",
+    "votebase/std",
 ]
 
 [dev-dependencies]

@@ -1,1 +1,0 @@
-export { OtherTabsSection } from './OtherTabsSection';

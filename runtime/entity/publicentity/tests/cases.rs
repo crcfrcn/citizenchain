@@ -54,10 +54,10 @@ fn create_cgov(tag: &str) -> pallet::CidNumberOf<Test> {
     let institution_code = code_bytes("CGOV");
     // 测试机构均非 UNIN，无父级可传。
     let protocol_accounts =
-        crate::institution::accounts::build_required_protocol_accounts::<Test>(&cid, None)
+        crate::tests::accounts::build_required_protocol_accounts::<Test>(&cid, None)
             .expect("测试协议账户必须可构造");
     let (created_accounts, _, _, _) =
-        crate::institution::accounts::validate_initial_accounts::<Test>(
+        crate::tests::accounts::validate_initial_accounts::<Test>(
             &cid,
             &protocol_accounts,
             None,
@@ -604,7 +604,7 @@ fn duplicate_add_proposal_is_rejected_while_pending() {
 }
 
 #[test]
-fn rejected_add_is_cleaned_only_by_votingengine_callback() {
+fn rejected_add_is_cleaned_only_by_votebase_callback() {
     new_test_ext().execute_with(|| {
         let cid = create_cgov("add-rejected");
         grant_close_role(&cid);
@@ -621,11 +621,11 @@ fn rejected_add_is_cleaned_only_by_votingengine_callback() {
         );
 
         assert_eq!(
-            <crate::InternalVoteExecutor<Test> as votingengine::InternalVoteResultCallback>::on_internal_vote_finalized(
+            <crate::InternalVoteExecutor<Test> as votebase::InternalVoteResultCallback>::on_internal_vote_finalized(
                 proposal_id,
                 false,
             ),
-            Ok(votingengine::ProposalExecutionOutcome::Executed)
+            Ok(votebase::ProposalExecutionOutcome::Executed)
         );
         // 否决由投票引擎回调清 Pending,账户不落库。
         assert!(!pallet::InstitutionPendingAdd::<Test>::contains_key(&cid));
@@ -738,7 +738,7 @@ fn approved_close_removes_only_custom_account() {
 }
 
 #[test]
-fn rejected_close_is_cleaned_only_by_votingengine_callback() {
+fn rejected_close_is_cleaned_only_by_votebase_callback() {
     new_test_ext().execute_with(|| {
         let cid = create_cgov_with_custom("close-rejected");
         let custom = account_of(&cid, CUSTOM_ACCOUNT_NAME);
@@ -756,11 +756,11 @@ fn rejected_close_is_cleaned_only_by_votingengine_callback() {
         );
 
         assert_eq!(
-            <crate::InternalVoteExecutor<Test> as votingengine::InternalVoteResultCallback>::on_internal_vote_finalized(
+            <crate::InternalVoteExecutor<Test> as votebase::InternalVoteResultCallback>::on_internal_vote_finalized(
                 proposal_id,
                 false,
             ),
-            Ok(votingengine::ProposalExecutionOutcome::Executed)
+            Ok(votebase::ProposalExecutionOutcome::Executed)
         );
         assert!(!pallet::InstitutionPendingClose::<Test>::contains_key(
             &custom

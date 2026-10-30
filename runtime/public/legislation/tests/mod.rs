@@ -2,7 +2,7 @@
 
 //! 立法院模块第1步单测的 mock runtime。
 //!
-//! legislation 业务壳通过 `votingengine::Config` 复用投票引擎核心,
+//! legislation 业务壳通过 `votebase::Config` 复用投票引擎核心,
 //! 通过自身 `Config::LegislationVoteEngine` 接立法投票引擎(第1步装 `()`)。
 //! mock 里:System + VotingEngine + InternalVote(供引擎 finalizer)+ LegislationYuan,
 //! LegislationVoteEngine 装 `()`,InternalAdminProvider 用 TestInternalAdminProvider。
@@ -41,7 +41,7 @@ mod runtime {
     pub type System = frame_system;
 
     #[runtime::pallet_index(1)]
-    pub type VotingEngine = votingengine;
+    pub type VotingEngine = votebase;
 
     #[runtime::pallet_index(3)]
     pub type Timestamp = pallet_timestamp;
@@ -80,18 +80,18 @@ pub fn outsider() -> AccountId32 {
 pub const OWNER_CODE: InstitutionCode = *b"NRP\0";
 
 pub struct TestCitizenIdentityReader;
-impl votingengine::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         _who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         None
     }
 
     fn candidate_subject(
         _who: &AccountId32,
-        _scope: &votingengine::PopulationScope,
-    ) -> Option<votingengine::CitizenSubject<AccountId32>> {
+        _scope: &votebase::PopulationScope,
+    ) -> Option<votebase::CitizenSubject<AccountId32>> {
         None
     }
 }
@@ -104,7 +104,7 @@ const PROPOSER_ROLE: &[u8] = b"LAW_PROPOSER";
 const VOTER_ROLE: &[u8] = b"LAW_VOTER";
 
 /// legislator() 是测试发起机构 CID 的唯一管理员；其它一律不是。
-impl votingengine::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -116,7 +116,7 @@ impl votingengine::InternalAdminProvider<AccountId32> for TestInternalAdminProvi
     }
 }
 
-impl votingengine::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
+impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         *who == legislator()
             && role_code == PROPOSER_ROLE
@@ -217,7 +217,7 @@ impl TestInstitutionCidQuery {
         .into_bytes()
     }
 
-    fn bounded_cid(code: InstitutionCode) -> votingengine::types::CidNumber {
+    fn bounded_cid(code: InstitutionCode) -> votebase::types::CidNumber {
         Self::cid(code).try_into().expect("test CID should fit")
     }
 
@@ -226,8 +226,8 @@ impl TestInstitutionCidQuery {
     }
 }
 
-impl entitybase::InstitutionCidQuery<votingengine::types::CidNumber> for TestInstitutionCidQuery {
-    fn cid_exists(cid_number: &votingengine::types::CidNumber) -> bool {
+impl entitybase::InstitutionCidQuery<votebase::types::CidNumber> for TestInstitutionCidQuery {
+    fn cid_exists(cid_number: &votebase::types::CidNumber) -> bool {
         [
             *b"NRP\0", *b"NSN\0", *b"PRS\0", *b"NLG\0", *b"CSLF", *b"CLEG", *b"CGOV", *b"CEDU",
         ]
@@ -243,14 +243,14 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-impl votingengine::Config for Test {
+impl votebase::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
-    type MaxAutoFinalizeWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxExecutionWeightPerBlock = votingengine::BlockWeightFraction<Test, 4>;
-    type MaxCleanupWeightPerBlock = votingengine::BlockWeightFraction<Test, 8>;
+    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
+    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Test, 8>;
     type MaxProposalsPerExpiry = ConstU32<128>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;
@@ -405,18 +405,18 @@ pub fn houses() -> Houses {
 // 国家行政签署机构(法定代表人=签署人)。
 pub const EXEC_CODE: InstitutionCode = *b"PRS\0";
 /// 提案机构 CID；legislator() 是其管理员。
-pub fn actor_cid_number() -> votingengine::types::CidNumber {
+pub fn actor_cid_number() -> votebase::types::CidNumber {
     TestInstitutionCidQuery::bounded_cid(OWNER_CODE)
 }
-pub fn proposer_role_code() -> votingengine::types::RoleCode {
+pub fn proposer_role_code() -> votebase::types::RoleCode {
     PROPOSER_ROLE.to_vec().try_into().expect("test role fits")
 }
 /// 行政签署机构 CID。
-pub fn executive_cid_number() -> votingengine::types::CidNumber {
+pub fn executive_cid_number() -> votebase::types::CidNumber {
     TestInstitutionCidQuery::bounded_cid(EXEC_CODE)
 }
 
-pub fn legislature_cid_number() -> Option<votingengine::types::CidNumber> {
+pub fn legislature_cid_number() -> Option<votebase::types::CidNumber> {
     Some(TestInstitutionCidQuery::bounded_cid(*b"NLG\0"))
 }
 
@@ -425,15 +425,15 @@ pub fn municipal_houses() -> Houses {
         .expect("municipal houses within bound")
 }
 
-pub fn municipal_actor_cid_number() -> votingengine::types::CidNumber {
+pub fn municipal_actor_cid_number() -> votebase::types::CidNumber {
     TestInstitutionCidQuery::bounded_cid(*b"CSLF")
 }
 
-pub fn municipal_education_actor_cid_number() -> votingengine::types::CidNumber {
+pub fn municipal_education_actor_cid_number() -> votebase::types::CidNumber {
     TestInstitutionCidQuery::bounded_cid(*b"CEDU")
 }
 
-pub fn municipal_executive_cid_number() -> votingengine::types::CidNumber {
+pub fn municipal_executive_cid_number() -> votebase::types::CidNumber {
     TestInstitutionCidQuery::bounded_cid(*b"CGOV")
 }
 
@@ -487,3 +487,5 @@ pub use crate::pallet::{
 pub type Lib = crate::pallet::Pallet<Test>;
 
 mod cases;
+
+mod performance;

@@ -1,4 +1,6 @@
 [package]
+# 测试源统一归tests；独立目标只显式注册，避免重复发现。
+autotests = false
 name = "election" # 公民选举模块：当前仅占位
 edition.workspace = true
 version.workspace = true
@@ -30,6 +32,6 @@ try-runtime = ["frame-support/try-runtime", "frame-system/try-runtime"]
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 
-# 单源码库直接归属模块根，逻辑crate及pallet路径保持。
+# 库入口归src，原FRAME定义独立成文件，测试唯一归同级tests。
 [lib]
-path = "lib.rs"
+path = "src/lib.rs"

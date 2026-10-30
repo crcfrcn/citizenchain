@@ -1,12 +1,12 @@
+import { sanitizeError } from "../client/tauri";
+import { accountIdToSs58 } from "../client/ss58";
+import { CitizenSignaturePanel } from "../desktop/CitizenSignaturePanel";
+import { AddressScanModal } from "../desktop/AddressScanModal";
+import { multisigTransferApi as api } from "./api";
+import type { AdminSignerMatch, VoteSignRequestResult } from "./types";
 import scanIcon from "../../../icons/scan.svg?url";
 // 安全基金转账提案页面：表单 + QR 签名流程。
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { sanitizeError } from '../tauri';
-import { accountIdToSs58 } from '../shared/ss58';
-import { CitizenSignaturePanel } from '../protocol/CitizenSignaturePanel';
-import { AddressScanModal } from '../protocol/AddressScanModal';
-import { multisigTransferApi as api } from './api';
-import type { AdminSignerMatch, VoteSignRequestResult } from './types';
 
 type Props = {
   actorCidNumber: string;

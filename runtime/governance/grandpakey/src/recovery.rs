@@ -2,7 +2,7 @@
 
 use frame_support::ensure;
 use sp_std::vec::Vec;
-use votingengine::types::{
+use votebase::types::{
     AuthorizationSubject, BusinessActionId, RoleSubject, VotePlanOf, VotingEngineKind,
 };
 
@@ -48,9 +48,9 @@ impl<T: Config> Pallet<T> {
         .map(|role| {
             Ok(AuthorizationSubject::Institution(RoleSubject {
                 cid_number: CidNumber::try_from(role.cid_number)
-                    .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                    .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                 role_code: RoleCode::try_from(role.role_code)
-                    .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                    .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
             }))
         })
         .collect::<Result<Vec<_>, sp_runtime::DispatchError>>()?;
@@ -62,7 +62,7 @@ impl<T: Config> Pallet<T> {
         > = crate::MODULE_TAG
             .to_vec()
             .try_into()
-            .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?;
+            .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
         VotePlanOf::<T::AccountId>::try_new(
             BusinessActionId {
                 module_tag: owner.clone(),
@@ -71,15 +71,15 @@ impl<T: Config> Pallet<T> {
             owner,
             AuthorizationSubject::Institution(RoleSubject {
                 cid_number: CidNumber::try_from(actor_cid_number.to_vec())
-                    .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                    .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
                 role_code: RoleCode::try_from(proposer_role_code.to_vec())
-                    .map_err(|_| votingengine::Error::<T>::InvalidVotePlan)?,
+                    .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
             }),
             voter_subjects,
             VotingEngineKind::Internal,
             sp_crypto_hashing::blake2_256(encoded_action),
         )
-        .map_err(|_| votingengine::Error::<T>::InvalidVotePlan.into())
+        .map_err(|_| votebase::Error::<T>::InvalidVotePlan.into())
     }
 
     pub(crate) fn authorize_routine_rotation(

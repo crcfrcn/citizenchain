@@ -1,0 +1,61 @@
+[package]
+name = "nodedesktop"
+description = "CitizenChain nodedesktop"
+publish = false
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+autotests = false
+build = "../build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+blake2b_simd = "1"
+bs58 = "=0.5.1"
+codec = { workspace = true, default-features = true }
+futures = { workspace = true }
+hex = "=0.4.3"
+jsonrpsee = { workspace = true }
+libc = "0.2"
+log = { workspace = true, default-features = true }
+rand = { workspace = true, default-features = true }
+rcgen = { version = "=0.13.2", default-features = false, features = ["ring"] }
+reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "json", "query", "rustls"] }
+runtime = { workspace = true }
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std"] }
+sc-client-api = { workspace = true, default-features = true }
+sc-rpc-api = { workspace = true }
+sc-rpc-server = { workspace = true }
+sc-transaction-pool-api = { workspace = true, default-features = true }
+serde_json = { workspace = true, default-features = true }
+sp-api = { workspace = true, default-features = true }
+sp-block-builder = { workspace = true, default-features = true }
+sp-blockchain = { workspace = true, default-features = true }
+sp-crypto-hashing = { workspace = true, default-features = true }
+sp-keystore = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+substrate-frame-rpc-system = { workspace = true, default-features = true }
+tauri = { version = "=2.11.5", features = [] }
+thiserror = { workspace = true }
+tokio = { workspace = true, default-features = true, features = ["time"] }
+tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring"] }
+tower = { version = "=0.4.13", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors"] }
+
+[dev-dependencies]
+nodeclient = { path = "../client" }
+
+[build-dependencies]
+serde_json = { workspace = true, default-features = true }
+json-patch = "3"
+tauri-utils = "=2.9.3"
+substrate-build-script-utils = { workspace = true, default-features = true }
+tauri-build = { version = "=2.6.3", features = [] }
+
+[features]
+test-support = []

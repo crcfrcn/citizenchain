@@ -1,10 +1,11 @@
-import { accountIdToSs58 } from '../shared/ss58';
+import { accountIdToSs58 } from "../client/ss58";
+import { sanitizeError } from "../client/tauri";
+import { CitizenSignaturePanel } from "../desktop/CitizenSignaturePanel";
+import { transactionApi as api } from "./api";
+import { calculateTransferFeeYuan } from "./fee";
+import type { SignMode, TransferSignRequestResult, Wallet } from "./types";
+
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { sanitizeError } from '../tauri';
-import { CitizenSignaturePanel } from '../protocol/CitizenSignaturePanel';
-import { transactionApi as api } from './api';
-import { calculateTransferFeeYuan } from './fee';
-import type { SignMode, TransferSignRequestResult, Wallet } from './types';
 
 type Props = {
   wallet: Wallet;

@@ -1,0 +1,9 @@
+import {beforeEach, expect, it, vi} from 'vitest';
+import {multisigTransferApi} from '../multisig/api';
+const mocks=vi.hoisted(()=>({invoke:vi.fn()}));
+vi.mock('../client/tauri',()=>({invoke:mocks.invoke}));
+const api=multisigTransferApi as unknown as Record<string,(...args:unknown[])=>Promise<unknown>>;
+beforeEach(()=>mocks.invoke.mockReset());
+it("buildMultisigTransferRequest保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["buildMultisigTransferRequest"](...["public","44","role","account","beneficiary",1.11,"备注"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("build_multisig_transfer_request", {"signerPublicKey":"public","actorCidNumber":"44","proposerRoleCode":"role","institutionAccountId":"account","beneficiarySs58Address":"beneficiary","amountYuan":1.11,"remark":"备注"}); });
+it("submitMultisigTransfer保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["submitMultisigTransfer"](...["request","public","digest","44","role","account","beneficiary",1.11,"备注",3,9,"response"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("submit_multisig_transfer", {"requestId":"request","expectedPublicKey":"public","expectedPayloadHash":"digest","actorCidNumber":"44","proposerRoleCode":"role","institutionAccountId":"account","beneficiarySs58Address":"beneficiary","amountYuan":1.11,"remark":"备注","signNonce":3,"signBlockNumber":9,"responseJson":"response"}); });
+it('IPC失败保留拒绝状态且不自动重放', async()=>{const failure=new Error('合成失败');mocks.invoke.mockRejectedValueOnce(failure);await expect(api["buildMultisigTransferRequest"](...["public","44","role","account","beneficiary",1.11,"备注"])).rejects.toBe(failure);expect(mocks.invoke).toHaveBeenCalledOnce();});

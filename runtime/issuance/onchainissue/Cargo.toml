@@ -1,4 +1,6 @@
 [package]
+# 测试源统一归tests；独立目标只显式注册，避免重复发现。
+autotests = false
 name = "onchainissue"  # 链上发行代币模块(Plain FT)
 edition.workspace = true
 version.workspace = true
@@ -17,7 +19,7 @@ pallet-assets = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
 sp-io = { workspace = true }
-votingengine = { path = "../../votingengine", default-features = false }
+votebase = { path = "../../votingengine/votebase", default-features = false }
 primitives = { path = "../../primitives", default-features = false }
 entitybase = { path = "../../entity/entitybase", default-features = false }
 
@@ -34,18 +36,18 @@ std = [
     "sp-runtime/std",
     "sp-std/std",
     "sp-io/std",
-    "votingengine/std",
+    "votebase/std",
     "primitives/std",
     "entitybase/std",
 ]
 runtime-benchmarks = [
-    # onchainissue benchmark 依赖 votingengine + balances + assets 的 benchmark 配置,需同步传播。
+    # 基准特性向既有依赖传播；当前未实现业务不登记可执行基准。
     "frame-benchmarking/runtime-benchmarks",
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "pallet-balances/runtime-benchmarks",
     "pallet-assets/runtime-benchmarks",
-    "votingengine/runtime-benchmarks",
+    "votebase/runtime-benchmarks",
 ]
 try-runtime = [
     # try-runtime feature 必须传播给所有 frame / pallet 依赖,
@@ -54,7 +56,7 @@ try-runtime = [
     "frame-system/try-runtime",
     "pallet-balances/try-runtime",
     "pallet-assets/try-runtime",
-    "votingengine/try-runtime",
+    "votebase/try-runtime",
     "sp-runtime/try-runtime",
 ]
 

@@ -24,7 +24,7 @@ use crate::pallet::{
 };
 use crate::types::{PersonalCloseAction, PersonalCreateAction, PersonalStatus};
 use crate::BalanceOf;
-use votingengine::InternalVoteEngine;
+use votebase::InternalVoteEngine;
 
 /// 执行创建：unreserve + 划转 + 扣手续费 + 激活 PersonalAccounts。
 ///
@@ -39,7 +39,7 @@ pub(crate) fn execute_create_with_finalizer<T: Config>(
         proposal_id,
         crate::MODULE_TAG,
         action.account_id.clone(),
-        votingengine::STATUS_PASSED,
+        votebase::STATUS_PASSED,
         true,
     )?;
     let fee = action.fee;
@@ -67,7 +67,7 @@ pub(crate) fn execute_create_with_finalizer<T: Config>(
             account_id.status = PersonalStatus::Active;
         }
     });
-    let institution_code = votingengine::types::PMUL;
+    let institution_code = votebase::types::PMUL;
     let admins_len = Pallet::<T>::active_account_admins_len(institution_code, account_id.clone())
         .ok_or(Error::<T>::PersonalNotFound)?;
     let threshold = <T as Config>::InternalVoteEngine::configured_personal_threshold(
@@ -99,7 +99,7 @@ pub(crate) fn execute_close_with_finalizer<T: Config>(
         proposal_id,
         crate::MODULE_TAG,
         action.account_id.clone(),
-        votingengine::STATUS_PASSED,
+        votebase::STATUS_PASSED,
         true,
     )?;
     ensure!(
@@ -114,7 +114,7 @@ pub(crate) fn execute_close_with_finalizer<T: Config>(
         Error::<T>::ProtectedSource
     );
     let account_id = action.account_id.clone();
-    let institution_code = votingengine::types::PMUL;
+    let institution_code = votebase::types::PMUL;
     let admins_len = Pallet::<T>::active_account_admins_len(institution_code, account_id.clone())
         .ok_or(Error::<T>::PersonalNotFound)?;
     let threshold =

@@ -1,3 +1,6 @@
+import { sanitizeError } from "../client/tauri";
+import { miningApi as api } from "./api";
+import type { NetworkOverview } from "./types";
 // 挖矿页内嵌的网络统计面板：治理节点、在线节点两张并排卡片。
 // 位置：由 MiningDashboardSection 注入在收益看板与出块记录之间。
 // 设计决策：
@@ -6,9 +9,6 @@
 // 数据轮询：独立 5 秒间隔，与 MiningDashboardSection 的 10 秒收益轮询解耦，
 // 因为网络拓扑变化频率高于收益刷新频率。
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sanitizeError } from '../tauri';
-import { miningApi as api } from './api';
-import type { NetworkOverview } from './types';
 
 export function NetworkInlineSection() {
   const [network, setNetwork] = useState<NetworkOverview>({

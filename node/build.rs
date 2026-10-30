@@ -43,23 +43,40 @@ fn path_within(path: &Path, root: &Path) -> bool {
 
 fn local_build_work(original: &Path, task: &Path, platform: &str) -> bool {
     platform == "macos"
-        && task.parent().is_some_and(|parent| same_path(parent, &original.join("target/build")))
-        && task.file_name().and_then(|name| name.to_str())
+        && task
+            .parent()
+            .is_some_and(|parent| same_path(parent, &original.join("target/build")))
+        && task
+            .file_name()
+            .and_then(|name| name.to_str())
             .and_then(|name| name.strip_prefix("local-"))
-            .is_some_and(|suffix| suffix.len() == 6 && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+            .is_some_and(|suffix| {
+                suffix.len() == 6 && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric())
+            })
 }
-
 fn main() {
-    generate_cargo_keys();
-    rerun_if_git_head_changed();
-
-    build_tauri().expect("Tauri 构建失败");
+    match env::var("CARGO_PKG_NAME").as_deref() {
+        Ok("node") => {
+            generate_cargo_keys();
+            rerun_if_git_head_changed();
+            build_tauri().expect("Tauri 构建失败");
+        }
+        Ok("nodedesktop") => {
+            let (source, output) = build_context().expect("节点构建现场校验失败");
+            build_rpc_assets(&source, &output).expect("接入页构建失败");
+        }
+        _ => panic!("未知节点构建包"),
+    }
 }
 
-// tauri-build 固定向当前目录写 gen/schemas；只在本仓 target 内的规范 OUT_DIR 中运行它。
-// Rust 源码和 generate_context! 仍读取原始工程，权限直接来自 tauri.conf.json。
-fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
-    let source = env::current_dir()?;
+// 两个构建目标共用原有源码及输出归属校验，各自只生成所属OUT_DIR中的资源。
+fn build_context() -> Result<(std::path::PathBuf, std::path::PathBuf), Box<dyn std::error::Error>> {
+    let current = env::current_dir()?;
+    let source = if env::var("CARGO_PKG_NAME").as_deref() == Ok("nodedesktop") {
+        current.parent().ok_or("缺少节点工程根目录")?.to_path_buf()
+    } else {
+        current
+    };
     let output = std::path::PathBuf::from(env::var_os("OUT_DIR").ok_or("缺少 OUT_DIR")?);
     let work = output.join("tauri");
     let repository = source.parent().ok_or("缺少仓库根目录")?.canonicalize()?;
@@ -72,9 +89,16 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
         (Some(original), Some(task)) => {
             let original = std::path::PathBuf::from(original).canonicalize()?;
             let task = std::path::PathBuf::from(task).canonicalize()?;
-            if !platforms.iter().any(|platform| same_path(&task, &original.join("target/build").join(platform)))
-                && !local_build_work(&original, &task, &env::var("CITIZENCHAIN_BUILD_PLATFORM").unwrap_or_default())
-                && !same_path(&task, &original.join("target/test")) {
+            if !platforms
+                .iter()
+                .any(|platform| same_path(&task, &original.join("target/build").join(platform)))
+                && !local_build_work(
+                    &original,
+                    &task,
+                    &env::var("CITIZENCHAIN_BUILD_PLATFORM").unwrap_or_default(),
+                )
+                && !same_path(&task, &original.join("target/test"))
+            {
                 return Err("Tauri 任务只能使用公民链固定工作根".into());
             }
             if !same_path(&repository, &original) && !same_path(&repository, &task.join("source")) {
@@ -85,7 +109,11 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
         (None, None) => {
             let build = repository.join("target/build");
             let test = repository.join("target/test");
-            if let Some(platform_work) = platforms.iter().map(|platform| build.join(platform)).find(|work| path_within(&output, work)) {
+            if let Some(platform_work) = platforms
+                .iter()
+                .map(|platform| build.join(platform))
+                .find(|work| path_within(&output, work))
+            {
                 platform_work
             } else if path_within(&output, &test) {
                 test
@@ -102,7 +130,14 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("Tauri 生成目录必须是公民链 target 内的规范路径".into());
     }
-    build_rpc_assets(&source, &output)?;
+    Ok((source, output))
+}
+
+// tauri-build 固定向当前目录写 gen/schemas；只在本仓 target 内的规范 OUT_DIR 中运行它。
+// Rust 源码和 generate_context! 仍读取原始工程，权限直接来自 tauri.conf.json。
+fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
+    let (source, output) = build_context()?;
+    let work = output.join("tauri");
     let target = tauri_utils::platform::Target::from_triple(&env::var("TARGET")?);
     let (mut config, paths) = tauri_utils::config::parse::read_from(target, &source)?;
     for path in paths {
@@ -173,7 +208,7 @@ fn build_tauri() -> Result<(), Box<dyn std::error::Error>> {
 
 // 接入页只从唯一 JS 真源生成到已核对的 OUT_DIR，正式节点不依赖外置静态目录。
 fn build_rpc_assets(source: &Path, output: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let generator = source.join("frontend/metamask.mjs");
+    let generator = source.join("frontend/desktop/metamask.mjs");
     let icon = source.join("../icons/gmb.png");
     println!("cargo:rerun-if-changed={}", generator.display());
     println!("cargo:rerun-if-changed={}", icon.display());
@@ -219,67 +254,6 @@ fn write_if_changed(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     }
     Ok(())
 }
-
 #[cfg(test)]
-mod path_tests {
-    use super::{comparison_path, path_within, same_path, local_build_work};
-    use std::path::{Path, PathBuf};
-
-    #[test]
-    fn comparison_keeps_directory_boundaries_and_different_targets() {
-        let root = PathBuf::from(if cfg!(windows) { r"C:\repo\target\build\windows" } else { "/repo/target/build/windows" });
-        assert!(path_within(&root.join("work/out"), &root));
-        assert!(!path_within(&root.with_file_name("windows-other").join("out"), &root));
-        assert!(!same_path(&root.join("work/../out"), &root.join("out")));
-        assert!(!same_path(&root.join("link/out"), &root.join("real/out")));
-    }
-
-    #[test]
-    fn local_macos_work_is_limited_to_the_compiler_generated_directory() {
-        let root = PathBuf::from(if cfg!(windows) { r"C:\repo" } else { "/repo" });
-        let build = root.join("target/build");
-        assert!(local_build_work(&root, &build.join("local-Abc123"), "macos"));
-        assert!(!local_build_work(&root, &build.join("local-Abc123"), "windows"));
-        assert!(!local_build_work(&root, &build.join("local-Abc123/nested"), "macos"));
-        assert!(!local_build_work(&root, &root.join("target/build-other/local-Abc123"), "macos"));
-        for name in ["local-", "local-short", "local-toolong", "local-中文汉字", "other-Abc123"] {
-            assert!(!local_build_work(&root, &build.join(name), "macos"));
-        }
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_disk_and_unc_prefixes_compare_without_relaxing_ownership() {
-        assert!(same_path(Path::new(r"C:\repo\target\out"), Path::new(r"\\?\C:\repo\target\out")));
-        assert!(same_path(Path::new(r"c:\repo\target\out"), Path::new(r"\\?\C:\repo\target\out")));
-        assert!(same_path(Path::new(r"\\server\share\repo\out"), Path::new(r"\\?\UNC\server\share\repo\out")));
-        assert!(path_within(Path::new(r"\\?\C:\repo\target\out"), Path::new(r"C:\repo\target")));
-        assert!(!same_path(Path::new(r"D:\repo\out"), Path::new(r"\\?\C:\repo\out")));
-        assert!(!same_path(Path::new(r"C:\repo\out"), Path::new(r"\\.\C:\repo\out")));
-        assert!(!path_within(Path::new(r"\\?\C:\repo\target-other\out"), Path::new(r"C:\repo\target")));
-        assert!(!same_path(Path::new(r"C:\repo\link\out"), Path::new(r"\\?\C:\repo\real\out")));
-        assert!(!Path::new(r"C:repo\out").is_absolute());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_comparison_preserves_native_path_code_units() {
-        use std::os::windows::ffi::OsStringExt;
-        let raw = [67, 58, 92, 0xd800];
-        let mut extended = vec![92, 92, 63, 92];
-        extended.extend_from_slice(&raw);
-        let plain = PathBuf::from(std::ffi::OsString::from_wide(&raw));
-        let extended = PathBuf::from(std::ffi::OsString::from_wide(&extended));
-        let other = PathBuf::from(std::ffi::OsString::from_wide(&[67, 58, 92, 0xd801]));
-        assert!(same_path(&plain, &extended));
-        assert!(!same_path(&plain, &other));
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    fn non_windows_paths_keep_the_original_representation() {
-        let path = Path::new(r"\\?\C:\repo\out");
-        assert_eq!(comparison_path(path), path);
-        assert!(!same_path(path, Path::new(r"C:\repo\out")));
-    }
-}
+#[path = "src/tests/build.rs"]
+mod path_tests;

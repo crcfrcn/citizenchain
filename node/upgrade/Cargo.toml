@@ -1,0 +1,34 @@
+[package]
+name = "nodeupgrade"
+description = "CitizenChain nodeupgrade"
+publish = false
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { workspace = true, default-features = true }
+difficulty = { path = "../../runtime/misc/difficulty", default-features = true }
+entitybase = { path = "../../runtime/entity/entitybase", default-features = true }
+hex = "=0.4.3"
+identity = { path = "../../runtime/misc/identity", default-features = true }
+nodeclient = { path = "../client" }
+nodecontrol = { path = "../control" }
+nodedesktop = { path = "../desktop" }
+primitives = { path = "../../runtime/primitives" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, default-features = true }
+sp-crypto-hashing = { workspace = true, default-features = true }
+tauri = { version = "=2.11.5", features = [] }
+
+[dev-dependencies]
+runtime = { workspace = true }
+
+[features]

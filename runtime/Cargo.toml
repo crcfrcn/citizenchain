@@ -80,7 +80,7 @@ privateentity = { path = "entity/privateentity", default-features = false }
 personalentity = { path = "entity/personalentity", default-features = false }
 personaladmin = { path = "admins/personaladmin", default-features = false }
 resolutionissue = { path = "issuance/resolutionissue", default-features = false }
-votingengine = { path = "votingengine", default-features = false }
+votebase = { path = "votingengine/votebase", default-features = false }
 internalvote = { path = "votingengine/internalvote", default-features = false }
 jointvote = { path = "votingengine/jointvote", default-features = false }
 electionvote = { path = "votingengine/electionvote", default-features = false }
@@ -131,7 +131,7 @@ std = [
 	"personalentity/std",
 	"personaladmin/std",
 	"resolutionissue/std",
-	"votingengine/std",
+	"votebase/std",
 	"internalvote/std",
 	"jointvote/std",
 	"electionvote/std",
@@ -194,7 +194,7 @@ runtime-benchmarks = [
 	"personalentity/runtime-benchmarks",
 	"personaladmin/runtime-benchmarks",
 	"resolutionissue/runtime-benchmarks",
-	"votingengine/runtime-benchmarks",
+	"votebase/runtime-benchmarks",
 	"internalvote/runtime-benchmarks",
 	"jointvote/runtime-benchmarks",
 	"electionvote/runtime-benchmarks",
@@ -235,7 +235,7 @@ try-runtime = [
 	"personalentity/try-runtime",
 	"personaladmin/try-runtime",
 	"resolutionissue/try-runtime",
-	"votingengine/try-runtime",
+	"votebase/try-runtime",
 	"internalvote/try-runtime",
 	"jointvote/try-runtime",
 	"electionvote/try-runtime",
@@ -267,3 +267,8 @@ on-chain-release-build = ["metadata-hash", "sp-api/disable-logging"]
 
 [dev-dependencies]
 ed25519-dalek = "2.2.0"
+
+# 真实节点端到端只注册一次，普通运行明确忽略，完整验收显式执行。
+[[test]]
+name = "e2e"
+path = "tests/e2e.rs"

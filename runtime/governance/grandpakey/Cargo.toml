@@ -1,4 +1,6 @@
 [package]
+# 测试源统一归tests；独立目标只显式注册，避免重复发现。
+autotests = false
 name = "grandpakey"
 edition.workspace = true
 version.workspace = true
@@ -24,7 +26,7 @@ ed25519-dalek = { version = "2.1.1", default-features = false, optional = true }
 
 primitives = { path = "../../primitives", default-features = false }
 entitybase = { path = "../../entity/entitybase", default-features = false }
-votingengine = { path = "../../votingengine", default-features = false }
+votebase = { path = "../../votingengine/votebase", default-features = false }
 
 [dev-dependencies]
 internalvote = { path = "../../votingengine/internalvote", default-features = false }
@@ -35,7 +37,7 @@ try-runtime = [
     "frame-system/try-runtime",
     "pallet-grandpa/try-runtime",
     "sp-runtime/try-runtime",
-    "votingengine/try-runtime",
+    "votebase/try-runtime",
 ]
 std = [
     "codec/std",
@@ -52,7 +54,7 @@ std = [
     "pallet-grandpa/std",
     "primitives/std",
     "entitybase/std",
-    "votingengine/std",
+    "votebase/std",
 ]
 runtime-benchmarks = [
     "dep:ed25519-dalek",

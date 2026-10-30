@@ -1,10 +1,10 @@
+import { sanitizeError } from "../client/tauri";
+import { institutionReadApi } from "./api";
+import type { EligibleClearingBankCandidate } from "./types";
 // "添加清算行"页:输入 cid_number / 关键字 → debounce 自动搜 CID 候选 → 选中即进入下一步。
 // 回车直接选第一个候选,cidNumber 字符串透传,链上判定由 check-multisig 视图统一处理。
 
 import { useEffect, useState } from 'react';
-import { sanitizeError } from '../tauri';
-import { institutionReadApi } from './api';
-import type { EligibleClearingBankCandidate } from './types';
 
 type Props = {
   onBack: () => void;

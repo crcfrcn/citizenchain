@@ -16,6 +16,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 pub mod cleanup;
 pub mod mutual;
@@ -23,7 +24,7 @@ pub mod popular;
 pub mod snapshot;
 pub mod tally;
 #[cfg(test)]
-#[path = "../tests.rs"]
+#[path = "../tests/mod.rs"]
 mod tests;
 pub mod types;
 pub mod weights;
@@ -48,7 +49,7 @@ pub mod pallet {
         DispatchError,
     };
     use sp_std::vec::Vec;
-    use votingengine::InstitutionRoleProvider as _;
+    use votebase::InstitutionRoleProvider as _;
 
     use crate::types::{
         ElectionMeta, ElectionMode, ElectionTally as ElectionTallyData, ElectionVoter,
@@ -60,13 +61,13 @@ pub mod pallet {
 
     pub type MaxElectionCandidatesOf<T> = <T as Config>::MaxElectionCandidates;
     pub type CitizenSubjectOf<T> =
-        votingengine::CitizenSubject<<T as frame_system::Config>::AccountId>;
+        votebase::CitizenSubject<<T as frame_system::Config>::AccountId>;
     pub type PopularElectionVoteOf<T> = PopularElectionVote<<T as frame_system::Config>::AccountId>;
     pub type ElectionVoterOf<T> = ElectionVoter<<T as frame_system::Config>::AccountId>;
     pub type ElectionWinnerOf<T> = ElectionWinner<<T as frame_system::Config>::AccountId>;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votingengine::Config {
+    pub trait Config: frame_system::Config + votebase::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -75,7 +76,7 @@ pub mod pallet {
         type MaxElectionCandidates: Get<u32>;
 
         /// 互选岗位任职读取器；只提供 entity 的有效任职事实，不解释业务权限。
-        type InstitutionRoleProvider: votingengine::InstitutionRoleProvider<Self::AccountId>;
+        type InstitutionRoleProvider: votebase::InstitutionRoleProvider<Self::AccountId>;
 
         /// 选举写票和候选人计票路径的实测权重。
         type WeightInfo: crate::weights::WeightInfo;
@@ -110,7 +111,7 @@ pub mod pallet {
         Blake2_128Concat,
         u64,
         Blake2_128Concat,
-        votingengine::types::CidNumber,
+        votebase::types::CidNumber,
         PopularElectionVoteOf<T>,
         OptionQuery,
     >;
@@ -122,7 +123,7 @@ pub mod pallet {
         Blake2_128Concat,
         u64,
         Blake2_128Concat,
-        votingengine::types::InstitutionVoteTicket<T::AccountId>,
+        votebase::types::InstitutionVoteTicket<T::AccountId>,
         CitizenSubjectOf<T>,
         OptionQuery,
     >;
@@ -134,7 +135,7 @@ pub mod pallet {
         Blake2_128Concat,
         u64,
         Blake2_128Concat,
-        votingengine::types::CidNumber,
+        votebase::types::CidNumber,
         u32,
         ValueQuery,
     >;
@@ -161,8 +162,8 @@ pub mod pallet {
         ElectionCreated {
             proposal_id: u64,
             mode: ElectionMode,
-            actor_cid_number: votingengine::types::CidNumber,
-            role_code: votingengine::types::RoleCode,
+            actor_cid_number: votebase::types::CidNumber,
+            role_code: votebase::types::RoleCode,
             seat_count: u16,
         },
         /// 选民已投票；选民证据和候选人都保存完整授权主体。
@@ -241,7 +242,7 @@ pub mod pallet {
         pub fn cast_mutual_vote(
             origin: OriginFor<T>,
             proposal_id: u64,
-            voter_role_code: votingengine::types::RoleCode,
+            voter_role_code: votebase::types::RoleCode,
             candidate_subject: CitizenSubjectOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -255,46 +256,46 @@ pub mod pallet {
         }
 
         fn resolve_subject_cid_numbers(
-            actor_cid_number: &votingengine::types::CidNumber,
-            vote_plan: &votingengine::types::VotePlanOf<T::AccountId>,
-        ) -> Result<votingengine::types::ProposalSubjectCidNumbers, DispatchError> {
+            actor_cid_number: &votebase::types::CidNumber,
+            vote_plan: &votebase::types::VotePlanOf<T::AccountId>,
+        ) -> Result<votebase::types::ProposalSubjectCidNumbers, DispatchError> {
             let mut raw = Vec::from([actor_cid_number.to_vec()]);
             for subject in &vote_plan.voter_subjects {
-                if let votingengine::types::AuthorizationSubject::Institution(role) = subject {
+                if let votebase::types::AuthorizationSubject::Institution(role) = subject {
                     raw.push(role.cid_number.to_vec());
                 }
             }
-            votingengine::Pallet::<T>::bound_subject_cid_numbers(raw)
+            votebase::Pallet::<T>::bound_subject_cid_numbers(raw)
         }
 
         #[allow(clippy::too_many_arguments)]
         pub(crate) fn do_create_election(
             who: T::AccountId,
-            vote_plan: votingengine::types::VotePlanOf<T::AccountId>,
+            vote_plan: votebase::types::VotePlanOf<T::AccountId>,
             mode: ElectionMode,
-            actor_cid_number: votingengine::types::CidNumber,
-            role_code: votingengine::types::RoleCode,
+            actor_cid_number: votebase::types::CidNumber,
+            role_code: votebase::types::RoleCode,
             seat_count: u16,
             term_start: u32,
             term_end: u32,
-            population_scope: Option<votingengine::PopulationScope>,
+            population_scope: Option<votebase::PopulationScope>,
             candidates: Vec<CitizenSubjectOf<T>>,
         ) -> Result<u64, DispatchError> {
             ensure!(!role_code.is_empty(), Error::<T>::EmptyRoleCode);
             ensure!(seat_count > 0, Error::<T>::InvalidSeatCount);
             ensure!(term_start <= term_end, Error::<T>::InvalidTerm);
-            let actor_code = votingengine::types::institution_code_from_cid_number(
+            let actor_code = votebase::types::institution_code_from_cid_number(
                 core::str::from_utf8(actor_cid_number.as_slice())
                     .map_err(|_| Error::<T>::InvalidInstitutionCid)?,
             )
             .ok_or(Error::<T>::InvalidInstitutionCid)?;
             ensure!(
-                vote_plan.voting_engine == votingengine::types::VotingEngineKind::Election,
+                vote_plan.voting_engine == votebase::types::VotingEngineKind::Election,
                 Error::<T>::InvalidVotePlan
             );
             let proposer_role = match &vote_plan.proposer_subject {
-                votingengine::types::AuthorizationSubject::Institution(role) => role,
-                votingengine::types::AuthorizationSubject::PersonalMultisig(_) => {
+                votebase::types::AuthorizationSubject::Institution(role) => role,
+                votebase::types::AuthorizationSubject::PersonalMultisig(_) => {
                     return Err(Error::<T>::InvalidVotePlan.into())
                 }
             };
@@ -321,12 +322,12 @@ pub mod pallet {
                         !vote_plan.voter_subjects.is_empty()
                             && vote_plan.voter_subjects.iter().all(|subject| matches!(
                                 subject,
-                                votingengine::types::AuthorizationSubject::Institution(role)
+                                votebase::types::AuthorizationSubject::Institution(role)
                                     if role.cid_number == actor_cid_number
                             )),
                         Error::<T>::InvalidVotePlan
                     );
-                    votingengine::PopulationScope::Country
+                    votebase::PopulationScope::Country
                 }
                 _ => return Err(Error::<T>::ElectionScopeMissing.into()),
             };
@@ -342,10 +343,10 @@ pub mod pallet {
             let subject_cid_numbers =
                 Self::resolve_subject_cid_numbers(&actor_cid_number, &vote_plan)?;
             let proposal_owner = vote_plan.proposal_owner.to_vec();
-            let proposal = votingengine::Proposal {
-                kind: votingengine::PROPOSAL_KIND_ELECTION,
+            let proposal = votebase::Proposal {
+                kind: votebase::PROPOSAL_KIND_ELECTION,
                 stage,
-                status: votingengine::STATUS_VOTING,
+                status: votebase::STATUS_VOTING,
                 internal_code: Some(actor_code),
                 actor_cid_number: Some(actor_cid_number.clone()),
                 execution_account_id: None,
@@ -364,22 +365,22 @@ pub mod pallet {
             };
 
             let result = with_transaction(|| {
-                let id = match votingengine::Pallet::<T>::allocate_proposal_id() {
+                let id = match votebase::Pallet::<T>::allocate_proposal_id() {
                     Ok(id) => id,
                     Err(err) => return TransactionOutcome::Rollback(Err(err)),
                 };
                 if let Err(err) =
-                    votingengine::limit::try_add_active_proposals::<T>(proposal.subject_keys(), id)
+                    votebase::limit::try_add_active_proposals::<T>(proposal.subject_keys(), id)
                 {
                     return TransactionOutcome::Rollback(Err(err));
                 }
-                votingengine::pallet::Proposals::<T>::insert(id, proposal);
+                votebase::pallet::Proposals::<T>::insert(id, proposal);
                 ElectionMetaStore::<T>::insert(id, meta);
                 ElectionCandidates::<T>::insert(id, bounded_candidates.clone());
                 ElectionTallyStore::<T>::insert(id, crate::types::ElectionTally::default());
                 if mode == ElectionMode::Mutual {
                     for subject in &vote_plan.voter_subjects {
-                        let votingengine::types::AuthorizationSubject::Institution(role) = subject
+                        let votebase::types::AuthorizationSubject::Institution(role) = subject
                         else {
                             return TransactionOutcome::Rollback(Err(
                                 Error::<T>::InvalidVotePlan.into()
@@ -389,7 +390,7 @@ pub mod pallet {
                             role.cid_number.as_slice(),
                             role.role_code.as_slice(),
                         );
-                        if let Err(err) = votingengine::Pallet::<T>::snapshot_role_voters(
+                        if let Err(err) = votebase::Pallet::<T>::snapshot_role_voters(
                             id,
                             subject.clone(),
                             voters,
@@ -399,7 +400,7 @@ pub mod pallet {
                     }
                 }
                 if let Some(scope) = population_scope.as_ref() {
-                    match votingengine::Pallet::<T>::create_population_snapshot(id, scope) {
+                    match votebase::Pallet::<T>::create_population_snapshot(id, scope) {
                         Ok(0) => {
                             return TransactionOutcome::Rollback(Err(
                                 Error::<T>::EmptyVoterSnapshot.into(),
@@ -410,10 +411,10 @@ pub mod pallet {
                     }
                 }
                 // VotePlan 必须先于 ProposalOwner 绑定；随后登记业务数据时再校验 owner 一致。
-                if let Err(err) = votingengine::Pallet::<T>::bind_vote_plan(id, vote_plan) {
+                if let Err(err) = votebase::Pallet::<T>::bind_vote_plan(id, vote_plan) {
                     return TransactionOutcome::Rollback(Err(err));
                 }
-                if let Err(err) = votingengine::Pallet::<T>::register_proposal_data(
+                if let Err(err) = votebase::Pallet::<T>::register_proposal_data(
                     id,
                     proposal_owner.as_slice(),
                     Vec::new(),
@@ -421,12 +422,12 @@ pub mod pallet {
                 ) {
                     return TransactionOutcome::Rollback(Err(err));
                 }
-                if let Err(err) = votingengine::Pallet::<T>::schedule_proposal_expiry(id, end) {
+                if let Err(err) = votebase::Pallet::<T>::schedule_proposal_expiry(id, end) {
                     return TransactionOutcome::Rollback(Err(err));
                 }
-                votingengine::Pallet::<T>::emit_proposal_created(
+                votebase::Pallet::<T>::emit_proposal_created(
                     id,
-                    votingengine::PROPOSAL_KIND_ELECTION,
+                    votebase::PROPOSAL_KIND_ELECTION,
                     stage,
                     end,
                 );
@@ -446,26 +447,26 @@ pub mod pallet {
             who: T::AccountId,
             proposal_id: u64,
             expected_stage: u8,
-            voter_role_code: Option<votingengine::types::RoleCode>,
+            voter_role_code: Option<votebase::types::RoleCode>,
             candidate_subject: CitizenSubjectOf<T>,
         ) -> DispatchResult {
-            let proposal = votingengine::Pallet::<T>::ensure_open_proposal(proposal_id)?;
+            let proposal = votebase::Pallet::<T>::ensure_open_proposal(proposal_id)?;
             ensure!(
-                proposal.kind == votingengine::PROPOSAL_KIND_ELECTION,
-                votingengine::Error::<T>::InvalidProposalKind
+                proposal.kind == votebase::PROPOSAL_KIND_ELECTION,
+                votebase::Error::<T>::InvalidProposalKind
             );
             ensure!(
                 proposal.stage == expected_stage,
-                votingengine::Error::<T>::InvalidProposalStage
+                votebase::Error::<T>::InvalidProposalStage
             );
             ensure!(
                 Self::candidate_exists(proposal_id, &candidate_subject),
                 Error::<T>::CandidateNotInSnapshot
             );
-            let voter = if expected_stage == votingengine::STAGE_ELECTION_POPULAR {
+            let voter = if expected_stage == votebase::STAGE_ELECTION_POPULAR {
                 ensure!(voter_role_code.is_none(), Error::<T>::VoterNotInSnapshot);
                 let voter_subject =
-                    votingengine::Pallet::<T>::voting_subject_at_population_snapshot(
+                    votebase::Pallet::<T>::voting_subject_at_population_snapshot(
                         proposal_id,
                         &who,
                     )
@@ -475,7 +476,7 @@ pub mod pallet {
                         proposal_id,
                         &voter_subject.cid_number,
                     ),
-                    votingengine::Error::<T>::AlreadyVoted
+                    votebase::Error::<T>::AlreadyVoted
                 );
                 PopularElectionVotesByCid::<T>::insert(
                     proposal_id,
@@ -491,14 +492,14 @@ pub mod pallet {
                 let actor_cid_number = ElectionMetaStore::<T>::get(proposal_id)
                     .ok_or(Error::<T>::ElectionMetaMissing)?
                     .actor_cid_number;
-                let role_subject = votingengine::types::RoleSubject {
+                let role_subject = votebase::types::RoleSubject {
                     cid_number: actor_cid_number,
                     role_code,
                 };
                 let subject =
-                    votingengine::types::AuthorizationSubject::Institution(role_subject.clone());
+                    votebase::types::AuthorizationSubject::Institution(role_subject.clone());
                 ensure!(
-                    votingengine::Pallet::<T>::is_subject_voter_in_snapshot(
+                    votebase::Pallet::<T>::is_subject_voter_in_snapshot(
                         proposal_id,
                         subject.clone(),
                         &who,
@@ -507,15 +508,15 @@ pub mod pallet {
                 );
                 // 票据按【规范账户】防重：换绑前后归并为同一张票，杜绝新旧钱包各投一票。
                 let voter_account_id =
-                    votingengine::Pallet::<T>::resolve_subject_voter(&subject, &who)
+                    votebase::Pallet::<T>::resolve_subject_voter(&subject, &who)
                         .unwrap_or_else(|| who.clone());
-                let ticket = votingengine::types::InstitutionVoteTicket {
+                let ticket = votebase::types::InstitutionVoteTicket {
                     role_subject,
                     voter_account_id,
                 };
                 ensure!(
                     !MutualElectionVotesByTicket::<T>::contains_key(proposal_id, &ticket),
-                    votingengine::Error::<T>::AlreadyVoted
+                    votebase::Error::<T>::AlreadyVoted
                 );
                 MutualElectionVotesByTicket::<T>::insert(proposal_id, &ticket, &candidate_subject);
                 ElectionVoter::Institution(ticket)
@@ -537,15 +538,15 @@ pub mod pallet {
                 candidate_subject,
             });
 
-            let eligible_total = if expected_stage == votingengine::STAGE_ELECTION_POPULAR {
-                votingengine::Pallet::<T>::population_eligible_total_of(proposal_id)
+            let eligible_total = if expected_stage == votebase::STAGE_ELECTION_POPULAR {
+                votebase::Pallet::<T>::population_eligible_total_of(proposal_id)
                     .ok_or(Error::<T>::EmptyVoterSnapshot)?
             } else {
                 let actor_cid_number = ElectionMetaStore::<T>::get(proposal_id)
                     .ok_or(Error::<T>::ElectionMetaMissing)?
                     .actor_cid_number;
                 u64::from(
-                    votingengine::Pallet::<T>::institution_ticket_count(
+                    votebase::Pallet::<T>::institution_ticket_count(
                         proposal_id,
                         actor_cid_number,
                     )
@@ -560,45 +561,45 @@ pub mod pallet {
     }
 }
 
-impl<T: pallet::Config> votingengine::ElectionProposalFinalizer<BlockNumberFor<T>, T::AccountId>
+impl<T: pallet::Config> votebase::ElectionProposalFinalizer<BlockNumberFor<T>, T::AccountId>
     for pallet::Pallet<T>
 {
     fn finalize_election_popular_timeout(
-        proposal: &votingengine::Proposal<BlockNumberFor<T>, T::AccountId>,
+        proposal: &votebase::Proposal<BlockNumberFor<T>, T::AccountId>,
         proposal_id: u64,
     ) -> DispatchResult {
         ensure!(
             frame_system::Pallet::<T>::block_number() > proposal.end,
-            votingengine::Error::<T>::VoteNotExpired
+            votebase::Error::<T>::VoteNotExpired
         );
         pallet::Pallet::<T>::finalize_election_result(proposal_id)
     }
 
     fn finalize_election_mutual_timeout(
-        proposal: &votingengine::Proposal<BlockNumberFor<T>, T::AccountId>,
+        proposal: &votebase::Proposal<BlockNumberFor<T>, T::AccountId>,
         proposal_id: u64,
     ) -> DispatchResult {
         ensure!(
             frame_system::Pallet::<T>::block_number() > proposal.end,
-            votingengine::Error::<T>::VoteNotExpired
+            votebase::Error::<T>::VoteNotExpired
         );
         pallet::Pallet::<T>::finalize_election_result(proposal_id)
     }
 }
 
-impl<T: pallet::Config> votingengine::ElectionVoteResultCallback for pallet::Pallet<T> {
+impl<T: pallet::Config> votebase::ElectionVoteResultCallback for pallet::Pallet<T> {
     fn on_election_vote_finalized(
         vote_proposal_id: u64,
         approved: bool,
-    ) -> Result<votingengine::ProposalExecutionOutcome, sp_runtime::DispatchError> {
+    ) -> Result<votebase::ProposalExecutionOutcome, sp_runtime::DispatchError> {
         if !pallet::ElectionMetaStore::<T>::contains_key(vote_proposal_id) {
-            return Ok(votingengine::ProposalExecutionOutcome::Ignored);
+            return Ok(votebase::ProposalExecutionOutcome::Ignored);
         }
         if approved && !pallet::ElectionResults::<T>::contains_key(vote_proposal_id) {
-            return Ok(votingengine::ProposalExecutionOutcome::FatalFailed);
+            return Ok(votebase::ProposalExecutionOutcome::FatalFailed);
         }
         // 这里只确认投票引擎已形成完整结果快照。候选资格、目标岗位、席位、任期和
         // 结果写回都属于创建提案的具体选举业务模块；未经业务复核不得写 entity。
-        Ok(votingengine::ProposalExecutionOutcome::Executed)
+        Ok(votebase::ProposalExecutionOutcome::Executed)
     }
 }

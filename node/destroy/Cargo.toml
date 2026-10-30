@@ -1,0 +1,28 @@
+[package]
+name = "nodedestroy"
+description = "CitizenChain nodedestroy"
+publish = false
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { workspace = true, default-features = true }
+entitybase = { path = "../../runtime/entity/entitybase", default-features = true }
+hex = "=0.4.3"
+nodeclient = { path = "../client" }
+nodeinstitution = { path = "../institution" }
+primitives = { path = "../../runtime/primitives" }
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { workspace = true, default-features = true }
+
+[features]

@@ -1,10 +1,10 @@
+import { adminsChangeApi } from "../institution/admins";
+import { InstitutionAssignmentCard } from "../institution/InstitutionAssignmentCard";
+import type { InstitutionAdminInfo } from "../institution/council";
 // 清算行机构管理员列表子页(机构详情下的折叠卡片入口)。
 //
 import { useEffect, useMemo, useState } from 'react';
-import { adminsChangeApi } from '../admins/api';
-import { InstitutionAssignmentCard } from '../admins/InstitutionAssignmentCard';
-import type { InstitutionAdminInfo } from '../governance/types';
-import '../admins/styles.css';
+import '../institution/styles.css';
 
 type Props = {
   cidNumber: string;

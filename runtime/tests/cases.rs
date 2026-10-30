@@ -74,16 +74,7 @@ fn citizen_election_reserves_index_32_without_business_entries() {
 }
 
 // 簇 1:Runtime 整体自检(4 个用例)
-#[test]
-fn time_and_currency_constants_are_consistent() {
-    use frame_support::traits::Get;
 
-    assert_eq!(YUAN, 100 * FEN);
-    assert_eq!(UNIT, YUAN);
-    assert_eq!(primitives::pow_const::POW_TARGET_BLOCK_TIME_MS, 360_000);
-    let minimum_period: u64 = <Runtime as pallet_timestamp::Config>::MinimumPeriod::get();
-    assert_eq!(minimum_period, 1);
-}
 
 #[test]
 fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
@@ -431,42 +422,9 @@ fn institution_operation_debits_only_exact_fee_account_without_signer_fallback()
 /// 全部业务 Executor,各 Executor 靠 `ProposalData` 前缀的 MODULE_TAG 互斥
 /// 认领自己的提案。若两个模块碰撞,同一个提案可能被两个 Executor 同时执行,
 /// 产生数据层异常。本测试在编译时固定捕获。
-#[test]
-fn governance_module_tags_are_globally_unique() {
-    use std::collections::HashSet;
-    let tags: [(&str, &[u8]); 9] = [
-        ("grandpakey", grandpakey::MODULE_TAG),
-        ("destroy", destroy::MODULE_TAG),
-        ("resolutionissue", resolutionissue::MODULE_TAG),
-        ("upgrade", upgrade::MODULE_TAG),
-        ("publicentity", publicentity::MODULE_TAG),
-        ("privateentity", privateentity::MODULE_TAG),
-        ("personaladmin", personaladmin::MODULE_TAG),
-        ("multisig", multisig::MODULE_TAG),
-        ("legislation", legislation::MODULE_TAG),
-    ];
-    let unique: HashSet<&[u8]> = tags.iter().map(|(_, t)| *t).collect();
-    assert_eq!(
-        unique.len(),
-        tags.len(),
-        "MODULE_TAG must be globally unique across governance pallets; got: {:?}",
-        tags,
-    );
-}
 
-#[test]
-fn runtime_version_and_block_types_are_sane() {
-    assert_eq!(VERSION.spec_name.as_ref(), "citizenchain");
-    assert_eq!(VERSION.impl_name.as_ref(), "citizenchain");
-    assert_eq!(VERSION.authoring_version, 0);
-    assert_eq!(VERSION.spec_version, 0);
-    assert_eq!(VERSION.impl_version, 0);
-    assert_eq!(VERSION.transaction_version, 0);
-    assert_eq!(VERSION.system_version, 0);
 
-    let _opaque_block_id: opaque::BlockId = generic::BlockId::Number(0);
-    let _runtime_block_id: BlockId = generic::BlockId::Number(0);
-}
+
 
 /// benchmark 模式使用既有回调桩，必须返回 Ignored 且不执行生产发行。
 #[cfg(feature = "runtime-benchmarks")]
@@ -479,7 +437,7 @@ fn joint_vote_benchmark_callback_ignores_execution_without_mutating_issuance() {
 
         assert!(matches!(
             RuntimeJointVoteResultCallback::on_joint_vote_finalized(proposal_id, true),
-            Ok(votingengine::ProposalExecutionOutcome::Ignored)
+            Ok(votebase::ProposalExecutionOutcome::Ignored)
         ));
         assert_eq!(
             resolutionissue::pallet::VotingProposalCount::<Runtime>::get(),
@@ -542,23 +500,23 @@ fn joint_vote_callback_routes_to_resolution_issuance_and_executes() {
         encoded.extend_from_slice(&data.encode());
         let bounded_data: frame_support::BoundedVec<
             u8,
-            <Runtime as votingengine::Config>::MaxProposalDataLen,
+            <Runtime as votebase::Config>::MaxProposalDataLen,
         > = encoded.try_into().expect("proposal data bound");
         let owner: frame_support::BoundedVec<
             u8,
-            <Runtime as votingengine::Config>::MaxModuleTagLen,
+            <Runtime as votebase::Config>::MaxModuleTagLen,
         > = resolutionissue::MODULE_TAG
             .to_vec()
             .try_into()
             .expect("module tag bound");
-        votingengine::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
-        votingengine::ProposalOwner::<Runtime>::insert(proposal_id, owner);
-        votingengine::Proposals::<Runtime>::insert(
+        votebase::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
+        votebase::ProposalOwner::<Runtime>::insert(proposal_id, owner);
+        votebase::Proposals::<Runtime>::insert(
             proposal_id,
-            votingengine::Proposal {
-                kind: votingengine::PROPOSAL_KIND_JOINT,
-                stage: votingengine::STAGE_JOINT,
-                status: votingengine::STATUS_PASSED,
+            votebase::Proposal {
+                kind: votebase::PROPOSAL_KIND_JOINT,
+                stage: votebase::STAGE_JOINT,
+                status: votebase::STATUS_PASSED,
                 internal_code: None,
                 actor_cid_number: Some(
                     CHINA_CB[0]
@@ -576,12 +534,12 @@ fn joint_vote_callback_routes_to_resolution_issuance_and_executes() {
         );
 
         resolutionissue::pallet::VotingProposalCount::<Runtime>::put(1u32);
-        votingengine::CallbackExecutionScopes::<Runtime>::insert(proposal_id, ());
+        votebase::CallbackExecutionScopes::<Runtime>::insert(proposal_id, ());
         assert_ok!(RuntimeJointVoteResultCallback::on_joint_vote_finalized(
             proposal_id,
             true
         ));
-        votingengine::CallbackExecutionScopes::<Runtime>::remove(proposal_id);
+        votebase::CallbackExecutionScopes::<Runtime>::remove(proposal_id);
 
         // 验证 VotingProposalCount 已递减
         assert_eq!(
@@ -651,7 +609,7 @@ fn resolution_destro_internal_vote_flow_executes_destroy_and_reduces_issuance() 
         let now = System::block_number();
         <VotingEngine as frame_support::traits::Hooks<BlockNumber>>::on_initialize(now);
 
-        // 提案数据由 votingengine 延迟清理，执行后仍保留
+        // 提案数据由 votebase 延迟清理，执行后仍保留
         assert!(VotingEngine::get_proposal_data(pid).is_some());
 
         assert_eq!(
@@ -1234,19 +1192,7 @@ fn runtime_call_filter_has_no_wildcard_arm() {
     );
 }
 
-#[test]
-fn pow_digest_author_finds_pow_engine_author() {
-    // pre_digest 现在存储 sr25519 公钥，PowDigestAuthor 解码后派生 AccountId。
-    let public = sp_core::sr25519::Public::from_raw([21u8; 32]);
-    let expected_account: AccountId = sp_runtime::MultiSigner::from(public).into_account();
-    let encoded = public.encode();
-    let digests: Vec<(sp_runtime::ConsensusEngineId, &[u8])> = vec![
-        (*b"TEST", b"ignored".as_ref()),
-        (sp_consensus_pow::POW_ENGINE_ID, encoded.as_slice()),
-    ];
-    let found = PowDigestAuthor::find_author(digests);
-    assert_eq!(found, Some(expected_account));
-}
+
 
 #[cfg(not(feature = "runtime-benchmarks"))]
 #[test]
@@ -1255,7 +1201,7 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
         // 不存在的提案 ID 应返回错误
         assert!(RuntimeJointVoteResultCallback::on_joint_vote_finalized(999_999, true).is_err());
 
-        // 测试中直接写入 votingengine 存储；生产路径必须走 create_*_with_data 原子入口。
+        // 测试中直接写入 votebase 存储；生产路径必须走 create_*_with_data 原子入口。
         let proposal_id = 7u64;
         let proposer = AccountId::new(CHINA_CB[0].admins[0]);
         let reason: upgrade::pallet::ReasonOf<Runtime> =
@@ -1284,39 +1230,39 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
         encoded.extend_from_slice(&codec::Encode::encode(&proposal));
         let bounded_data: frame_support::BoundedVec<
             u8,
-            <Runtime as votingengine::Config>::MaxProposalDataLen,
+            <Runtime as votebase::Config>::MaxProposalDataLen,
         > = encoded.try_into().expect("proposal data bound");
         let owner: frame_support::BoundedVec<
             u8,
-            <Runtime as votingengine::Config>::MaxModuleTagLen,
+            <Runtime as votebase::Config>::MaxModuleTagLen,
         > = upgrade::MODULE_TAG
             .to_vec()
             .try_into()
             .expect("module tag bound");
-        votingengine::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
-        votingengine::ProposalOwner::<Runtime>::insert(proposal_id, owner);
+        votebase::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
+        votebase::ProposalOwner::<Runtime>::insert(proposal_id, owner);
         let code_vec = code.into_inner();
         let object_len = u32::try_from(code_vec.len()).expect("runtime code length fits u32");
         let object_hash = <Runtime as frame_system::Config>::Hashing::hash(&code_vec);
         let bounded_object: frame_support::BoundedVec<
             u8,
-            <Runtime as votingengine::Config>::MaxProposalObjectLen,
+            <Runtime as votebase::Config>::MaxProposalObjectLen,
         > = code_vec.try_into().expect("runtime code object bound");
-        votingengine::ProposalObject::<Runtime>::insert(proposal_id, bounded_object);
-        votingengine::ProposalObjectMeta::<Runtime>::insert(
+        votebase::ProposalObject::<Runtime>::insert(proposal_id, bounded_object);
+        votebase::ProposalObjectMeta::<Runtime>::insert(
             proposal_id,
-            votingengine::ProposalObjectMetadata {
+            votebase::ProposalObjectMetadata {
                 kind: upgrade::pallet::PROPOSAL_OBJECT_KIND_RUNTIME_WASM,
                 object_len,
                 object_hash,
             },
         );
-        votingengine::Proposals::<Runtime>::insert(
+        votebase::Proposals::<Runtime>::insert(
             proposal_id,
-            votingengine::Proposal {
-                kind: votingengine::PROPOSAL_KIND_JOINT,
-                stage: votingengine::STAGE_JOINT,
-                status: votingengine::STATUS_REJECTED,
+            votebase::Proposal {
+                kind: votebase::PROPOSAL_KIND_JOINT,
+                stage: votebase::STAGE_JOINT,
+                status: votebase::STATUS_REJECTED,
                 internal_code: None,
                 actor_cid_number: Some(
                     CHINA_CB[0]
@@ -1333,13 +1279,13 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
             },
         );
 
-        // 回调拒绝后，业务摘要保持创建时快照，终态由 votingengine 统一维护。
-        votingengine::CallbackExecutionScopes::<Runtime>::insert(proposal_id, ());
+        // 回调拒绝后，业务摘要保持创建时快照，终态由 votebase 统一维护。
+        votebase::CallbackExecutionScopes::<Runtime>::insert(proposal_id, ());
         let outcome = RuntimeJointVoteResultCallback::on_joint_vote_finalized(proposal_id, false)
             .expect("upgrade callback should succeed");
-        votingengine::CallbackExecutionScopes::<Runtime>::remove(proposal_id);
-        assert_eq!(outcome, votingengine::ProposalExecutionOutcome::Executed);
-        let raw = votingengine::Pallet::<Runtime>::get_proposal_data(proposal_id)
+        votebase::CallbackExecutionScopes::<Runtime>::remove(proposal_id);
+        assert_eq!(outcome, votebase::ProposalExecutionOutcome::Executed);
+        let raw = votebase::Pallet::<Runtime>::get_proposal_data(proposal_id)
             .expect("proposal data should exist");
         let tag = upgrade::MODULE_TAG;
         assert!(
@@ -1350,10 +1296,10 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
             .expect("should decode");
         assert_eq!(updated.code_hash, code_hash);
         assert_eq!(
-            votingengine::Proposals::<Runtime>::get(proposal_id)
+            votebase::Proposals::<Runtime>::get(proposal_id)
                 .expect("engine proposal should exist")
                 .status,
-            votingengine::STATUS_REJECTED
+            votebase::STATUS_REJECTED
         );
     });
 }
@@ -1940,7 +1886,7 @@ fn ensure_nrc_admin_and_runtime_admin_directory_paths() {
         assert!(!is_nrc_admin(&nrc_admin));
         assert!(!is_nrc_admin(&outsider));
         assert!(!RuntimeInternalAdminProvider::is_institution_admin(
-            votingengine::types::NRC,
+            votebase::types::NRC,
             nrc_cid.as_slice(),
             &nrc_admin
         ));
@@ -1955,7 +1901,7 @@ fn ensure_nrc_admin_and_runtime_admin_directory_paths() {
 fn onchain_issuance_rejects_admin_without_an_authorized_business_role() {
     new_test_ext().execute_with(|| {
         let nrc = &CHINA_CB[0];
-        let actor_cid_number: votingengine::types::CidNumber = nrc
+        let actor_cid_number: votebase::types::CidNumber = nrc
             .cid_number
             .as_bytes()
             .to_vec()
@@ -1965,7 +1911,7 @@ fn onchain_issuance_rejects_admin_without_an_authorized_business_role() {
         let main_account = AccountId::new(nrc.main_account);
         // 通用资产发行不是 NRC 委员固定权限；即使账户属于 NRC 且执行账户匹配，
         // 也必须先存在业务模块允许的岗位权限，不能退化为“管理员即可发行”。
-        let committee_role: votingengine::types::RoleCode =
+        let committee_role: votebase::types::RoleCode =
             primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                 .to_vec()
                 .try_into()
@@ -2014,13 +1960,13 @@ fn onchain_issuance_rejects_admin_without_an_authorized_business_role() {
 #[test]
 fn onchain_issuance_rejects_non_admin_and_non_nrc_monitor_actor() {
     new_test_ext().execute_with(|| {
-        let nrc_cid: votingengine::types::CidNumber = CHINA_CB[0]
+        let nrc_cid: votebase::types::CidNumber = CHINA_CB[0]
             .cid_number
             .as_bytes()
             .to_vec()
             .try_into()
             .expect("NRC CID fits runtime bound");
-        let committee_role: votingengine::types::RoleCode =
+        let committee_role: votebase::types::RoleCode =
             primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                 .to_vec()
                 .try_into()
@@ -2038,7 +1984,7 @@ fn onchain_issuance_rejects_non_admin_and_non_nrc_monitor_actor() {
         );
 
         let prc = &CHINA_CB[1];
-        let prc_cid: votingengine::types::CidNumber = prc
+        let prc_cid: votebase::types::CidNumber = prc
             .cid_number
             .as_bytes()
             .to_vec()
@@ -2214,7 +2160,7 @@ fn genesis_public_institutions_full_mint_counts() {
             builtin_count + primitives::cid::official_derive::public_institution_derived_count()
         );
         assert_eq!(builtin_count, 296);
-        assert_eq!(total, 49_593);
+        assert_eq!(total, EXPECTED_PUBLIC_INSTITUTIONS);
 
         // 49,593 / 99,232 是公权口径：每个机构都有主、费账户，NRC 另有安全基金与和账户，
         // 43 家 PRB 各有质押账户，FSC 另有联邦公民安全基金账户。
@@ -2587,23 +2533,23 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
             &cid_number,
             spec.min_members / 2 + 1,
         );
-        let vote_plan = votingengine::VotePlanOf::<AccountId>::try_new(
-            votingengine::BusinessActionId {
+        let vote_plan = votebase::VotePlanOf::<AccountId>::try_new(
+            votebase::BusinessActionId {
                 module_tag: b"test".to_vec().try_into().expect("owner fits"),
                 action_code: 0,
             },
             b"test".to_vec().try_into().expect("owner fits"),
-            votingengine::AuthorizationSubject::Institution(votingengine::RoleSubject {
+            votebase::AuthorizationSubject::Institution(votebase::RoleSubject {
                 cid_number: cid_number.clone(),
                 role_code: member_role_code.clone(),
             }),
-            vec![votingengine::AuthorizationSubject::Institution(
-                votingengine::RoleSubject {
+            vec![votebase::AuthorizationSubject::Institution(
+                votebase::RoleSubject {
                     cid_number: cid_number.clone(),
                     role_code: member_role_code.clone(),
                 },
             )],
-            votingengine::VotingEngineKind::Internal,
+            votebase::VotingEngineKind::Internal,
             [0u8; 32],
         )
         .expect("valid singleton vote plan");

@@ -20,7 +20,7 @@ use sp_core::{sr25519, Pair};
 #[cfg(not(feature = "runtime-benchmarks"))]
 use sp_runtime::traits::Hash as HashT;
 use sp_runtime::{traits::IdentifyAccount, BuildStorage, MultiSigner};
-use votingengine::{CitizenIdentityReader, InternalAdminProvider, JointVoteResultCallback};
+use votebase::{CitizenIdentityReader, InternalAdminProvider, JointVoteResultCallback};
 
 fn new_test_ext() -> sp_io::TestExternalities {
     let storage = crate::RuntimeGenesisConfig::default()
@@ -544,3 +544,12 @@ fn citizen_identity_signature_verifiers_reject_nonempty_forgery_in_every_feature
 }
 
 mod cases;
+
+mod security;
+
+mod performance;
+
+mod unit;
+
+// 原独立金标从cases迁为共享测试常量，数值保持，不按生产实现推导。
+const EXPECTED_PUBLIC_INSTITUTIONS: usize = 49_593;

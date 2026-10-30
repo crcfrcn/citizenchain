@@ -1,7 +1,21 @@
 [workspace]                                  # 公民区块链主体的子工作空间
 members = [
+    "node/guard",
+    "node/institution",
+    "node/control",
+    "node/desktop",
+    "node/client",
+    "node/mining",
+    "node/onchain",
+    "node/offchain",
+    "node/proposal",
+    "node/multisig",
+    "node/upgrade",
+    "node/grandpakey",
+    "node/resolutionissue",
+    "node/destroy",
     "node",                                  # 链节点程序
-    "node/vendor",                           # 本地覆盖的 GRANDPA voter 持久化实现
+    "node/grandpa",                           # 本地覆盖的 GRANDPA voter 持久化实现
     "node/libp2p",                 # 本地覆盖的 libp2p WebSocket 传输(经 [patch.crates-io] 生效)
     "onchina/platform",                               # onchina 多机构统一控制台:CID 身份 + 链下明细 + 鉴权 + 颁发(ADR-029/030)
     "crates/harness",             # 区块链真实验收与坏块构造测试工具（非生产路径）
@@ -18,7 +32,7 @@ members = [
     "runtime/governance/upgrade",    # 治理-协议升级模块 pallet
     "runtime/public/legislation",       # 公权模组-立法院模块 pallet(法律结构化上链,ADR-027)
     "runtime/public/election",       # 公权模组-公民选举模块 pallet（当前仅占位）
-    "runtime/votingengine",    # 投票引擎核心(共用基础设施:Proposals/反向索引/状态机/快照/锁/清理)
+    "runtime/votingengine/votebase",    # 投票引擎核心(共用基础设施:Proposals/反向索引/状态机/快照/锁/清理)
     "runtime/votingengine/internalvote",  # 内部投票 pallet(管理员一人一票)
     "runtime/votingengine/jointvote",     # 联合投票 pallet(管理员多签 + 全民兜底)
     "runtime/votingengine/electionvote",   # 选举投票 pallet(普选+互选,Phase 3)
@@ -67,6 +81,8 @@ dbg_macro = "warn"
 todo = "warn"
 
 [workspace.dependencies]
+# 属性测试复用原锁唯一版本，仅由包的dev-dependencies消费。
+proptest = "=1.11.0"
 # 本地
 runtime = { path = "runtime" }
 
@@ -124,7 +140,7 @@ sc-cli = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efc
 sc-client-api = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 sc-client-db = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 sc-consensus = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
-sc-consensus-grandpa = { path = "node/vendor" }
+sc-consensus-grandpa = { path = "node/grandpa" }
 sc-consensus-pow = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 sc-chain-spec = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }
 sc-executor = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4" }

@@ -49,7 +49,7 @@ fn proposal_id_counter_resets_at_real_utc_year_boundary() {
         // 主键纯单调:首个提案 = 0
         assert_eq!(proposal_id, 0);
         // 展示号:2027 年首个,seq_in_year = 0
-        let display = votingengine::pallet::ProposalDisplayId::<Test>::get(proposal_id)
+        let display = votebase::pallet::ProposalDisplayId::<Test>::get(proposal_id)
             .expect("display id present");
         assert_eq!(display.year, 2027);
         assert_eq!(display.seq_in_year, 0);
@@ -61,7 +61,7 @@ fn proposal_id_counter_resets_at_real_utc_year_boundary() {
         // 主键单调累加:第二个提案 = 1(跨年也只 +1)
         assert_eq!(proposal_id, 1);
         // 展示号:2028 年首个,seq_in_year 跨年重置为 0
-        let display = votingengine::pallet::ProposalDisplayId::<Test>::get(proposal_id)
+        let display = votebase::pallet::ProposalDisplayId::<Test>::get(proposal_id)
             .expect("display id present");
         assert_eq!(display.year, 2028);
         assert_eq!(display.seq_in_year, 0);
@@ -88,7 +88,7 @@ fn internal_proposal_must_be_created_by_same_institution_admin() {
                 internal_vote_plan(&nrc_cid(), b"payload"),
                 b"payload".to_vec(),
             ),
-            votingengine::Error::<Test>::NoPermission
+            votebase::Error::<Test>::NoPermission
         );
 
         assert_noop!(
@@ -101,13 +101,13 @@ fn internal_proposal_must_be_created_by_same_institution_admin() {
                 internal_vote_plan(&nrc_cid(), b"payload"),
                 b"payload".to_vec(),
             ),
-            votingengine::Error::<Test>::NoPermission
+            votebase::Error::<Test>::NoPermission
         );
 
         let proposal_id = create_internal_proposal_via_engine(nrc_admin(0), NRC, nrc_cid());
         // 双层 ID：主键纯单调，首个提案 = 0；展示号通过 ProposalDisplayId 反查。
         assert_eq!(proposal_id, 0);
-        let display = votingengine::pallet::ProposalDisplayId::<Test>::get(proposal_id)
+        let display = votebase::pallet::ProposalDisplayId::<Test>::get(proposal_id)
             .expect("display id present");
         assert_eq!(display.year, 2026);
         assert_eq!(display.seq_in_year, 0);
@@ -269,7 +269,7 @@ fn pending_personal_snapshot_rejects_duplicate_admins() {
                 b"test",
                 b"payload".to_vec(),
             ),
-            votingengine::Error::<Test>::InvalidInstitution
+            votebase::Error::<Test>::InvalidInstitution
         );
     });
 }
@@ -401,7 +401,7 @@ fn admin_set_mutation_mutex_blocks_same_subject_regular_proposal() {
                 b"test",
                 b"payload".to_vec(),
             ),
-            votingengine::Error::<Test>::AdminSetMutationProposalActive
+            votebase::Error::<Test>::AdminSetMutationProposalActive
         );
     });
 }
@@ -424,7 +424,7 @@ fn regular_mutex_blocks_same_subject_admin_set_mutation() {
                 b"test",
                 b"payload".to_vec(),
             ),
-            votingengine::Error::<Test>::RegularInternalProposalActive
+            votebase::Error::<Test>::RegularInternalProposalActive
         );
 
         assert_eq!(
@@ -473,7 +473,7 @@ fn admin_set_mutation_passed_status_keeps_mutex_until_terminal_status() {
                 b"test",
                 b"payload".to_vec(),
             ),
-            votingengine::Error::<Test>::AdminSetMutationProposalActive
+            votebase::Error::<Test>::AdminSetMutationProposalActive
         );
 
         assert_ok!(VotingEngine::set_status_and_emit(
@@ -490,15 +490,15 @@ fn proposal_status_transition_state_machine_is_strict() {
         let voting_to_passed = create_internal_proposal_via_engine(nrc_admin(0), NRC, nrc_cid());
         assert_noop!(
             VotingEngine::set_status_and_emit(voting_to_passed, STATUS_EXECUTED),
-            votingengine::Error::<Test>::InvalidProposalStatus
+            votebase::Error::<Test>::InvalidProposalStatus
         );
         assert_noop!(
             VotingEngine::set_status_and_emit(voting_to_passed, STATUS_EXECUTION_FAILED),
-            votingengine::Error::<Test>::InvalidProposalStatus
+            votebase::Error::<Test>::InvalidProposalStatus
         );
         assert_noop!(
             VotingEngine::set_status_and_emit(voting_to_passed, STATUS_VOTING),
-            votingengine::Error::<Test>::InvalidProposalStatus
+            votebase::Error::<Test>::InvalidProposalStatus
         );
         assert_ok!(VotingEngine::set_status_and_emit(
             voting_to_passed,
@@ -506,11 +506,11 @@ fn proposal_status_transition_state_machine_is_strict() {
         ));
         assert_noop!(
             VotingEngine::set_status_and_emit(voting_to_passed, STATUS_REJECTED),
-            votingengine::Error::<Test>::InvalidProposalStatus
+            votebase::Error::<Test>::InvalidProposalStatus
         );
         assert_noop!(
             VotingEngine::set_status_and_emit(voting_to_passed, STATUS_VOTING),
-            votingengine::Error::<Test>::InvalidProposalStatus
+            votebase::Error::<Test>::InvalidProposalStatus
         );
         assert_ok!(VotingEngine::set_status_and_emit(
             voting_to_passed,
@@ -518,7 +518,7 @@ fn proposal_status_transition_state_machine_is_strict() {
         ));
         assert_noop!(
             VotingEngine::set_status_and_emit(voting_to_passed, STATUS_PASSED),
-            votingengine::Error::<Test>::InvalidProposalStatus
+            votebase::Error::<Test>::InvalidProposalStatus
         );
 
         let passed_to_failed = create_internal_proposal_via_engine(nrc_admin(1), NRC, nrc_cid());
@@ -532,14 +532,14 @@ fn proposal_status_transition_state_machine_is_strict() {
         ));
         assert_noop!(
             VotingEngine::set_status_and_emit(passed_to_failed, STATUS_EXECUTED),
-            votingengine::Error::<Test>::InvalidProposalStatus
+            votebase::Error::<Test>::InvalidProposalStatus
         );
 
         let rejected = create_internal_proposal_via_engine(nrc_admin(2), NRC, nrc_cid());
         assert_ok!(VotingEngine::set_status_and_emit(rejected, STATUS_REJECTED));
         assert_noop!(
             VotingEngine::set_status_and_emit(rejected, STATUS_PASSED),
-            votingengine::Error::<Test>::InvalidProposalStatus
+            votebase::Error::<Test>::InvalidProposalStatus
         );
     });
 }
@@ -551,7 +551,7 @@ fn internal_vote_must_be_by_same_institution_admin() {
 
         assert_noop!(
             cast_internal_vote_via_extrinsic(nrc_admin(0), proposal_id, true),
-            votingengine::Error::<Test>::NoPermission
+            votebase::Error::<Test>::NoPermission
         );
 
         assert_ok!(cast_internal_vote_via_extrinsic(
@@ -653,7 +653,7 @@ fn joint_proposal_must_be_created_by_nrc_or_prc_admin() {
         let outsider = AccountId32::new([9u8; 32]);
         assert_noop!(
             try_create_joint_proposal_for(outsider, nrc_cid(), 10,),
-            votingengine::Error::<Test>::NoPermission
+            votebase::Error::<Test>::NoPermission
         );
 
         // 省储委会管理员可以创建联合提案
@@ -690,8 +690,8 @@ fn joint_proposal_with_empty_population_rolls_back() {
             try_create_joint_proposal_for(nrc_admin(0), nrc_cid(), 0,),
             jointvote::Error::<Test>::CitizenEligibleTotalNotSet
         );
-        assert_eq!(votingengine::pallet::NextProposalId::<Test>::get(), 0);
-        assert!(!votingengine::pallet::Proposals::<Test>::contains_key(0));
+        assert_eq!(votebase::pallet::NextProposalId::<Test>::get(), 0);
+        assert!(!votebase::pallet::Proposals::<Test>::contains_key(0));
     });
 }
 
@@ -716,7 +716,7 @@ fn joint_vote_requires_current_institution_admin() {
 
         assert_noop!(
             submit_joint_vote(prc_admin(0), proposal_id, nrc_cid(), true),
-            votingengine::Error::<Test>::NoPermission
+            votebase::Error::<Test>::NoPermission
         );
     });
 }
@@ -735,7 +735,7 @@ fn joint_vote_rejects_duplicate_admin_vote() {
 
         assert_noop!(
             submit_joint_vote(nrc_admin(0), proposal_id, nrc_cid(), true),
-            votingengine::Error::<Test>::AlreadyVoted
+            votebase::Error::<Test>::AlreadyVoted
         );
     });
 }
@@ -852,7 +852,7 @@ fn joint_referendum_same_account_can_only_vote_once_per_proposal() {
 
         assert_noop!(
             <jointvote::Pallet<Test>>::do_jointreferendum_vote(nrc_admin(0), 0, false),
-            votingengine::Error::<Test>::AlreadyVoted
+            votebase::Error::<Test>::AlreadyVoted
         );
     });
 }
@@ -1006,7 +1006,7 @@ fn joint_referendum_rejects_when_not_in_referendum_stage() {
 
         assert_noop!(
             <jointvote::Pallet<Test>>::do_jointreferendum_vote(nrc_admin(0), proposal_id, true),
-            votingengine::Error::<Test>::InvalidProposalStage
+            votebase::Error::<Test>::InvalidProposalStage
         );
     });
 }
@@ -1066,16 +1066,16 @@ fn delayed_cleanup_cleans_referendum_votes_after_retention() {
 fn delayed_cleanup_removes_joint_vote_plan_and_role_snapshots() {
     new_test_ext().execute_with(|| {
         let proposal_id = create_joint_proposal_for(nrc_admin(0), nrc_cid(), 100);
-        assert!(votingengine::ProposalVotePlans::<Test>::contains_key(
+        assert!(votebase::ProposalVotePlans::<Test>::contains_key(
             proposal_id
         ));
         assert!(
-            votingengine::VoterSnapshot::<Test>::iter_prefix(proposal_id)
+            votebase::VoterSnapshot::<Test>::iter_prefix(proposal_id)
                 .next()
                 .is_some()
         );
         assert!(
-            votingengine::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id)
+            votebase::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id)
                 .next()
                 .is_some()
         );
@@ -1090,15 +1090,15 @@ fn delayed_cleanup_removes_joint_vote_plan_and_role_snapshots() {
             <VotingEngine as Hooks<u64>>::on_initialize(retention + offset);
         }
 
-        assert!(!votingengine::ProposalVotePlans::<Test>::contains_key(
+        assert!(!votebase::ProposalVotePlans::<Test>::contains_key(
             proposal_id
         ));
         assert_eq!(
-            votingengine::VoterSnapshot::<Test>::iter_prefix(proposal_id).count(),
+            votebase::VoterSnapshot::<Test>::iter_prefix(proposal_id).count(),
             0
         );
         assert_eq!(
-            votingengine::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id).count(),
+            votebase::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id).count(),
             0
         );
     });
@@ -1112,7 +1112,7 @@ fn joint_referendum_finalize_before_timeout_is_rejected() {
 
         assert_noop!(
             VotingEngine::finalize_proposal(RuntimeOrigin::signed(nrc_admin(0)), 0),
-            votingengine::Error::<Test>::VoteNotExpired
+            votebase::Error::<Test>::VoteNotExpired
         );
     });
 }
@@ -1307,7 +1307,7 @@ fn joint_vote_callback_failure_defers_execution_without_reverting_vote_result() 
         let proposal = Proposals::<Test>::get(proposal_id).expect("proposal should exist");
         assert_eq!(proposal.status, STATUS_PASSED);
         assert_eq!(proposal.stage, STAGE_JOINT);
-        let pending = votingengine::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
+        let pending = votebase::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
             .expect("failed callback should remain queued");
         assert_eq!(pending.attempts, 1);
         assert!(pending.next_attempt_at > System::block_number());
@@ -1322,7 +1322,7 @@ fn joint_vote_callback_failure_does_not_cleanup_referendum_votes() {
         jointvote::ReferendumVotesByCid::<Test>::insert(
             0,
             voter_subject.cid_number.clone(),
-            votingengine::CitizenReferendumTicket {
+            votebase::CitizenReferendumTicket {
                 voter_subject,
                 approve: true,
             },
@@ -1363,7 +1363,7 @@ fn proposal_finalized_event_uses_status_after_joint_callback_override() {
             .into_iter()
             .rev()
             .find_map(|record| match record.event {
-                RuntimeEvent::VotingEngine(votingengine::Event::ProposalFinalized {
+                RuntimeEvent::VotingEngine(votebase::Event::ProposalFinalized {
                     proposal_id: event_id,
                     status,
                 }) if event_id == proposal_id => Some(status),
@@ -1376,7 +1376,7 @@ fn proposal_finalized_event_uses_status_after_joint_callback_override() {
             .filter(|record| {
                 matches!(
                     &record.event,
-                    RuntimeEvent::VotingEngine(votingengine::Event::ProposalFinalized {
+                    RuntimeEvent::VotingEngine(votebase::Event::ProposalFinalized {
                         proposal_id: event_id,
                         ..
                     }) if *event_id == proposal_id
@@ -1413,7 +1413,7 @@ fn auto_finalize_drops_failed_joint_callback_from_expiry_bucket() {
                 .status,
             STATUS_PASSED
         );
-        assert!(votingengine::pallet::PendingProposalExecutions::<Test>::contains_key(proposal_id));
+        assert!(votebase::pallet::PendingProposalExecutions::<Test>::contains_key(proposal_id));
         assert!(PendingExpiryBucket::<Test>::get().is_none());
         assert!(ProposalsByExpiry::<Test>::get(expired_at).is_empty());
     });
@@ -1457,7 +1457,7 @@ fn auto_finalize_errors_back_off_then_enter_dead_letter_without_starving_hooks()
         assert!(System::events().into_iter().any(|record| matches!(
             record.event,
             RuntimeEvent::VotingEngine(
-                votingengine::Event::ProposalAutoFinalizeDeadLettered {
+                votebase::Event::ProposalAutoFinalizeDeadLettered {
                     proposal_id: event_id,
                     attempts: 3,
                 }
@@ -1507,7 +1507,7 @@ fn schedule_proposal_expiry_rejects_bucket_overflow() {
 
         assert_noop!(
             VotingEngine::schedule_proposal_expiry(999, end),
-            votingengine::Error::<Test>::TooManyProposalsAtExpiry
+            votebase::Error::<Test>::TooManyProposalsAtExpiry
         );
     });
 }
@@ -1520,7 +1520,7 @@ fn scheduled_cleanup_fifo_activates_all_due_items_without_orphaning() {
             insert_joint_referendum_proposal(proposal_id, 10, 100);
             ScheduledCleanups::<Test>::insert(
                 proposal_id,
-                votingengine::ScheduledCleanup {
+                votebase::ScheduledCleanup {
                     cleanup_at: cleanup_block,
                     proposal_id,
                 },
@@ -1596,8 +1596,8 @@ fn schedule_cleanup_returns_error_when_fifo_sequence_is_exhausted() {
         exhaust_cleanup_sequence(now);
 
         assert_noop!(
-            votingengine::cleanup::schedule_cleanup::<Test>(9_999, now),
-            votingengine::Error::<Test>::CleanupQueueSequenceExhausted
+            votebase::cleanup::schedule_cleanup::<Test>(9_999, now),
+            votebase::Error::<Test>::CleanupQueueSequenceExhausted
         );
     });
 }
@@ -1612,7 +1612,7 @@ fn terminal_status_rolls_back_when_cleanup_cannot_be_scheduled() {
 
         assert_noop!(
             VotingEngine::set_status_and_emit(proposal_id, STATUS_REJECTED),
-            votingengine::Error::<Test>::CleanupQueueSequenceExhausted
+            votebase::Error::<Test>::CleanupQueueSequenceExhausted
         );
         assert_eq!(
             Proposals::<Test>::get(proposal_id)
@@ -1724,7 +1724,7 @@ fn delayed_cleanup_chunks_cleanup_across_blocks() {
             jointvote::ReferendumVotesByCid::<Test>::insert(
                 proposal_id,
                 voter_subject.cid_number.clone(),
-                votingengine::CitizenReferendumTicket {
+                votebase::CitizenReferendumTicket {
                     voter_subject,
                     approve: true,
                 },
@@ -1787,7 +1787,7 @@ fn internal_vote_public_call_casts_vote() {
             true
         ));
 
-        let ticket = InternalVoteTicket::Institution(votingengine::InstitutionVoteTicket {
+        let ticket = InternalVoteTicket::Institution(votebase::InstitutionVoteTicket {
             role_subject: RoleSubject {
                 cid_number: nrc_cid(),
                 role_code: test_institution_role(NRC)
@@ -1814,8 +1814,8 @@ fn internal_vote_counts_same_account_id_once_per_role_ticket() {
         set_institution_threshold(public_cid(), 4);
         let data = b"multi-role-ticket".to_vec();
         let owner: BoundedVec<u8, ConstU32<32>> = b"test".to_vec().try_into().unwrap();
-        let primary_role: votingengine::types::RoleCode = b"TEST_ROLE".to_vec().try_into().unwrap();
-        let second_role: votingengine::types::RoleCode =
+        let primary_role: votebase::types::RoleCode = b"TEST_ROLE".to_vec().try_into().unwrap();
+        let second_role: votebase::types::RoleCode =
             b"TEST_SECOND_ROLE".to_vec().try_into().unwrap();
         let primary_subject = RoleSubject {
             cid_number: public_cid(),
@@ -1825,8 +1825,8 @@ fn internal_vote_counts_same_account_id_once_per_role_ticket() {
             cid_number: public_cid(),
             role_code: second_role.clone(),
         };
-        let vote_plan = votingengine::types::VotePlanOf::try_new(
-            votingengine::types::BusinessActionId {
+        let vote_plan = votebase::types::VotePlanOf::try_new(
+            votebase::types::BusinessActionId {
                 module_tag: owner.clone(),
                 action_code: 0,
             },
@@ -1836,7 +1836,7 @@ fn internal_vote_counts_same_account_id_once_per_role_ticket() {
                 AuthorizationSubject::Institution(primary_subject.clone()),
                 AuthorizationSubject::Institution(second_subject.clone()),
             ],
-            votingengine::types::VotingEngineKind::Internal,
+            votebase::types::VotingEngineKind::Internal,
             sp_io::hashing::blake2_256(&data),
         )
         .unwrap();
@@ -1864,7 +1864,7 @@ fn internal_vote_counts_same_account_id_once_per_role_ticket() {
         for subject in [primary_subject, second_subject] {
             assert!(InternalVotesByTicket::<Test>::contains_key(
                 proposal_id,
-                InternalVoteTicket::Institution(votingengine::InstitutionVoteTicket {
+                InternalVoteTicket::Institution(votebase::InstitutionVoteTicket {
                     role_subject: subject,
                     voter_account_id: test_institution_admin(0),
                 })
@@ -1877,7 +1877,7 @@ fn internal_vote_counts_same_account_id_once_per_role_ticket() {
                 InternalVoteTicketClaim::InstitutionRole(second_role),
                 true,
             ),
-            votingengine::Error::<Test>::AlreadyVoted
+            votebase::Error::<Test>::AlreadyVoted
         );
     });
 }
@@ -1891,20 +1891,20 @@ fn rebound_wallet_votes_as_canonical_and_old_wallet_loses_power() {
         set_institution_threshold(public_cid(), 3);
         let data = b"rebind-vote".to_vec();
         let owner: BoundedVec<u8, ConstU32<32>> = b"test".to_vec().try_into().unwrap();
-        let role: votingengine::types::RoleCode = b"TEST_ROLE".to_vec().try_into().unwrap();
+        let role: votebase::types::RoleCode = b"TEST_ROLE".to_vec().try_into().unwrap();
         let subject = RoleSubject {
             cid_number: public_cid(),
             role_code: role.clone(),
         };
-        let vote_plan = votingengine::types::VotePlanOf::try_new(
-            votingengine::types::BusinessActionId {
+        let vote_plan = votebase::types::VotePlanOf::try_new(
+            votebase::types::BusinessActionId {
                 module_tag: owner.clone(),
                 action_code: 0,
             },
             owner,
             AuthorizationSubject::Institution(subject.clone()),
             vec![AuthorizationSubject::Institution(subject.clone())],
-            votingengine::types::VotingEngineKind::Internal,
+            votebase::types::VotingEngineKind::Internal,
             sp_io::hashing::blake2_256(&data),
         )
         .unwrap();
@@ -1937,14 +1937,14 @@ fn rebound_wallet_votes_as_canonical_and_old_wallet_loses_power() {
         // 票据按【规范账户】记账而非投票钱包——这正是防双投的关键。
         assert!(InternalVotesByTicket::<Test>::contains_key(
             proposal_id,
-            InternalVoteTicket::Institution(votingengine::InstitutionVoteTicket {
+            InternalVoteTicket::Institution(votebase::InstitutionVoteTicket {
                 role_subject: subject.clone(),
                 voter_account_id: test_institution_admin(1),
             })
         ));
         assert!(!InternalVotesByTicket::<Test>::contains_key(
             proposal_id,
-            InternalVoteTicket::Institution(votingengine::InstitutionVoteTicket {
+            InternalVoteTicket::Institution(votebase::InstitutionVoteTicket {
                 role_subject: subject.clone(),
                 voter_account_id: rebound_wallet.clone(),
             })
@@ -1958,7 +1958,7 @@ fn rebound_wallet_votes_as_canonical_and_old_wallet_loses_power() {
                 InternalVoteTicketClaim::InstitutionRole(role.clone()),
                 true,
             ),
-            votingengine::Error::<Test>::NoPermission
+            votebase::Error::<Test>::NoPermission
         );
 
         // 新钱包再投：票据已存在 → 双投窗口已闭合。
@@ -1969,7 +1969,7 @@ fn rebound_wallet_votes_as_canonical_and_old_wallet_loses_power() {
                 InternalVoteTicketClaim::InstitutionRole(role),
                 true,
             ),
-            votingengine::Error::<Test>::AlreadyVoted
+            votebase::Error::<Test>::AlreadyVoted
         );
     });
 }
@@ -1983,7 +1983,7 @@ fn internal_vote_rejects_non_admin() {
         // 非 NRC 管理员(比如 PRB 的管理员)不能投 NRC 的内部提案。
         assert_noop!(
             cast_internal_vote_via_extrinsic(prb_admin(0), proposal_id, true),
-            votingengine::Error::<Test>::NoPermission
+            votebase::Error::<Test>::NoPermission
         );
         assert_eq!(InternalTallies::<Test>::get(proposal_id).yes, 1);
     });
@@ -1996,7 +1996,7 @@ fn internal_vote_rejects_double_vote() {
         let proposal_id = create_internal_proposal_via_engine(nrc_admin(0), NRC, nrc_cid());
         assert_noop!(
             cast_internal_vote_via_extrinsic(nrc_admin(0), proposal_id, false),
-            votingengine::Error::<Test>::AlreadyVoted
+            votebase::Error::<Test>::AlreadyVoted
         );
     });
 }
@@ -2113,7 +2113,7 @@ fn internal_vote_callback_err_defers_execution_without_reverting_vote() {
             STATUS_PASSED
         );
         assert_eq!(InternalTallies::<Test>::get(proposal_id).yes, 13);
-        let ticket = InternalVoteTicket::Institution(votingengine::InstitutionVoteTicket {
+        let ticket = InternalVoteTicket::Institution(votebase::InstitutionVoteTicket {
             role_subject: RoleSubject {
                 cid_number: nrc_cid(),
                 role_code: test_institution_role(NRC)
@@ -2127,7 +2127,7 @@ fn internal_vote_callback_err_defers_execution_without_reverting_vote() {
             proposal_id,
             ticket
         ));
-        let pending = votingengine::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
+        let pending = votebase::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
             .expect("failed callback should remain queued");
         assert_eq!(pending.attempts, 1);
     });
@@ -2146,14 +2146,14 @@ fn asynchronous_callback_errors_dead_letter_after_bounded_retries() {
         ));
         process_current_block();
         let second_attempt_at =
-            votingengine::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
+            votebase::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
                 .expect("first failure should defer")
                 .next_attempt_at;
 
         System::set_block_number(second_attempt_at);
         process_current_block();
         let third_attempt_at =
-            votingengine::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
+            votebase::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
                 .expect("second failure should defer")
                 .next_attempt_at;
 
@@ -2161,7 +2161,7 @@ fn asynchronous_callback_errors_dead_letter_after_bounded_retries() {
         process_current_block();
 
         assert!(
-            votingengine::pallet::PendingProposalExecutions::<Test>::get(proposal_id).is_none()
+            votebase::pallet::PendingProposalExecutions::<Test>::get(proposal_id).is_none()
         );
         assert_eq!(
             VotingEngine::proposals(proposal_id)
@@ -2171,7 +2171,7 @@ fn asynchronous_callback_errors_dead_letter_after_bounded_retries() {
         );
         assert!(System::events().into_iter().any(|record| matches!(
             record.event,
-            RuntimeEvent::VotingEngine(votingengine::Event::ProposalExecutionDeadLettered {
+            RuntimeEvent::VotingEngine(votebase::Event::ProposalExecutionDeadLettered {
                 proposal_id: event_id,
                 attempts: 3,
             }) if event_id == proposal_id
@@ -2193,14 +2193,14 @@ fn ignored_callback_outcome_dead_letters_after_bounded_retries() {
         ));
         process_current_block();
         let second_attempt_at =
-            votingengine::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
+            votebase::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
                 .expect("Ignored first failure should defer")
                 .next_attempt_at;
 
         System::set_block_number(second_attempt_at);
         process_current_block();
         let third_attempt_at =
-            votingengine::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
+            votebase::pallet::PendingProposalExecutions::<Test>::get(proposal_id)
                 .expect("Ignored second failure should defer")
                 .next_attempt_at;
 
@@ -2208,7 +2208,7 @@ fn ignored_callback_outcome_dead_letters_after_bounded_retries() {
         process_current_block();
 
         assert!(
-            votingengine::pallet::PendingProposalExecutions::<Test>::get(proposal_id).is_none(),
+            votebase::pallet::PendingProposalExecutions::<Test>::get(proposal_id).is_none(),
             "业务执行达到上限后必须永久停止"
         );
         assert_eq!(
@@ -2219,7 +2219,7 @@ fn ignored_callback_outcome_dead_letters_after_bounded_retries() {
         );
         assert!(System::events().into_iter().any(|record| matches!(
             record.event,
-            RuntimeEvent::VotingEngine(votingengine::Event::ProposalExecutionDeadLettered {
+            RuntimeEvent::VotingEngine(votebase::Event::ProposalExecutionDeadLettered {
                 proposal_id: event_id,
                 attempts: 3,
             }) if event_id == proposal_id
@@ -2231,9 +2231,9 @@ fn ignored_callback_outcome_dead_letters_after_bounded_retries() {
 fn orphan_pending_execution_is_removed_instead_of_retried() {
     new_test_ext().execute_with(|| {
         let proposal_id = 9_999;
-        votingengine::pallet::PendingProposalExecutions::<Test>::insert(
+        votebase::pallet::PendingProposalExecutions::<Test>::insert(
             proposal_id,
-            votingengine::PendingExecutionState {
+            votebase::PendingExecutionState {
                 attempts: 0,
                 next_attempt_at: System::block_number(),
             },
@@ -2242,7 +2242,7 @@ fn orphan_pending_execution_is_removed_instead_of_retried() {
         process_current_block();
 
         assert!(
-            votingengine::pallet::PendingProposalExecutions::<Test>::get(proposal_id).is_none(),
+            votebase::pallet::PendingProposalExecutions::<Test>::get(proposal_id).is_none(),
             "不存在提案的孤儿队列项不得永久消耗执行预算"
         );
     });
@@ -2310,7 +2310,7 @@ fn manual_retry_third_failure_marks_execution_failed() {
             .into_iter()
             .rev()
             .find_map(|record| match record.event {
-                RuntimeEvent::VotingEngine(votingengine::Event::ProposalExecutionRetried {
+                RuntimeEvent::VotingEngine(votebase::Event::ProposalExecutionRetried {
                     proposal_id: event_id,
                     manual_attempts: 3,
                     outcome,
@@ -2342,7 +2342,7 @@ fn default_cancel_callback_rejects_passed_retry_proposal() {
                     .try_into()
                     .expect("reason should fit")
             ),
-            votingengine::Error::<Test>::ProposalCancellationNotAllowed
+            votebase::Error::<Test>::ProposalCancellationNotAllowed
         );
         assert_eq!(
             VotingEngine::proposals(proposal_id)
@@ -2408,7 +2408,7 @@ fn execution_failed_terminal_cleanup_error_is_queued_and_retried() {
         assert_eq!(cleanup_log, vec![proposal_id]);
         assert!(System::events().into_iter().any(|record| matches!(
             record.event,
-            RuntimeEvent::VotingEngine(votingengine::Event::ProposalTerminalCleanupCompleted {
+            RuntimeEvent::VotingEngine(votebase::Event::ProposalTerminalCleanupCompleted {
                 proposal_id: event_id
             }) if event_id == proposal_id
         )));
@@ -2466,7 +2466,7 @@ fn execution_retry_deadline_expires_to_execution_failed() {
         );
         assert!(System::events().into_iter().any(|record| matches!(
             record.event,
-            RuntimeEvent::VotingEngine(votingengine::Event::ProposalExecutionRetryExpired {
+            RuntimeEvent::VotingEngine(votebase::Event::ProposalExecutionRetryExpired {
                 proposal_id: event_id
             }) if event_id == proposal_id
         )));
@@ -2504,7 +2504,7 @@ fn internal_vote_rejects_wrong_stage_joint_proposal() {
 
         assert_noop!(
             cast_internal_vote_via_extrinsic(nrc_admin(0), proposal_id, true),
-            votingengine::Error::<Test>::InvalidProposalKind
+            votebase::Error::<Test>::InvalidProposalKind
         );
     });
 }

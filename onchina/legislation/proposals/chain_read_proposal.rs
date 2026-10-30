@@ -9,7 +9,7 @@ use codec::Decode;
 use serde::Serialize;
 use subxt::dynamic;
 
-/// votingengine `Proposal<BlockNumber, AccountId>` 解码镜像(BlockNumber=u32 / AccountId=[u8;32])。
+/// votebase `Proposal<BlockNumber, AccountId>` 解码镜像(BlockNumber=u32 / AccountId=[u8;32])。
 #[derive(Debug, Decode)]
 #[allow(dead_code)] // SCALE 解码镜像:未读字段只保序,删字段会破坏 Decode 对齐。
 pub struct OnChainProposal {

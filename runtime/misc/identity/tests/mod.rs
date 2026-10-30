@@ -419,3 +419,5 @@ fn town_scope() -> PopulationScope {
 mod authorization;
 mod population;
 mod registry;
+
+mod property;

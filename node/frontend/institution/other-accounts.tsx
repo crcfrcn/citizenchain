@@ -1,11 +1,7 @@
-import { accountIdToSs58 } from '../shared/ss58';
-import { formatBalance } from '../shared/format';
-// 其他账户列表子页(机构详情下的折叠卡片入口)。
-//
-// 显示主账户/费用账户之外的所有自定义账户:账户名 / SS58 地址 / 链上余额。
-// 与管理员列表的展示风格保持一致。
+import { accountIdToSs58 } from "../client/ss58";
+import { formatBalance } from "../client/format";
+import type { AccountWithBalance } from "./types";
 
-import type { AccountWithBalance } from './types';
 
 type Props = {
   cidNumber: string;

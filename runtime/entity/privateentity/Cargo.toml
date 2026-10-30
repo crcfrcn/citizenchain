@@ -19,7 +19,7 @@ sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
 adminbase = { path = "../../admins/adminbase", default-features = false }
-votingengine = { path = "../../votingengine", default-features = false }
+votebase = { path = "../../votingengine/votebase", default-features = false }
 onchain = { path = "../../transaction/onchain", default-features = false }
 primitives = { path = "../../primitives", default-features = false }
 entitybase = { path = "../entitybase", default-features = false }
@@ -43,7 +43,7 @@ std = [
     "sp-runtime/std",
     "sp-std/std",
     "adminbase/std",
-    "votingengine/std",
+    "votebase/std",
     "onchain/std",
     "primitives/std",
     "entitybase/std",
