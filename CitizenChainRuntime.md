@@ -3337,3 +3337,7 @@ Runtime真实端到端在tests/e2e.rs独立注册，通过所属脚本公开RPC�
 法律待生效队列保存版本号及其原定生效时间，调度只读取该队列和法律元数据，避免为判断日期解码全文；不新增调度表。恢复基准通过所属业务公开入口准备真实提案，计时内验证重试执行成功或合法取消，不以忽略错误作为通过条件。
 
 投票维护类别共享本块预算并轮换优先次序，截止桶先搬入既有待过期表，未处理到期桶按连续区块游标追赶。Runtime为该维护池分配3/4区块预算，法律和广场各1/32，连同既有身份维护1/8后保留余量；广场仍按既有条数配置及当前权重两者取小推进。
+
+## 本机WASM自动化输入
+
+产品公开describeAction收到WASM release且未指定inputs时，通过scripts/runtime.mjs的automationInputs调用既有readRuntimeTarget读取本机最终块Runtime基线和目标双版本，并读取正式检出的HEAD，交付version、transaction_version、runtime_base、source_sha。已有完整显式inputs原样交付；其它平台仍由各自Workflow准备版本。通用控制台只转发，不计算版本、不增加候选门禁。读取失败原样返回，不派发空参数或替代基线；Workflow继续拥有原冻结链、来源提交与版本规则。

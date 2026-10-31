@@ -341,6 +341,14 @@ export async function readRuntimeTarget(endpoint = localRpc, {request, readCerti
   return {base, target: nextRuntimeVersion(base)};
 }
 
+// 本机按钮所需的输入由产品自身准备；通用调度只转发这份数据。
+export async function automationInputs({readTarget = readRuntimeTarget,
+  readRevision = () => execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim()} = {}) {
+  const {base, target} = await readTarget();
+  return {version: String(target.specVersion), transaction_version: String(target.transactionVersion),
+    runtime_base: JSON.stringify(base), source_sha: readRevision()};
+}
+
 export function assertRuntimeTarget(target, spec, transaction) {
   if (target.specVersion !== Number(runtimeVersion(spec)) || target.transactionVersion !== Number(runtimeVersion(transaction))) {
     fail('Runtime基线与候选输入不一致，禁止使用错误名称编译或发布');

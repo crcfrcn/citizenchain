@@ -54,9 +54,15 @@ export const deployment=Object.freeze({platform:'linux-arm',repository:product.r
   helper:'/usr/local/sbin/citizenchain-deploy',unit:'citizenchain-deploy',data:'/opt/citizenchain/data',
   serviceFile:'/etc/systemd/system/citizenchain-node.service',architecture:'arm64',sshUser:'ubuntu',ready:'deploy-ready:arm64:release'});
 
-// 只返回声明数据；派发与观察归通用调用方，版本及交付归本仓YAML。
-export function describeAction({flow,platform,inputs={}}){
+// 只交付产品声明和所需输入；Runtime读取基线归自身入口，派发观察仍归通用调用方。
+export async function describeAction({flow,platform,inputs={}}){
  const workflow=product.platforms[platform]?.workflow;
- if(flow==='release'&&workflow)return {repository:product.repository,workflow,ref:'main',inputs};
+ if(flow==='release'&&workflow){
+  if(platform==='wasm'&&Object.keys(inputs).length===0){
+   const {automationInputs}=await import('./runtime.mjs');
+   inputs=await automationInputs();
+  }
+  return {repository:product.repository,workflow,ref:'main',inputs};
+ }
  throw Error('本产品未声明该流程：'+flow+'·'+platform);
 }
