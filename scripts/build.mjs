@@ -150,7 +150,8 @@ export async function preparePostgres(work, environment, {run = runBuildProcess,
     }
     await invoke('/usr/bin/tar', ['-xjf', archive, '-C', scratch]);
     const source = join(scratch, 'postgresql-' + version), distribution = join(scratch, 'dist');
-    await invoke(join(source, 'configure'), ['--prefix=' + distribution, '--without-readline', '--without-icu', '--without-zlib', '--with-openssl'], source);
+    // 固定资源目录，不让上游按临时路径中的postgres字样改变安装布局。
+    await invoke(join(source, 'configure'), ['--prefix=' + distribution, '--datadir=' + join(distribution, 'share/postgresql'), '--without-readline', '--without-icu', '--without-zlib', '--with-openssl'], source);
     await invoke('/usr/bin/make', ['-j4'], source);
     await invoke('/usr/bin/make', ['install'], source);
     copyFileSync(join(source, 'COPYRIGHT'), join(distribution, 'COPYRIGHT'));

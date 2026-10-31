@@ -1,6 +1,7 @@
 use crate::lifecycle::cleanup_on_exit;
 use crate::lifecycle::cleanup_on_startup;
 use nodecontrol::state::AppState;
+#[cfg(target_os = "macos")]
 use nodedesktop::publication::publish_desktop_rpc_certificate;
 use std::sync::Mutex;
 use tauri::Manager;
