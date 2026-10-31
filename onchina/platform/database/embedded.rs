@@ -138,12 +138,18 @@ pub(crate) fn ensure_started() -> Result<String, String> {
                 "--no-locale",
             ],
         )?;
-        configure_postgresql_conf(&data_dir)?;
         tracing::info!(data_dir = %data_dir.display(), "embedded postgres initialized");
     }
 
-    // 2) 未在运行则 pg_ctl start(-w 等待就绪);已在运行直接复用。
-    if !is_running(&data_dir) {
+    // 既有私有集群同样更新所属配置，修复旧生成值而不重建数据。
+    let archive_dir = std::env::var("ONCHINA_PG_WAL_ARCHIVE_DIR").ok();
+    configure_postgresql_conf(&data_dir, archive_dir.as_deref())?;
+
+    // 2) 未运行则启动；已运行时重载本产品配置，不遗留旧归档命令。
+    if is_running(&data_dir) {
+        let data = data_dir.to_string_lossy().to_string();
+        run(&pg_tool("pg_ctl"), &["reload", "-D", data.as_str()])?;
+    } else {
         let data = data_dir.to_string_lossy().to_string();
         let log = data_dir.join("postgres.log");
         let log_arg = log.to_string_lossy().to_string();
@@ -200,38 +206,59 @@ fn is_running(data_dir: &Path) -> bool {
     cmd.output().map(|o| o.status.success()).unwrap_or(false)
 }
 
-/// 首启写入归档/WAL 配置:配了 `ONCHINA_PG_WAL_ARCHIVE_DIR`(NAS 路径)则开 PITR 归档,否则关。
-fn configure_postgresql_conf(data_dir: &Path) -> Result<(), String> {
-    use std::io::Write;
-    let conf = data_dir.join("postgresql.conf");
-    let mut extra =
-        String::from("\n# ── onchina 内嵌实例(Card 05)──\nlisten_addresses = '127.0.0.1'\n");
-    if let Some(archive_dir) = std::env::var("ONCHINA_PG_WAL_ARCHIVE_DIR")
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-    {
-        // 配置归档目录后持续保存 WAL；全量备份与恢复由独立数据库运维流程负责。
-        std::fs::create_dir_all(&archive_dir)
-            .map_err(|e| format!("create wal archive dir failed: {e}"))?;
-        let cmd = if cfg!(windows) {
-            format!("copy \"%p\" \"{archive_dir}\\\\%f\"")
-        } else {
-            format!("test ! -f {archive_dir}/%f && cp %p {archive_dir}/%f")
-        };
-        extra.push_str("wal_level = replica\narchive_mode = on\n");
-        extra.push_str(&format!("archive_command = '{cmd}'\n"));
+/// 生成归档命令；路径作为单个Shell参数，保留空格、引号和美元符号的原意。
+pub(crate) fn archive_command(directory: &str) -> String {
+    if cfg!(windows) {
+        format!("copy \"%p\" \"{directory}\\%f\"")
     } else {
-        extra.push_str(
-            "# WAL 归档未配置(ONCHINA_PG_WAL_ARCHIVE_DIR 未设);PITR 关闭。\narchive_mode = off\n",
-        );
+        let target = format!("'{}/%f'", directory.replace('\'', "'\\''"));
+        format!("test ! -f {target} && cp '%p' {target}")
     }
-    let mut f = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&conf)
-        .map_err(|e| format!("open postgresql.conf failed: {e}"))?;
-    f.write_all(extra.as_bytes())
-        .map_err(|e| format!("write postgresql.conf failed: {e}"))
+}
+
+/// 只维护私有集群所属的四个设置，重复启动不追加重复配置、不改其它参数。
+pub(crate) fn configure_postgresql_conf(
+    data_dir: &Path,
+    archive_dir: Option<&str>,
+) -> Result<(), String> {
+    let conf = data_dir.join("postgresql.conf");
+    let original =
+        std::fs::read_to_string(&conf).map_err(|e| format!("read postgresql.conf failed: {e}"))?;
+    let marker = "# ── onchina 内嵌实例(Card 05)──";
+    let retained = original
+        .lines()
+        .filter(|line| {
+            line.trim() != marker
+                && !line.split_once('=').is_some_and(|(key, _)| {
+                    [
+                        "listen_addresses",
+                        "wal_level",
+                        "archive_mode",
+                        "archive_command",
+                    ]
+                    .contains(&key.trim())
+                })
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut extra = format!("\n{marker}\nlisten_addresses = '127.0.0.1'\n");
+    if let Some(directory) = archive_dir.map(str::trim).filter(|value| !value.is_empty()) {
+        std::fs::create_dir_all(directory)
+            .map_err(|e| format!("create wal archive dir failed: {e}"))?;
+        // PostgreSQL配置字符串先还原Shell命令，再由Shell解析路径，两个层级分别转义。
+        let command = archive_command(directory)
+            .replace('\\', "\\\\")
+            .replace('\'', "''");
+        extra.push_str("wal_level = replica\narchive_mode = on\n");
+        extra.push_str(&format!("archive_command = '{command}'\n"));
+    } else {
+        extra.push_str("archive_mode = off\n");
+    }
+    let updated = format!("{}{extra}", retained.trim_end());
+    if updated != original {
+        std::fs::write(&conf, updated).map_err(|e| format!("write postgresql.conf failed: {e}"))?;
+    }
+    Ok(())
 }
 
 fn wait_ready() -> Result<(), String> {

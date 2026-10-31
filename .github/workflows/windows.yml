@@ -32,18 +32,34 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        gh api "repos/$GITHUB_REPOSITORY/actions/workflows/windows.yml/runs?branch=main&event=workflow_dispatch&status=success&per_page=1" > "$RUNNER_TEMP/previous.json"
+        gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
         node --input-type=module >> "$GITHUB_OUTPUT" <<'NODE'
         import {readFileSync} from 'node:fs';
         import {execFileSync} from 'node:child_process';
+        // 每个平台只从自己的成功正式Release确定下一版；失败和重试不消耗版本。
+        const platform='windows',workflow='windows.yml',prefix='公民链·Windows·v';
+        const valid=value=>/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(value)
+          &&value.split('.').every(part=>BigInt(part)<2n**64n);
         let version=JSON.parse(readFileSync('node/tauri.conf.json','utf8')).version;
-        const previous=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/previous.json','utf8')).workflow_runs[0];
-        if(previous){
-          const data=JSON.parse(execFileSync('gh',['api','repos/'+process.env.GITHUB_REPOSITORY+'/actions/runs/'+previous.id+'/artifacts?per_page=100'],{encoding:'utf8'}));
-          const prefix="公民链·Windows·v";
-          const artifact=data.artifacts.find(value=>value.name.startsWith(prefix)&&/^\d+\.\d+\.\d+$/u.test(value.name.slice(prefix.length)));
-          const parts=artifact.name.slice(prefix.length).split('.');parts[2]=String(BigInt(parts[2])+1n);version=parts.join('.');
+        const releases=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/releases.json','utf8')).flat()
+          .filter(row=>row.draft===false&&row.prerelease===false&&typeof row.tag_name==='string'&&row.tag_name.startsWith(prefix))
+          .sort((a,b)=>String(b.published_at).localeCompare(String(a.published_at))||b.id-a.id);
+        for(const release of releases){
+          const records=String(release.body||'').split('\n').filter(line=>line.startsWith('<!-- automation:')&&line.endsWith(' -->'));
+          if(records.length!==1)continue;
+          const proof=JSON.parse(records[0].slice('<!-- automation:'.length,-' -->'.length));
+          if(proof.repository!==process.env.GITHUB_REPOSITORY||proof.product_id!=='citizenchain'||proof.platform!==platform)continue;
+          if(proof.schema!==1||proof.workflow!=='.github/workflows/'+workflow||!valid(proof.version)
+            ||proof.tag!==release.tag_name||release.tag_name!==prefix+proof.version
+            ||!Number.isSafeInteger(proof.run_id)||proof.run_id<=0)throw Error('本平台正式版本记录无效');
+          const run=JSON.parse(execFileSync('gh',['api','repos/'+process.env.GITHUB_REPOSITORY+'/actions/runs/'+proof.run_id],{encoding:'utf8'}));
+          if(run.status!=='completed'||run.conclusion!=='success')continue;
+          if(run.path!==proof.workflow||run.head_branch!=='main'||run.event!=='workflow_dispatch'
+            ||run.head_sha!==proof.source_sha||run.run_attempt!==proof.run_attempt)throw Error('正式版本与成功Run不符');
+          const parts=proof.version.split('.');parts[2]=String(BigInt(parts[2])+1n);version=parts.join('.');
+          break;
         }
+        if(!valid(version))throw Error('本轮节点版本无效');
         console.log('version='+version);
         NODE
   build:
@@ -54,6 +70,7 @@ jobs:
     env:
       PLATFORM: windows
       CITIZENCHAIN_RELEASE_VERSION: "${{ needs.prepare.outputs.version }}"
+      TAURI_CONFIG: '{"version":"${{ needs.prepare.outputs.version }}"}'
       CITIZENCHAIN_SOURCE_SHA: "${{ github.sha }}"
       CARGO_TARGET_DIR: "${{ github.workspace }}/target/build/windows/cargo-target"
       CITIZENCHAIN_SOURCE_ROOT: "${{ github.workspace }}"

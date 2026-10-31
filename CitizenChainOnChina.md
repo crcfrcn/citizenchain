@@ -194,20 +194,25 @@ citizenchain/onchina/
 
 PublicManage/PrivateManage call 5 及 `0x1e05/0x1f05` 已永久留洞，后端不得继续编码旧 `cid_number + cid_full_name + cid_short_name + town_code + admins + actor_cid_number` 载荷。新创建协议由第 6 步独立业务模块另行登记；必须携带注册局完整 `RoleSubject`，并原子绑定目标机构的岗位、权限、任职和投票规则，不能只凭注册局 admins 或在创建后补权限。
 
-#### 7. HTTPS 和机构 CA
+#### 7. 固定局域网公信 HTTPS
 
-正式入口固定为 `https://onchina.local:8964`。OnChina 启动时在 `ONCHINA_TLS_DIR` 生成并持久化本机构节点私有 CA：
+正式入口为 `https://onchina.crcfrcn.com:1988/`，仅监听 `192.168.20.27:1988`。域名、IP和端口唯一声明于 `onchina/platform/modules/lib.rs`，宿主通过 `--describe` 公开给节点；不提供环境变量覆盖或旧地址回退。主机网卡、路由器、局域网DNS与放行规则由安装用户一次配置；客户端直接使用浏览器，无需导入CA或调整浏览器。
 
-- `onchina-org-root-ca.crt`：员工浏览器可下载和安装的 CA 公钥证书。
-- `onchina-org-root-ca.key`：仅保存在节点服务器本地的 CA 私钥，禁止通过 HTTP、日志或前端接口暴露。
-- `onchina-server.crt` / `onchina-server.key`：由本机构 CA 签发的 `onchina.local` 服务证书。
-- `onchina-cert-profile.txt`：服务证书策略标记；标记变化最多触发服务证书检查或重签，绝对不能触发根 CA 轮换。
+- HTTPS 使用标准 `instant-acme` 办理公信证书，首次缺证时准备；有效证书直接启动，在证书生命周期后1/3内后台续期，每6小时重试，宿主和模块每分钟发现并热加载更新。服务端验证完整公信链、域名、有效期和密钥匹配，节点及模块客户端保持正常公信 HTTPS 验证；失败不使用自签名或旧机构CA回退。
+- 域名所有者只在主机执行一次 `onchina authorize-tls`，隐藏输入指定区域的Cloudflare区域ID和DNS编辑授权。授权、ACME账户、服务私钥及待清理挑战只进入系统密钥库：macOS Keychain、Windows Credential Manager、Linux Secret Service；公开证书链保存在 `ONCHINA_TLS_DIR/onchina-server.crt`。Linux主机需有可用的Secret Service；不以明文文件替代密钥系统。DNS-01只增删本次验证的精确TXT记录，不改A/AAAA、路由器、局域网DNS或防火墙。API授权不是编译或安装前置条件，控制台不拥有此流程。
+- 旧机构CA签发/下载、私有信任锚、`.local`广告及旧入口移除。模块接口版本升级为2，宿主在启动前拒绝旧模块，避免旧二进制重新生成私有CA并覆盖公信证书；既有模块必须同步重建。旧生产密钥文件不读取、不迁移、不自动销毁；数据库、钱包和链数据不删除。域名变化后旧域名下的Passkey无法跨RP使用，用户应通过既有钱包鉴权重新登记新域名的Passkey，不能改写旧凭据冒充迁移。
 
-根 CA 只允许在根证书与根私钥同时不存在的首次初始化生成，有效期固定到 2036-01-01。服务重启、程序升级、配置标识变化均只加载磁盘中的真实根证书和对应私钥，不得重新构造、覆盖或轮换根 CA。根材料不完整、损坏、公私钥不匹配、CA 用途错误、自签名无效或超出有效期时必须失败关闭，由管理员人工处理。
+宿主先预留监听并准备证书，再启动私有PG、初始化数据库与链任务。地址缺失、端口占用或缺少有效公信证书时失败并通过公开去敏JSON诊断通知节点；不生成私有CA、不启动明文或跳过验证。有效证书续期失败时维持现有服务；证书过期或无有效证书时拒绝服务。模块只加载同一公开证书与系统私钥，不独立签发；证书热加载不更换监听。
 
-`onchina.local` 服务证书有效期不超过 397 天；证书、公私钥、SAN、ServerAuth 用途、根签名关系均正确且距离到期超过 30 天时直接复用。只有服务证书缺失、损坏、策略或域名不符、签名关系错误或进入到期前 30 天时，才使用现有根 CA 成对重签服务证书和私钥。服务证书重签不得写入根证书或根私钥。
+`instant-acme=0.8.5`实现ACME协议，`keyring=4.2.0`连接系统密钥存储，`rpassword=7.5.4`提供首次隐藏输入；均为本产品原锁中的库依赖，不增加Caddy、代理进程或独立签发服务。`scripts/config.mjs`只公开运行期授权入口，不把其加入编译必填输入，控制台不读取或代管产品证书逻辑。主机首次办证与后台续期需要能连接公信CA和Cloudflare HTTPS服务。
 
-未登录公共接口 `/api/platform/ca-certificate` 只返回 CA 公钥证书 PEM，用于员工首次访问时下载并导入浏览器/系统受信任根证书；`/api/platform/ca-certificate/info` 只返回文件名、证书主题、SHA-256 指纹和有效期展示信息。
+macOS安装后的首次命令为：
+
+```sh
+"/Applications/citizenchain.app/Contents/Resources/onchina-bin/onchina" authorize-tls
+```
+
+此命令在数据库启动前执行，仅隐藏读取一次办证材料并写入系统密钥库；禁止通过命令参数、普通配置文件或源码传入授权。公开证书目录不保存私钥、ACME账户或DNS验证材料。
 
 #### 8. 错误码和提示边界
 
@@ -313,11 +318,8 @@ passkey 的消费点统一钉在**创建冷签会话那一步**，不在 prepare
 ```text
 rg "mod chain;|crate::chain|chain::" citizenchain/onchina -g '*.rs'
 cargo check --manifest-path citizenchain/Cargo.toml -p onchina -p onchina-registry -p onchina-legislation -p onchina-private -p onchina-judicial
-ONCHINA_EMBEDDED_PG=0 DATABASE_URL=<local_pg> ONCHAIN_WS_URL=<chain_ws> cargo run --manifest-path citizenchain/Cargo.toml -p onchina -- sync-government
-curl --cacert <本轮机构CA公开证书> -fsS https://onchina.local:8964/api/health
-curl --cacert <本轮机构CA公开证书> -fsS https://onchina.local:8964/api/platform/ca-certificate/info
-curl --cacert <本轮机构CA公开证书> -fsS -o /tmp/onchina-org-root-ca.crt https://onchina.local:8964/api/platform/ca-certificate
-curl --cacert <本轮机构CA公开证书> -sS -i https://onchina.local:8964/api/admin/auth/check -H "authorization: Bearer <token>"
+ONCHINA_EMBEDDED_PG=0 DATABASE_URL=<local_pg> ONCHAIN_WS_URL=<chain_wss> cargo run --manifest-path citizenchain/Cargo.toml -p onchina -- sync-gov
+curl -fsS https://onchina.crcfrcn.com:1988/api/health
 ```
 
 涉及数据库、登录、管理员列表、机构详情和扫码签名的变更必须跑真实 HTTP 接口。只通过 `cargo check` 不能证明连接池、SQL 字段顺序和扫码验签流程正确。
@@ -435,7 +437,6 @@ OnChina 管理员登录必须使用登录专用错误码，禁止继续把登录
 
 | 错误码 | 中文提示 |
 |---|---|
-| `ONCHINA_TLS_CA_UNAVAILABLE` | 机构 CA 证书暂不可用，请确认链上中国平台已正常启动 |
 | `ONCHINA_LOGIN_CAMERA_UNSUPPORTED` | 当前浏览器不支持摄像头扫码，请更换新版浏览器 |
 | `ONCHINA_LOGIN_CAMERA_INSECURE_CONTEXT` | 当前页面不是 HTTPS 安全环境，无法使用摄像头 |
 | `ONCHINA_LOGIN_CAMERA_PERMISSION_DENIED` | 摄像头权限被拒绝，请在浏览器中允许摄像头权限 |
@@ -450,7 +451,7 @@ OnChina 管理员登录必须使用登录专用错误码，禁止继续把登录
 | `ONCHINA_LOGIN_WALLET_CODE_INVALID` | 钱包码无效，请出示完整的 `QR_V1/k=5` 钱包码 |
 | `ONCHINA_LOGIN_ORIGIN_REQUIRED` | 登录来源缺失，请刷新页面后重试 |
 | `ONCHINA_LOGIN_SESSION_REQUIRED` | 登录会话缺失，请刷新页面后重试 |
-| `ONCHINA_LOGIN_DOMAIN_REQUIRED` | 登录域名缺失，请使用 `https://onchina.local:8964` 访问 |
+| `ONCHINA_LOGIN_DOMAIN_REQUIRED` | 登录域名缺失，请使用节点显示的链上中国 HTTPS 入口访问 |
 | `ONCHINA_LOGIN_CHALLENGE_CREATE_FAILED` | 登录请求保存失败，请稍后重试 |
 | `ONCHINA_LOGIN_REQUEST_INVALID` | 登录请求内容不完整，请重新扫码 |
 | `ONCHINA_LOGIN_RESULT_PARAM_REQUIRED` | 登录轮询参数缺失，请刷新页面后重试 |
@@ -578,9 +579,8 @@ citizenchain/onchina/
 
 #### 6. 首次 HTTPS 信任
 
-登录页和已登录后台必须在当前页面不是可信 HTTPS 安全上下文时提供机构 CA 证书下载入口，指向 `/api/platform/ca-certificate`。当前页面已经是 `https:` 且 `window.isSecureContext=true` 时，说明浏览器已信任当前 OnChina HTTPS 页面，不得继续显示 CA 下载安装提示。未信任本节点证书时，页面应明确提示先安装机构 CA 证书并重开浏览器；安装完成前不得把 passkey 失败误提示为摄像头权限问题。
+登录页与后台只使用节点公开的公信HTTPS入口；不提供CA下载、浏览器导入或信任设置流程。Passkey要求正常的HTTPS安全上下文，不把域名、证书或安全上下文错误误报为摄像头权限问题。
 
-macOS 导入机构 CA 时必须提示导入“系统”钥匙串并将证书设为“始终信任”；如出现 `-25294`，先在钥匙串中删除同名旧证书，再下载当前节点的新 CA 证书重新导入。
 
 passkey 客户端在调用 `navigator.credentials.create/get` 前必须检查 `window.isSecureContext`、`PublicKeyCredential` 和 `navigator.credentials`，并分别提示“证书未信任 / 浏览器不支持 / 用户取消”。
 
@@ -664,7 +664,7 @@ OnChina 可以向 CitizenApp 或 Cloudflare 边缘层提供公开目录、链上
 
 - CitizenApp 链上余额、身份、提案、投票和交易成功判断以端上轻节点读取的 finalized runtime storage 为准。
 - OnChina / Citizen API 可以广播 CitizenApp 已经本地签名完成的 extrinsic，但不接触私钥、不修改交易载荷、不把广播成功解释为链上成功。
-- OnChina 的主入口仍是机构内网工作台 `https://onchina.local:8964`；如后续提供公网投影服务，必须以独立受控服务节点、反向代理、白名单、限流和审计为边界，不直接暴露国储会核心节点 RPC。
+- OnChina 的主入口仍是机构内网工作台 `https://onchina.crcfrcn.com:1988/`；如后续提供公网投影服务，必须以独立受控服务节点、反向代理、白名单、限流和审计为边界，不直接暴露国储会核心节点 RPC。
 - OnChina 不恢复旧独立后端目录，不新建 `backend/src/`、`backend/chain/` 或 `frontend/chain/` 业务壳。
 
 #### 2. 技术栈
@@ -686,7 +686,7 @@ OnChina 可以向 CitizenApp 或 Cloudflare 边缘层提供公开目录、链上
 
 schema 初始化和链上业务投影必须分离。schema 入口只允许幂等创建最终结构与分区，不得携带 `ALTER/DROP`、旧列清理或兼容读取；公权机构目录只能从链上唯一真源投影。
 
-局域网访问入口固定为 `https://onchina.local:8964`。OnChina 监听 `0.0.0.0:8964`，通过 mDNS 广告 `onchina.local`，TLS 自签证书目标主机为 `onchina.local`。节点设置页只负责启动服务，不自动打开浏览器；管理员在自己的电脑浏览器中访问该固定入口。
+局域网入口与监听只读取第7节统一部署声明，不另建mDNS或自签名入口。节点设置页只负责启动服务，不自动打开浏览器；管理员在自己的电脑浏览器中访问该固定公信HTTPS入口。
 
 登录身份不由节点安装前预配置。管理员使用 CitizenWallet 扫码后，后端校验 `signer_public_key` 与签名，得到并严格比较 `account_id`，再查询链上 active admin 所属机构；该账户属于一个机构时直接进入本机构工作台，属于多个机构时先选择机构再进入对应工作台。未绑定节点返回候选机构并要求浏览器二次确认绑定，已绑定节点只允许该机构 active admin 登录。节点绑定只作为本机机构归属结果缓存，权限真源仍是链上 active admin 集合。解绑或换机构必须走 `NODE_BINDING_UNBIND` 扫码签名安全动作：当前本机会话管理员发起，CitizenWallet 签名一次并显示响应二维码，OnChina 回扫后停用 active binding 并清退本节点管理员会话，再重新登录绑定新机构。
 
@@ -1003,7 +1003,7 @@ npm run dev沿用构建后预览流程；npm run preview读取宿主独立工程
 
 运行时只从一个实际模块目录装载：可用 ONCHINA_MODULE_DIR 指定绝对路径；macOS 默认是用户 Library/Application Support/gmb.dev/onchina-modules，在 .app 外；其它平台默认是宿主程序同级 modules。整套节点包包含初始模块交付文件；macOS 首次部署须在获得安装授权后把它们放入上述实际目录，不能只把 .app 内的构建产物当作已启用模块。本构建入口不安装、不发布、不修改链或持久数据；不隐式复制初始模块，也不在 App 启动时覆盖已独立升级的模块。
 
-装载在宿主启动时执行一次：验证真实目录和程序、声明、接口、前后端版本、能力与工作台同一归属、HTTP 方法/路径匹配形状与归属冲突，再以原机构 CA 校验的回环 HTTPS 拉起模块，确认健康后登记。模块说明读取及就绪等待采用最多4个并行任务；归属与路由冲突按目录排序校验，只登记成功模块。模块缺失、冲突、版本不符或启动失败时隔离该模块；公共服务及其他模块继续运行。没有热加载、轮询替换、安装按钮或双轨装配。增加、替换或移出模块时，先停止宿主，再调整其实际软件目录，最后重新启动；节点关闭宿主父管道后等待宿主退出；宿主从初始化阶段监听父管道，先停止接收请求并最多排空10秒，再关闭模块父管道，给予全部模块合计12秒退出时间，最后回收仍未退出的模块。模块退出未经确认时宿主不报告停止完成；节点等待40秒超时保留句柄并返回现有错误通道。移出的是软件，不删除数据库、文件资料、待完成会话或审计。
+装载在宿主启动时执行一次：验证真实目录和程序、声明、接口、前后端版本、能力与工作台同一归属、HTTP 方法/路径匹配形状与归属冲突，再以原公信证书校验的回环 HTTPS 拉起模块，确认健康后登记。模块说明读取及就绪等待采用最多4个并行任务；归属与路由冲突按目录排序校验，只登记成功模块。模块缺失、冲突、版本不符或启动失败时隔离该模块；公共服务及其他模块继续运行。没有热加载、轮询替换、安装按钮或双轨装配。增加、替换或移出模块时，先停止宿主，再调整其实际软件目录，最后重新启动；节点关闭宿主父管道后等待宿主退出；宿主从初始化阶段监听父管道，先停止接收请求并最多排空10秒，再关闭模块父管道，给予全部模块合计12秒退出时间，最后回收仍未退出的模块。模块退出未经确认时宿主不报告停止完成；节点等待40秒超时保留句柄并返回现有错误通道。移出的是软件，不删除数据库、文件资料、待完成会话或审计。
 
 宿主保留原公共 HTTP 路由与中间件顺序，模块业务方法/URL 不变；上传请求限额由真实路由声明原样带到转发处。未匹配的 API 返回原 JSON 错误格式，不落入前端 HTML。原请求头、二维码、Passkey 和钱包冷签提交字段保持；宿主在消费凭证或会话前按实际登记归属转发，模块独立执行原业务校验。公民业务的 finalized 身份核验和正式投影归注册局；通用事务仍共同核对原绑定、租约、投影及会话完成标记。后台恢复各自只领取所属 purpose；模块缺失不会消费或清理其待完成会话。
 
@@ -1024,7 +1024,7 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 五处链签名准备均通过现有 passkeySubmitHeaders 取得一次断言，不增加页面控件或改变钱包扫码流程。法律地域直接保留原省码字母和省内市号，旧数字占位及错误默认值已删除。
 
-内部实例工作台查询并行度最多4，单次请求含响应体读取最多5秒；该期限不应用于正式交易转发、扫码签名或最终确认。模块就绪最长等待120秒，说明进程最多10秒，独立等待不会串行阻塞其他同批模块。开发与预览的/api和/modules使用同一现有HTTPS代理和机构CA校验，不复制另一套前端资源。路径归属统一按原生relative边界判断，支持Windows分隔符并拒绝跨盘、父目录和同名前缀目录。
+内部实例工作台查询并行度最多4，单次请求含响应体读取最多5秒；该期限不应用于正式交易转发、扫码签名或最终确认。模块就绪最长等待120秒，说明进程最多10秒，独立等待不会串行阻塞其他同批模块。开发与预览的/api和/modules仅在serve时显式指定公信HTTPS目标并正常验证证书，构建不依赖运行中的宿主，不复制另一套前端资源。路径归属统一按原生relative边界判断，支持Windows分隔符并拒绝跨盘、父目录和同名前缀目录。
 
 能力夹具只为真实所属模块声明业务能力；无owner的NRC、PRC、PRB和未知码回归必须经过真实基础能力分支。工作台夹具完整保留分区、动作、文字、顺序及enabled值。普通回归使用独立测试进程和临时证书核验真实HTTPS转发、证书/主机名拒绝、退出和同路径程序替换，不连接业务数据库或链。verifyPreparedOnChina只静态核对本轮产物；真实业务IIFE验收由既有四平台塔塔自动化在编译后、记录产物原始字节前登记：向既有结构测试及前端测试明确传入ONCHINA_TEST_MODULE_ROOT和ONCHINA_TEST_MODULE_IDS，只核验所选模块。实际--describe、JS/CSS首行、IIFE导出和宿主真实公开对象/React/认证Provider须一致；任一失败中止交付。普通单元测试未提供产物时明确跳过，不能把伪DOM回归作为真实产物验收。
 
@@ -1050,7 +1050,7 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 结构初始化以PostgreSQL原生schema注释记录onchina:3格式。仅无业务对象的新命名空间或官方空public空间可事务初始化；已有结构核对格式、27张逻辑表、205列及全部表列命名，随后只读复用。模块connect_existing也先核验，旧结构、额外旧表或损坏列明确失败，不自动修补。schema声明不执行照片清理，业务过期仍由照片原读写入口校验。真实旧库数据处置留待单独批准。
 
-固定协议边界：QR_V1 管理员签名、软件接口版本1健康响应和 CitizenApp 公开目录（含共享分页与法定代表人）保持其所属既有 JSON 格式。管理端自有 HTTP DTO 使用 camelCase；数据库恢复上下文只使用唯一 snake_case 键。测试隔离库在独立线程初始化与清理，避免同步 postgres 在异步测试内嵌套 runtime。
+固定协议边界：QR_V1 管理员签名、软件接口版本2健康响应和 CitizenApp 公开目录（含共享分页与法定代表人）保持其所属既有 JSON 格式。管理端自有 HTTP DTO 使用 camelCase；数据库恢复上下文只使用唯一 snake_case 键。测试隔离库在独立线程初始化与清理，避免同步 postgres 在异步测试内嵌套 runtime。
 
 链签会话 context 顶层使用 snake_case（origin_institution_cid 等三词内键）；嵌入的 validated 等真实 DTO 仍由其所属 Serde 决定格式。会话创建、授权重核、恢复租约和最终投影均消费同一个键，不做大小写回退。
 

@@ -106,11 +106,11 @@ impl HttpsFixture {
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .add_root_certificate(reqwest::Certificate::from_pem(self.ca.as_bytes()).unwrap())
-            .resolve("onchina.local", self.address)
+            .resolve("onchina.crcfrcn.com", self.address)
             .connect_timeout(Duration::from_secs(1))
             .build()
             .unwrap();
-        let endpoint = format!("https://onchina.local:{}", self.address.port());
+        let endpoint = format!("https://onchina.crcfrcn.com:{}", self.address.port());
         let start = Instant::now();
         loop {
             assert!(
@@ -238,10 +238,10 @@ pub async fn https_fixture(id: &str) -> HttpsFixture {
     ];
     let ca = ca_params.self_signed(&ca_key).unwrap();
     let key = rcgen::KeyPair::generate().unwrap();
-    let mut params = rcgen::CertificateParams::new(vec!["onchina.local".into()]).unwrap();
+    let mut params = rcgen::CertificateParams::new(vec!["onchina.crcfrcn.com".into()]).unwrap();
     params
         .distinguished_name
-        .push(rcgen::DnType::CommonName, "onchina.local");
+        .push(rcgen::DnType::CommonName, "onchina.crcfrcn.com");
     params.use_authority_key_identifier_extension = true;
     params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
     params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];

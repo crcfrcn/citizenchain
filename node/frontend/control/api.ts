@@ -1,5 +1,6 @@
+import { Channel } from '@tauri-apps/api/core';
 import { invoke } from "../client/tauri";
-import type { BootnodeKey, BootnodeOption, DesktopInstaller, GrandpaKey, NodeMode, NodeModeState, OnChinaPlatformState, RewardAccount, ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake, OtherTabsPayload, WhitepaperDocument } from "./types";
+import type { BootnodeKey, BootnodeOption, DesktopInstaller, DesktopUpdateProgress, GrandpaKey, NodeMode, NodeModeState, OnChinaPlatformState, RewardAccount, ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake, OtherTabsPayload, WhitepaperDocument } from "./types";
 import type { RuntimeConstitutionDocument } from "../guard/types";
 
 
@@ -27,7 +28,13 @@ export const settingsApi = {
   getGenesisBootnodeOptions: () =>
     invoke<BootnodeOption[]>('get_genesis_bootnode_options'),
   checkDesktopUpdate: () => invoke<DesktopInstaller | null>('check_desktop_update'),
-  openDesktopInstaller: () => invoke<void>('open_desktop_installer'),
+  desktopUpdateStatus: () => invoke<DesktopUpdateProgress>('desktop_update_status'),
+  downloadDesktopUpdate: (onProgress: (progress: DesktopUpdateProgress) => void) => {
+    const channel = new Channel<DesktopUpdateProgress>();
+    channel.onmessage = onProgress;
+    return invoke<void>('download_desktop_update', { onProgress: channel });
+  },
+  installDesktopUpdate: () => invoke<void>('install_desktop_update'),
 };
 
 

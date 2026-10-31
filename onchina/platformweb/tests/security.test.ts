@@ -132,3 +132,14 @@ it('机构治理准备等待一次Passkey，保留请求且失败不重试', asy
     }
   });
 });
+
+it('非安全上下文在发送认证请求前拒绝，只提示正式公信HTTPS入口', async () => {
+  const actual = await vi.importActual<typeof import('../authentication/passkeyClient')>('../authentication/passkeyClient');
+  const fetcher = vi.spyOn(globalThis,'fetch');
+  vi.stubGlobal('window',{isSecureContext:false,location:{protocol:'https:'}});
+  vi.stubGlobal('navigator',{});
+  try {
+    await expect(actual.registerPasskey({accessToken:'synthetic-session',accountId:'synthetic-account'} as never)).rejects.toThrow('公信 HTTPS');
+    expect(fetcher).not.toHaveBeenCalled();
+  } finally { vi.unstubAllGlobals(); fetcher.mockRestore(); }
+});

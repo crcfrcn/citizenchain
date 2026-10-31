@@ -59,7 +59,8 @@ pub struct InstitutionWorkspace {
 }
 
 /// 软件装载接口版本，只约束宿主与模块，不涉及链上Runtime版本。
-pub(crate) const MODULE_INTERFACE_VERSION: u32 = 1;
+// 公信证书共享替代旧私有CA；拒绝旧模块启动后覆盖当前证书。
+pub(crate) const MODULE_INTERFACE_VERSION: u32 = 2;
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct RouteDescription {
     pub group: String,

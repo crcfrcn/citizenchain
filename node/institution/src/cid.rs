@@ -59,13 +59,13 @@ fn into_candidate(row: CidEligibleRow) -> EligibleClearingBankCandidate {
 pub(crate) fn search_eligible_clearing_banks(
     q: &str,
     limit: u32,
+    deployment: &nodedesktop::cid::PlatformDeployment,
 ) -> Result<Vec<EligibleClearingBankCandidate>, String> {
     let limit = limit.clamp(1, 50);
     let q_trim = q.trim();
-    let base_url = nodedesktop::cid::onchina_base_url()?;
-    let url = format!("{}/api/app/clearing-banks/eligible-search", base_url);
+    let url = format!("{}api/app/clearing-banks/eligible-search", deployment.url);
 
-    let client = onchina_client()?
+    let client = onchina_client(deployment)
         .connect_timeout(ONCHINA_REQUEST_TIMEOUT)
         .timeout(ONCHINA_REQUEST_TIMEOUT)
         .build()
@@ -98,23 +98,13 @@ pub(crate) fn search_eligible_clearing_banks(
     Ok(body.data.into_iter().map(into_candidate).collect())
 }
 
-// 公网使用系统受信根；局域网可显式补充受信CA，始终验证证书和主机名。
-fn onchina_client() -> Result<reqwest::blocking::ClientBuilder, String> {
-    let mut builder = reqwest::blocking::Client::builder()
+// 清算行查询与节点健康检查使用同一公开入口，正常验证公信链和域名。
+fn onchina_client(
+    deployment: &nodedesktop::cid::PlatformDeployment,
+) -> reqwest::blocking::ClientBuilder {
+    reqwest::blocking::Client::builder()
         .https_only(true)
-        .redirect(reqwest::redirect::Policy::none());
-    match std::env::var("ONCHINA_TLS_CA_FILE") {
-        Ok(path) => {
-            if path.is_empty() {
-                return Err("OnChina受信CA路径为空".to_string());
-            }
-            let pem = std::fs::read(path).map_err(|_| "读取OnChina受信CA失败".to_string())?;
-            let certificate = reqwest::Certificate::from_pem(&pem)
-                .map_err(|_| "OnChina受信CA格式无效".to_string())?;
-            builder = builder.add_root_certificate(certificate);
-        }
-        Err(std::env::VarError::NotPresent) => {}
-        Err(_) => return Err("OnChina受信CA配置无效".to_string()),
-    }
-    Ok(builder)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve(&deployment.host, deployment.address)
 }

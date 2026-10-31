@@ -87,7 +87,7 @@ function sameOriginAsset(value: string, id: string): string {
 const MODULE_LOAD_TIMEOUT_MS = 15000;
 async function loadModule(asset: ModuleAsset): Promise<void> {
   if (!/^[a-z][a-z0-9_]{0,63}$/.test(asset.id) || !/^\d+\.\d+\.\d+$/.test(asset.version)
-      || asset.interface_version !== 1 || !Array.isArray(asset.exports) || !Array.isArray(asset.institution_codes)) {
+      || asset.interface_version !== 2 || !Array.isArray(asset.exports) || !Array.isArray(asset.institution_codes)) {
     throw new Error('模块声明无效或接口版本不匹配');
   }
   // 两个地址都校验完成才创建节点，失败不能留下半套资源。

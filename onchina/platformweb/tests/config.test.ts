@@ -24,3 +24,17 @@ it('独立前端只保留必需根文件，公开入口指向当前唯一实现'
   }
   expect(existsSync(join(root, 'tsconfig.json'))).toBe(false);
 });
+
+it('办证授权只属于运行期，构建无需启动宿主或配置证书', async () => {
+  const {manifest} = await import(new URL('../../../scripts/config.mjs', import.meta.url).href);
+  expect(manifest.runtime.certificate).toEqual({command:'onchina authorize-tls',input:'hidden-terminal',storage:'system-keyring'});
+  expect(manifest.configuration.items.some((item: {name: string}) => item.name === 'ONCHINA_CERT_AUTHORIZATION')).toBe(false);
+  const {frontendConfiguration} = await import(new URL('../../../scripts/onchina.mjs', import.meta.url).href);
+  const {vi} = await import('vitest');
+  vi.stubEnv('ONCHINA_BASE_URL','http://invalid-build-only.example');
+  try {
+    const config = await frontendConfiguration(resolve(import.meta.dirname,'..'),{command:'build'});
+    expect(config.server.proxy).toBeUndefined();
+    expect(config.preview.proxy).toBeUndefined();
+  } finally { vi.unstubAllEnvs(); }
+});

@@ -5,7 +5,7 @@ describe('模块前端装载与重启边界', () => {
   type Asset = import('../workspace/modules').ModuleAsset;
   type ElementFixture = { tag: string; src?: string; href?: string; onload?: ((event: Event) => unknown) | null; onerror?: ((event: Event) => unknown) | null; removed: boolean; remove: () => void };
   const asset = (id: string, codes = ['FRG']): Asset => ({
-    id, version: '1.0.0', interface_version: 1, script: '/modules/' + id + '/module.js?v=1.0.0',
+    id, version: '1.0.0', interface_version: 2, script: '/modules/' + id + '/module.js?v=1.0.0',
     stylesheet: '/modules/' + id + '/module.css?v=1.0.0', exports: ['Workspace'], institution_codes: codes, workspace: 'Workspace',
   });
   async function fixture(items: Asset[], options: { badVersion?: string; badStyle?: string; badScript?: string; pendingScript?: string; pendingHealth?: boolean } = {}) {
@@ -13,9 +13,9 @@ describe('模块前端装载与重启边界', () => {
     const elements: ElementFixture[] = [];
     const views = Object.fromEntries(items.map(item => [item.id, () => null]));
     const modules = Object.fromEntries(items.map(item => [item.id, {
-      Workspace: views[item.id], __onchina: { id: item.id, version: options.badVersion === item.id ? '2.0.0' : item.version, interface_version: 1 },
+      Workspace: views[item.id], __onchina: { id: item.id, version: options.badVersion === item.id ? '2.0.0' : item.version, interface_version: 2 },
     }]));
-    vi.stubGlobal('window', { location: { href: 'https://onchina.local/', origin: 'https://onchina.local' } });
+    vi.stubGlobal('window', { location: { href: 'https://onchina.crcfrcn.com/', origin: 'https://onchina.crcfrcn.com' } });
     vi.stubGlobal('OnChinaModules', modules);
     vi.stubGlobal('document', {
       createElement: (tag: string) => {
@@ -93,7 +93,7 @@ describe('模块前端装载与重启边界', () => {
       expect(context.loader.moduleView('ready', 'Workspace')).toBe(context.views.ready);
       expect(context.elements.filter(element => (element.src ?? element.href)?.includes('/slow/')).every(element => element.removed && !element.onload && !element.onerror)).toBe(true);
       expect(globalThis.OnChinaModules.slow).toBeUndefined();
-      globalThis.OnChinaModules.slow = { Workspace: () => null, __onchina: { id: 'slow', version: '1.0.0', interface_version: 1 } };
+      globalThis.OnChinaModules.slow = { Workspace: () => null, __onchina: { id: 'slow', version: '1.0.0', interface_version: 2 } };
       expect(globalThis.OnChinaModules.slow).toBeUndefined();
       expect(() => context.loader.moduleView('slow', 'Workspace')).toThrow('装载超时');
       expect(vi.getTimerCount()).toBe(0);

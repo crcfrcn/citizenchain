@@ -3,7 +3,6 @@ use nodedesktop::rpc::RPC_REQUEST_TIMEOUT;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
-use std::io::Read;
 use std::time::Duration;
 
 #[derive(Debug, Serialize)]
@@ -59,25 +58,33 @@ fn decode_whitepaper_document(bytes: &[u8]) -> Result<WhitepaperDocument, String
 
 // 节点仅在打开白皮书时读取官网静态正文；HTTPS证书和主机名由系统TLS校验。
 #[tauri::command]
-pub fn get_whitepaper_document() -> Result<WhitepaperDocument, String> {
-    let client = reqwest::blocking::Client::builder()
+pub async fn get_whitepaper_document() -> Result<WhitepaperDocument, String> {
+    let client = reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(15))
         .build()
         .map_err(|_| "官网白皮书连接初始化失败".to_string())?;
-    let response = client
+    let mut response = client
         .get(WHITEPAPER_CONTENT_URL)
         .send()
+        .await
         .map_err(|_| "官网白皮书读取失败".to_string())?;
     if response.status() != reqwest::StatusCode::OK {
         return Err("官网白皮书读取失败".to_string());
     }
     let mut bytes = Vec::new();
-    response
-        .take((WHITEPAPER_CONTENT_LIMIT + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "官网白皮书正文读取失败".to_string())?;
+    // 异步分块读取，不阻塞桌面事件处理，且在累积前执行正文大小限制。
+    while let Some(part) = response
+        .chunk()
+        .await
+        .map_err(|_| "官网白皮书正文读取失败".to_string())?
+    {
+        if part.len() > WHITEPAPER_CONTENT_LIMIT - bytes.len() {
+            return Err("官网白皮书正文超限".to_string());
+        }
+        bytes.extend_from_slice(&part);
+    }
     decode_whitepaper_document(&bytes)
 }
 

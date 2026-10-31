@@ -48,7 +48,7 @@ import { SECURITY_GRANT_HEADER, PASSKEY_ASSERTION_HEADER, passkeySubmitHeaders, 
     const { stdout } = await execute(executable, ['--describe'], { encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024 });
     const description = JSON.parse(stdout) as { id: string; version: string; interface_version: number; frontend_exports: string[]; frontend_workspace: string | null; workspaces: Record<string, unknown> };
     expect(description.id).toBe(id);
-    expect(description.interface_version).toBe(1);
+    expect(description.interface_version).toBe(2);
     const base = '/modules/' + description.id + '/';
     assets.push({ id: description.id, version: description.version, interface_version: description.interface_version,
       exports: description.frontend_exports, workspace: description.frontend_workspace, institution_codes: Object.keys(description.workspaces), script: base + 'module.js', stylesheet: base + 'module.css' });
@@ -58,13 +58,13 @@ import { SECURITY_GRANT_HEADER, PASSKEY_ASSERTION_HEADER, passkeySubmitHeaders, 
   const sharedModules: Record<string, import('../workspace/modules').LoadedModule> = Object.create(null);
   const sandbox = createContext({ OnChinaPlatform: Object.freeze(sdk), OnChinaModules: sharedModules, console, setTimeout, clearTimeout, URL, TextEncoder, TextDecoder, AbortController });
   vi.stubGlobal('OnChinaModules', sharedModules);
-  vi.stubGlobal('window', { location: { href: 'https://onchina.local/', origin: 'https://onchina.local' } });
+  vi.stubGlobal('window', { location: { href: 'https://onchina.crcfrcn.com/', origin: 'https://onchina.crcfrcn.com' } });
   vi.stubGlobal('document', {
     createElement: (tag: string) => ({ tag, remove() {}, onload: null, onerror: null }),
     head: { append: (...elements: { tag: string; src?: string; onload?: ((event: Event) => void) | null }[]) => {
       for (const element of elements) {
         if (element.tag === 'script') {
-          const path = new URL(element.src!, 'https://onchina.local/').pathname;
+          const path = new URL(element.src!, 'https://onchina.crcfrcn.com/').pathname;
           const script = scripts.get(path);
           if (!script) throw new Error('验收脚本不存在');
           runInContext(script, sandbox, { timeout: 10000 });

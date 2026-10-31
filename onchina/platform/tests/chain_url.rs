@@ -106,3 +106,107 @@ async fn rpc_https_uses_exact_certificate_and_validates_hostname() {
         .is_err());
     thread.join().unwrap();
 }
+
+#[tokio::test]
+async fn rpc_wss_attempts_the_original_peer_and_never_follows_redirects() {
+    use std::{
+        io::{Read, Write},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        time::{Duration, Instant},
+    };
+    let generated = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+    let certificate = generated.cert.der().to_vec();
+    let server = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(
+        vec![rustls::pki_types::CertificateDer::from(certificate.clone())],
+        rustls::pki_types::PrivateKeyDer::Pkcs8(generated.key_pair.serialize_der().into()),
+    )
+    .unwrap();
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let redirect = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    redirect.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let redirect_port = redirect.local_addr().unwrap().port();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let server_accepted = accepted.clone();
+    let thread = std::thread::spawn(move || {
+        let config = Arc::new(server);
+        let until = Instant::now() + Duration::from_secs(8);
+        while server_accepted.load(Ordering::SeqCst) < 4 && Instant::now() < until {
+            match listener.accept() {
+                Ok((socket, _)) => {
+                    let count = server_accepted.fetch_add(1, Ordering::SeqCst) + 1;
+                    socket.set_nonblocking(false).unwrap();
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    socket
+                        .set_write_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut tls = rustls::StreamOwned::new(
+                        rustls::ServerConnection::new(config.clone()).unwrap(),
+                        socket,
+                    );
+                    let mut request = [0; 4096];
+                    if let Ok(size) = tls.read(&mut request) {
+                        assert!(String::from_utf8_lossy(&request[..size])
+                            .to_lowercase()
+                            .contains("upgrade"));
+                        let response = if count == 2 {
+                            format!("HTTP/1.1 302 Found\r\nLocation: wss://127.0.0.1:{redirect_port}/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        } else {
+                            "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                        };
+                        let _ = tls.write_all(response.as_bytes());
+                        let _ = tls.flush();
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("test WSS listener failed: {error}"),
+            }
+        }
+    });
+    let url = format!("wss://127.0.0.1:{port}/");
+    // 返回真实握手状态400，证明客户端已经建立可信TLS连接并发出Upgrade请求。
+    let first = super::desktop_websocket_builder(certificate.clone())
+        .unwrap()
+        .build(&url)
+        .await
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(first.contains("400"), "{first}");
+    assert!(super::desktop_websocket_builder(certificate.clone())
+        .unwrap()
+        .build(&url)
+        .await
+        .is_err());
+    assert_eq!(
+        redirect.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    let other = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+    assert!(super::desktop_websocket_builder(other.cert.der().to_vec())
+        .unwrap()
+        .build(&url)
+        .await
+        .is_err());
+    assert!(super::desktop_websocket_builder(certificate)
+        .unwrap()
+        .build(format!("wss://localhost:{port}/"))
+        .await
+        .is_err());
+    thread.join().unwrap();
+    assert_eq!(accepted.load(Ordering::SeqCst), 4);
+}

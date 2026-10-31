@@ -9,12 +9,12 @@ import { useCallback, useEffect, useState } from 'react';
 
 type SettingsSectionProps = {
   desktopUpdateInfo: DesktopUpdateInfo;
-  onOpenDesktopInstaller: () => Promise<void>;
+  onUpdateDesktop: () => Promise<void>;
 };
 
 export function SettingsSection({
   desktopUpdateInfo,
-  onOpenDesktopInstaller,
+  onUpdateDesktop,
 }: SettingsSectionProps) {
   const [nodeMode, setNodeMode] = useState<NodeModeState | null>(null);
   const [onChinaPlatform, setOnChinaPlatform] =
@@ -76,28 +76,29 @@ export function SettingsSection({
           <div className="settings-version-row">
             <span className="settings-version-label">节点程序版本</span>
             <span className="settings-version-value-wrap">
-              {desktopUpdateInfo.status === 'available' ? (
-                <button
-                  type="button"
-                  className="settings-update-button"
-                  title={
-                    desktopUpdateInfo.latestVersion
-                      ? `可更新到 ${desktopUpdateInfo.latestVersion}`
-                      : undefined
-                  }
-                  onClick={() => {
-                    void onOpenDesktopInstaller();
-                  }}
-                >
-                  下载新版安装包
+              <span className="settings-version-value">{chainStatus.nodeVersion}</span>
+              {['downloading', 'ready', 'installing'].includes(desktopUpdateInfo.status) && (
+                <span className="settings-download-progress">
+                  <progress aria-label="新版下载进度" max={desktopUpdateInfo.total || 1}
+                    value={desktopUpdateInfo.downloaded || 0} />
+                  <span>{desktopUpdateInfo.total
+                    ? `${Math.floor((desktopUpdateInfo.downloaded || 0) * 100 / desktopUpdateInfo.total)}%` : '0%'}</span>
+                </span>
+              )}
+              {['available', 'downloading', 'ready', 'installing'].includes(desktopUpdateInfo.status)
+                || (desktopUpdateInfo.status === 'error' && desktopUpdateInfo.latestVersion) ? (
+                <button type="button" className="settings-update-button"
+                  disabled={desktopUpdateInfo.status === 'downloading' || desktopUpdateInfo.status === 'installing'}
+                  title={desktopUpdateInfo.latestVersion ? `更新到 ${desktopUpdateInfo.latestVersion}` : undefined}
+                  onClick={() => { void onUpdateDesktop(); }}>
+                  {desktopUpdateInfo.status === 'downloading' ? '下载中'
+                    : desktopUpdateInfo.status === 'installing' ? '安装中'
+                    : desktopUpdateInfo.status === 'error' ? '重试下载' : '安装更新'}
                 </button>
               ) : null}
-              <span className="settings-version-value">{chainStatus.nodeVersion}</span>
             </span>
           </div>
-          {desktopUpdateInfo.status === 'available' && (
-            <p>安装前请完全退出公民链，安装完成后重新启动程序。</p>
-          )}
+          {desktopUpdateInfo.status === 'ready' && <p>下载完成，点击安装更新后将退出当前程序，安装并启动新版。</p>}
           {desktopUpdateInfo.error ? <p role="alert">{desktopUpdateInfo.error}</p> : null}
           <div className="settings-version-row">
             <span className="settings-version-label">Runtime 版本</span>

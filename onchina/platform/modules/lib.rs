@@ -1,7 +1,7 @@
 //! 链上中国公共库：宿主和独立业务通过本库公开接口复用唯一公共实现。
 //! CID、省市解析、权限与业务规则保持原实现。
 use axum::{
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::StatusCode,
     middleware,
     response::IntoResponse,
     routing::{delete, get, post},
@@ -54,7 +54,7 @@ pub mod qr;
 pub mod response;
 #[path = "../security/http.rs"]
 pub(crate) mod security_http;
-/// onchina 内网 API 机构私有 CA TLS(Card 05;rcgen CA 签发 + rustls)。
+/// 公信 HTTPS 证书申请、续期和热加载。
 #[path = "../security/tls.rs"]
 pub(crate) mod tls;
 
@@ -62,8 +62,6 @@ pub(crate) mod tls;
 pub mod authorization;
 #[path = "../security/crypto.rs"]
 pub mod crypto;
-#[path = "../discovery/mdns.rs"]
-mod discovery;
 #[path = "../documents/mod.rs"]
 pub mod documents;
 #[path = "../indexer/mod.rs"]
@@ -84,6 +82,18 @@ pub use crate::security_http::*;
 pub use authentication::login::{parse_account_id_bytes, require_admin_any};
 pub use authentication::model::*;
 pub use institutions::model::*;
+
+/// 固定部署唯一真源；宿主通过 --describe 向节点公开，不由调用方复制配置。
+pub const PLATFORM_HOST: &str = "onchina.crcfrcn.com";
+/// 本产品只监听用户一次配置的固定局域网主机地址。
+pub const PLATFORM_ADDRESS: SocketAddr = SocketAddr::new(
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 20, 27)),
+    1988,
+);
+/// 浏览器、Passkey 与调用方共用的完整 HTTPS 入口。
+pub fn platform_url() -> String {
+    format!("https://{}:{}/", PLATFORM_HOST, PLATFORM_ADDRESS.port())
+}
 
 #[derive(Clone)]
 pub struct AppState {

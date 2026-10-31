@@ -15,3 +15,13 @@ fn static_document_accepts_markdown_and_rejects_html_empty_or_oversize() {
         .iter()
         .all(|tab| tab.key != "whitepaper"));
 }
+
+#[test]
+fn static_document_accepts_exact_limit_and_rejects_wrong_markdown_type() {
+    let mut bytes = r##"{"markdown":"# 正文"}"##.as_bytes().to_vec();
+    bytes.resize(WHITEPAPER_CONTENT_LIMIT, b' ');
+    assert!(decode_whitepaper_document(&bytes).is_ok());
+    bytes.push(b' ');
+    assert!(decode_whitepaper_document(&bytes).is_err());
+    assert!(decode_whitepaper_document(br##"{"markdown":1}"##).is_err());
+}

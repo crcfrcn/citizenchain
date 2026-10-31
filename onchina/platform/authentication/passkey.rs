@@ -2,7 +2,7 @@
 //!
 //! 三档鉴权的 Passkey / PasskeyColdSign 档 step-up:管理员先完成 passkey 断言换取一次性
 //! assertion 令牌,提交重要 / 特殊操作时携 `X-Passkey-Assertion` 头消费。
-//! - RP 配置取 env `ONCHINA_PASSKEY_RP_ID` / `ONCHINA_PASSKEY_ORIGIN`,默认固定 onchina.local HTTPS。
+//! - RP ID 与 Origin 取平台固定部署声明，与浏览器入口保持一致。
 //! - 独立 WebAuthn 协议,绝不复用 QR_V1 / GMB / AdminSignedPayload。
 //! - 断言失败 / RP 未配一律拒,绝不降档到 Session。
 
@@ -39,10 +39,10 @@ const PASSKEY_USER_NS: Uuid = Uuid::from_bytes([
     0x6f, 0x6e, 0x63, 0x68, 0x69, 0x6e, 0x61, 0x70, 0x61, 0x73, 0x6b, 0x65, 0x79, 0x75, 0x69, 0x64,
 ]);
 
-/// 从 env 构造 WebAuthn(RP id / origin);未配或非法 → Err(fail-closed)。
+/// 按指定 RP ID / Origin 构造 WebAuthn；测试与固定入口共用真实校验。
 fn build_webauthn_from(rp_id: &str, origin: &str) -> Result<Webauthn, String> {
-    let rp_origin = Url::parse(origin.trim())
-        .map_err(|e| format!("invalid ONCHINA_PASSKEY_ORIGIN `{origin}`: {e}"))?;
+    let rp_origin =
+        Url::parse(origin.trim()).map_err(|e| format!("invalid passkey origin: {e}"))?;
     WebauthnBuilder::new(rp_id.trim(), &rp_origin)
         .map_err(|e| format!("webauthn rp config invalid: {e}"))?
         .rp_name("onchina")
@@ -51,11 +51,7 @@ fn build_webauthn_from(rp_id: &str, origin: &str) -> Result<Webauthn, String> {
 }
 
 fn build_webauthn() -> Result<Webauthn, String> {
-    let rp_id =
-        std::env::var("ONCHINA_PASSKEY_RP_ID").unwrap_or_else(|_| "onchina.local".to_string());
-    let origin = std::env::var("ONCHINA_PASSKEY_ORIGIN")
-        .unwrap_or_else(|_| "https://onchina.local:8964".to_string());
-    build_webauthn_from(rp_id.trim(), origin.trim())
+    build_webauthn_from(crate::PLATFORM_HOST, &crate::platform_url())
 }
 
 fn admin_user_uuid(account_id: &str) -> Uuid {

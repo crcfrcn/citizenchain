@@ -1,13 +1,4 @@
 // 平台通用 DTO 与现有行映射；本次仅按功能移动定义。
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OrganizationCaCertificateInfoView {
-    filename: &'static str,
-    sha256: String,
-    subject: &'static str,
-    valid_until: String,
-}
-
 #[derive(Clone, Copy)]
 pub struct DbPageCursor {
     pub created_at: DateTime<Utc>,

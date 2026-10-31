@@ -435,14 +435,11 @@ impl ModuleCatalog {
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
         let address = socket.local_addr().map_err(|e| e.to_string())?;
         drop(socket);
-        let ca = crate::tls::organization_ca_certificate_pem()?;
         let client = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
-            .add_root_certificate(
-                reqwest::Certificate::from_pem(ca.as_bytes()).map_err(|e| e.to_string())?,
-            )
-            .resolve("onchina.local", address)
+            .https_only(true)
+            .resolve(crate::PLATFORM_HOST, address)
             .connect_timeout(Duration::from_secs(5))
             .build()
             .map_err(|e| e.to_string())?;
@@ -451,14 +448,14 @@ impl ModuleCatalog {
                 .env("DATABASE_URL", database_url)
                 .env("ONCHINA_EMBEDDED_PG", "0")
                 .env("ONCHINA_MODULE_BIND", address.to_string())
-                .env("ONCHINA_TLS_DIR", crate::tls::tls_dir())
+                .env("ONCHINA_TLS_DIR", crate::tls::tls_dir()?)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())
                 .stderr(Stdio::inherit())
                 .spawn()
                 .map_err(|e| e.to_string())?,
         );
-        let endpoint = format!("https://onchina.local:{}", address.port());
+        let endpoint = format!("https://{}:{}", crate::PLATFORM_HOST, address.port());
         let start = Instant::now();
         loop {
             if child.try_wait().map_err(|e| e.to_string())?.is_some()

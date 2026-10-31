@@ -3,8 +3,8 @@
 // 登录成功后通过 useAuth().setAuth 写入全局,App.tsx 只负责在 !auth 时渲染 <LoginView />。
 
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Modal, Radio, Space, Typography } from 'antd';
-import { DownloadOutlined, QrcodeOutlined } from '@ant-design/icons';
+import { Button, Modal, Radio, Space, Typography } from 'antd';
+import { QrcodeOutlined } from '@ant-design/icons';
 import { useAuth } from './useAuth';
 import { writeStoredAuth } from './storage';
 import { parseSignedLoginPayload } from '../qr/parseSignedPayload';
@@ -28,54 +28,11 @@ function createSessionId(): string {
   return `sid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-const CA_CERTIFICATE_URL = '/api/platform/ca-certificate';
-
 /// 账户短址（首 6 后 6），只用于让操作员核对扫到的是哪个账户。
 function shortAccountId(accountId: string): string {
   return accountId.length > 16
     ? `${accountId.slice(0, 8)}…${accountId.slice(-6)}`
     : accountId;
-}
-
-function shouldShowOrganizationCaNotice(): boolean {
-  if (typeof window === 'undefined') return false;
-  // 浏览器不开放读取系统根证书库;前端只能用当前页面是否为可信 HTTPS
-  // 安全上下文判断证书安装结果。证书被信任后登录页和后台页都不再显示 CA 提示。
-  return !(window.location.protocol === 'https:' && window.isSecureContext);
-}
-
-export function OrganizationCaNotice({ compact = false }: { compact?: boolean }) {
-  if (!shouldShowOrganizationCaNotice()) return null;
-  const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  return (
-    <Alert
-      type="warning"
-      showIcon
-      style={{ marginBottom: compact ? 16 : 24, borderRadius: 8 }}
-      message={isHttps ? '当前浏览器尚未信任本节点证书' : '当前页面不是 HTTPS 安全环境'}
-      description={
-        <Space direction={compact ? 'horizontal' : 'vertical'} size={8} wrap style={{ width: '100%' }}>
-          <Typography.Text>
-            初次使用请先下载并安装本机构节点 CA 证书，安装完成后关闭并重新打开浏览器，再使用摄像头扫码和 passkey。
-          </Typography.Text>
-          {!compact ? (
-            <Typography.Text type="secondary">
-              Windows 选择“受信任的根证书颁发机构”；macOS 在“钥匙串访问”中将证书设为“始终信任”。如出现 -25294，先删除同名旧证书后重新导入。
-            </Typography.Text>
-          ) : null}
-          <Button
-            type="primary"
-            size="small"
-            icon={<DownloadOutlined />}
-            href={CA_CERTIFICATE_URL}
-            style={{ width: 'fit-content' }}
-          >
-            下载机构 CA 证书
-          </Button>
-        </Space>
-      }
-    />
-  );
 }
 
 export function LoginView() {
@@ -290,7 +247,6 @@ export function LoginView() {
 
       {/* 登录内容区域 */}
       <div style={{ padding: '32px 36px 36px' }}>
-        <OrganizationCaNotice />
         <CitizenSignaturePanel
           qrTitle={pendingQrLogin ? '定向登录二维码' : '登录请求'}
           qrValue={pendingQrLogin?.loginQrPayload}

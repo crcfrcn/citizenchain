@@ -39,3 +39,16 @@ fn unix_database_sockets_remain_local_without_accepting_remote_peers() {
     )
     .unwrap());
 }
+
+#[test]
+fn backend_bind_and_https_entry_share_the_fixed_product_declaration() {
+    assert_eq!(
+        super::resolve_backend_bind_addr().to_string(),
+        "192.168.20.27:1988"
+    );
+    let url = reqwest::Url::parse(&crate::platform_url()).unwrap();
+    assert_eq!(url.host_str(), Some(crate::PLATFORM_HOST));
+    assert_eq!(url.port(), Some(crate::PLATFORM_ADDRESS.port()));
+    assert_eq!(url.scheme(), "https");
+    assert_eq!(url.path(), "/");
+}

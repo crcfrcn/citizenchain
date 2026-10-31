@@ -8,7 +8,9 @@ async fn preflight_allows_patch_and_security_headers_for_both_origin_policies() 
     use tower::ServiceExt;
     for layer in [
         CorsLayer::new().allow_origin(Any),
-        CorsLayer::new().allow_origin(vec![HeaderValue::from_static("https://onchina.local:8964")]),
+        CorsLayer::new().allow_origin(vec![HeaderValue::from_static(
+            "https://onchina.crcfrcn.com:1988",
+        )]),
     ] {
         let app = Router::new()
             .route("/probe", patch(|| async { "ok" }))
@@ -23,7 +25,7 @@ async fn preflight_allows_patch_and_security_headers_for_both_origin_policies() 
                 Request::builder()
                     .method(Method::OPTIONS)
                     .uri("/probe")
-                    .header("origin", "https://onchina.local:8964")
+                    .header("origin", "https://onchina.crcfrcn.com:1988")
                     .header("access-control-request-method", "PATCH")
                     .header(
                         "access-control-request-headers",
@@ -56,7 +58,9 @@ async fn preflight_allows_patch_and_security_headers_for_both_origin_policies() 
         .route("/probe", patch(|| async { "ok" }))
         .layer(
             CorsLayer::new()
-                .allow_origin(vec![HeaderValue::from_static("https://onchina.local:8964")])
+                .allow_origin(vec![HeaderValue::from_static(
+                    "https://onchina.crcfrcn.com:1988",
+                )])
                 .allow_methods(cors_methods())
                 .allow_headers(cors_headers()),
         );

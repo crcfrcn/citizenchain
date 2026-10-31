@@ -7,7 +7,7 @@ import { TransactionPanel } from "../onchain/TransactionPanel";
 import { MiningDashboardSection } from "../mining/index";
 import { settingsApi } from "../control/api";
 import { shouldShowDesktopUpdateDot } from "../control/updateIndicator";
-import type { DesktopInstaller, DesktopUpdateInfo } from "../control/types";
+import type { DesktopInstaller, DesktopUpdateInfo, DesktopUpdateProgress } from "../control/types";
 // 节点 UI 顶级 tab 栏：首页 / 挖矿 / 国家储委会 / 省储委会 / 省储行 / 清算行 / 白皮书 / 公民宪法 / 设置。
 import { useCallback, useEffect, useState } from 'react';
 
@@ -32,10 +32,22 @@ export default function App() {
     error: null,
   });
 
+  const applyUpdateProgress = useCallback((progress: DesktopUpdateProgress) => {
+    if (progress.status === 'idle') return;
+    setDesktopUpdateInfo(prev => ({ ...prev, status: progress.status === 'idle' ? prev.status : progress.status,
+      latestVersion: progress.version ?? prev.latestVersion, downloaded: progress.downloaded,
+      total: progress.total, error: progress.error }));
+  }, []);
+
   const checkDesktopUpdate = useCallback(async () => {
     setDesktopUpdateInfo((prev) => ({ ...prev, status: 'checking', error: null }));
     try {
       // App 打开后只检查 GitHub Release 元数据，不下载、不安装，等待用户在设置页主动点击。
+      const cached = await settingsApi.desktopUpdateStatus();
+      if (['ready', 'downloading', 'installing'].includes(cached.status)) {
+        applyUpdateProgress(cached);
+        return;
+      }
       const metadata = await settingsApi.checkDesktopUpdate();
       const update = metadata;
       setDesktopUpdate(update);
@@ -54,26 +66,31 @@ export default function App() {
         error: error instanceof Error ? error.message : String(error),
       });
     }
-  }, []);
+  }, [applyUpdateProgress]);
 
   useEffect(() => {
     void checkDesktopUpdate();
   }, [checkDesktopUpdate]);
 
-  const openDesktopInstaller = useCallback(async () => {
-    if (!desktopUpdate) return;
-    setDesktopUpdateInfo((prev) => ({ ...prev, error: null }));
+  const updateDesktop = useCallback(async () => {
+    if (desktopUpdateInfo.status === 'downloading' || desktopUpdateInfo.status === 'installing') return;
+    if (!desktopUpdate && !desktopUpdateInfo.latestVersion && desktopUpdateInfo.status !== 'ready') return;
+    const installing = desktopUpdateInfo.status === 'ready';
+    setDesktopUpdateInfo(prev => ({ ...prev, status: installing ? 'installing' : 'downloading', error: null }));
     try {
-      // 下载完整包由系统浏览器承接；此动作不停止节点、不安装或重启应用。
-      await settingsApi.openDesktopInstaller();
+      if (installing) await settingsApi.installDesktopUpdate();
+      else await settingsApi.downloadDesktopUpdate(applyUpdateProgress);
     } catch (error) {
-      setDesktopUpdateInfo((prev) => ({
-        ...prev,
-        status: 'available',
-        error: error instanceof Error ? error.message : String(error),
-      }));
+      if (installing) {
+        try {
+          const status = await settingsApi.desktopUpdateStatus();
+          if (status.status === 'error') { applyUpdateProgress(status); return; }
+        } catch { /* 读取状态失败仍保留安装错误，允许重试。 */ }
+      }
+      setDesktopUpdateInfo(prev => ({ ...prev, status: installing ? 'ready' : 'error',
+        error: error instanceof Error ? error.message : String(error) }));
     }
-  }, [desktopUpdate]);
+  }, [desktopUpdate, desktopUpdateInfo.status, desktopUpdateInfo.latestVersion, applyUpdateProgress]);
 
   const showSettingsUpdateDot = shouldShowDesktopUpdateDot(desktopUpdateInfo);
 
@@ -118,7 +135,7 @@ export default function App() {
             {tab === 'settings' ? (
               <SettingsSection
                 desktopUpdateInfo={desktopUpdateInfo}
-                onOpenDesktopInstaller={openDesktopInstaller}
+                onUpdateDesktop={updateDesktop}
               />
             ) : null}
 

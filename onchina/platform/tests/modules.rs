@@ -141,13 +141,13 @@ async fn module_https_requires_certificate_trust_and_hostname() {
     let untrusted = reqwest::Client::builder()
         .no_proxy()
         .https_only(true)
-        .resolve("onchina.local", fixture.address)
+        .resolve("onchina.crcfrcn.com", fixture.address)
         .timeout(Duration::from_secs(2))
         .build()
         .unwrap();
     assert!(untrusted
         .get(format!(
-            "https://onchina.local:{}/api/health",
+            "https://onchina.crcfrcn.com:{}/api/health",
             fixture.address.port()
         ))
         .send()
@@ -225,6 +225,12 @@ fn incompatible_metadata_and_core_action_replacement_are_rejected() {
         workspaces: BTreeMap::new(),
     };
     assert!(validate_description(&description).is_ok());
+    let mut legacy = description.clone();
+    legacy.interface_version = 1;
+    assert!(
+        validate_description(&legacy).is_err(),
+        "旧私有CA模块必须在启动之前拒绝"
+    );
     description.interface_version += 1;
     assert!(validate_description(&description).is_err());
     description.interface_version -= 1;

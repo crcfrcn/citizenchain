@@ -250,7 +250,7 @@ body {
 
 .onchina-platform-row {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   min-height: 58px;
@@ -261,6 +261,14 @@ body {
   overflow: hidden;
 }
 
+.onchina-platform-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
 .onchina-platform-label {
   min-width: 0;
   color: var(--text-primary);
@@ -269,34 +277,40 @@ body {
   line-height: 1.35;
 }
 
+/* 状态只使用专属属性，避免通用错误块样式改变标记尺寸和垂直位置。 */
 .onchina-platform-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  margin: 0;
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 3px 8px;
-  font-size: 12px;
+  padding: 2px 6px;
+  font-size: 11px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
-.onchina-platform-status.enabled {
+.onchina-platform-status[data-status="enabled"] {
   border-color: rgba(34, 197, 94, 0.45);
   color: #86efac;
   background: rgba(34, 197, 94, 0.14);
 }
 
-.onchina-platform-status.stopped {
+.onchina-platform-status[data-status="stopped"] {
   color: var(--text-secondary);
   background: rgba(148, 163, 184, 0.12);
 }
 
-.onchina-platform-status.starting {
+.onchina-platform-status[data-status="starting"] {
   border-color: rgba(234, 179, 8, 0.45);
   color: #fde68a;
   background: rgba(234, 179, 8, 0.14);
 }
 
-.onchina-platform-status.error {
+.onchina-platform-status[data-status="error"] {
   border-color: rgba(248, 113, 113, 0.45);
   color: #fecaca;
   background: rgba(248, 113, 113, 0.14);
@@ -389,7 +403,7 @@ body {
 
 @media (max-width: 720px) {
   .onchina-platform-row {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .onchina-platform-url {
@@ -511,6 +525,10 @@ body {
   gap: 8px;
   min-width: 0;
 }
+
+/* 下载进度紧邻按钮左侧，不阻塞设置页其它操作。 */
+.settings-download-progress { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.settings-download-progress progress { width: 110px; height: 8px; accent-color: #22c55e; }
 
 .settings-update-button {
   flex: 0 0 auto;

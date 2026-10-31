@@ -55,3 +55,36 @@ fn abnormal_exit_is_not_reported_as_success() {
     assert!(wait_onchina_exit(&mut child, Duration::from_secs(5)).is_err());
     assert!(!child.wait().expect("reap failed child").success());
 }
+
+#[test]
+fn deployment_is_read_from_product_description_and_rejects_ambiguous_endpoints() {
+    let receipt = serde_json::json!({"id":"platform","deployment":{
+        "host":"onchina.crcfrcn.com","address":"192.168.20.27:1988","url":"https://onchina.crcfrcn.com:1988/"
+    }});
+    let value = parse_deployment(&serde_json::to_vec(&receipt).unwrap()).unwrap();
+    assert_eq!(value.url, "https://onchina.crcfrcn.com:1988/");
+    assert_eq!(value.address.to_string(), "192.168.20.27:1988");
+    for url in [
+        "http://onchina.crcfrcn.com:1988/",
+        "https://wrong.invalid:1988/",
+        "https://onchina.crcfrcn.com:1989/",
+        "https://onchina.crcfrcn.com:1988/path",
+        "https://user:secret@onchina.crcfrcn.com:1988/",
+        "https://onchina.crcfrcn.com:1988/?query=1",
+    ] {
+        let mut invalid = receipt.clone();
+        invalid["deployment"]["url"] = serde_json::Value::String(url.into());
+        assert!(parse_deployment(&serde_json::to_vec(&invalid).unwrap()).is_err());
+    }
+    for address in [
+        "127.0.0.1:1988",
+        "0.0.0.0:1988",
+        "8.8.8.8:1988",
+        "192.168.20.27:0",
+    ] {
+        let mut invalid = receipt.clone();
+        invalid["deployment"]["address"] = serde_json::Value::String(address.into());
+        assert!(parse_deployment(&serde_json::to_vec(&invalid).unwrap()).is_err());
+    }
+    assert!(parse_deployment(br#"{"id":"platform"}"#).is_err());
+}

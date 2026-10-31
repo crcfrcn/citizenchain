@@ -12,6 +12,9 @@
 // 测试断言失败必须立即终止；保留带上下文的 unwrap/expect，生产构建不受此豁免影响。
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
 #![warn(missing_docs)]
+#[cfg(test)]
+use nodedesktop::cid::parse_deployment;
+use nodedesktop::cid::{deployment, onchina_binary_path, platform_url};
 use serde::Serialize;
 #[cfg(unix)]
 use std::collections::BTreeSet;
@@ -38,51 +41,60 @@ use tauri::Manager;
 /// 进程内唯一的 onchina 子进程句柄。
 static ONCHINA_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 
-/// OnChina 平台固定监听端口；节点启动按钮只能管理这一套本机平台服务。
-#[cfg(unix)]
-const ONCHINA_PORT: u16 = 8964;
+static ONCHINA_ERROR: Mutex<Option<String>> = Mutex::new(None);
+static ONCHINA_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+fn startup_error() -> Option<String> {
+    ONCHINA_ERROR.lock().ok().and_then(|value| value.clone())
+}
+
+/// 只读取宿主公开的去敏错误，不把 PostgreSQL、账户、密钥或完整日志送入界面。
+fn capture_startup_errors(stdout: std::process::ChildStdout, pid: u32) {
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut reader = stdout;
+        let mut chunk = [0u8; 1024];
+        let mut line = Vec::new();
+        let mut oversized = false;
+        while let Ok(count) = reader.read(&mut chunk) {
+            if count == 0 {
+                break;
+            }
+            for byte in &chunk[..count] {
+                if *byte == b'\n' {
+                    if !oversized {
+                        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) {
+                            if let Some(error) = value
+                                .get("onchina_error")
+                                .and_then(|value| value.as_str())
+                                .filter(|value| {
+                                    value.len() <= 2048 && !value.chars().any(char::is_control)
+                                })
+                            {
+                                if ONCHINA_PID.load(std::sync::atomic::Ordering::Acquire) == pid {
+                                    if let Ok(mut slot) = ONCHINA_ERROR.lock() {
+                                        *slot = Some(error.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    line.clear();
+                    oversized = false;
+                } else if line.len() < 4096 && !oversized {
+                    line.push(*byte);
+                } else {
+                    line.clear();
+                    oversized = true;
+                }
+            }
+        }
+    });
+}
 
 /// 清理旧进程后等待端口释放的次数。每次 200ms，总等待约 40 秒，覆盖模块退出收尾。
 #[cfg(unix)]
 const STALE_CLEANUP_ATTEMPTS: usize = 200;
-
-/// 解析 onchina 二进制路径:优先随包 `resources/onchina-bin/`(打包形态),
-/// 兜底节点可执行文件同目录(开发期 `cargo build` 后的 `target/<profile>/onchina`)。
-fn onchina_binary_path(app: &AppHandle) -> Option<PathBuf> {
-    let name = if cfg!(target_os = "windows") {
-        "onchina.exe"
-    } else {
-        "onchina"
-    };
-    if let Ok(res) = app.path().resource_dir() {
-        let packaged = res.join("onchina-bin").join(name);
-        if packaged.exists() {
-            ensure_executable(&packaged);
-            return Some(packaged);
-        }
-    }
-    let exe = std::env::current_exe().ok()?;
-    let dev = exe.parent()?.join(name);
-    if dev.exists() {
-        Some(dev)
-    } else {
-        None
-    }
-}
-
-/// Unix:随包资源可能丢失可执行位,拉起前补上(best-effort)。
-#[cfg(unix)]
-fn ensure_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = std::fs::metadata(path) {
-        let mut perms = meta.permissions();
-        perms.set_mode(perms.mode() | 0o755);
-        let _ = std::fs::set_permissions(path, perms);
-    }
-}
-
-#[cfg(not(unix))]
-fn ensure_executable(_path: &Path) {}
 
 /// 当前平台在 `resources/postgres/<os>/` 下的子目录名。
 fn pg_os_subdir() -> &'static str {
@@ -134,7 +146,6 @@ fn apply_onchina_env(app: &AppHandle, cmd: &mut Command) -> Result<(), String> {
         res.join("onchina-frontend").join("dist"),
     );
     cmd.env("ONCHINA_EMBEDDED_PG", "1");
-    cmd.env("ONCHINA_ENABLE_TLS", "1");
     cmd.env("ONCHINA_PG_BIN_DIR", &pg_bin_dir);
     if let Ok(base) = nodedesktop::security::app_data_dir(app) {
         apply_data_dir_env(&base, cmd);
@@ -187,8 +198,8 @@ fn pids_from_stdout(stdout: &str) -> BTreeSet<u32> {
 }
 
 #[cfg(unix)]
-fn listener_pids_on_onchina_port() -> BTreeSet<u32> {
-    let port = format!("-iTCP:{ONCHINA_PORT}");
+fn listener_pids_on_onchina_port(port: u16) -> BTreeSet<u32> {
+    let port = format!("-iTCP:{port}");
     command_stdout(
         "lsof",
         &[
@@ -241,9 +252,9 @@ fn signal_pid(pid: u32, signal: &str) {
 }
 
 #[cfg(unix)]
-fn stale_onchina_processes() -> BTreeSet<u32> {
+fn stale_onchina_processes(port: u16) -> BTreeSet<u32> {
     let mut pids = onchina_named_pids();
-    for pid in listener_pids_on_onchina_port() {
+    for pid in listener_pids_on_onchina_port(port) {
         if is_onchina_process(pid) {
             pids.insert(pid);
         }
@@ -252,48 +263,48 @@ fn stale_onchina_processes() -> BTreeSet<u32> {
 }
 
 #[cfg(unix)]
-fn foreign_onchina_port_listeners() -> Vec<u32> {
-    listener_pids_on_onchina_port()
+fn foreign_onchina_port_listeners(port: u16) -> Vec<u32> {
+    listener_pids_on_onchina_port(port)
         .into_iter()
         .filter(|pid| !is_onchina_process(*pid))
         .collect()
 }
 
 #[cfg(unix)]
-fn wait_until_no_stale_onchina_processes() -> Result<(), String> {
+fn wait_until_no_stale_onchina_processes(port: u16) -> Result<(), String> {
     for _ in 0..STALE_CLEANUP_ATTEMPTS {
-        let foreign_port_pids = foreign_onchina_port_listeners();
+        let foreign_port_pids = foreign_onchina_port_listeners(port);
         if !foreign_port_pids.is_empty() {
             return Err(format!(
-                "链上中国平台端口 {ONCHINA_PORT} 已被非 OnChina 进程占用,pid={foreign_port_pids:?}"
+                "链上中国平台端口 {port} 已被非 OnChina 进程占用,pid={foreign_port_pids:?}"
             ));
         }
-        if stale_onchina_processes().is_empty() {
+        if stale_onchina_processes(port).is_empty() {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(200));
     }
     Err(format!(
         "旧链上中国平台进程仍未退出,pid={:?}",
-        stale_onchina_processes()
+        stale_onchina_processes(port)
     ))
 }
 
 /// 启动前清理旧 OnChina 孤儿进程。
 ///
 /// 节点桌面端只持有“本次启动出来”的 child handle；如果上一次节点异常退出，
-/// OnChina 可能留成 PPID=1 的孤儿进程并继续占用 8964。这里在用户点击“启动”
+/// OnChina 可能留成 PPID=1 的孤儿进程并继续占用产品声明的固定端口。这里在用户点击“启动”
 /// 时先按进程名和固定端口清理旧 OnChina，避免新进程连到陈旧数据库连接池后崩溃。
 #[cfg(unix)]
-fn clean_stale_onchina_processes_before_start() -> Result<(), String> {
-    let foreign_port_pids = foreign_onchina_port_listeners();
+fn clean_stale_onchina_processes_before_start(port: u16) -> Result<(), String> {
+    let foreign_port_pids = foreign_onchina_port_listeners(port);
     if !foreign_port_pids.is_empty() {
         return Err(format!(
-            "链上中国平台端口 {ONCHINA_PORT} 已被非 OnChina 进程占用,pid={foreign_port_pids:?}"
+            "链上中国平台端口 {port} 已被非 OnChina 进程占用,pid={foreign_port_pids:?}"
         ));
     }
 
-    let pids = stale_onchina_processes();
+    let pids = stale_onchina_processes(port);
     if pids.is_empty() {
         return Ok(());
     }
@@ -302,13 +313,13 @@ fn clean_stale_onchina_processes_before_start() -> Result<(), String> {
         signal_pid(*pid, "-TERM");
     }
     // 等待宿主自行回收模块；超时拒绝重启，不强杀宿主后留下仍占用文件的模块。
-    wait_until_no_stale_onchina_processes()?;
+    wait_until_no_stale_onchina_processes(port)?;
     eprintln!("[onchina] 已清理旧链上中国平台进程 pid={pids:?}");
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn clean_stale_onchina_processes_before_start() -> Result<(), String> {
+fn clean_stale_onchina_processes_before_start(_port: u16) -> Result<(), String> {
     Ok(())
 }
 
@@ -338,7 +349,11 @@ pub(crate) fn start_onchina(app: &AppHandle) -> Result<(), String> {
     if guard.is_some() {
         return Ok(());
     }
-    clean_stale_onchina_processes_before_start()?;
+    let deployment = deployment(app)?;
+    clean_stale_onchina_processes_before_start(deployment.address.port())?;
+    if let Ok(mut error) = ONCHINA_ERROR.lock() {
+        *error = None;
+    }
     // OnChina 启动入口依赖链 RPC 读取 genesis hash 和链上投影。节点线程存在但
     // 创世 state 尚未物化完成时,这里必须 fail-fast,避免子进程启动后 panic。
     nodedesktop::rpc::wait_for_local_rpc_ready(Duration::from_secs(3), || Ok(()))
@@ -347,10 +362,16 @@ pub(crate) fn start_onchina(app: &AppHandle) -> Result<(), String> {
         return Err("未找到链上中国平台二进制;开发期请先执行 cargo build -p onchina".to_string());
     };
     let mut cmd = Command::new(&binary);
-    cmd.env("ONCHINA_PARENT_PIPE", "1").stdin(Stdio::piped());
+    cmd.env("ONCHINA_PARENT_PIPE", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
     apply_onchina_env(app, &mut cmd)?;
     match cmd.spawn() {
-        Ok(child) => {
+        Ok(mut child) => {
+            ONCHINA_PID.store(child.id(), std::sync::atomic::Ordering::Release);
+            if let Some(stdout) = child.stdout.take() {
+                capture_startup_errors(stdout, child.id());
+            }
             eprintln!("[onchina] 已启动 onchina 控制台子进程 pid={}", child.id());
             *guard = Some(child);
             Ok(())
@@ -392,6 +413,10 @@ pub(crate) fn stop_onchina_checked() -> Result<(), String> {
         *guard = None;
         eprintln!("[onchina] 已确认宿主及模块退出");
     }
+    ONCHINA_PID.store(0, std::sync::atomic::Ordering::Release);
+    if let Ok(mut error) = ONCHINA_ERROR.lock() {
+        *error = None;
+    }
     Ok(())
 }
 
@@ -402,45 +427,29 @@ pub(crate) fn stop_onchina() {
     }
 }
 
-/// 节点安装后管理员在局域网浏览器中访问的唯一固定入口。
-const ONCHINA_PLATFORM_URL: &str = "https://onchina.local:8964";
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OnChinaPlatformState {
     running: bool,
     status: &'static str,
     status_label: &'static str,
-    url: &'static str,
+    url: String,
     detail: Option<String>,
 }
 
-// 中文注释：只信任本机构 CA，并固定 onchina.local 的连接到本机；不跳过证书/主机名校验。
+// 与浏览器同样验证公信 HTTPS；仅把连接指向产品声明的主机地址，保持域名 SNI。
 fn onchina_health_ok(app: &AppHandle) -> Result<(), String> {
-    let path = nodedesktop::security::app_data_dir(app)?
-        .join("onchina-tls")
-        .join("onchina-org-root-ca.crt");
-    let metadata =
-        std::fs::symlink_metadata(&path).map_err(|_| "链上中国机构 CA 未就绪".to_string())?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err("链上中国机构 CA 文件无效".to_string());
-    }
-    let bytes = std::fs::read(path).map_err(|_| "读取链上中国机构 CA 失败".to_string())?;
-    let ca = reqwest::Certificate::from_pem(&bytes)
-        .map_err(|_| "链上中国机构 CA 格式无效".to_string())?;
+    let deployment = deployment(app)?;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(900))
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
-        .tls_certs_only([ca])
-        .resolve(
-            "onchina.local",
-            std::net::SocketAddr::from(([127, 0, 0, 1], 8964)),
-        )
+        .no_proxy()
+        .resolve(&deployment.host, deployment.address)
         .build()
         .map_err(|e| format!("创建链上中国健康检查客户端失败:{e}"))?;
     let response = client
-        .get("https://onchina.local:8964/api/health")
+        .get(format!("{}api/health", deployment.url))
         .send()
         .map_err(|_| "链上中国可信 HTTPS 健康检查失败".to_string())?;
     if !response.status().is_success() {
@@ -462,21 +471,29 @@ fn onchina_health_ok(app: &AppHandle) -> Result<(), String> {
 }
 
 fn current_state(app: &AppHandle) -> OnChinaPlatformState {
+    if let Err(error) = deployment(app) {
+        return failed_state(false, error);
+    }
     let process_running = crate::platform::is_onchina_running();
+    if !process_running && ONCHINA_PID.load(std::sync::atomic::Ordering::Acquire) != 0 {
+        return failed_state(
+            false,
+            startup_error().unwrap_or_else(|| "链上中国子进程已退出".into()),
+        );
+    }
     let health = process_running.then(|| onchina_health_ok(app));
     let (status, status_label, detail) = match health {
         None => ("stopped", "未开启", None),
         Some(Ok(())) => ("enabled", "已开启", None),
         // 进程已启动但健康检查暂未通过时，只能表达“启动中”。
-        // 失败原因必须等启动动作最终超时或显式失败后再返回 error，避免界面同时显示
-        // “启动中”和“启动失败”两套互相冲突的状态。
-        Some(Err(_)) => ("starting", "启动中", None),
+        // 退出后从公开诊断通道报告具体失败；活跃但未通过 HTTPS 的进程保持启动中。
+        Some(Err(error)) => ("starting", "启动中", Some(error)),
     };
     OnChinaPlatformState {
         running: process_running,
         status,
         status_label,
-        url: ONCHINA_PLATFORM_URL,
+        url: platform_url(),
         detail,
     }
 }
@@ -486,51 +503,25 @@ fn failed_state(running: bool, detail: String) -> OnChinaPlatformState {
         running,
         status: "error",
         status_label: "启动失败",
-        url: ONCHINA_PLATFORM_URL,
+        url: platform_url(),
         detail: Some(detail),
     }
 }
 
-/// 等待用尽仅说明尚未就绪，不能把仍存活的服务报告成启动失败。
-fn state_after_wait(process_running: bool, last_error: String) -> OnChinaPlatformState {
-    if !process_running {
-        return failed_state(false, format!("链上中国平台启动失败:{last_error}"));
-    }
-    OnChinaPlatformState {
-        running: true,
-        status: "starting",
-        status_label: "启动中",
-        url: ONCHINA_PLATFORM_URL,
-        detail: None,
-    }
-}
-
-fn wait_until_healthy_after_start(app: &AppHandle) -> OnChinaPlatformState {
-    let mut last_error = "链上中国平台健康检查未通过".to_string();
-    let start = Instant::now();
-    // 使用实际墙钟预算，包含每次HTTPS检查；模块初始化可继续，页面沿用已有启动中状态。
-    let budget = Duration::from_secs(60);
-    while start.elapsed() < budget {
-        let process_running = crate::platform::is_onchina_running();
-        if !process_running {
-            return failed_state(false, "链上中国平台启动失败:子进程已退出".to_string());
-        }
-        match onchina_health_ok(app) {
-            Ok(()) => return current_state(app),
-            Err(err) => last_error = err,
-        }
-        std::thread::sleep(Duration::from_millis(500).min(budget.saturating_sub(start.elapsed())));
-    }
-    state_after_wait(crate::platform::is_onchina_running(), last_error)
+#[tauri::command]
+pub(crate) async fn get_onchina_platform(app: AppHandle) -> Result<OnChinaPlatformState, String> {
+    tauri::async_runtime::spawn_blocking(move || current_state(&app))
+        .await
+        .map_err(|_| "查询链上中国状态失败".into())
 }
 
 #[tauri::command]
-pub(crate) fn get_onchina_platform(app: AppHandle) -> Result<OnChinaPlatformState, String> {
-    Ok(current_state(&app))
+pub(crate) async fn start_onchina_platform(app: AppHandle) -> Result<OnChinaPlatformState, String> {
+    tauri::async_runtime::spawn_blocking(move || start_platform(&app))
+        .await
+        .map_err(|_| "启动链上中国任务失败".into())
 }
-
-#[tauri::command]
-pub(crate) fn start_onchina_platform(app: AppHandle) -> Result<OnChinaPlatformState, String> {
+fn start_platform(app: &AppHandle) -> OnChinaPlatformState {
     if let Err(err) =
         nodedesktop::security::append_audit_log(&app, "start_onchina_platform", "attempt")
     {
@@ -542,18 +533,23 @@ pub(crate) fn start_onchina_platform(app: AppHandle) -> Result<OnChinaPlatformSt
         {
             eprintln!("[审计] start_onchina_platform failed 日志写入失败:{log_err}");
         }
-        return Ok(failed_state(false, err));
+        return failed_state(false, err);
     }
     if let Err(err) =
         nodedesktop::security::append_audit_log(&app, "start_onchina_platform", "success")
     {
         eprintln!("[审计] start_onchina_platform success 日志写入失败:{err}");
     }
-    Ok(wait_until_healthy_after_start(&app))
+    current_state(app)
 }
 
 #[tauri::command]
-pub(crate) fn stop_onchina_platform(app: AppHandle) -> Result<OnChinaPlatformState, String> {
+pub(crate) async fn stop_onchina_platform(app: AppHandle) -> Result<OnChinaPlatformState, String> {
+    tauri::async_runtime::spawn_blocking(move || stop_platform(&app))
+        .await
+        .map_err(|_| "关闭链上中国任务失败".to_string())?
+}
+fn stop_platform(app: &AppHandle) -> Result<OnChinaPlatformState, String> {
     if let Err(err) =
         nodedesktop::security::append_audit_log(&app, "stop_onchina_platform", "attempt")
     {

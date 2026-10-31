@@ -61,7 +61,7 @@ export function selectTargets(project, selection = 'all', metadata) {
 }
 export function validateDescription(description, target) {
   if (!description || description.id !== target.id || !/^\d+\.\d+\.\d+$/u.test(description.version)
-      || !Number.isSafeInteger(description.interface_version) || description.interface_version !== 1
+      || !Number.isSafeInteger(description.interface_version) || description.interface_version !== 2
       || !Array.isArray(description.frontend_exports) || description.frontend_exports.length === 0
       || typeof description.frontend_source !== 'string' || !description.frontend_source.startsWith('frontend/')
       || description.frontend_source.split(/[\\/]/u).some(value => value === '..' || value === '.')) fail('模块构建声明无效');
@@ -188,7 +188,7 @@ export function frontendEntry(frontend, descriptor) {
 function moduleBuild(owner, platform, project, descriptor, normalizePath) {
   if (!descriptor) return null;
   if (!/^[a-z][a-z0-9_]{0,63}$/.test(descriptor.id) || !/^\d+\.\d+\.\d+$/.test(descriptor.version)
-      || descriptor.interface_version !== 1) throw new Error('模块构建声明无效');
+      || descriptor.interface_version !== 2) throw new Error('模块构建声明无效');
   const entry = frontendEntry(owner, descriptor);
   const packages = {
     react: 'react', 'react-dom/client': 'react_dom_client',
@@ -295,21 +295,18 @@ export async function frontendConfiguration(frontend, {command = 'build', descri
   const output = join(project, 'target/onchina', nativePlatform(), 'platform/frontend');
   const module = moduleBuild(frontend, platform, project, description, vite.normalizePath);
   const https = command === 'serve' ? developmentTLS(process.env.ONCHINA_FRONTEND_TLS_CERT_FILE, process.env.ONCHINA_FRONTEND_TLS_KEY_FILE) : undefined;
-  const target = process.env.ONCHINA_BASE_URL ?? 'https://onchina.local:8964';
-  const endpoint = new URL(target);
-  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
-    throw new Error('OnChina代理地址必须是无凭据的HTTPS基地址');
+  // 构建不连接运行中的宿主；开发代理必须显式交付公信 HTTPS 入口，不设旧地址或私有 CA。
+  let proxy;
+  if (command === 'serve') {
+    const target = process.env.ONCHINA_BASE_URL;
+    if (!target) fail('开发代理必须通过 ONCHINA_BASE_URL 显式指定链上中国公信 HTTPS 入口');
+    const endpoint = new URL(target);
+    if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+      fail('OnChina代理地址必须是无凭据的HTTPS基地址');
+    }
+    const agent = new Agent({rejectUnauthorized: true, minVersion: 'TLSv1.3'});
+    proxy = Object.fromEntries(['/api', '/modules'].map(path => [path, {target, changeOrigin: true, secure: true, agent}]));
   }
-  const caFile = process.env.ONCHINA_TLS_CA_FILE;
-  const agent = new Agent({
-    ca: caFile === undefined ? undefined : readFileSync(caFile),
-    rejectUnauthorized: true,
-    minVersion: "TLSv1.3",
-  });
-  // API与模块资源共用同一受校验的HTTPS入口，开发与预览不维护另一套模块副本。
-  const proxy = Object.fromEntries(['/api', '/modules'].map(path => [path, {
-    target, changeOrigin: true, secure: true, agent,
-  }]));
 
   return {
   // OnChina 后端同源托管 dist,base 用相对路径以适配任意内网挂载路径。

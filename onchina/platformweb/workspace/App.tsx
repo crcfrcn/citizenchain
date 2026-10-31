@@ -16,7 +16,7 @@ import type { AdminAuth } from "../authentication/types";
 import { adminLogout, checkAdminAuth } from "../authentication/api";
 import { getPasskeyStatus } from "../authentication/passkeyClient";
 import type { CidMetaResult } from "../codes/api";
-import { LoginView, OrganizationCaNotice } from "../authentication/LoginView";
+import { LoginView } from "../authentication/LoginView";
 import { WorkspaceRouter } from "./WorkspaceRouter";
 import { notice } from "../controls/notice";
 
@@ -247,7 +247,6 @@ function AppInner() {
         </Content>
       ) : (
         <Content style={{ position: 'relative', zIndex: 1, padding: '16px 24px 24px' }}>
-          <OrganizationCaNotice compact />
           <WorkspaceRouter
             auth={auth}
             capabilities={capabilities}

@@ -177,18 +177,6 @@ fn platform_routes() -> Vec<modules::model::ModuleRoute> {
         modules::model::ModuleRoute::new("public", "/api/health", &["GET"], get(health)),
         modules::model::ModuleRoute::new(
             "public",
-            "/api/platform/ca-certificate",
-            &["GET"],
-            get(organization_ca_certificate),
-        ),
-        modules::model::ModuleRoute::new(
-            "public",
-            "/api/platform/ca-certificate/info",
-            &["GET"],
-            get(organization_ca_certificate_info),
-        ),
-        modules::model::ModuleRoute::new(
-            "public",
             "/api/public/cid/labels",
             &["GET"],
             get(crate::codes::admin::public_cid_labels),

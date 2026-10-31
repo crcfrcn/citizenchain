@@ -4,16 +4,16 @@ use std::path::{Path, PathBuf};
 // 同一夹具既可由Rust测试调用，也可从控制台直接交给官方Node定向验收。
 const POSTGRES_TEST: &str = r#"
 import assert from 'node:assert/strict';
-import {mkdirSync, mkdtempSync, writeFileSync, existsSync, rmSync, realpathSync, readFileSync} from 'node:fs';
+import {mkdirSync, mkdtempSync, writeFileSync, existsSync, rmSync, realpathSync, readFileSync, copyFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
 const root=process.cwd();
-const {preparePostgres,postgresVersion,npmCLI,nodeTools,platformCargoEnvironment,macLibraries,runBuildProcess}=await import(pathToFileURL(join(root,'scripts/build.mjs')));
+const {preparePostgres,postgresVersion,npmCLI,nodeTools,platformCargoEnvironment,macLibraries,runBuildProcess,signLocalResources,appleSigning}=await import(pathToFileURL(join(root,'scripts/build.mjs')));
 const parent=join(root,'target/test');mkdirSync(parent,{recursive:true});
 const work=mkdtempSync(join(parent,'postgres-'));
 function distribution(path){
- for(const name of ['bin/postgres','bin/initdb','lib/library','share/postgresql/postgres.bki','COPYRIGHT']){
+ for(const name of ['bin/postgres','bin/initdb','bin/pg_config','lib/library','share/postgresql/postgres.bki','COPYRIGHT']){
   const file=join(path,name);mkdirSync(join(file,'..'),{recursive:true});writeFileSync(file,'fixture');
  }
 }
@@ -33,17 +33,20 @@ try{
  assert.equal(postgresVersion('postgres (PostgreSQL) 17.110'),'17.110');
  assert.equal(postgresVersion('postgres (PostgreSQL) 17.11 unexpected'),undefined);count++;
  const installed=join(work,'installed');distribution(installed);
- const version=async()=>({stdout:'postgres (PostgreSQL) 17.11 (Homebrew)\n'});
+ const version=async(file,args)=>({stdout:args[0]==='--version'?'postgres (PostgreSQL) 17.11 (Homebrew)\n':[join(file,'../..','bin'),join(file,'../..','lib'),join(file,'../..','share/postgresql')].join('\n')});
  const cache=join(work,'cache');
  let calls=[];
- const reuse=async(file,args)=>{calls.push(file);assert.deepEqual(args,['--version']);return version();};
+ const reuse=async(file,args)=>{calls.push(file);assert.deepEqual(args,file.endsWith('/pg_config')?['--bindir','--pkglibdir','--sharedir']:['--version']);return version(file,args);};
  assert.equal(await preparePostgres(work,{CITIZENCHAIN_PG_DIST:installed},{run:reuse,candidates:[],cache}),realpathSync(installed));
- assert.equal(calls.length,1);count++;
+ assert.equal(calls.length,2);count++;
  calls=[];
  assert.equal(await preparePostgres(work,{}, {run:reuse,candidates:[installed],cache}),realpathSync(installed));
- assert.equal(calls.length,1);assert.equal(existsSync(cache),false);count++;
+ assert.equal(calls.length,2);assert.equal(existsSync(cache),false);count++;
  distribution(cache);
  assert.equal(await preparePostgres(work,{}, {run:reuse,candidates:[],cache}),realpathSync(cache));count++;
+ const external=async(file,args)=>args[0]==='--version'?version(file,args):{stdout:'/usr/lib\n/usr/lib\n/usr/lib'};
+ await assert.rejects(preparePostgres(work,{CITIZENCHAIN_PG_DIST:installed},{run:external,candidates:[],cache}),/不可独立搬迁/);
+ assert.equal(await preparePostgres(work,{}, {run:async(file,args)=>file.startsWith(installed+'/')?external(file,args):reuse(file,args),candidates:[installed],cache}),realpathSync(cache));count++;
  await assert.rejects(preparePostgres(work,{CITIZENCHAIN_PG_DIST:join(work,'missing')},{run:reuse,candidates:[],cache}),/指定/);count++;
  await assert.rejects(preparePostgres(work,{}, {run:async()=>{throw Error('broken executable');},candidates:[installed],cache}),/broken executable/);count++;
  const fresh=join(work,'fresh');let downloads=0,dist;
@@ -52,7 +55,7 @@ try{
   else if(file.endsWith('/tar')){const source=join(args.at(-1),'postgresql-17.11');mkdirSync(source);writeFileSync(join(source,'COPYRIGHT'),'license');}
   else if(file.endsWith('/configure')){dist=args[0].slice('--prefix='.length);}
   else if(file.endsWith('/make')&&args[0]==='install')distribution(dist);
-  return {stdout:'postgres (PostgreSQL) 17.11\n'};
+  return file.endsWith('/pg_config')?version(file,args):{stdout:'postgres (PostgreSQL) 17.11\n'};
  };
  assert.equal(await preparePostgres(work,{}, {run:build,candidates:[],cache:fresh}),fresh);
  assert.equal(downloads,1);assert.equal(existsSync(fresh+'.lock'),false);count++;
@@ -76,8 +79,23 @@ try{
   await run('/usr/bin/clang',[join(source,'main.c'),'-L'+source,'-la','-o',exe]);
   const files=await macLibraries(resources,exe,env);
   assert.ok(existsSync(join(resources,'postgres/macos/lib/libb.dylib')));
-  for(const file of [...files,exe])await run('/usr/bin/codesign',['--force','--sign','-',file]);
-  rmSync(source,{recursive:true});await run(exe,[]);count++;
+  const signing=appleSigning(files,resources);
+  assert.deepEqual(signing.at(-1),{path:'.',entitlements:join(root,'node/Entitlements.plist')});
+  assert.ok(signing.some(item=>item.path==='Contents/Resources/postgres/macos/lib/libb.dylib'&&item.entitlements===null));
+  await signLocalResources([...files,exe],env);
+  await assert.rejects(signLocalResources([join(work,'missing')],env),/codesign/);
+  const portable=join(work,'Portable/Contents/Resources'),portableExe=join(work,'Portable/Contents/MacOS/main');
+  mkdirSync(join(portable,'postgres/macos/lib'),{recursive:true});mkdirSync(join(portableExe,'..'),{recursive:true});
+  for(const name of ['liba.dylib','libb.dylib'])copyFileSync(join(source,name),join(portable,'postgres/macos/lib',name));
+  await run('/usr/bin/clang',[join(source,'main.c'),'-L'+source,'-la','-o',portableExe]);
+  const bad=join(work,'Bad/Contents/Resources'),badExe=join(work,'Bad/Contents/MacOS/main');
+  mkdirSync(join(bad,'postgres/macos/lib'),{recursive:true});mkdirSync(join(badExe,'..'),{recursive:true});
+  copyFileSync(portableExe,badExe);copyFileSync(join(source,'liba.dylib'),join(bad,'postgres/macos/lib/liba.dylib'));
+  copyFileSync(join(source,'libb.dylib'),join(bad,'postgres/macos/lib/libb.dylib'));
+  await run('/usr/bin/install_name_tool',['-id','/foreign/liba.dylib',join(bad,'postgres/macos/lib/liba.dylib')]);
+  rmSync(source,{recursive:true});await run(exe,[]);
+  await assert.rejects(macLibraries(bad,badExe,env),/无法明确定位/);
+  const relocated=await macLibraries(portable,portableExe,env);await signLocalResources([...relocated,portableExe],env);await run(portableExe,[]);count++;
  }
  const {describeAction}=await import(pathToFileURL(join(root,'scripts/config.mjs')));
  assert.deepEqual((await describeAction({flow:'release',platform:'macos'})).inputs,{});count++;

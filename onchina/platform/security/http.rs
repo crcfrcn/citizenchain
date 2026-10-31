@@ -175,7 +175,8 @@ pub(crate) fn build_cors_layer() -> CorsLayer {
         .unwrap_or_default();
     let origins = if configured.is_empty() {
         vec![
-            HeaderValue::from_static("https://onchina.local:8964"),
+            HeaderValue::from_str(crate::platform_url().trim_end_matches('/'))
+                .expect("平台 HTTPS Origin 必须合法"),
             HeaderValue::from_static("https://127.0.0.1:5179"),
             HeaderValue::from_static("https://localhost:5179"),
             HeaderValue::from_static("https://127.0.0.1:5173"),

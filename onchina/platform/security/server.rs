@@ -1,89 +1,47 @@
-// 既有 HTTPS、机构证书和关闭信号处理。
-/// (Card 05):内网 TLS——正式入口固定为 https://onchina.local:8964;
-/// 关闭TLS必须失败；开发和正式入口都禁止明文或证书验证降级。
+// 宿主和同机模块只通过统一公信 HTTPS 提供服务；证书任务跟随所属进程退出。
+fn report_startup_error(error: &str) {
+    // 标准输出是本产品公开诊断通道；只交付已去除机密的产品错误。
+    println!("{}", serde_json::json!({"onchina_error": error}));
+}
 async fn serve_console(
-    addr: SocketAddr,
+    listener: std::net::TcpListener,
     app: axum::Router,
-    state: &AppState,
-    parent: tokio::sync::watch::Receiver<bool>,
+    config: axum_server::tls_rustls::RustlsConfig,
+    host: bool,
+    stop: tokio::sync::watch::Sender<bool>,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
 ) {
+    listener
+        .set_nonblocking(true)
+        .unwrap_or_else(|_| panic!("HTTPS listener nonblocking configuration failed"));
     let service = app.into_make_service_with_connect_info::<SocketAddr>();
-    // 广告 onchina.local mDNS:局域网内可经统一 HTTPS 域名访问本节点控制台(best-effort)。
-    if state.modules.local.is_none() {
-        discovery::advertise(addr.port());
-    }
-    // 中文注释：关闭 TLS 明确失败，不启动明文监听或绕过机构 CA。
-    assert!(
-        crate::tls::is_enabled(),
-        "OnChina 必须启用 HTTPS，禁止关闭 TLS"
-    );
-    let config = crate::tls::load_or_generate_rustls_config()
-        .await
-        .unwrap_or_else(|e| panic!("onchina tls config failed: {e}"));
-    info!("onchina console listening on https://{}", addr);
     let handle = axum_server::Handle::new();
     let shutdown = handle.clone();
-    tokio::spawn(async move {
-        shutdown_signal(parent).await;
+    let mut renewal = tokio::spawn(crate::tls::maintain(config.clone(), host, cancel.clone()));
+    let signal = tokio::spawn(async move {
+        crate::tls::cancelled(&mut cancel).await;
         shutdown.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
     });
-    axum_server::bind_rustls(addr, config)
-        .handle(handle)
-        .serve(service)
-        .await
-        .unwrap_or_else(|err| panic!("run onchina backend https server failed: {err}"));
-}
-
-/// 下载本机构节点私有 CA 公钥证书。
-///
-/// 该接口必须保持未登录可访问,否则员工首次访问不可信 HTTPS 时无法先下载证书。
-/// 只返回 CA 公钥证书 PEM;CA 私钥只落在服务器本地 `ONCHINA_TLS_DIR`。
-async fn organization_ca_certificate() -> impl IntoResponse {
-    match crate::tls::organization_ca_certificate_pem() {
-        Ok(pem) => {
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static("application/x-x509-ca-cert"),
-            );
-            headers.insert(
-                header::CONTENT_DISPOSITION,
-                HeaderValue::from_static("attachment; filename=\"onchina-org-root-ca.crt\""),
-            );
-            (headers, pem).into_response()
+    let server = axum_server::from_tcp_rustls(listener, config)
+        .unwrap_or_else(|error| panic!("HTTPS listener failed: {error}"))
+        .handle(handle.clone())
+        .serve(service);
+    tokio::pin!(server);
+    let result = tokio::select! {
+        result = &mut server => result.map_err(|_| "链上中国 HTTPS 服务异常退出".to_string()),
+        result = &mut renewal => {
+            handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
+            let _ = server.await;
+            result.unwrap_or_else(|_| Err("HTTPS 证书管理任务异常退出".into()))
         }
-        Err(err) => {
-            warn!(error = %err, "onchina CA certificate download failed");
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                1500,
-                "onchina ca certificate unavailable",
-            )
-        }
+    };
+    let _ = stop.send(true);
+    if !renewal.is_finished() {
+        let _ = renewal.await;
     }
-}
-
-async fn organization_ca_certificate_info() -> impl IntoResponse {
-    match crate::tls::organization_ca_certificate_info() {
-        Ok(info) => Json(ApiResponse {
-            code: 0,
-            message: "ok".to_string(),
-            data: OrganizationCaCertificateInfoView {
-                filename: info.filename,
-                sha256: info.sha256,
-                subject: info.subject,
-                valid_until: info.valid_until,
-            },
-        })
-        .into_response(),
-        Err(err) => {
-            warn!(error = %err, "onchina CA certificate info failed");
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                1500,
-                "onchina ca certificate unavailable",
-            )
-        }
+    signal.abort();
+    if let Err(error) = result {
+        report_startup_error(&error);
     }
 }
 
@@ -144,11 +102,24 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
             Some(module) => serde_json::to_value(module.describe()),
             None => serde_json::to_value(serde_json::json!({
                 "id":"platform", "interface_version":modules::model::MODULE_INTERFACE_VERSION,
-                "module_directory":modules::module_directory().unwrap_or_else(|e| panic!("{e}"))
+                "module_directory":modules::module_directory().unwrap_or_else(|e| panic!("{e}")),
+                "deployment": { "host": PLATFORM_HOST, "address": PLATFORM_ADDRESS, "url": platform_url() }
             })),
         }
         .unwrap_or_else(|e| panic!("describe backend failed: {e}"));
         println!("{value}");
+        return;
+    }
+    disable_core_dumps();
+    if local.is_none() && std::env::args().nth(1).as_deref() == Some("authorize-tls") {
+        if std::env::args().len() != 2 {
+            eprintln!("办证授权只接受主机终端隐藏输入，禁止通过命令参数传递");
+            std::process::exit(1);
+        }
+        crate::tls::authorize().unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(1)
+        });
         return;
     }
     tracing_subscriber::fmt()
@@ -157,10 +128,65 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
         .compact()
         .with_writer(std::io::stderr)
         .init();
-    disable_core_dumps();
     let parent = parent_shutdown();
     let command = parse_backend_command();
     let is_host = local.is_none();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|e| panic!("build tokio runtime failed: {e}"));
+    let (stop, cancel) = tokio::sync::watch::channel(false);
+    let signal_sender = stop.clone();
+    let signal_parent = parent.clone();
+    runtime.spawn(async move {
+        shutdown_signal(signal_parent).await;
+        let _ = signal_sender.send(true);
+    });
+    // 先占用固定监听，再准备证书；地址、授权或证书失败不初始化数据库或链任务。
+    let listener = if matches!(command, BackendCommand::Serve) {
+        let address = if is_host {
+            resolve_backend_bind_addr()
+        } else {
+            let address: SocketAddr = required_env("ONCHINA_MODULE_BIND")
+                .parse()
+                .unwrap_or_else(|_| panic!("invalid module bind"));
+            assert!(
+                address.ip().is_loopback(),
+                "module listener must be loopback"
+            );
+            address
+        };
+        Some(
+            std::net::TcpListener::bind(address).unwrap_or_else(|error| {
+                let detail = match error.kind() {
+                    std::io::ErrorKind::AddrInUse => format!("链上中国监听地址 {address} 已被占用"),
+                    std::io::ErrorKind::AddrNotAvailable => {
+                        format!("主机尚未配置链上中国固定地址 {address}")
+                    }
+                    _ => format!("无法监听链上中国固定地址 {address}：{}", error.kind()),
+                };
+                report_startup_error(&detail);
+                std::process::exit(1)
+            }),
+        )
+    } else {
+        None
+    };
+    let tls_config = if listener.is_some() {
+        match runtime.block_on(crate::tls::prepare(is_host, cancel.clone())) {
+            Ok(config) => Some(config),
+            Err(error) => {
+                if *cancel.borrow() {
+                    return;
+                }
+                report_startup_error(&error);
+                std::process::exit(1)
+            }
+        }
+    } else {
+        None
+    };
+
     let database_url = if is_host && crate::database_embedded::is_enabled() {
         crate::database_embedded::ensure_started()
             .unwrap_or_else(|e| panic!("embedded postgres start failed: {e}"))
@@ -238,16 +264,8 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
             .startup(&state)
             .unwrap_or_else(|e| panic!("module startup failed: {e}"));
     }
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_else(|e| panic!("build tokio runtime failed: {e}"));
     runtime.block_on(async {
         if is_host {
-            // 先准备原机构证书，所有子模块只读取同一证书目录。
-            crate::tls::load_or_generate_rustls_config()
-                .await
-                .unwrap_or_else(|e| panic!("onchina tls config failed: {e}"));
             let reserved = platform_routes()
                 .into_iter()
                 .map(|r| r.description)
@@ -284,19 +302,15 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
             state.clone(),
         ));
         let app = build_routes(state.clone());
-        let address = if is_host {
-            resolve_backend_bind_addr()
-                .unwrap_or_else(|e| panic!("resolve onchina backend bind address failed: {e}"))
-        } else {
-            let address: SocketAddr = required_env("ONCHINA_MODULE_BIND")
-                .parse()
-                .unwrap_or_else(|e| panic!("invalid module bind: {e}"));
-            if !address.ip().is_loopback() {
-                panic!("module listener must be loopback");
-            }
-            address
-        };
-        serve_console(address, app, &state, parent.clone()).await;
+        serve_console(
+            listener.expect("服务命令必须持有监听"),
+            app,
+            tls_config.expect("服务命令必须准备公信证书"),
+            is_host,
+            stop,
+            cancel,
+        )
+        .await;
         // 没有确认子模块退出就不退出宿主；节点超时只返回失败，不能误报可替换文件。
         while let Err(error) = state.modules.stop_all() {
             tracing::error!(%error, "modules still stopping");

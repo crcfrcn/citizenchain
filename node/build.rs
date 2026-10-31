@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::{env, fs, path::Path};
-use substrate_build_script_utils::{generate_cargo_keys, rerun_if_git_head_changed};
+use substrate_build_script_utils::rerun_if_git_head_changed;
 
 // 只统一Windows盘符及UNC扩展长度前缀的表示，不解析链接、不折叠..或改写目录大小写。
 fn comparison_path(path: &Path) -> std::path::PathBuf {
@@ -57,7 +57,6 @@ fn local_build_work(original: &Path, task: &Path, platform: &str) -> bool {
 fn main() {
     match env::var("CARGO_PKG_NAME").as_deref() {
         Ok("node") => {
-            generate_cargo_keys();
             rerun_if_git_head_changed();
             build_tauri().expect("Tauri 构建失败");
         }

@@ -81,7 +81,7 @@ function ensurePasskeyAvailable() {
     throw new Error("当前环境不支持 passkey");
   }
   if (!window.isSecureContext) {
-    throw new Error("当前浏览器尚未信任本节点证书，请先在登录页下载并安装机构 CA 证书");
+    throw new Error("当前页面不是安全环境，请使用节点显示的链上中国公信 HTTPS 入口访问");
   }
   if (!("PublicKeyCredential" in window) || !navigator.credentials) {
     throw new Error("当前浏览器不支持 passkey，请使用新版 Chrome 或 Edge");
@@ -93,10 +93,10 @@ function passkeyBrowserError(error: unknown, fallback: string): Error {
     return error instanceof Error ? error : new Error(fallback);
   }
   if (error.name === "NotAllowedError") {
-    return new Error("passkey 操作被取消，或当前浏览器尚未信任本节点证书");
+    return new Error("passkey 验证已取消或未完成，请重试");
   }
   if (error.name === "SecurityError") {
-    return new Error("当前页面不是浏览器信任的安全页面，请先安装机构 CA 证书后重新打开浏览器");
+    return new Error("登录域名或浏览器安全校验未通过，请使用节点显示的链上中国公信 HTTPS 入口访问");
   }
   if (error.name === "NotSupportedError") {
     return new Error("当前浏览器不支持 passkey，请使用新版 Chrome 或 Edge");

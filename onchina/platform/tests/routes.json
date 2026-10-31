@@ -325,28 +325,6 @@
     },
     {
       "group": "public",
-      "path": "/api/platform/ca-certificate",
-      "methods": [
-        "get"
-      ],
-      "handlers": [
-        "organization_ca_certificate"
-      ],
-      "owner": "platform"
-    },
-    {
-      "group": "public",
-      "path": "/api/platform/ca-certificate/info",
-      "methods": [
-        "get"
-      ],
-      "handlers": [
-        "organization_ca_certificate_info"
-      ],
-      "owner": "platform"
-    },
-    {
-      "group": "public",
       "path": "/api/public/cid/labels",
       "methods": [
         "get"

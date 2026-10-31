@@ -119,10 +119,8 @@ pub struct ChainStatus {
     pub node_version: String,
 }
 
-/// 从 Cargo.toml 编译时嵌入的节点程序版本号。
-fn cargo_pkg_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
-}
+/// 本平台本次交付的唯一节点产品版本，由产品编译入口统一注入。
+pub const NODE_VERSION: &str = env!("CITIZENCHAIN_RELEASE_VERSION");
 
 /// 从 state_getRuntimeVersion RPC 获取 spec_version。
 fn fetch_spec_version() -> Option<u32> {
@@ -134,7 +132,7 @@ fn fetch_spec_version() -> Option<u32> {
 }
 
 fn get_chain_status_sync(app: AppHandle) -> Result<ChainStatus, String> {
-    let node_version = cargo_pkg_version();
+    let node_version = NODE_VERSION.to_owned();
 
     if !current_status(&app)?.running {
         return Ok(ChainStatus {

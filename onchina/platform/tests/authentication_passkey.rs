@@ -82,8 +82,8 @@ fn build_webauthn_config_validation() {
         "非法 origin 必须 fail-closed"
     );
     assert!(
-        build_webauthn_from("onchina.local", "https://onchina.local:8964").is_ok(),
-        "onchina.local HTTPS 默认配置必须合法"
+        build_webauthn_from("onchina.crcfrcn.com", "https://onchina.crcfrcn.com:1988").is_ok(),
+        "onchina.crcfrcn.com HTTPS 默认配置必须合法"
     );
 }
 
@@ -93,9 +93,9 @@ fn passkey_register_and_authenticate_round_trip() {
     use webauthn_authenticator_rs::WebauthnAuthenticator;
     use webauthn_rs::prelude::Url;
 
-    let webauthn =
-        build_webauthn_from("onchina.local", "https://onchina.local:8964").expect("build");
-    let origin = Url::parse("https://onchina.local:8964").unwrap();
+    let webauthn = build_webauthn_from("onchina.crcfrcn.com", "https://onchina.crcfrcn.com:1988")
+        .expect("build");
+    let origin = Url::parse("https://onchina.crcfrcn.com:1988").unwrap();
     // falsify_uv=true:软认证器提供 UserVerification(配置要求 UV)。
     let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
 

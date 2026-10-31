@@ -27,7 +27,7 @@ impl SubstrateCli for Cli {
     }
 
     fn impl_version() -> String {
-        env!("SUBSTRATE_CLI_IMPL_VERSION").into()
+        nodecontrol::rpc::NODE_VERSION.to_owned()
     }
 
     fn description() -> String {

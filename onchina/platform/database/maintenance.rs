@@ -1,8 +1,6 @@
 // 既有连接检查、命令解析与维护操作；不改变触发条件。
-fn resolve_backend_bind_addr() -> Result<SocketAddr, String> {
-    let raw = std::env::var("ONCHINA_BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8964".to_string());
-    raw.parse::<SocketAddr>()
-        .map_err(|e| format!("invalid ONCHINA_BIND_ADDR `{raw}`: {e}"))
+fn resolve_backend_bind_addr() -> SocketAddr {
+    crate::PLATFORM_ADDRESS
 }
 
 fn database_url_targets_local_host_only(database_url: &str) -> Result<bool, String> {

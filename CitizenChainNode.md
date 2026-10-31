@@ -25,7 +25,7 @@ scripts/config.mjs只声明产品、平台、工具、原锁、静态产物模�
 
 scripts/build.mjs负责Node编译、资源装配、签名和打包；scripts/runtime.mjs build负责WASM编译、临时版本输入及实际产物检查。编译脚本不管理GitHub Job、Release、Run或本地任务库，也不承载脚本测试。工作流直接调用原Cargo业务测试：原生四端保持--workspace --all-targets，WASM保持-p runtime --all-targets，测试依赖WASM和版本0金标保持；直接执行时交付原Node路径、平台以及macOS符号保留、Windows OpenSSL搜索环境。准确Git检出检查直接归Workflow编译步骤。
 
-五份既有Workflow各自负责工具准备、版本输入、prepare/build/release/cleanup及GitHub产物。Node版本仍从本平台最近成功Artifact读取后patch加1，首次使用节点配置版本；WASM仍消费本轮冻结链快照及双版本各加1的输入，不使用Node的X.Y.Z。GitHub阶段不转调配置或编译文件中的流程函数。
+五份既有Workflow各自负责工具准备、版本输入、prepare/build/release/cleanup及GitHub产物。Node版本从本平台最新成功正式Release读取后patch加1，首次使用节点配置版本；WASM仍消费本轮冻结链快照及双版本各加1的输入，不使用Node的X.Y.Z。GitHub阶段不转调配置或编译文件中的流程函数。
 
 ## 正式Tag、Release
 
@@ -328,15 +328,15 @@ PG 官方二进制来源:https://www.postgresql.org/download/(解压后含 bin/l
 #### 进程编排(设置页手动拉起,OnChina 自管 PG/TLS)
 
 - 节点 `desktop` setup 不启动 OnChina；用户在设置页“链上中国平台”行点击“启动”并二次确认后，`start_onchina_platform` 调用 `crate::start_onchina(app)`。
-- `main.rs` 中的进程管理入口通过环境变量把资源/数据路径告诉 OnChina(`ONCHINA_PG_BIN_DIR`/`ONCHINA_PG_DATA_DIR`/`ONCHINA_PG_PORT`/`ONCHINA_TLS_DIR`/`ONCHINA_PG_WAL_ARCHIVE_DIR`/`ONCHINA_FRONTEND_DIST`/`ONCHINA_CHINA_DB`/`ONCHAIN_WS_URL`/`ONCHAIN_LOCAL_RPC_CERTIFICATE`/`ONCHINA_EMBEDDED_PG=1`/`ONCHINA_ENABLE_TLS=1`)。桌面父进程只通过后者交付本次RPC证书的公开DER十六进制，不交付私钥。
-- OnChina 启动:`embedded_pg::ensure_started()`(首启 initdb→起 postgres@127.0.0.1:私有端口→建 onchina 库→自拼 DATABASE_URL)→ schema 幂等建 → `tls`(机构私有 CA 签发 HTTPS,主机 `onchina.local`)→ 服务。
+- `main.rs` 中的进程管理入口通过环境变量把资源/数据路径告诉 OnChina(`ONCHINA_PG_BIN_DIR`/`ONCHINA_PG_DATA_DIR`/`ONCHINA_PG_PORT`/`ONCHINA_TLS_DIR`/`ONCHINA_PG_WAL_ARCHIVE_DIR`/`ONCHINA_FRONTEND_DIST`/`ONCHINA_CHINA_DB`/`ONCHAIN_WS_URL`/`ONCHAIN_LOCAL_RPC_CERTIFICATE`/`ONCHINA_EMBEDDED_PG=1`)。桌面父进程只通过后者交付本次RPC证书的公开DER十六进制，不交付私钥。
+- OnChina 启动：预留固定监听 → 准备公信 HTTPS 证书 → `embedded_pg::ensure_started()`（首启 initdb、启动私有PG并建库）→ schema幂等初始化 → 链投影与模块装载 → HTTPS服务；宿主和同机模块共用证书。
 - 退出:node 停子进程信号 → OnChina 收 SIGTERM/Ctrl-C → `embedded_pg::stop()` → 退出。node **不碰 PG**。
 - 开发期(无随包 PG)继承 `run.sh` / `clean-run.sh` 注入的外部 PostgreSQL 二进制、数据目录、前端产物和 HTTPS 配置。
 
 #### 内网 TLS + 扫码鉴权
 
-- OnChina 内网 API 固定入口为 `https://onchina.local:8964`，服务监听 `0.0.0.0:8964` 并通过 mDNS 广告 `onchina.local`。
-- OnChina 内网 API 走 HTTPS（机构私有 CA 签发，证书持久化 `ONCHINA_TLS_DIR`）。根 CA 只允许在证书和私钥同时不存在的首次启动生成，有效期到 2036-01-01；重启、升级、配置标识变化均不得覆盖根 CA。根证书或根私钥缺失、损坏、不匹配、用途错误或失效时必须失败关闭，禁止自动补建。`onchina.local` 服务证书有效期不超过 397 天，有效时直接复用，仅在缺失、损坏、域名或签发关系不符、进入到期前 30 天时使用现有根 CA 重签。
+- OnChina 内网 API 唯一入口为 `https://onchina.crcfrcn.com:1988/`，服务只监听 `192.168.20.27:1988`；主机网卡、局域网 DNS 和放行规则由安装用户一次配置。域名、地址和端口只在公共库声明，节点通过宿主 `--describe` 读取，不另设默认地址或环境变量覆盖。
+- 节点设置页、健康检查和清算行查询共用 `node/desktop/src/cid.rs` 读取宿主的公开部署说明，正常验证公信HTTPS和域名，不设另一缺省入口或私有CA选项。办证流程、密钥存储、续期与模块协议唯一归 `CitizenChainOnChina.md` 第7节；节点编译、安装和主节点功能不依赖运行期办证授权。
 - 身份认证 = 扫码签名(3b 链上 Active 管理员集合鉴权),TLS 只负责传输加密。与 node 的 libp2p WSS 证书相互独立。
 
 #### 大市机房形态(如香港:800万公民/500万公司/百管理员)
@@ -433,7 +433,7 @@ citizenchain/
 
 `citizenchain/onchina` 是公民链 workspace 成员 crate，承接链上中国平台、多机构工作台、注册局业务、行政区、机构登记、管理后台和链侧凭证能力。任意机构可在办公室服务器安装节点后手动启动 OnChina；首次管理员冷钱包登录后可由链上 admins 关系确定人员所属机构候选，但具体业务能力必须继续按有效 `RoleSubject` 解析。
 
-- 进程模型：OnChina 是公民链内置二进制能力，由节点桌面端设置页“链上中国平台”入口手动拉起为子进程、退出时一并停掉；节点启动后默认不启动 OnChina，避免只挖矿节点承担管理后台服务。OnChina 经节点 RPC 读写链，对内网托管 HTTPS API 与前端，固定入口为 `https://onchina.local:8964`。桌面 = 节点运维台，浏览器 = 机构管理员，并存不冲突。
+- 进程模型：OnChina 是公民链内置二进制能力，由节点桌面端设置页“链上中国平台”入口手动拉起为子进程、退出时一并停掉；节点启动后默认不启动 OnChina，避免只挖矿节点承担管理后台服务。OnChina 经节点 RPC 读写链，对内网托管 HTTPS API 与前端，固定入口为 `https://onchina.crcfrcn.com:1988/`。桌面 = 节点运维台，浏览器 = 机构管理员，并存不冲突。
 - 工作台模型：登录账户属于哪个链上机构 admins 人员集合，就显示哪个机构候选；同一账户属于多个机构时先选择机构。工作台操作列表和每次链写都必须按该账户的有效岗位任职与 `RoleBusinessPermission` 过滤，不能因登录成功获得机构业务权限。注册局是 `workspace` 的一类，司法院、立法院、学校、公司、公益组织等机构按自己的工作台 UI 进入“操作 / 显示 / 记录”页面。
 - 数据两层：链上最小身份 + 承诺哈希(选择性/绑定触发上链)；链下明细存本市内嵌 PostgreSQL + 本地/NAS 文件仓库(文件哈希上链验真)。
 - 创世机构精确为 49,593 个公权机构 + 1 个私权非营利法人“公民链技术发展基金会”，
@@ -613,7 +613,7 @@ index 32 由 `CitizenElection`（`runtime/public/election`）复用，用于公�
 - 管理员、治理、转账、清算和奖励设置的桌面桥接使用 camelCase：账户为 `accountId` 或对应角色账户字段，签名公钥为 `signerPublicKey`。展示地址从唯一账户派生；钱包、奖励账户、机构账户和节点登记人 DTO 不保存或下发 SS58 副本。固定 QR_V1 和当前 Runtime 接口保留所属拼写。
 - Node 端所有公民钱包离线扫码签名 UI 统一由 `node/frontend/desktop/signing.tsx` 中的 CitizenSignatureModal 与 CitizenSignaturePanel 承载：左侧固定“扫码签名”，右侧固定“识别签名”，面板只显示二维码有效期倒计时，不显示内部 request id 或签名账户地址；业务页面只负责构造请求、验签和提交交易。地址扫码填入等非签名二维码不纳入该组件。
 - 设置页的“全节点模式”当前展示归档全节点和普通全节点：默认归档全节点；普通全节点置灰不可选择；在底层剪裁能力完成前，节点实际仍按归档全节点运行。
-- 设置页在“全节点模式”之后提供“链上中国平台”手动启动行，显示 `未开启` / `启动中` / `已开启` 状态标签、固定入口 `https://onchina.local:8964` 和“启动 / 关闭”按钮；点击后必须二次确认，只启动或停止 OnChina 子进程，不自动打开浏览器；只有 `/api/health` 真实健康检查通过后才显示 `已开启`。
+- 设置页在“全节点模式”之后提供“链上中国平台”手动启动行，显示 `未开启` / `启动中` / `已开启` 状态标签、固定入口文本 `https://onchina.crcfrcn.com:1988` 和“启动 / 关闭”按钮；点击后必须二次确认，只启动或停止 OnChina 子进程，不自动打开浏览器；只有 `/api/health` 真实健康检查通过后才显示 `已开启`。 状态标记紧邻平台名称，使用专属状态属性隔离通用错误块样式，以11px紧凑胶囊和名称垂直居中；入口文本仅省略宿主根URL末尾斜杠，显示为`https://onchina.crcfrcn.com:1988`，不改变实际请求地址。
 
 ##### 10.3 打包边界
 - 桌面端与原生节点在同一个 `node` crate 中构建，Tauri 打包从 `node/frontend/dist` 读取前端产物。
@@ -1149,7 +1149,7 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 - 协议：TCP
 - 目标端口：`30333`
 
-不得为 `9944`、`9615`、`8964`、`5433` 创建公网入站规则。没有运维需求时也不得为 `22` 创建公网规则。
+不得为 `9944`、`9615`、`1988`、`5433` 创建公网入站规则。没有运维需求时也不得为 `22` 创建公网规则。
 
 ##### 10.3 RPC 与 Prometheus 安全边界
 - 默认 RPC：`127.0.0.1:9944`
@@ -1159,7 +1159,7 @@ Oracle Cloud Network Security Group 只创建一条固定公网业务入站规�
 禁止直接暴露以下端口到公网：
 - `9944`
 - `9615`
-- `8964`
+- `1988`
 - `5433`
 
 ##### 10.4 权威引导节点安全边界
@@ -1245,7 +1245,7 @@ ss -lntp | grep 9615
 - `30333` 监听 `0.0.0.0`，可从公网完成 TCP/WSS 连接。
 - `9944` 只能监听 `127.0.0.1` 或 `::1`，不得出现 `0.0.0.0:9944`。
 - `9615` 不应存在监听。
-- 从外部网络连接 `9944`、`9615`、`8964`、`5433` 和未启用运维时的 `22` 必须失败。
+- 从外部网络连接 `9944`、`9615`、`1988`、`5433` 和未启用运维时的 `22` 必须失败。
 
 ##### 12.3 常见问题一：编译失败
 可能原因：
@@ -2551,7 +2551,7 @@ Runtime按所属技术文档的包/src/tests结构组织；上游/派生源码�
 
 ### 固定产物产品目录
 
-桌面节点客户端的本机RPC地址来自本次节点会话，不要求用户设置CITIZENCHAIN_RPC_URL；远端查询仍只接受可信HTTPS且禁止重定向。链上中国健康检查只信任本机构现有CA，以onchina.local校验主机名并固定连接本机；它向桌面链RPC发起的HTTPS/WSS连接单独验证父进程交付的本次公开证书及回环IP。局域网浏览器访问链上中国的8964端口、机构CA、网页和登录流程不因链RPC证书改变。烘焙/审计/历史导出脚本保留功能但要求显式可信HTTPS，禁止重定向；上游Apache法律注释原件保持，Runtime无任何修改。
+桌面节点客户端的本机RPC地址来自本次节点会话，不要求用户设置CITIZENCHAIN_RPC_URL；远端查询仍只接受可信HTTPS且禁止重定向。链上中国健康检查按产品公开说明访问固定主机，正常验证公信链与onchina.crcfrcn.com域名；它向桌面链RPC发起的HTTPS/WSS连接仍单独验证父进程交付的本次公开证书及回环IP，不与浏览器HTTPS证书混用。局域网浏览器入口为1988端口。烘焙/审计/历史导出脚本保留功能但要求显式可信HTTPS，禁止重定向；上游Apache法律注释原件保持，Runtime无任何修改。
 
 公开仓门禁保留 Apache、MIT、Unlicense 三种准确官方行注释引用；字符串、额外路径及其它网址继续拒绝。Runtime 未修改。
 
@@ -2651,7 +2651,7 @@ WASM塔塔自动化的编译实现仅归scripts/runtime.mjs，唯一工作流为
 五端历史维护直接归各自Workflow的cleanup；仅按真实已完成Run决定保留与删除，不再调用配置中的清理计划或包装函数，当前活动Run不能计为最终成功。
 
 
-节点四端版本由各自Workflow准备阶段读取最近成功Artifact的版本并patch加1，首次使用节点配置基准版本；候选冲突必须失败，不在配置或控制台复制版本推算函数。WASM保持其本轮冻结基线及双版本输入。
+节点四端版本由各自Workflow准备阶段读取本平台最新成功正式Release的版本并patch加1，首次使用节点配置基准版本；候选冲突必须失败，不在配置或控制台复制版本推算函数。WASM保持其本轮冻结基线及双版本输入。
 
 原Run最后Job遇到旧来源Run的真实404时，不补造成功记录：先复用既有来源/附件校验并核对旧Tag，若本轮没有新的完整正式交付则保留旧产物并明确记录；只有本轮真实Release成功、替代交付重新回读完整有效且版本更高时，才删除该已被替代的旧Tag和Release并回读确认。未知错误、提交或附件漂移、不可变Release、删除失败仍明确报错；活动任务和其它平台保护，终态Run淘汰继续独立执行。
 
@@ -2667,7 +2667,7 @@ OnChina事件交易投影与实体CID收集均使用既有SCALE codec::Decode解
 跨平台原生测试的节点守卫临时库直接使用std::env::temp_dir，桌面生命周期验收以std::path::absolute读取既有本轮工作目录；不把Windows canonicalize的扩展路径传入会拼接路径的RocksDB。P2P、Ethereum三节点及同库重开验收消费真实TaskManager取得官方TaskRegistry，在原有超时内确认running_tasks为空且客户端/Backend持有者释放后，再删除或重新打开实际数据库。真实签名交易、PoW/TLS/GRANDPA、坏块拒绝、端口释放和原数据库重开断言保留；未退出仍失败，不用固定延时或忽略目录删除错误。OnChina坏长度前缀断言改用标准matches!同时断言Err及原错误前缀，不为成功数据类型额外要求Debug，不改变业务结构或原解析规则。
 
 
-OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直接启动当前测试程序，不复制、重写或替换临时可执行副本。每个夹具的UUID目录继续隔离证书、前端输入和会话参数；重启前仍等待旧进程退出，保留PID变化、版本回读、健康模块并发、超时、证书信任/主机名拒绝及进程/目录清理断言。夹具通过标准Stdio::inherit透传子进程stderr，健康等待保留请求和JSON解析错误链、HTTP状态及版本不匹配信息，不再静默丢弃诊断；不输出证书、私钥或环境。原250毫秒请求时限、1秒连接时限、10秒就绪断言与25毫秒轮询间隔保持。测试证书沿用原锁rcgen0.13.2官方sign-leaf-with-ca示例：CA和服务器使用不同DN，CA声明DigitalSignature/KeyCertSign/CrlSign，服务器声明DigitalSignature/ServerAuth及AuthorityKeyIdentifier；保留onchina.local SAN和原CA签发关系，避免同名默认DN造成颁发者识别歧义。此变更仅限cfg(test)夹具，正式模块发现与启动器、依赖和Runtime均保持。
+OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直接启动当前测试程序，不复制、重写或替换临时可执行副本。每个夹具的UUID目录继续隔离证书、前端输入和会话参数；重启前仍等待旧进程退出，保留PID变化、版本回读、健康模块并发、超时、证书信任/主机名拒绝及进程/目录清理断言。夹具通过标准Stdio::inherit透传子进程stderr，健康等待保留请求和JSON解析错误链、HTTP状态及版本不匹配信息，不再静默丢弃诊断；不输出证书、私钥或环境。原250毫秒请求时限、1秒连接时限、10秒就绪断言与25毫秒轮询间隔保持。测试证书沿用原锁rcgen0.13.2官方sign-leaf-with-ca示例：CA和服务器使用不同DN，CA声明DigitalSignature/KeyCertSign/CrlSign，服务器声明DigitalSignature/ServerAuth及AuthorityKeyIdentifier；保留onchina.crcfrcn.com SAN和原CA签发关系，避免同名默认DN造成颁发者识别歧义。此变更仅限cfg(test)夹具，正式模块发现与启动器、依赖和Runtime均保持。
 
 注册局竞选身份覆盖本地姓名的既有回归同时断言生日投影保持YYYY-MM-DD，与链日期映射、夹具输入及日期消费者一致；仅更正旧的紧凑日期期望，姓名、性别及其它业务断言和生产映射不变。
 
@@ -2807,9 +2807,9 @@ chain-signing的src按material、signature、extrinsic、preflight组织，lib�
 
 ## macOS PostgreSQL资源准备
 
-本机安装和macOS塔塔自动化共用scripts/build.mjs的preparePostgres；Workflow通过postgres macos读取本轮CITIZENCHAIN_PG_DIST。先验证明确指定的目录，再查PATH对应安装、Homebrew当前主版本安装及本产品target/cache/macos下准确版本缓存；已有完整同版本直接复用。版本只接受官方完整版本和Homebrew发行后缀，不接受较新或近似版本。显式输入错误、可执行文件失败、缓存损坏均报错，不以下载掩盖。
+本机安装和macOS塔塔自动化共用scripts/build.mjs的preparePostgres；Workflow通过postgres macos读取本轮CITIZENCHAIN_PG_DIST。先验证明确指定的目录，再查PATH对应安装、Homebrew当前主版本安装及本产品target/cache/macos下准确版本缓存；已有完整同版本且目录可独立搬迁的分发直接复用。版本只接受官方完整版本和Homebrew发行后缀，不接受较新或近似版本。显式输入错误、可执行文件失败、缓存损坏均报错，不以下载掩盖。
 
-全部缺件才下载产品声明版本的原官方源码，已有源码包复用；原OpenSSL编译配方不变。缓存独占锁避免并发覆盖，下载完成和编译核验后才分别交付完整源码包和资源目录；本轮失败现场清理，已完成缓存保留。完整性检查覆盖postgres、initdb、lib、postgres.bki及COPYRIGHT。原件不写入，装配仍只复制资源和处理本轮动态库。protoc、Rust、Node版本声明及各自既有准备流程保持。
+全部缺件才下载产品声明版本的原官方源码，已有源码包复用；原OpenSSL编译配方不变。缓存独占锁避免并发覆盖，下载完成和编译核验后才分别交付完整源码包和资源目录；本轮失败现场清理，已完成缓存保留。完整性检查覆盖postgres、initdb、pg_config、lib、postgres.bki及COPYRIGHT，并核对实际bin、pkglibdir、sharedir均属于分发内部。原件不写入，装配仍只复制资源和处理本轮动态库。protoc、Rust、Node版本声明及各自既有准备流程保持。
 
 控制台内置Node无npm时，npmCLI先检查当前解释器及PATH中的完整Node安装，再检查设备NVM的声明版本安装；只有实际Node版本准确匹配才使用其随附npm。安装编译环境加入该声明版本的NVM bin供npm生命周期调用，不能误用其它版本或要求控制台额外复制npm。
 
@@ -2820,3 +2820,33 @@ chain-signing的src按material、signature、extrinsic、preflight组织，lib�
 macOS装配从官方原件复制外部动态库时，保留本轮内存中的原路径；其@loader_path相邻依赖若尚未随包存在，就从该准确原路径递归复制并改写副本引用。既有依赖仍直接使用随包文件；来源无法确认和同名不同内容继续失败。该路径映射只存在本轮内存，不形成资源登记或第二真源。
 
 仓库守卫将build Job中的准确PostgreSQL资源准备行与唯一平台编译命令分别核验；资源步骤不能代替真实编译，也不能借此在发布/清理阶段调用编译文件。控制台跨产品冷签测试读取本仓tests下的现有协议金标，退役fixtures路径不恢复。
+
+## 节点更新与白皮书读取
+
+安装包URL按GitHub正式下载路径拼接，先移除基址末尾空段，再追加Tag和文件名；保留Release资产身份、大小、摘要及地址严格匹配。
+
+白皮书命令异步读取官网正文，分块累积前限制1MiB；前端在本次程序会话中保留成功正文并共享进行中的请求，失败不缓存，重试仍读取官网。切换页面不重复获取已经成功的正文，首次立即显示加载状态。钱包持久化仍仅接受name、signMode、accountId及既有列表根结构；本轮仅对已授权本机文件一次性移除废弃字段，无兼容读取或自动迁移入口。
+
+本机macOS装配完成动态库路径改写后，对随包Mach-O资源临时签名并检查；正式发布仍使用原正式签名。两条路径均在交付前以C locale实际执行独占临时initdb并检查PG_VERSION及postgresql.conf；本机不得提前返回而跳过初始化验收。最终App身份签名与安装继续归塔塔安装器。
+
+## 通用本机签名交付
+
+产品编译回执TATA_COMPILE通过signing数组交付待签名目标；path为产物内相对路径，主App为“.”，entitlements为产品权限plist路径或null。Apple产品明确列出嵌套代码及主App，Android交付空数组。产品拥有清单与权限，编译及依赖、资源、验收流程不导入控制台实现。控制台按相对路径嵌套深度从内到外签名，不扫描或推定产品结构，不以产品名称选择权限；描述文件授权值及本次身份覆盖对应请求键，产品独有功能权限完整保留。签名结果及错误沿用原任务日志，最终签名与安装仍归通用安装器；独立产品入口保持可执行。
+
+PostgreSQL复用除完整版本和资源外，还通过其pg_config确认bin、pkglibdir、sharedir均在同一分发目录内部。模块目录仍指向外部Homebrew安装的同版本发行不满足随包独立运行要求，不参与复用；使用已存在的同版本可搬迁分发或原官方构建配方。资源准备与该检查仅归公民链scripts/build.mjs，不加入控制台签名器。
+
+搬迁原始macOS分发时，内部dylib可能仍以原绝对安装名相互引用；仅在本分发已有库的otool安装名与依赖引用完全一致时，将其重定位到随包相对路径。名称不同或来源不明确仍失败；外部依赖仍从本轮声明工具的真实原件复制，禁止把旧安装包中的已签名依赖当原始分发混入。
+
+链上中国本机WSS客户端沿用固定jsonrpsee0.24接口：连接预算包含初次连接，设为1，仅连接原127.0.0.1地址，不跟随重定向；父进程公开证书与主机名校验保持。私有PostgreSQL归档命令对Shell路径与配置字符串分层转义，支持Application Support等含空格路径。启动时幂等维护所属四项配置并对已运行的私有集群重载，其余配置及持久数据库不重建。相关回归包含实际TLS握手、重定向目标零连接、错误证书/主机名拒绝，以及真实Shell归档和配置幂等。
+
+
+### 设置页正式版下载与安装更新
+
+节点程序版本行由产品后端从GitHub仓库crcfrcn/citizenchain的Release列表选择当前平台最新成功正式版，按published_at排序，排除草稿、预发布和WASM，不使用Actions Artifact。沿用Release中的自动化记录确认本平台成功Run及原完整安装包。用户首次点击安装更新仅下载，后台按实际已收/总字节通过Tauri Channel交付进度，进度条在按钮左侧，按钮显示下载中且不可重复点击。完整下载并落盘后显示100%和安装更新；再次点击才执行安装。
+
+下载及安装状态归node/control/src/update.rs，前端不提交任意URL、文件路径或命令。下载只跟随GitHub HTTPS资产跳转；部分文件不交付安装，失败可重试，已下载完整包可在重开应用后恢复并离线安装。App.tsx持有显示状态，切换设置Tab不取消下载。安装由独立进程等待旧PID完全退出，沿用application.rs的Exit清理释放节点数据库锁，保留链数据、密钥及设置。macOS沿用DMG、原App路径及实际大小写，Windows沿用NSIS EXE和当前安装目录，Linux沿用DEB；管理员权限由系统正常申请，取消或失败保留错误和可重试包，不绕过授权。此为用户批准的产品内自更新，不改变控制台塔塔安装器的本机源码编译流程。
+
+
+### 各平台节点产品版本唯一传递
+
+macOS、Windows、LinuxARM、LinuxAMD各自独立发行，工作流从本平台最新成功正式Release读取版本，下一轮候选仅补丁位加1；失败不增加正式版本，重试沿用同一候选号。不再从历史Artifact推算。既有node/tauri.conf.json的version只提供首次发行初始值；正式交付以本轮CITIZENCHAIN_RELEASE_VERSION为唯一输入，同值注入Rust节点公开版本常量NODE_VERSION和Tauri配置。设置页nodeVersion与命令行impl_version读取同一常量，移除旧Cargo固定版本读取和SDK拼接提交号的产品版本生成。本机塔塔安装器沿用本平台最新成功正式版，不增加版本，不再从Cargo内部包元数据确定软件版号。更新检查继续比较已安装版本与同平台最新正式版，内部Cargo/NPM包元数据不作为产品版本入口。上述仅统一节点软件版本，不改变其它版本体系。

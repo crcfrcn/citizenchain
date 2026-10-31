@@ -76,14 +76,20 @@ pub async fn rpc_client(ws_url: &str) -> Result<RpcClient, String> {
             .await
             .map_err(|error| format!("连接链 WSS 失败: {error}"));
     };
-    let config = trusted_websocket_config(certificate)?;
-    let client = subxt::ext::jsonrpsee::ws_client::WsClientBuilder::new()
-        .with_custom_cert_store(config)
-        .max_redirections(0)
+    let client = desktop_websocket_builder(certificate)?
         .build(ws_url)
         .await
         .map_err(|error| format!("连接本机链 WSS 失败: {error}"))?;
     Ok(RpcClient::new(client))
+}
+
+// jsonrpsee 0.24的此预算包含初次连接；1允许连接原地址，但不进行第二次重定向连接。
+fn desktop_websocket_builder(
+    certificate: Vec<u8>,
+) -> Result<subxt::ext::jsonrpsee::ws_client::WsClientBuilder, String> {
+    Ok(subxt::ext::jsonrpsee::ws_client::WsClientBuilder::new()
+        .with_custom_cert_store(trusted_websocket_config(certificate)?)
+        .max_redirections(1))
 }
 
 fn trusted_websocket_config(certificate: Vec<u8>) -> Result<rustls::ClientConfig, String> {

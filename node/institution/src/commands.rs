@@ -111,12 +111,17 @@ pub async fn get_account_balances(
 /// 搜索资格白名单内的清算行候选机构(包含未激活,供"添加清算行"页选择)。
 #[tauri::command]
 pub async fn search_eligible_clearing_banks(
+    app: AppHandle,
     query: String,
     limit: Option<u32>,
 ) -> Result<Vec<EligibleClearingBankCandidate>, String> {
     let limit = limit.unwrap_or(20);
     tauri::async_runtime::spawn_blocking(move || {
-        crate::cid::search_eligible_clearing_banks(&query, limit)
+        crate::cid::search_eligible_clearing_banks(
+            &query,
+            limit,
+            nodedesktop::cid::deployment(&app)?,
+        )
     })
     .await
     .map_err(|e| format!("search_eligible_clearing_banks task failed:{e}"))?

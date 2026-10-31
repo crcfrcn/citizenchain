@@ -39,7 +39,6 @@
       "codes",
       "communication",
       "database",
-      "discovery",
       "documents",
       "indexer",
       "institutions",
@@ -252,7 +251,9 @@
     "registryweb/welfare/types.ts",
     "src",
     "tests",
-    "tsconfig.json"
+    "tsconfig.json",
+    "platform/discovery/mdns.rs",
+    "platform/discovery/worker.rs"
   ],
   "functionOwners": {
     "insert_chain_sign_session": "platform/transactions/session.rs",

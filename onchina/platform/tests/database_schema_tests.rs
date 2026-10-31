@@ -1,6 +1,42 @@
 //! 原所属模块回归，断言与输入保持。
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn archive_paths_preserve_spaces_quotes_and_owned_configuration_is_idempotent() {
+    use crate::database_embedded::{archive_command, configure_postgresql_conf};
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+    let base = std::path::PathBuf::from(std::env::var("CITIZENCHAIN_WORK_DIR").unwrap())
+        .join(format!("archive-{}", uuid::Uuid::new_v4()));
+    let scratch = Scratch(base);
+    std::fs::create_dir_all(&scratch.0).unwrap();
+    let directory = scratch.0.join("archive with ' quote $HOME");
+    let conf = scratch.0.join("postgresql.conf");
+    std::fs::write(&conf, "max_connections = 37\narchive_command = 'old'\narchive_mode = on\n").unwrap();
+    configure_postgresql_conf(&scratch.0, directory.to_str()).unwrap();
+    let first = std::fs::read_to_string(&conf).unwrap();
+    configure_postgresql_conf(&scratch.0, directory.to_str()).unwrap();
+    assert_eq!(std::fs::read_to_string(&conf).unwrap(), first);
+    assert!(first.contains("max_connections = 37"));
+    assert_eq!(first.lines().filter(|line| line.starts_with("archive_command =")).count(), 1);
+    assert!(!first.contains("'old'"));
+    let input = scratch.0.join("input");
+    std::fs::write(&input, "original").unwrap();
+    let command = archive_command(directory.to_str().unwrap())
+        .replace("%p", input.to_str().unwrap()).replace("%f", "segment");
+    assert!(std::process::Command::new("/bin/sh").args(["-c", &command]).status().unwrap().success());
+    std::fs::write(&input, "changed").unwrap();
+    assert!(!std::process::Command::new("/bin/sh").args(["-c", &command]).status().unwrap().success());
+    assert_eq!(std::fs::read_to_string(directory.join("segment")).unwrap(), "original");
+    configure_postgresql_conf(&scratch.0, None).unwrap();
+    let disabled = std::fs::read_to_string(&conf).unwrap();
+    assert!(disabled.contains("archive_mode = off"));
+    assert!(!disabled.lines().any(|line| line.starts_with("archive_command =")));
+}
+
 #[test]
 #[ignore = "由控制台交付本机onchina_test隔离数据库后执行"]
 fn current_schema_is_exact_and_reopens_without_schema_writes() {

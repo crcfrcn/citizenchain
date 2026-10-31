@@ -64,7 +64,6 @@ fn onchina_error_code(status: StatusCode, message: &str) -> &'static str {
         "challenge account_id mismatch" => "ONCHINA_BIND_ACCOUNT_ID_MISMATCH",
         "signature verify failed" => "ONCHINA_BIND_SIGNATURE_VERIFY_FAILED",
         "当前注册局缺少机构主账户绑定" => "ONCHINA_REGISTRY_MAIN_ACCOUNT_MISSING",
-        "onchina ca certificate unavailable" => "ONCHINA_TLS_CA_UNAVAILABLE",
         "admin account_id already exists as federal admin" => {
             "ONCHINA_ACCOUNT_ID_EXISTS_AS_FEDERAL_REGISTRY_ADMIN"
         }

@@ -5,6 +5,22 @@ import { RuntimeConstitutionViewer } from "../guard/RuntimeConstitutionViewer";
 import type { LocalDoc, OtherTabsPayload } from "./types";
 import { useEffect, useState } from 'react';
 
+// 正文仅在当前程序会话缓存；并发挂载共享请求，失败后允许重试。
+let whitepaper: LocalDoc | null = null;
+let whitepaperRequest: Promise<LocalDoc> | null = null;
+function loadWhitepaper(): Promise<LocalDoc> {
+  if (whitepaper) return Promise.resolve(whitepaper);
+  if (!whitepaperRequest) {
+    whitepaperRequest = otherTabsApi.getWhitepaperDocument()
+      .then((data): LocalDoc => {
+        whitepaper = { key: 'whitepaper', markdown: data.markdown };
+        return whitepaper;
+      })
+      .finally(() => { whitepaperRequest = null; });
+  }
+  return whitepaperRequest;
+}
+
 type Props = {
   activeKey: 'whitepaper' | 'party' | 'constitution';
 };
@@ -12,18 +28,18 @@ type Props = {
 export function OtherTabsSection({ activeKey }: Props) {
   const [payload, setPayload] = useState<OtherTabsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [whitepaperDoc, setWhitepaperDoc] = useState<LocalDoc | null>(null);
+  const [whitepaperDoc, setWhitepaperDoc] = useState<LocalDoc | null>(whitepaper);
   const [whitepaperError, setWhitepaperError] = useState<string | null>(null);
   const [whitepaperAttempt, setWhitepaperAttempt] = useState(0);
 
   useEffect(() => {
     if (activeKey !== 'whitepaper') return undefined;
     let cancelled = false;
-    setWhitepaperDoc(null);
+    setWhitepaperDoc(whitepaper);
     setWhitepaperError(null);
-    void otherTabsApi.getWhitepaperDocument()
+    void loadWhitepaper()
       .then((data) => {
-        if (!cancelled) setWhitepaperDoc({ key: 'whitepaper', markdown: data.markdown });
+        if (!cancelled) setWhitepaperDoc(data);
       })
       .catch((e) => {
         if (!cancelled) setWhitepaperError(sanitizeError(e));
