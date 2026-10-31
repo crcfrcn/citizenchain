@@ -170,9 +170,7 @@ impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader 
         Some(test_citizen_subject(who))
     }
 
-    fn population_data(
-        scope: &votebase::PopulationScope,
-    ) -> Option<votebase::PopulationData> {
+    fn population_data(scope: &votebase::PopulationScope) -> Option<votebase::PopulationData> {
         Some(votebase::PopulationData {
             scope: scope.clone(),
             eligible_total: 100,
@@ -315,14 +313,17 @@ impl votebase::LegislationVoteResultCallback for TestLegislationCallback {
     }
 }
 
+// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
+
 impl votebase::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
-    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
-    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
-    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Test, 8>;
+    type MaxAutoFinalizeWeightPerBlock = LogicBudget;
+    type MaxExecutionWeightPerBlock = LogicBudget;
+    type MaxCleanupWeightPerBlock = LogicBudget;
     type MaxProposalsPerExpiry = ConstU32<128>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;

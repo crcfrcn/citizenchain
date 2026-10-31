@@ -7,20 +7,23 @@
 // Handler 直接复用统一 Axum Response；日期 expect 只消费本模块已严格校验并规范化的日期。
 #![allow(clippy::result_large_err, clippy::expect_used)]
 
-use crate::registry::citizens::model::{citizen_row_from_record, citizen_status_text};
+use crate::citizens::chain_identity::IdentityOperations;
+use crate::citizens::occupy::BindingProjection;
+
+use crate::citizens::model::{citizen_row_from_record, citizen_status_text};
 use axum::http::{HeaderMap, StatusCode};
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::cid::{generate_cid_number, GenerateCidInput};
-use crate::core::chain_citizen_identity::FinalizedCitizenIdentity;
-use crate::crypto::pubkey::normalize_account_id;
-use crate::registry::citizens::passport_no::{
+use crate::citizens::passport_no::{
     generate_passport_no_with_retry, is_voting_age_at, passport_valid_from, passport_valid_until,
     passport_validity_years,
 };
 use crate::*;
+use onchina::chain_identity::FinalizedCitizenIdentity;
+use onchina::codes::{generate_cid_number, GenerateCidInput};
+use onchina::crypto::pubkey::normalize_account_id;
 
 /// 直接录入公民请求 DTO。
 ///
@@ -89,7 +92,7 @@ pub(crate) struct ValidatedCitizenInput {
 
 /// 校验建档输入(占号 prepare 阶段调用;不生成号、不落库,ADR-031 占号先行)。
 pub(crate) fn validate_citizen_input(
-    ctx: &crate::authentication::login::AdminAuthContext,
+    ctx: &onchina::authentication::login::AdminAuthContext,
     input: &AdminCreateCitizenInput,
 ) -> Result<ValidatedCitizenInput, axum::response::Response> {
     let cid_type = match input.cid_type.trim() {
@@ -105,7 +108,7 @@ pub(crate) fn validate_citizen_input(
     };
     // 匿名占号:居住省/市取办理注册局作用域(给本地记录一个省分区键);其余档案(姓名/出生/
     // 性别/出生地/居住镇)后期在详情页编辑完善(现有严格逻辑),占号阶段一律留空。
-    let scope = crate::authorization::get_visible_scope(ctx);
+    let scope = onchina::authorization::get_visible_scope(ctx);
     if !scope.can_write {
         return Err(api_error(StatusCode::FORBIDDEN, 1003, "当前登录无办理权限"));
     }
@@ -116,16 +119,17 @@ pub(crate) fn validate_citizen_input(
             "当前注册局缺少省作用域,无法占号",
         ));
     };
-    let Some(province_code) = crate::cid::china::province_code_by_name(province_name.as_str())
+    let Some(province_code) = onchina::codes::china::province_code_by_name(province_name.as_str())
     else {
         return Err(api_error(StatusCode::BAD_REQUEST, 1001, "未知的办理省份"));
     };
     let province_code = province_code.to_string();
     let (city_name, city_code) = match scope.locked_city_name.clone() {
         Some(city_name) => {
-            let Some(city_code) =
-                crate::cid::china::city_code_by_name(province_name.as_str(), city_name.as_str())
-            else {
+            let Some(city_code) = onchina::codes::china::city_code_by_name(
+                province_name.as_str(),
+                city_name.as_str(),
+            ) else {
                 return Err(api_error(StatusCode::BAD_REQUEST, 1001, "未知的办理城市"));
             };
             (city_name, city_code.to_string())
@@ -191,7 +195,7 @@ pub(crate) fn generate_citizen_cid_candidate(
         let detail = format!("公民身份CID生成失败: {err}");
         api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, detail.as_str())
     })?;
-    if crate::cid::validate_cid_number_format(cid_number.as_str()).is_err() {
+    if onchina::codes::validate_cid_number_format(cid_number.as_str()).is_err() {
         return Err(api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             1004,
@@ -392,9 +396,21 @@ fn citizen_archive_hash(record: &CitizenRecord) -> String {
     format!("0x{}", hex::encode(hasher.finalize()))
 }
 
-impl Db {
+/// 注册局本地数据库扩展；复用平台连接，原SQL与事务顺序保持。
+pub(crate) trait CitizenQueries {
+    fn find_citizen_by_account_id(&self, account_id: &str)
+        -> Result<Option<CitizenRecord>, String>;
+    fn allocate_passport_no(
+        &self,
+        province_code: &str,
+        city_code: &str,
+        cid_number: &str,
+    ) -> Result<String, String>;
+}
+
+impl CitizenQueries for Db {
     /// 按账户 ID 查公民档案。仅已完成账户绑定的公民会命中本查询。
-    pub(crate) fn find_citizen_by_account_id(
+    fn find_citizen_by_account_id(
         &self,
         account_id: &str,
     ) -> Result<Option<CitizenRecord>, String> {
@@ -425,7 +441,7 @@ impl Db {
         })
     }
 
-    pub(crate) fn allocate_passport_no(
+    fn allocate_passport_no(
         &self,
         province_code: &str,
         city_code: &str,
@@ -620,7 +636,7 @@ fn validate_locked_identity(
         if birth_filled != 3 {
             return Err("出生地必须省市镇一并填写".to_string());
         }
-        let ok = crate::cid::china::area_name_by_codes(
+        let ok = onchina::codes::china::area_name_by_codes(
             locked.birth_province_code.as_str(),
             Some(locked.birth_city_code.as_str()),
             Some(locked.birth_town_code.as_str()),
@@ -639,7 +655,7 @@ fn validate_locked_identity(
     }
     if !residence_city.is_empty() {
         let town_arg = (!residence_town.is_empty()).then_some(residence_town);
-        let (city_ok, town_ok) = crate::cid::china::area_name_by_codes(
+        let (city_ok, town_ok) = onchina::codes::china::area_name_by_codes(
             existing.province_code.as_str(),
             Some(residence_city),
             town_arg,
@@ -669,7 +685,7 @@ fn validate_locked_identity(
 /// 出生地;护照号与有效期由服务端在出生日期就绪时确定性签发一次。居住省(CID 省/分区键)
 /// 与 CID 不变;链下正本(创建人、created_at)、链上承诺(onchain_*)、账户与状态一律保留。
 pub(crate) async fn admin_update_citizen(
-    axum::extract::State(state): axum::extract::State<crate::AppState>,
+    axum::extract::State(state): axum::extract::State<onchina::AppState>,
     headers: HeaderMap,
     axum::extract::Path(cid_number): axum::extract::Path<String>,
     axum::Json(input): axum::Json<AdminEditCitizenInput>,
@@ -681,14 +697,14 @@ pub(crate) async fn admin_update_citizen(
     };
     let existing = match state.db.find_citizen_by_cid(cid_number.as_str()) {
         Ok(Some(record)) => record,
-        Ok(None) => return crate::api_error(StatusCode::NOT_FOUND, 1004, "公民档案不存在"),
+        Ok(None) => return onchina::api_error(StatusCode::NOT_FOUND, 1004, "公民档案不存在"),
         Err(err) => {
             tracing::error!(error = %err, "query citizen for edit failed");
-            return crate::api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "公民档案查询失败");
+            return onchina::api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "公民档案查询失败");
         }
     };
     if let Err(resp) =
-        crate::registry::citizens::chain_identity::ensure_record_in_admin_scope(&ctx, &existing)
+        crate::citizens::chain_identity::ensure_record_in_admin_scope(&ctx, &existing)
     {
         return resp;
     }
@@ -697,7 +713,7 @@ pub(crate) async fn admin_update_citizen(
     let family_name = input.family_name.trim().to_string();
     let given_name = input.given_name.trim().to_string();
     if family_name.is_empty() || given_name.is_empty() {
-        return crate::api_error(StatusCode::BAD_REQUEST, 1001, "姓名不能为空");
+        return onchina::api_error(StatusCode::BAD_REQUEST, 1001, "姓名不能为空");
     }
     // 可变居住市镇:入参为空则保持现存(允许只改其一)。
     let residence_city = {
@@ -719,7 +735,7 @@ pub(crate) async fn admin_update_citizen(
 
     let locked = match resolve_locked_identity(&existing, &input) {
         Ok(v) => v,
-        Err(msg) => return crate::api_error(StatusCode::BAD_REQUEST, 1001, msg.as_str()),
+        Err(msg) => return onchina::api_error(StatusCode::BAD_REQUEST, 1001, msg.as_str()),
     };
     if let Err(msg) = validate_locked_identity(
         &existing,
@@ -728,14 +744,14 @@ pub(crate) async fn admin_update_citizen(
         residence_city.as_str(),
         residence_town.as_str(),
     ) {
-        return crate::api_error(StatusCode::BAD_REQUEST, 1001, msg.as_str());
+        return onchina::api_error(StatusCode::BAD_REQUEST, 1001, msg.as_str());
     }
 
     // 本地档案编辑只消费一次 Passkey，早于护照分配和任何业务写入。
-    if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
+    if let Err(resp) = onchina::authentication::actions::require_current_admin(&state, &ctx).await {
         return resp;
     }
-    let passkey = match crate::authentication::passkey::require_passkey_assertion(
+    let passkey = match onchina::authentication::passkey::require_passkey_assertion(
         &state,
         &headers,
         &ctx.account_id,
@@ -751,13 +767,13 @@ pub(crate) async fn admin_update_citizen(
         Ok(Err(response)) => return response,
         Err(err) => {
             tracing::error!(error = %err, "citizen edit transaction failed");
-            return crate::api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "公民档案更新失败");
+            return onchina::api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "公民档案更新失败");
         }
     };
     axum::Json(ApiResponse {
         code: 0,
         message: "ok".to_string(),
-        data: crate::registry::citizens::model::citizen_row_from_record(&updated),
+        data: crate::citizens::model::citizen_row_from_record(&updated),
     })
     .into_response()
 }
@@ -765,7 +781,7 @@ pub(crate) async fn admin_update_citizen(
 /// 绑定 -> CID -> 计数器的固定锁顺序；锁后再次校验，避免并发初始化覆盖不可变字段。
 fn apply_citizen_edit_conn(
     conn: &mut postgres::Client,
-    ctx: &crate::authentication::login::AdminAuthContext,
+    ctx: &onchina::authentication::login::AdminAuthContext,
     expected_binding_id: &str,
     cid: &str,
     input: &AdminEditCitizenInput,
@@ -773,14 +789,14 @@ fn apply_citizen_edit_conn(
     let mut tx = conn
         .transaction()
         .map_err(|e| format!("begin citizen edit failed: {e}"))?;
-    crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
-    let binding = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?;
+    onchina::authentication::repo::lock_node_binding_conn(&mut tx)?;
+    let binding = onchina::authentication::repo::get_active_node_binding_conn(&mut tx)?;
     if !binding.is_some_and(|binding| {
         binding.binding_id == expected_binding_id
             && binding.institution_cid_number == ctx.institution_cid_number
             && binding.institution_code == ctx.institution_code
     }) {
-        return Ok(Err(crate::api_error(
+        return Ok(Err(onchina::api_error(
             StatusCode::CONFLICT,
             1005,
             "节点绑定已改变，请重新登录",
@@ -788,21 +804,21 @@ fn apply_citizen_edit_conn(
     }
     Db::lock_citizen_conn(&mut tx, cid)?;
     let Some(existing) = Db::find_citizen_by_cid_conn(&mut tx, cid)? else {
-        return Ok(Err(crate::api_error(
+        return Ok(Err(onchina::api_error(
             StatusCode::NOT_FOUND,
             1004,
             "公民档案不存在",
         )));
     };
     if let Err(response) =
-        crate::registry::citizens::chain_identity::ensure_record_in_admin_scope(ctx, &existing)
+        crate::citizens::chain_identity::ensure_record_in_admin_scope(ctx, &existing)
     {
         return Ok(Err(response));
     }
     let family_name = input.family_name.trim().to_string();
     let given_name = input.given_name.trim().to_string();
     if family_name.is_empty() || given_name.is_empty() {
-        return Ok(Err(crate::api_error(
+        return Ok(Err(onchina::api_error(
             StatusCode::BAD_REQUEST,
             1001,
             "姓名不能为空",
@@ -821,7 +837,7 @@ fn apply_citizen_edit_conn(
     let locked = match resolve_locked_identity(&existing, input) {
         Ok(locked) => locked,
         Err(message) => {
-            return Ok(Err(crate::api_error(
+            return Ok(Err(onchina::api_error(
                 StatusCode::BAD_REQUEST,
                 1001,
                 &message,
@@ -831,7 +847,7 @@ fn apply_citizen_edit_conn(
     if let Err(message) =
         validate_locked_identity(&existing, &locked, input.voting_eligible, &city, &town)
     {
-        return Ok(Err(crate::api_error(
+        return Ok(Err(onchina::api_error(
             StatusCode::BAD_REQUEST,
             1001,
             &message,
@@ -873,308 +889,46 @@ fn apply_citizen_edit_conn(
 }
 
 #[cfg(test)]
-// 公民资料编辑契约测试使用断言式解包定位不可变字段回归。
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod edit_tests {
-    use super::*;
-
-    fn base_record() -> CitizenRecord {
-        CitizenRecord {
-            id: 1,
-            cid_number: format!(
-                "CN000-CTZN{}-100000000-2026",
-                primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)
-            ),
-            passport_no: String::new(),
-            family_name: String::new(),
-            given_name: String::new(),
-            citizen_sex: String::new(),
-            citizen_birth_date: String::new(),
-            account_id: None,
-            binding_revision: 0,
-            binding_block_number: None,
-            binding_block_hash: None,
-            citizen_status: CitizenStatus::Normal,
-            voting_eligible: false,
-            passport_valid_from: String::new(),
-            passport_valid_until: String::new(),
-            status_updated_at: None,
-            province_code: "GZ".to_string(),
-            city_code: "018".to_string(),
-            town_code: String::new(),
-            birth_province_code: String::new(),
-            birth_city_code: String::new(),
-            birth_town_code: String::new(),
-            archive_hash: None,
-            onchain_tx_hash: None,
-            onchain_block_number: None,
-            onchain_at: None,
-            creator_account_id: "0x".to_string() + &"9c".repeat(32),
-            created_at: chrono::DateTime::from_timestamp(1_779_580_800, 0).unwrap(),
-            updater_account_id: None,
-            updated_at: chrono::DateTime::from_timestamp(1_779_580_800, 0).unwrap(),
-        }
-    }
-
-    #[test]
-    fn citizen_outputs_only_expose_canonical_account_identity() {
-        let mut record = base_record();
-        let account_id = format!("0x{}", "11".repeat(32));
-        record.account_id = Some(account_id.clone());
-        for output in [
-            serde_json::to_value(create_output_from_record(record.clone())).unwrap(),
-            serde_json::to_value(crate::registry::citizens::model::citizen_row_from_record(
-                &record,
-            ))
-            .unwrap(),
-        ] {
-            assert_eq!(output["accountId"], account_id);
-            assert!(output.get("ss58Address").is_none());
-            assert!(output.get("ss58_address").is_none());
-        }
-        assert_eq!(
-            resolve_citizen_account(&account_id).unwrap().account_id,
-            account_id
-        );
-        for invalid in [
-            "",
-            "0x11",
-            "11",
-            "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        ] {
-            assert!(resolve_citizen_account(invalid).is_err());
-        }
-    }
-
-    fn input() -> AdminEditCitizenInput {
-        AdminEditCitizenInput {
-            family_name: "程".to_string(),
-            given_name: "伟".to_string(),
-            city_code: "018".to_string(),
-            // 唯一 china.sqlite 中 GZ/018 的真实三位镇码（坪乐镇）。
-            town_code: "013".to_string(),
-            voting_eligible: true,
-            citizen_sex: "MALE".to_string(),
-            citizen_birth_date: "1988-05-20".to_string(),
-            birth_province_code: "GZ".to_string(),
-            birth_city_code: "018".to_string(),
-            birth_town_code: "013".to_string(),
-        }
-    }
-
-    #[test]
-    #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-    fn concurrent_edits_lock_identity_and_stale_projection_rolls_back_all_indexes() {
-        let sandbox = crate::core::db::IsolatedTestDb::new();
-        let owner = format!(
-            "GZ018-CREG{}-000000001-2026",
-            primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false)
-        );
-        let ctx = crate::authentication::login::AdminAuthContext {
-            account_id: format!("0x{}", "9c".repeat(32)),
-            institution_cid_number: owner.clone(),
-            institution_code: "CREG".into(),
-            admin_level: Some("CITY".into()),
-            family_name: "测".into(),
-            given_name: "试".into(),
-            scope_province_name: Some("贵州省".into()),
-            scope_city_name: Some("绥阳市".into()),
-            scope_town_name: None,
-            cid_short_name: None,
-        };
-        let record = base_record();
-        let binding = crate::authentication::login::NodeInstitutionBinding {
-            binding_id: "edit-binding".into(),
-            candidate_id: "edit-candidate".into(),
-            institution_code: "CREG".into(),
-            institution_cid_number: owner,
-            bound_account_id: ctx.account_id.clone(),
-            bound_at: record.created_at,
-            status: "ACTIVE".into(),
-        };
-        sandbox
-            .db
-            .with_client(|conn| {
-                crate::authentication::repo::upsert_active_node_binding_conn(conn, &binding)
-            })
-            .unwrap();
-        sandbox.db.upsert_citizen_row(&record).unwrap();
-        let handles = ["1988-05-20", "1989-05-20"]
-            .into_iter()
-            .map(|birth| {
-                let db = sandbox.db.clone();
-                let ctx = ctx.clone();
-                let cid = record.cid_number.clone();
-                std::thread::spawn(move || {
-                    let mut edit = input();
-                    edit.citizen_birth_date = birth.into();
-                    db.with_client(|conn| {
-                        apply_citizen_edit_conn(conn, &ctx, "edit-binding", &cid, &edit)
-                    })
-                    .unwrap()
-                    .is_ok()
-                })
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            handles
-                .into_iter()
-                .map(|handle| handle.join().unwrap())
-                .filter(|success| *success)
-                .count(),
-            1
-        );
-        let saved = sandbox
-            .db
-            .find_citizen_by_cid(&record.cid_number)
-            .unwrap()
-            .unwrap();
-        assert!(!saved.passport_no.is_empty());
-        assert!(saved.id > 0);
-        let mut current = saved.clone();
-        current.binding_revision = 2;
-        current.account_id = Some(format!("0x{}", "33".repeat(32)));
-        sandbox.db.upsert_citizen_row(&current).unwrap();
-        let mut stale = saved;
-        stale.province_code = "GD".into();
-        stale.city_code = "001".into();
-        assert!(sandbox.db.upsert_citizen_row(&stale).is_err());
-        let reread = sandbox
-            .db
-            .find_citizen_by_cid(&record.cid_number)
-            .unwrap()
-            .unwrap();
-        assert_eq!(reread.province_code, "GZ");
-        assert_eq!(reread.binding_revision, 2);
-        sandbox
-            .db
-            .with_client(|conn| {
-                let province: String = conn
-                    .query_one(
-                        "SELECT province_code FROM identity WHERE cid_number=$1",
-                        &[&record.cid_number],
-                    )
-                    .unwrap()
-                    .get(0);
-                assert_eq!(province, "GZ");
-                let passports: i64 = conn
-                    .query_one(
-                        "SELECT COUNT(*) FROM passport WHERE cid_number=$1",
-                        &[&record.cid_number],
-                    )
-                    .unwrap()
-                    .get(0);
-                assert_eq!(passports, 1);
-                Ok(())
-            })
-            .unwrap();
-        sandbox
-            .db
-            .with_client(|conn| {
-                crate::authentication::repo::deactivate_active_node_binding_conn(conn).map(|_| ())
-            })
-            .unwrap();
-        assert!(sandbox
-            .db
-            .with_client(|conn| apply_citizen_edit_conn(
-                conn,
-                &ctx,
-                "edit-binding",
-                &record.cid_number,
-                &input()
-            ))
-            .unwrap()
-            .is_err());
-    }
-
-    #[test]
-    fn empty_immutable_fields_are_initialized() {
-        let locked = resolve_locked_identity(&base_record(), &input()).expect("ok");
-        assert_eq!(locked.citizen_sex, "MALE");
-        assert_eq!(locked.citizen_birth_date, "1988-05-20");
-        assert_eq!(locked.birth_town_code, "013");
-    }
-
-    #[test]
-    fn immutable_birth_date_cannot_change() {
-        let mut existing = base_record();
-        existing.citizen_birth_date = "1988-05-20".to_string(); // 已初始化
-        let mut edit = input();
-        edit.citizen_birth_date = "1990-01-01".to_string(); // 试图改出生日期
-        let err = resolve_locked_identity(&existing, &edit).unwrap_err();
-        assert!(err.contains("出生日期"));
-    }
-
-    #[test]
-    fn name_is_mutable_not_locked() {
-        // 姓名可变:即便现存已有姓名,改名也不应触发锁定拒绝(姓名不进 LockedIdentity)。
-        let mut existing = base_record();
-        existing.citizen_sex = "MALE".to_string();
-        let mut edit = input();
-        edit.family_name = "王".to_string(); // 改姓
-        edit.given_name = "五".to_string(); // 改名
-        edit.citizen_sex = "MALE".to_string(); // 不可变一致 → 保持
-        let locked = resolve_locked_identity(&existing, &edit).expect("ok");
-        assert_eq!(locked.citizen_sex, "MALE"); // 不可变字段仍锁定
-                                                // 姓名的实际采用在 handler 直接取 input,不受 lock 影响。
-    }
-
-    #[test]
-    fn immutable_field_kept_when_input_matches_or_empty() {
-        let mut existing = base_record();
-        existing.citizen_birth_date = "1988-05-20".to_string();
-        existing.citizen_sex = "MALE".to_string();
-        let mut edit = input();
-        edit.citizen_birth_date = String::new(); // 入参空 → 保持
-        edit.citizen_sex = "MALE".to_string(); // 一致 → 保持
-        let locked = resolve_locked_identity(&existing, &edit).expect("ok");
-        assert_eq!(locked.citizen_birth_date, "1988-05-20");
-        assert_eq!(locked.citizen_sex, "MALE");
-    }
-
-    #[test]
-    fn voting_eligible_requires_birth_date() {
-        let existing = base_record(); // 出生日期空
-        let mut edit = input();
-        edit.citizen_birth_date = String::new();
-        // 隔离出生日期校验:清空出生地三段与居住市镇,避免行政区校验先行拦截。
-        edit.birth_province_code = String::new();
-        edit.birth_city_code = String::new();
-        edit.birth_town_code = String::new();
-        edit.voting_eligible = true;
-        let locked = resolve_locked_identity(&existing, &edit).expect("lock ok");
-        let err = validate_locked_identity(&existing, &locked, true, "", "").unwrap_err();
-        assert!(err.contains("出生日期"));
-    }
-
-    #[test]
-    fn illegal_sex_is_rejected() {
-        let existing = base_record();
-        let mut edit = input();
-        edit.citizen_sex = "X".to_string();
-        let locked = resolve_locked_identity(&existing, &edit).expect("lock ok");
-        let err = validate_locked_identity(&existing, &locked, false, "", "").unwrap_err();
-        assert!(err.contains("性别"));
-    }
-}
+#[path = "../tests/citizens_admin_entry_edit_tests.rs"]
+mod edit_tests;
 
 // 公民专属数据库操作，原SQL与锁顺序保持。
-impl Db {
-    pub(crate) fn upsert_citizen_row(&self, record: &CitizenRecord) -> Result<u64, String> {
+/// 注册局本地数据库扩展；复用平台连接，原SQL与事务顺序保持。
+pub(crate) trait CitizenWrites {
+    fn upsert_citizen_row(&self, record: &CitizenRecord) -> Result<u64, String>;
+    fn upsert_target_citizen_rows(
+        conn: &mut impl postgres::GenericClient,
+        record: &CitizenRecord,
+    ) -> Result<u64, String>;
+    fn lock_citizen_conn(conn: &mut impl postgres::GenericClient, cid: &str) -> Result<(), String>;
+    fn allocate_citizen_id_conn(conn: &mut impl postgres::GenericClient) -> Result<i64, String>;
+    fn list_citizens_page(
+        &self,
+        keyword: &str,
+        province_code: Option<&str>,
+        city_code: Option<&str>,
+        cursor: Option<&str>,
+        page_size: usize,
+    ) -> Result<PageResult<CitizenRow>, String>;
+}
+
+impl CitizenWrites for Db {
+    fn upsert_citizen_row(&self, record: &CitizenRecord) -> Result<u64, String> {
         let record = record.clone();
         self.with_client(move |conn| {
             let mut tx = conn
                 .transaction()
                 .map_err(|e| format!("begin citizen write failed: {e}"))?;
             // 固定锁顺序：绑定 -> CID -> ID 计数器，与批量实体投影一致。
-            crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
+            onchina::authentication::repo::lock_node_binding_conn(&mut tx)?;
             let id = Self::upsert_target_citizen_rows(&mut tx, &record)?;
             tx.commit()
                 .map_err(|e| format!("commit citizen write failed: {e}"))?;
             Ok(id)
         })
     }
-    pub(crate) fn upsert_target_citizen_rows(
+    fn upsert_target_citizen_rows(
         conn: &mut impl postgres::GenericClient,
         record: &CitizenRecord,
     ) -> Result<u64, String> {
@@ -1362,10 +1116,7 @@ impl Db {
         }
         Ok(id as u64)
     }
-    pub(crate) fn lock_citizen_conn(
-        conn: &mut impl postgres::GenericClient,
-        cid: &str,
-    ) -> Result<(), String> {
+    fn lock_citizen_conn(conn: &mut impl postgres::GenericClient, cid: &str) -> Result<(), String> {
         let key = format!("onchina-citizen:{cid}");
         conn.query_one(
             "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
@@ -1374,27 +1125,25 @@ impl Db {
         .map_err(|e| format!("lock citizen failed: {e}"))?;
         Ok(())
     }
-    pub(crate) fn allocate_citizen_id_conn(
-        conn: &mut impl postgres::GenericClient,
-    ) -> Result<i64, String> {
+    fn allocate_citizen_id_conn(conn: &mut impl postgres::GenericClient) -> Result<i64, String> {
         if conn
             .query_opt(
-                "SELECT next_seq FROM sequence WHERE seq_key='citizen_id'",
+                "SELECT last_value FROM sequence WHERE seq_key='citizen_id'",
                 &[],
             )
             .map_err(|e| format!("read citizen id counter failed: {e}"))?
             .is_none()
         {
-            conn.execute("INSERT INTO sequence(seq_key,next_seq) SELECT 'citizen_id', COALESCE(MAX(row_id),0) FROM citizen ON CONFLICT (seq_key) DO NOTHING", &[])
+            conn.execute("INSERT INTO sequence(seq_key,last_value) SELECT 'citizen_id', COALESCE(MAX(row_id),0) FROM citizen ON CONFLICT (seq_key) DO NOTHING", &[])
                 .map_err(|e| format!("initialize citizen id counter failed: {e}"))?;
         }
-        let row = conn.query_opt("UPDATE sequence SET next_seq=next_seq+1 WHERE seq_key='citizen_id' AND next_seq>=0 AND next_seq<9223372036854775807 RETURNING next_seq", &[])
+        let row = conn.query_opt("UPDATE sequence SET last_value=last_value+1 WHERE seq_key='citizen_id' AND last_value>=0 AND last_value<9223372036854775807 RETURNING last_value", &[])
             .map_err(|e| format!("allocate citizen id failed: {e}"))?
             .ok_or_else(|| "citizen id capacity exhausted or counter invalid".to_string())?;
         Ok(row.get(0))
     }
 
-    pub(crate) fn list_citizens_page(
+    fn list_citizens_page(
         &self,
         keyword: &str,
         province_code: Option<&str>,
@@ -1463,7 +1212,7 @@ impl Db {
             for row in rows {
                 let id_i64: i64 = row.get(0);
                 let created_at: DateTime<Utc> = row.get(27);
-                let record = crate::registry::citizens::admin_entry::citizen_record_from_row(&row);
+                let record = crate::citizens::admin_entry::citizen_record_from_row(&row);
                 output.push((citizen_row_from_record(&record), created_at, id_i64));
             }
             Ok(page_from_rows(output, page_size))
@@ -1473,54 +1222,18 @@ impl Db {
 
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod citizen_id_tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-    fn concurrent_ids_are_unique_and_capacity_exhaustion_is_explicit() {
-        let sandbox = crate::core::db::IsolatedTestDb::new();
-        let handles = (0..8)
-            .map(|_| {
-                let db = sandbox.db.clone();
-                std::thread::spawn(move || {
-                    (0..16)
-                        .map(|_| db.with_client(Db::allocate_citizen_id_conn).unwrap())
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect::<Vec<_>>();
-        let ids = handles
-            .into_iter()
-            .flat_map(|handle| handle.join().unwrap())
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(ids.len(), 128);
-        assert_eq!(ids.first(), Some(&1));
-        assert_eq!(ids.last(), Some(&128));
-        sandbox
-            .db
-            .with_client(|conn| {
-                conn.execute(
-                    "UPDATE sequence SET next_seq=9223372036854775807 WHERE seq_key='citizen_id'",
-                    &[],
-                )
-                .unwrap();
-                assert!(Db::allocate_citizen_id_conn(conn).is_err());
-                Ok(())
-            })
-            .unwrap();
-    }
-}
+#[path = "../tests/citizens_admin_entry_citizen_id_tests.rs"]
+mod citizen_id_tests;
 
 /// 原公民投影只在所属模块执行；回写仍与会话租约及完成标记同一事务。
 pub(crate) async fn commit_module_projection(
     db: &Db,
-    session: &crate::transactions::session::ChainSignSession,
-    lease: &crate::transactions::session::SessionLease,
-    finalized: &crate::core::chain_submit::FinalizedChainSubmit,
-    verified_snapshot: Option<&crate::core::chain_citizen_identity::FinalizedCitizenIdentity>,
+    session: &onchina::transactions::session::ChainSignSession,
+    lease: &onchina::transactions::session::SessionLease,
+    finalized: &onchina::chain_submit::FinalizedChainSubmit,
+    verified_snapshot: Option<&onchina::chain_identity::FinalizedCitizenIdentity>,
 ) -> Result<Option<serde_json::Value>, axum::response::Response> {
-    use crate::registry::citizens::occupy::{
+    use crate::citizens::occupy::{
         PURPOSE_CITIZEN_ADMIN_REBIND, PURPOSE_CITIZEN_IDENTITY_PUSH, PURPOSE_CITIZEN_OCCUPY,
         PURPOSE_CITIZEN_REVOKE,
     };
@@ -1537,7 +1250,7 @@ pub(crate) async fn commit_module_projection(
             session.purpose.as_str(),
             PURPOSE_CITIZEN_REVOKE | PURPOSE_CITIZEN_IDENTITY_PUSH
         ) {
-        extra_snapshot = match crate::core::chain_citizen_identity::read_citizen_identity_at(
+        extra_snapshot = match onchina::chain_identity::read_citizen_identity_at(
             &cid_number,
             Some(finalized.block_hash),
         )
@@ -1557,7 +1270,7 @@ pub(crate) async fn commit_module_projection(
     } else {
         verified_snapshot
     };
-    crate::transactions::handler::commit_projection(db, session, lease, &tx_hash, |tx| {
+    onchina::transactions::handler::commit_projection(db, session, lease, &tx_hash, |tx| {
         let mut citizen_output = None;
         match session.purpose.as_str() {
             PURPOSE_CITIZEN_OCCUPY => {
@@ -1607,7 +1320,7 @@ pub(crate) async fn commit_module_projection(
                     snapshot,
                 )?;
             }
-            crate::registry::admins::governance::PURPOSE_INSTITUTION_REGISTER_ADMINS => {}
+            crate::admins::governance::PURPOSE_INSTITUTION_REGISTER_ADMINS => {}
             _ => return Err("unknown chain sign purpose".into()),
         }
         Ok(citizen_output)
@@ -1624,138 +1337,5 @@ pub(crate) async fn commit_module_projection(
 
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod chain_projection_tests {
-    use super::*;
-    use crate::transactions::handler::origin_matches_binding;
-    use crate::transactions::handler::tests::chain_session_with_context;
-    use crate::transactions::session::SessionLease;
-    use chrono::Duration;
-    #[tokio::test]
-    #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-    async fn recovery_lease_and_projection_commit_survive_revocation_failure_and_retry() {
-        use crate::authentication::{login::NodeInstitutionBinding, repo};
-        use crate::core::chain_citizen_identity::{FinalizedCidStatus, FinalizedCitizenIdentity};
-        let sandbox = crate::core::db::IsolatedTestDb::new();
-        let owner = format!(
-            "GZ018-CREG{}-000000001-2026",
-            primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false)
-        );
-        let citizen = format!(
-            "CN000-CTZN{}-100000000-2026",
-            primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)
-        );
-        let binding = NodeInstitutionBinding {
-            binding_id: "original".into(),
-            candidate_id: "one-institution".into(),
-            institution_code: "CREG".into(),
-            institution_cid_number: owner.clone(),
-            bound_account_id: format!("0x{}", "11".repeat(32)),
-            bound_at: Utc::now(),
-            status: "ACTIVE".into(),
-        };
-        sandbox
-            .db
-            .with_client(|conn| repo::upsert_active_node_binding_conn(conn, &binding))
-            .unwrap();
-        let mut session = chain_session_with_context(serde_json::json!({
-            "origin_binding_id":binding.binding_id,"origin_institution_cid":owner,"origin_institution_code":"CREG",
-            "cid_number":citizen,"finalized_tx_hash":format!("0x{}","55".repeat(32)),"finalized_block_number":7,"finalized_block_hash":format!("0x{}","22".repeat(32)),
-            "validated":{"cidType":"CTZN","familyName":"","givenName":"","citizenSex":"","citizenBirthDate":"","provinceName":"贵州省","cityName":"绥阳市","provinceCode":"GZ","cityCode":"018","townCode":"","birthProvinceCode":"","birthCityCode":"","birthTownCode":"","votingEligible":false}
-        }));
-        session.purpose = crate::registry::citizens::occupy::PURPOSE_CITIZEN_OCCUPY.into();
-        session.call_data = vec![
-            crate::registry::citizens::occupy::CITIZEN_IDENTITY_PALLET_INDEX,
-            crate::registry::citizens::occupy::OCCUPY_CID_CALL_INDEX,
-        ];
-        session.expires_at = Utc::now() - Duration::hours(1); // 已提交事务恢复不受签名会话到期阻断。
-        sandbox.db.with_client(|conn| {
-        conn.execute("INSERT INTO signing(request_id,sign_purpose,account_id,call_data,nonce_value,signing_hash,context_json,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", &[&session.request_id,&session.purpose,&session.account_id,&hex::encode(&session.call_data),&i64::from(session.nonce),&session.signing_hash,&session.context,&session.expires_at]).unwrap();
-        // 没有当前管理员行，恢复依然只按已确认会话的原机构完成，不能用于发新交易。
-        assert_eq!(conn.query_one("SELECT COUNT(*) FROM admin",&[]).unwrap().get::<_,i64>(0),0);
-        Ok(())
-    }).unwrap();
-        let lease = SessionLease::acquire(&sandbox.db, &session.request_id)
-            .unwrap()
-            .unwrap();
-        assert!(SessionLease::acquire(&sandbox.db, &session.request_id)
-            .unwrap()
-            .is_none());
-        let snapshot = FinalizedCitizenIdentity {
-            genesis_hash: [1; 32],
-            finalized_block_hash: [0x22; 32],
-            finalized_block_number: 7,
-            chain_now_seconds: 1_700_000_000,
-            cid_status: FinalizedCidStatus::Active,
-            registrar_cid_number: Some(binding.institution_cid_number.as_bytes().to_vec()),
-            commitment: Some([3; 32]),
-            residence_province_code: b"GZ".to_vec(),
-            residence_city_code: b"018".to_vec(),
-            account_id: Some([0x33; 32]),
-            binding_revision: Some(1),
-            identity_version: 0,
-            voting: None,
-            candidate: None,
-        };
-        let mut finalized = crate::core::chain_submit::FinalizedChainSubmit {
-            tx_hash: "different-finalized-hash".into(),
-            block_hash: [0x22; 32],
-            block_number: 7,
-        };
-        assert!(super::commit_module_projection(
-            &sandbox.db,
-            &session,
-            &lease,
-            &finalized,
-            Some(&snapshot)
-        )
-        .await
-        .is_err());
-        assert!(sandbox.db.find_citizen_by_cid(&citizen).unwrap().is_none()); // 消费失败须回滚已写的公民/ID。
-        let hash = format!("0x{}", "55".repeat(32));
-        finalized.tx_hash = hash.clone();
-        let output = super::commit_module_projection(
-            &sandbox.db,
-            &session,
-            &lease,
-            &finalized,
-            Some(&snapshot),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert!(output["id"].as_u64().unwrap() > 0);
-        assert!(sandbox
-            .db
-            .find_chain_sign_session(&session.request_id)
-            .unwrap()
-            .unwrap()
-            .consumed_at
-            .is_some());
-        assert!(super::commit_module_projection(
-            &sandbox.db,
-            &session,
-            &lease,
-            &finalized,
-            Some(&snapshot)
-        )
-        .await
-        .is_err());
-        assert_eq!(
-            sandbox
-                .db
-                .find_citizen_by_cid(&citizen)
-                .unwrap()
-                .unwrap()
-                .id,
-            output["id"].as_u64().unwrap()
-        );
-        assert!(origin_matches_binding(&session, &binding));
-        let other = NodeInstitutionBinding {
-            institution_cid_number: "different-institution".into(),
-            ..binding.clone()
-        };
-        assert!(!origin_matches_binding(&session, &other));
-        let fresh = chain_session_with_context(serde_json::json!({}));
-        assert!(!origin_matches_binding(&fresh, &binding));
-    }
-}
+#[path = "../tests/citizens_admin_entry_chain_projection_tests.rs"]
+mod chain_projection_tests;

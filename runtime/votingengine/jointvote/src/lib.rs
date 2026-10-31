@@ -377,10 +377,8 @@ impl<T: Config> votebase::traits::JointCleanupHandler for Pallet<T> {
 }
 
 impl<T: Config>
-    votebase::ProposalTrackHandler<
-        frame_system::pallet_prelude::BlockNumberFor<T>,
-        T::AccountId,
-    > for Pallet<T>
+    votebase::ProposalTrackHandler<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>
+    for Pallet<T>
 {
     fn handles(kind: u8) -> bool {
         kind == votebase::PROPOSAL_KIND_JOINT
@@ -420,11 +418,10 @@ impl<T: Config>
         if result.1 || removed >= limit {
             return Some((removed, true));
         }
-        let result =
-            <Self as votebase::JointCleanupHandler>::cleanup_joint_institution_votes_chunk(
-                proposal_id,
-                limit.saturating_sub(removed),
-            );
+        let result = <Self as votebase::JointCleanupHandler>::cleanup_joint_institution_votes_chunk(
+            proposal_id,
+            limit.saturating_sub(removed),
+        );
         removed = removed.saturating_add(result.0);
         if result.1 || removed >= limit {
             return Some((removed, true));
@@ -450,9 +447,8 @@ impl<T: Config>
     }
 
     fn cleanup_terminal(kind: u8, proposal_id: u64) -> Option<()> {
-        Self::handles(kind).then(|| {
-            <Self as votebase::JointCleanupHandler>::cleanup_joint_terminal(proposal_id)
-        })
+        Self::handles(kind)
+            .then(|| <Self as votebase::JointCleanupHandler>::cleanup_joint_terminal(proposal_id))
     }
 
     fn timeout_weight(stage: u8) -> Option<frame_support::weights::Weight> {
@@ -471,23 +467,20 @@ impl<T: Config>
     }
 
     fn cleanup_chunk_weight(kind: u8, limit: u32) -> Option<frame_support::weights::Weight> {
-        use frame_support::traits::Get;
+        use crate::weights::WeightInfo;
         matches!(kind, votebase::PROPOSAL_KIND_JOINT | u8::MAX).then(|| {
-            let limit = u64::from(limit.max(1));
-            frame_support::weights::Weight::from_parts(12_000_000, 6_000)
-                .saturating_add(
-                    frame_support::weights::Weight::from_parts(1_200_000, 2_700)
-                        .saturating_mul(limit),
-                )
-                .saturating_add(T::DbWeight::get().reads_writes(limit.saturating_add(4), limit))
+            <T as crate::pallet::Config>::WeightInfo::cleanup_votes(limit.max(1))
+                .max(<T as crate::pallet::Config>::WeightInfo::cleanup_institutions(limit.max(1)))
+                .max(<T as crate::pallet::Config>::WeightInfo::cleanup_tallies(
+                    limit.max(1),
+                ))
+                .max(<T as crate::pallet::Config>::WeightInfo::cleanup_referendum(limit.max(1)))
         })
     }
 
     fn cleanup_terminal_weight(kind: u8) -> Option<frame_support::weights::Weight> {
-        use frame_support::traits::Get;
-        matches!(kind, votebase::PROPOSAL_KIND_JOINT | u8::MAX).then(|| {
-            frame_support::weights::Weight::from_parts(10_000_000, 8_000)
-                .saturating_add(T::DbWeight::get().writes(3))
-        })
+        use crate::weights::WeightInfo;
+        matches!(kind, votebase::PROPOSAL_KIND_JOINT | u8::MAX)
+            .then(<T as crate::pallet::Config>::WeightInfo::cleanup_terminal)
     }
 }

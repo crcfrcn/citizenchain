@@ -458,7 +458,7 @@ pub mod pallet {
         /// 从安全基金账户（`SAFETY_FUND_ACCOUNT`）向指定收款地址转账。
         /// 仅国家储委会委员岗位有效任职人可发起。
         #[pallet::call_index(1)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(4, 2))]
+        #[pallet::weight(<T as Config>::WeightInfo::propose_safety_fund_transfer())]
         pub fn propose_safety_fund_transfer(
             origin: OriginFor<T>,
             actor_cid_number: CidNumber,
@@ -559,7 +559,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(2)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(4, 2))]
+        #[pallet::weight(<T as Config>::WeightInfo::propose_sweep_to_main())]
         pub fn propose_sweep_to_main(
             origin: OriginFor<T>,
             actor_cid_number: CidNumber,
@@ -713,9 +713,7 @@ pub mod pallet {
             .collect::<Result<Vec<_>, sp_runtime::DispatchError>>()?;
             let owner: frame_support::BoundedVec<
                 u8,
-                frame_support::traits::ConstU32<
-                    { entitybase::BUSINESS_MODULE_TAG_MAX_BYTES },
-                >,
+                frame_support::traits::ConstU32<{ entitybase::BUSINESS_MODULE_TAG_MAX_BYTES }>,
             > = crate::MODULE_TAG
                 .to_vec()
                 .try_into()
@@ -1166,6 +1164,18 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
             SweepProposalActions::<T>::remove(proposal_id);
         }
         Ok(ProposalExecutionOutcome::Executed)
+    }
+
+    fn execution_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        <T as crate::pallet::Config>::WeightInfo::propose_transfer()
+            .max(<T as crate::pallet::Config>::WeightInfo::propose_safety_fund_transfer())
+            .max(<T as crate::pallet::Config>::WeightInfo::propose_sweep_to_main())
+    }
+
+    fn terminal_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        <T as crate::pallet::Config>::WeightInfo::terminal_callback()
     }
 
     fn on_execution_failed_terminal(proposal_id: u64) -> DispatchResult {

@@ -4,21 +4,21 @@
 //! 注册局登记归 registry/institutions，私权机构自身业务归 private，公民办理归 registry/citizens。
 
 #[path = "subjects_admin.rs"]
-pub(crate) mod admin;
+pub mod admin;
 #[path = "subjects_chain_multisig_info.rs"]
 pub(crate) mod chain_multisig_info;
 #[path = "subjects_http.rs"]
-pub(crate) mod http;
+pub mod http;
 #[path = "subjects_model.rs"]
-pub(crate) mod model;
+pub mod model;
 #[path = "subjects_photos.rs"]
-pub(crate) mod photos;
+pub mod photos;
 #[path = "subjects_schema.rs"]
-pub(crate) mod schema;
+pub mod schema;
 #[path = "subjects_service.rs"]
-pub(crate) mod service;
+pub mod service;
 #[path = "subjects_unincorporated_org.rs"]
-pub(crate) mod unincorporated_org;
+pub mod unincorporated_org;
 
 pub use model::{
     CreateInstitutionInput, Institution, InstitutionAccount, InstitutionListFilter,

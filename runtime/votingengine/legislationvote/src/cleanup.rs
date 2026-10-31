@@ -9,7 +9,7 @@ pub(crate) const fn has_more(cursor_present: bool) -> bool {
 }
 use crate::weights::WeightInfo;
 use crate::*;
-use frame_support::{traits::Get, weights::Weight};
+use frame_support::weights::Weight;
 
 impl<T: Config> votebase::traits::LegislationCleanupHandler for Pallet<T> {
     fn cleanup_legislation_representative_votes_chunk(
@@ -50,10 +50,8 @@ impl<T: Config> votebase::traits::LegislationCleanupHandler for Pallet<T> {
 }
 
 impl<T: Config>
-    votebase::ProposalTrackHandler<
-        frame_system::pallet_prelude::BlockNumberFor<T>,
-        T::AccountId,
-    > for Pallet<T>
+    votebase::ProposalTrackHandler<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>
+    for Pallet<T>
 {
     fn handles(kind: u8) -> bool {
         kind == votebase::PROPOSAL_KIND_LEGISLATION
@@ -113,9 +111,7 @@ impl<T: Config>
 
     fn cleanup_terminal(kind: u8, proposal_id: u64) -> Option<()> {
         Self::handles(kind).then(|| {
-            <Self as votebase::LegislationCleanupHandler>::cleanup_legislation_terminal(
-                proposal_id,
-            )
+            <Self as votebase::LegislationCleanupHandler>::cleanup_legislation_terminal(proposal_id)
         })
     }
 
@@ -139,18 +135,16 @@ impl<T: Config>
     }
 
     fn cleanup_chunk_weight(kind: u8, limit: u32) -> Option<Weight> {
+        use crate::weights::WeightInfo;
         matches!(kind, votebase::PROPOSAL_KIND_LEGISLATION | u8::MAX).then(|| {
-            let limit = u64::from(limit.max(1));
-            Weight::from_parts(10_000_000, 5_000)
-                .saturating_add(Weight::from_parts(1_100_000, 2_600).saturating_mul(limit))
-                .saturating_add(T::DbWeight::get().reads_writes(limit.saturating_add(2), limit))
+            <T as crate::pallet::Config>::WeightInfo::cleanup_representative(limit.max(1))
+                .max(<T as crate::pallet::Config>::WeightInfo::cleanup_referendum(limit.max(1)))
         })
     }
 
     fn cleanup_terminal_weight(kind: u8) -> Option<Weight> {
-        matches!(kind, votebase::PROPOSAL_KIND_LEGISLATION | u8::MAX).then(|| {
-            Weight::from_parts(16_000_000, 18_000)
-                .saturating_add(T::DbWeight::get().reads_writes(1, 8))
-        })
+        use crate::weights::WeightInfo;
+        matches!(kind, votebase::PROPOSAL_KIND_LEGISLATION | u8::MAX)
+            .then(<T as crate::pallet::Config>::WeightInfo::cleanup_terminal)
     }
 }

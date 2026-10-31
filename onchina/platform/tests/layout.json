@@ -1,0 +1,498 @@
+{
+  "parts": [
+    "judicial",
+    "legislation",
+    "legislationweb",
+    "platform",
+    "platformweb",
+    "private",
+    "registry",
+    "registryweb"
+  ],
+  "functions": {
+    "judicial": [
+      "frontend",
+      "tests",
+      "workspace"
+    ],
+    "legislation": [
+      "budget",
+      "display",
+      "laws",
+      "personnel",
+      "proposals",
+      "tests",
+      "workspace"
+    ],
+    "legislationweb": [
+      "display",
+      "laws",
+      "proposals",
+      "tests"
+    ],
+    "platform": [
+      "audit",
+      "authentication",
+      "authorization",
+      "chain",
+      "client",
+      "codes",
+      "communication",
+      "database",
+      "discovery",
+      "documents",
+      "indexer",
+      "institutions",
+      "modules",
+      "qr",
+      "security",
+      "tests",
+      "transactions",
+      "workspace"
+    ],
+    "platformweb": [
+      "accounts",
+      "authentication",
+      "authorization",
+      "codes",
+      "controls",
+      "documents",
+      "institutions",
+      "qr",
+      "tests",
+      "workspace"
+    ],
+    "private": [
+      "frontend",
+      "membership",
+      "tests",
+      "workspace"
+    ],
+    "registry": [
+      "address",
+      "admins",
+      "citizens",
+      "documents",
+      "institutions",
+      "projection",
+      "tests",
+      "workspace"
+    ],
+    "registryweb": [
+      "address",
+      "admins",
+      "citizens",
+      "controls",
+      "education",
+      "government",
+      "private",
+      "tests"
+    ]
+  },
+  "requiredFiles": [
+    "judicial/Cargo.toml",
+    "judicial/frontend/.npmrc",
+    "judicial/frontend/Workspace.test.tsx",
+    "judicial/frontend/Workspace.tsx",
+    "judicial/frontend/package-lock.json",
+    "judicial/frontend/package.json",
+    "judicial/workspace/main.rs",
+    "legislation/Cargo.toml",
+    "legislation/workspace/main.rs",
+    "legislationweb/.npmrc",
+    "legislationweb/package-lock.json",
+    "legislationweb/package.json",
+    "platform/Cargo.toml",
+    "platform/institutions/catalog.rs",
+    "platform/institutions/model.rs",
+    "platform/modules/lib.rs",
+    "platform/modules/main.rs",
+    "platform/tests/transactions_handler.rs",
+    "platform/transactions/handler.rs",
+    "platform/transactions/mod.rs",
+    "platform/transactions/session.rs",
+    "platformweb/institutions/InfoPanel.tsx",
+    "platformweb/package-lock.json",
+    "platformweb/package.json",
+    "private/Cargo.toml",
+    "private/frontend/.npmrc",
+    "private/frontend/Workspace.test.tsx",
+    "private/frontend/Workspace.tsx",
+    "private/frontend/package-lock.json",
+    "private/frontend/package.json",
+    "private/workspace/main.rs",
+    "registry/Cargo.toml",
+    "registry/admins/actions.rs",
+    "registry/admins/catalog.rs",
+    "registry/admins/governance.rs",
+    "registry/admins/mod.rs",
+    "registry/admins/repo.rs",
+    "registry/institutions/registration.rs",
+    "registry/workspace/main.rs",
+    "registryweb/.npmrc",
+    "registryweb/package-lock.json",
+    "registryweb/package.json"
+  ],
+  "absentFiles": [
+    "backend",
+    "frontend",
+    "judicial/frontend/Display.tsx",
+    "judicial/frontend/Operations.tsx",
+    "judicial/frontend/Records.tsx",
+    "judicial/frontend/operations.test.tsx",
+    "judicial/frontend/tsconfig.json",
+    "judicial/frontend/tsconfig.node.json",
+    "judicial/frontend/vite-env.d.ts",
+    "judicial/frontend/vite.config.ts",
+    "judicial/frontend/vitest.config.ts",
+    "judicial/main.rs",
+    "judicial/module.rs",
+    "judicial/src",
+    "judicial/workspace/manifest.rs",
+    "judicialweb",
+    "legislation/frontend",
+    "legislation/laws/chain_propose.rs",
+    "legislation/laws/chain_read.rs",
+    "legislation/main.rs",
+    "legislation/module.rs",
+    "legislation/src",
+    "legislation/voting/chain_call.rs",
+    "legislation/voting/tests.rs",
+    "legislation/workspace/manifest.rs",
+    "legislationweb/index.ts",
+    "legislationweb/tsconfig.json",
+    "legislationweb/tsconfig.node.json",
+    "legislationweb/vite-env.d.ts",
+    "legislationweb/vite.config.ts",
+    "legislationweb/vitest.config.ts",
+    "platform/authentication/catalog.rs",
+    "platform/chain/citizen_identity.rs",
+    "platform/client/public_institution.rs",
+    "platform/frontend",
+    "platform/institutions/subjects_registration.rs",
+    "platform/interface.rs",
+    "platform/lib.rs",
+    "platform/main.rs",
+    "platform/src",
+    "platform/transactions/backend",
+    "platform/transactions/handler_tests.rs",
+    "platform/transactions/tests.rs",
+    "platformweb/App.tsx",
+    "platformweb/build.d.mts",
+    "platformweb/build.mjs",
+    "platformweb/http.ts",
+    "platformweb/index.html",
+    "platformweb/index.ts",
+    "platformweb/main.tsx",
+    "platformweb/tsconfig.json",
+    "platformweb/tsconfig.node.json",
+    "platformweb/vite-env.d.ts",
+    "platformweb/vite.config.ts",
+    "platformweb/vitest.config.ts",
+    "private/frontend/MembershipPanel.tsx",
+    "private/frontend/membership.test.ts",
+    "private/frontend/membership.ts",
+    "private/frontend/tsconfig.json",
+    "private/frontend/tsconfig.node.json",
+    "private/frontend/types.ts",
+    "private/frontend/vite-env.d.ts",
+    "private/frontend/vite.config.ts",
+    "private/frontend/vitest.config.ts",
+    "private/main.rs",
+    "private/membership/chain_call.rs",
+    "private/module.rs",
+    "private/src",
+    "private/workspace.rs",
+    "private/workspace/manifest.rs",
+    "private/workspace/tests.rs",
+    "privateweb",
+    "registry/citizens/chain_identity.rs",
+    "registry/frontend",
+    "registry/main.rs",
+    "registry/module.rs",
+    "registry/passports/number.rs",
+    "registry/passports/tests.rs",
+    "registry/src",
+    "registry/workspace/manifest.rs",
+    "registryweb/Workspace.tsx",
+    "registryweb/association",
+    "registryweb/association/Page.tsx",
+    "registryweb/association/api.ts",
+    "registryweb/association/index.ts",
+    "registryweb/association/types.ts",
+    "registryweb/company",
+    "registryweb/company/Page.tsx",
+    "registryweb/company/api.ts",
+    "registryweb/company/index.ts",
+    "registryweb/company/types.ts",
+    "registryweb/corporation",
+    "registryweb/corporation/Page.tsx",
+    "registryweb/corporation/api.ts",
+    "registryweb/corporation/index.ts",
+    "registryweb/corporation/types.ts",
+    "registryweb/partnership",
+    "registryweb/partnership/Page.tsx",
+    "registryweb/partnership/api.ts",
+    "registryweb/partnership/index.ts",
+    "registryweb/partnership/types.ts",
+    "registryweb/sole",
+    "registryweb/sole/Page.tsx",
+    "registryweb/sole/api.ts",
+    "registryweb/sole/index.ts",
+    "registryweb/sole/types.ts",
+    "registryweb/tsconfig.json",
+    "registryweb/tsconfig.node.json",
+    "registryweb/vite-env.d.ts",
+    "registryweb/vite.config.ts",
+    "registryweb/vitest.config.ts",
+    "registryweb/welfare",
+    "registryweb/welfare/Page.tsx",
+    "registryweb/welfare/api.ts",
+    "registryweb/welfare/index.ts",
+    "registryweb/welfare/types.ts",
+    "src",
+    "tests",
+    "tsconfig.json"
+  ],
+  "functionOwners": {
+    "insert_chain_sign_session": "platform/transactions/session.rs",
+    "find_chain_sign_session": "platform/transactions/session.rs",
+    "delete_chain_sign_session": "platform/transactions/session.rs",
+    "promote_chain_sign_session": "platform/transactions/session.rs",
+    "submit_chain_sign": "platform/transactions/handler.rs",
+    "chain_resume_phase": "platform/transactions/handler.rs",
+    "recheck_chain_submit_authorization": "platform/transactions/handler.rs",
+    "list_federal_registry_admins": "registry/admins/catalog.rs",
+    "list_city_registry_admins": "registry/admins/city_registry.rs",
+    "list_city_registry_admins_by_scope_conn": "registry/admins/repo.rs",
+    "count_city_registry_admins_by_city_conn": "registry/admins/repo.rs",
+    "validate_create_city_registry_conn": "registry/admins/actions.rs",
+    "apply_create_city_registry_conn": "registry/admins/actions.rs",
+    "apply_delete_city_registry_conn": "registry/admins/actions.rs",
+    "prepare_register_institution_admins": "registry/admins/governance.rs",
+    "create_institution": "registry/institutions/registration.rs",
+    "create_private_institution": "registry/institutions/registration.rs",
+    "list_own_institution_admins": "platform/institutions/catalog.rs",
+    "get_own_institution": "platform/institutions/catalog.rs",
+    "precheck_institution_create_scope": "registry/institutions/registration.rs",
+    "get_admin_by_id_and_registry_org_conn": "registry/admins/repo.rs",
+    "allocate_citizen_id_conn": "registry/citizens/admin_entry.rs",
+    "commit_projection_batch": "registry/projection/mod.rs",
+    "chain_date": "registry/projection/mod.rs",
+    "entity_projection_worker": "registry/projection/mod.rs",
+    "private_type_code_from_institution_code": "platform/institutions/model.rs",
+    "parse_hex32": "platform/transactions/submit.rs",
+    "refresh_bound_institution": "platform/institutions/catalog.rs"
+  },
+  "structOwners": {
+    "ChainSignSession": "platform/transactions/session.rs",
+    "ChainSubmitInput": "platform/transactions/handler.rs",
+    "ChainSubmitOutput": "platform/transactions/handler.rs",
+    "PrepareRegisterInstitutionAdminsInput": "registry/admins/governance.rs",
+    "OwnInstitutionAdminRow": "platform/institutions/model.rs",
+    "OwnInstitutionAdminListOutput": "platform/institutions/model.rs",
+    "CityRegistryIdPayload": "registry/admins/actions.rs",
+    "ModuleDescription": "platform/modules/model.rs",
+    "ModuleCatalog": "platform/modules/mod.rs"
+  },
+  "retiredPatterns": [
+    "onchina/(?:src|backend|frontend)(?:/|\\b)",
+    "onchina/Cargo\\.toml",
+    "crates/protocol/registry\\.json",
+    "(?<![\\w/])src/(?:cid|domains|platform)/",
+    "(?<![\\w/])domains/(?:gov|private|citizens|legislation|membership|docs|address)",
+    "(?<![\\w/])institution/(?:subjects|admins|accounts)",
+    "(?<![\\w/])core/(?:chain_|qr/)",
+    "(?<![\\w/])frontend/(?:utils|workspace)/",
+    "onchina/platform/frontend/workspace/",
+    "crate::(?:auth|institution|scope|domains)::",
+    "crate::platform::(?:capability|mdns)",
+    "禁止恢复旧\\s*`?registry`?\\s*目录",
+    "禁止恢复独立\\s*`?registry`?\\s*源码路径",
+    "registry::citizens::occupy::(?:ChainSignSession|SESSION_TTL_SECS|submit_chain_sign)",
+    "occupy::\\{[^}]*\\b(?:ChainSignSession|SESSION_TTL_SECS)\\b",
+    "authentication::(?:catalog|list_federal_registry_admins|list_city_registry_admins|list_own_institution_admins|get_own_institution)",
+    "institutions::subjects::registration",
+    "OwnInstitutionInfoPanel[^;\\n]*judicial_JudicialDisplay",
+    "(?<![\\w/])utils/http\\.ts",
+    "(?<![\\w/])core/useChainSign",
+    "(?<![\\w/])platform/capabilityMap",
+    "(?<![\\w/])http_security\\.rs",
+    "cid/china/china\\.sqlite",
+    "feedback_institutions_two_layer\\.md",
+    "saveStoredAuth",
+    "onchina/(?:platform|registry|legislation|private|judicial)/src/",
+    "onchina/(?:platform|registry|legislation)/frontend/"
+  ],
+  "retiredExamples": [
+    "onchina/src/main.rs",
+    "src/cid/generator.rs",
+    "domains/citizens/chain_vote.rs",
+    "frontend/utils/http.ts",
+    "citizenchain/crates/protocol/registry.json",
+    "crate::domains::citizens",
+    "禁止恢复旧 registry 目录。",
+    "src/workspace/mod.rs",
+    "crate::registry::citizens::occupy::ChainSignSession",
+    "occupy::{ChainSignSession, SESSION_TTL_SECS}",
+    "authentication::list_federal_registry_admins",
+    "institutions::subjects::registration",
+    "utils/http.ts",
+    "core/useChainSign",
+    "platform/capabilityMap",
+    "http_security.rs",
+    "cid/china/china.sqlite",
+    "saveStoredAuth",
+    "onchina/platform/src/lib.rs",
+    "onchina/registry/frontend/citizens_api.ts"
+  ],
+  "commonPanel": "platformweb/institutions/InfoPanel.tsx",
+  "commonPanelConsumers": [
+    "platformweb/workspace/GenericWorkspace.tsx",
+    "private/frontend/Workspace.tsx",
+    "judicial/frontend/Workspace.tsx"
+  ],
+  "onchinaOnlyPatterns": [
+    "(?<![\\w/])src/(?:accounts|address|admins|auth|authentication|budget|citizens|client|codes|core|crypto|display|docs|domains|government|indexer|institution|law|legislation|membership|personnel|platform|private|protocol|scope|subjects|workspace|cid)/",
+    "(?<![\\w/])(?:core/useChainSign\\.tsx|citizens/api\\.ts|admins/securityApi\\.ts|platform/capabilityMap\\.ts|legislation/shared/labels\\.ts)",
+    "workspace/<机构类>/"
+  ],
+  "constantOwners": {
+    "SESSION_TTL_SECS": "platform/transactions/session.rs",
+    "PURPOSE_INSTITUTION_REGISTER_ADMINS": "registry/admins/governance.rs"
+  },
+  "constantValues": {
+    "SESSION_TTL_SECS": "600",
+    "PURPOSE_INSTITUTION_REGISTER_ADMINS": "\"INSTITUTION_REGISTER_ADMINS\""
+  },
+  "consumerRoots": [
+    "runtime",
+    "node",
+    "crates",
+    "scripts",
+    ".github"
+  ],
+  "consumerDocuments": [
+    "CitizenChainOnChina.md",
+    "CitizenChainNode.md",
+    "CitizenChainRuntime.md"
+  ],
+  "consumerPatterns": [
+    "onchina/(?:src|backend|frontend)(?:/|\\b)",
+    "onchina/Cargo\\.toml",
+    "onchina/(?:platform|registry|legislation|private|judicial)/src/",
+    "onchina/(?:platform|registry|legislation)/frontend/"
+  ],
+  "retiredDefinitions": [
+    "stable_citizen_id",
+    "next_citizen_id",
+    "fetch_frg_admins_for_province",
+    "for_each_chain_institution_account"
+  ],
+  "uploadRoutes": [
+    "/api/institutions/{cid_number}/docs",
+    "/api/admin/citizens/{cid_number}/documents"
+  ],
+  "rootFiles": [],
+  "moduleTargets": {
+    "platform": "platform/modules/main.rs",
+    "registry": "registry/workspace/main.rs",
+    "legislation": "legislation/workspace/main.rs",
+    "private": "private/workspace/main.rs",
+    "judicial": "judicial/workspace/main.rs"
+  },
+  "capabilityCases": [
+    {
+      "code": "NRC",
+      "owner": null,
+      "kind": null,
+      "flags": []
+    },
+    {
+      "code": "PRC",
+      "owner": null,
+      "kind": null,
+      "flags": []
+    },
+    {
+      "code": "PRB",
+      "owner": null,
+      "kind": null,
+      "flags": []
+    },
+    {
+      "code": "UNKNOWN",
+      "owner": null,
+      "kind": null,
+      "flags": []
+    }
+  ],
+  "frontendPackages": {
+    "platform": {
+      "path": "platformweb",
+      "name": "@gmb/onchina-platform"
+    },
+    "registry": {
+      "path": "registryweb",
+      "name": "@gmb/onchina-registry"
+    },
+    "legislation": {
+      "path": "legislationweb",
+      "name": "@gmb/onchina-legislation"
+    },
+    "private": {
+      "path": "private/frontend",
+      "name": "@gmb/onchina-private"
+    },
+    "judicial": {
+      "path": "judicial/frontend",
+      "name": "@gmb/onchina-judicial"
+    }
+  },
+  "packageRoots": {
+    "platform": [
+      "Cargo.toml"
+    ],
+    "registry": [
+      "Cargo.toml"
+    ],
+    "legislation": [
+      "Cargo.toml"
+    ],
+    "private": [
+      "Cargo.toml"
+    ],
+    "judicial": [
+      "Cargo.toml"
+    ],
+    "platformweb": [
+      ".npmrc",
+      "package-lock.json",
+      "package.json"
+    ],
+    "registryweb": [
+      ".npmrc",
+      "package-lock.json",
+      "package.json"
+    ],
+    "legislationweb": [
+      ".npmrc",
+      "package-lock.json",
+      "package.json"
+    ],
+    "private/frontend": [
+      ".npmrc",
+      "Workspace.test.tsx",
+      "Workspace.tsx",
+      "package-lock.json",
+      "package.json"
+    ],
+    "judicial/frontend": [
+      ".npmrc",
+      "Workspace.test.tsx",
+      "Workspace.tsx",
+      "package-lock.json",
+      "package.json"
+    ]
+  }
+}

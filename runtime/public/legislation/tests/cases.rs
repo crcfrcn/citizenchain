@@ -35,7 +35,7 @@ fn enact_writes_law_and_schedules_future_activation() {
         assert_eq!(Lib::list_laws(Tier::Municipal, municipal_region()), vec![0]);
         assert_eq!(
             PendingActivations::<Test>::get().into_inner(),
-            vec![(0u64, 1u32)]
+            vec![(0u64, 1u32, 2_000u64)]
         );
 
         // 未到生效时间时保持待生效。
@@ -43,7 +43,7 @@ fn enact_writes_law_and_schedules_future_activation() {
         assert_eq!(Laws::<Test>::get(0).unwrap().status, LawStatus::Pending);
         assert_eq!(
             PendingActivations::<Test>::get().into_inner(),
-            vec![(0u64, 1u32)]
+            vec![(0u64, 1u32, 2_000u64)]
         );
 
         // 到生效时间后自动翻 Effective。

@@ -2826,7 +2826,7 @@ legislationvote/
 
 - `on_initialize` 在到期桶尚未排空时不再提前返回，执行重试、终态清理和 90 天清理管线每块都能继续获得有界处理机会。
 - 投票判定与业务执行已通过 `PendingProposalExecutions` 解耦；队列按 weight 预算执行，错误指数退避并在三次失败后 dead-letter，既有手动重试和终态清理契约已完成适配。
-- `finalize_proposal` 只承担投票判定与执行入队，不再叠加 `set_code`；`set_code` 最重成本只归入 `process_pending_execution` 异步执行预算。五个投票 crate 的正式 benchmark 已生成并写入生产权重。
+- `finalize_proposal` 承担投票判定与执行入队；系统 `set_code` 成本显式计入业务执行和手动重试预算。投票、清理及回调预算使用各自实测模型组合。
 - `jointvote` 本 crate 现有 12 项直属测试，除原有 `cast_admin`、`cast_referendum`、105 票全票、机构否决和超时转公投外，直接覆盖 `VotePlan`/岗位快照绑定、同 CID 去重和跨 CID 独立投票；`internalvote` 继续提供跨 pallet 回归覆盖。
 - `legislationvote` 的 signing、guard、referendum、result、cleanup 文件已承载实际规则或清理辅助，不再是纯注释残桩。
 - 该步骤当时曾把五个投票 pallet 及触达模块设为开发期 `StorageVersion = 1`；2026-07-21 最终创世决策已取代该版本口径，当前五个投票 pallet 及全部项目 pallet storage version 已统一为 `0`，不保留开发期 migration。
@@ -2834,7 +2834,7 @@ legislationvote/
 #### 2026-07-14 Track 与维护调度收口
 
 - Runtime 以 `(InternalVote, (JointVote, (LegislationVote, (ElectionVote, ()))))` 注册递归 Track tuple；手动超时、自动超时、模式清理和内部阈值副作用走同一类型路由。
-- 自动终结、异步业务执行、历史清理分别使用 `MaxAutoFinalizeWeightPerBlock`、`MaxExecutionWeightPerBlock`、`MaxCleanupWeightPerBlock` 独立预算；生产配置当前分别为最大区块权重的 `1/4`、`1/4`、`1/8`。
+- 自动终结、业务执行、历史清理保留各自配置上界，但共同使用一个维护预算池，按区块轮换优先次序；生产总池为最大区块权重的 `3/4`，不再把三条独立预算相加。
 - 延迟 FIFO 与就绪 FIFO 均以单调 `u64` 序号键控，不存在单区块桶容量、顺延窗口或严格头部反复处理。
 - 新增公平轮转测试和 Track 隔离清理测试：大任务存在时小任务仍推进，内部提案清理不会删除联合投票账本。
 
@@ -2848,16 +2848,16 @@ legislationvote/
 
 #### 2026-07-14 生产 Benchmark 与动态权重
 
-- 目标环境：Apple M5 Pro / arm64、Rust 1.94.0、FRAME Benchmark CLI 53.0.0；WASM compiled，`steps=50`，`repeat=20`。
-- Runtime registry 共注册 19 条：核心 4、内部 2、联合 5、立法 6、选举 2。
-- 核心权重为 35/24/10/22 ms，其中公开终结 35 ms 是保守调度包络并另叠加实际 Track 权重；`process_pending_execution` 另显式叠加 `SystemWeightInfo::set_code()`，runtime 升级不再被普通回调静态权重掩盖。
+- 工具与依赖复用本仓声明、原锁和本机已有版本；通过原 Node CLI 的 FRAME benchmark 入口执行 compiled WASM，采样参数与实际结果归任务卡。
+- 本轮覆盖16个业务/引擎包，共97个权重模型；其余 Runtime benchmark 登记保持各自职责。
+- 核心权重由当前真实调用生成；业务执行另组合回调预算、对象实际字节和 `SystemWeightInfo::set_code()`，不把系统换码成本混入可重生的框架模型。
 - 内部权重沿用既有实测；联合和立法已按资格历史存储重新生成，公民公投写票均真实计入 snapshot 绑定、快照元数据和账户资格版本读取。
 - 2026-07-30 使用当前源码 WASM、50 steps、20 repeats 重算选举权重。最后一票按候选人数
   `c` 线性计费：Popular 基础约 `54.4m ps`、Mutual 基础约 `51.1m ps`，两者每候选人
   约增加 `1.94m ps`；Popular 读为 `12+c`、Mutual 读为 `11+c`，写均为 10。
-- joint 人口准备和立法签署类 benchmark 无法在通用基准创世态完整构造生产 provider 权限，调用注解使用“实测主体与生产 provider 保守上界取 max”，重生生成文件不会移除安全上界。
+- 人口、岗位及签署基准通过既有 provider 和所属公开接口准备状态，计时内调用真实入口；框架、Track、回调和系统换码成本按各自模型显式组合。
 - `ProposalTrackHandler` 同时返回 stage timeout、Track chunk cleanup、Track terminal cleanup 权重；手动终结、自动终结和清理维护均按具体 Track 实际值计账。
-- 三条维护预算维持最大区块权重的 `1/4`、`1/4`、`1/8`，合计 62.5%；在 60 秒最大计算区块下，每条管线均可容纳至少一个最重任务。
+- 投票维护池 `3/4`、身份维护 `1/8`、法律 `1/32`、广场 `1/32`，合计 `15/16`，为其它 Hook 保留余量。预算不足保留任务，业务测试与资源预算测试分别验证状态规则和预算约束。
 
 ##### 覆盖率口径
 
@@ -2874,7 +2874,7 @@ legislationvote/
 - 机构阈值继续来自机构固定阈值或机构动态阈值；岗位只决定选民集合，不新增岗位阈值。创建时若机构阈值无法由本次有效岗位快照达到，整笔提案回滚。
 - 手动重试和取消同样按提案主体分流：机构读取有效岗位选民快照，个人多签读取个人管理员快照。
 - 已接入业务为 public/private 本机构治理与关闭、决议销毁、GRANDPA 密钥紧急恢复、机构普通转账、NRC 安全基金转账、费用账户划转主账户和公民链基金会平台调价。每个业务自己校验 `RoleSubject + BusinessActionId + Propose`、枚举拥有 `Vote` 权限的岗位并固定使用内部投票引擎。GRANDPA 正常更换由目标机构单个委员完成旧、新私钥双签后直接延迟调度，不进入投票引擎。
-- 正式 FRAME benchmark 使用当前源码导出的临时 `citizenchain-fresh` spec、50 steps / 20 repeats。`destroy` 为 25 reads / 23 writes，`grandpakey` 为 25/23，`multisig::propose_transfer` 为 31/23；`internalvote` 与核心 `votebase` 已按机构有效岗位快照路径重算。public/private 完整凭证治理与 square 调价尚无可执行全调用夹具，生产权重使用 400 ms、700 KB proof、35 reads / 30 writes 的显式保守上界。
+- public/private治理、Square调价及原清单其余方法均通过完整调用基准生成，不再使用旧的400ms/700KB手工占位；固定席位记录按共享规格准备最大字段，对应PoV模式在基准中明确标注。
 - 旧权重benchmark脚本及模板已删除；既有 `weights.rs` 数值和算法未因目录整理变更。后续重新生成权重须单独确定并验收所属Runtime入口。
 
 #### 验收
@@ -3326,3 +3326,14 @@ Runtime真实端到端在tests/e2e.rs独立注册，通过所属脚本公开RPC�
 属性用例固定随机种子以复现同批输入，关闭自动向源码树写失败持久文件；最小失败样本由原测试日志记录，修复时以所属tests内固定回归保留，不建立第二份金标。
 
 原生性能驱动另覆盖1001项地域法律索引读取及实际整链默认配置内存初始化，分别交付CITIZENCHAIN_PERF_LAWS_NS、CITIZENCHAIN_PERF_GENESIS_NS。前者验证超过旧容量仍完整只读，后者复用原49,593机构金标。仅操作隔离内存，不重生成磁盘创世输入；默认ignored留最终固定环境验收，不代表RPC、磁盘或整链吞吐已达标。
+
+
+本轮16包的97个模型由真实FRAME基准生成，Runtime统一连接各自WeightInfo/SubstrateWeight。普通转账、地址、多签两类遗漏提案、奖励及维护Hook均有对应模型；resolutionissue移除三个已退役方法。onchainissue/offchain保持禁用。
+
+本轮不改变机构岗位、任职业务规则。法律生效队列按批准的区块预算方案轮转，保留原定effective_at；预算不足的条目留待后续区块。
+
+清理权重按快照、Track、对象、终结阶段分别预留，终结依据实际互斥数量计量；读取就绪项前先预留检查成本，预算不足保持任务。到期待办轮转扫描，失败任务先重排下一块，满槽时保留在既有待过期表。
+
+法律待生效队列保存版本号及其原定生效时间，调度只读取该队列和法律元数据，避免为判断日期解码全文；不新增调度表。恢复基准通过所属业务公开入口准备真实提案，计时内验证重试执行成功或合法取消，不以忽略错误作为通过条件。
+
+投票维护类别共享本块预算并轮换优先次序，截止桶先搬入既有待过期表，未处理到期桶按连续区块游标追赶。Runtime为该维护池分配3/4区块预算，法律和广场各1/32，连同既有身份维护1/8后保留余量；广场仍按既有条数配置及当前权重两者取小推进。

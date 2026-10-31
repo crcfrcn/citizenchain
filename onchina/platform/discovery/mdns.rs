@@ -3,7 +3,6 @@
 //!
 //! 全 best-effort:注册失败只 warn,绝不阻塞 HTTPS 服务。daemon 须长驻才能持续应答 mDNS 查询。
 
-
 /// onchina 控制台 mDNS 服务类型。
 const SERVICE_TYPE: &str = "_onchina._tcp.local.";
 const FIXED_HOST_LABEL: &str = "onchina";

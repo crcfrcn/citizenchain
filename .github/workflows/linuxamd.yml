@@ -112,8 +112,8 @@ jobs:
           target/build/linux-amd/cargo-target/release/deps
           target/build/linux-amd/cargo-target/release/incremental
           target/cache/linux-amd/npm
-        key: citizenchain-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: 'citizenchain-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(''Cargo.lock'', ''crates/protocol/Cargo.lock'', ''config.toml'', ''crates/scanner/package-lock.json'', ''node/frontend/package-lock.json'', ''onchina/platform/frontend/package-lock.json'') }}-
+        key: citizenchain-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: 'citizenchain-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(''Cargo.lock'', ''crates/protocol/Cargo.lock'', ''config.toml'', ''crates/scanner/package-lock.json'', ''node/frontend/package-lock.json'', ''onchina/platformweb/package-lock.json'', ''onchina/registryweb/package-lock.json'', ''onchina/legislationweb/package-lock.json'', ''onchina/private/frontend/package-lock.json'', ''onchina/judicial/frontend/package-lock.json'') }}-
 
           '
     - name: 执行产品所属真实测试
@@ -123,16 +123,28 @@ jobs:
         mkdir -p "$CITIZENCHAIN_WORK_DIR"
         npm ci --prefix crates/scanner --include=dev
         npm ci --prefix node/frontend --include=dev
-        npm ci --prefix onchina/platform/frontend --include=dev
-        node --test --test-concurrency=1 onchina/platform/modules/structure.test.mjs node/frontend/tests/metamask.test.mjs
+        npm ci --prefix onchina/platformweb --include=dev
+        npm ci --prefix onchina/registryweb --include=dev
+        npm ci --prefix onchina/legislationweb --include=dev
+        npm ci --prefix onchina/private/frontend --include=dev
+        npm ci --prefix onchina/judicial/frontend --include=dev
+        node --test --test-concurrency=1 onchina/platform/tests/structure.test.mjs node/frontend/tests/metamask.test.mjs
         cargo test --manifest-path crates/protocol/Cargo.toml --locked
         npm run check --prefix crates/scanner
         npm test --prefix crates/scanner
         npm run test:local-doc --prefix node/frontend
         npm run test:types --prefix node/frontend
         npm test --prefix node/frontend
-        npm run typecheck --prefix onchina/platform/frontend
-        npm test --prefix onchina/platform/frontend
+        npm run typecheck --prefix onchina/platformweb
+        npm run typecheck --prefix onchina/registryweb
+        npm run typecheck --prefix onchina/legislationweb
+        npm run typecheck --prefix onchina/private/frontend
+        npm run typecheck --prefix onchina/judicial/frontend
+        npm test --prefix onchina/platformweb
+        npm test --prefix onchina/registryweb
+        npm test --prefix onchina/legislationweb
+        npm test --prefix onchina/private/frontend
+        npm test --prefix onchina/judicial/frontend
         export TAURI_CONFIG="$(node -e 'console.log(JSON.stringify({build:{beforeBuildCommand:null,frontendDist:process.env.GITHUB_WORKSPACE+"/node/frontend"}}))')"
         export NODE="$(node -p process.execPath)" CITIZENCHAIN_BUILD_PLATFORM="$PLATFORM"
         export WASM_BUILD_FROM_SOURCE=1 CITIZENCHAIN_PRODUCTION_WASM_BUILD=1
@@ -164,8 +176,8 @@ jobs:
         set -euo pipefail
         export ONCHINA_TEST_MODULE_ROOT="$(node -e 'console.log(require("node:fs").realpathSync(require("node:path").join(process.env.CITIZENCHAIN_WORK_DIR,"onchina-modules")))')"
         export ONCHINA_TEST_MODULE_IDS="$(node -e 'console.log(JSON.stringify(require("node:fs").readdirSync(process.env.ONCHINA_TEST_MODULE_ROOT,{withFileTypes:true}).filter(entry=>entry.isDirectory()).map(entry=>entry.name)))')"
-        node --test --test-name-pattern '实际模块产物' onchina/platform/modules/structure.test.mjs
-        npm test --prefix onchina/platform/frontend -- -t '实际IIFE装载'
+        node --test --test-name-pattern '实际模块产物' onchina/platform/tests/structure.test.mjs
+        npm test --prefix onchina/platformweb -- -t '实际IIFE装载'
     - name: 记录实际产物原始字节
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
       id: assets
@@ -200,7 +212,7 @@ jobs:
           target/build/linux-amd/cargo-target/release/deps
           target/build/linux-amd/cargo-target/release/incremental
           target/cache/linux-amd/npm
-        key: citizenchain-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        key: citizenchain-linux-amd-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
     - name: 上传完整Artifact
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:

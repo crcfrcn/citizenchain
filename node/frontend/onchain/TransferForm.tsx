@@ -1,4 +1,4 @@
-import { AddressScanModal } from "../desktop/AddressScanModal";
+import { AddressScanModal } from "../desktop/scanner";
 import { calculateTransferFeeYuan } from "./fee";
 import type { Wallet } from "./types";
 import scanIcon from "../../../icons/scan.svg?url";

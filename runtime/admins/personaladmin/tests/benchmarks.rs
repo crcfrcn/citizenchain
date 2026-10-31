@@ -24,8 +24,14 @@ mod benchmarks {
         let make = |label: &'static str, index: u32| Admin {
             account_id: account(label, index, 0),
             cid_number: Default::default(),
-            family_name: b"Family".to_vec().try_into().unwrap(),
-            given_name: b"Given".to_vec().try_into().unwrap(),
+            family_name:
+                sp_runtime::sp_std::vec![b'F'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
+                    .try_into()
+                    .unwrap(),
+            given_name:
+                sp_runtime::sp_std::vec![b'G'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
+                    .try_into()
+                    .unwrap(),
         };
         let old: AdminsOf<T> = (0..n)
             .map(|i| make("old", i))

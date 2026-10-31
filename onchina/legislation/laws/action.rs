@@ -6,13 +6,13 @@
 
 use super::model::ProposeLawInput;
 use super::service::{build_propose_law_call, build_representative_vote_call};
-use crate::authentication::passkey::PasskeyProof;
-use crate::core::institution_call::ChainCall;
-use crate::transactions::session::{ChainSignSession, SESSION_TTL_SECS};
 use crate::{api_error, AppState};
 use axum::http::StatusCode;
 use axum::response::Response;
 use chrono::{Duration, Utc};
+use onchina::authentication::passkey::PasskeyProof;
+use onchina::institutions_call::ChainCall;
+use onchina::transactions::session::{ChainSignSession, SESSION_TTL_SECS};
 use serde::Serialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -126,7 +126,7 @@ async fn prepare_legislation_sign(
         chain,
         operation_context,
     } = request;
-    let prepared = crate::core::chain_submit::prepare_signing(&chain.call_data, account_id)
+    let prepared = onchina::chain_submit::prepare_signing(&chain.call_data, account_id)
         .await
         .map_err(|error| {
             tracing::error!(error = %error, purpose, "prepare legislation signing failed");
@@ -139,7 +139,7 @@ async fn prepare_legislation_sign(
     let issued_at = Utc::now();
     let expires_at = issued_at + Duration::seconds(SESSION_TTL_SECS);
     let request_id = format!("{request_prefix}-{}", Uuid::new_v4());
-    let sign_request = crate::core::qr::build_sign_request_bytes(
+    let sign_request = onchina::qr::build_sign_request_bytes(
         request_id.as_str(),
         issued_at.timestamp(),
         expires_at.timestamp(),
@@ -181,8 +181,8 @@ async fn prepare_legislation_sign(
 /// 共用提交管道调用原立法授权复核，未改变发起或代表机构表决规则。
 pub(crate) async fn recheck_module_submit(
     _state: &AppState,
-    ctx: &crate::authentication::login::AdminAuthContext,
-    session: &crate::transactions::session::ChainSignSession,
+    ctx: &onchina::authentication::login::AdminAuthContext,
+    session: &onchina::transactions::session::ChainSignSession,
 ) -> Result<(), Response> {
     let session_cid_number = session
         .context
@@ -191,7 +191,7 @@ pub(crate) async fn recheck_module_submit(
         .unwrap_or_default();
     let authorized = session_cid_number == ctx.institution_cid_number
         && match session.purpose.as_str() {
-            crate::legislation::law::action::PURPOSE_LEGISLATION_PROPOSE => {
+            crate::law::action::PURPOSE_LEGISLATION_PROPOSE => {
                 let vote_type = session
                     .context
                     .get("operation")
@@ -199,17 +199,17 @@ pub(crate) async fn recheck_module_submit(
                     .and_then(|value| value.as_u64())
                     .and_then(|value| u8::try_from(value).ok());
                 vote_type.is_some_and(|vote_type| {
-                    crate::legislation::category::proposable_candidates(&ctx.institution_code)
+                    crate::category::proposable_candidates(&ctx.institution_code)
                         .iter()
                         .any(|candidate| candidate.vote_types.contains(&vote_type))
                 })
             }
-            crate::legislation::law::action::PURPOSE_LEGISLATION_REPRESENTATIVE_VOTE => {
+            crate::law::action::PURPOSE_LEGISLATION_REPRESENTATIVE_VOTE => {
                 matches!(
-                    crate::legislation::category::legislation_role(&ctx.institution_code),
+                    crate::category::legislation_role(&ctx.institution_code),
                     Some(
-                        crate::legislation::category::LegislationRole::ProposerHouse
-                            | crate::legislation::category::LegislationRole::ReviewHouse
+                        crate::category::LegislationRole::ProposerHouse
+                            | crate::category::LegislationRole::ReviewHouse
                     )
                 )
             }

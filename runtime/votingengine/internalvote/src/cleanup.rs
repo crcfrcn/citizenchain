@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::weights::WeightInfo;
-use frame_support::{traits::Get, weights::Weight};
+use frame_support::weights::Weight;
 
 impl<T: Config> votebase::traits::InternalCleanupHandler for Pallet<T> {
     fn on_internal_proposal_executed(proposal_id: u64) -> DispatchResult {
@@ -32,10 +32,8 @@ impl<T: Config> votebase::traits::InternalCleanupHandler for Pallet<T> {
 }
 
 impl<T: Config>
-    votebase::ProposalTrackHandler<
-        frame_system::pallet_prelude::BlockNumberFor<T>,
-        T::AccountId,
-    > for Pallet<T>
+    votebase::ProposalTrackHandler<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>
+    for Pallet<T>
 {
     fn handles(kind: u8) -> bool {
         kind == votebase::PROPOSAL_KIND_INTERNAL
@@ -49,9 +47,7 @@ impl<T: Config>
             return None;
         }
         Some(match proposal.stage {
-            votebase::STAGE_INTERNAL => {
-                Self::do_finalize_internal_timeout(proposal, proposal_id)
-            }
+            votebase::STAGE_INTERNAL => Self::do_finalize_internal_timeout(proposal, proposal_id),
             _ => Err(votebase::Error::<T>::InvalidProposalStage.into()),
         })
     }
@@ -81,26 +77,20 @@ impl<T: Config>
     }
 
     fn cleanup_chunk_weight(kind: u8, limit: u32) -> Option<Weight> {
-        matches!(kind, votebase::PROPOSAL_KIND_INTERNAL | u8::MAX).then(|| {
-            let limit = u64::from(limit.max(1));
-            Weight::from_parts(8_000_000, 3_000)
-                .saturating_add(Weight::from_parts(1_000_000, 2_600).saturating_mul(limit))
-                .saturating_add(T::DbWeight::get().reads_writes(limit, limit))
-        })
+        use crate::weights::WeightInfo;
+        matches!(kind, votebase::PROPOSAL_KIND_INTERNAL | u8::MAX)
+            .then(|| <T as crate::pallet::Config>::WeightInfo::cleanup_votes(limit.max(1)))
     }
 
     fn cleanup_terminal_weight(kind: u8) -> Option<Weight> {
-        matches!(kind, votebase::PROPOSAL_KIND_INTERNAL | u8::MAX).then(|| {
-            Weight::from_parts(12_000_000, 12_000)
-                .saturating_add(T::DbWeight::get().reads_writes(4, 6))
-        })
+        use crate::weights::WeightInfo;
+        matches!(kind, votebase::PROPOSAL_KIND_INTERNAL | u8::MAX)
+            .then(<T as crate::pallet::Config>::WeightInfo::cleanup_terminal)
     }
 
     fn on_proposal_executed(kind: u8, proposal_id: u64) -> Option<DispatchResult> {
         Self::handles(kind).then(|| {
-            <Self as votebase::InternalCleanupHandler>::on_internal_proposal_executed(
-                proposal_id,
-            )
+            <Self as votebase::InternalCleanupHandler>::on_internal_proposal_executed(proposal_id)
         })
     }
 

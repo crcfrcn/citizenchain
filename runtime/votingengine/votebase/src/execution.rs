@@ -11,49 +11,57 @@ use frame_support::{
     weights::Weight,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
-use sp_runtime::traits::{One, SaturatedConversion, Saturating};
+use sp_runtime::traits::{SaturatedConversion, Saturating};
 
 impl<T: Config> Pallet<T> {
-    /// 在 Runtime 独立 weight 与固定条数双重预算内处理通过提案。
+    /// 在 Runtime 共享维护预算与既有条数上界内处理通过提案。
     ///
-    /// 每项均按最重 finalize/set_code 保守值预留，避免 runtime 升级等重回调
-    /// 在 `on_initialize` 内造成未计费执行或挤占整个区块。
-    pub(crate) fn process_pending_proposal_executions(now: BlockNumberFor<T>) -> Weight {
+    /// 每项组合业务实测权重、系统换码、对象读取及终态成本，避免重回调未计费。
+    pub(crate) fn process_pending_proposal_executions(
+        now: BlockNumberFor<T>,
+        execution_budget: Weight,
+    ) -> Weight {
         let max = T::MaxAutoFinalizePerBlock::get() as usize;
         if max == 0 {
             return Weight::zero();
         }
-        let db = T::DbWeight::get();
-        let execution_budget = T::MaxExecutionWeightPerBlock::get();
-        let scan_weight = db.reads(1);
-        let item_weight = T::WeightInfo::process_pending_execution()
-            .saturating_add(T::WeightInfo::finalize_proposal())
-            // 业务回调可以执行 runtime set_code；基准只测队列框架，最重业务动作
-            // 必须在消费预算处显式叠加，且不能写进会被重生的 weights.rs。
-            .saturating_add(
-                <<T as frame_system::Config>::SystemWeightInfo as frame_system::weights::WeightInfo>::set_code(),
-            );
-        let mut weight = db.reads(1);
+        let scan_weight = T::WeightInfo::terminal_base();
+        let mut weight = T::WeightInfo::terminal_base();
         let mut pending = sp_std::vec::Vec::new();
-        for (proposal_id, state) in PendingProposalExecutions::<T>::iter() {
-            let after_scan = weight.saturating_add(scan_weight);
-            if after_scan.any_gt(execution_budget) {
+        let mut entries = PendingProposalExecutions::<T>::iter();
+        for _ in 0..max {
+            if weight.saturating_add(scan_weight).any_gt(execution_budget) {
                 break;
             }
-            weight = after_scan;
+            let Some((proposal_id, state)) = entries.next() else {
+                break;
+            };
+            weight = weight.saturating_add(scan_weight);
             if state.next_attempt_at > now {
                 continue;
             }
-            let after_item = weight.saturating_add(item_weight);
-            if after_item.any_gt(execution_budget) {
+            // 基准计入框架/常用业务，系统换码与完整对象读取在消费处单独预留。
+            let inspect = T::WeightInfo::terminal_item();
+            if weight.saturating_add(inspect).any_gt(execution_budget) {
                 break;
             }
+            weight = weight.saturating_add(inspect);
+            let object = ProposalObjectMeta::<T>::get(proposal_id)
+                .map_or(0, |meta| u64::from(meta.object_len));
+            let kind = Proposals::<T>::get(proposal_id)
+                .map_or(PROPOSAL_KIND_INTERNAL, |proposal| proposal.kind);
+            let item_weight = T::WeightInfo::process_pending_execution()
+                .saturating_add(T::WeightInfo::cleanup_final(T::MaxInternalProposalMutexBindings::get()))
+                .saturating_add(Self::terminal_weight(kind))
+                .saturating_add(<<T as frame_system::Config>::SystemWeightInfo as frame_system::weights::WeightInfo>::set_code())
+                .max(Self::execution_peak()).saturating_add(Weight::from_parts(0,object));
+            if weight.saturating_add(item_weight).any_gt(execution_budget) {
+                break;
+            }
+            weight = weight.saturating_add(item_weight);
             pending.push((proposal_id, state));
-            weight = after_item;
-            if pending.len() >= max {
-                break;
-            }
         }
+        drop(entries);
         for (proposal_id, mut state) in pending {
             let result = with_transaction(|| {
                 let result = (|| -> DispatchResult {
@@ -161,19 +169,35 @@ impl<T: Config> Pallet<T> {
     ///
     /// 该队列绝不调用业务执行回调；连续失败后独立 dead-letter，避免重新污染
     /// PendingProposalExecutions 或形成每块热循环。
-    pub(crate) fn process_pending_terminal_finalizations(now: BlockNumberFor<T>) -> Weight {
-        let db = T::DbWeight::get();
+    pub(crate) fn process_pending_terminal_finalizations(
+        now: BlockNumberFor<T>,
+        budget: Weight,
+    ) -> Weight {
         let max = T::MaxPendingRetryExpirationsPerBlock::get() as usize;
-        let mut weight = db.reads(1);
-        if max == 0 {
-            return weight;
+        let mut weight = T::WeightInfo::terminal_base();
+        let mut pending = sp_std::vec::Vec::new();
+        let mut entries = PendingTerminalFinalizations::<T>::iter();
+        for _ in 0..max {
+            let scan = T::WeightInfo::terminal_base();
+            if weight.saturating_add(scan).any_gt(budget) {
+                break;
+            }
+            let Some((id, state)) = entries.next() else {
+                break;
+            };
+            weight = weight.saturating_add(scan);
+            if state.next_attempt_at > now {
+                continue;
+            }
+            let per = Self::terminal_bound();
+            if weight.saturating_add(per).any_gt(budget) {
+                break;
+            }
+            weight = weight.saturating_add(per);
+            pending.push((id, state));
         }
-        let pending: sp_std::vec::Vec<_> = PendingTerminalFinalizations::<T>::iter()
-            .filter(|(_, state)| state.next_attempt_at <= now)
-            .take(max)
-            .collect();
+        drop(entries);
         for (proposal_id, mut state) in pending {
-            weight = weight.saturating_add(db.reads_writes(2, 3));
             let Some(proposal) = Proposals::<T>::get(proposal_id) else {
                 PendingTerminalFinalizations::<T>::remove(proposal_id);
                 continue;
@@ -250,84 +274,74 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// 固定有界的截止桶先搬入既有待过期表；本块预算不足也不会丢掉到期项。
     pub(crate) fn process_execution_retry_deadlines(now: BlockNumberFor<T>) -> Weight {
-        let db_weight = T::DbWeight::get();
-        let mut weight = db_weight.reads_writes(1, 1);
         let queue = ExecutionRetryDeadlines::<T>::take(now);
-        if queue.is_empty() {
-            return weight;
+        let count = queue.len() as u32;
+        for proposal_id in queue {
+            PendingExecutionRetryExpirations::<T>::insert(proposal_id, now);
         }
-
-        for proposal_id in queue.into_iter() {
-            weight = weight.saturating_add(db_weight.reads_writes(2, 3));
-            let Some(state) = ProposalExecutionRetryStates::<T>::get(proposal_id) else {
-                continue;
-            };
-            if state.retry_deadline > now {
-                if Self::reschedule_execution_retry_deadline(proposal_id, state.retry_deadline)
-                    .is_err()
-                {
-                    Self::queue_pending_retry_expiration(proposal_id, state.retry_deadline);
-                }
-                continue;
-            }
-            let Some(proposal) = Proposals::<T>::get(proposal_id) else {
-                ProposalExecutionRetryStates::<T>::remove(proposal_id);
-                continue;
-            };
-            if proposal.status != STATUS_PASSED {
-                ProposalExecutionRetryStates::<T>::remove(proposal_id);
-                continue;
-            }
-            let result = with_transaction(|| {
-                let result = (|| -> DispatchResult {
-                    Self::set_proposal_status(proposal_id, STATUS_EXECUTION_FAILED)?;
-                    Self::deposit_event(Event::<T>::ProposalExecutionRetryExpired { proposal_id });
-                    Self::finish_terminal_status(proposal_id, STATUS_EXECUTION_FAILED)
-                })();
-                match result {
-                    Ok(()) => TransactionOutcome::Commit(Ok(())),
-                    Err(err) => TransactionOutcome::Rollback(Err(err)),
-                }
-            });
-            if result.is_err() {
-                let next_block = now.saturating_add(BlockNumberFor::<T>::one());
-                if Self::reschedule_execution_retry_deadline(proposal_id, next_block).is_err() {
-                    Self::queue_pending_retry_expiration(proposal_id, state.retry_deadline);
-                }
-            }
-        }
-        weight
+        T::WeightInfo::retry_bucket(count)
     }
 
-    pub(crate) fn process_pending_execution_retry_expirations(now: BlockNumberFor<T>) -> Weight {
-        let db_weight = T::DbWeight::get();
-        let mut weight = db_weight.reads(1);
+    pub(crate) fn process_pending_execution_retry_expirations(
+        now: BlockNumberFor<T>,
+        budget: Weight,
+    ) -> Weight {
+        let mut weight = T::WeightInfo::terminal_base();
         let max = T::MaxPendingRetryExpirationsPerBlock::get() as usize;
-        if max == 0 {
-            return weight;
+        let mut pending = sp_std::vec::Vec::new();
+        let cursor = RetryCursor::<T>::get();
+        let mut entries = match cursor.as_ref() {
+            Some(key) => PendingExecutionRetryExpirations::<T>::iter_from(key.to_vec()),
+            None => PendingExecutionRetryExpirations::<T>::iter(),
+        };
+        let mut wrapped = false;
+        let mut last = None;
+        let mut scanned = 0usize;
+        while scanned < max {
+            let scan = T::WeightInfo::terminal_base();
+            if weight.saturating_add(scan).any_gt(budget) {
+                break;
+            }
+            let Some((id, deadline)) = entries.next() else {
+                if cursor.is_some() && !wrapped && scanned == 0 {
+                    entries = PendingExecutionRetryExpirations::<T>::iter();
+                    wrapped = true;
+                    continue;
+                }
+                break;
+            };
+            scanned += 1;
+            weight = weight.saturating_add(scan);
+            last = Some(id);
+            if deadline > now {
+                continue;
+            }
+            let per = Self::terminal_bound();
+            if weight.saturating_add(per).any_gt(budget) {
+                break;
+            }
+            weight = weight.saturating_add(per);
+            pending.push((id, deadline));
         }
-
-        let pending: sp_std::vec::Vec<_> = PendingExecutionRetryExpirations::<T>::iter()
-            .take(max)
-            .collect();
+        drop(entries);
+        if let Some(id) = last {
+            RetryCursor::<T>::put(
+                BoundedVec::<u8, ConstU32<64>>::try_from(
+                    PendingExecutionRetryExpirations::<T>::hashed_key_for(id),
+                )
+                .expect("固定u64键游标不超过64字节"),
+            );
+        } else if wrapped {
+            RetryCursor::<T>::kill();
+        }
         for (proposal_id, retry_deadline) in pending {
-            weight = weight.saturating_add(db_weight.reads_writes(3, 4));
             let Some(state) = ProposalExecutionRetryStates::<T>::get(proposal_id) else {
                 PendingExecutionRetryExpirations::<T>::remove(proposal_id);
                 continue;
             };
             if state.retry_deadline > now {
-                if Self::reschedule_execution_retry_deadline(proposal_id, state.retry_deadline)
-                    .is_ok()
-                {
-                    PendingExecutionRetryExpirations::<T>::remove(proposal_id);
-                } else {
-                    PendingExecutionRetryExpirations::<T>::insert(
-                        proposal_id,
-                        state.retry_deadline,
-                    );
-                }
                 continue;
             }
             let Some(proposal) = Proposals::<T>::get(proposal_id) else {
@@ -355,7 +369,12 @@ impl<T: Config> Pallet<T> {
             if result.is_ok() {
                 PendingExecutionRetryExpirations::<T>::remove(proposal_id);
             } else {
-                PendingExecutionRetryExpirations::<T>::insert(proposal_id, retry_deadline);
+                let next = now.saturating_add(1u32.into());
+                if Self::queue_execution_retry_deadline(proposal_id, next).is_ok() {
+                    PendingExecutionRetryExpirations::<T>::remove(proposal_id);
+                } else {
+                    PendingExecutionRetryExpirations::<T>::insert(proposal_id, retry_deadline);
+                }
             }
         }
         weight

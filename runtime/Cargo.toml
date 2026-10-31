@@ -62,6 +62,8 @@ frame-system-rpc-runtime-api = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 
 # Used for runtime benchmarking
+ed25519-dalek = { version = "2.2.0", default-features = false, features = ["alloc"], optional = true }
+
 frame-benchmarking = { optional = true, workspace = true }
 frame-system-benchmarking = { optional = true, workspace = true }
 
@@ -170,6 +172,8 @@ std = [
 	"substrate-wasm-builder",
 ]
 runtime-benchmarks = [
+    "dep:ed25519-dalek",
+    "legislation/runtime-benchmarks",
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system-benchmarking/runtime-benchmarks",

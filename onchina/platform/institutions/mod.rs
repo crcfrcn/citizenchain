@@ -4,13 +4,13 @@
 //! 两子模块各自保留原职责,跨子模块共享辅助仍走 subjects::http。
 
 #[path = "accounts.rs"]
-pub(crate) mod accounts;
+pub mod accounts;
 #[path = "admins.rs"]
-pub(crate) mod admins;
+pub mod admins;
 #[path = "subjects.rs"]
-pub(crate) mod subjects;
+pub mod subjects;
 
 #[path = "catalog.rs"]
-pub(crate) mod catalog;
+pub mod catalog;
 #[path = "model.rs"]
-pub(crate) mod model;
+pub mod model;

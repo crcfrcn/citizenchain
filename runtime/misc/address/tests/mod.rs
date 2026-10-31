@@ -67,6 +67,7 @@ impl AddressUpdateAuthority<u64> for Authority {
     }
 }
 impl Config for Test {
+    type WeightInfo = ();
     type RuntimeEvent = RuntimeEvent;
     type AddressAuthority = Authority;
     type MaxCodeLen = ConstU32<3>;

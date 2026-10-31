@@ -53,9 +53,8 @@ pub(super) fn admin_auth(
             return Err("http:unauthorized:invalid access token".to_string());
         };
 
-        let idle_expired =
-            crate::core::chain_runtime::is_subordinate_registry(&session.institution_code)
-                && now > session.last_active_at + Duration::minutes(idle_timeout_minutes);
+        let idle_expired = crate::chain_runtime::is_subordinate_registry(&session.institution_code)
+            && now > session.last_active_at + Duration::minutes(idle_timeout_minutes);
         if now > session.expires_at || idle_expired {
             conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token])
                 .map_err(|e| format!("delete expired admin session failed: {e}"))?;
@@ -89,8 +88,8 @@ pub(super) fn admin_auth(
         session.last_active_at = now;
         repo::touch_admin_session_conn(conn, &session)?;
         let institution_code = admin.institution_code.clone();
-        let is_frg = crate::core::chain_runtime::is_tier1_registry(&institution_code);
-        let admin_level = crate::core::chain_runtime::admin_level_label_for(&institution_code);
+        let is_frg = crate::chain_runtime::is_tier1_registry(&institution_code);
+        let admin_level = crate::chain_runtime::admin_level_label_for(&institution_code);
 
         // 省/市/镇作用域:与登录签发(onchain_gate)共用 derive_admin_scope_conn 单一来源,口径一致。
         let (scope_province_name, scope_city_name, scope_town_name) =
@@ -132,9 +131,9 @@ pub(super) fn admin_auth(
 
     match result {
         Ok(mut ctx) => {
-            if crate::core::chain_runtime::is_tier1_registry(&ctx.institution_code) {
+            if crate::chain_runtime::is_tier1_registry(&ctx.institution_code) {
                 ctx.scope_province_name = Some(
-                    crate::core::chain_runtime::current_frg_province_name_blocking(
+                    crate::chain_runtime::current_frg_province_name_blocking(
                         &ctx.institution_cid_number,
                         &ctx.account_id,
                     )
@@ -176,7 +175,7 @@ pub(super) fn admin_auth(
     }
 }
 
-pub(crate) fn require_admin_any(
+pub fn require_admin_any(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<AdminAuthContext, axum::response::Response> {

@@ -6,7 +6,8 @@
 // 公民 handler 的失败分支统一携带完整 Axum Response，避免公开与管理入口形成双轨错误模型。
 #![allow(clippy::result_large_err)]
 
-use crate::registry::citizens::model::{citizen_row_from_record, citizen_status_text};
+use crate::citizens::admin_entry::CitizenWrites;
+
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
@@ -69,11 +70,11 @@ pub(crate) async fn admin_list_citizens(
 }
 
 fn resolve_citizen_query_scope(
-    auth_ctx: &crate::authentication::login::AdminAuthContext,
+    auth_ctx: &onchina::authentication::login::AdminAuthContext,
     query: &CitizensQuery,
 ) -> Result<(Option<String>, Option<String>), axum::response::Response> {
-    crate::authorization::rules::ensure_registry_admin(auth_ctx)?;
-    let scope = crate::authorization::get_visible_scope(auth_ctx);
+    onchina::authorization::rules::ensure_registry_admin(auth_ctx)?;
+    let scope = onchina::authorization::get_visible_scope(auth_ctx);
     if !scope.can_write {
         return Err(api_error(
             StatusCode::FORBIDDEN,
@@ -111,7 +112,7 @@ fn resolve_citizen_query_scope(
             "city_name out of current admin scope",
         ));
     }
-    let Some(province) = crate::cid::china::provinces()
+    let Some(province) = onchina::codes::china::provinces()
         .iter()
         .find(|p| p.province_name == province_name)
     else {
@@ -150,10 +151,10 @@ pub(crate) struct LegalRepresentativeCitizenQuery {
 
 fn legal_representative_scope_from_existing_target(
     state: &AppState,
-    auth_ctx: &crate::authentication::login::AdminAuthContext,
+    auth_ctx: &onchina::authentication::login::AdminAuthContext,
     target_cid_number: &str,
 ) -> Result<
-    crate::institutions::subjects::service::LegalRepresentativeCitizenScope,
+    onchina::institutions::subjects::service::LegalRepresentativeCitizenScope,
     axum::response::Response,
 > {
     let Some((target, _)) = (match state.db.get_institution_with_accounts(target_cid_number) {
@@ -173,7 +174,7 @@ fn legal_representative_scope_from_existing_target(
             "institution not found",
         ));
     };
-    crate::institutions::subjects::http::ensure_institution_visible_to_admin(&target, auth_ctx)?;
+    onchina::institutions::subjects::http::ensure_institution_visible_to_admin(&target, auth_ctx)?;
 
     let parent = match target.parent_cid_number.as_deref() {
         Some(parent_cid) if !parent_cid.trim().is_empty() => {
@@ -192,7 +193,7 @@ fn legal_representative_scope_from_existing_target(
         _ => None,
     };
     Ok(
-        crate::institutions::subjects::service::resolve_legal_representative_scope_for_institution(
+        onchina::institutions::subjects::service::resolve_legal_representative_scope_for_institution(
             &target,
             parent.as_ref(),
         ),
@@ -201,10 +202,10 @@ fn legal_representative_scope_from_existing_target(
 
 fn legal_representative_scope_from_create_context(
     state: &AppState,
-    auth_ctx: &crate::authentication::login::AdminAuthContext,
+    auth_ctx: &onchina::authentication::login::AdminAuthContext,
     query: &LegalRepresentativeCitizenQuery,
 ) -> Result<
-    crate::institutions::subjects::service::LegalRepresentativeCitizenScope,
+    onchina::institutions::subjects::service::LegalRepresentativeCitizenScope,
     axum::response::Response,
 > {
     let province_name = query
@@ -219,7 +220,7 @@ fn legal_representative_scope_from_create_context(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, 1001, "city_name is required"))?;
-    let scope = crate::authorization::get_visible_scope(auth_ctx);
+    let scope = onchina::authorization::get_visible_scope(auth_ctx);
     if !scope.includes_province(province_name) {
         return Err(api_error(
             StatusCode::FORBIDDEN,
@@ -240,14 +241,14 @@ fn legal_representative_scope_from_create_context(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, 1001, "institution is required"))?;
-    let Some(province_code) = crate::cid::china::province_code_by_name(province_name) else {
+    let Some(province_code) = onchina::codes::china::province_code_by_name(province_name) else {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
             1001,
             "unknown province_name",
         ));
     };
-    let Some(city_code) = crate::cid::china::city_code_by_name(province_name, city_name) else {
+    let Some(city_code) = onchina::codes::china::city_code_by_name(province_name, city_name) else {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
             1001,
@@ -270,25 +271,25 @@ fn legal_representative_scope_from_create_context(
             }) else {
                 return Err(api_error(StatusCode::NOT_FOUND, 1004, "所属法人机构不存在"));
             };
-            if !crate::institutions::subjects::unincorporated_org::can_attach_to_parent(
+            if !onchina::institutions::subjects::unincorporated_org::can_attach_to_parent(
                 parent.institution_code.as_str(),
             ) {
                 return Err(api_error(
                     StatusCode::BAD_REQUEST,
                     1001,
-                    crate::institutions::subjects::unincorporated_org::parent_subject_requirement_message(),
+                    onchina::institutions::subjects::unincorporated_org::parent_subject_requirement_message(),
                 ));
             }
             Some(parent)
         }
-        _ if crate::institutions::subjects::unincorporated_org::requires_parent(institution) => {
+        _ if onchina::institutions::subjects::unincorporated_org::requires_parent(institution) => {
             return Err(api_error(StatusCode::BAD_REQUEST, 1001, "请先选择所属法人"));
         }
         _ => None,
     };
 
     Ok(
-        crate::institutions::subjects::service::resolve_legal_representative_scope_for_codes(
+        onchina::institutions::subjects::service::resolve_legal_representative_scope_for_codes(
             institution,
             query.education_type.as_deref().map(str::trim),
             province_code,
@@ -307,7 +308,7 @@ pub(crate) async fn admin_search_legal_representative_citizens(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&auth_ctx) {
+    if let Err(resp) = onchina::authorization::rules::ensure_registry_admin(&auth_ctx) {
         return resp;
     }
     let q = query.q.as_deref().map(str::trim).unwrap_or("").to_string();
@@ -381,7 +382,8 @@ pub(crate) async fn public_identity_search(
             "identity_code or account_id is required",
         );
     }
-    if !account_id.is_empty() && crate::crypto::pubkey::normalize_account_id(account_id).is_none() {
+    if !account_id.is_empty() && onchina::crypto::pubkey::normalize_account_id(account_id).is_none()
+    {
         return api_error(
             StatusCode::BAD_REQUEST,
             1001,
@@ -426,7 +428,7 @@ pub(crate) async fn public_identity_search(
         identity_code: found.as_ref().map(|r| r.0.clone()),
         account_id: found.as_ref().and_then(|r| r.1.clone()),
     };
-    crate::core::runtime_ops::append_audit_log(
+    onchina::audit_runtime::append_audit_log(
         &state,
         "PUBLIC_IDENTITY_SEARCH",
         "public",

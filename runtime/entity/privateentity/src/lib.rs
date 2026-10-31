@@ -8,7 +8,7 @@ pub use pallet::*;
 pub mod add;
 #[cfg(feature = "runtime-benchmarks")]
 #[path = "../tests/benchmarks.rs"]
-mod benchmarks;
+pub mod benchmarks;
 pub mod close;
 pub mod institution;
 pub mod traits;
@@ -638,7 +638,7 @@ pub mod pallet {
         /// 本入口只允许治理 `actor_cid_number == cid_number` 的本机构；注册局替
         /// 目标机构登记管理员集合必须走 `register_institution_admins`。
         #[pallet::call_index(8)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_institution_governance())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_institution_governance().max(<T as pallet::Config>::WeightInfo::governance_names()))]
         #[allow(clippy::too_many_arguments)]
         pub fn propose_institution_governance(
             origin: OriginFor<T>,
@@ -662,7 +662,7 @@ pub mod pallet {
         /// 本入口不创建目标机构内部投票；权限来自注册局 `actor_cid_number`，
         /// 最终仍写入同一个 `privateadmin::AdminAccounts[cid]` 真源。
         #[pallet::call_index(9)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::update_institution_info())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::register_institution_admins(admins.len() as u32))]
         #[allow(clippy::too_many_arguments)]
         pub fn register_institution_admins(
             origin: OriginFor<T>,
@@ -1027,9 +1027,7 @@ pub mod pallet {
                 );
             let owner: BoundedVec<
                 u8,
-                frame_support::traits::ConstU32<
-                    { entitybase::BUSINESS_MODULE_TAG_MAX_BYTES },
-                >,
+                frame_support::traits::ConstU32<{ entitybase::BUSINESS_MODULE_TAG_MAX_BYTES }>,
             > = crate::MODULE_TAG
                 .to_vec()
                 .try_into()
@@ -1408,6 +1406,20 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
             }
         }
         Ok(ProposalExecutionOutcome::Executed)
+    }
+
+    fn execution_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        <T as crate::pallet::Config>::WeightInfo::propose_institution_governance()
+            .max(<T as crate::pallet::Config>::WeightInfo::governance_names())
+            .max(<T as crate::pallet::Config>::WeightInfo::add_institution_account())
+            .max(<T as crate::pallet::Config>::WeightInfo::propose_close_private_institution())
+    }
+
+    fn terminal_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        <T as crate::pallet::Config>::WeightInfo::terminal_callback()
+            .max(<T as crate::pallet::Config>::WeightInfo::terminal_callback_ignored())
     }
 
     fn on_execution_failed_terminal(proposal_id: u64) -> DispatchResult {

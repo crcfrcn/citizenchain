@@ -1,6 +1,6 @@
 use rusqlite::params;
 
-use crate::cid::china;
+use onchina::codes::china;
 
 use super::model::{AddressNameRow, AddressPage, AddressRow};
 

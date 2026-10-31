@@ -116,7 +116,21 @@ impl SquarePostCitizenIdentityProvider<AccountId32> for TestCitizenIdentity {
 
     #[cfg(feature = "runtime-benchmarks")]
     fn benchmark_seed_identity(account_id: &AccountId32) -> Vec<u8> {
-        let cid_number = b"GD001-CTZN1-999999999-2026".to_vec();
+        let key = format!("{account_id:?}");
+        let cid_number = primitives::cid::generator::generate_cid_number(
+            primitives::cid::generator::GenerateCidNumberInput {
+                public_key: &key,
+                p1: "1",
+                province_code: "GD",
+                province_name: "广东",
+                city_code: "001",
+                city_name: "基准市",
+                year: "2026",
+                institution: "CTZN",
+            },
+        )
+        .unwrap()
+        .into_bytes();
         bind_identity(&cid_number, account_id.clone());
         cid_number
     }
@@ -146,14 +160,147 @@ impl entitybase::InstitutionMultisigQuery<AccountId32> for MockInstitutionQuery 
     }
 }
 
+// 只供单元测试的服务装配：岗位权限来自原固定目录，请求保存在测试线程，
+// 不替代Runtime投票引擎；生产权重仍由真实Runtime的CLI基准生成。
+thread_local! {
+    static VOTE_REQUEST: RefCell<Option<(votebase::VotePlanOf<AccountId32>, Vec<u8>)>> = const { RefCell::new(None) };
+}
+
+fn platform_code() -> primitives::cid::code::InstitutionCode {
+    primitives::cid::code::institution_code_from_cid_number(
+        primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION.cid_number,
+    )
+    .expect("平台CID必须有效")
+}
+
+pub struct TestRoles;
+impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestRoles {
+    fn role_has_permission(
+        subject: &entitybase::RoleSubject<Vec<u8>, Vec<u8>>,
+        action: &entitybase::BusinessActionId<Vec<u8>>,
+        operation: entitybase::RolePermissionOperation,
+    ) -> bool {
+        subject.cid_number.as_slice() == PLATFORM_CID
+            && entitybase::fixed_role_permission_specs(
+                platform_code(),
+                PLATFORM_CID,
+                &subject.role_code,
+            )
+            .iter()
+            .any(|permission| {
+                permission.module_tag == action.module_tag.as_slice()
+                    && permission.action_code == action.action_code
+                    && permission.operation == operation
+            })
+    }
+    fn is_authorized(
+        who: &AccountId32,
+        subject: &entitybase::RoleSubject<Vec<u8>, Vec<u8>>,
+        action: &entitybase::BusinessActionId<Vec<u8>>,
+        operation: entitybase::RolePermissionOperation,
+    ) -> bool {
+        Self::role_has_permission(subject, action, operation)
+            && primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ASSIGNMENTS
+                .iter()
+                .any(|assignment| {
+                    AccountId32::new(assignment.account_id) == *who
+                        && assignment.role_code == subject.role_code.as_slice()
+                })
+    }
+    fn role_subjects_with_permission(
+        cid: &[u8],
+        action: &entitybase::BusinessActionId<Vec<u8>>,
+        operation: entitybase::RolePermissionOperation,
+    ) -> Vec<entitybase::RoleSubject<Vec<u8>, Vec<u8>>> {
+        let mut subjects = primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ASSIGNMENTS
+            .iter()
+            .map(|assignment| entitybase::RoleSubject {
+                cid_number: cid.to_vec(),
+                role_code: assignment.role_code.to_vec(),
+            })
+            .filter(|subject| Self::role_has_permission(subject, action, operation))
+            .collect::<Vec<_>>();
+        subjects.sort_by(|left, right| left.role_code.cmp(&right.role_code));
+        subjects.dedup_by(|left, right| left.role_code == right.role_code);
+        subjects
+    }
+}
+
+pub struct TestVotes;
+impl votebase::InternalVoteEngine<AccountId32> for TestVotes {
+    fn create_institution_proposal_with_data(
+        who: AccountId32,
+        code: primitives::cid::code::InstitutionCode,
+        cid: Vec<u8>,
+        execution: Option<AccountId32>,
+        subjects: Vec<Vec<u8>>,
+        plan: votebase::VotePlanOf<AccountId32>,
+        data: Vec<u8>,
+    ) -> Result<u64, sp_runtime::DispatchError> {
+        use entitybase::InstitutionRoleAuthorizationQuery;
+        let action = entitybase::BusinessActionId {
+            module_tag: crate::MODULE_TAG.to_vec(),
+            action_code: entitybase::business_action::ACTION_PLATFORM_PRICE,
+        };
+        let votebase::AuthorizationSubject::Institution(proposer) = &plan.proposer_subject else {
+            return Err(sp_runtime::DispatchError::Other("test proposer"));
+        };
+        let proposer = entitybase::RoleSubject {
+            cid_number: proposer.cid_number.to_vec(),
+            role_code: proposer.role_code.to_vec(),
+        };
+        frame_support::ensure!(
+            code == platform_code()
+                && cid == PLATFORM_CID
+                && execution.is_none()
+                && subjects == vec![cid.clone()],
+            sp_runtime::DispatchError::Other("test context")
+        );
+        frame_support::ensure!(
+            plan.proposal_owner.as_slice() == crate::MODULE_TAG
+                && plan.business_action_id.module_tag.as_slice() == action.module_tag.as_slice()
+                && plan.business_action_id.action_code == action.action_code
+                && data.starts_with(crate::MODULE_TAG)
+                && plan.business_object_hash == sp_io::hashing::blake2_256(&data)
+                && TestRoles::is_authorized(
+                    &who,
+                    &proposer,
+                    &action,
+                    entitybase::RolePermissionOperation::Propose
+                ),
+            sp_runtime::DispatchError::Other("test authorization")
+        );
+        let expected = TestRoles::role_subjects_with_permission(
+            PLATFORM_CID,
+            &action,
+            entitybase::RolePermissionOperation::Vote,
+        )
+        .into_iter()
+        .map(|subject| {
+            votebase::AuthorizationSubject::Institution(votebase::RoleSubject {
+                cid_number: subject.cid_number.try_into().unwrap(),
+                role_code: subject.role_code.try_into().unwrap(),
+            })
+        })
+        .collect::<Vec<_>>();
+        frame_support::ensure!(
+            plan.voting_engine == votebase::VotingEngineKind::Internal
+                && plan.voter_subjects.as_slice() == expected.as_slice(),
+            sp_runtime::DispatchError::Other("test voters")
+        );
+        VOTE_REQUEST.with(|request| *request.borrow_mut() = Some((plan, data)));
+        Ok(0)
+    }
+}
+
 impl crate::pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type CitizenIdentity = TestCitizenIdentity;
     type Currency = Balances;
     type TimeProvider = MockTime;
     type InstitutionAccountQuery = MockInstitutionQuery;
-    type InternalVoteEngine = ();
-    type InstitutionRoleAuthorization = ();
+    type InternalVoteEngine = TestVotes;
+    type InstitutionRoleAuthorization = TestRoles;
     type MaxSquarePostIdLen = ConstU32<64>;
     type MaxSquareCidNumberLen = ConstU32<32>;
     type MaxSquareStorageReceiptIdLen = ConstU32<96>;
@@ -328,6 +475,7 @@ pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
         System::set_block_number(1);
         set_now(1_700_000_000_000);
         reset_identity_bindings();
+        VOTE_REQUEST.with(|request| *request.borrow_mut() = None);
     });
     ext
 }
@@ -336,3 +484,64 @@ mod post;
 mod subscription;
 
 mod property;
+
+#[test]
+fn price_proposal_records_the_plan_and_preserves_current_price() {
+    use entitybase::InstitutionRoleAuthorizationQuery;
+    new_test_ext().execute_with(|| {
+        setup_platform();
+        let caller = AccountId32::new(
+            primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ADMINS[0].account_id,
+        );
+        let action = entitybase::BusinessActionId {
+            module_tag: crate::MODULE_TAG.to_vec(),
+            action_code: entitybase::business_action::ACTION_PLATFORM_PRICE,
+        };
+        let role = TestRoles::role_subjects_with_permission(
+            PLATFORM_CID,
+            &action,
+            entitybase::RolePermissionOperation::Propose,
+        )
+        .into_iter()
+        .next()
+        .unwrap()
+        .role_code;
+        let previous = PlatformPrice::<Test>::get(MembershipLevel::Freedom);
+        assert_ok!(SquarePost::propose_set_platform_price(
+            RuntimeOrigin::signed(caller),
+            bounded_cid_number(PLATFORM_CID),
+            role.try_into().unwrap(),
+            MembershipLevel::Freedom,
+            200_000
+        ));
+        let (plan, data) = VOTE_REQUEST
+            .with(|request| request.borrow().clone())
+            .expect("必须创建投票请求");
+        assert_eq!(plan.business_object_hash, sp_io::hashing::blake2_256(&data));
+        assert_eq!(
+            PlatformPrice::<Test>::get(MembershipLevel::Freedom),
+            previous
+        );
+    });
+}
+
+#[test]
+fn unauthorized_price_proposal_does_not_create_a_vote_request() {
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            SquarePost::propose_set_platform_price(
+                RuntimeOrigin::signed(subscriber_account_id()),
+                bounded_cid_number(PLATFORM_CID),
+                primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ASSIGNMENTS[0]
+                    .role_code
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+                MembershipLevel::Freedom,
+                200_000
+            ),
+            crate::Error::<Test>::InvalidInstitution
+        );
+        assert!(VOTE_REQUEST.with(|request| request.borrow().is_none()));
+    });
+}

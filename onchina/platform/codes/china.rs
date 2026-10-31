@@ -5,13 +5,14 @@
 //! CID 编码只通过本模块查询省、市、镇代码。
 
 #[path = "china_admin.rs"]
-pub(crate) mod admin;
+pub mod admin;
 #[path = "china_model.rs"]
-pub(crate) mod model;
+pub mod model;
 #[path = "china_store.rs"]
 mod store;
 
-pub(crate) use store::{
-    area_display_names, area_name_by_codes, china_sqlite_hash, city_code_by_name,
-    province_code_by_name, provinces, town_code_by_name, town_exists, with_china_connection,
+pub(crate) use store::area_display_names;
+pub use store::{
+    area_name_by_codes, china_sqlite_hash, city_code_by_name, province_code_by_name, provinces,
+    town_code_by_name, town_exists, with_china_connection,
 };

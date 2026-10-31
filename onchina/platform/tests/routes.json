@@ -1,0 +1,433 @@
+{
+  "routes": [
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/check",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_check"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/logout",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::login::admin_logout"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/qr/sign-request",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_qr_sign_request"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/qr/complete",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_qr_complete"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/qr/result",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_qr_result"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "auth",
+      "path": "/api/admin/auth/node-binding/confirm",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::login::admin_auth_confirm_node_binding"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/actions/prepare",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::actions::prepare_admin_action"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/actions/commit",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::actions::commit_admin_action"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/register/begin",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::passkey::register_begin"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/register/finish",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::passkey::register_finish"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/assert/begin",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::passkey::assert_begin"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/assert/finish",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "authentication::passkey::assert_finish"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/auth/passkey/status",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "authentication::passkey::passkey_status"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/own-institution-admins",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::catalog::list_own_institution_admins"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/own-institution",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::catalog::get_own_institution"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/institution/governance/prepare",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "institutions::admins::prepare_institution_governance"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/legal-representative/photo/{photo_id}",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::admin::read_legal_representative_photo"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/account/create",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "institutions::accounts::handler::create_account"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}",
+      "methods": [
+        "get",
+        "patch"
+      ],
+      "handlers": [
+        "institutions::subjects::admin::get_institution",
+        "institutions::subjects::admin::update_institution"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/accounts",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::accounts::handler::list_accounts"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/account/{account_name}",
+      "methods": [
+        "delete"
+      ],
+      "handlers": [
+        "institutions::accounts::handler::delete_account"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/docs",
+      "methods": [
+        "get",
+        "post"
+      ],
+      "handlers": [
+        "documents::handler::list_documents",
+        "documents::handler::upload_document"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/docs/{doc_id}/download",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "documents::handler::download_document"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/docs/{doc_id}",
+      "methods": [
+        "delete"
+      ],
+      "handlers": [
+        "documents::handler::delete_document"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/chain/submit",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "transactions::handler::submit_chain_sign"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/cid/meta",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "codes::admin::admin_cid_meta"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/cid/china/cities",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "codes::china::admin::admin_china_cities"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/cid/china/towns",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "codes::china::admin::admin_china_towns"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "public",
+      "path": "/api/health",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "health"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "public",
+      "path": "/api/platform/ca-certificate",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "organization_ca_certificate"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "public",
+      "path": "/api/platform/ca-certificate/info",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "organization_ca_certificate_info"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "public",
+      "path": "/api/public/cid/labels",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "codes::admin::public_cid_labels"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "app",
+      "path": "/api/app/accounts/{account_id}/transactions",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "indexer::api::account_transactions"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "app",
+      "path": "/api/app/institutions/search",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::chain_multisig_info::app_search_institutions"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "app",
+      "path": "/api/app/institutions/{cid_number}",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::chain_multisig_info::app_get_institution"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "app",
+      "path": "/api/app/institutions/{cid_number}/accounts",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::subjects::chain_multisig_info::app_list_accounts"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "app",
+      "path": "/api/app/public-institutions",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "citizenapp::public_institution::list_public_institutions"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "app",
+      "path": "/api/app/public-institutions/version",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "citizenapp::public_institution::public_institutions_version"
+      ],
+      "owner": "platform"
+    }
+  ],
+  "adminMiddleware": [
+    "authentication::login::require_admin_session_middleware"
+  ],
+  "globalMiddleware": [
+    "global_rate_limit_middleware",
+    "build_cors_layer"
+  ]
+}

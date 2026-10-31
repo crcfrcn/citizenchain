@@ -4,11 +4,11 @@ use super::city_registry_admins::{
     count_city_registry_admins_in_city_conn, ensure_city_in_province,
     find_city_registry_by_id_conn, MAX_ADMIN_PERSON_NAME_BYTES, MAX_CITY_REGISTRY_ADMINS_PER_CITY,
 };
-use crate::authentication::login::AdminAuthContext;
-use crate::authentication::repo;
-use crate::crypto::pubkey::{normalize_account_id, same_account_id};
 use crate::*;
 use chrono::Utc;
+use onchina::authentication::login::AdminAuthContext;
+use onchina::authentication::repo;
+use onchina::crypto::pubkey::{normalize_account_id, same_account_id};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[derive(Debug, Deserialize, Serialize)]
@@ -135,7 +135,7 @@ pub(crate) fn apply_delete_city_registry_conn(
 }
 
 fn duplicate_admin_account_error(institution_code: &str) -> String {
-    if crate::core::chain_runtime::is_tier1_registry(institution_code) {
+    if onchina::chain_runtime::is_tier1_registry(institution_code) {
         "http:conflict:admin account_id already exists as federal admin"
     } else {
         "http:conflict:admin account_id already exists as city admin"
@@ -148,14 +148,14 @@ fn response_to_string(_resp: axum::response::Response) -> String {
 }
 
 // 原安全动作业务分支归所属模块，共用哈希和挑战协议仍在平台。
-use crate::authentication::action_sign::hash_json;
-use crate::authentication::actions::{
+use crate::institutions::registration::precheck_institution_create_scope;
+use onchina::authentication::action_sign::hash_json;
+use onchina::authentication::actions::{
     apply_node_binding_unbind_conn, hash_serialized, precheck_institution_target_scope_conn,
     preview_node_binding_unbind_conn, preview_security_action, ActionPreview,
 };
-use crate::authentication::operation_auth::{parse_action_type, AdminActionType};
-use crate::authentication::security_model::AdminActionChallenge;
-use crate::registry::institutions::registration::precheck_institution_create_scope;
+use onchina::authentication::operation_auth::{parse_action_type, AdminActionType};
+use onchina::authentication::security_model::AdminActionChallenge;
 pub(crate) fn preview_action_conn(
     conn: &mut impl postgres::GenericClient,
     ctx: &AdminAuthContext,

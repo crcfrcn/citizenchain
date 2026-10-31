@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// onchina 侧的提案分类维度,决定走哪条提案数据模板与提交链路。
 /// - `Law` 映射链端 `votebase::PROPOSAL_KIND_LEGISLATION`(本轮实现);
 /// - `Personnel` / `Budget` 为未来链端新增提案种类预留,本轮只定义结构、不接链。
-// Phase 0 落地并单测;Phase 1 起由 `category::proposable_candidates` 与 `onchina/legislation/laws/chain_propose.rs` 消费。
+// Phase 0 落地并单测;Phase 1 起由 `category::proposable_candidates` 与 `onchina/legislation/laws/propose.rs` 消费。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ProposalCategory {
@@ -40,32 +40,6 @@ impl ProposalCategory {
 }
 
 #[cfg(test)]
-// 固定日期夹具解包失败即代表模型边界回归，断言式解包仅限测试。
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn proposal_category_serializes_to_snake_case() {
-        // 前端 ProposalCategory 联合类型为 'law' | 'personnel' | 'budget',必须逐字一致。
-        assert_eq!(
-            serde_json::to_string(&ProposalCategory::Law).unwrap(),
-            "\"law\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ProposalCategory::Personnel).unwrap(),
-            "\"personnel\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ProposalCategory::Budget).unwrap(),
-            "\"budget\""
-        );
-    }
-
-    #[test]
-    fn proposal_category_index_matches_doc() {
-        assert_eq!(ProposalCategory::Law.as_u8(), 0);
-        assert_eq!(ProposalCategory::Personnel.as_u8(), 1);
-        assert_eq!(ProposalCategory::Budget.as_u8(), 2);
-    }
-}
+#[path = "../tests/proposals.rs"]
+mod tests;

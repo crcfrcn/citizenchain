@@ -14,7 +14,7 @@ use super::event_parser;
 
 /// Indexer 后台任务入口。在 platform/security/server.rs 中通过 `tokio::spawn` 启动。
 pub(crate) async fn indexer_worker(db_pool: Db) {
-    let ws_url = match crate::core::chain_url::chain_ws_url() {
+    let ws_url = match crate::chain_url::chain_ws_url() {
         Ok(url) => url,
         Err(err) => {
             warn!("indexer disabled: {err}");
@@ -55,7 +55,7 @@ pub(crate) async fn indexer_worker(db_pool: Db) {
 
 /// 主索引循环：连接链，追赶历史区块，然后订阅新区块。
 async fn run_indexer_loop(ws_url: &str, db_pool: &Db) -> Result<(), String> {
-    let rpc_client = crate::core::chain_url::rpc_client(ws_url)
+    let rpc_client = crate::chain_url::rpc_client(ws_url)
         .await
         .map_err(|e| format!("connect rpc: {e}"))?;
     let rpc = LegacyRpcMethods::<PolkadotConfig>::new(rpc_client.clone());
@@ -83,7 +83,9 @@ async fn run_indexer_loop(ws_url: &str, db_pool: &Db) -> Result<(), String> {
         .map_err(|e| format!("fetch finalized header: {e}"))?
         .ok_or("finalized header not found")?;
     let latest_number = i64::from(finalized_header.number);
-    if last_indexed > latest_number { return Err("wallet index progress is ahead of finalized chain".into()); }
+    if last_indexed > latest_number {
+        return Err("wallet index progress is ahead of finalized chain".into());
+    }
     info!(latest_finalized = latest_number, "chain tip");
 
     // 追赶历史区块
@@ -101,14 +103,7 @@ async fn run_indexer_loop(ws_url: &str, db_pool: &Db) -> Result<(), String> {
             .await
             .map_err(|e| format!("fetch block hash #{next_block}: {e}"))?
             .ok_or_else(|| format!("block #{next_block} not found"))?;
-        process_block_at_hash(
-            &client,
-            db_pool,
-            next_block,
-            hash,
-            &genesis,
-        )
-        .await?;
+        process_block_at_hash(&client, db_pool, next_block, hash, &genesis).await?;
         if next_block % 1000 == 0 {
             info!(block = next_block, "indexer catch-up progress");
         }
@@ -157,7 +152,16 @@ async fn run_indexer_loop(ws_url: &str, db_pool: &Db) -> Result<(), String> {
             .map_err(|e| format!("fetch events #{block_num}: {e}"))?;
         let block_ts = extract_block_timestamp_from_block(&block).await;
         let records = event_parser::parse_block_events(&events, block_num, block_ts)?;
-        db_pool.with_client(|conn| db::insert_block_records(conn, block_num, &genesis, &format!("{:#x}", block.hash()), &format!("{:#x}", block.header().parent_hash), &records))?;
+        db_pool.with_client(|conn| {
+            db::insert_block_records(
+                conn,
+                block_num,
+                &genesis,
+                &format!("{:#x}", block.hash()),
+                &format!("{:#x}", block.header().parent_hash),
+                &records,
+            )
+        })?;
     }
 }
 
@@ -182,16 +186,21 @@ async fn process_block_at_hash(
 
     let block_ts = extract_block_timestamp_from_block(&block).await;
     let records = event_parser::parse_block_events(&events, block_number, block_ts)?;
-    db_pool.with_client(|conn| db::insert_block_records(conn, block_number, genesis, &format!("{block_hash:#x}"), &format!("{:#x}", block.header().parent_hash), &records))?;
-
+    db_pool.with_client(|conn| {
+        db::insert_block_records(
+            conn,
+            block_number,
+            genesis,
+            &format!("{block_hash:#x}"),
+            &format!("{:#x}", block.header().parent_hash),
+            &records,
+        )
+    })?;
 
     Ok(())
 }
 
 /// 绑定后无需等断链或新区块；独立投影循环每五秒重新确认当前绑定和持久游标。
-
-
-
 
 /// 从区块的 extrinsics 中提取 Timestamp::set 的值。
 async fn extract_block_timestamp_from_block(
@@ -216,7 +225,9 @@ async fn extract_block_timestamp_from_block(
 /// 公共绑定机构每五秒刷新，与注册局模块是否装载无关。
 pub(crate) async fn bound_institution_projection_worker(db: Db) {
     loop {
-        if let Err(error) = crate::institutions::catalog::projection::refresh_bound_institution(&db).await {
+        if let Err(error) =
+            crate::institutions::catalog::projection::refresh_bound_institution(&db).await
+        {
             warn!(error = %error, "bound institution projection paused");
         }
         tokio::time::sleep(Duration::from_secs(5)).await;

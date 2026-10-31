@@ -315,20 +315,49 @@ impl<T: Config> Pallet<T> {
         Self::queue_terminal_cleanup(proposal_id);
     }
 
-    pub(crate) fn process_pending_terminal_cleanups() -> Weight {
-        let db_weight = T::DbWeight::get();
-        let mut weight = db_weight.reads(1);
-        let max = T::MaxPendingRetryExpirationsPerBlock::get() as usize;
+    pub(crate) fn process_pending_terminal_cleanups(max_weight: Weight) -> Weight {
+        use crate::weights::WeightInfo;
+        let base = T::WeightInfo::terminal_base();
+        let per = T::WeightInfo::terminal_item().saturating_add(Self::terminal_peak());
+        let max = Self::budget_items(
+            T::MaxPendingRetryExpirationsPerBlock::get(),
+            max_weight,
+            base,
+            per,
+        );
         if max == 0 {
-            return weight;
+            return base;
         }
-
-        let pending: Vec<u64> = PendingTerminalCleanups::<T>::iter()
-            .take(max)
-            .map(|(proposal_id, _)| proposal_id)
-            .collect();
+        let cursor = CleanupCursor::<T>::get();
+        let mut pending: Vec<u64> = match cursor.as_ref() {
+            Some(key) => PendingTerminalCleanups::<T>::iter_from(key.to_vec())
+                .take(max)
+                .map(|(id, _)| id)
+                .collect(),
+            None => PendingTerminalCleanups::<T>::iter()
+                .take(max)
+                .map(|(id, _)| id)
+                .collect(),
+        };
+        if pending.is_empty() && cursor.is_some() {
+            pending = PendingTerminalCleanups::<T>::iter()
+                .take(max)
+                .map(|(id, _)| id)
+                .collect();
+        }
+        if let Some(id) = pending.last() {
+            CleanupCursor::<T>::put(
+                BoundedVec::<u8, ConstU32<64>>::try_from(
+                    PendingTerminalCleanups::<T>::hashed_key_for(id),
+                )
+                .expect("清理游标长度固定"),
+            );
+        } else {
+            CleanupCursor::<T>::kill();
+        }
+        let mut weight = base;
         for proposal_id in pending {
-            weight = weight.saturating_add(db_weight.reads_writes(2, 3));
+            weight = weight.saturating_add(per);
             let Some(proposal) = Proposals::<T>::get(proposal_id) else {
                 PendingTerminalCleanups::<T>::remove(proposal_id);
                 continue;
@@ -475,6 +504,4 @@ impl<T: Config> Pallet<T> {
             TransactionOutcome::Commit(Ok(()))
         })
     }
-
-
 }

@@ -62,3 +62,19 @@ fn pow_digest_author_finds_pow_engine_author() {
     let found = PowDigestAuthor::find_author(digests);
     assert_eq!(found, Some(expected_account));
 }
+
+#[test]
+fn maintenance_allocations_leave_space_for_other_hooks() {
+    use frame_support::traits::Get;
+    let max = <Runtime as frame_system::Config>::BlockWeights::get().max_block;
+    let vote = <Runtime as votebase::Config>::MaxExecutionWeightPerBlock::get();
+    let legal = <Runtime as legislation::Config>::ActivationWeightBudget::get();
+    let identity = <Runtime as identity::Config>::MaxPopulationMaintenanceWeightPerBlock::get();
+    let square =
+        frame_support::weights::Weight::from_parts(max.ref_time() / 32, max.proof_size() / 32);
+    assert!(!vote
+        .saturating_add(legal)
+        .saturating_add(identity)
+        .saturating_add(square)
+        .any_gt(max));
+}

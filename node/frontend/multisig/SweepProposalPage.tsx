@@ -1,6 +1,6 @@
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
-import { CitizenSignaturePanel } from "../desktop/CitizenSignaturePanel";
+import { CitizenSignaturePanel } from "../desktop/signing";
 import { multisigTransferApi as api } from "./api";
 import type { AdminSignerMatch, VoteSignRequestResult } from "./types";
 // 手续费划转提案页面：金额输入 + QR 签名流程。

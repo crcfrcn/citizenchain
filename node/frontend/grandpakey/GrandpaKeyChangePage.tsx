@@ -1,6 +1,6 @@
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
-import { CitizenSignaturePanel } from "../desktop/CitizenSignaturePanel";
+import { CitizenSignaturePanel } from "../desktop/signing";
 import type { AdminSignerMatch } from "../institution/council";
 import { grandpaKeyChangeApi as api } from "./api";
 import type { GrandpaChangeKind, GrandpaKeyChangeRequest, GrandpaKeyChangeStatus } from "./types";

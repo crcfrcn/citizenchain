@@ -24,42 +24,8 @@ fn database_url_targets_local_host_only(database_url: &str) -> Result<bool, Stri
 }
 
 #[cfg(test)]
-mod database_host_tests {
-    use super::database_url_targets_local_host_only;
-
-    // 只解析配置，不连接数据库；各原生宿主共用相同TCP判断边界。
-    #[test]
-    fn tcp_database_hosts_require_every_host_to_be_local() {
-        for value in [
-            "user=citizenchain dbname=onchina",
-            "host=localhost user=citizenchain",
-            "host=LOCALHOST user=citizenchain",
-            "host=127.0.0.1 user=citizenchain",
-            "host=::1 user=citizenchain",
-            "host=localhost,127.0.0.1 user=citizenchain",
-        ] {
-            assert!(database_url_targets_local_host_only(value).unwrap(), "{value}");
-        }
-        for value in [
-            "host=db.example.invalid user=citizenchain",
-            "host=0.0.0.0 user=citizenchain",
-            "host=localhost,db.example.invalid user=citizenchain",
-        ] {
-            assert!(!database_url_targets_local_host_only(value).unwrap(), "{value}");
-        }
-        assert!(database_url_targets_local_host_only("host").is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn unix_database_sockets_remain_local_without_accepting_remote_peers() {
-        assert!(database_url_targets_local_host_only("host=/tmp user=citizenchain").unwrap());
-        assert!(!database_url_targets_local_host_only(
-            "host=/tmp,db.example.invalid user=citizenchain"
-        )
-        .unwrap());
-    }
-}
+#[path = "../tests/database_maintenance_database_host_tests.rs"]
+mod database_host_tests;
 
 fn disable_core_dumps() {
     #[cfg(unix)]
@@ -133,7 +99,7 @@ fn parse_cli_option(args: &[String], name: &str) -> Option<String> {
 fn init_chain_genesis_hash_blocking() -> Result<(), String> {
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| format!("build chain genesis init runtime failed: {e}"))?;
-    rt.block_on(core::chain_runtime::init_genesis_hash_from_chain())
+    rt.block_on(crate::chain_runtime::init_genesis_hash_from_chain())
 }
 
 fn log_gov_projection_report(
@@ -161,7 +127,12 @@ fn run_gov_chain_projection_command(state: &AppState, command: BackendCommand) -
         BackendCommand::AuditChainCatalog => {
             init_chain_genesis_hash_blocking()
                 .unwrap_or_else(|e| panic!("init chain genesis hash failed: {e}"));
-            state.modules.local.as_ref().map(|module| module.audit_catalog()).unwrap_or_else(|| Err("catalog audit requires its module".into()))
+            state
+                .modules
+                .local
+                .as_ref()
+                .map(|module| module.audit_catalog())
+                .unwrap_or_else(|| Err("catalog audit requires its module".into()))
                 .unwrap_or_else(|e| panic!("audit-chain-catalog failed: {e}"));
             true
         }
@@ -374,4 +345,3 @@ fn run_purge_orphan_institutions(state: &AppState, dry_run: bool, backup_path: O
         "purge-orphan-institutions applied: orphan institutions removed (rollback only via backup file)"
     );
 }
-

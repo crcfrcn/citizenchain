@@ -10,13 +10,13 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::institutions::subjects::CreateInstitutionInput;
-use crate::registry::institutions::private::common::{
+use crate::institutions::private::common::{
     assert_module_spec, fixed_rule, lock_input_to_rule, PrivateModuleSpec, PrivateType,
 };
-use crate::registry::institutions::private::participants::{ParticipantRole, COMPANY_ROLES};
-use crate::registry::institutions::registration::{self, ListInstitutionQuery};
-use crate::AppState;
+use crate::institutions::private::participants::{ParticipantRole, COMPANY_ROLES};
+use crate::institutions::registration::{self, ListInstitutionQuery};
+use onchina::institutions::subjects::CreateInstitutionInput;
+use onchina::AppState;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,7 +56,7 @@ pub(crate) async fn create(
     Json(mut input): Json<CreateInstitutionInput>,
 ) -> Response {
     if let Err(msg) = lock_input(&mut input) {
-        return crate::api_error(axum::http::StatusCode::BAD_REQUEST, 1001, msg);
+        return onchina::api_error(axum::http::StatusCode::BAD_REQUEST, 1001, msg);
     }
     registration::create_private_institution(state, headers, input).await
 }

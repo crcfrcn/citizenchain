@@ -32,7 +32,7 @@
 
 #[cfg(feature = "runtime-benchmarks")]
 #[path = "../tests/benchmarks.rs"]
-mod benchmarks;
+pub mod benchmarks;
 pub mod cleanup;
 pub mod data;
 mod execution;
@@ -49,8 +49,11 @@ pub mod traits;
 pub mod types;
 pub mod weights;
 
+use crate::weights::WeightInfo as _;
+use frame_system::pallet_prelude::BlockNumberFor;
 pub use identity::{CitizenSubject, PopulationData, PopulationScope};
 pub use pallet::*;
+
 pub use tracks::*;
 pub use traits::*;
 pub use types::*;
@@ -93,13 +96,13 @@ pub mod pallet {
         #[pallet::constant]
         type MaxAutoFinalizePerBlock: Get<u32>;
 
-        /// 自动超时终结管线的独立区块权重预算。
+        /// 自动终结类别的预算上界；维护总预算取三类上界最大值并共享。
         type MaxAutoFinalizeWeightPerBlock: Get<Weight>;
 
-        /// 已通过提案业务执行管线的独立区块权重预算。
+        /// 执行类别的预算上界，与自动终结、清理共享本块维护总预算。
         type MaxExecutionWeightPerBlock: Get<Weight>;
 
-        /// 延迟激活和分块清理管线共享的独立区块权重预算。
+        /// 清理类别的预算上界，与其它维护类别共享本块维护总预算。
         type MaxCleanupWeightPerBlock: Get<Weight>;
 
         /// 单个到期区块允许挂载的提案 ID 上限，避免 expiry 桶无界增长。
@@ -255,6 +258,12 @@ pub mod pallet {
     pub type PendingExpiryBucket<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
 
     /// 分块清理游标：按提案维度逐步清理历史投票状态，避免 finalize 路径单次无界删除。
+    #[pallet::storage]
+    pub type CleanupCursor<T> = StorageValue<_, BoundedVec<u8, ConstU32<64>>, OptionQuery>;
+    /// 待过期表的轮转位置；仅记录维护进度。
+    #[pallet::storage]
+    pub type RetryCursor<T> = StorageValue<_, BoundedVec<u8, ConstU32<64>>, OptionQuery>;
+
     #[pallet::storage]
     #[pallet::getter(fn pending_cleanup_stage)]
     pub type PendingProposalCleanups<T: Config> =
@@ -677,66 +686,60 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(n: BlockNumberFor<T>) -> Weight {
-            let mut weight = Weight::zero();
-            let max_auto_finalize = T::MaxAutoFinalizePerBlock::get() as usize;
-
-            if max_auto_finalize > 0 {
-                let db_weight = T::DbWeight::get();
-                weight = weight.saturating_add(db_weight.reads(1));
-                let mut budget = max_auto_finalize;
-                let mut weight_budget = T::MaxAutoFinalizeWeightPerBlock::get();
-                let pending = PendingExpiryBucket::<T>::get();
-                let mut pending_has_remaining = false;
-
-                if let Some(expiry) = pending {
-                    if expiry <= n {
-                        let (processed, has_remaining, processed_weight) =
-                            Self::auto_finalize_expiry_bucket(expiry, n, budget, weight_budget);
-                        weight = weight.saturating_add(processed_weight);
-                        budget = budget.saturating_sub(processed);
-                        weight_budget = weight_budget.saturating_sub(processed_weight);
-                        pending_has_remaining = has_remaining;
-                        if has_remaining {
-                            PendingExpiryBucket::<T>::put(expiry);
-                            weight = weight.saturating_add(db_weight.writes(1));
-                        }
-                        if !has_remaining {
-                            PendingExpiryBucket::<T>::kill();
-                            weight = weight.saturating_add(db_weight.writes(1));
-                        }
+            use sp_runtime::traits::SaturatedConversion;
+            let total = T::MaxAutoFinalizeWeightPerBlock::get()
+                .max(T::MaxExecutionWeightPerBlock::get())
+                .max(T::MaxCleanupWeightPerBlock::get());
+            // 固定有界的队列搬移先执行，避免过去区块的截止桶被遗落。
+            let mut used = Self::process_execution_retry_deadlines(n);
+            let reserve = T::WeightInfo::terminal_base()
+                .saturating_mul(8)
+                .saturating_add(T::WeightInfo::scheduled_base())
+                .saturating_add(T::WeightInfo::cleanup_base());
+            let first = n.saturated_into::<u64>() % 3;
+            for offset in 0..3 {
+                let available = total.saturating_sub(used).saturating_sub(reserve);
+                match (first + offset) % 3 {
+                    0 => {
+                        used = used.saturating_add(Self::process_expiries(
+                            n,
+                            available.min(T::MaxAutoFinalizeWeightPerBlock::get()),
+                        ))
                     }
-                }
-
-                if budget > 0 && !pending_has_remaining {
-                    let (_processed, has_remaining, processed_weight) =
-                        Self::auto_finalize_expiry_bucket(n, n, budget, weight_budget);
-                    weight = weight.saturating_add(processed_weight);
-                    if has_remaining {
-                        PendingExpiryBucket::<T>::put(n);
-                        weight = weight.saturating_add(db_weight.writes(1));
+                    1 => {
+                        let budget = available.min(T::MaxExecutionWeightPerBlock::get());
+                        let mut spent = Weight::zero();
+                        let subfirst = (n.saturated_into::<u64>() / 3) % 3;
+                        for sub in 0..3 {
+                            let remaining = budget.saturating_sub(spent);
+                            let value = match (subfirst + sub) % 3 {
+                                0 => Self::process_pending_proposal_executions(n, remaining),
+                                1 => Self::process_pending_terminal_finalizations(n, remaining),
+                                _ => {
+                                    Self::process_pending_execution_retry_expirations(n, remaining)
+                                }
+                            };
+                            spent = spent.saturating_add(value);
+                        }
+                        used = used.saturating_add(spent);
+                    }
+                    _ => {
+                        let budget = available.min(T::MaxCleanupWeightPerBlock::get());
+                        let terminal = Self::process_pending_terminal_cleanups(budget);
+                        let scheduled = cleanup::process_scheduled_cleanups::<T>(
+                            n,
+                            budget.saturating_sub(terminal),
+                        );
+                        used = used
+                            .saturating_add(terminal)
+                            .saturating_add(scheduled)
+                            .saturating_add(Self::process_pending_cleanup_steps(
+                                budget.saturating_sub(terminal).saturating_sub(scheduled),
+                            ));
                     }
                 }
             }
-
-            weight = weight.saturating_add(Self::process_pending_proposal_executions(n));
-
-            weight = weight.saturating_add(Self::process_pending_terminal_finalizations(n));
-
-            weight = weight.saturating_add(Self::process_pending_execution_retry_expirations(n));
-
-            weight = weight.saturating_add(Self::process_execution_retry_deadlines(n));
-
-            weight = weight.saturating_add(Self::process_pending_terminal_cleanups());
-
-            // 先把 90 天保留期已到的任务激活，再由公平 FIFO 执行有界清理步骤。
-            let cleanup_budget = T::MaxCleanupWeightPerBlock::get();
-            let scheduled_weight = cleanup::process_scheduled_cleanups::<T>(n, cleanup_budget);
-            weight = weight.saturating_add(scheduled_weight);
-            weight = weight.saturating_add(Self::process_pending_cleanup_steps(
-                cleanup_budget.saturating_sub(scheduled_weight),
-            ));
-
-            weight
+            used
         }
     }
 
@@ -779,7 +782,7 @@ pub mod pallet {
         /// 都必须经过投票引擎校验 PASSED 状态、机构岗位选民/个人管理员快照、
         /// 重试次数和宽限期。
         #[pallet::call_index(4)]
-        #[pallet::weight(T::WeightInfo::retry_passed_proposal())]
+        #[pallet::weight(Pallet::<T>::retry_bound())]
         pub fn retry_passed_proposal(origin: OriginFor<T>, proposal_id: u64) -> DispatchResult {
             let who = ensure_signed(origin)?;
             Self::retry_passed_proposal_inner(&who, proposal_id)
@@ -790,7 +793,7 @@ pub mod pallet {
         /// 取消只允许 `PASSED -> EXECUTION_FAILED`，进入执行失败终态后
         /// 不再允许重试或再次取消。
         #[pallet::call_index(5)]
-        #[pallet::weight(T::WeightInfo::cancel_passed_proposal())]
+        #[pallet::weight(T::WeightInfo::cancel_passed_proposal().saturating_add(Pallet::<T>::terminal_peak()))]
         pub fn cancel_passed_proposal(
             origin: OriginFor<T>,
             proposal_id: u64,
@@ -805,3 +808,93 @@ pub mod pallet {
 #[cfg(test)]
 #[path = "../tests/mod.rs"]
 mod tests;
+
+#[cfg(feature = "runtime-benchmarks")]
+impl<T: Config> Pallet<T> {
+    /// 基准仅准备已失败的终态，保留真实创建产生的owner、载荷及个人账户关联。
+    pub fn benchmark_terminal(proposal_id: u64) {
+        Proposals::<T>::mutate(proposal_id, |proposal| {
+            proposal.as_mut().expect("基准提案必须先真实创建").status = STATUS_EXECUTION_FAILED;
+        });
+    }
+
+    /// 独立失败/忽略路径夹具；校验唯一owner及数据上限，只有基准Runtime包含此入口。
+    pub fn benchmark_proposal(proposal_id: u64, owner: &[u8], data: sp_std::vec::Vec<u8>) {
+        assert!(data.starts_with(owner));
+        let owner: frame_support::BoundedVec<u8, T::MaxModuleTagLen> =
+            owner.to_vec().try_into().expect("基准owner越界");
+        let data: frame_support::BoundedVec<u8, T::MaxProposalDataLen> =
+            data.try_into().expect("基准data越界");
+        Proposals::<T>::insert(
+            proposal_id,
+            Proposal {
+                kind: PROPOSAL_KIND_INTERNAL,
+                stage: STAGE_INTERNAL,
+                status: STATUS_EXECUTION_FAILED,
+                internal_code: Some(crate::types::PMUL),
+                actor_cid_number: None,
+                execution_account_id: Some(frame_benchmarking::account::<T::AccountId>(
+                    "terminal-owner",
+                    0,
+                    0,
+                )),
+                subject_cid_numbers: Default::default(),
+                start: 0u32.into(),
+                end: 1u32.into(),
+            },
+        );
+        ProposalOwner::<T>::insert(proposal_id, owner);
+        ProposalData::<T>::insert(proposal_id, data);
+    }
+}
+
+impl<T: Config> Pallet<T> {
+    pub(crate) fn execution_peak() -> Weight {
+        T::InternalVoteResultCallback::execution_weight()
+            .max(T::JointVoteResultCallback::execution_weight())
+            .max(T::LegislationVoteResultCallback::execution_weight())
+            .max(T::ElectionVoteResultCallback::execution_weight())
+    }
+    pub(crate) fn retry_bound() -> Weight {
+        T::WeightInfo::retry_passed_proposal().max(Self::execution_peak())
+            .saturating_add(<<T as frame_system::Config>::SystemWeightInfo as frame_system::weights::WeightInfo>::set_code())
+            .saturating_add(T::WeightInfo::cleanup_final(T::MaxInternalProposalMutexBindings::get())).saturating_add(Self::terminal_peak())
+    }
+    pub(crate) fn terminal_weight(kind: u8) -> Weight {
+        match kind {
+            PROPOSAL_KIND_INTERNAL => T::InternalVoteResultCallback::terminal_weight(),
+            PROPOSAL_KIND_JOINT => T::JointVoteResultCallback::terminal_weight(),
+            PROPOSAL_KIND_LEGISLATION => T::LegislationVoteResultCallback::terminal_weight(),
+            PROPOSAL_KIND_ELECTION => T::ElectionVoteResultCallback::terminal_weight(),
+            _ => Weight::zero(),
+        }
+    }
+    pub(crate) fn terminal_bound() -> Weight {
+        T::WeightInfo::finalize_proposal()
+            .max(T::WeightInfo::cancel_passed_proposal())
+            .saturating_add(T::WeightInfo::cleanup_final(
+                T::MaxInternalProposalMutexBindings::get(),
+            ))
+            .saturating_add(Self::terminal_peak())
+            .saturating_add(<T::TrackHandlers as crate::tracks::ProposalTracks<
+                BlockNumberFor<T>,
+                T::AccountId,
+            >>::max_timeout_weight())
+    }
+    pub(crate) fn terminal_peak() -> Weight {
+        T::InternalVoteResultCallback::terminal_weight()
+            .max(T::JointVoteResultCallback::terminal_weight())
+            .max(T::LegislationVoteResultCallback::terminal_weight())
+            .max(T::ElectionVoteResultCallback::terminal_weight())
+    }
+    pub(crate) fn budget_items(limit: u32, budget: Weight, base: Weight, per: Weight) -> usize {
+        let remaining = budget.saturating_sub(base);
+        let time = remaining.ref_time() / per.ref_time().max(1);
+        let proof = if per.proof_size() == 0 {
+            u64::MAX
+        } else {
+            remaining.proof_size() / per.proof_size()
+        };
+        u64::from(limit).min(time).min(proof) as usize
+    }
+}

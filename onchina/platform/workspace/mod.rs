@@ -6,8 +6,9 @@
 #[path = "kind.rs"]
 mod kind;
 #[path = "manifest.rs"]
-pub(crate) mod manifest;
-pub(crate) use crate::modules::model;
+pub mod manifest;
+pub use crate::modules::model;
 
-pub(crate) use manifest::build_institution_workspace;
-pub(crate) use model::{InstitutionWorkspace, WorkspaceModule};
+pub use manifest::build_institution_workspace;
+pub(crate) use model::InstitutionWorkspace;
+pub use model::WorkspaceModule;

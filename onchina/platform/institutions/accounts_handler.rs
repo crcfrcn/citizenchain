@@ -16,11 +16,7 @@ use serde::Serialize;
 use crate::authentication::login::{require_admin_any, AdminAuthContext};
 use crate::authentication::repo as auth_repo;
 use crate::authorization::get_visible_scope;
-use crate::core::chain_runtime::{institution_accounts_lookup, OnChainInstitutionAccount};
-use crate::core::institution_call::{
-    encode_propose_add_institution_account, encode_propose_close_institution,
-    ProposeAddInstitutionAccountArgs, ProposeCloseInstitutionArgs,
-};
+use crate::chain_runtime::{institution_accounts_lookup, OnChainInstitutionAccount};
 use crate::institutions::accounts::derive::derive_account_bytes;
 use crate::institutions::admins::{
     build_chain_sign_output, code_bytes, InstitutionChainSignRequest,
@@ -29,6 +25,10 @@ use crate::institutions::subjects::model::{CreateAccountInput, DeleteAccountInpu
 use crate::institutions::subjects::service::{
     institution_account_kind_label, is_protocol_account_name, validate_account_name,
     ACCOUNT_NAME_MAIN,
+};
+use crate::institutions_call::{
+    encode_propose_add_institution_account, encode_propose_close_institution,
+    ProposeAddInstitutionAccountArgs, ProposeCloseInstitutionArgs,
 };
 use crate::*;
 
@@ -174,7 +174,7 @@ pub(crate) async fn create_account(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    crate::core::runtime_ops::append_audit_log(
+    crate::audit_runtime::append_audit_log(
         &state,
         "INSTITUTION_ACCOUNT_ADD_PREPARE",
         &ctx.account_id,
@@ -316,7 +316,7 @@ pub(crate) async fn delete_account(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    crate::core::runtime_ops::append_audit_log(
+    crate::audit_runtime::append_audit_log(
         &state,
         "INSTITUTION_ACCOUNT_CLOSE_PREPARE",
         &ctx.account_id,
@@ -338,7 +338,7 @@ pub(crate) async fn delete_account(
 /// `creator_account_id/created_at/tx_hash/block_number` 链上无对应字段,一律置空。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ChainAccountRow {
+pub struct ChainAccountRow {
     cid_number: String,
     account_name: String,
     account_id: Option<String>,
@@ -387,25 +387,6 @@ pub(crate) fn chain_account_row(account_id: &OnChainInstitutionAccount) -> Chain
 }
 
 #[cfg(test)]
-// 规范 DTO 夹具序列化失败应直接定位回归，仅测试允许 expect。
 #[allow(clippy::expect_used)]
-mod detail_tests {
-    #[test]
-    fn actual_chain_account_dto_exposes_status_without_changing_account_name() {
-        let account = crate::core::chain_runtime::OnChainInstitutionAccount {
-            cid_number: b"GZ018-SFGYR-201206100-2026".to_vec(),
-            account_name: "业务专户A".as_bytes().to_vec(),
-            account_id: [0x11; 32],
-        };
-        let value = serde_json::to_value(super::chain_account_row(&account))
-            .expect("account DTO must serialize");
-        assert_eq!(value["chainStatus"], "ACTIVE_ON_CHAIN");
-        assert_eq!(value["accountName"], "业务专户A");
-        assert_eq!(value["accountId"], format!("0x{}", "11".repeat(32)));
-        assert_eq!(value["canClose"], true);
-        assert!(value["createdAt"].is_null());
-        // 对照前端 DTO 的全部真实协议账户分类，独立基金账户不得被漏成普通账户。
-        let source = include_str!("../frontend/subjects_api.ts");
-        assert!(source.contains("'federal_citizen_security_fund'"));
-    }
-}
+#[path = "../tests/institutions_accounts_handler_detail_tests.rs"]
+mod detail_tests;

@@ -78,8 +78,8 @@ mod benchmarks {
             entry.admins.iter().map(decode::<T>).collect(),
         )
         .expect("NRC role snapshot");
-        let threshold = votebase::fixed_governance_pass_threshold(&votebase::NRC)
-            .expect("NRC threshold");
+        let threshold =
+            votebase::fixed_governance_pass_threshold(&votebase::NRC).expect("NRC threshold");
         JointInstitutionTallies::<T>::insert(
             proposal_id,
             &actor_cid_number,
@@ -178,4 +178,134 @@ mod benchmarks {
             Some(votebase::STATUS_REJECTED)
         );
     }
+    #[benchmark]
+    fn cleanup_votes(n: Linear<1, 256>) {
+        for i in 0..=n {
+            let mut bytes = sp_runtime::sp_std::vec![b'C';32];
+            bytes[..4].copy_from_slice(&i.to_le_bytes());
+            let cid: votebase::CidNumber = bytes.try_into().unwrap();
+            let _ticket = votebase::InstitutionVoteTicket {
+                role_subject: votebase::RoleSubject {
+                    cid_number: cid.clone(),
+                    role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
+                },
+                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+            };
+            crate::JointVotesByTicket::<T>::insert(0u64, _ticket, true);
+        }
+        let result;
+        #[block]
+        {
+            result = <Pallet<T> as votebase::ProposalTrackHandler<
+                frame_system::pallet_prelude::BlockNumberFor<T>,
+                T::AccountId,
+            >>::cleanup_chunk(votebase::PROPOSAL_KIND_JOINT, 0, n);
+        }
+        assert_eq!(result.expect("清理类型必须被认领").0, n);
+    }
+
+    #[benchmark]
+    fn cleanup_institutions(n: Linear<1, 256>) {
+        for i in 0..=n {
+            let mut bytes = sp_runtime::sp_std::vec![b'C';32];
+            bytes[..4].copy_from_slice(&i.to_le_bytes());
+            let cid: votebase::CidNumber = bytes.try_into().unwrap();
+            let _ticket = votebase::InstitutionVoteTicket {
+                role_subject: votebase::RoleSubject {
+                    cid_number: cid.clone(),
+                    role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
+                },
+                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+            };
+            crate::JointVotesByInstitution::<T>::insert(0u64, cid, true);
+        }
+        let result;
+        #[block]
+        {
+            result = <Pallet<T> as votebase::ProposalTrackHandler<
+                frame_system::pallet_prelude::BlockNumberFor<T>,
+                T::AccountId,
+            >>::cleanup_chunk(votebase::PROPOSAL_KIND_JOINT, 0, n);
+        }
+        assert_eq!(result.expect("清理类型必须被认领").0, n);
+    }
+
+    #[benchmark]
+    fn cleanup_tallies(n: Linear<1, 256>) {
+        for i in 0..=n {
+            let mut bytes = sp_runtime::sp_std::vec![b'C';32];
+            bytes[..4].copy_from_slice(&i.to_le_bytes());
+            let cid: votebase::CidNumber = bytes.try_into().unwrap();
+            let _ticket = votebase::InstitutionVoteTicket {
+                role_subject: votebase::RoleSubject {
+                    cid_number: cid.clone(),
+                    role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
+                },
+                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+            };
+            crate::JointInstitutionTallies::<T>::insert(
+                0u64,
+                cid,
+                votebase::VoteCountU32 { yes: 1, no: 0 },
+            );
+        }
+        let result;
+        #[block]
+        {
+            result = <Pallet<T> as votebase::ProposalTrackHandler<
+                frame_system::pallet_prelude::BlockNumberFor<T>,
+                T::AccountId,
+            >>::cleanup_chunk(votebase::PROPOSAL_KIND_JOINT, 0, n);
+        }
+        assert_eq!(result.expect("清理类型必须被认领").0, n);
+    }
+
+    #[benchmark]
+    fn cleanup_referendum(n: Linear<1, 256>) {
+        for i in 0..=n {
+            let mut bytes = sp_runtime::sp_std::vec![b'C';32];
+            bytes[..4].copy_from_slice(&i.to_le_bytes());
+            let cid: votebase::CidNumber = bytes.try_into().unwrap();
+            let _ticket = votebase::InstitutionVoteTicket {
+                role_subject: votebase::RoleSubject {
+                    cid_number: cid.clone(),
+                    role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
+                },
+                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+            };
+            crate::ReferendumVotesByCid::<T>::insert(
+                0u64,
+                cid,
+                benchmark_value::<votebase::CitizenReferendumTicket<T::AccountId>>(),
+            );
+        }
+        let result;
+        #[block]
+        {
+            result = <Pallet<T> as votebase::ProposalTrackHandler<
+                frame_system::pallet_prelude::BlockNumberFor<T>,
+                T::AccountId,
+            >>::cleanup_chunk(votebase::PROPOSAL_KIND_JOINT, 0, n);
+        }
+        assert_eq!(result.expect("清理类型必须被认领").0, n);
+    }
+
+    #[benchmark]
+    fn cleanup_terminal() {
+        crate::JointTallies::<T>::insert(0u64, votebase::VoteCountU32 { yes: 1, no: 0 });
+        crate::ReferendumTallies::<T>::insert(0u64, votebase::VoteCountU64 { yes: 1, no: 0 });
+        #[block]
+        {
+            assert!(<Pallet<T> as votebase::ProposalTrackHandler<
+                frame_system::pallet_prelude::BlockNumberFor<T>,
+                T::AccountId,
+            >>::cleanup_terminal(votebase::PROPOSAL_KIND_JOINT, 0)
+            .is_some());
+        }
+    }
+}
+
+// 清理阶段只消费键和值；计时区间始终执行所属真实清理路由。
+fn benchmark_value<V: codec::Decode>() -> V {
+    V::decode(&mut sp_runtime::traits::TrailingZeroInput::zeroes()).expect("基准类型必须可构造")
 }

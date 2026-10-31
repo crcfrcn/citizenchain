@@ -43,7 +43,7 @@ export const product=Object.freeze({id:'citizenchain',title:'公民链',reposito
     wasm:{name:'WASM',entry:'scripts/runtime.mjs',workflow:'wasm.yml',host:'linux',arch:'x64',target:'wasm32v1-none',files:['runtime.wasm','runtime.compact.wasm','runtime.compact.compressed.wasm']},
   }),
   tools:Object.freeze({node:'25.2.1',rust:'1.97.1',protoc:'35.0',postgres:'17.11',xcode:'27.0'}),
-  locks:Object.freeze(['Cargo.lock','crates/protocol/Cargo.lock','crates/scanner/package-lock.json','node/frontend/package-lock.json','onchina/platform/frontend/package-lock.json']),
+  locks:Object.freeze(['Cargo.lock','crates/protocol/Cargo.lock','crates/scanner/package-lock.json','node/frontend/package-lock.json','onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json']),
 });
 
 // 节点及 Runtime 发布的公开合同；连接地址和所有机密只由本轮授权输入交付。

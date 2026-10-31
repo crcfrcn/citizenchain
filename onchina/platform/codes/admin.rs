@@ -3,12 +3,12 @@
 
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 
-use crate::cid::china::provinces;
-use crate::cid::code as institution_code;
+use crate::codes::china::provinces;
+use crate::codes::code as institution_code;
 use crate::*;
 
 // 本文件保留 CID 编码元信息接口:管理端 meta(含行政区,需登录) + 公开机构码标签(免登录单源下发)。
-// 城市列表由 cid::china::admin 提供。
+// 城市列表由 crate::codes::china::admin 提供。
 
 /// 机构码→中文标签全集(primitives code.rs 单源,ALL_CODES = 104 码)。
 /// admin_cid_meta 与 public_cid_labels 共用,保证前后端标签同源。

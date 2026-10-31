@@ -1,7 +1,7 @@
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
-import { CitizenSignaturePanel } from "../desktop/CitizenSignaturePanel";
-import { AddressScanModal } from "../desktop/AddressScanModal";
+import { CitizenSignaturePanel } from "../desktop/signing";
+import { AddressScanModal } from "../desktop/scanner";
 import { multisigTransferApi as api } from "./api";
 import type { AdminSignerMatch, VoteSignRequestResult } from "./types";
 import scanIcon from "../../../icons/scan.svg?url";

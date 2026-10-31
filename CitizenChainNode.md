@@ -291,7 +291,7 @@ Clippy 和测试，禁止只跑 `citizenchain --workspace` 后误报共享模块
 公民服务端 Cloudflare 发布使用独立 QR_V1 动作 `citizenserve_cloudflare_publish=17`。
 `config_sha256` 是注入九项公开运行值后的最终 Wrangler 配置 UTF-8 字节摘要，
 位于产物摘要之后并由冷钱包展示；共用的 `publish=15` 字段和编码不变。
-协议金标从 `crates/protocol/fixtures/` 读取五份 QR_V1 夹具；目录重构后的测试不得再读取旧的 `tests/fixtures/` 路径。
+协议金标从 `crates/protocol/tests/` 读取五份 QR_V1 夹具；测试金标直接平铺在所属tests，不新增第四层fixtures目录。
 协议 Dart 导出金标按当前登记与 `crates/protocol` 生成器的完整字节同步；钱包两份既有生成产物首行使用当前目录名，动作表字段顺序由生成器决定。
 协议仓库守卫核对五份平台 Workflow 的唯一 `release` Job；产品 Build 自己声明和验真 protoc 35.0，旧独立依赖脚本和 Job 计数不再作为协议测试输入。源码依赖扫描针对可执行代码，技术文档对控制台调度的说明不构成产品代码依赖。
 
@@ -447,7 +447,7 @@ citizenchain/
 - 当前进度：
   - Step0：crate 骨架 + node 拉起子进程的最小贯通（已完成）。
   - Step1：`citizenchain/onchina` 后端完成迁移和收敛，平台层切换为内嵌 PostgreSQL + 节点 RPC + 进程内本地限流；省/市 scope 与行政区维度保留。
-  - Step2：`citizenchain/onchina/platform/frontend` 前端完成迁移和收敛，OnChina 后端同源托管 `dist` + SPA 回退；桌面 `node/frontend` 与浏览器 `onchina/platform/frontend` 两套独立前端并存。
+  - Step2：`citizenchain/onchina/platformweb` 前端完成迁移和收敛，OnChina 后端同源托管 `dist` + SPA 回退；桌面 `node/frontend` 与浏览器 `onchina/platformweb` 两套独立前端并存。
   - 后续：链上管理员供给与扫码登录、公民护照直接录入收口、打包部署均按 OnChina 当前任务卡推进，不再引用旧注册局迁移任务口径。
 
 ##### 5.1 分层结构
@@ -611,7 +611,7 @@ index 32 由 `CitizenElection`（`runtime/public/election`）复用，用于公�
 - `node/frontend/<功能名>` 负责 React 前端页面与交互。
 - `citizenchain/node` 负责启动 / 停止内嵌节点进程，管理 bootnode 地址、奖励地址、GRANDPA 地址、节点名称等本地设置，并展示节点状态、链状态、网络概览、挖矿面板与其他辅助信息。
 - 管理员、治理、转账、清算和奖励设置的桌面桥接使用 camelCase：账户为 `accountId` 或对应角色账户字段，签名公钥为 `signerPublicKey`。展示地址从唯一账户派生；钱包、奖励账户、机构账户和节点登记人 DTO 不保存或下发 SS58 副本。固定 QR_V1 和当前 Runtime 接口保留所属拼写。
-- Node 端所有公民钱包离线扫码签名 UI 统一由 `node/frontend/desktop/CitizenSignaturePanel.tsx` 和 `CitizenSignatureModal.tsx` 承载：左侧固定“扫码签名”，右侧固定“识别签名”，面板只显示二维码有效期倒计时，不显示内部 request id 或签名账户地址；业务页面只负责构造请求、验签和提交交易。地址扫码填入等非签名二维码不纳入该组件。
+- Node 端所有公民钱包离线扫码签名 UI 统一由 `node/frontend/desktop/signing.tsx` 中的 CitizenSignatureModal 与 CitizenSignaturePanel 承载：左侧固定“扫码签名”，右侧固定“识别签名”，面板只显示二维码有效期倒计时，不显示内部 request id 或签名账户地址；业务页面只负责构造请求、验签和提交交易。地址扫码填入等非签名二维码不纳入该组件。
 - 设置页的“全节点模式”当前展示归档全节点和普通全节点：默认归档全节点；普通全节点置灰不可选择；在底层剪裁能力完成前，节点实际仍按归档全节点运行。
 - 设置页在“全节点模式”之后提供“链上中国平台”手动启动行，显示 `未开启` / `启动中` / `已开启` 状态标签、固定入口 `https://onchina.local:8964` 和“启动 / 关闭”按钮；点击后必须二次确认，只启动或停止 OnChina 子进程，不自动打开浏览器；只有 `/api/health` 真实健康检查通过后才显示 `已开启`。
 
@@ -792,7 +792,7 @@ index 32 由 `CitizenElection`（`runtime/public/election`）复用，用于公�
 - 公民在 CitizenApp「我的 → 电子护照」选择一个热钱包作为投票账户,
   页面展示钱包地址二维码,供办理现场的操作员扫入。
 
-#### 2. 公民上链(录入钱包 + 双签名,`chain_identity.rs`)
+#### 2. 公民上链(录入钱包 + 双签名,`onchina/registry/citizens/identity.rs`)
 
 前置:档案状态 NORMAL、`voting_eligible=true`、满 16 周岁、档案在本注册局辖区。
 
@@ -890,7 +890,7 @@ prepare 与 complete 前各需一次 WebAuthn passkey 断言 + 管理员冷钱�
 | 端 | 位置 |
 |---|---|
 | runtime 真源 | `primitives::sign::signing_message` |
-| OnChina 验签 | `onchina/registry/citizens/chain_identity.rs` |
+| OnChina 验签 | `onchina/registry/citizens/identity.rs` |
 | CitizenWallet 签名 | `lib/signer/qr_signer.dart::signingBytesFor` |
 | CitizenApp 签名 | `lib/signer/signing.dart::signingMessage`(经 `qr_signer.dart::signingBytesForHex`) |
 
@@ -1419,7 +1419,7 @@ CID 的 r5 段 = 省码(2)+ 市码(3)(number.rs:88-92)。
 - 幂等:(省,市)anchor 记 finalized head,未变跳过;可手动刷新。
 - 访问控制:目标省==管理员 `scope_province_name`,市属该省,越省 403。
 - **触发点(as-built 2026-07-24)**:M3 私权投影已接进读取路径
-  `onchina/platform/institutions/registration.rs::list_institutions_inner`——联邦(Tier1)管理员按市查私权列表时,
+  `onchina/registry/institutions/registration.rs::list_institutions_inner`——联邦(Tier1)管理员按市查私权列表时,
   先 `projection::drill_in_project_private_scope((省,市))` 再查库。链读失败只 warn 不阻断(fail-open)。
   → 解决"联邦贵州组管理员进绥阳市看不到基金会"报障:基金会正本在绥阳市注册局,联邦按需 drill-in 才可见,非播种。
 
@@ -2541,7 +2541,7 @@ ADR-020 中 OpenMLS、本机加密存储、消息幂等和 WebRTC 端到端传�
 
 ## 目录整合与平台输入
 
-Runtime按所属技术文档的包/src/tests结构组织；上游/派生源码保留原结构。自有 `crates/signing/lib.rs` 由 Cargo `[lib] path` 显式登记；`blockchain-harness/src/harness.rs`、`qr-protocol/src/export_registry.rs` 由原名称的 `[[bin]]` 登记。Node 二维码生成目标为 `node/frontend/client/qrBodies.g.ts`；P2P 坏块测试位于 `node/src/tests/p2p.rs`，仍由 service 原测试模块引入。移除空的 postgres `.gitkeep`，不清理实际数据库。
+Runtime按所属技术文档的包/src/tests结构组织；上游/派生源码保留原结构。自有 `crates/signing/src/lib.rs` 由 Cargo `[lib] path` 显式登记；`blockchain-harness/src/harness.rs`、`qr-protocol/src/export_registry.rs` 由原名称的 `[[bin]]` 登记。Node 二维码生成目标为 `node/frontend/client/qrBodies.g.ts`；P2P 坏块测试位于 `node/src/tests/p2p.rs`，仍由 service 原测试模块引入。移除空的 postgres `.gitkeep`，不清理实际数据库。
 
 ### 完整链根与白皮书来源
 节点、Runtime、OnChina和scanner保持同一完整CitizenChain仓。节点run/clean-run/prepare-toolchain不再使用旧聚合父根。白皮书唯一正文真源仍由官网`src/whitepaper.md`持有；官网构建把正文和两张图片生成静态`/whitepaper/content.json`。节点打开白皮书时固定GET`https://www.crcfrcn.com/whitepaper/content.json`，由已有`LocalDocViewer`继续渲染原有目录和正文布局。节点构建、Release和编辑器不再克隆官网仓库或生成本地白皮书模块。官网内容可独立更新，节点离线或官网静态接口不可用时显示错误与重试。
@@ -2582,7 +2582,7 @@ Node开发页和HMR仅允许HTTPS/WSS；开发及预览必须提供完整匹配�
 
 ## 三级目录与单一视觉资源（2026-10-09）
 
-Runtime、node/grandpa与node/libp2p保持原件。其它源码最深三级，第三层只有文件，每个目录至少两个真实直接子项；Rust公开包名、逻辑模块与业务接口保持，只以编译器文件定位调整物理结构。共享库归crates/harness、signing、protocol、scanner；QR金标直接归protocol/fixtures。节点与OnChina业务模块提升到各自src和frontend直属，目录使用完整单词；导入、Cargo本地路径及npm锁定本地来源同步。
+Runtime、node/grandpa与node/libp2p保持原件。其它源码最深三级，第三层只有文件，每个目录至少两个真实直接子项；Rust公开包名、逻辑模块与业务接口保持，只以编译器文件定位调整物理结构。共享库归crates/harness、signing、protocol、scanner；QR金标直接归protocol/tests。节点按所属包src和frontend组织；OnChina按自身技术文档中的成对前后端工程及包根功能目录组织，目录使用完整单词；导入、Cargo本地路径及npm锁定本地来源同步。
 
 根icons是本产品唯一持久静态视觉资源目录。Logo与公民币母版字节保持，重复PNG仅留一份，ICO/ICNS格式保留；六处扫码按钮共用原SVG几何并保持currentColor和尺寸，宪法背景从唯一PNG编码进离线HTML。官网白皮书图片由官网静态正文接口内嵌，节点不再复制图片或正文进入安装包。
 
@@ -2706,7 +2706,7 @@ compile macos作为公开CLI保留；模块公开实际宿主编译及资源装�
 
 节点部署是QR_V1动作16的链下授权。唯一编解码归crates/protocol/src/codec.rs，动作及中文字段声明归同crate的registry。载荷仅接受格式2：版本字节2、固定产品citizenchain、节点类别、单字节UTF-8长度前缀的节点编号/IP/平台/安装包实际版本、32字节安装包SHA-256、9位任务编号、8字节小端期限、32字节本次挑战。保留GMB\0TATA_NODE_DEPLOY_V1\0独立签名域；删除节点旧格式、源码摘要及中文Tag准入，不改变Runtime升级和其它发布动作。
 
-fixtures/sign_request.json提供格式2公开样例；golden_fixtures.rs逐字节核验真实Rust编解码，控制台读取同一夹具，钱包使用相同样例及签名摘要金标覆盖真实解码、中文审阅与签名。正式Release安装包的业务核验仅为哈希、平台和版本，签名身份、目标绑定、期限和防重放仍须有效。协议生成器export_registry的公开输出继续是钱包中文字段表的来源。
+crates/protocol/tests/sign_request.json提供格式2公开样例；golden_fixtures.rs逐字节核验真实Rust编解码，控制台读取同一夹具，钱包使用相同样例及签名摘要金标覆盖真实解码、中文审阅与签名。正式Release安装包的业务核验仅为哈希、平台和版本，签名身份、目标绑定、期限和防重放仍须有效。协议生成器export_registry的公开输出继续是钱包中文字段表的来源。
 
 scripts/config.mjs的describeAction只返回repository、workflow、ref、inputs声明。控制台使用同一通用接口派发并观察准确Run；Node的编译和WASM的编译各归本产品既有编译文件，版本、发布和历史维护归既有YAML。已有声明版本和原锁保持。
 
@@ -2794,3 +2794,13 @@ Rust测试覆盖原有坏块/TLS P2P/原生与Ethereum服务/GRANDPA、机构岗
 Node主包全部测试归node/src/tests；Cargo测试入口、build.rs和源码挂载同步，叶包仍保持src/tests平级。前端根层保留.npmrc、.nvmrc、package.json、package-lock.json、index.html、tsconfig.json、vite.config.ts七个必要文件；桌面入口和RPC接入页生成器归desktop，发行与销毁类型各自归proposal下独立模块，测试配置归tests/vitest.ts。统一tsconfig严格检查生产、配置及全部TS测试，文档AST测试仍通过原Node测试入口执行；四个平台执行完整Vitest、类型检查和独立MetaMask测试，测试失败必须阻断后续阶段。
 
 仓库守卫枚举当前Git工作树中的跟踪及未忽略新文件，依据Git删除清单退出旧路径，规范路径必须在扫描范围内；Git或读取失败仍阻断。销毁载荷要求CID后恰好32字节账户及16字节金额，尾随或截断输入返回None；控制包十六进制解析复用原hex库，非法ASCII或Unicode返回None，原JSON字段、合法输入字节及余额偏移保持。这两项为本次明确批准的畸形输入修复，其余业务逻辑与UI交互布局不改。
+
+
+## 共享包源码与测试归属
+
+chain-signing的src按material、signature、extrinsic、preflight组织，lib只登记原公开入口，测试归同包tests；blockchain-harness保持src/lib.rs及src/harness.rs，区块和定向篡改回归归tests。qr-protocol保留独立workspace与原锁，registry的四份YAML仍是生产声明，五份JSON金标与所有Rust回归统一归tests。scanner生产src与公开npm入口保持，原test统一为tests。各包保持原接口、业务算法、协议与依赖，测试按真实功能覆盖正常、失败、边界和回归。脚本及脚本测试不属于本轮重构范围；真实设备、整链及固定预算专项另行验收。
+
+共享扫码控制器开始新会话时清理已取流但尚未完成播放的旧会话；过期play完成只退出，不停止新会话。停止/释放的generation规则保持，控制器与ScannerView公开接口、扫码间隔、画布到jsQR路径、UI及码型业务职责不变。
+
+
+节点签名弹层和面板统一归node/frontend/desktop/signing.tsx；扫码设备外壳与地址扫码弹层统一归同目录scanner.tsx。原组件名、Props字段、样式、交互与共享ScannerView保持。开发TLS配置通过本仓scripts/build.mjs公开实现读取，开发证书路径、校验和TLS1.3保持；节点已有工程、创世、Runtime及资源位置保持。

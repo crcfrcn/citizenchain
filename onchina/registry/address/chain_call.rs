@@ -4,7 +4,7 @@
 
 use codec::{Compact, Encode};
 
-use crate::cid::china::china_sqlite_hash;
+use onchina::codes::china::china_sqlite_hash;
 
 use super::{
     model::{AddressChainAction, AddressChainCallInput, AddressChainCallOutput},
@@ -45,7 +45,7 @@ fn parse_h256(raw: &str) -> Result<[u8; 32], String> {
 }
 
 fn action_code(call_index: u8) -> u16 {
-    crate::core::institution_call::chain_action_code(ADDRESS_REGISTRY_PALLET_INDEX, call_index)
+    onchina::institutions_call::chain_action_code(ADDRESS_REGISTRY_PALLET_INDEX, call_index)
 }
 
 fn output(

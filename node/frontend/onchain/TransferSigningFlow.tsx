@@ -1,6 +1,6 @@
 import { accountIdToSs58 } from "../client/ss58";
 import { sanitizeError } from "../client/tauri";
-import { CitizenSignaturePanel } from "../desktop/CitizenSignaturePanel";
+import { CitizenSignaturePanel } from "../desktop/signing";
 import { transactionApi as api } from "./api";
 import { calculateTransferFeeYuan } from "./fee";
 import type { SignMode, TransferSignRequestResult, Wallet } from "./types";

@@ -2,11 +2,11 @@
 //!
 //!
 //! runtime primitives 负责 CID 字节协议与常量;onchina 负责 SQLite 行政区、
-//! 当前年份、动态 UUID、数据库查重和管理端 API。业务模块只允许从 `crate::cid`
+//! 当前年份、动态 UUID、数据库查重和管理端 API。业务模块只允许从 `crate::codes`
 //! 引用 CID 能力,不得恢复顶层 `china` 或 `number` 模块。
 
 #[path = "admin.rs"]
-pub(crate) mod admin;
+pub mod admin;
 #[path = "category.rs"]
 pub mod category;
 #[path = "china.rs"]
@@ -14,7 +14,7 @@ pub mod china;
 #[path = "generator.rs"]
 pub mod generator;
 #[path = "model.rs"]
-pub(crate) mod model;
+pub mod model;
 
 pub use category::InstitutionCategory;
 pub use generator::{generate_cid_number, GenerateCidInput};

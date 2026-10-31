@@ -1,0 +1,49 @@
+[package]
+name = "onchina-registry"
+description = "链上中国registry独立业务模块"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license = "MIT"
+publish = false
+autotests = false
+
+[[bin]]
+name = "onchina-registry"
+path = "workspace/main.rs"
+
+[package.metadata.onchina]
+# 唯一工程配对声明；前端自有npm声明、锁与公开exports。
+frontend = "../registryweb"
+
+[lints]
+workspace = true
+
+[dependencies]
+onchina = { path = "../platform" }
+axum = { version = "=0.8.9", features = ["multipart"] }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "sync", "signal"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "v5"] }
+hex = "=0.4.3"
+tracing = "0.1"
+postgres = { version = "0.19", features = ["with-chrono-0_4", "with-serde_json-1"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+blake2 = "=0.10.6"
+sha2 = "=0.10.9"
+subxt = { version = "0.43.1", default-features = false, features = ["jsonrpsee", "native"] }
+async-trait = "=0.1.92"
+sp-core = { workspace = true, default-features = true }
+sp-crypto-hashing = { workspace = true, default-features = true }
+primitives = { path = "../../runtime/primitives" }
+codec = { workspace = true, default-features = true }
+entitybase = { path = "../../runtime/entity/entitybase" }
+
+[dev-dependencies]
+# 仅开发测试链接所属公共辅助，正式包不启用测试特性。
+onchina = { path = "../platform", features = ["test-support"] }
+tower = { version = "=0.5.3", features = ["util"] }

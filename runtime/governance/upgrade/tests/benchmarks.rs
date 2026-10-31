@@ -64,7 +64,12 @@ where
 mod benchmarks {
     use super::*;
 
-    #[benchmark]
+    // 固定席位按协议准备最大姓名/CID/引用；新提案ID的快照键为空。
+    #[benchmark(pov_mode = MaxEncodedLen {
+        PublicAdmins::AdminAccounts: Measured,
+        PublicManage::InstitutionRoleAssignments: Measured,
+        VotingEngine::VoterSnapshot: Measured
+    })]
     fn propose_runtime_upgrade() {
         let origin = T::ProposeOrigin::try_successful_origin()
             .expect("benchmark proposer_account_id origin must be available");
@@ -90,5 +95,23 @@ mod benchmarks {
             votebase::Pallet::<T>::get_proposal_data(proposal_id).is_some(),
             "runtime upgrade benchmark should store proposal data in voting engine"
         );
+    }
+    #[benchmark]
+    fn developer_overhead() {
+        let origin = T::DeveloperUpgradeOrigin::try_successful_origin()
+            .expect("NRC真实管理员来源必须可准备");
+        let code = code_max::<T>();
+        #[block]
+        {
+            Pallet::<T>::developer_direct_upgrade(
+                origin,
+                nrc_cid_number(),
+                committee_role_code(),
+                code,
+                difficulty::ActiveParams::<T>::get(),
+            )
+            .expect("开发直升编排必须执行真实授权/PoW暂存/审计");
+        }
+        assert!(crate::LastRuntimeUpgradeAudit::<T>::get().is_some());
     }
 }

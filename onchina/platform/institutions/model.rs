@@ -37,12 +37,12 @@ pub(crate) struct OwnInstitutionAdminListOutput {
 }
 
 // 私权机构类别字符串真源，既有值不变；此处不解析CID或地区。
-pub(crate) const PRIVATE_TYPE_SOLE: &str = "SOLE";
-pub(crate) const PRIVATE_TYPE_PARTNERSHIP: &str = "PARTNERSHIP";
-pub(crate) const PRIVATE_TYPE_COMPANY: &str = "COMPANY";
-pub(crate) const PRIVATE_TYPE_CORPORATION: &str = "CORPORATION";
-pub(crate) const PRIVATE_TYPE_WELFARE: &str = "WELFARE";
-pub(crate) const PRIVATE_TYPE_ASSOCIATION: &str = "ASSOCIATION";
+pub const PRIVATE_TYPE_SOLE: &str = "SOLE";
+pub const PRIVATE_TYPE_PARTNERSHIP: &str = "PARTNERSHIP";
+pub const PRIVATE_TYPE_COMPANY: &str = "COMPANY";
+pub const PRIVATE_TYPE_CORPORATION: &str = "CORPORATION";
+pub const PRIVATE_TYPE_WELFARE: &str = "WELFARE";
+pub const PRIVATE_TYPE_ASSOCIATION: &str = "ASSOCIATION";
 
 /// 由私权机构码反推 private_type 展示码(如 `SFGY` → `WELFARE`)。
 ///
@@ -50,9 +50,7 @@ pub(crate) const PRIVATE_TYPE_ASSOCIATION: &str = "ASSOCIATION";
 /// 联邦 drill-in 把纯链上私权机构投影进本地库时,本地无既有行可继承 private_type,必须据机构码
 /// 回填,否则私权列表 SQL 的 `private_type IS NOT NULL` 会把纯投影的私权机构(如创世公民链
 /// 技术发展基金会 SFGY)挡在列表外。非私权机构码返回 `None`(不写 private_type)。
-pub(crate) fn private_type_code_from_institution_code(
-    institution_code: &str,
-) -> Option<&'static str> {
+pub fn private_type_code_from_institution_code(institution_code: &str) -> Option<&'static str> {
     match institution_code {
         "SFGT" => Some(PRIVATE_TYPE_SOLE),
         "SFGP" | "SFLP" => Some(PRIVATE_TYPE_PARTNERSHIP),
@@ -64,24 +62,5 @@ pub(crate) fn private_type_code_from_institution_code(
     }
 }
 #[cfg(test)]
-mod private_type_tests {
-    use super::*;
-    #[test]
-    fn existing_private_classes_keep_their_original_codes() {
-        for (institution, expected) in [
-            ("SFGT", "SOLE"),
-            ("SFGP", "PARTNERSHIP"),
-            ("SFLP", "PARTNERSHIP"),
-            ("SFGQ", "COMPANY"),
-            ("SFGF", "CORPORATION"),
-            ("SFGY", "WELFARE"),
-            ("SFAS", "ASSOCIATION"),
-        ] {
-            assert_eq!(
-                private_type_code_from_institution_code(institution),
-                Some(expected)
-            );
-        }
-        assert_eq!(private_type_code_from_institution_code("NLG"), None);
-    }
-}
+#[path = "../tests/institutions_model_private_type_tests.rs"]
+mod private_type_tests;

@@ -54,7 +54,7 @@ fn open_china_db() -> Connection {
 ///
 /// 业务模块需要读取 `china.sqlite` 时只能通过本闭包入口,不得复制数据库路径推导逻辑,
 /// 也不得用可写模式打开随包行政区数据库。
-pub(crate) fn with_china_connection<T>(
+pub fn with_china_connection<T>(
     f: impl FnOnce(&Connection) -> Result<T, String>,
 ) -> Result<T, String> {
     let conn = open_china_db();
@@ -301,43 +301,5 @@ pub fn town_exists(pc: &str, cc: &str, tc: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn first_town_triple() -> (&'static str, &'static str, &'static str) {
-        for p in provinces() {
-            for c in p.cities {
-                if let Some(t) = c.towns.first() {
-                    return (p.province_code, c.city_code, t.town_code);
-                }
-            }
-        }
-        panic!("china.sqlite 至少应有一个镇供测试");
-    }
-
-    #[test]
-    fn town_exists_true_for_real_triple() {
-        let (pc, cc, tc) = first_town_triple();
-        assert!(town_exists(pc, cc, tc));
-    }
-
-    #[test]
-    fn town_exists_false_for_retired_town_code() {
-        let (pc, cc, _tc) = first_town_triple();
-        // 同省同市但镇 code 不存在(模拟退役/被删镇),应判孤儿。
-        assert!(!town_exists(pc, cc, "ZZZ_NOT_A_TOWN"));
-    }
-
-    #[test]
-    fn town_exists_false_for_unknown_province() {
-        assert!(!town_exists("__NOPE__", "001", "001"));
-    }
-
-    #[test]
-    fn town_exists_true_for_empty_town_code() {
-        // 空镇 code = 市级机构/储委会/部委合法态,永远不是孤儿。
-        assert!(town_exists("ZS", "001", ""));
-        assert!(town_exists("ZS", "", ""));
-        assert!(town_exists("anything", "anything", "   "));
-    }
-}
+#[path = "../tests/codes_china_store.rs"]
+mod tests;

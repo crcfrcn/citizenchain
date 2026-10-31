@@ -32,11 +32,7 @@ use frame_support::{
 
 /// Weight functions for `resolutionissue`.
 pub trait WeightInfo {
-	/// Storage: `ResolutionIssuance::VotingProposalCount` (r:1 w:0)
-	/// Proof: `ResolutionIssuance::VotingProposalCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `ResolutionIssuance::AllowedRecipients` (r:1 w:1)
-	/// Proof: `ResolutionIssuance::AllowedRecipients` (`max_values`: Some(1), `max_size`: Some(1377), added: 1872, mode: `MaxEncodedLen`)
-	fn set_allowed_recipients() -> Weight;
+
 	/// Storage: `PublicManage::Institutions` (r:87 w:0)
 	/// Proof: `PublicManage::Institutions` (`max_values`: None, `max_size`: Some(645), added: 3120, mode: `MaxEncodedLen`)
 	/// Storage: `PublicAdmins::AdminAccounts` (r:87 w:0)
@@ -98,30 +94,13 @@ pub trait WeightInfo {
 	/// Storage: `VotingEngine::YearProposalCounter` (r:0 w:1)
 	/// Proof: `VotingEngine::YearProposalCounter` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	fn propose_issuance() -> Weight;
-	/// Storage: `ResolutionIssuance::Executed` (r:1 w:1)
-	/// Proof: `ResolutionIssuance::Executed` (`max_values`: None, `max_size`: Some(20), added: 2495, mode: `MaxEncodedLen`)
-	fn clear_executed() -> Weight;
-	/// Storage: `ResolutionIssuance::Paused` (r:1 w:1)
-	/// Proof: `ResolutionIssuance::Paused` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-	fn set_paused() -> Weight;
+
+
 }
 
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// Storage: `ResolutionIssuance::VotingProposalCount` (r:1 w:0)
-	/// Proof: `ResolutionIssuance::VotingProposalCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `ResolutionIssuance::AllowedRecipients` (r:1 w:1)
-	/// Proof: `ResolutionIssuance::AllowedRecipients` (`max_values`: Some(1), `max_size`: Some(1377), added: 1872, mode: `MaxEncodedLen`)
-	fn set_allowed_recipients() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `1469`
-		//  Estimated: `2862`
-		// Minimum execution time: 13_000_000 picoseconds.
-		Weight::from_parts(14_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 2862))
-			.saturating_add(T::DbWeight::get().reads(2))
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
+
 	/// Storage: `PublicManage::Institutions` (r:87 w:0)
 	/// Proof: `PublicManage::Institutions` (`max_values`: None, `max_size`: Some(645), added: 3120, mode: `MaxEncodedLen`)
 	/// Storage: `PublicAdmins::AdminAccounts` (r:87 w:0)
@@ -192,47 +171,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(625))
 			.saturating_add(T::DbWeight::get().writes(278))
 	}
-	/// Storage: `ResolutionIssuance::Executed` (r:1 w:1)
-	/// Proof: `ResolutionIssuance::Executed` (`max_values`: None, `max_size`: Some(20), added: 2495, mode: `MaxEncodedLen`)
-	fn clear_executed() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `187`
-		//  Estimated: `3485`
-		// Minimum execution time: 6_000_000 picoseconds.
-		Weight::from_parts(7_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 3485))
-			.saturating_add(T::DbWeight::get().reads(1))
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
-	/// Storage: `ResolutionIssuance::Paused` (r:1 w:1)
-	/// Proof: `ResolutionIssuance::Paused` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-	fn set_paused() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `80`
-		//  Estimated: `1486`
-		// Minimum execution time: 4_000_000 picoseconds.
-		Weight::from_parts(5_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 1486))
-			.saturating_add(T::DbWeight::get().reads(1))
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
+
+
 }
 
 impl WeightInfo for () {
-	/// Storage: `ResolutionIssuance::VotingProposalCount` (r:1 w:0)
-	/// Proof: `ResolutionIssuance::VotingProposalCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `ResolutionIssuance::AllowedRecipients` (r:1 w:1)
-	/// Proof: `ResolutionIssuance::AllowedRecipients` (`max_values`: Some(1), `max_size`: Some(1377), added: 1872, mode: `MaxEncodedLen`)
-	fn set_allowed_recipients() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `1469`
-		//  Estimated: `2862`
-		// Minimum execution time: 13_000_000 picoseconds.
-		Weight::from_parts(14_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 2862))
-			.saturating_add(RocksDbWeight::get().reads(2))
-			.saturating_add(RocksDbWeight::get().writes(1))
-	}
+
 	/// Storage: `PublicManage::Institutions` (r:87 w:0)
 	/// Proof: `PublicManage::Institutions` (`max_values`: None, `max_size`: Some(645), added: 3120, mode: `MaxEncodedLen`)
 	/// Storage: `PublicAdmins::AdminAccounts` (r:87 w:0)
@@ -303,28 +247,6 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(625))
 			.saturating_add(RocksDbWeight::get().writes(278))
 	}
-	/// Storage: `ResolutionIssuance::Executed` (r:1 w:1)
-	/// Proof: `ResolutionIssuance::Executed` (`max_values`: None, `max_size`: Some(20), added: 2495, mode: `MaxEncodedLen`)
-	fn clear_executed() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `187`
-		//  Estimated: `3485`
-		// Minimum execution time: 6_000_000 picoseconds.
-		Weight::from_parts(7_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 3485))
-			.saturating_add(RocksDbWeight::get().reads(1))
-			.saturating_add(RocksDbWeight::get().writes(1))
-	}
-	/// Storage: `ResolutionIssuance::Paused` (r:1 w:1)
-	/// Proof: `ResolutionIssuance::Paused` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-	fn set_paused() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `80`
-		//  Estimated: `1486`
-		// Minimum execution time: 4_000_000 picoseconds.
-		Weight::from_parts(5_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 1486))
-			.saturating_add(RocksDbWeight::get().reads(1))
-			.saturating_add(RocksDbWeight::get().writes(1))
-	}
+
+
 }

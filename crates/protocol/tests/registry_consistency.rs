@@ -87,15 +87,26 @@ fn actions_have_unique_keys_codes_and_chinese_labels() {
 
 #[test]
 fn node_deploy_is_offchain_and_has_distinct_review_fields() {
-    let action = actions().expect("动作登记可解析").into_iter()
-        .find(|row| row.action_key == "node_deploy").expect("节点部署动作存在");
+    let action = actions()
+        .expect("动作登记可解析")
+        .into_iter()
+        .find(|row| row.action_key == "node_deploy")
+        .expect("节点部署动作存在");
     assert_eq!(action.action_code, 16);
     assert_eq!(action.kind, qr_protocol::registry::ActionKind::OffchainSign);
     assert_eq!(action.signing_category, SigningCategory::NodeDeploy);
     assert!(!action.hash_only_allowed);
     assert!(!action.required_fields.contains(&"source_sha".to_string()));
     assert!(!action.required_fields.contains(&"version_tag".to_string()));
-    for field in ["deployment_kind", "node_id", "server_ip", "platform", "version", "task_id", "artifact_sha256"] {
+    for field in [
+        "deployment_kind",
+        "node_id",
+        "server_ip",
+        "platform",
+        "version",
+        "task_id",
+        "artifact_sha256",
+    ] {
         assert!(action.required_fields.contains(&field.to_string()));
     }
 }
@@ -104,14 +115,22 @@ fn node_deploy_is_offchain_and_has_distinct_review_fields() {
 #[test]
 fn citizenserve_cloudflare_publish_requires_final_configuration_digest() {
     let entries = actions().expect("动作登记可解析");
-    let dedicated = entries.iter().find(|row| row.action_key == "citizenserve_cloudflare_publish")
+    let dedicated = entries
+        .iter()
+        .find(|row| row.action_key == "citizenserve_cloudflare_publish")
         .expect("公民服务端发布动作已登记");
-    let shared = entries.iter().find(|row| row.action_key == "publish")
+    let shared = entries
+        .iter()
+        .find(|row| row.action_key == "publish")
         .expect("共用发布动作已登记");
     assert_eq!(dedicated.action_code, 17);
     assert_eq!(dedicated.signing_category, SigningCategory::Publish);
-    assert!(dedicated.required_fields.contains(&"config_sha256".to_string()));
-    assert!(!shared.required_fields.contains(&"config_sha256".to_string()));
+    assert!(dedicated
+        .required_fields
+        .contains(&"config_sha256".to_string()));
+    assert!(!shared
+        .required_fields
+        .contains(&"config_sha256".to_string()));
 }
 
 /// 自助占号必须是完整链交易，并与现有Runtime call5保持唯一动作登记。
@@ -370,7 +389,7 @@ fn generated_qr_body_validators_are_current() {
             export_qr_bodies_typescript().expect("TS body schema 必须可生成"),
         ),
         (
-            "onchina/platform/frontend/core_qrBodies.g.ts",
+            "onchina/platformweb/qr/qrBodies.g.ts",
             export_qr_bodies_typescript().expect("TS body schema 必须可生成"),
         ),
         (

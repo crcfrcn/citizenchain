@@ -14,7 +14,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::cid::InstitutionCategory;
+use crate::codes::InstitutionCategory;
 
 pub const EDUCATION_TYPE_NATIONAL_CITIZEN_EDU_COMMITTEE: &str = "NATIONAL_CITIZEN_EDU_COMMITTEE";
 pub const EDUCATION_TYPE_CITY_CITIZEN_EDU_COMMITTEE: &str = "CITY_CITIZEN_EDU_COMMITTEE";
@@ -104,7 +104,7 @@ pub struct Institution {
 
 impl Institution {
     /// 仅从既有机构码分类派生 G/S/F，不新增主体或行政区编码。
-    pub(crate) fn subject_property_for_code(code: &str) -> Result<String, String> {
+    pub fn subject_property_for_code(code: &str) -> Result<String, String> {
         let code = primitives::cid::code::institution_code_from_str(code)
             .ok_or("invalid institution code")?;
         let property = if primitives::cid::code::is_public_legal_code(&code) {

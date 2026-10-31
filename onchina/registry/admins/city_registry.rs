@@ -13,13 +13,13 @@ use axum::{
 };
 use std::collections::BTreeMap;
 
-use crate::authentication::login::admin_person_names;
-use crate::authentication::repo;
 use super::repo as registry_repo;
 use crate::*;
+use onchina::authentication::login::admin_person_names;
+use onchina::authentication::repo;
 
 fn balance_lookup_key(account_id: &str) -> String {
-    crate::crypto::pubkey::normalize_account_id(account_id).unwrap_or_default()
+    onchina::crypto::pubkey::normalize_account_id(account_id).unwrap_or_default()
 }
 
 fn balance_fen(balances: &BTreeMap<String, Option<String>>, account_id: &str) -> Option<String> {
@@ -41,10 +41,10 @@ pub(crate) async fn list_city_registry_admins(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&ctx) {
+    if let Err(resp) = onchina::authorization::rules::ensure_registry_admin(&ctx) {
         return resp;
     }
-    if crate::core::chain_runtime::is_subordinate_registry(&ctx.institution_code)
+    if onchina::chain_runtime::is_subordinate_registry(&ctx.institution_code)
         && ctx
             .scope_city_name
             .as_deref()
@@ -66,18 +66,23 @@ pub(crate) async fn list_city_registry_admins(
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let offset = query.offset.unwrap_or(0);
     let actor_province_name = ctx.scope_province_name.clone();
-    let actor_city_name =
-        if crate::core::chain_runtime::is_subordinate_registry(&ctx.institution_code) {
-            ctx.scope_city_name.clone()
-        } else {
-            None
-        };
-    let owner_cid = crate::core::chain_runtime::is_subordinate_registry(&ctx.institution_code).then(|| ctx.institution_cid_number.clone());
+    let actor_city_name = if onchina::chain_runtime::is_subordinate_registry(&ctx.institution_code)
+    {
+        ctx.scope_city_name.clone()
+    } else {
+        None
+    };
+    let owner_cid = onchina::chain_runtime::is_subordinate_registry(&ctx.institution_code)
+        .then(|| ctx.institution_cid_number.clone());
     let result = state.db.with_client(move |conn| {
-        let province = actor_province_name.as_deref().ok_or("admin province scope missing")?;
+        let province = actor_province_name
+            .as_deref()
+            .ok_or("admin province scope missing")?;
         let (total, admins) = registry_repo::list_city_registry_admins_by_scope_conn(
-            conn, province,
-            actor_city_name.as_deref(), owner_cid.as_deref(),
+            conn,
+            province,
+            actor_city_name.as_deref(),
+            owner_cid.as_deref(),
             limit,
             offset,
         )?;
@@ -104,7 +109,7 @@ pub(crate) async fn list_city_registry_admins(
         .iter()
         .map(|row| row.account_id.clone())
         .collect::<Vec<_>>();
-    let balance_by_account_id = match crate::core::chain_runtime::fetch_account_balances_onchain(
+    let balance_by_account_id = match onchina::chain_runtime::fetch_account_balances_onchain(
         &balance_account_ids,
     )
     .await
@@ -133,9 +138,15 @@ pub(crate) fn can_manage_city_registry(
     let Some(scope) = actor_province_name else {
         return false;
     };
-    let Some(cid) = city_registry.institution_cid_number.as_deref() else { return false; };
-    let Ok((province, city)) = primitives::cid::number::cid_scope_codes(cid.as_bytes()) else { return false; };
-    crate::cid::china::province_code_by_name(scope).is_some_and(|code| code.as_bytes() == province.as_slice()) && city != *b"000"
+    let Some(cid) = city_registry.institution_cid_number.as_deref() else {
+        return false;
+    };
+    let Ok((province, city)) = primitives::cid::number::cid_scope_codes(cid.as_bytes()) else {
+        return false;
+    };
+    onchina::codes::china::province_code_by_name(scope)
+        .is_some_and(|code| code.as_bytes() == province.as_slice())
+        && city != *b"000"
 }
 
 pub(crate) fn find_city_registry_by_id_conn(
@@ -203,7 +214,7 @@ pub(crate) fn ensure_city_in_province(
     if city.is_empty() {
         return Err(api_error(StatusCode::BAD_REQUEST, 1001, "city is required"));
     }
-    let Some(city_code) = crate::cid::china::city_code_by_name(province_name, city) else {
+    let Some(city_code) = onchina::codes::china::city_code_by_name(province_name, city) else {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
             1001,

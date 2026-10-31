@@ -5,9 +5,9 @@
 
 use std::collections::HashMap;
 
-use crate::core::chain_runtime::NodeInstitutionIdentity;
-use crate::legislation::chain_read_proposal::{fetch_proposal_state, LegProposalState};
-use crate::institutions::admins::chain_roles::{
+use crate::chain_read_proposal::{fetch_proposal_state, LegProposalState};
+use onchina::chain_runtime::NodeInstitutionIdentity;
+use onchina::institutions::admins::chain_roles::{
     fetch_active_assignments_onchain, InstitutionAssignmentView,
 };
 
@@ -31,7 +31,7 @@ pub(crate) async fn build_display_board(
         .await?
         .unwrap_or_default();
     // FRG 是唯一机构身份；其任职地域不产生立法提案。
-    let active_ids = if crate::core::chain_runtime::is_tier1_registry(&institution_code) {
+    let active_ids = if onchina::chain_runtime::is_tier1_registry(&institution_code) {
         Vec::new()
     } else {
         fetch_active_proposal_ids(&identity.cid_number).await?
@@ -46,7 +46,12 @@ pub(crate) async fn build_display_board(
             continue;
         }
         let ballots = fetch_representative_ballots(proposal_id, state.current_body).await?;
-        active_proposals.push(build_active_proposal_view(state, &identity.cid_number, &roster, &ballots));
+        active_proposals.push(build_active_proposal_view(
+            state,
+            &identity.cid_number,
+            &roster,
+            &ballots,
+        ));
     }
 
     Ok(DisplayBoard {
@@ -66,15 +71,29 @@ fn build_active_proposal_view(
     ballots: &HashMap<BallotKey, bool>,
 ) -> ActiveProposalView {
     let mut seen = std::collections::HashSet::new();
-    let seats: Vec<SeatView> = roster.iter().filter_map(|p| {
-        let key = BallotKey { proposal_id: state.proposal_id, body_index: state.current_body,
-            institution_cid_number: institution_cid.to_string(), role_code: p.role_code.clone(), account_id: p.account_id.clone() };
-        if !seen.insert(key.clone()) { return None; }
-        Some(SeatView {
-            ticket_id: key.seat_id(), role_code: p.role_code.clone(), account_id: p.account_id.clone(),
-            name: String::new(), role_name: p.role_name.clone(), vote: ballots.get(&key).copied(),
+    let seats: Vec<SeatView> = roster
+        .iter()
+        .filter_map(|p| {
+            let key = BallotKey {
+                proposal_id: state.proposal_id,
+                body_index: state.current_body,
+                institution_cid_number: institution_cid.to_string(),
+                role_code: p.role_code.clone(),
+                account_id: p.account_id.clone(),
+            };
+            if !seen.insert(key.clone()) {
+                return None;
+            }
+            Some(SeatView {
+                ticket_id: key.seat_id(),
+                role_code: p.role_code.clone(),
+                account_id: p.account_id.clone(),
+                name: String::new(),
+                role_name: p.role_name.clone(),
+                vote: ballots.get(&key).copied(),
+            })
         })
-    }).collect();
+        .collect();
     let approved_count = seats.iter().filter(|s| s.vote == Some(true)).count() as u32;
     let rejected_count = seats.iter().filter(|s| s.vote == Some(false)).count() as u32;
     let pending_count = seats.iter().filter(|s| s.vote.is_none()).count() as u32;
@@ -88,95 +107,5 @@ fn build_active_proposal_view(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::legislation::chain_read_proposal::VoteTally;
-
-    fn profile(hex_digit: &str, _name: &str) -> InstitutionAssignmentView {
-        InstitutionAssignmentView {
-            account_id: format!("0x{}", hex_digit.repeat(64)),
-            family_name: "管理".to_string(),
-            given_name: "员".to_string(),
-            role_code: "MEMBER".to_string(),
-            role_name: "委员".to_string(),
-            term_required: false,
-            term_start: 0,
-            term_end: 0,
-            assignment_source: 0,
-            assignment_source_label: "创世".to_string(),
-            assignment_source_ref: String::new(),
-        }
-    }
-
-    fn sample_state() -> LegProposalState {
-        LegProposalState {
-            proposal_id: 7,
-            kind: 2,
-            stage: 10,
-            status: 0,
-            representative_rule: 1,
-            current_body: 0,
-            vote_procedure: 1,
-            needs_guard: false,
-            representative_bodies: vec![],
-            start_block: 100,
-            end_block: 200,
-            representative_tally: VoteTally { yes: 1, no: 1 },
-            referendum_tally: VoteTally { yes: 0, no: 0 },
-        }
-    }
-
-    fn ballot_key(digit: &str, role: &str) -> BallotKey {
-        BallotKey { proposal_id: 7, body_index: 0, institution_cid_number: "institution-a".into(), role_code: role.into(), account_id: format!("0x{}", digit.repeat(64)) }
-    }
-    #[test]
-    fn one_wallet_multiple_roles_and_foreign_tickets_remain_independent() {
-        let first = profile("a", "甲");
-        let mut second = first.clone(); second.role_code = "OTHER_ROLE".into();
-        let ballots = HashMap::from([
-            (ballot_key("a", "MEMBER"), true),
-            (BallotKey { institution_cid_number: "institution-b".into(), ..ballot_key("a", "OTHER_ROLE") }, false),
-            (BallotKey { body_index: 1, ..ballot_key("a", "OTHER_ROLE") }, false),
-            (BallotKey { proposal_id: 8, ..ballot_key("a", "OTHER_ROLE") }, false),
-        ]);
-        let view = build_active_proposal_view(sample_state(), "institution-a", &[first.clone(), second, first], &ballots);
-        assert_eq!(view.seats.len(), 2);
-        assert_eq!(view.seats[0].vote, Some(true)); assert_eq!(view.seats[1].vote, None);
-        assert_ne!(view.seats[0].ticket_id, view.seats[1].ticket_id);
-        assert_eq!(view.approved_count, 1); assert_eq!(view.pending_count, 1);
-    }
-
-    #[test]
-    fn seats_left_join_ballots_and_count_by_vote() {
-        let roster = vec![profile("a", "甲"), profile("b", "乙"), profile("c", "丙")];
-        let mut ballots = HashMap::new();
-        ballots.insert(
-            ballot_key("a", "MEMBER"),
-            true,
-        );
-        ballots.insert(
-            ballot_key("b", "MEMBER"),
-            false,
-        );
-        // 丙(0xcc)未投。
-
-        let view = build_active_proposal_view(sample_state(), "institution-a", &roster, &ballots);
-
-        assert_eq!(view.seats.len(), 3);
-        assert_eq!(view.seats[0].vote, Some(true));
-        assert_eq!(view.seats[1].vote, Some(false));
-        assert_eq!(view.seats[2].vote, None);
-        assert_eq!(view.approved_count, 1);
-        assert_eq!(view.rejected_count, 1);
-        assert_eq!(view.pending_count, 1);
-        assert_eq!(view.state.proposal_id, 7);
-    }
-
-    #[test]
-    fn empty_roster_yields_no_seats() {
-        let view = build_active_proposal_view(sample_state(), "institution-a", &[], &HashMap::new());
-        assert!(view.seats.is_empty());
-        assert_eq!(view.approved_count, 0);
-        assert_eq!(view.pending_count, 0);
-    }
-}
+#[path = "../tests/display_service.rs"]
+mod tests;

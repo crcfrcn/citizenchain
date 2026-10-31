@@ -10,7 +10,7 @@ pub use pallet::*;
 #[cfg(feature = "runtime-benchmarks")]
 #[path = "../tests/benchmarks.rs"]
 pub mod benchmarks;
-mod weights;
+pub mod weights;
 
 /// 地址变更发起注册局的机构唯一 CID。
 pub type ActorCidNumber =
@@ -79,6 +79,7 @@ pub mod pallet {
     // 不扩到整个 crate —— 模块外的辅助函数参数过多仍会被 lint 抓出。
     #![allow(clippy::too_many_arguments)]
     use super::{ActorCidNumber, ActorRoleCode, AddressUpdateAuthority};
+    use crate::weights::WeightInfo;
     use frame_support::{ensure, pallet_prelude::*};
     use frame_system::pallet_prelude::*;
     use sp_runtime::traits::Hash;
@@ -109,6 +110,8 @@ pub mod pallet {
 
         /// 注册局地址更新权限判断入口。
         type AddressAuthority: AddressUpdateAuthority<Self::AccountId>;
+        /// 权重只归本pallet，授权读取包括在真实调用中测量。
+        type WeightInfo: crate::weights::WeightInfo;
 
         /// 省/市/镇编码最大字节长度。
         #[pallet::constant]
@@ -230,7 +233,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// 设置行政区地址库版本号和整体哈希。
         #[pallet::call_index(0)]
-        #[pallet::weight(crate::weights::set_catalog_version::<T>())]
+        #[pallet::weight(<T as Config>::WeightInfo::set_catalog_version())]
         pub fn set_catalog_version(
             origin: OriginFor<T>,
             actor_cid_number: ActorCidNumber,
@@ -262,7 +265,7 @@ pub mod pallet {
 
         /// 新增或修改镇下地址名称。
         #[pallet::call_index(1)]
-        #[pallet::weight(crate::weights::set_address_name::<T>())]
+        #[pallet::weight(<T as Config>::WeightInfo::set_address_name())]
         pub fn set_address_name(
             origin: OriginFor<T>,
             actor_cid_number: ActorCidNumber,
@@ -317,7 +320,7 @@ pub mod pallet {
 
         /// 删除镇下地址名称。
         #[pallet::call_index(2)]
-        #[pallet::weight(crate::weights::remove_address_name::<T>())]
+        #[pallet::weight(<T as Config>::WeightInfo::remove_address_name())]
         pub fn remove_address_name(
             origin: OriginFor<T>,
             actor_cid_number: ActorCidNumber,
@@ -362,7 +365,7 @@ pub mod pallet {
 
         /// 新增或修改完整地址。
         #[pallet::call_index(3)]
-        #[pallet::weight(crate::weights::set_address::<T>())]
+        #[pallet::weight(<T as Config>::WeightInfo::set_address())]
         // extrinsic 参数顺序属于链上编码契约，不能为通过 lint 合并成另一种载荷。
         pub fn set_address(
             origin: OriginFor<T>,
@@ -414,7 +417,7 @@ pub mod pallet {
 
         /// 删除完整地址。
         #[pallet::call_index(4)]
-        #[pallet::weight(crate::weights::remove_address::<T>())]
+        #[pallet::weight(<T as Config>::WeightInfo::remove_address())]
         pub fn remove_address(
             origin: OriginFor<T>,
             actor_cid_number: ActorCidNumber,

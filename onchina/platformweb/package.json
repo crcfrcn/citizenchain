@@ -1,0 +1,76 @@
+{
+  "name": "@gmb/onchina-platform",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": "25.2.1"
+  },
+  "scripts": {
+    "dev": "npm run build && npm run preview",
+    "dev:raw": "node ../../scripts/onchina.mjs dev --frontend .",
+    "build": "node ../../scripts/onchina.mjs build --frontend .",
+    "test": "node ../../scripts/onchina.mjs test --frontend .",
+    "typecheck": "node ../../scripts/onchina.mjs typecheck --frontend .",
+    "preview": "node ../../scripts/onchina.mjs preview --frontend ."
+  },
+  "dependencies": {
+    "@ant-design/icons": "5.6.1",
+    "@gmb/scanner-react": "file:../../crates/scanner",
+    "@noble/hashes": "2.0.1",
+    "antd": "5.29.3",
+    "dayjs": "1.11.19",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.5",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
+    "typescript": "6.0.2",
+    "vite": "8.0.4",
+    "vitest": "3.2.7"
+  },
+  "exports": {
+    ".": "./workspace/index.ts",
+    "./testing": "./tests/security.ts",
+    "./accounts/AccountList": "./accounts/AccountList.tsx",
+    "./accounts/AccountManageSection": "./accounts/AccountManageSection.tsx",
+    "./institutions/AssignmentCard": "./institutions/AssignmentCard.tsx",
+    "./institutions/AdminsView": "./institutions/AdminsView.tsx",
+    "./institutions/adminUtils": "./institutions/adminUtils.ts",
+    "./institutions/governance": "./institutions/governance.ts",
+    "./authentication/security": "./authentication/security.ts",
+    "./authentication/Context": "./authentication/Context.tsx",
+    "./authentication/passkeyClient": "./authentication/passkeyClient.ts",
+    "./authentication/types": {
+      "types": "./authentication/types.ts"
+    },
+    "./authentication/usePasskey": "./authentication/usePasskey.ts",
+    "./codes/api": "./codes/api.ts",
+    "./codes/cache": "./codes/cache.ts",
+    "./qr/CitizenSignatureModal": "./qr/CitizenSignatureModal.tsx",
+    "./workspace/DetailLayout": "./workspace/DetailLayout.tsx",
+    "./qr/ScanAccountModal": "./qr/ScanAccountModal.tsx",
+    "./controls/cardStyles": "./controls/cardStyles.ts",
+    "./controls/modalStack": "./controls/modalStack.ts",
+    "./qr/useChainSign": "./qr/useChainSign.tsx",
+    "./documents/Library": "./documents/Library.tsx",
+    "./http": "./workspace/http.ts",
+    "./controls/notice": "./controls/notice.ts",
+    "./qr/parseSignedPayload": "./qr/parseSignedPayload.ts",
+    "./codes/ss58": "./codes/ss58.ts",
+    "./authentication/useAuth": "./authentication/useAuth.ts",
+    "./authorization/useScope": "./authorization/useScope.ts",
+    "./institutions/InfoPanel": "./institutions/InfoPanel.tsx",
+    "./workspace/modules": "./workspace/modules.ts",
+    "./authorization/registryTier": "./authorization/registryTier.ts",
+    "./institutions/Photo": "./institutions/Photo.tsx",
+    "./institutions/api": "./institutions/api.ts",
+    "./institutions/institutionLabels": "./institutions/institutionLabels.ts",
+    "./institutions/labels": "./institutions/labels.ts",
+    "./workspace/WorkspaceShell": "./workspace/WorkspaceShell.tsx",
+    "./index.html": "./workspace/index.html"
+  }
+}

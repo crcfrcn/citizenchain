@@ -19,10 +19,10 @@ const WAIT_CONFIRMATION_OBSERVATION_SECS: u64 = 20 * 60;
 const FINALIZED_RECOVERY_BATCH_BLOCKS: usize = 128;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct FinalizedChainSubmit {
-    pub(crate) tx_hash: String,
-    pub(crate) block_number: u64,
-    pub(crate) block_hash: [u8; 32],
+pub struct FinalizedChainSubmit {
+    pub tx_hash: String,
+    pub block_number: u64,
+    pub block_hash: [u8; 32],
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -81,7 +81,7 @@ impl From<String> for ChainSubmitError {
 }
 
 /// prepare 阶段产物:随会话持久化,submit 阶段重建校验。
-pub(crate) struct PreparedChainSign {
+pub struct PreparedChainSign {
     pub nonce: u32,
     /// 给 QR `b.d` 的完整审阅载荷字节；不得用 32 字节签名哈希替代。
     pub payload: Vec<u8>,
@@ -153,7 +153,7 @@ pub(crate) async fn fetch_nonce(account_id: &str) -> Result<u32, String> {
 }
 
 /// prepare:实时取 nonce/版本/创世哈希,构建 QR 审阅载荷与签名校验哈希。
-pub(crate) async fn prepare_signing(
+pub async fn prepare_signing(
     call_data: &[u8],
     account_id: &str,
 ) -> Result<PreparedChainSign, String> {
@@ -390,7 +390,7 @@ pub(crate) async fn find_finalized_success(
 pub(crate) async fn verify_finalized_submit(
     finalized: &FinalizedChainSubmit,
 ) -> Result<(), String> {
-    let view = crate::core::chain_runtime::FinalizedChainView::connect().await?;
+    let view = crate::chain_runtime::FinalizedChainView::connect().await?;
     if finalized.block_number > u64::from(view.block_number) {
         return Err("stored result is not finalized".into());
     }
@@ -471,11 +471,11 @@ async fn block_has_successful_extrinsic(
 #[cfg(test)]
 // 交易编码夹具失败即代表链调用契约回归，断言式解包仅限测试。
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-#[path = "tests.rs"]
+#[path = "../tests/transactions_submit.rs"]
 mod tests;
 
 /// 交易哈希固定32字节解析，沿用原实现。
-pub(crate) fn parse_hex32(value: &str) -> Option<[u8; 32]> {
+pub fn parse_hex32(value: &str) -> Option<[u8; 32]> {
     let raw = hex::decode(value.strip_prefix("0x")?).ok()?;
     raw.try_into().ok()
 }

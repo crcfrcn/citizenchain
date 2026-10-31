@@ -12,9 +12,9 @@ publish = false
 [lints]
 workspace = true
 
-# 单文件库入口直接归属 crate 根，保留原公开 crate 名称。
+# 按实际职责组织源码，原公开crate名称与调用入口保持。
 [lib]
-path = "lib.rs"
+path = "src/lib.rs"
 
 [dependencies]
 runtime = { workspace = true, default-features = true }

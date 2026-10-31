@@ -3,7 +3,7 @@
 #[cfg(feature = "runtime-benchmarks")]
 #[path = "../tests/benchmarks.rs"]
 mod benchmarks;
-mod weights;
+pub mod weights;
 
 use frame_support::traits::{
     fungible::Inspect,
@@ -24,6 +24,7 @@ use sp_std::{marker::PhantomData, prelude::*};
 /// 链上资金交易 pallet：承载普通转账备注调用和统一手续费审计事件。
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::weights::WeightInfo;
     use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
     use frame_support::{
         pallet_prelude::*,
@@ -40,6 +41,8 @@ pub mod pallet {
     pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
         /// 普通链上转账使用的余额系统。
         type Currency: Currency<Self::AccountId>;
+        /// 本调用完整执行成本，由所属基准测量。
+        type WeightInfo: crate::weights::WeightInfo;
 
         /// 普通转账备注最大 UTF-8 字节数。
         #[pallet::constant]
@@ -129,7 +132,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// 普通转账并把备注绑定到同一笔链上交易事件。
         #[pallet::call_index(0)]
-        #[pallet::weight(crate::weights::transfer_with_remark::<T>())]
+        #[pallet::weight(<T as Config>::WeightInfo::transfer_with_remark())]
         pub fn transfer_with_remark(
             origin: OriginFor<T>,
             beneficiary_account_id: T::AccountId,

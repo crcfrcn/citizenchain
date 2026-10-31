@@ -75,6 +75,46 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    /// 继续扫描最早未完成区块，直到追上当前区块；不跳过等待期间的新到期桶。
+    pub(crate) fn process_expiries(now: BlockNumberFor<T>, budget: Weight) -> Weight {
+        let mut used = T::WeightInfo::terminal_base();
+        let mut cursor = PendingExpiryBucket::<T>::get().unwrap_or(now);
+        let mut remaining = T::MaxAutoFinalizePerBlock::get() as usize;
+        let mut finished = false;
+        for _ in 0..T::MaxAutoFinalizePerBlock::get() {
+            if remaining == 0
+                || cursor > now
+                || used
+                    .saturating_add(T::WeightInfo::expiry_bucket())
+                    .any_gt(budget)
+            {
+                break;
+            }
+            let (processed, has_remaining, weight) = Self::auto_finalize_expiry_bucket(
+                cursor,
+                now,
+                remaining,
+                budget.saturating_sub(used),
+            );
+            used = used.saturating_add(weight);
+            remaining = remaining.saturating_sub(processed);
+            if has_remaining {
+                break;
+            }
+            if cursor == now {
+                finished = true;
+                break;
+            }
+            cursor = cursor.saturating_add(One::one());
+        }
+        if finished {
+            PendingExpiryBucket::<T>::kill();
+        } else {
+            PendingExpiryBucket::<T>::put(cursor);
+        }
+        used
+    }
+
     pub(crate) fn auto_finalize_expiry_bucket(
         expiry: BlockNumberFor<T>,
         now: BlockNumberFor<T>,
@@ -82,19 +122,14 @@ impl<T: Config> Pallet<T> {
         max_weight: Weight,
     ) -> (usize, bool, Weight) {
         let db_weight = T::DbWeight::get();
-        let mut weight = db_weight.reads_writes(1, 1);
+        let mut weight = T::WeightInfo::expiry_bucket();
         let mut proposal_ids = ProposalsByExpiry::<T>::take(expiry);
         if proposal_ids.is_empty() {
             return (0, false, weight);
         }
 
         let max_items = core::cmp::min(max_count, proposal_ids.len());
-        let item_weight = T::WeightInfo::finalize_proposal()
-            .saturating_add(<T::TrackHandlers as crate::tracks::ProposalTracks<
-                BlockNumberFor<T>,
-                T::AccountId,
-            >>::max_timeout_weight())
-            .saturating_add(db_weight.reads_writes(4, 5));
+        let item_weight = Self::terminal_bound().saturating_add(db_weight.reads_writes(4, 5));
         let mut process_count = 0usize;
         let mut reserved = weight;
         while process_count < max_items {
@@ -183,6 +218,6 @@ impl<T: Config> Pallet<T> {
             T::WeightInfo::finalize_proposal().saturating_mul(process_count as u64);
         weight = weight.saturating_add(finalize_weight);
 
-        (process_count, has_remaining, weight)
+        (process_count, has_remaining, weight.max(reserved))
     }
 }

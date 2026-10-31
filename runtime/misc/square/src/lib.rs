@@ -436,13 +436,27 @@ pub mod pallet {
         /// 此时 Timestamp inherent 尚未执行，故使用上一块已确认时间；正常出块时最多延后
         /// 一个区块，绝不提前扣款。每块仍受 `MaxSubscriptionRenewalsPerBlock` 硬上限约束。
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
-            let per = T::WeightInfo::process_one_due();
-            let cap = T::MaxSubscriptionRenewalsPerBlock::get();
+            let per = T::WeightInfo::process_one_due()
+                .max(T::WeightInfo::renewal_success())
+                .max(T::WeightInfo::renewal_creator());
+            let base = T::WeightInfo::on_initialize_base();
+            let max = T::BlockWeights::get().max_block;
+            let budget =
+                Weight::from_parts(max.ref_time() / 32, max.proof_size() / 32).saturating_sub(base);
+            let time = budget.ref_time() / per.ref_time().max(1);
+            let proof = if per.proof_size() == 0 {
+                u64::MAX
+            } else {
+                budget.proof_size() / per.proof_size()
+            };
+            let cap = u64::from(T::MaxSubscriptionRenewalsPerBlock::get())
+                .min(time)
+                .min(proof) as u32;
             if cap == 0 {
-                return Weight::zero();
+                return base;
             }
             let processed = Self::process_due_subscriptions(Self::now_ms(), cap);
-            per.saturating_mul(u64::from(processed))
+            base.saturating_add(per.saturating_mul(u64::from(processed)))
         }
 
         #[cfg(feature = "try-runtime")]

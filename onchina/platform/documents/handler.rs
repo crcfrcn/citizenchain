@@ -15,9 +15,9 @@ use uuid::Uuid;
 use crate::authentication::actions::require_admin_security_grant;
 use crate::authentication::login::require_admin_any;
 use crate::authentication::operation_auth::AdminActionType;
-use crate::core::response::ApiResponse;
 use crate::institutions::subjects::http::ensure_institution_visible_to_admin;
 use crate::institutions::subjects::model::{InstitutionDocument, VALID_DOC_TYPES};
+use crate::response::ApiResponse;
 use crate::*;
 
 impl Db {
@@ -324,7 +324,7 @@ pub(crate) async fn upload_document(
             );
         }
     };
-    crate::core::runtime_ops::append_audit_log(
+    crate::audit_runtime::append_audit_log(
         &state,
         "INSTITUTION_DOCUMENT_UPLOAD",
         &ctx.account_id,
@@ -386,7 +386,7 @@ pub(crate) async fn download_document(
         Ok(v) => v,
         Err(_) => return api_error(StatusCode::NOT_FOUND, 1004, "file not found"),
     };
-    crate::core::runtime_ops::append_audit_log(
+    crate::audit_runtime::append_audit_log(
         &state,
         "INSTITUTION_DOCUMENT_DOWNLOAD",
         &ctx.account_id,
@@ -487,7 +487,7 @@ pub(crate) async fn delete_document(
         );
     }
     let _ = std::fs::remove_file(&doc.file_path);
-    crate::core::runtime_ops::append_audit_log(
+    crate::audit_runtime::append_audit_log(
         &state,
         "INSTITUTION_DOCUMENT_DELETE",
         &ctx.account_id,

@@ -93,4 +93,111 @@ mod benchmarks {
     // execute_transfer / execute_safety_fund_transfer / execute_sweep_to_main
     // benchmark 已废弃: 三个 wrapper extrinsic 已统一到
     // VotingEngine::retry_passed_proposal,benchmark 由 votebase 自身覆盖。
+    #[benchmark]
+    fn propose_safety_fund_transfer() {
+        use frame_support::traits::Get;
+        let nrc = &primitives::cid::china::china_cb::CHINA_CB[0];
+        let caller = decode_account::<T>(nrc.admins[0]);
+        let cid: votebase::CidNumber = nrc.cid_number.as_bytes().to_vec().try_into().unwrap();
+        let role: votebase::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+            .to_vec()
+            .try_into()
+            .unwrap();
+        let fund = decode_account::<T>(primitives::cid::china::china_cb::SAFETY_FUND_ACCOUNT);
+        let fee = decode_account::<T>(nrc.fee_account);
+        let beneficiary = beneficiary_account_id::<T>();
+        drop(T::Currency::make_free_balance_be(
+            &fund,
+            1_000_000_000u128.saturated_into(),
+        ));
+        drop(T::Currency::make_free_balance_be(
+            &fee,
+            1_000_000_000u128.saturated_into(),
+        ));
+        let remark = sp_runtime::Vec::from_iter((0..T::MaxRemarkLen::get()).map(|_| b'r'))
+            .try_into()
+            .unwrap();
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(caller),
+            cid,
+            role,
+            fund,
+            beneficiary,
+            111u128.saturated_into(),
+            remark,
+        );
+        assert!(crate::SafetyFundProposalActions::<T>::contains_key(
+            last_proposal_id::<T>()
+        ));
+    }
+
+    #[benchmark]
+    fn propose_sweep_to_main() {
+        // 费用归集协议只允许NRC/PRB；PRC不能作为归集发起机构。
+        let entry = &CHINA_CB[0];
+        let caller = decode_account::<T>(entry.admins[0]);
+        let cid = entry.cid_number.as_bytes().to_vec().try_into().unwrap();
+        let fee = decode_account::<T>(entry.fee_account);
+        let role: votebase::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+            .to_vec()
+            .try_into()
+            .unwrap();
+        drop(T::Currency::make_free_balance_be(
+            &fee,
+            1_000_000_000u128.saturated_into(),
+        ));
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(caller),
+            cid,
+            role,
+            fee,
+            111u128.saturated_into(),
+        );
+        assert!(crate::SweepProposalActions::<T>::contains_key(
+            last_proposal_id::<T>()
+        ));
+    }
+    #[benchmark]
+    fn terminal_callback() {
+        use frame_support::traits::Get;
+        let nrc = &primitives::cid::china::china_cb::CHINA_CB[0];
+        let caller = decode_account::<T>(nrc.admins[0]);
+        let cid: votebase::CidNumber = nrc.cid_number.as_bytes().to_vec().try_into().unwrap();
+        let role: votebase::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+            .to_vec()
+            .try_into()
+            .unwrap();
+        let fund = decode_account::<T>(primitives::cid::china::china_cb::SAFETY_FUND_ACCOUNT);
+        let fee = decode_account::<T>(nrc.fee_account);
+        drop(T::Currency::make_free_balance_be(
+            &fund,
+            1000000000u128.saturated_into(),
+        ));
+        drop(T::Currency::make_free_balance_be(
+            &fee,
+            1000000000u128.saturated_into(),
+        ));
+        let remark = sp_runtime::sp_std::vec![b'r';T::MaxRemarkLen::get() as usize]
+            .try_into()
+            .unwrap();
+        let id = votebase::Pallet::<T>::next_proposal_id();
+        Pallet::<T>::propose_safety_fund_transfer(
+            RawOrigin::Signed(caller).into(),
+            cid,
+            role,
+            fund,
+            beneficiary_account_id::<T>(),
+            111u128.saturated_into(),
+            remark,
+        )
+        .unwrap();
+        #[block]
+        {
+            <crate::InternalVoteExecutor<T> as votebase::InternalVoteResultCallback>::on_execution_failed_terminal(id).unwrap();
+        }
+        assert!(!crate::SafetyFundProposalActions::<T>::contains_key(id));
+        assert!(!crate::SweepProposalActions::<T>::contains_key(id));
+    }
 }

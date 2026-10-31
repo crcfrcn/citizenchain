@@ -133,6 +133,8 @@ export class ScannerController implements ScannerControllerLike {
       );
     }
 
+    // 新会话先释放半启动的旧流；完成较晚的旧播放不再拥有当前设备。
+    this.stop();
     const generation = ++this.generation;
     this.claimed = false;
     try {
@@ -154,7 +156,7 @@ export class ScannerController implements ScannerControllerLike {
       video.srcObject = stream;
       await video.play();
       if (this.disposed || generation !== this.generation) {
-        this.stop();
+        // 旧会话已由stop/dispose或新start清理，不能停止后来启动的设备。
         return;
       }
 

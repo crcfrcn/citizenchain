@@ -1,0 +1,90 @@
+[
+  {
+    "group": "admin",
+    "path": "/api/legislation/proposable",
+    "methods": [
+      "get"
+    ],
+    "handlers": [
+      "handler::list_proposable"
+    ],
+    "owner": "legislation"
+  },
+  {
+    "group": "admin",
+    "path": "/api/legislation/propose",
+    "methods": [
+      "post"
+    ],
+    "handlers": [
+      "handler::propose_legislation"
+    ],
+    "owner": "legislation"
+  },
+  {
+    "group": "admin",
+    "path": "/api/legislation/representative-vote",
+    "methods": [
+      "post"
+    ],
+    "handlers": [
+      "handler::cast_representative_vote"
+    ],
+    "owner": "legislation"
+  },
+  {
+    "group": "admin",
+    "path": "/api/legislation/laws",
+    "methods": [
+      "get"
+    ],
+    "handlers": [
+      "handler::list_laws"
+    ],
+    "owner": "legislation"
+  },
+  {
+    "group": "admin",
+    "path": "/api/legislation/laws/mine",
+    "methods": [
+      "get"
+    ],
+    "handlers": [
+      "handler::list_my_laws"
+    ],
+    "owner": "legislation"
+  },
+  {
+    "group": "admin",
+    "path": "/api/legislation/laws/{law_id}",
+    "methods": [
+      "get"
+    ],
+    "handlers": [
+      "handler::law"
+    ],
+    "owner": "legislation"
+  },
+  {
+    "group": "admin",
+    "path": "/api/legislation/proposals/{proposal_id}",
+    "methods": [
+      "get"
+    ],
+    "handlers": [
+      "handler::get_proposal_state"
+    ],
+    "owner": "legislation"
+  },
+  {
+    "group": "public",
+    "path": "/api/public/legislation/display/board",
+    "methods": [
+      "get"
+    ],
+    "handlers": [
+      "display::handler::display_board"
+    ],
+    "owner": "legislation"
+  }
+]

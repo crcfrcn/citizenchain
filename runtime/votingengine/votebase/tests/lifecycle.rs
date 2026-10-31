@@ -64,13 +64,13 @@ fn terminal_state_cannot_be_reopened_or_executed_again() {
             VotingEngine::set_status_and_emit(1, STATUS_VOTING),
             Error::<Test>::InvalidProposalStatus
         );
-        VotingEngine::process_pending_proposal_executions(1);
+        VotingEngine::process_pending_proposal_executions(1, ExecutionBudget::get());
         assert_eq!(Proposals::<Test>::get(1).unwrap().status, STATUS_EXECUTED);
         assert_noop!(
             VotingEngine::set_status_and_emit(1, STATUS_PASSED),
             Error::<Test>::InvalidProposalStatus
         );
-        VotingEngine::process_pending_proposal_executions(2);
+        VotingEngine::process_pending_proposal_executions(2, ExecutionBudget::get());
         assert_eq!(CALLBACK_COUNT.with(Cell::get), 1);
     });
 }

@@ -13,8 +13,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::core::chain_runtime::normalize_account_id;
 use crate::*;
+use onchina::chain_runtime::normalize_account_id;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -68,7 +68,7 @@ pub(crate) async fn app_voters_count(
         }
     };
 
-    crate::core::runtime_ops::append_audit_log(
+    onchina::audit_runtime::append_audit_log(
         &state,
         "APP_VOTERS_COUNT",
         "app",

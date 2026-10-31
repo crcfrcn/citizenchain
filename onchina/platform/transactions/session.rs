@@ -2,25 +2,25 @@
 use crate::Db;
 use chrono::{DateTime, Utc};
 /// 冷签会话有效期(秒)，沿用现有值。
-pub(crate) const SESSION_TTL_SECS: i64 = 600;
+pub const SESSION_TTL_SECS: i64 = 600;
 
 /// 链冷签会话:prepare 只保存短期签名 payload。
 ///
 /// 这不是公民或机构的业务草稿状态。提交前失败可删除；一旦已经尝试网络提交，
 /// 必须保留恢复锚点，直到确认 finalized+ExtrinsicSuccess 并完成本地投影。
 /// 公民/机构正式数据只能在链上确认成功后写入正式投影表。
-pub(crate) struct ChainSignSession {
-    pub(crate) request_id: String,
-    pub(crate) purpose: String,
+pub struct ChainSignSession {
+    pub request_id: String,
+    pub purpose: String,
     /// 发起管理员的钱包账户 account_id（提交时签名者账户必须与之一致）。
-    pub(crate) account_id: String,
-    pub(crate) call_data: Vec<u8>,
-    pub(crate) nonce: u32,
+    pub account_id: String,
+    pub call_data: Vec<u8>,
+    pub nonce: u32,
     /// sha256(签名输入) hex,submit 阶段重建校验防 runtime 漂移。
-    pub(crate) signing_hash: String,
-    pub(crate) context: serde_json::Value,
-    pub(crate) expires_at: DateTime<Utc>,
-    pub(crate) consumed_at: Option<DateTime<Utc>>,
+    pub signing_hash: String,
+    pub context: serde_json::Value,
+    pub expires_at: DateTime<Utc>,
+    pub consumed_at: Option<DateTime<Utc>>,
 }
 
 impl Db {
@@ -30,7 +30,7 @@ impl Db {
     /// 只能由 `require_passkey_assertion` 产出。三档鉴权铁律要求链上写 =
     /// 会话 + passkey + 冷签,这里用类型把 passkey 这一半钉死:
     /// 没做 passkey 就调本函数会编译失败,不再依赖各 handler 自觉。
-    pub(crate) fn insert_chain_sign_session(
+    pub fn insert_chain_sign_session(
         &self,
         s: &ChainSignSession,
         passkey: &crate::authentication::passkey::PasskeyProof,
@@ -94,7 +94,7 @@ impl Db {
         })
     }
 
-    pub(crate) fn find_chain_sign_session(
+    pub fn find_chain_sign_session(
         &self,
         request_id: &str,
     ) -> Result<Option<ChainSignSession>, String> {
@@ -133,7 +133,7 @@ impl Db {
 
     /// 把占号 pending 会话(用户签名收集前的占位)升级为可提交的冷签会话:
     /// 用户签名回来后回填 call_data/nonce/signing_hash + 转正 purpose + 追加 account_id。
-    pub(crate) fn promote_chain_sign_session(
+    pub fn promote_chain_sign_session(
         &self,
         request_id: &str,
         purpose: &str,
@@ -170,14 +170,14 @@ impl Db {
 }
 
 /// HTTP 提交与后台恢复共用数据库租约；网络等待期间只持有租约，不占用 SQL 连接/事务。
-pub(crate) struct SessionLease {
+pub struct SessionLease {
     db: Db,
     request_id: String,
     token: String,
     renew: tokio::task::JoinHandle<()>,
 }
 impl SessionLease {
-    pub(crate) fn acquire(db: &Db, request_id: &str) -> Result<Option<Self>, String> {
+    pub fn acquire(db: &Db, request_id: &str) -> Result<Option<Self>, String> {
         let request_id = request_id.to_string();
         let token = uuid::Uuid::new_v4().to_string();
         let claimed = db.with_client(|conn| conn.execute("UPDATE signing SET processing_token=$2,processing_until=now()+interval '90 seconds',checked_at=now() WHERE request_id=$1 AND consumed_at IS NULL AND (processing_until IS NULL OR processing_until<now())", &[&request_id,&token]).map_err(|e| e.to_string()))?;

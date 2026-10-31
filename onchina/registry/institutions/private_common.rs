@@ -5,8 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::registry::institutions::private::participants::ParticipantRole;
-use crate::institutions::subjects::CreateInstitutionInput;
+use crate::institutions::private::participants::ParticipantRole;
+use onchina::institutions::subjects::CreateInstitutionInput;
 
 /// 私权机构业务类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,24 +23,24 @@ pub(crate) enum PrivateType {
 impl PrivateType {
     pub(crate) fn from_str(value: &str) -> Option<Self> {
         match value.trim() {
-            crate::institutions::model::PRIVATE_TYPE_SOLE => Some(Self::Sole),
-            crate::institutions::model::PRIVATE_TYPE_PARTNERSHIP => Some(Self::Partnership),
-            crate::institutions::model::PRIVATE_TYPE_COMPANY => Some(Self::Company),
-            crate::institutions::model::PRIVATE_TYPE_CORPORATION => Some(Self::Corporation),
-            crate::institutions::model::PRIVATE_TYPE_WELFARE => Some(Self::Welfare),
-            crate::institutions::model::PRIVATE_TYPE_ASSOCIATION => Some(Self::Association),
+            onchina::institutions::model::PRIVATE_TYPE_SOLE => Some(Self::Sole),
+            onchina::institutions::model::PRIVATE_TYPE_PARTNERSHIP => Some(Self::Partnership),
+            onchina::institutions::model::PRIVATE_TYPE_COMPANY => Some(Self::Company),
+            onchina::institutions::model::PRIVATE_TYPE_CORPORATION => Some(Self::Corporation),
+            onchina::institutions::model::PRIVATE_TYPE_WELFARE => Some(Self::Welfare),
+            onchina::institutions::model::PRIVATE_TYPE_ASSOCIATION => Some(Self::Association),
             _ => None,
         }
     }
 
     pub(crate) fn as_code(self) -> &'static str {
         match self {
-            Self::Sole => crate::institutions::model::PRIVATE_TYPE_SOLE,
-            Self::Partnership => crate::institutions::model::PRIVATE_TYPE_PARTNERSHIP,
-            Self::Company => crate::institutions::model::PRIVATE_TYPE_COMPANY,
-            Self::Corporation => crate::institutions::model::PRIVATE_TYPE_CORPORATION,
-            Self::Welfare => crate::institutions::model::PRIVATE_TYPE_WELFARE,
-            Self::Association => crate::institutions::model::PRIVATE_TYPE_ASSOCIATION,
+            Self::Sole => onchina::institutions::model::PRIVATE_TYPE_SOLE,
+            Self::Partnership => onchina::institutions::model::PRIVATE_TYPE_PARTNERSHIP,
+            Self::Company => onchina::institutions::model::PRIVATE_TYPE_COMPANY,
+            Self::Corporation => onchina::institutions::model::PRIVATE_TYPE_CORPORATION,
+            Self::Welfare => onchina::institutions::model::PRIVATE_TYPE_WELFARE,
+            Self::Association => onchina::institutions::model::PRIVATE_TYPE_ASSOCIATION,
         }
     }
 
@@ -191,20 +191,6 @@ pub(crate) fn resolve_private_type_rule(
 }
 
 #[cfg(test)]
-// 私权机构类型夹具必须可解析，断言式解包仅限测试模块。
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn association_keeps_instance_p1_while_fixed_types_define_p1() {
-        let association = resolve_private_type_rule("ASSOCIATION", None).expect("association");
-        assert_eq!(association.institution_code, "SFAS");
-        assert_eq!(association.p1, None);
-
-        let company = resolve_private_type_rule("COMPANY", None).expect("company");
-        assert_eq!(company.p1, Some("1"));
-        let welfare = resolve_private_type_rule("WELFARE", None).expect("welfare");
-        assert_eq!(welfare.p1, Some("0"));
-    }
-}
+#[path = "../tests/institutions_private_common.rs"]
+mod tests;

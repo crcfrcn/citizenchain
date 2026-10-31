@@ -11,16 +11,17 @@
 //!
 //! 铁律:幂等——本地已有则跳过,绝不覆盖任何链下正本,不动现有写入器与推链门。
 
+use crate::citizens::admin_entry::CitizenWrites;
 use chrono::Utc;
 
-use crate::authentication::repo::active_node_binding;
-use crate::cid::InstitutionCategory;
-use crate::core::chain_citizen_identity::{read_finalized_citizen_identity, FinalizedCidStatus};
-use crate::core::chain_runtime::{institution_lookup, is_tier1_registry};
-use crate::core::db::Db;
-use crate::institutions::subjects::model::LegalRepresentative;
-use crate::institutions::subjects::Institution;
-use crate::registry::citizens::model::{CitizenRecord, CitizenStatus};
+use crate::citizens::model::{CitizenRecord, CitizenStatus};
+use onchina::authentication::repo::active_node_binding;
+use onchina::chain_identity::{read_finalized_citizen_identity, FinalizedCidStatus};
+use onchina::chain_runtime::{institution_lookup, is_tier1_registry};
+use onchina::codes::InstitutionCategory;
+use onchina::database::Db;
+use onchina::institutions::subjects::model::LegalRepresentative;
+use onchina::institutions::subjects::Institution;
 
 use primitives::cid::china::citizenchain::{
     CITIZENCHAIN_FOUNDATION, LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER,
@@ -202,10 +203,11 @@ pub(crate) fn backfill_genesis_private_blocking(db: &Db) -> Result<bool, String>
         });
     let now = Utc::now();
     // 私权列表 SQL 要求 private_type 非空;链上无此字段,按机构码确定性派生(基金会 SFGY → WELFARE)。
-    let derived_private_type = crate::institutions::model::private_type_code_from_institution_code(
-        &parts.institution_code_text,
-    )
-    .map(str::to_string);
+    let derived_private_type =
+        onchina::institutions::model::private_type_code_from_institution_code(
+            &parts.institution_code_text,
+        )
+        .map(str::to_string);
     let inst = Institution {
         status: "ACTIVE".to_string(),
         chain_status: Some("ACTIVE_ON_CHAIN".to_string()),
@@ -241,23 +243,5 @@ pub(crate) fn backfill_genesis_private_blocking(db: &Db) -> Result<bool, String>
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn split_province_city_reads_foundation_scope() {
-        // 基金会机构 CID → 贵州(GZ)/绥阳(018);创世公民程伟居住地即取此。
-        let scope = match split_province_city(CITIZENCHAIN_FOUNDATION.cid_number) {
-            Ok(value) => value,
-            Err(error) => panic!("foundation scope should decode: {error}"),
-        };
-        assert_eq!(scope, ("GZ".to_string(), "018".to_string()));
-    }
-
-    #[test]
-    fn split_province_city_rejects_person_cid() {
-        // 程伟为人主体 CN 号,去地域化、R5 不载省市 → fail-closed。
-        // 播种须改取基金会省市,绝不对程伟号调用本函数(否则误把号段读成区划)。
-        assert!(split_province_city(LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER).is_err());
-    }
-}
+#[path = "../tests/projection_genesis.rs"]
+mod tests;

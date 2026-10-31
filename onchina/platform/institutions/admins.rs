@@ -21,12 +21,10 @@ use uuid::Uuid;
 use crate::{
     actor_ip_from_headers, api_error,
     authentication::{login::parse_account_id_bytes, repo as auth_repo},
-    core::{
-        chain_submit,
-        institution_call::{
-            encode_propose_institution_governance, InstitutionAdminsPayload,
-            ProposeInstitutionGovernanceArgs,
-        },
+    chain_submit,
+    institutions_call::{
+        encode_propose_institution_governance, InstitutionAdminsPayload,
+        ProposeInstitutionGovernanceArgs,
     },
     require_admin_any,
     transactions::session::{ChainSignSession, SESSION_TTL_SECS},
@@ -34,21 +32,21 @@ use crate::{
 };
 
 #[path = "admins_chain_roles.rs"]
-pub(crate) mod chain_roles;
+pub mod chain_roles;
 
 pub(crate) const PURPOSE_INSTITUTION_GOVERNANCE: &str = "INSTITUTION_GOVERNANCE";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct InstitutionAdminInput {
-    pub(crate) account_id: String,
+pub struct InstitutionAdminInput {
+    pub account_id: String,
     #[serde(default)]
-    pub(crate) cid_number: Option<String>,
+    pub cid_number: Option<String>,
     #[serde(default)]
-    pub(crate) family_name: Option<String>,
+    pub family_name: Option<String>,
     #[serde(default)]
-    pub(crate) given_name: Option<String>,
+    pub given_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,16 +115,16 @@ pub(crate) struct PrepareInstitutionGovernanceInput {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PrepareInstitutionChainOutput {
-    pub(crate) request_id: String,
-    pub(crate) cid_number: String,
-    pub(crate) chain_action: u16,
-    pub(crate) call_data_hex: String,
-    pub(crate) sign_request: String,
-    pub(crate) expires_at: i64,
+pub struct PrepareInstitutionChainOutput {
+    pub request_id: String,
+    pub cid_number: String,
+    pub chain_action: u16,
+    pub call_data_hex: String,
+    pub sign_request: String,
+    pub expires_at: i64,
 }
 
-pub(crate) fn code_bytes(institution_code: &str) -> Result<[u8; 4], axum::response::Response> {
+pub fn code_bytes(institution_code: &str) -> Result<[u8; 4], axum::response::Response> {
     let raw = institution_code.trim().as_bytes();
     if raw.is_empty() || raw.len() > 4 {
         return Err(api_error(
@@ -140,7 +138,7 @@ pub(crate) fn code_bytes(institution_code: &str) -> Result<[u8; 4], axum::respon
     Ok(out)
 }
 
-pub(crate) fn parse_admin_inputs(
+pub fn parse_admin_inputs(
     state: &AppState,
     admins: &[InstitutionAdminInput],
     is_public: bool,
@@ -267,9 +265,7 @@ fn encode_governance_action<AdminRecord: Encode>(
     admins: Option<Vec<AdminRecord>>,
     role_mutations: Vec<entitybase::InstitutionRoleMutation<[u8; 32]>>,
     assignment_changes: Vec<entitybase::InstitutionRoleAssignmentChange<[u8; 32]>>,
-    legal_representative_change: Option<
-        entitybase::InstitutionLegalRepresentativeChange<[u8; 32]>,
-    >,
+    legal_representative_change: Option<entitybase::InstitutionLegalRepresentativeChange<[u8; 32]>>,
 ) -> Vec<u8> {
     match admins {
         None => entitybase::InstitutionGovernanceAction::<[u8; 32], AdminRecord>::MutateRolesAndAssignments {
@@ -310,8 +306,7 @@ fn parse_permission_operation(
 
 fn assignment_targets(
     input: &[InstitutionAssignmentTargetInput],
-) -> Result<Vec<entitybase::InstitutionAssignmentTarget<[u8; 32]>>, axum::response::Response>
-{
+) -> Result<Vec<entitybase::InstitutionAssignmentTarget<[u8; 32]>>, axum::response::Response> {
     let mut seen_accounts = std::collections::BTreeSet::new();
     let mut out = Vec::with_capacity(input.len());
     for target in input {
@@ -333,8 +328,7 @@ fn assignment_targets(
             account_id,
             term_start: target.term_start,
             term_end: target.term_end,
-            assignment_source:
-                entitybase::InstitutionAssignmentSource::InstitutionGovernance,
+            assignment_source: entitybase::InstitutionAssignmentSource::InstitutionGovernance,
             assignment_source_ref: b"onchina-governance".to_vec(),
             assignment_status: entitybase::InstitutionAssignmentStatus::Active,
         });
@@ -481,10 +475,7 @@ fn role_mutations(
 
 fn assignment_changes(
     input: &[InstitutionAssignmentChangeInput],
-) -> Result<
-    Vec<entitybase::InstitutionRoleAssignmentChange<[u8; 32]>>,
-    axum::response::Response,
-> {
+) -> Result<Vec<entitybase::InstitutionRoleAssignmentChange<[u8; 32]>>, axum::response::Response> {
     let mut seen_roles = std::collections::BTreeSet::new();
     let mut out = Vec::with_capacity(input.len());
     for item in input {
@@ -595,22 +586,22 @@ fn legal_representative_change(
 /// 把「发起管理员 / 机构 CID / 用途 / 待签 call / 动作码 / 业务上下文」收成一体,
 /// 避免 `build_chain_sign_output` 变成长参数列表——那样既容易在调用点串位,
 /// 也会触发 `clippy::too_many_arguments`(手写函数不走 FRAME ABI 豁免)。
-pub(crate) struct InstitutionChainSignRequest<'a> {
+pub struct InstitutionChainSignRequest<'a> {
     /// 发起管理员的钱包账户 account_id。
-    pub(crate) account_id: &'a str,
+    pub account_id: &'a str,
     /// 目标机构 CID。
-    pub(crate) cid_number: &'a str,
+    pub cid_number: &'a str,
     /// 会话用途常量,落库后决定 submit 阶段的投影分支。
-    pub(crate) purpose: &'static str,
+    pub purpose: &'static str,
     /// 待冷签的 extrinsic call_data。
-    pub(crate) call_data: Vec<u8>,
+    pub call_data: Vec<u8>,
     /// QR 链交易动作码 `(pallet_index << 8) | call_index`。
-    pub(crate) chain_action: u16,
+    pub chain_action: u16,
     /// 落库的业务上下文,供 submit 阶段还原操作语义。
-    pub(crate) context: serde_json::Value,
+    pub context: serde_json::Value,
 }
 
-pub(crate) async fn build_chain_sign_output(
+pub async fn build_chain_sign_output(
     state: &AppState,
     request: InstitutionChainSignRequest<'_>,
     passkey: &crate::authentication::passkey::PasskeyProof,
@@ -636,7 +627,7 @@ pub(crate) async fn build_chain_sign_output(
     let issued_at = Utc::now();
     let expires_at = issued_at + Duration::seconds(SESSION_TTL_SECS);
     let request_id = format!("institution-governance-{}", Uuid::new_v4());
-    let sign_request = crate::core::qr::build_sign_request_bytes(
+    let sign_request = crate::qr::build_sign_request_bytes(
         request_id.as_str(),
         issued_at.timestamp(),
         expires_at.timestamp(),
@@ -814,7 +805,7 @@ pub(crate) async fn prepare_institution_governance(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    crate::core::runtime_ops::append_audit_log(
+    crate::audit_runtime::append_audit_log(
         &state,
         "INSTITUTION_GOVERNANCE_PREPARE",
         &ctx.account_id,

@@ -1,7 +1,7 @@
 import { sanitizeError } from "../client/tauri";
 import { adminsChangeApi } from "../institution/admins";
 import { accountIdToSs58 } from "../client/ss58";
-import { CitizenSignatureModal } from "../desktop/CitizenSignatureModal";
+import { CitizenSignatureModal } from "../desktop/signing";
 import type { ActivatedAdmin, AdminSignerMatch } from "../institution/council";
 import type { VoteSignRequestResult } from "../client/signing";
 import { offchainApi } from "./api";

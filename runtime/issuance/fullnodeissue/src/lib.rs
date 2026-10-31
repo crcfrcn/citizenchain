@@ -223,7 +223,7 @@ pub mod pallet {
             {
                 // 预申报 on_finalize 最坏路径预算：
                 // digest + 真实出块记录 + 奖励账户映射 + balances/issuance + event 相关读写
-                T::DbWeight::get().reads_writes(5, 7)
+                T::WeightInfo::on_finalize_reward()
             } else {
                 Weight::zero()
             }

@@ -8,13 +8,9 @@ use axum::{
     Json,
 };
 
-use crate::{
-    api_error,
-    authentication::login::AdminAuthContext,
-    cid::china::{city_code_by_name, province_code_by_name, town_exists},
-    core::response::ApiResponse,
-    require_admin_any, AppState,
-};
+use crate::{api_error, authentication::login::AdminAuthContext, require_admin_any, AppState};
+use onchina::codes::china::{city_code_by_name, province_code_by_name, town_exists};
+use onchina::response::ApiResponse;
 
 use super::{
     chain_call::build_address_chain_call,
@@ -106,7 +102,7 @@ pub(crate) async fn list_address_names(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&ctx) {
+    if let Err(resp) = onchina::authorization::rules::ensure_registry_admin(&ctx) {
         return resp;
     }
     let (province_code, city_code, town_code) = match checked_scope(&ctx, &query) {
@@ -141,7 +137,7 @@ pub(crate) async fn list_addresses(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&ctx) {
+    if let Err(resp) = onchina::authorization::rules::ensure_registry_admin(&ctx) {
         return resp;
     }
     let (province_code, city_code, town_code) = match checked_scope(&ctx, &query) {
@@ -189,14 +185,16 @@ pub(crate) async fn prepare_chain_call(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&ctx) {
+    if let Err(resp) = onchina::authorization::rules::ensure_registry_admin(&ctx) {
         return resp;
     }
     // 链上写(PasskeyColdSign 档):本入口产出待冷签的地址上链 call,
     // 不经冷签会话表,拿不到 PasskeyProof 的类型约束,故在此显式断言。
-    if let Err(resp) =
-        crate::authentication::passkey::require_passkey_assertion(&state, &headers, ctx.account_id.as_str())
-    {
+    if let Err(resp) = onchina::authentication::passkey::require_passkey_assertion(
+        &state,
+        &headers,
+        ctx.account_id.as_str(),
+    ) {
         return resp;
     }
     if let (Some(province_code), Some(city_code)) = (&input.province_code, &input.city_code) {
@@ -204,11 +202,11 @@ pub(crate) async fn prepare_chain_call(
             return resp;
         }
     }
-    let actor_cid_number =
-        match crate::registry::citizens::chain_identity::active_registry_cid_number(&state) {
-            Ok(cid_number) => cid_number,
-            Err(resp) => return resp,
-        };
+    let actor_cid_number = match crate::citizens::chain_identity::active_registry_cid_number(&state)
+    {
+        Ok(cid_number) => cid_number,
+        Err(resp) => return resp,
+    };
     match build_address_chain_call(&actor_cid_number, &input) {
         Ok(output) => ok(output),
         Err(err) => api_error(StatusCode::BAD_REQUEST, 1001, err.as_str()),

@@ -243,14 +243,17 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
+// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
+
 impl votebase::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
-    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
-    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
-    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Test, 8>;
+    type MaxAutoFinalizeWeightPerBlock = LogicBudget;
+    type MaxExecutionWeightPerBlock = LogicBudget;
+    type MaxCleanupWeightPerBlock = LogicBudget;
     type MaxProposalsPerExpiry = ConstU32<128>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;
@@ -283,6 +286,7 @@ impl internalvote::Config for Test {
 }
 
 parameter_types! {
+    pub static ActivationBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX;
     pub const MaxTitleLen: u32 = 256;
     pub const MaxTextLen: u32 = 8192;
     pub const MaxClausesPerArticle: u32 = 50;
@@ -293,6 +297,7 @@ parameter_types! {
 }
 
 impl crate::pallet::Config for Test {
+    type ActivationWeightBudget = ActivationBudget;
     type RuntimeEvent = RuntimeEvent;
     // 立法投票引擎单测装配为 ()(NotConfigured);端到端见 legislationvote 测试。
     type LegislationVoteEngine = ();
@@ -314,6 +319,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         .expect("test storage should build");
     let mut ext = sp_io::TestExternalities::new(storage);
     ext.execute_with(|| {
+        ActivationBudget::set(frame_support::weights::Weight::MAX);
         System::set_block_number(1);
         Timestamp::set_timestamp(1_000);
     });
@@ -489,3 +495,50 @@ pub type Lib = crate::pallet::Pallet<Test>;
 mod cases;
 
 mod performance;
+
+// 预算约束只分批处理队列，不改变法律的原定生效时间。
+#[test]
+fn activation_budget_keeps_work_and_rotates_future_entries() {
+    use crate::weights::WeightInfo;
+    use frame_support::{assert_ok, traits::Hooks};
+    new_test_ext().execute_with(|| {
+        for effective_at in [9_000, 2_000] {
+            let mut summary = enact_summary(
+                Tier::Municipal,
+                municipal_region(),
+                VoteType::Major,
+                b"budget",
+            );
+            summary.effective_at = effective_at;
+            assert_ok!(Lib::write_law_version(
+                7,
+                summary,
+                chapters_of(vec![article(1, b"text")]),
+                1_000
+            ));
+        }
+        Timestamp::set_timestamp(2_000);
+        let original = PendingActivations::<Test>::get();
+        ActivationBudget::set(frame_support::weights::Weight::zero());
+        Lib::on_initialize(2);
+        assert_eq!(PendingActivations::<Test>::get(), original);
+        assert_eq!(Laws::<Test>::get(1).unwrap().effective_version, None);
+
+        let budget = <() as WeightInfo>::on_initialize_base().saturating_add(
+            <() as WeightInfo>::process_activation().max(<() as WeightInfo>::retain_activation()),
+        );
+        ActivationBudget::set(budget);
+        assert!(!Lib::on_initialize(3).any_gt(budget));
+        assert_eq!(
+            PendingActivations::<Test>::get().as_slice(),
+            &[(1, 1, 2_000), (0, 1, 9_000)]
+        );
+        assert!(!Lib::on_initialize(4).any_gt(budget));
+        assert_eq!(Laws::<Test>::get(1).unwrap().effective_version, Some(1));
+        assert_eq!(LawVersions::<Test>::get(1, 1).unwrap().effective_at, 2_000);
+        assert_eq!(
+            PendingActivations::<Test>::get().as_slice(),
+            &[(0, 1, 9_000)]
+        );
+    });
+}

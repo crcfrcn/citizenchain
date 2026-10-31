@@ -11,14 +11,14 @@ use axum::{
     Json,
 };
 
-use crate::authentication::login::{require_admin_any, AdminAuthContext};
-use crate::authorization::get_visible_scope;
-use crate::cid::china::{city_code_by_name, province_code_by_name};
-use crate::crypto::pubkey::{normalize_account_id, same_account_id};
-use crate::institutions::subjects::model::{
+use crate::*;
+use onchina::authentication::login::{require_admin_any, AdminAuthContext};
+use onchina::authorization::get_visible_scope;
+use onchina::codes::china::{city_code_by_name, province_code_by_name};
+use onchina::crypto::pubkey::{normalize_account_id, same_account_id};
+use onchina::institutions::subjects::model::{
     CreateInstitutionInput, InstitutionListFilter, InstitutionListRow,
 };
-use crate::*;
 
 pub(crate) async fn create_institution(
     State(state): State<AppState>,
@@ -88,7 +88,7 @@ async fn list_institutions_inner(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&ctx) {
+    if let Err(resp) = onchina::authorization::rules::ensure_registry_admin(&ctx) {
         return resp;
     }
     let scope = get_visible_scope(&ctx);
@@ -166,15 +166,15 @@ async fn list_institutions_inner(
     // 联邦(Tier1)省组管理员按市查看私权机构:先把该市链上私权机构 drill-in 投影进联邦本地库,
     // 再列。链读投影失败(如链不可达)只告警不阻断,列表仍返回本地已有(fail-open 展示)。
     if matches!(filter, InstitutionListFilter::Private)
-        && crate::core::chain_runtime::is_tier1_registry(ctx.institution_code.as_str())
+        && onchina::chain_runtime::is_tier1_registry(ctx.institution_code.as_str())
     {
         if let Some(city) = city_code {
-            let scope = crate::institutions::catalog::projection::NodeScope {
+            let scope = onchina::institutions::catalog::projection::NodeScope {
                 province_code: province_code.to_string(),
                 city_code: city.to_string(),
             };
             if let Err(err) =
-                crate::registry::projection::drill_in_project_private_scope(&state.db, &scope).await
+                crate::projection::drill_in_project_private_scope(&state.db, &scope).await
             {
                 tracing::warn!(error = %err, "federal drill-in private projection failed");
             }
@@ -211,7 +211,7 @@ pub(crate) fn precheck_institution_create_scope(
     ctx: &AdminAuthContext,
     payload: &serde_json::Value,
 ) -> Result<(), String> {
-    let scope = crate::authorization::rules::get_visible_scope(ctx);
+    let scope = onchina::authorization::rules::get_visible_scope(ctx);
     check_locked_field(
         scope.locked_province_name.as_deref(),
         payload.get("provinceName").and_then(|v| v.as_str()),
@@ -274,33 +274,5 @@ fn check_locked_field(
 }
 
 #[cfg(test)]
-mod naming_tests {
-    use super::*;
-
-    #[test]
-    fn scope_precheck_reads_canonical_admin_account_keys() {
-        let ctx = AdminAuthContext {
-            account_id: format!("0x{}", "11".repeat(32)),
-            institution_cid_number: "test-institution".into(),
-            institution_code: "CREG".into(),
-            admin_level: None,
-            family_name: "测".into(),
-            given_name: "试".into(),
-            scope_province_name: Some("贵州省".into()),
-            scope_city_name: Some("绥阳市".into()),
-            scope_town_name: None,
-            cid_short_name: None,
-        };
-        let a = format!("0x{}", "22".repeat(32));
-        let b = format!("0x{}", "33".repeat(32));
-        let input = serde_json::json!({"provinceName":"贵州省", "cityName":"绥阳市",
-            "admins":[{"accountId":a},{"accountId":b}]});
-        assert!(precheck_institution_create_scope(&ctx, &input).is_ok());
-        let legacy = serde_json::json!({"provinceName":"贵州省", "cityName":"绥阳市",
-            "admins":[{"account_id":a},{"account_id":b}]});
-        assert!(precheck_institution_create_scope(&ctx, &legacy).is_err());
-        let duplicate = serde_json::json!({"provinceName":"贵州省", "cityName":"绥阳市",
-            "admins":[{"accountId":a},{"accountId":a}]});
-        assert!(precheck_institution_create_scope(&ctx, &duplicate).is_err());
-    }
-}
+#[path = "../tests/institutions_registration_naming_tests.rs"]
+mod naming_tests;

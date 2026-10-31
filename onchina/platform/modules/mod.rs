@@ -1,8 +1,8 @@
 //! 模块说明由实际入口提供，平台只装载、转发和管理进程。
 #[path = "capability.rs"]
-pub(crate) mod capability;
+pub mod capability;
 #[path = "model.rs"]
-pub(crate) mod model;
+pub mod model;
 use crate::{api_error, AppState};
 use axum::{
     body::Body,
@@ -27,7 +27,7 @@ use std::{
 };
 
 /// 版本及业务声明来自模块入口；不按模块名硬编码业务分支。
-pub(crate) fn describe_module(
+pub fn describe_module(
     id: &str,
     version: &str,
     frontend_source: &str,
@@ -124,13 +124,13 @@ impl RemoteModule {
     }
 }
 /// 一次启动对应一个目录；故障或缺失模块不会删除其会话及业务数据。
-pub(crate) struct ModuleCatalog {
-    pub(crate) local: Option<Arc<dyn ModuleBusiness>>,
+pub struct ModuleCatalog {
+    pub local: Option<Arc<dyn ModuleBusiness>>,
     remotes: Mutex<Vec<Arc<RemoteModule>>>,
     local_description: Option<ModuleDescription>,
 }
 impl ModuleCatalog {
-    pub(crate) fn new(local: Option<Arc<dyn ModuleBusiness>>) -> Self {
+    pub fn new(local: Option<Arc<dyn ModuleBusiness>>) -> Self {
         let local_description = local.as_ref().map(|module| module.describe());
         Self {
             local,
@@ -153,12 +153,12 @@ impl ModuleCatalog {
             })
             .unwrap_or_default()
     }
-    pub(crate) fn capabilities(&self, code: &str) -> Option<capability::CapabilitySet> {
+    pub fn capabilities(&self, code: &str) -> Option<capability::CapabilitySet> {
         self.descriptions()
             .iter()
             .find_map(|m| m.capabilities.get(code).copied())
     }
-    pub(crate) fn workspace(&self, code: &str) -> Option<WorkspaceDeclaration> {
+    pub fn workspace(&self, code: &str) -> Option<WorkspaceDeclaration> {
         self.descriptions()
             .iter()
             .find_map(|m| m.workspaces.get(code).cloned())
@@ -204,7 +204,7 @@ impl ModuleCatalog {
             })
             .collect()
     }
-    pub(crate) fn routes(&self) -> Vec<(String, RouteDescription)> {
+    pub fn routes(&self) -> Vec<(String, RouteDescription)> {
         self.descriptions()
             .into_iter()
             .flat_map(|m| {
@@ -435,7 +435,7 @@ impl ModuleCatalog {
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
         let address = socket.local_addr().map_err(|e| e.to_string())?;
         drop(socket);
-        let ca = crate::core::tls::organization_ca_certificate_pem()?;
+        let ca = crate::tls::organization_ca_certificate_pem()?;
         let client = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
@@ -451,7 +451,7 @@ impl ModuleCatalog {
                 .env("DATABASE_URL", database_url)
                 .env("ONCHINA_EMBEDDED_PG", "0")
                 .env("ONCHINA_MODULE_BIND", address.to_string())
-                .env("ONCHINA_TLS_DIR", crate::core::tls::tls_dir())
+                .env("ONCHINA_TLS_DIR", crate::tls::tls_dir())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())
                 .stderr(Stdio::inherit())
@@ -908,541 +908,11 @@ pub(crate) fn run_module_command(
 }
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    #[ignore = "仅供HTTPS进程回归通过精确名称拉起"]
-    async fn https_child() {
-        if std::env::var_os("ONCHINA_HTTPS_CHILD_TEST").is_none() {
-            return;
-        }
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let directory = PathBuf::from(std::env::var_os("ONCHINA_TEST_TLS_DIRECTORY").unwrap());
-        let id = std::env::var("ONCHINA_TEST_MODULE_ID").unwrap();
-        let health_id = id.clone();
-        let workspace_id = id.clone();
-        let route = format!("/api/{id}/module-test/{{id}}");
-        let version = std::env::var("ONCHINA_TEST_VERSION").unwrap();
-        let health_version = version.clone();
-        let slow = std::env::var("ONCHINA_TEST_SLOW_WORKSPACE").unwrap() == "1";
-        let app = axum::Router::new()
-            .route("/api/health", axum::routing::get(move || {
-                let version = health_version.clone();
-                let id = health_id.clone();
-                async move { Json(serde_json::json!({"code":0,"data":{"status":"UP","module_id":id,"module_version":version}})) }
-            }))
-            .route(&route, axum::routing::post(move |request: Request| {
-                let version = version.clone();
-                async move {
-                    let (parts, body) = request.into_parts();
-                    let body = axum::body::to_bytes(body, 1024).await.unwrap();
-                    let response = serde_json::json!({"version":version,"method":parts.method.as_str(),"uri":parts.uri.to_string(),
-                        "authorization":parts.headers.get("authorization").and_then(|v|v.to_str().ok()),
-                        "passkey":parts.headers.get("x-passkey-assertion").and_then(|v|v.to_str().ok()),
-                        "grant":parts.headers.get("x-cid-security-grant").and_then(|v|v.to_str().ok()),
-                        "body":String::from_utf8(body.to_vec()).unwrap()});
-                    (StatusCode::CREATED, [("x-module-version", version)], Json(response))
-                }
-            }))
-            .route("/internal/workspace", axum::routing::get(move || {
-                let id = workspace_id.clone();
-                async move {
-                if slow { tokio::time::sleep(Duration::from_secs(60)).await; }
-                Json(serde_json::json!({"code":0,"data":[id]}))
-                }
-            }));
-        let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(
-            directory.join("server.crt"),
-            directory.join("server.key"),
-        )
-        .await
-        .unwrap();
-        let handle = axum_server::Handle::new();
-        let close = handle.clone();
-        let parent = crate::parent_shutdown();
-        tokio::spawn(async move {
-            crate::shutdown_signal(parent).await;
-            close.graceful_shutdown(Some(Duration::from_millis(100)));
-        });
-        // 明确TCP地址类型，避免axum-server同时支持Unix地址时无法推断。
-        axum_server::bind_rustls(
-            std::env::var("ONCHINA_TEST_BIND")
-                .unwrap()
-                .parse::<std::net::SocketAddr>()
-                .unwrap(),
-            config,
-        )
-        .handle(handle)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
-    async fn https_workspace_timeout_and_restart_preserve_process_ownership() {
-        let mut fixture = super::test_support::https_fixture("example").await;
-        let old = fixture.catalog.remote("example").unwrap();
-        let old_pid = old.child.lock().unwrap().id();
-        assert_eq!(
-            fixture
-                .catalog
-                .workspace_modules("test-cid", &HeaderMap::new())
-                .await,
-            vec!["example"]
-        );
-        fixture.restart("1.0.1", true).await;
-        assert!(old.child.lock().unwrap().try_wait().unwrap().is_some());
-        assert_ne!(
-            old_pid,
-            fixture
-                .catalog
-                .remote("example")
-                .unwrap()
-                .child
-                .lock()
-                .unwrap()
-                .id()
-        );
-        assert_eq!(fixture.catalog.assets()[0].version, "1.0.1");
-        let started = Instant::now();
-        assert!(fixture
-            .catalog
-            .workspace_modules("test-cid", &HeaderMap::new())
-            .await
-            .is_empty());
-        assert!(started.elapsed() < Duration::from_secs(9));
-        fixture.catalog.stop_all().unwrap();
-        fixture.catalog.stop_all().unwrap();
-        assert!(fixture.catalog.assets().is_empty());
-        let stopped = fixture.catalog.remote("example");
-        assert!(stopped.is_none());
-    }
-
-    #[tokio::test]
-    async fn slow_workspace_modules_do_not_serialize_or_hide_healthy_modules() {
-        let mut first = super::test_support::https_fixture("slowone").await;
-        let mut second = super::test_support::https_fixture("slowtwo").await;
-        let ready = super::test_support::https_fixture("ready").await;
-        first.restart("1.0.1", true).await;
-        second.restart("1.0.1", true).await;
-        let catalog = ModuleCatalog::new(None);
-        for fixture in [&first, &second, &ready] {
-            catalog
-                .remotes
-                .lock()
-                .unwrap()
-                .push(fixture.catalog.remote(&fixture.id).unwrap());
-        }
-        let start = Instant::now();
-        assert_eq!(
-            catalog
-                .workspace_modules("test-cid", &HeaderMap::new())
-                .await,
-            vec!["ready"]
-        );
-        // 两个5秒超时若串行会超过10秒；允许调度余量，仍须保留健康模块。
-        assert!(start.elapsed() < Duration::from_secs(9));
-        catalog.stop_all().unwrap();
-    }
-
-    #[tokio::test]
-    async fn module_https_requires_certificate_trust_and_hostname() {
-        let fixture = super::test_support::https_fixture("example").await;
-        let untrusted = reqwest::Client::builder()
-            .no_proxy()
-            .https_only(true)
-            .resolve("onchina.local", fixture.address)
-            .timeout(Duration::from_secs(2))
-            .build()
-            .unwrap();
-        assert!(untrusted
-            .get(format!(
-                "https://onchina.local:{}/api/health",
-                fixture.address.port()
-            ))
-            .send()
-            .await
-            .is_err());
-        let wrong_host = reqwest::Client::builder()
-            .no_proxy()
-            .https_only(true)
-            .resolve("wrong.invalid", fixture.address)
-            .add_root_certificate(reqwest::Certificate::from_pem(fixture.ca.as_bytes()).unwrap())
-            .timeout(Duration::from_secs(2))
-            .build()
-            .unwrap();
-        assert!(wrong_host
-            .get(format!(
-                "https://wrong.invalid:{}/api/health",
-                fixture.address.port()
-            ))
-            .send()
-            .await
-            .is_err());
-        fixture.catalog.stop_all().unwrap();
-    }
-
-    #[test]
-    fn route_conflicts_include_method_and_path() {
-        let route = RouteDescription {
-            group: "admin".into(),
-            path: "/api/example/{id}".into(),
-            methods: vec!["GET".into()],
-            body_limit: 2 * 1024 * 1024,
-        };
-        assert!(route_keys(&[route.clone()]).is_ok());
-        assert!(route_keys(&[route.clone(), route]).is_err());
-    }
-    #[test]
-    fn implicit_head_and_parameter_names_cannot_bypass_conflicts() {
-        let get = RouteDescription {
-            group: "admin".into(),
-            path: "/api/example/{id}".into(),
-            methods: vec!["GET".into()],
-            body_limit: 1,
-        };
-        let head = RouteDescription {
-            methods: vec!["HEAD".into()],
-            path: "/api/example/{cid_number}".into(),
-            ..get.clone()
-        };
-        assert!(route_keys(&[get.clone(), head]).is_err());
-        let invalid = RouteDescription {
-            path: "/api/example/{*all}".into(),
-            ..get.clone()
-        };
-        assert!(route_keys(&[invalid]).is_err());
-        let too_large = RouteDescription {
-            body_limit: crate::documents::MAX_REQUEST_BYTES + 1,
-            ..get
-        };
-        assert!(route_keys(&[too_large]).is_err());
-    }
-    #[test]
-    fn incompatible_metadata_and_core_action_replacement_are_rejected() {
-        let mut description = ModuleDescription {
-            id: "example".into(),
-            version: "1.0.0".into(),
-            interface_version: model::MODULE_INTERFACE_VERSION,
-            frontend_source: "frontend/Workspace.tsx".into(),
-            frontend_exports: vec!["Workspace".into()],
-            frontend_workspace: Some("Workspace".into()),
-            instance_workspace: false,
-            routes: Vec::new(),
-            purposes: Vec::new(),
-            actions: Vec::new(),
-            capabilities: BTreeMap::new(),
-            workspaces: BTreeMap::new(),
-        };
-        assert!(validate_description(&description).is_ok());
-        description.interface_version += 1;
-        assert!(validate_description(&description).is_err());
-        description.interface_version -= 1;
-        description.frontend_workspace = Some("Missing".into());
-        assert!(validate_description(&description).is_err());
-        description.frontend_workspace = None;
-        description.actions.push("NODE_BINDING_UNBIND".into());
-        assert!(validate_description(&description).is_err());
-        description.actions = vec!["EXAMPLE_OPERATION".into()];
-        assert!(validate_description(&description).is_ok());
-        description
-            .capabilities
-            .insert("FRG".into(), capability::EMPTY);
-        assert!(validate_description(&description).is_err());
-        description.capabilities.clear();
-        description.frontend_source = "../frontend/Workspace.tsx".into();
-        assert!(validate_description(&description).is_err());
-    }
-    #[test]
-    fn identifiers_reject_paths() {
-        for id in ["registry", "legislation", "private", "judicial"] {
-            assert!(valid_id(id));
-        }
-        for id in ["", "../registry", "/tmp/module", "Registry", "a-b"] {
-            assert!(!valid_id(id));
-        }
-    }
-}
+#[path = "../tests/modules.rs"]
+mod tests;
 
 /// 测试金标只用于输入夹具；各二进制另核验真实模块输出，不能把夹具当生产声明。
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-pub(crate) mod test_support {
-    use super::*;
-    pub(crate) fn fixture_description() -> ModuleDescription {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("layout.fixture.json")).unwrap();
-        let mut capabilities = BTreeMap::new();
-        let mut workspaces = BTreeMap::new();
-        for case in fixture["capabilityCases"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|case| case["owner"].is_string())
-        {
-            let mut value = serde_json::to_value(capability::EMPTY).unwrap();
-            for flag in case["flags"].as_array().unwrap() {
-                value[flag.as_str().unwrap()] = serde_json::Value::Bool(true);
-            }
-            let code = case["code"].as_str().unwrap().to_string();
-            capabilities.insert(code.clone(), serde_json::from_value(value).unwrap());
-            if !case["kind"].is_null() {
-                workspaces.insert(
-                    code,
-                    WorkspaceDeclaration {
-                        kind: serde_json::from_value(case["kind"].clone()).unwrap(),
-                        sections: serde_json::from_value(case["sections"].clone()).unwrap(),
-                    },
-                );
-            }
-        }
-        ModuleDescription {
-            id: "fixture".into(),
-            version: "1.0.0".into(),
-            interface_version: model::MODULE_INTERFACE_VERSION,
-            frontend_source: "frontend/Fixture.tsx".into(),
-            frontend_exports: vec!["Fixture".into()],
-            frontend_workspace: None,
-            instance_workspace: false,
-            routes: Vec::new(),
-            purposes: Vec::new(),
-            actions: Vec::new(),
-            capabilities,
-            workspaces,
-        }
-    }
-    struct FixtureModule;
-    #[async_trait::async_trait]
-    impl ModuleBusiness for FixtureModule {
-        fn describe(&self) -> ModuleDescription {
-            fixture_description()
-        }
-        fn routes(&self) -> Vec<ModuleRoute> {
-            Vec::new()
-        }
-    }
-    pub(crate) fn fixture_catalog() -> ModuleCatalog {
-        ModuleCatalog::new(Some(Arc::new(FixtureModule)))
-    }
-
-    // 真实HTTPS/父管道测试夹具：临时证书和输入只归本用例，不连接数据库或链。
-    pub(crate) struct HttpsFixture {
-        pub(crate) catalog: Arc<ModuleCatalog>,
-        pub(crate) address: std::net::SocketAddr,
-        pub(crate) ca: String,
-        directory: PathBuf,
-        pub(crate) id: String,
-    }
-    impl HttpsFixture {
-        pub(crate) async fn restart(&mut self, version: &str, slow: bool) {
-            self.catalog.stop_all().unwrap();
-            // 直接复用当前测试程序；每次子进程仍有独立输入、父管道和退出回收。
-            // 标准stderr直接交给测试日志，不隐藏子进程的启动诊断。
-            let mut child = ModuleProcess(
-                Command::new(std::env::current_exe().unwrap())
-                    .args(["--ignored", "--exact", "modules::tests::https_child"])
-                    .env("ONCHINA_HTTPS_CHILD_TEST", "1")
-                    .env("ONCHINA_PARENT_PIPE", "1")
-                    .env("ONCHINA_TEST_MODULE_ID", &self.id)
-                    .env("ONCHINA_TEST_BIND", self.address.to_string())
-                    .env("ONCHINA_TEST_VERSION", version)
-                    .env("ONCHINA_TEST_TLS_DIRECTORY", &self.directory)
-                    .env("ONCHINA_TEST_SLOW_WORKSPACE", if slow { "1" } else { "0" })
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::inherit())
-                    .spawn()
-                    .unwrap(),
-            );
-            let client = reqwest::Client::builder()
-                .no_proxy()
-                .https_only(true)
-                .redirect(reqwest::redirect::Policy::none())
-                .add_root_certificate(reqwest::Certificate::from_pem(self.ca.as_bytes()).unwrap())
-                .resolve("onchina.local", self.address)
-                .connect_timeout(Duration::from_secs(1))
-                .build()
-                .unwrap();
-            let endpoint = format!("https://onchina.local:{}", self.address.port());
-            let start = Instant::now();
-            loop {
-                assert!(
-                    child.try_wait().unwrap().is_none(),
-                    "HTTPS test child exited"
-                );
-                // 只报告本夹具健康请求的失败；原重试、超时、证书与主机名校验不变。
-                if let Ok(response) = client
-                    .get(format!("{endpoint}/api/health"))
-                    .timeout(Duration::from_millis(250))
-                    .send()
-                    .await
-                    .inspect_err(|error| eprintln!("HTTPS test health request failed: {error:?}"))
-                {
-                    let status = response.status();
-                    if let Ok(value) =
-                        response
-                            .json::<serde_json::Value>()
-                            .await
-                            .inspect_err(|error| {
-                                eprintln!("HTTPS test health JSON failed ({status}): {error:?}")
-                            })
-                    {
-                        if value
-                            .pointer("/data/module_version")
-                            .and_then(|v| v.as_str())
-                            == Some(version)
-                        {
-                            break;
-                        }
-                        eprintln!("HTTPS test health version mismatch ({status}): expected {version}, received {:?}", value.pointer("/data/module_version").and_then(|v| v.as_str()));
-                    }
-                }
-                assert!(
-                    start.elapsed() < Duration::from_secs(10),
-                    "HTTPS test child readiness"
-                );
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
-            let route = RouteDescription {
-                group: "public".into(),
-                path: format!("/api/{}/module-test/{{id}}", self.id),
-                methods: vec!["POST".into()],
-                body_limit: 1024,
-            };
-            let description = ModuleDescription {
-                id: self.id.clone(),
-                version: version.into(),
-                interface_version: model::MODULE_INTERFACE_VERSION,
-                frontend_source: "frontend/Workspace.tsx".into(),
-                frontend_exports: vec!["Workspace".into()],
-                frontend_workspace: None,
-                instance_workspace: true,
-                routes: vec![route],
-                purposes: Vec::new(),
-                actions: Vec::new(),
-                capabilities: BTreeMap::new(),
-                workspaces: BTreeMap::new(),
-            };
-            validate_description(&description).unwrap();
-            let frontend = self.directory.join("frontend");
-            std::fs::create_dir_all(&frontend).unwrap();
-            let marker = format!(
-                "/*onchina:{}*/\n",
-                serde_json::json!({"id":&self.id,"version":version,"interfaceVersion":model::MODULE_INTERFACE_VERSION})
-            );
-            for name in ["module.js", "module.css"] {
-                std::fs::write(frontend.join(name), &marker).unwrap();
-            }
-            verify_frontend(&frontend, &description).unwrap();
-            self.catalog = Arc::new(ModuleCatalog::new(None));
-            self.catalog
-                .remotes
-                .lock()
-                .unwrap()
-                .push(Arc::new(RemoteModule {
-                    description,
-                    client,
-                    endpoint,
-                    frontend,
-                    child: Mutex::new(child),
-                }));
-        }
-    }
-    impl Drop for HttpsFixture {
-        fn drop(&mut self) {
-            let result = self.catalog.stop_all().and_then(|_| {
-                std::fs::remove_dir_all(&self.directory).map_err(|error| error.to_string())
-            });
-            if !std::thread::panicking() {
-                result.expect("test process and temporary directory cleanup");
-            }
-        }
-    }
-    pub(crate) async fn https_fixture(id: &str) -> HttpsFixture {
-        assert!(valid_id(id));
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let directory =
-            std::env::temp_dir().join(format!("onchina-module-test-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir(&directory).unwrap();
-        // 目录一创建就交给守卫，证书生成或启动失败同样清理自己的现场。
-        let mut fixture = HttpsFixture {
-            catalog: Arc::new(ModuleCatalog::new(None)),
-            address: (Ipv4Addr::LOCALHOST, 0).into(),
-            ca: String::new(),
-            directory,
-            id: id.into(),
-        };
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fixture.directory, std::fs::Permissions::from_mode(0o700))
-                .unwrap();
-        }
-        let ca_key = rcgen::KeyPair::generate().unwrap();
-        let mut ca_params = rcgen::CertificateParams::default();
-        // 沿用rcgen官方CA签发示例，名称与密钥标识明确区分颁发者和服务器。
-        ca_params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, "OnChina test CA");
-        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-        ca_params.key_usages = vec![
-            rcgen::KeyUsagePurpose::DigitalSignature,
-            rcgen::KeyUsagePurpose::KeyCertSign,
-            rcgen::KeyUsagePurpose::CrlSign,
-        ];
-        let ca = ca_params.self_signed(&ca_key).unwrap();
-        let key = rcgen::KeyPair::generate().unwrap();
-        let mut params = rcgen::CertificateParams::new(vec!["onchina.local".into()]).unwrap();
-        params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, "onchina.local");
-        params.use_authority_key_identifier_extension = true;
-        params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
-        params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
-        let certificate = params.signed_by(&key, &ca, &ca_key).unwrap();
-        std::fs::write(fixture.directory.join("server.crt"), certificate.pem()).unwrap();
-        std::fs::write(fixture.directory.join("server.key"), key.serialize_pem()).unwrap();
-        let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        fixture.address = socket.local_addr().unwrap();
-        drop(socket);
-        fixture.ca = ca.pem();
-        fixture.restart("1.0.0", false).await;
-        fixture
-    }
-
-    pub(crate) fn assert_actual_module(module: &dyn ModuleBusiness) {
-        let description = module.describe();
-        validate_description(&description).unwrap();
-        assert_eq!(
-            description.routes,
-            module
-                .routes()
-                .into_iter()
-                .map(|route| route.description)
-                .collect::<Vec<_>>()
-        );
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("layout.fixture.json")).unwrap();
-        let expected = fixture_description();
-        for case in fixture["capabilityCases"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|case| case["owner"].as_str() == Some(description.id.as_str()))
-        {
-            let code = case["code"].as_str().unwrap();
-            assert_eq!(
-                serde_json::to_value(description.capabilities.get(code).unwrap()).unwrap(),
-                serde_json::to_value(expected.capabilities[code]).unwrap(),
-                "{code}"
-            );
-            let workspace = description.workspaces.get(code).unwrap();
-            assert_eq!(serde_json::to_value(workspace.kind).unwrap(), case["kind"]);
-            assert_eq!(
-                serde_json::to_value(&workspace.sections).unwrap(),
-                case["sections"],
-                "{code} sections"
-            );
-        }
-    }
-}
+#[path = "../tests/modules_test_support.rs"]
+pub mod test_support;

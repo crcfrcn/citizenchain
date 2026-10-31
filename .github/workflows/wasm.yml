@@ -119,8 +119,8 @@ jobs:
           target/build/wasm/cargo-target/release/deps
           target/build/wasm/cargo-target/release/incremental
           target/cache/wasm/npm
-        key: citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: 'citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(''Cargo.lock'', ''crates/protocol/Cargo.lock'', ''config.toml'', ''crates/scanner/package-lock.json'', ''node/frontend/package-lock.json'', ''onchina/platform/frontend/package-lock.json'') }}-
+        key: citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: 'citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(''Cargo.lock'', ''crates/protocol/Cargo.lock'', ''config.toml'', ''crates/scanner/package-lock.json'', ''node/frontend/package-lock.json'', ''onchina/platformweb/package-lock.json'', ''onchina/registryweb/package-lock.json'', ''onchina/legislationweb/package-lock.json'', ''onchina/private/frontend/package-lock.json'', ''onchina/judicial/frontend/package-lock.json'') }}-
 
           '
     - name: 执行产品所属真实测试
@@ -183,7 +183,7 @@ jobs:
           target/build/wasm/cargo-target/release/deps
           target/build/wasm/cargo-target/release/incremental
           target/cache/wasm/npm
-        key: citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platform/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        key: citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
     - name: 上传完整Artifact
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:

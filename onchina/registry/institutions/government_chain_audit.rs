@@ -1,7 +1,7 @@
 //! 注册局显式全量目录验收，启动抽样由平台负责。
+use onchina::audit_runtime::catalog::{audit_one, constant_institutions, AuditError};
+use onchina::chain_runtime;
 use std::collections::BTreeMap;
-use crate::core::chain_runtime;
-use crate::core::runtime_ops::catalog::{audit_one, constant_institutions, AuditError};
 pub(crate) fn full_audit_blocking() -> Result<(), String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| format!("audit runtime: {e}"))?;
     rt.block_on(async {

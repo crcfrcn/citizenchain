@@ -81,7 +81,7 @@ pub(crate) fn parse_sr25519_public_key_bytes(public_key: &str) -> Option<[u8; 32
 }
 
 /// 把规范账户 ID 解码为当前 runtime 使用的 32 字节账户值。
-pub(crate) fn parse_account_id_bytes(account_id: &str) -> Option<[u8; 32]> {
+pub fn parse_account_id_bytes(account_id: &str) -> Option<[u8; 32]> {
     let account_id = crate::crypto::pubkey::normalize_account_id(account_id)?;
     let bytes = Vec::from_hex(&account_id[2..]).ok()?;
     bytes.as_slice().try_into().ok()
@@ -111,7 +111,7 @@ pub(super) fn extract_domain_from_origin(origin: &str) -> Option<String> {
 }
 
 /// 返回管理员链上姓、名；本地异常空值分别收敛为“管理”“员”。
-pub(crate) fn admin_person_names(admin: &AdminUser) -> (String, String) {
+pub fn admin_person_names(admin: &AdminUser) -> (String, String) {
     let family_name = admin.family_name.trim();
     let given_name = admin.given_name.trim();
     (

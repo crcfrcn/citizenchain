@@ -5,6 +5,7 @@
 //!
 //! 无 token 鉴权：只按规范账户 ID 返回本人档案摘要，不签发链端可消费凭证。
 
+use crate::citizens::admin_entry::CitizenQueries;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -13,8 +14,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::core::chain_runtime::normalize_account_id;
 use crate::*;
+use onchina::chain_runtime::normalize_account_id;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -73,7 +74,7 @@ pub(crate) async fn app_vote_eligibility(
         return api_error(StatusCode::FORBIDDEN, 1003, "citizen not vote eligible");
     }
 
-    crate::core::runtime_ops::append_audit_log(
+    onchina::audit_runtime::append_audit_log(
         &state,
         "APP_VOTE_ELIGIBILITY",
         "app",

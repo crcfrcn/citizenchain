@@ -8,7 +8,7 @@
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use sp_runtime::traits::SaturatedConversion;
-use votebase::CitizenIdentityReader;
+use votebase::{CitizenIdentityReader, InternalAdminProvider};
 
 use crate::{
     pallet::{
@@ -80,6 +80,10 @@ mod benchmarks {
         let proposal_id = insert_proposal::<T>(votebase::STAGE_LEG_REPRESENTATIVE);
         let body = national_legislature(1);
         let voter: T::AccountId = account("representative", 0, 0);
+        <T as votebase::Config>::InternalAdminProvider::benchmark_seed_institution_voter(
+            body.as_slice(),
+            &voter,
+        );
         let role_subject = entitybase::RoleSubject {
             cid_number: body.clone(),
             role_code: b"BENCHMARK_MEMBER"
@@ -244,4 +248,100 @@ mod benchmarks {
 
         assert_eq!(LegGuardSigns::<T>::get(proposal_id).len(), 1);
     }
+    #[benchmark]
+    fn cleanup_representative(n: Linear<1, 256>) {
+        for i in 0..=n {
+            let mut bytes = sp_runtime::sp_std::vec![b'C';32];
+            bytes[..4].copy_from_slice(&i.to_le_bytes());
+            let cid: votebase::CidNumber = bytes.try_into().unwrap();
+            let _ticket = votebase::InstitutionVoteTicket {
+                role_subject: votebase::RoleSubject {
+                    cid_number: cid.clone(),
+                    role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
+                },
+                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+            };
+            crate::RepresentativeVotesByTicket::<T>::insert(0u64, (0u32, _ticket), true);
+        }
+        let result;
+        #[block]
+        {
+            result = <Pallet<T> as votebase::ProposalTrackHandler<
+                frame_system::pallet_prelude::BlockNumberFor<T>,
+                T::AccountId,
+            >>::cleanup_chunk(votebase::PROPOSAL_KIND_LEGISLATION, 0, n);
+        }
+        assert_eq!(result.expect("清理类型必须被认领").0, n);
+    }
+
+    #[benchmark]
+    fn cleanup_referendum(n: Linear<1, 256>) {
+        for i in 0..=n {
+            let mut bytes = sp_runtime::sp_std::vec![b'C';32];
+            bytes[..4].copy_from_slice(&i.to_le_bytes());
+            let cid: votebase::CidNumber = bytes.try_into().unwrap();
+            let _ticket = votebase::InstitutionVoteTicket {
+                role_subject: votebase::RoleSubject {
+                    cid_number: cid.clone(),
+                    role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
+                },
+                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+            };
+            crate::LegReferendumVotesByCid::<T>::insert(
+                0u64,
+                cid,
+                benchmark_value::<votebase::CitizenReferendumTicket<T::AccountId>>(),
+            );
+        }
+        let result;
+        #[block]
+        {
+            result = <Pallet<T> as votebase::ProposalTrackHandler<
+                frame_system::pallet_prelude::BlockNumberFor<T>,
+                T::AccountId,
+            >>::cleanup_chunk(votebase::PROPOSAL_KIND_LEGISLATION, 0, n);
+        }
+        assert_eq!(result.expect("清理类型必须被认领").0, n);
+    }
+
+    #[benchmark]
+    fn cleanup_terminal() {
+        crate::RepresentativeMetas::<T>::insert(
+            0u64,
+            benchmark_value::<crate::pallet::RepresentativeMeta>(),
+        );
+        crate::LegislationMetas::<T>::insert(
+            0u64,
+            benchmark_value::<crate::pallet::LegislationMeta>(),
+        );
+        for i in 0..crate::MAX_REPRESENTATIVE_BODIES {
+            crate::RepresentativeTallies::<T>::insert(
+                0u64,
+                i,
+                votebase::VoteCountU32 { yes: 1, no: 0 },
+            );
+        }
+        crate::LegReferendumTally::<T>::insert(0u64, votebase::VoteCountU64 { yes: 1, no: 0 });
+        crate::LegOverrideSigns::<T>::insert(0u64,frame_support::BoundedVec::<(T::AccountId,bool),frame_support::traits::ConstU32<3>>::default());
+        crate::LegGuardSigns::<T>::insert(
+            0u64,
+            frame_support::BoundedVec::<
+                (T::AccountId, bool),
+                frame_support::traits::ConstU32<{ crate::CONSTITUTION_GUARD_MEMBERS }>,
+            >::default(),
+        );
+        #[block]
+        {
+            assert!(<Pallet<T> as votebase::ProposalTrackHandler<
+                frame_system::pallet_prelude::BlockNumberFor<T>,
+                T::AccountId,
+            >>::cleanup_terminal(votebase::PROPOSAL_KIND_LEGISLATION, 0)
+            .is_some());
+        }
+    }
+}
+
+// 清理阶段只消费键和值；计时区间始终执行所属真实清理路由。
+fn benchmark_value<V: codec::Decode>() -> V {
+    V::decode(&mut sp_runtime::traits::TrailingZeroInput::zeroes()).expect("基准类型必须可构造")
 }

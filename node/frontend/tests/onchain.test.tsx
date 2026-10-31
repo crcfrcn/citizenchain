@@ -9,9 +9,9 @@ import type { Wallet } from "../onchain/types";
 // 使用本产品 scanner 原锁的组件测试工具；执行真实组件与 IPC 参数，不发送生产交易。
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import accountCode from '../../../crates/protocol/fixtures/account_id_code.json';
-import userContact from '../../../crates/protocol/fixtures/user_contact.json';
-import userTransfer from '../../../crates/protocol/fixtures/user_transfer.json';
+import accountCode from '../../../crates/protocol/tests/account_id_code.json';
+import userContact from '../../../crates/protocol/tests/user_contact.json';
+import userTransfer from '../../../crates/protocol/tests/user_transfer.json';
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -21,13 +21,13 @@ vi.mock('../client/tauri', () => ({
   invoke: mocks.invoke,
   sanitizeError: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
-vi.mock('../desktop/CitizenSignaturePanel', () => ({
+vi.mock("../desktop/signing", () => ({
   CitizenSignaturePanel: ({ onScan }: { onScan: (value: string) => Promise<void> }) => {
     mocks.scan = onScan;
     return <p>合成扫码界面</p>;
   },
 }));
-vi.mock('../desktop/AddressScanModal', () => ({ AddressScanModal: () => null }));
+vi.mock("../desktop/scanner", () => ({ AddressScanModal: () => null }));
 
 const wallet: Wallet = {
   name: '合成冷钱包', signMode: 'cold',

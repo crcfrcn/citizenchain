@@ -1,6 +1,6 @@
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
-import { CitizenSignaturePanel } from "../desktop/CitizenSignaturePanel";
+import { CitizenSignaturePanel } from "../desktop/signing";
 import { runtimeUpgradeApi as api } from "./api";
 import type { AdminSignerMatch } from "../institution/council";
 import type { PowDifficultyParams, ProposeUpgradeRequestResult } from "./api";

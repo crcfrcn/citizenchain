@@ -1,5 +1,6 @@
 //! 公民证件资料库，保持原有接口、鉴权和文件访问行为。
 #![allow(clippy::result_large_err)]
+use crate::citizens::chain_identity::IdentityOperations;
 use axum::{
     body::Body,
     extract::{Multipart, Path, State},
@@ -12,12 +13,40 @@ use uuid::Uuid;
 
 use crate::*;
 
-struct StoredCitizenDocument {
+pub(crate) struct StoredCitizenDocument {
     meta: CitizenDocument,
     file_path: String,
 }
 
-impl Db {
+/// 注册局本地数据库扩展；复用平台连接，原SQL与事务顺序保持。
+pub(crate) trait CitizenDocuments {
+    fn list_citizen_documents(
+        &self,
+        province_code: &str,
+        cid_number: &str,
+    ) -> Result<Vec<CitizenDocument>, String>;
+    fn insert_citizen_document(
+        &self,
+        doc: &CitizenDocument,
+        province_code: &str,
+        city_code: &str,
+        file_path: &str,
+    ) -> Result<CitizenDocument, String>;
+    fn get_citizen_document(
+        &self,
+        province_code: &str,
+        cid_number: &str,
+        doc_id: u64,
+    ) -> Result<Option<StoredCitizenDocument>, String>;
+    fn delete_citizen_document(
+        &self,
+        province_code: &str,
+        cid_number: &str,
+        doc_id: u64,
+    ) -> Result<bool, String>;
+}
+
+impl CitizenDocuments for Db {
     fn list_citizen_documents(
         &self,
         province_code: &str,
@@ -162,11 +191,11 @@ impl Db {
 
 fn ensure_citizen_document_scope(
     state: &AppState,
-    auth_ctx: &crate::authentication::login::AdminAuthContext,
+    auth_ctx: &onchina::authentication::login::AdminAuthContext,
     cid_number: &str,
 ) -> Result<CitizenRecord, axum::response::Response> {
-    crate::authorization::rules::ensure_registry_admin(auth_ctx)?;
-    let scope = crate::authorization::get_visible_scope(auth_ctx);
+    onchina::authorization::rules::ensure_registry_admin(auth_ctx)?;
+    let scope = onchina::authorization::get_visible_scope(auth_ctx);
     if !scope.can_write {
         return Err(api_error(
             StatusCode::FORBIDDEN,
@@ -189,10 +218,10 @@ fn ensure_citizen_document_scope(
         }
     };
     let province_name =
-        crate::cid::china::area_name_by_codes(record.province_code.as_str(), None, None)
+        onchina::codes::china::area_name_by_codes(record.province_code.as_str(), None, None)
             .map(|(province, _, _)| province.to_string())
             .unwrap_or_default();
-    let city_name = crate::cid::china::area_name_by_codes(
+    let city_name = onchina::codes::china::area_name_by_codes(
         record.province_code.as_str(),
         Some(record.city_code.as_str()),
         None,
@@ -308,17 +337,19 @@ pub(crate) async fn upload_citizen_document(
                 )
             }
         };
-    if !crate::documents::valid_file_size(file_data.len()) {
+    if !onchina::documents::valid_file_size(file_data.len()) {
         return api_error(StatusCode::BAD_REQUEST, 1001, "文件大小不能超过 10MB");
     }
 
     // 公民资料属于本地写，必须先消费一次性 Passkey 再创建文件或元数据。
-    if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
+    if let Err(resp) = onchina::authentication::actions::require_current_admin(&state, &ctx).await {
         return resp;
     }
-    if let Err(resp) =
-        crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id)
-    {
+    if let Err(resp) = onchina::authentication::passkey::require_passkey_assertion(
+        &state,
+        &headers,
+        &ctx.account_id,
+    ) {
         return resp;
     }
     let mut hasher = Sha256::new();
@@ -381,7 +412,7 @@ pub(crate) async fn upload_citizen_document(
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "公民资料落库失败");
         }
     };
-    crate::core::runtime_ops::append_audit_log(
+    onchina::audit_runtime::append_audit_log(
         &state,
         "CITIZEN_DOCUMENT_UPLOAD",
         &ctx.account_id,
@@ -477,12 +508,14 @@ pub(crate) async fn delete_citizen_document(
     }) else {
         return api_error(StatusCode::NOT_FOUND, 1004, "公民资料不存在");
     };
-    if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
+    if let Err(resp) = onchina::authentication::actions::require_current_admin(&state, &ctx).await {
         return resp;
     }
-    if let Err(resp) =
-        crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id)
-    {
+    if let Err(resp) = onchina::authentication::passkey::require_passkey_assertion(
+        &state,
+        &headers,
+        &ctx.account_id,
+    ) {
         return resp;
     }
     match state.db.delete_citizen_document(
@@ -502,7 +535,7 @@ pub(crate) async fn delete_citizen_document(
             tracing::warn!(error = %err, path = %doc.file_path, "remove citizen document file failed");
         }
     }
-    crate::core::runtime_ops::append_audit_log(
+    onchina::audit_runtime::append_audit_log(
         &state,
         "CITIZEN_DOCUMENT_DELETE",
         &ctx.account_id,

@@ -1,12 +1,27 @@
 //! 联邦注册局名册查询，保留原准确机构、任职、辖区和缓存规则。
-pub(crate) type FederalAdminsCache = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, Vec<crate::registry::admins::model::FederalRegistryAdminRow>)>>>;
-use axum::{extract::State, http::{HeaderMap, StatusCode}, response::IntoResponse, Json};
-use chrono::Utc;
-use std::collections::BTreeMap;
-use crate::authentication::repo;
-use crate::core::chain_runtime;
-use crate::institutions::catalog::balance_fen;
+pub(crate) type FederalAdminsCache = std::sync::Arc<
+    std::sync::Mutex<
+        std::collections::HashMap<
+            String,
+            (
+                std::time::Instant,
+                Vec<crate::admins::model::FederalRegistryAdminRow>,
+            ),
+        >,
+    >,
+>;
 use crate::*;
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    Json,
+};
+use chrono::Utc;
+use onchina::authentication::repo;
+use onchina::chain_runtime;
+use onchina::institutions::catalog::balance_fen;
+use std::collections::BTreeMap;
 /// 原有名册展示缓存有效期，不作为授权真源。
 const FEDERAL_ADMINS_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(30);
 pub(crate) async fn list_federal_registry_admins(
@@ -18,7 +33,7 @@ pub(crate) async fn list_federal_registry_admins(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&ctx) {
+    if let Err(resp) = onchina::authorization::rules::ensure_registry_admin(&ctx) {
         return resp;
     }
     let Some(province) = ctx
@@ -38,9 +53,7 @@ pub(crate) async fn list_federal_registry_admins(
     // 避免每次进 tab 都阻塞在链读上。锁不跨 await。
     {
         // 缓存锁即使被旧请求 poison 也只恢复当前内存缓存，不影响链上管理员授权真源。
-        let cache = cache
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
+        let cache = cache.lock().unwrap_or_else(|err| err.into_inner());
         if let Some((cached_at, rows)) = cache.get(&province) {
             if cached_at.elapsed() < FEDERAL_ADMINS_CACHE_TTL {
                 return Json(ApiResponse {
@@ -60,7 +73,10 @@ pub(crate) async fn list_federal_registry_admins(
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
         }
     };
-    let identity = match chain_runtime::identity_from_binding_parts(&binding.institution_code, Some(binding.institution_cid_number.as_str())) {
+    let identity = match chain_runtime::identity_from_binding_parts(
+        &binding.institution_code,
+        Some(binding.institution_cid_number.as_str()),
+    ) {
         Ok(identity) => identity,
         Err(err) => {
             let message = format!("node binding invalid: {err}");
@@ -68,7 +84,7 @@ pub(crate) async fn list_federal_registry_admins(
         }
     };
     let province_groups =
-        match crate::institutions::admins::chain_roles::fetch_all_federal_registry_assignments(
+        match onchina::institutions::admins::chain_roles::fetch_all_federal_registry_assignments(
             &identity,
         )
         .await
@@ -170,9 +186,7 @@ pub(crate) async fn list_federal_registry_admins(
     };
     // 回填短 TTL 缓存,窗口内重复打开直接命中,不再全量链读。锁不跨 await。
     {
-        let mut cache = cache
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
+        let mut cache = cache.lock().unwrap_or_else(|err| err.into_inner());
         cache.insert(province.clone(), (std::time::Instant::now(), rows.clone()));
     }
     Json(ApiResponse {

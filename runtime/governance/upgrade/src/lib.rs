@@ -24,13 +24,13 @@ pub trait RuntimeCodeExecutor {
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
+    use ::genesis::DeveloperUpgradeCheck;
     use entitybase::{
         AuthorizationSubject, BusinessActionId, InstitutionRoleAuthorizationQuery,
         RolePermissionOperation, RoleSubject,
     };
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use ::genesis::DeveloperUpgradeCheck;
     use primitives::{
         cid::{china::china_cb::CHINA_CB, china::china_ch::CHINA_CH},
         governance_skeleton::{ROLE_CODE_COMMITTEE_MEMBER, ROLE_CODE_DIRECTOR},
@@ -205,10 +205,7 @@ pub mod pallet {
             let actor_code = votebase::types::institution_code_from_cid_number(actor_text)
                 .ok_or(Error::<T>::InvalidActorCid)?;
             ensure!(
-                matches!(
-                    actor_code,
-                    votebase::types::NRC | votebase::types::PRC
-                ),
+                matches!(actor_code, votebase::types::NRC | votebase::types::PRC),
                 Error::<T>::InvalidActorCid
             );
             let proposer_role = RoleSubject {
@@ -280,7 +277,7 @@ pub mod pallet {
         /// 链进入运行期后此调用永久失效，升级必须走 propose_runtime_upgrade 联合投票。
         #[pallet::call_index(2)]
         #[pallet::weight(
-            <<T as frame_system::Config>::SystemWeightInfo as frame_system::weights::WeightInfo>::set_code()
+            <<T as frame_system::Config>::SystemWeightInfo as frame_system::weights::WeightInfo>::set_code().saturating_add(<T as Config>::WeightInfo::developer_overhead())
         )]
         pub fn developer_direct_upgrade(
             origin: OriginFor<T>,
@@ -343,10 +340,7 @@ pub mod pallet {
             cid_number: &[u8],
             role_code: &[u8],
         ) -> Result<
-            entitybase::RoleSubject<
-                votebase::types::CidNumber,
-                votebase::types::RoleCode,
-            >,
+            entitybase::RoleSubject<votebase::types::CidNumber, votebase::types::RoleCode>,
             DispatchError,
         > {
             Ok(entitybase::RoleSubject {

@@ -1,0 +1,33 @@
+[package]
+name = "onchina-judicial"
+description = "链上中国judicial独立业务模块"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license = "MIT"
+publish = false
+autotests = false
+
+[[bin]]
+name = "onchina-judicial"
+path = "workspace/main.rs"
+
+[package.metadata.onchina]
+# 唯一工程配对声明；前端自有npm声明、锁与公开exports。
+frontend = "frontend"
+
+[lints]
+workspace = true
+
+[dependencies]
+onchina = { path = "../platform" }
+async-trait = "=0.1.92"
+
+[dev-dependencies]
+# 仅开发测试链接所属公共辅助，正式包不启用测试特性。
+onchina = { path = "../platform", features = ["test-support"] }
+axum = { version = "=0.8.9", features = ["multipart"] }
+tower = { version = "=0.5.3", features = ["util"] }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "sync", "signal"] }

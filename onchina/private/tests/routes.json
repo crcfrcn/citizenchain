@@ -1,0 +1,24 @@
+[
+  {
+    "group": "admin",
+    "path": "/api/membership/platform-prices",
+    "methods": [
+      "get"
+    ],
+    "handlers": [
+      "membership::handler::platform_prices"
+    ],
+    "owner": "private"
+  },
+  {
+    "group": "admin",
+    "path": "/api/membership/platform-prices/propose",
+    "methods": [
+      "post"
+    ],
+    "handlers": [
+      "membership::handler::propose_platform_price"
+    ],
+    "owner": "private"
+  }
+]

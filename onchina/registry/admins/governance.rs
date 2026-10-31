@@ -1,19 +1,19 @@
 //! 注册局直接登记机构管理员；对齐现有链调用字段，保持原签名与授权规则。
-use crate::authentication::repo as auth_repo;
-use crate::authorization::rules::ensure_registry_admin;
-use crate::core::institution_call::{
-    encode_register_institution_admins, RegisterInstitutionAdminsArgs,
-};
-use crate::institutions::admins::{
-    build_chain_sign_output, code_bytes, parse_admin_inputs, InstitutionAdminInput,
-    InstitutionChainSignRequest,
-};
 use crate::*;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
+};
+use onchina::authentication::repo as auth_repo;
+use onchina::authorization::rules::ensure_registry_admin;
+use onchina::institutions::admins::{
+    build_chain_sign_output, code_bytes, parse_admin_inputs, InstitutionAdminInput,
+    InstitutionChainSignRequest,
+};
+use onchina::institutions_call::{
+    encode_register_institution_admins, RegisterInstitutionAdminsArgs,
 };
 use serde::Deserialize;
 pub(crate) const PURPOSE_INSTITUTION_REGISTER_ADMINS: &str = "INSTITUTION_REGISTER_ADMINS";
@@ -38,7 +38,7 @@ pub(crate) async fn prepare_register_institution_admins(
     };
     // 链上写(PasskeyColdSign 档):会话 + passkey + 钱包冷签,三者缺一不可。
     // 凭证向下传给冷签会话创建入口,由类型保证这一步不会被跳过。
-    let passkey = match crate::authentication::passkey::require_passkey_assertion(
+    let passkey = match onchina::authentication::passkey::require_passkey_assertion(
         &state,
         &headers,
         ctx.account_id.as_str(),
@@ -125,7 +125,7 @@ pub(crate) async fn prepare_register_institution_admins(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    crate::core::runtime_ops::append_audit_log(
+    onchina::audit_runtime::append_audit_log(
         &state,
         "INSTITUTION_REGISTER_ADMINS_PREPARE",
         &ctx.account_id,

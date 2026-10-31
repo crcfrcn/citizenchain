@@ -4,25 +4,25 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ApiResponse<T: Serialize> {
-    pub(crate) code: u32,
-    pub(crate) message: String,
-    pub(crate) data: T,
+pub struct ApiResponse<T: Serialize> {
+    pub code: u32,
+    pub message: String,
+    pub data: T,
 }
 
 #[derive(Serialize)]
 // CitizenApp 与管理端共用的既有分页合同保持 snake_case。
-pub(crate) struct PageResult<T: Serialize> {
-    pub(crate) items: Vec<T>,
-    pub(crate) page_size: usize,
-    pub(crate) next_cursor: Option<String>,
-    pub(crate) has_more: bool,
+pub struct PageResult<T: Serialize> {
+    pub items: Vec<T>,
+    pub page_size: usize,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
     /// 目录型列表使用的版本游标。普通分页接口保持 None,序列化时省略。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) manifest_version: Option<String>,
+    pub manifest_version: Option<String>,
     /// 目录型列表使用的状态标记。OK 表示当前响应来自已同步/已校验投影。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) catalog_status: Option<String>,
+    pub catalog_status: Option<String>,
 }
 
 #[derive(Serialize)]

@@ -3,8 +3,8 @@
 //! 凡是要在 handler 里做的业务级校验(不是简单的格式校验),都放这里。
 //! handler 只负责调用 service + 转 HTTP 响应。
 
-use crate::cid::code;
-use crate::cid::{validate_cid_number_format, AdminLevel};
+use crate::codes::code;
+use crate::codes::{validate_cid_number_format, AdminLevel};
 use crate::institutions::subjects::model::Institution;
 use primitives::account_derive::is_forbidden_account_name;
 
@@ -301,15 +301,5 @@ pub fn validate_account_name(name: &str) -> Result<String, ServiceError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validate_account_name_basic() {
-        assert!(validate_account_name("").is_err());
-        assert!(validate_account_name("   ").is_err());
-        assert!(validate_account_name("办案账户").is_ok());
-        let too_long = "x".repeat(31);
-        assert!(validate_account_name(&too_long).is_err());
-    }
-}
+#[path = "../tests/institutions_subjects_service.rs"]
+mod tests;

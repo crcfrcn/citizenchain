@@ -11,8 +11,8 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::cid::china::provinces;
-use crate::cid::model::{AdminCidCitiesQuery, AdminCidTownsQuery, CidCityItem, CidTownItem};
+use crate::codes::china::provinces;
+use crate::codes::model::{AdminCidCitiesQuery, AdminCidTownsQuery, CidCityItem, CidTownItem};
 use crate::*;
 
 fn ok<T: Serialize>(data: T) -> axum::response::Response {

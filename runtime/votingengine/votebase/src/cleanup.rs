@@ -5,6 +5,7 @@
 //! 后续小提案。模式账本只派发到提案所属 Track。
 
 use crate::pallet::{self, Config};
+use crate::weights::WeightInfo;
 use crate::{PendingCleanupStage, ScheduledCleanup};
 use frame_support::pallet_prelude::*;
 use frame_system::pallet_prelude::BlockNumberFor;
@@ -54,13 +55,10 @@ pub(crate) fn enqueue_pending_cleanup<T: Config>(proposal_id: u64) -> DispatchRe
 pub fn process_scheduled_cleanups<T: Config>(now: BlockNumberFor<T>, max_weight: Weight) -> Weight {
     let db = T::DbWeight::get();
     let max = T::MaxCleanupActivationsPerBlock::get();
-    let mut weight = db.reads(2);
+    let mut weight = T::WeightInfo::scheduled_base();
     let mut head = pallet::ScheduledCleanupHead::<T>::get();
     let tail = pallet::ScheduledCleanupTail::<T>::get();
-    let item_weight = db.reads_writes(
-        u64::from(crate::MAX_PROPOSAL_SUBJECT_CIDS).saturating_add(5),
-        u64::from(crate::MAX_PROPOSAL_SUBJECT_CIDS).saturating_add(5),
-    );
+    let item_weight = T::WeightInfo::scheduled_item();
 
     for _ in 0..max {
         if weight.saturating_add(item_weight).any_gt(max_weight) {
@@ -69,7 +67,8 @@ pub fn process_scheduled_cleanups<T: Config>(now: BlockNumberFor<T>, max_weight:
         if head >= tail {
             break;
         }
-        weight = weight.saturating_add(db.reads(1));
+        // 未来任务和空洞也消耗读取成本，按完整有界项先预留。
+        weight = weight.saturating_add(item_weight);
         let Some(task) = pallet::ScheduledCleanups::<T>::get(head) else {
             head = head.saturating_add(1);
             continue;
@@ -84,9 +83,11 @@ pub fn process_scheduled_cleanups<T: Config>(now: BlockNumberFor<T>, max_weight:
         };
         pallet::ScheduledCleanups::<T>::remove(head);
         head = head.saturating_add(1);
-        weight = weight
-            .saturating_add(trigger_weight)
-            .saturating_add(db.writes(1));
+        weight = weight.saturating_add(
+            trigger_weight
+                .saturating_add(db.writes(1))
+                .saturating_sub(item_weight),
+        );
     }
 
     pallet::ScheduledCleanupHead::<T>::put(head);

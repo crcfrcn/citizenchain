@@ -43,7 +43,7 @@ pub(crate) fn payload_hash_for_text(text: &str) -> String {
     format!("0x{}", hex::encode(Sha256::digest(text.as_bytes())))
 }
 
-pub(crate) fn hash_json(value: &serde_json::Value) -> String {
+pub fn hash_json(value: &serde_json::Value) -> String {
     let encoded = serde_json::to_vec(value).unwrap_or_default();
     format!("0x{}", hex::encode(Sha256::digest(&encoded)))
 }
@@ -96,28 +96,5 @@ pub(crate) fn verify_account_signature(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn canonical_admin_payload_includes_actor_cid_number_in_fixed_order() {
-        let text = signed_payload_text(AdminSignedPayload {
-            domain: "onchina_admin_governance",
-            qr_proto: "QR_V1",
-            action_id: "action-1",
-            action_type: "INSTITUTION_CREATE_ACCOUNT",
-            account_id: "0x1111111111111111111111111111111111111111111111111111111111111111",
-            actor_cid_number: "LN001-FRG0G-000000001-2026",
-            actor_province_name: "北京市",
-            target: "target",
-            request_hash: "0xaa",
-            before_hash: "0xbb",
-            after_hash: "0xcc",
-            expires_at: 123,
-        });
-        assert_eq!(
-            text,
-            "{\"domain\":\"onchina_admin_governance\",\"qr_proto\":\"QR_V1\",\"action_id\":\"action-1\",\"action_type\":\"INSTITUTION_CREATE_ACCOUNT\",\"account_id\":\"0x1111111111111111111111111111111111111111111111111111111111111111\",\"actor_cid_number\":\"LN001-FRG0G-000000001-2026\",\"actor_province_name\":\"北京市\",\"target\":\"target\",\"request_hash\":\"0xaa\",\"before_hash\":\"0xbb\",\"after_hash\":\"0xcc\",\"expires_at\":123}"
-        );
-    }
-}
+#[path = "../tests/authentication_action_sign.rs"]
+mod tests;

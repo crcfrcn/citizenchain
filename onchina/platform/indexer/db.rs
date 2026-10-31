@@ -228,101 +228,11 @@ pub(crate) struct TxRecordRow {
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-    #[test]
-    #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-    fn block_rows_progress_and_chain_anchor_commit_or_roll_back_together() {
-        let sandbox = crate::core::db::IsolatedTestDb::new();
-        let record = |block, index| TxRecordInsert {
-            block_number: block,
-            extrinsic_index: Some(0),
-            event_index: index,
-            tx_type: "transfer",
-            sender_account_id: None,
-            recipient_account_id: None,
-            amount_fen: 1,
-            fee_fen: None,
-            block_timestamp: None,
-        };
-        sandbox
-            .db
-            .with_client(|conn| {
-                ensure_indexer_chain(conn, "genesis-a")?;
-                insert_block_records(
-                    conn,
-                    1,
-                    "genesis-a",
-                    "block-1",
-                    "genesis-a",
-                    &[record(1, 0)],
-                )?;
-                insert_block_records(
-                    conn,
-                    1,
-                    "genesis-a",
-                    "block-1",
-                    "genesis-a",
-                    &[record(1, 0)],
-                )?;
-                assert!(insert_block_records(
-                    conn,
-                    2,
-                    "genesis-a",
-                    "block-2",
-                    "block-1",
-                    &[record(2, 0), record(2, 0)]
-                )
-                .is_err());
-                assert!(
-                    insert_block_records(conn, 3, "genesis-a", "block-3", "block-1", &[]).is_err()
-                );
-                assert!(
-                    insert_block_records(conn, 2, "genesis-b", "block-2", "block-1", &[]).is_err()
-                );
-                assert!(
-                    insert_block_records(conn, 2, "genesis-a", "block-2", "wrong-parent", &[])
-                        .is_err()
-                );
-                assert_eq!(read_last_indexed_block(conn)?, 1);
-                assert_eq!(
-                    conn.query_one("SELECT COUNT(*) FROM \"transaction\"", &[])
-                        .unwrap()
-                        .get::<_, i64>(0),
-                    1
-                );
-                let anchor = conn
-                    .query_one(
-                        "SELECT block_hash,block_number FROM projection WHERE projection_key=$1",
-                        &[&WALLET_INDEX_KEY],
-                    )
-                    .unwrap();
-                assert_eq!(anchor.get::<_, String>(0), "block-1");
-                assert_eq!(anchor.get::<_, Option<i64>>(1), Some(1));
-                assert!(ensure_indexer_chain(conn, "genesis-b").is_err());
-                conn.execute(
-                    "DELETE FROM projection WHERE projection_key=$1",
-                    &[&WALLET_INDEX_KEY],
-                )
-                .unwrap();
-                assert!(ensure_indexer_chain(conn, "genesis-a").is_err());
-                assert!(query_tx_records(
-                    conn,
-                    "genesis-a",
-                    &format!("0x{}", "11".repeat(32)),
-                    None,
-                    None,
-                    10
-                )
-                .is_err());
-                Ok(())
-            })
-            .unwrap();
-    }
-}
+#[path = "../tests/indexer_db.rs"]
+mod tests;
 
 /// 公共机构查询缓存；原投影实现整体迁移，CID及行政区接口不变。
-pub(crate) mod government {
+pub mod government {
     //! 公权机构链上投影服务。
     //!
     //! 公权机构唯一真源是链上 `PublicManage::Institutions` 与
@@ -333,12 +243,12 @@ pub(crate) mod government {
     use serde::Serialize;
     use std::collections::{BTreeMap, BTreeSet};
 
-    use crate::cid::{code, parse_cid_number_parts};
-    use crate::core::{chain_runtime, db::postgres_error_text};
+    use crate::codes::{code, parse_cid_number_parts};
     use crate::institutions::subjects::{
         EDUCATION_TYPE_CITY_CITIZEN_EDU_COMMITTEE, EDUCATION_TYPE_NATIONAL_CITIZEN_EDU_COMMITTEE,
     };
     use crate::Db;
+    use crate::{chain_runtime, database::postgres_error_text};
 
     const PROJECTION_KEY_PUBLIC_GOV: &str = "public-gov";
     const GOV_SOURCE_CHAIN: &str = "CHAIN";
@@ -396,7 +306,7 @@ pub(crate) mod government {
     }
 
     /// 当前链上投影版本。HTTP 列表接口只把它作为缓存游标回传,不再表达本地生成目录版本。
-    pub(crate) fn current_chain_projection_version(db: &Db) -> Option<String> {
+    pub fn current_chain_projection_version(db: &Db) -> Option<String> {
         current_chain_projection_snapshot(db).map(|snapshot| {
             format!(
                 "{}:{}:{}:{}:{}",
@@ -446,7 +356,7 @@ pub(crate) mod government {
         .flatten()
     }
 
-    pub(crate) fn chain_projection_ready(db: &Db) -> Result<bool, String> {
+    pub fn chain_projection_ready(db: &Db) -> Result<bool, String> {
         db.with_client(|conn| {
             let row = conn
                 .query_one(
@@ -1063,35 +973,23 @@ pub(crate) mod government {
                 )
             })?;
 
-        tx.execute("DELETE FROM private WHERE cid_number = ANY($1)", &[&cids])
-            .map_err(|e| {
-                format!(
-                    "delete private rows for chain gov failed: {}",
-                    postgres_error_text(&e)
-                )
-            })?;
         tx.execute(
             "INSERT INTO government (
-            cid_number, province_code, city_code, town_code, institution_code,
-            source_kind, home_province, home_city
+            cid_number, province_code, city_code, town_code, institution_code, source_kind
          )
          SELECT cid_number, province_code, city_code, town_code, institution_code,
-                $6, NULL::text, NULL::text
+                $6
          FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[])
               AS u(cid_number, province_code, city_code, town_code, institution_code)
          ON CONFLICT (province_code, cid_number) DO UPDATE SET
             city_code = EXCLUDED.city_code,
             town_code = EXCLUDED.town_code,
             institution_code = EXCLUDED.institution_code,
-            source_kind = EXCLUDED.source_kind,
-            home_province = EXCLUDED.home_province,
-            home_city = EXCLUDED.home_city
+            source_kind = EXCLUDED.source_kind
          WHERE government.city_code IS DISTINCT FROM EXCLUDED.city_code
             OR government.town_code IS DISTINCT FROM EXCLUDED.town_code
             OR government.institution_code IS DISTINCT FROM EXCLUDED.institution_code
-            OR government.source_kind IS DISTINCT FROM EXCLUDED.source_kind
-            OR government.home_province IS DISTINCT FROM EXCLUDED.home_province
-            OR government.home_city IS DISTINCT FROM EXCLUDED.home_city",
+            OR government.source_kind IS DISTINCT FROM EXCLUDED.source_kind",
             &[
                 &cids,
                 &province_codes,

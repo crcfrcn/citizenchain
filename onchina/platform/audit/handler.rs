@@ -17,34 +17,34 @@ use crate::*;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AuditLogEntry {
-    pub(crate) seq: u64,
-    pub(crate) action: String,
-    pub(crate) actor_account_id: Option<String>,
-    pub(crate) target_cid: Option<String>,
+pub struct AuditLogEntry {
+    pub seq: u64,
+    pub action: String,
+    pub actor_account_id: Option<String>,
+    pub target_cid: Option<String>,
     #[serde(default)]
-    pub(crate) request_id: Option<String>,
+    pub request_id: Option<String>,
     #[serde(default)]
-    pub(crate) actor_ip: Option<String>,
-    pub(crate) result: String,
+    pub actor_ip: Option<String>,
+    pub result: String,
     /// 结构化事实字段(JSON 对象,键小写蛇形,值为系统原值);人话翻译归前端渲染器。
-    pub(crate) detail: serde_json::Value,
-    pub(crate) created_at: DateTime<Utc>,
+    pub detail: serde_json::Value,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AuditLogsQuery {
-    pub(crate) action: Option<String>,
-    pub(crate) actor_account_id: Option<String>,
-    pub(crate) target_cid: Option<String>,
-    pub(crate) keyword: Option<String>,
-    pub(crate) limit: Option<usize>,
+pub struct AuditLogsQuery {
+    pub action: Option<String>,
+    pub actor_account_id: Option<String>,
+    pub target_cid: Option<String>,
+    pub keyword: Option<String>,
+    pub limit: Option<usize>,
 }
 
 /// 联邦注册局管理员 / 市注册局管理员 均可访问审计日志(只读)。
-pub(crate) async fn admin_list_audit_logs(
+pub async fn admin_list_audit_logs(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<AuditLogsQuery>,
@@ -76,12 +76,12 @@ pub(crate) async fn admin_list_audit_logs(
     let province_code = ctx
         .scope_province_name
         .as_deref()
-        .and_then(crate::cid::china::province_code_by_name);
+        .and_then(crate::codes::china::province_code_by_name);
     let city_code = match (
         ctx.scope_province_name.as_deref(),
         ctx.scope_city_name.as_deref(),
     ) {
-        (Some(province), Some(city)) => crate::cid::china::city_code_by_name(province, city),
+        (Some(province), Some(city)) => crate::codes::china::city_code_by_name(province, city),
         _ => None,
     };
     let result = state.db.with_client(move |conn| {

@@ -9,7 +9,7 @@ use crate::AppState;
 /// 代码/布尔/原始字段),不得写展示文案;人话翻译统一归前端操作记录渲染器
 /// (OperationRecords 的键名/值映射),文案改版零后端改动且历史行同样适用。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn append_audit_log(
+pub fn append_audit_log(
     state: &AppState,
     action: &'static str,
     actor_account_id: &str,
@@ -61,7 +61,7 @@ pub(crate) fn append_audit_log(
 }
 
 /// 启动公共机构对账，使用原CID真源与原检查条件。
-pub(crate) mod catalog {
+pub mod catalog {
     //! 创世公权机构目录链上验收(ADR-031 D9)。
     //!
     //! 本文件只做部署/启动验收:用创世派生规则抽样或全量比对链上
@@ -70,7 +70,7 @@ pub(crate) mod catalog {
 
     use std::collections::{BTreeMap, BTreeSet};
 
-    use crate::core::chain_runtime;
+    use crate::chain_runtime;
 
     /// 启动抽样条数。
     pub(crate) const SAMPLE_SIZE: usize = 32;
@@ -78,13 +78,13 @@ pub(crate) mod catalog {
     const RETRY_INTERVAL_SECS: u64 = 10;
 
     /// 抽样不一致(数据错,不重试);其余为链暂不可达类错误(可重试)。
-    pub(crate) enum AuditError {
+    pub enum AuditError {
         Mismatch(String),
         Unreachable(String),
     }
 
     /// 常量 296 机构 (号 → (全称, 简称))。
-    pub(crate) fn constant_institutions() -> BTreeMap<String, (String, String)> {
+    pub fn constant_institutions() -> BTreeMap<String, (String, String)> {
         use primitives::cid::china::{
             china_cb::CHINA_CB, china_ch::CHINA_CH, china_jc::CHINA_JC, china_jy::CHINA_JY,
             china_lf::CHINA_LF, china_sf::CHINA_SF, china_zf::CHINA_ZF,
@@ -117,7 +117,7 @@ pub(crate) mod catalog {
         out
     }
 
-    pub(crate) async fn audit_one(cid: &str, full: &str, short: &str) -> Result<(), AuditError> {
+    pub async fn audit_one(cid: &str, full: &str, short: &str) -> Result<(), AuditError> {
         let on = chain_runtime::institution_lookup(cid)
             .await
             .map_err(AuditError::Unreachable)?

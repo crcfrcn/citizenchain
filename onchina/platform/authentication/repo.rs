@@ -11,11 +11,11 @@ use crate::authentication::login::{
 };
 use crate::authentication::model::AdminUser;
 use crate::authentication::security_model::{AdminActionChallenge, AdminSecurityGrant};
-use crate::core::db::postgres_error_text;
+use crate::database::postgres_error_text;
 use crate::Db;
 use primitives::cid::number::cid_scope_codes;
 
-pub(crate) fn admin_from_row(row: &postgres::Row) -> Result<AdminUser, String> {
+pub fn admin_from_row(row: &postgres::Row) -> Result<AdminUser, String> {
     let id: i64 = row.get(0);
     Ok(AdminUser {
         id: u64::try_from(id)
@@ -58,7 +58,7 @@ pub(crate) fn get_admin_by_account_id(
     db.with_client(move |conn| get_admin_by_account_id_conn(conn, account_id.as_str()))
 }
 
-pub(crate) fn get_admin_by_account_id_conn(
+pub fn get_admin_by_account_id_conn(
     conn: &mut impl postgres::GenericClient,
     account_id: &str,
 ) -> Result<Option<AdminUser>, String> {
@@ -105,7 +105,7 @@ pub(crate) fn derive_admin_scope_conn(
     if binding.institution_code != institution_code {
         return Err("active node binding institution mismatch".to_string());
     }
-    if crate::core::chain_runtime::is_tier1_registry(institution_code) {
+    if crate::chain_runtime::is_tier1_registry(institution_code) {
         return Ok((None, None, None));
     }
     authorization_scope_from_identity_conn(
@@ -126,7 +126,7 @@ pub(crate) fn resolve_home_cid_short_name_conn(
     scope_province_name: Option<&str>,
     scope_city_name: Option<&str>,
 ) -> Result<Option<String>, String> {
-    let row = if crate::core::chain_runtime::is_tier1_registry(institution_code) {
+    let row = if crate::chain_runtime::is_tier1_registry(institution_code) {
         // Tier1 创世注册局全局唯一,直接按机构码取其机构简称。
         conn.query_opt(
             "SELECT short_name FROM subject \
@@ -134,7 +134,7 @@ pub(crate) fn resolve_home_cid_short_name_conn(
             &[&institution_code],
         )
         .map_err(|e| format!("query federal registry short name failed: {e}"))?
-    } else if crate::core::chain_runtime::admin_level_label_for(institution_code).as_deref()
+    } else if crate::chain_runtime::admin_level_label_for(institution_code).as_deref()
         == Some("NATIONAL")
     {
         // NJD 等全国级机构没有省市作用域,按机构码直接解析本机构简称。
@@ -151,8 +151,8 @@ pub(crate) fn resolve_home_cid_short_name_conn(
             return Ok(None);
         };
         let (Some(province_code), Some(city_code)) = (
-            crate::cid::china::province_code_by_name(province),
-            crate::cid::china::city_code_by_name(province, city),
+            crate::codes::china::province_code_by_name(province),
+            crate::codes::china::city_code_by_name(province, city),
         ) else {
             return Ok(None);
         };
@@ -254,11 +254,11 @@ fn authorization_scope_from_identity_conn(
     institution_cid_number: &str,
     frg_province_code: Option<&str>,
 ) -> Result<AdminScope, String> {
-    crate::core::chain_runtime::identity_from_binding_parts(
+    crate::chain_runtime::identity_from_binding_parts(
         institution_code,
         Some(institution_cid_number),
     )?;
-    let institution_scope = if crate::core::chain_runtime::is_tier1_registry(institution_code) {
+    let institution_scope = if crate::chain_runtime::is_tier1_registry(institution_code) {
         None
     } else {
         // 作用域优先取本地投影,投影缺失时从机构 CID 兜底派生。
@@ -281,7 +281,7 @@ fn authorization_scope_from_identity_conn(
         let town_code = resolve_binding_candidate_metadata_conn(conn, institution_cid_number)?
             .map(|(_, _, _, _, _, town)| town)
             .unwrap_or_default();
-        let (province_name, city_name, town_name) = crate::cid::china::area_display_names(
+        let (province_name, city_name, town_name) = crate::codes::china::area_display_names(
             province_code.as_str(),
             Some(city_code.as_str()),
             Some(town_code.as_str()),
@@ -295,7 +295,7 @@ fn authorization_scope_from_identity_conn(
     authorization_scope_from_sources(
         institution_code,
         frg_province_code
-            .map(crate::core::chain_runtime::parse_hex_2)
+            .map(crate::chain_runtime::parse_hex_2)
             .transpose()?,
         institution_scope,
     )
@@ -306,11 +306,11 @@ fn authorization_scope_from_sources(
     frg_province_code: Option<[u8; 2]>,
     institution_scope: Option<AdminScope>,
 ) -> Result<AdminScope, String> {
-    if crate::core::chain_runtime::is_tier1_registry(institution_code) {
+    if crate::chain_runtime::is_tier1_registry(institution_code) {
         let province_code = frg_province_code.ok_or_else(|| {
             format!("{SCOPE_ERROR_PREFIX}FRG authorization requires frg_province_code")
         })?;
-        let province_name = crate::core::chain_runtime::chain_province_name_by_code(province_code)
+        let province_name = crate::chain_runtime::chain_province_name_by_code(province_code)
             .ok_or_else(|| {
                 format!("{SCOPE_ERROR_PREFIX}FRG authorization province code is unknown")
             })?;
@@ -343,14 +343,14 @@ pub(crate) fn derive_candidate_authorization_scope_conn(
 }
 
 /// 把原始节点绑定转换为临时展示候选；派生结果只存在内存，不回写绑定表。
-pub(crate) fn candidate_for_binding_conn(
+pub fn candidate_for_binding_conn(
     conn: &mut impl postgres::GenericClient,
     binding: &NodeInstitutionBinding,
 ) -> Result<AdminInstitutionCandidate, String> {
     let mut candidate = AdminInstitutionCandidate {
         candidate_id: binding.candidate_id.clone(),
         institution_code: binding.institution_code.clone(),
-        admin_level: crate::core::chain_runtime::admin_level_label_for(&binding.institution_code),
+        admin_level: crate::chain_runtime::admin_level_label_for(&binding.institution_code),
         institution_cid_number: Some(binding.institution_cid_number.clone()),
         frg_province_code: None,
         cid_full_name: None,
@@ -359,14 +359,14 @@ pub(crate) fn candidate_for_binding_conn(
         scope_city_name: None,
         scope_town_name: None,
     };
-    if !crate::core::chain_runtime::is_tier1_registry(&candidate.institution_code) {
+    if !crate::chain_runtime::is_tier1_registry(&candidate.institution_code) {
         derive_candidate_authorization_scope_conn(conn, &mut candidate)?;
     }
     hydrate_candidate_institution_metadata_conn(conn, &mut candidate)?;
     Ok(candidate)
 }
 
-pub(crate) fn get_active_node_binding_conn(
+pub fn get_active_node_binding_conn(
     conn: &mut impl postgres::GenericClient,
 ) -> Result<Option<NodeInstitutionBinding>, String> {
     let row = conn
@@ -388,14 +388,12 @@ pub(crate) fn get_active_node_binding_conn(
     row.as_ref().map(binding_from_row).transpose()
 }
 
-pub(crate) fn active_node_binding(db: &Db) -> Result<Option<NodeInstitutionBinding>, String> {
+pub fn active_node_binding(db: &Db) -> Result<Option<NodeInstitutionBinding>, String> {
     db.with_client(get_active_node_binding_conn)
 }
 
 /// 绑定确认、治理写入和实体投影共用事务锁；调用方必须持有数据库事务。
-pub(crate) fn lock_node_binding_conn(
-    conn: &mut impl postgres::GenericClient,
-) -> Result<(), String> {
+pub fn lock_node_binding_conn(conn: &mut impl postgres::GenericClient) -> Result<(), String> {
     conn.query_one(
         "SELECT pg_advisory_xact_lock(hashtextextended('onchina-node-binding', 0))",
         &[],
@@ -404,7 +402,7 @@ pub(crate) fn lock_node_binding_conn(
     Ok(())
 }
 
-pub(crate) fn upsert_active_node_binding_conn(
+pub fn upsert_active_node_binding_conn(
     conn: &mut impl postgres::GenericClient,
     binding: &NodeInstitutionBinding,
 ) -> Result<(), String> {
@@ -440,7 +438,7 @@ pub(crate) fn upsert_active_node_binding_conn(
     Ok(())
 }
 
-pub(crate) fn deactivate_active_node_binding_conn(
+pub fn deactivate_active_node_binding_conn(
     conn: &mut impl postgres::GenericClient,
 ) -> Result<u64, String> {
     let changed = conn
@@ -495,20 +493,20 @@ pub(crate) fn consume_node_binding_challenge_conn(
     Ok(())
 }
 
-pub(crate) fn next_admin_id_conn(conn: &mut impl postgres::GenericClient) -> Result<u64, String> {
+pub fn next_admin_id_conn(conn: &mut impl postgres::GenericClient) -> Result<u64, String> {
     // 首次接续既有 ID，此后由单行原子递增；并发登录/名册登记不能读到同一个 MAX+1。
     if conn
         .query_opt(
-            "SELECT next_seq FROM sequence WHERE seq_key='admin_id'",
+            "SELECT last_value FROM sequence WHERE seq_key='admin_id'",
             &[],
         )
         .map_err(|e| e.to_string())?
         .is_none()
     {
-        conn.execute("INSERT INTO sequence(seq_key,next_seq) SELECT 'admin_id', COALESCE(MAX(admin_id),0) FROM admin ON CONFLICT (seq_key) DO NOTHING", &[])
+        conn.execute("INSERT INTO sequence(seq_key,last_value) SELECT 'admin_id', COALESCE(MAX(admin_id),0) FROM admin ON CONFLICT (seq_key) DO NOTHING", &[])
             .map_err(|e| format!("initialize admin id counter failed: {e}"))?;
     }
-    let row = conn.query_opt("UPDATE sequence SET next_seq=next_seq+1 WHERE seq_key='admin_id' AND next_seq>=0 AND next_seq<9223372036854775807 RETURNING next_seq", &[])
+    let row = conn.query_opt("UPDATE sequence SET last_value=last_value+1 WHERE seq_key='admin_id' AND last_value>=0 AND last_value<9223372036854775807 RETURNING last_value", &[])
         .map_err(|e| format!("allocate admin id failed: {e}"))?
         .ok_or("admin id capacity exhausted or counter invalid")?;
     let id: i64 = row.get(0);
@@ -519,7 +517,7 @@ pub(crate) fn next_admin_id_conn(conn: &mut impl postgres::GenericClient) -> Res
 ///
 /// 管理员成员资格与节点机构归属以链上 active 集合 + 本节点 active binding 为准。
 /// 本函数只维护 `admins` 登录元数据缓存本身。
-pub(crate) fn upsert_admin_conn(
+pub fn upsert_admin_conn(
     conn: &mut impl postgres::GenericClient,
     admin: &AdminUser,
 ) -> Result<(), String> {
@@ -553,7 +551,7 @@ pub(crate) fn upsert_admin_conn(
     Ok(())
 }
 
-pub(crate) fn delete_admin_runtime_state_conn(
+pub fn delete_admin_runtime_state_conn(
     conn: &mut impl postgres::GenericClient,
     account_id: &str,
 ) -> Result<(), String> {
@@ -833,106 +831,6 @@ pub(crate) fn get_qr_login_result_conn(
 }
 
 #[cfg(test)]
-// 仓储契约测试使用断言式解包定位不满足的前置条件，不影响生产错误处理。
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-    fn concurrent_admin_id_allocation_is_unique_and_overflow_is_explicit() {
-        let sandbox = crate::core::db::IsolatedTestDb::new();
-        let handles = (0..8)
-            .map(|_| {
-                let db = sandbox.db.clone();
-                std::thread::spawn(move || {
-                    (0..16)
-                        .map(|_| db.with_client(next_admin_id_conn).unwrap())
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect::<Vec<_>>();
-        let ids = handles
-            .into_iter()
-            .flat_map(|handle| handle.join().unwrap())
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(ids.len(), 128);
-        assert_eq!(ids.first(), Some(&1));
-        assert_eq!(ids.last(), Some(&128));
-        sandbox
-            .db
-            .with_client(|conn| {
-                conn.execute(
-                    "UPDATE sequence SET next_seq=9223372036854775807 WHERE seq_key='admin_id'",
-                    &[],
-                )
-                .unwrap();
-                assert!(next_admin_id_conn(conn).is_err());
-                Ok(())
-            })
-            .unwrap();
-    }
-
-    #[test]
-    fn frg_role_province_cannot_be_overwritten_by_institution_location() {
-        let institution_location =
-            Some((Some("中枢省".to_string()), Some("锦程市".to_string()), None));
-        let scope = authorization_scope_from_sources("FRG", Some(*b"GZ"), institution_location)
-            .expect("FRG role province must resolve");
-
-        assert_eq!(scope, (Some("贵州省".to_string()), None, None));
-    }
-
-    #[test]
-    fn frg_authorization_fails_without_role_province() {
-        let result = authorization_scope_from_sources("FRG", None, None);
-        assert_eq!(
-            result.unwrap_err(),
-            format!("{SCOPE_ERROR_PREFIX}FRG authorization requires frg_province_code")
-        );
-    }
-
-    /// 作用域类错误必须带 `scope:` 前缀,否则会被当成数据库故障、报成
-    /// 「请稍后重试」——而这类错误重试永远不会成功。
-    #[test]
-    fn scope_errors_are_prefixed_for_classification() {
-        for result in [
-            authorization_scope_from_sources("FRG", None, None),
-            authorization_scope_from_sources("FRG", Some(*b"??"), None),
-            authorization_scope_from_sources("SFGY", None, None),
-        ] {
-            let message = result.expect_err("这些前置条件都不满足,必须失败");
-            assert!(
-                message.starts_with(SCOPE_ERROR_PREFIX),
-                "作用域错误缺少 scope: 前缀,会被误判成数据库故障: {message}"
-            );
-        }
-    }
-
-    /// 非 Tier1 机构给出作用域后即通过,不再要求本地投影命中。
-    #[test]
-    fn non_tier1_accepts_scope_derived_without_projection() {
-        let derived_from_cid = Some((Some("贵州省".to_string()), Some("绥阳市".to_string()), None));
-        let scope = authorization_scope_from_sources("SFGY", None, derived_from_cid)
-            .expect("私权机构作用域可由机构 CID 派生");
-        assert_eq!(
-            scope,
-            (Some("贵州省".to_string()), Some("绥阳市".to_string()), None)
-        );
-    }
-
-    /// 机构 CID 的 R5 = 省2 + 市3,私权机构也能解出——这是缺投影时的兜底真源。
-    #[test]
-    fn private_institution_cid_yields_province_and_city() {
-        let (province, city) =
-            cid_scope_codes(b"GZ018-SFGYR-201206100-2026").expect("私权机构 CID 必须能解出省市码");
-        assert_eq!(&province, b"GZ");
-        assert_eq!(&city, b"018");
-    }
-
-    /// 自然人 CID 去地域化,传进来必须 fail-closed,不得把号段误读成区划码。
-    #[test]
-    fn person_cid_scope_is_rejected() {
-        assert!(cid_scope_codes(b"CN001-CTZN-000000001-2026").is_err());
-    }
-}
+#[path = "../tests/authentication_repo.rs"]
+mod tests;

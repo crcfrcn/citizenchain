@@ -26,7 +26,7 @@ use crate::institutions::subjects::service::{
 use crate::institutions::subjects::unincorporated_org;
 use crate::*;
 
-pub(crate) async fn check_cid_full_name(
+pub async fn check_cid_full_name(
     State(state): State<AppState>,
     headers: HeaderMap,
     axum::extract::Query(params): axum::extract::Query<CheckNameQuery>,
@@ -55,7 +55,7 @@ pub(crate) async fn check_cid_full_name(
             Some(p) if !p.is_empty() => p.to_string(),
             _ => return api_error(StatusCode::BAD_REQUEST, 1001, "公权机构查重需要省级作用域"),
         };
-        let province_code = match crate::cid::china::province_code_by_name(&province_name) {
+        let province_code = match crate::codes::china::province_code_by_name(&province_name) {
             Some(code) => code.to_string(),
             None => {
                 return api_error(
@@ -65,7 +65,7 @@ pub(crate) async fn check_cid_full_name(
                 );
             }
         };
-        let city_code = match crate::cid::china::city_code_by_name(&province_name, &city) {
+        let city_code = match crate::codes::china::city_code_by_name(&province_name, &city) {
             Some(code) => code.to_string(),
             None => {
                 return api_error(
@@ -131,7 +131,7 @@ struct CheckNameResult {
     exists: bool,
 }
 
-pub(crate) async fn upload_legal_representative_photo(
+pub async fn upload_legal_representative_photo(
     State(state): State<AppState>,
     headers: HeaderMap,
     mut multipart: Multipart,
@@ -467,7 +467,7 @@ pub(crate) async fn update_institution(
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, "机构资料保存失败");
         }
     };
-    crate::core::runtime_ops::append_audit_log(
+    crate::audit_runtime::append_audit_log(
         &state,
         "INSTITUTION_UPDATE",
         &ctx.account_id,
@@ -494,7 +494,7 @@ pub(crate) async fn update_institution(
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SearchParentsQuery {
+pub struct SearchParentsQuery {
     pub q: Option<String>,
     /// 非法人的落位省/市,用于地域预过滤(规则同 onchina/platform/institutions/subjects_unincorporated_org.rs::parent_locality_rule)。
     pub province_name: Option<String>,
@@ -507,7 +507,7 @@ pub(crate) struct SearchParentsQuery {
 /// - f_institution=JY → 仅本市法人教育机构(手动 JY 行,G/S);
 /// - 其它 → 私法人 S(非学校,全国) ∪ 公法人 G(非学校;手动行/市镇级同市、省级同省、国家级不限);
 /// - parent_property 进一步收窄到单边。
-pub(crate) async fn search_parent_institutions(
+pub async fn search_parent_institutions(
     State(state): State<AppState>,
     headers: HeaderMap,
     axum::extract::Query(query): axum::extract::Query<SearchParentsQuery>,
@@ -552,10 +552,10 @@ pub(crate) async fn search_parent_institutions(
         return api_error(StatusCode::FORBIDDEN, 1003, "out of admin scope");
     }
     // subjects 已不存行政区名字,地域预过滤改按 china.sqlite 派生的 code 走单源。
-    let Some(province_code) = crate::cid::china::province_code_by_name(&province) else {
+    let Some(province_code) = crate::codes::china::province_code_by_name(&province) else {
         return api_error(StatusCode::BAD_REQUEST, 1001, "unknown province");
     };
-    let Some(city_code) = crate::cid::china::city_code_by_name(&province, &city) else {
+    let Some(city_code) = crate::codes::china::city_code_by_name(&province, &city) else {
         return api_error(StatusCode::BAD_REQUEST, 1001, "unknown city");
     };
     let province_code = province_code.to_string();
@@ -632,7 +632,7 @@ pub(crate) async fn search_parent_institutions(
             let row_province_code: String = row.get(6);
             let row_city_code: Option<String> = row.get(7);
             let row_town_code: String = row.get(8);
-            let (province_name, city_name, town_name) = crate::cid::china::area_display_names(
+            let (province_name, city_name, town_name) = crate::codes::china::area_display_names(
                 row_province_code.as_str(),
                 row_city_code.as_deref(),
                 Some(row_town_code.as_str()),
@@ -725,7 +725,7 @@ pub(crate) async fn get_institution(
 /// 联邦注册局是全国唯一机构(位于中枢省),所有省份管理员都需要进入它的机构详情页查看
 /// 本省联邦注册局机构管理员列表,因此这里**不做 scope 校验**(与 get_institution 的唯一区别)。
 /// 仍要求已登录管理员;只返回 FEDERAL_REGISTRY 这一个机构。
-pub(crate) async fn get_federal_registry(
+pub async fn get_federal_registry(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {

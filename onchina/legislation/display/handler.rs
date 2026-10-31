@@ -19,10 +19,10 @@ use axum::{
 };
 use tokio::sync::Mutex;
 
-use crate::authentication::repo;
-use crate::core::chain_runtime::identity_from_binding_parts;
-use crate::core::response::ApiResponse;
 use crate::{api_error, AppState};
+use onchina::authentication::repo;
+use onchina::chain_runtime::identity_from_binding_parts;
+use onchina::response::ApiResponse;
 
 use super::model::DisplayBoard;
 use super::service;
@@ -121,7 +121,10 @@ async fn build_board_uncached(state: &AppState) -> Result<DisplayBoard, Response
             ));
         }
     };
-    let identity = match identity_from_binding_parts(&candidate.institution_code, candidate.institution_cid_number.as_deref()) {
+    let identity = match identity_from_binding_parts(
+        &candidate.institution_code,
+        candidate.institution_cid_number.as_deref(),
+    ) {
         Ok(identity) => identity,
         Err(err) => {
             tracing::warn!(error = %err, "display board: node binding is misconfigured");
@@ -154,25 +157,5 @@ async fn build_board_uncached(state: &AppState) -> Result<DisplayBoard, Response
 }
 
 #[cfg(test)]
-mod tests {
-    use super::scope_label;
-
-    #[test]
-    fn scope_label_joins_province_and_city() {
-        assert_eq!(
-            scope_label(Some("广东省"), Some("深圳市")),
-            "广东省 · 深圳市"
-        );
-    }
-
-    #[test]
-    fn scope_label_national_when_empty() {
-        assert_eq!(scope_label(None, None), "全国");
-        assert_eq!(scope_label(Some(" "), Some("")), "全国");
-    }
-
-    #[test]
-    fn scope_label_province_only() {
-        assert_eq!(scope_label(Some("广东省"), None), "广东省");
-    }
-}
+#[path = "../tests/display_handler.rs"]
+mod tests;

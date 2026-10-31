@@ -27,24 +27,15 @@ pub(crate) fn postgres_error_text(err: &postgres::Error) -> String {
 }
 
 // PostgreSQL原生schema注释只记录格式版本；不是业务数据副本。
-const SCHEMA_FORMAT: &str = "onchina:2";
+const SCHEMA_FORMAT: &str = "onchina:3";
 
 #[derive(Clone)]
-pub(crate) struct Db {
+pub struct Db {
     clients: Arc<Vec<Mutex<postgres::Client>>>,
     next_client_idx: Arc<AtomicUsize>,
 }
 
 impl Db {
-    /// 路由单测不创建数据库；任何误入持久化的请求都会明确失败。
-    #[cfg(test)]
-    pub(crate) fn empty_for_route_test() -> Self {
-        Self {
-            clients: Arc::new(Vec::new()),
-            next_client_idx: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
     pub(crate) fn from_database_url(database_url: &str) -> Result<Self, String> {
         Self::connect_database(database_url, true)
     }
@@ -91,7 +82,7 @@ impl Db {
         })
     }
 
-    pub(crate) fn with_client<R>(
+    pub fn with_client<R>(
         &self,
         op: impl FnOnce(&mut postgres::Client) -> Result<R, String> + Send,
     ) -> Result<R, String>
@@ -134,7 +125,7 @@ impl Db {
         if objects == 0 && matches!(format.as_deref(), None | Some("standard public schema")) {
             return Ok(false);
         }
-        if format.as_deref() == Some(SCHEMA_FORMAT) && tables == 32 && columns == 250 && names {
+        if format.as_deref() == Some(SCHEMA_FORMAT) && tables == 27 && columns == 205 && names {
             return Ok(true);
         }
         Err("onchina database format mismatch; explicit data operation required".into())
@@ -206,7 +197,6 @@ impl Db {
              CREATE INDEX IF NOT EXISTS idx_admins_institution_code_city_name
                 ON admin(institution_code, city_name);
              CREATE INDEX IF NOT EXISTS idx_admins_institution_cid ON admin(institution_cid);
-             CREATE INDEX IF NOT EXISTS idx_admins_account_id ON admin(account_id);
              CREATE INDEX IF NOT EXISTS idx_admins_creator_account_id
                 ON admin(creator_account);
 
@@ -293,30 +283,6 @@ impl Db {
              );
              CREATE INDEX IF NOT EXISTS idx_admin_passkey_assertions_expires
                 ON assertion(expires_at);
-
-             CREATE TABLE IF NOT EXISTS replay (
-                qr_id TEXT PRIMARY KEY,
-                consumed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                expires_at TIMESTAMPTZ NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS idx_qr_consumed_expires ON replay(expires_at);
-
-             CREATE TABLE IF NOT EXISTS request (
-                route_key TEXT PRIMARY KEY,
-                request_id TEXT NOT NULL,
-                nonce_value TEXT NOT NULL,
-                request_hash TEXT NOT NULL,
-                received_at TIMESTAMPTZ NOT NULL,
-                payload_json JSONB NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS idx_chain_requests_received
-                ON request(received_at);
-
-             CREATE TABLE IF NOT EXISTS nonce (
-                nonce_value TEXT PRIMARY KEY,
-                seen_at TIMESTAMPTZ NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS idx_chain_nonces_seen ON nonce(seen_at);
 
              CREATE TABLE IF NOT EXISTS \"transaction\" (
                 row_id BIGSERIAL PRIMARY KEY,
@@ -411,42 +377,26 @@ impl Db {
                 representative_account TEXT
                     CHECK (representative_account IS NULL OR
                            representative_account ~ '^0x[0-9a-f]{64}$'),
-                issuer_cid TEXT,
                 source_type TEXT,
-                proposal_id TEXT,
                 creator_account TEXT
                     CHECK (creator_account IS NULL OR creator_account ~ '^0x[0-9a-f]{64}$'),
                 updater_account TEXT
                     CHECK (updater_account IS NULL OR updater_account ~ '^0x[0-9a-f]{64}$'),
                 created_at TIMESTAMPTZ NOT NULL,
                 updated_at TIMESTAMPTZ NOT NULL,
-                PRIMARY KEY (province_code, cid_number)
-             ) PARTITION BY LIST (province_code);
-
-             CREATE TABLE IF NOT EXISTS member (
-                cid_number TEXT NOT NULL,
-                province_code TEXT NOT NULL,
-                city_code TEXT,
-                account_id TEXT NOT NULL CHECK (account_id ~ '^0x[0-9a-f]{64}$'),
-                family_name TEXT NOT NULL DEFAULT '管理',
-                given_name TEXT NOT NULL DEFAULT '员',
-                admin_department TEXT,
-                admin_job TEXT,
-                contact_phone TEXT,
-                contact_email TEXT,
-                photo_path TEXT,
-                photo_name TEXT,
-                photo_mime TEXT,
-                photo_size BIGINT,
-                credential_id TEXT,
-                source_id TEXT,
-                admin_status TEXT,
-                updated_at TIMESTAMPTZ,
-                creator_account TEXT
-                    CHECK (creator_account IS NULL OR creator_account ~ '^0x[0-9a-f]{64}$'),
-                operation_id TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                PRIMARY KEY (province_code, cid_number, account_id)
+                PRIMARY KEY (province_code, cid_number),
+                -- 私权副表收敛到主体；仅已分类私权记录承接原有效值和市级必需约束。
+                -- 法人属性保留主体原有NULL语义，不把旧副表派生的false写回主体。
+                CONSTRAINT subject_private CHECK (
+                    record_kind <> 'PRIVATE' OR private_type IS NULL OR (
+                        private_type IN ('SOLE', 'PARTNERSHIP', 'COMPANY', 'CORPORATION',
+                                         'WELFARE', 'ASSOCIATION')
+                        AND city_code IS NOT NULL AND city_code NOT IN ('', '000')
+                        AND institution_code IS NOT NULL
+                        AND profit_kind IS NOT NULL AND profit_kind IN ('0', '1')
+                        AND (partnership_kind IS NULL OR partnership_kind IN ('GENERAL', 'LIMITED'))
+                    )
+                )
              ) PARTITION BY LIST (province_code);
 
              CREATE TABLE IF NOT EXISTS citizen (
@@ -512,24 +462,6 @@ impl Db {
                 town_code TEXT,
                 institution_code TEXT NOT NULL,
                 source_kind TEXT NOT NULL DEFAULT 'CHAIN' CHECK (source_kind IN ('CHAIN', 'MANUAL')),
-                home_province TEXT,
-                home_city TEXT,
-                PRIMARY KEY (province_code, cid_number)
-             ) PARTITION BY LIST (province_code);
-
-             CREATE TABLE IF NOT EXISTS private (
-                cid_number TEXT NOT NULL,
-                province_code TEXT NOT NULL,
-                city_code TEXT NOT NULL,
-                kind_code TEXT NOT NULL,
-                private_type TEXT NOT NULL CHECK (
-                    private_type IN ('SOLE', 'PARTNERSHIP', 'COMPANY', 'CORPORATION',
-                                     'WELFARE', 'ASSOCIATION')
-                ),
-                partnership_kind TEXT CHECK (partnership_kind IN ('GENERAL', 'LIMITED')),
-                legal_personality BOOLEAN NOT NULL,
-                profit_kind TEXT NOT NULL CHECK (profit_kind IN ('0', '1')),
-                parent_cid TEXT,
                 PRIMARY KEY (province_code, cid_number)
              ) PARTITION BY LIST (province_code);
 
@@ -574,7 +506,7 @@ impl Db {
 
              CREATE TABLE IF NOT EXISTS sequence (
                 seq_key TEXT PRIMARY KEY,
-                next_seq BIGINT NOT NULL
+                last_value BIGINT NOT NULL
              );
              CREATE TABLE IF NOT EXISTS passport (
                 passport_no TEXT PRIMARY KEY,
@@ -626,17 +558,11 @@ impl Db {
                 ON document(province_code, cid_number, document_type);
              CREATE INDEX IF NOT EXISTS idx_gov_city
                 ON government(province_code, city_code, institution_code);
-             CREATE INDEX IF NOT EXISTS idx_private_city
-                ON private(province_code, city_code, private_type, kind_code);
              CREATE INDEX IF NOT EXISTS idx_accounts_cid ON account(province_code, cid_number);
              CREATE INDEX IF NOT EXISTS idx_docs_cid
                 ON attachment(province_code, cid_number, uploaded_at DESC);
              CREATE INDEX IF NOT EXISTS idx_audit_scope_time
-                ON audit(province_code, city_code, created_at DESC);
-             CREATE INDEX IF NOT EXISTS idx_institution_admins_cid
-                ON member(province_code, cid_number);
-             CREATE INDEX IF NOT EXISTS idx_institution_admins_account
-                ON member(province_code, account_id);",
+                ON audit(province_code, city_code, created_at DESC);",
         )
         .map_err(|err| {
             format!(
@@ -645,7 +571,7 @@ impl Db {
             )
         })?;
 
-        for province in crate::cid::china::provinces() {
+        for province in crate::codes::china::provinces() {
             Self::create_subject_partitions(conn, province.province_code)?;
         }
         Ok(())
@@ -672,129 +598,9 @@ impl Db {
     }
 }
 
-/// 只供显式启用的集成回归：独立 schema 和连接池，不接受生产库名或远端地址。
-#[cfg(test)]
-pub(crate) struct IsolatedTestDb {
-    pub(crate) db: Db,
-    config: postgres::Config,
-    schema: String,
-}
+#[cfg(any(test, feature = "test-support"))]
+include!("../tests/database_support.rs");
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
-impl IsolatedTestDb {
-    pub(crate) fn new() -> Self {
-        // 同步 postgres 自建 Tokio runtime，隔离初始化不得嵌套调用者的异步 runtime。
-        std::thread::spawn(Self::create)
-            .join()
-            .expect("隔离数据库初始化线程失败")
-    }
-
-    fn create() -> Self {
-        let url =
-            std::env::var("ONCHINA_TEST_DATABASE_URL").expect("控制台必须显式提供隔离测试数据库");
-        let config: postgres::Config = url.parse().expect("测试数据库配置无效");
-        assert!(
-            config
-                .get_dbname()
-                .is_some_and(|name| name.starts_with("onchina_test")),
-            "仅允许 onchina_test 前缀数据库"
-        );
-        assert!(
-            config.get_hosts().iter().all(|host| match host {
-                postgres::config::Host::Tcp(host) =>
-                    matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1"),
-                #[cfg(unix)]
-                postgres::config::Host::Unix(_) => true,
-            }),
-            "测试数据库必须位于本机"
-        );
-        let schema = format!("onchina_{}", uuid::Uuid::new_v4().as_simple());
-        let mut admin = config
-            .connect(postgres::NoTls)
-            .expect("无法连接隔离测试数据库");
-        admin
-            .batch_execute(&format!("CREATE SCHEMA {schema}"))
-            .expect("无法创建测试 schema");
-        let mut scoped = config.clone();
-        scoped.options(&format!("-c search_path={schema}"));
-        let mut first = scoped
-            .connect(postgres::NoTls)
-            .expect("无法连接测试 schema");
-        Db::init_current_schema(&mut first).expect("测试 schema 初始化失败");
-        let mut clients = vec![Mutex::new(first)];
-        for _ in 1..4 {
-            clients.push(Mutex::new(
-                scoped.connect(postgres::NoTls).expect("测试连接池创建失败"),
-            ));
-        }
-        Self {
-            db: Db {
-                clients: Arc::new(clients),
-                next_client_idx: Arc::new(AtomicUsize::new(0)),
-            },
-            config,
-            schema,
-        }
-    }
-}
-
-#[cfg(test)]
-impl Drop for IsolatedTestDb {
-    fn drop(&mut self) {
-        let config = self.config.clone();
-        let schema = self.schema.clone();
-        let db = std::mem::replace(&mut self.db, Db::empty_for_route_test());
-        // 清理同样放在独立线程，仅删除本测试拥有的 UUID schema。
-        let result = std::thread::spawn(move || {
-            // postgres::Client 析构也会 block_on，所有本测试连接必须在线程内关闭。
-            drop(db);
-            let mut connection = config.connect(postgres::NoTls).expect("测试清理连接失败");
-            connection
-                .batch_execute(&format!("DROP SCHEMA {schema} CASCADE"))
-                .expect("测试 schema 清理失败");
-        })
-        .join();
-        assert!(result.is_ok(), "隔离数据库清理线程失败");
-    }
-}
-
-#[cfg(test)]
-mod schema_tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "由控制台交付本机onchina_test隔离数据库后执行"]
-    fn current_schema_is_exact_and_reopens_without_schema_writes() {
-        let sandbox = IsolatedTestDb::new();
-        sandbox.db.with_client(|conn| {
-            assert!(Db::schema_ready(conn)?);
-            // 只读事务内再次初始化必须只核验，不能执行CREATE或COMMENT。
-            conn.batch_execute("BEGIN READ ONLY").map_err(|e| e.to_string())?;
-            Db::init_current_schema(conn)?;
-            conn.batch_execute("ROLLBACK").map_err(|e| e.to_string())?;
-            for (table,expected) in [("challenge",1_i64),("grant",1),("login",1),("enrollment",1),("session",2),("result",2)] {
-                let count:i64=conn.query_one("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1", &[&table]).map_err(|e| e.to_string())?.get(0);
-                assert_eq!(count,expected,"{table}");
-            }
-            Ok(())
-        }).unwrap();
-    }
-
-    #[test]
-    #[ignore = "由控制台交付本机onchina_test隔离数据库后执行"]
-    fn legacy_and_damaged_schema_are_rejected_without_repair_or_data_loss() {
-        let sandbox = IsolatedTestDb::new();
-        sandbox.db.with_client(|conn| {
-            conn.batch_execute("CREATE TABLE admin_sessions(legacy_value TEXT); INSERT INTO admin_sessions VALUES('synthetic retained record')").map_err(|e| e.to_string())?;
-            assert!(Db::init_current_schema(conn).is_err());
-            let value:String=conn.query_one("SELECT legacy_value FROM admin_sessions", &[]).map_err(|e| e.to_string())?.get(0);
-            assert_eq!(value,"synthetic retained record");
-            conn.batch_execute("DROP TABLE admin_sessions; ALTER TABLE subject RENAME COLUMN full_name TO legacy").map_err(|e| e.to_string())?;
-            assert!(Db::init_current_schema(conn).is_err());
-            let count:i64=conn.query_one("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='subject' AND column_name='legacy'", &[]).map_err(|e| e.to_string())?.get(0);
-            assert_eq!(count,1);
-            Ok(())
-        }).unwrap();
-    }
-}
+#[path = "../tests/database_schema_tests.rs"]
+mod schema_tests;

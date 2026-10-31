@@ -38,6 +38,7 @@ frame_benchmarking::define_benchmarks!(
     [difficulty, PowDifficulty]
     [onchain, OnchainTransaction]
     [address, AddressRegistry]
+    [legislation, LegislationYuan]
     // public/privateadmin 已无外部 extrinsic 和 WeightInfo，仅由 entity 内部同步管理员账户集合。
     [destroy, ResolutionDestroy]
     [grandpakey, GrandpaKeyChange]

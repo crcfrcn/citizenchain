@@ -76,7 +76,7 @@ impl Db {
         })
     }
 
-    pub(crate) fn get_institution_with_accounts(
+    pub fn get_institution_with_accounts(
         &self,
         cid_number: &str,
     ) -> Result<
@@ -109,7 +109,7 @@ impl Db {
                 .map_err(|e| {
                     format!(
                         "query chain public institution by code failed: {}",
-                        crate::core::db::postgres_error_text(&e)
+                        crate::database::postgres_error_text(&e)
                     )
                 })?;
             if rows.len() > 1 {
@@ -185,9 +185,9 @@ impl Db {
 
     /// 与读合并投影共用 CID 事务锁，避免同 CID 并发创建或链下正本被旧快照覆盖。
 
-    /// next_seq 保存最后已分配值；首次启用只在原子插入时接续既有最大 ID。
+    /// last_value 保存最后已分配值；首次启用只在原子插入时接续既有最大 ID。
 
-    pub(crate) fn upsert_institution_row(
+    pub fn upsert_institution_row(
         &self,
         inst: &crate::institutions::subjects::Institution,
     ) -> Result<(), String> {
@@ -228,7 +228,7 @@ impl Db {
         })
     }
 
-    pub(crate) fn search_legal_representative_citizens_in_scope(
+    pub fn search_legal_representative_citizens_in_scope(
         &self,
         q: &str,
         page_size: usize,
@@ -264,8 +264,8 @@ impl Db {
         inst: &crate::institutions::subjects::Institution,
     ) -> Result<(), String> {
         let kind = match inst.category {
-            crate::cid::InstitutionCategory::PrivateInstitution => "PRIVATE",
-            crate::cid::InstitutionCategory::GovInstitution => "PUBLIC",
+            crate::codes::InstitutionCategory::PrivateInstitution => "PRIVATE",
+            crate::codes::InstitutionCategory::GovInstitution => "PUBLIC",
         };
         let province_code = inst.province_code.clone();
         let city_code = if inst.city_code == "000" || inst.city_code.is_empty() {
@@ -323,92 +323,37 @@ impl Db {
         )
         .map_err(|e| format!("upsert subjects failed: {e}"))?;
 
-        match inst.category {
-            crate::cid::InstitutionCategory::PrivateInstitution => {
-                Self::delete_target_rows_outside_scope(
-                    conn,
-                    "private",
-                    inst.cid_number.as_str(),
-                    province_code.as_str(),
-                )?;
-                conn.execute(
-                    "DELETE FROM government WHERE cid_number = $1",
-                    &[&inst.cid_number],
-                )
-                .map_err(|e| format!("delete gov row for private subject failed: {e}"))?;
-                if let Some(private_type) = &inst.private_type {
-                    let has_legal_personality = inst.has_legal_personality.unwrap_or(false);
-                    conn.execute(
-                        "INSERT INTO private (
-                            cid_number, province_code, city_code, kind_code, private_type, partnership_kind,
-                            legal_personality, profit_kind, parent_cid
-                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                         ON CONFLICT (province_code, cid_number) DO UPDATE SET
-                            city_code = EXCLUDED.city_code,
-                            kind_code = EXCLUDED.kind_code,
-                            private_type = EXCLUDED.private_type,
-                            partnership_kind = EXCLUDED.partnership_kind,
-                            legal_personality = EXCLUDED.legal_personality,
-                            profit_kind = EXCLUDED.profit_kind,
-                            parent_cid = EXCLUDED.parent_cid",
-                        &[
-                            &inst.cid_number,
-                            &province_code,
-                            &city_code,
-                            &inst.institution_code,
-                            private_type,
-                            &inst.partnership_kind,
-                            &has_legal_personality,
-                            &inst.p1,
-                            &inst.parent_cid_number,
-                        ],
-                    )
-                    .map_err(|e| format!("upsert private failed: {e}"))?;
-                } else {
-                    conn.execute(
-                        "DELETE FROM private WHERE cid_number = $1",
-                        &[&inst.cid_number],
-                    )
-                    .map_err(|e| format!("delete non-private typed row failed: {e}"))?;
-                }
-            }
-            crate::cid::InstitutionCategory::GovInstitution => {
-                Self::delete_target_rows_outside_scope(
-                    conn,
-                    "government",
-                    inst.cid_number.as_str(),
-                    province_code.as_str(),
-                )?;
-                conn.execute(
-                    "DELETE FROM private WHERE cid_number = $1",
-                    &[&inst.cid_number],
-                )
-                .map_err(|e| format!("delete private row for public subject failed: {e}"))?;
-                let home_p: Option<String> = None;
-                let home_c: Option<String> = None;
-                conn.execute(
-                    "INSERT INTO government (
-		                        cid_number, province_code, city_code, town_code, institution_code,
-		                        source_kind, home_province, home_city
-		                     ) VALUES ($1, $2, $3, $4, $5, 'MANUAL', $6, $7)
-		                     ON CONFLICT (province_code, cid_number) DO UPDATE SET
-		                        city_code = EXCLUDED.city_code,
-		                        town_code = EXCLUDED.town_code,
-		                        institution_code = EXCLUDED.institution_code,
-		                        home_province = EXCLUDED.home_province,
-		                        home_city = EXCLUDED.home_city",
-                    &[
-                        &inst.cid_number,
-                        &province_code,
-                        &city_code,
-                        &town_code,
-                        &inst.institution_code,
-                        &home_p,
-                        &home_c,
-                    ],
-                )
-                .map_err(|e| format!("upsert gov failed: {e}"))?;
-            }
+        if inst.category == crate::codes::InstitutionCategory::PrivateInstitution {
+            // 私权事实唯一保存于subject；类别切换仍清理公权扩展。
+            conn.execute(
+                "DELETE FROM government WHERE cid_number = $1",
+                &[&inst.cid_number],
+            )
+            .map_err(|e| format!("delete gov row for private subject failed: {e}"))?;
+        } else {
+            Self::delete_target_rows_outside_scope(
+                conn,
+                "government",
+                inst.cid_number.as_str(),
+                province_code.as_str(),
+            )?;
+            conn.execute(
+                "INSERT INTO government (
+                    cid_number, province_code, city_code, town_code, institution_code, source_kind
+                 ) VALUES ($1, $2, $3, $4, $5, 'MANUAL')
+                 ON CONFLICT (province_code, cid_number) DO UPDATE SET
+                    city_code = EXCLUDED.city_code,
+                    town_code = EXCLUDED.town_code,
+                    institution_code = EXCLUDED.institution_code",
+                &[
+                    &inst.cid_number,
+                    &province_code,
+                    &city_code,
+                    &town_code,
+                    &inst.institution_code,
+                ],
+            )
+            .map_err(|e| format!("upsert gov failed: {e}"))?;
         }
         Ok(())
     }
@@ -431,16 +376,15 @@ impl Db {
     }
 
     // 删除所有不合规 CID 号在各号承载表里的行。判定唯一标准 =
-    // 过不了 `crate::cid::validate_cid_number_format`。
+    // 过不了 `crate::codes::validate_cid_number_format`。
     // dry_run 时在事务内删完即回滚,只回报计数,不改库。
     pub(crate) fn purge_legacy_cid_rows(&self, dry_run: bool) -> Result<PurgeReport, String> {
         // 号承载表清单,无外键约束,删除顺序无关;主登记表 ids 放最后。
-        const CID_TABLES: [&str; 8] = [
+        const CID_TABLES: [&str; 7] = [
             "subject",
             "citizen",
             "document",
             "government",
-            "private",
             "account",
             "attachment",
             "identity",
@@ -465,7 +409,7 @@ impl Db {
             // 2. 筛旧号:过不了新格式校验的即旧号。
             let legacy: Vec<String> = kind_by_cid
                 .keys()
-                .filter(|cid| crate::cid::validate_cid_number_format(cid).is_err())
+                .filter(|cid| crate::codes::validate_cid_number_format(cid).is_err())
                 .cloned()
                 .collect();
             let private_count = legacy
@@ -520,7 +464,7 @@ impl Db {
     // 扫出"孤儿机构"——subjects 中 town_code 非空、但该
     // (province_code,city_code,town_code) 三元组在行政区划真源 china.sqlite 里不存在
     // (town_code 指向已退役的镇)。判定只走
-    // 进程内内存树(crate::cid::china::town_exists),不在 PG 里 join china 数据(PG 无 towns 表)。
+    // 进程内内存树(crate::codes::china::town_exists),不在 PG 里 join china 数据(PG 无 towns 表)。
     // 白名单:town_code 为空/NULL 的行(市级机构/储委会/部委合法态)永远不是孤儿,直接跳过。
     // 只读扫描,不改库;删除由调用方拿到 cid 列表后逐省级联删。
     pub(crate) fn scan_orphan_institutions(&self) -> Result<Vec<OrphanInstitution>, String> {
@@ -538,7 +482,7 @@ impl Db {
                 .map_err(|e| {
                     format!(
                         "scan subjects for orphan institutions failed: {}",
-                        crate::core::db::postgres_error_text(&e)
+                        crate::database::postgres_error_text(&e)
                     )
                 })?;
             let mut orphans = Vec::new();
@@ -552,7 +496,7 @@ impl Db {
                 let category: String = row.get(6);
                 let institution_code: String = row.get(7);
                 // 白名单:空 town_code 已在 SQL 过滤;此处再调 town_exists 内存树判定。
-                if crate::cid::china::town_exists(&province_code, &city_code, &town_code) {
+                if crate::codes::china::town_exists(&province_code, &city_code, &town_code) {
                     continue;
                 }
                 orphans.push(OrphanInstitution {
@@ -570,7 +514,7 @@ impl Db {
         })
     }
 
-    // 把待删孤儿行(subjects/gov/private/accounts)文本导出到备份文件,删除唯一回滚保证。
+    // 把待删孤儿行(subject/government/account)文本导出到备份文件,删除唯一回滚保证。
     // 用 COPY ... TO STDOUT 抓 TSV(不依赖 pg_dump 外部进程),每张表一段,带表名分隔头。
     // 仅命中传入 cid 集合内的行(逐省 province_code + cid ANY 过滤),不会导出无关数据。
     fn export_orphan_backup(
@@ -589,12 +533,11 @@ impl Db {
                 "-- cid purge-orphan-institutions backup\n-- 删除前导出的待删孤儿行(TSV/COPY 格式),删除唯一回滚保证。"
             )
             .map_err(|e| format!("write orphan backup header failed: {e}"))?;
-            // 按 (表, 主键关联列) 分别导出;subjects/gov/private/accounts 用 cid_number,
+            // 按 (表, 主键关联列) 分别导出;subject/government/account 用 cid_number,
             // docs 用 cid_number,audit 用 target_cid。
-            const EXPORTS: [(&str, &str); 6] = [
+            const EXPORTS: [(&str, &str); 5] = [
                 ("subject", "cid_number"),
                 ("government", "cid_number"),
-                ("private", "cid_number"),
                 ("account", "cid_number"),
                 ("attachment", "cid_number"),
                 ("audit", "target_cid"),
@@ -626,8 +569,8 @@ impl Db {
 
     // 逐省单事务级联删孤儿机构。每省一条事务,WHERE province_code=$1 命中子分区,
     // cid_number = ANY($2) 限定本省孤儿集合;禁止跨省一条 SQL。级联删顺序遵守关联依赖:
-    // accounts → docs → audit → gov|private → ids → subjects(子承载表先删,主登记表 ids
-    // 与父表 subjects 最后)。gov/private 按 subjects.kind 区分(本方法传入已分好的两类 cid)。
+    // account → attachment → audit → government → identity → subject(子承载表先删,主登记表 ids
+    // 与父表subject最后)。两类CID仍共同用于清理主体及关联记录。
     // audit 关联列为 target_cid。ids 表不分区,仅按 cid_number 删。
     pub(crate) fn delete_orphan_institutions_by_province(
         &self,
@@ -673,20 +616,13 @@ impl Db {
             )
             .map_err(|e| format!("delete audit for {province} failed: {e}"))?;
 
-            // 4. gov / private(province_code 分区,按 kind 区分各自的 cid 集合)。
+            // 4. 公权扩展；私权字段已随subject统一保存。
             if !gov_cids.is_empty() {
                 tx.execute(
                     "DELETE FROM government WHERE province_code = $1 AND cid_number = ANY($2)",
                     &[&province, &gov_cids],
                 )
                 .map_err(|e| format!("delete gov for {province} failed: {e}"))?;
-            }
-            if !private_cids.is_empty() {
-                tx.execute(
-                    "DELETE FROM private WHERE province_code = $1 AND cid_number = ANY($2)",
-                    &[&province, &private_cids],
-                )
-                .map_err(|e| format!("delete private for {province} failed: {e}"))?;
             }
 
             // 5. ids(不分区,主登记表,仅按 cid_number)。
@@ -712,7 +648,7 @@ impl Db {
 
     // 参数逐项对应稳定 SQL 过滤维度，封装结构会掩盖调用点的查询范围，故保持显式参数。
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn list_institutions_exact(
+    pub fn list_institutions_exact(
         &self,
         filter: crate::institutions::subjects::InstitutionListFilter,
         private_type: Option<&str>,
@@ -950,7 +886,7 @@ impl Db {
 
     // 公权目录查询显式携带省市镇、机构码和分页窗口，避免把权限范围藏入泛化对象。
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn list_official_institutions_scope(
+    pub fn list_official_institutions_scope(
         &self,
         province_code: &str,
         city_code: Option<&str>,
@@ -1043,7 +979,7 @@ impl Db {
 
 // 机构与公民共用的查询索引写入，保持唯一实现。
 impl Db {
-    fn upsert_target_id_row<C: postgres::GenericClient>(
+    pub fn upsert_target_id_row<C: postgres::GenericClient>(
         conn: &mut C,
         cid_number: &str,
         kind: &str,
@@ -1079,7 +1015,7 @@ impl Db {
         }
         Ok(())
     }
-    fn delete_target_rows_outside_scope<C: postgres::GenericClient>(
+    pub fn delete_target_rows_outside_scope<C: postgres::GenericClient>(
         conn: &mut C,
         table: &str,
         cid_number: &str,
@@ -1107,106 +1043,5 @@ fn governance_citizen_from_row(
 
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod governance_citizen_tests {
-    use super::*;
-
-    #[test]
-    fn empty_identity_is_absent_and_database_failure_is_preserved() {
-        let db = Db::empty_for_route_test();
-        assert!(db
-            .find_governance_citizen_by_account_id("  ")
-            .unwrap()
-            .is_none());
-        assert!(db.find_governance_citizen_by_cid("\t").unwrap().is_none());
-        assert_eq!(
-            db.find_governance_citizen_by_account_id("account")
-                .unwrap_err(),
-            "postgres client pool is empty"
-        );
-        assert_eq!(
-            db.find_governance_citizen_by_cid("cid").unwrap_err(),
-            "postgres client pool is empty"
-        );
-    }
-
-    #[test]
-    #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-    fn governance_identity_keeps_fields_latest_order_and_missing_values() {
-        let sandbox = crate::core::db::IsolatedTestDb::new();
-        let actor = format!("0x{}", "11".repeat(32));
-        // 只写本测试独占schema，原分区、字段约束和实际查询均参与回归。
-        sandbox.db.with_client(|conn| {
-            conn.execute(
-                "INSERT INTO citizen(cid_number, family_name, given_name, account_id,
-                 province_code, city_code, citizen_status, voting_eligible, creator_account, created_at)
-                 VALUES ('old', '旧姓', '旧名', $1, 'GZ', '001', 'NORMAL', true, $1, now() - interval '1 second'),
-                        ('latest', '新姓', '新名', $1, 'GZ', '001', 'NORMAL', true, $1, now()),
-                        ('unbound', '未绑定', '公民', NULL, 'GZ', '001', 'NORMAL', false, $1, now())",
-                &[&actor],
-            ).map_err(|e| e.to_string())?;
-            Ok(())
-        }).unwrap();
-        let expected = crate::institutions::model::GovernanceCitizen {
-            cid_number: "latest".into(),
-            family_name: "新姓".into(),
-            given_name: "新名".into(),
-            account_id: Some(actor.clone()),
-        };
-        assert_eq!(
-            sandbox
-                .db
-                .find_governance_citizen_by_account_id(&format!(" {actor} "))
-                .unwrap(),
-            Some(expected)
-        );
-        let old = sandbox
-            .db
-            .find_governance_citizen_by_cid(" old ")
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            (
-                old.cid_number.as_str(),
-                old.family_name.as_str(),
-                old.given_name.as_str(),
-                old.account_id.as_deref()
-            ),
-            ("old", "旧姓", "旧名", Some(actor.as_str()))
-        );
-        assert!(sandbox
-            .db
-            .find_governance_citizen_by_cid("unbound")
-            .unwrap()
-            .unwrap()
-            .account_id
-            .is_none());
-        assert!(sandbox
-            .db
-            .find_governance_citizen_by_cid("missing")
-            .unwrap()
-            .is_none());
-        assert!(sandbox
-            .db
-            .find_governance_citizen_by_account_id(&format!("0x{}", "22".repeat(32)))
-            .unwrap()
-            .is_none());
-        // schema内临时隐藏源表，确保真实SQL失败不会伪装为未找到。
-        sandbox
-            .db
-            .with_client(|conn| {
-                conn.batch_execute("ALTER TABLE citizen RENAME TO citizens_unavailable")
-                    .map_err(|e| e.to_string())
-            })
-            .unwrap();
-        assert!(sandbox
-            .db
-            .find_governance_citizen_by_cid("latest")
-            .unwrap_err()
-            .contains("query governance citizen by cid failed"));
-        assert!(sandbox
-            .db
-            .find_governance_citizen_by_account_id(&actor)
-            .unwrap_err()
-            .contains("query governance citizen by account failed"));
-    }
-}
+#[path = "../tests/database_records_governance_citizen_tests.rs"]
+mod governance_citizen_tests;

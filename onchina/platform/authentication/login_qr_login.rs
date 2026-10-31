@@ -44,7 +44,7 @@ pub(crate) async fn admin_auth_qr_sign_request(
     // 登录第 1 步只收钱包码：管理员私钥保管在离线的 CitizenWallet，钱包码由它自己
     // 就能出示。二维码不携带 CID 与昵称——后端从链上管理员名册读取身份字段，并在
     // 同一个 finalized 区块按分层规则解析当前可签名账户，禁止信任二维码自述身份。
-    let scanned_account_id = match crate::core::qr::parse_account_id_code(&input.identity_qr) {
+    let scanned_account_id = match crate::qr::parse_account_id_code(&input.identity_qr) {
         Ok(value) => value,
         Err(error) => {
             let message = format!("identity_qr must be a complete QR_V1 account_id_code: {error}");
@@ -66,21 +66,21 @@ pub(crate) async fn admin_auth_qr_sign_request(
     // 回放保护用的唯一 token,实际验证在 admin_auth_qr_complete 中重建。
     let challenge_text = format!(
         "{}|{}|{}|{}|{}|",
-        crate::core::qr::QR_V1,
-        crate::core::qr::QrKind::SignResponse.code(),
+        crate::qr::QR_V1,
+        crate::qr::QrKind::SignResponse.code(),
         challenge_id,
         LOGIN_QR_SYSTEM,
         expires_at.timestamp()
     );
     // 用户码先确定目标账户，b.u 必须携带该账户的 32 字节公钥；钱包不得任选账户签名。
-    let login_body = match crate::core::qr::login_request_body(LOGIN_QR_SYSTEM, &account_id) {
+    let login_body = match crate::qr::login_request_body(LOGIN_QR_SYSTEM, &account_id) {
         Ok(value) => value,
         Err(error) => {
             let message = format!("build targeted login request failed: {error}");
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, &message);
         }
     };
-    let login_qr_payload = serde_json::to_string(&crate::core::qr::SignRequestEnvelope::new(
+    let login_qr_payload = serde_json::to_string(&crate::qr::SignRequestEnvelope::new(
         challenge_id.clone(),
         now.timestamp(),
         expires_at.timestamp(),
@@ -177,8 +177,8 @@ pub(crate) async fn admin_auth_qr_complete(
             return Err("http:forbidden:account_id must match targeted account_id".to_string());
         }
         // 重建完整签名原文,与 CitizenWallet 端 k=2 登录签名响应规则一致。
-        let verify_message = crate::core::qr::build_signature_message(
-            crate::core::qr::QrKind::SignResponse,
+        let verify_message = crate::qr::build_signature_message(
+            crate::qr::QrKind::SignResponse,
             challenge_id.as_str(),
             Some(LOGIN_QR_SYSTEM),
             Some(challenge_expire_at),
@@ -379,8 +379,8 @@ pub(crate) async fn admin_auth_qr_result(
                     return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
                 }
             };
-        if crate::core::chain_runtime::is_tier1_registry(&result.institution_code) {
-            province = match crate::core::chain_runtime::current_frg_province_name(
+        if crate::chain_runtime::is_tier1_registry(&result.institution_code) {
+            province = match crate::chain_runtime::current_frg_province_name(
                 &institution_cid_number,
                 &result.account_id,
             )
@@ -392,7 +392,7 @@ pub(crate) async fn admin_auth_qr_result(
                 }
             };
         }
-        if crate::core::chain_runtime::admin_level_label_for(&result.institution_code).as_deref()
+        if crate::chain_runtime::admin_level_label_for(&result.institution_code).as_deref()
             != Some("NATIONAL")
             && province.as_deref().map(str::trim).unwrap_or("").is_empty()
         {
@@ -437,7 +437,7 @@ pub(crate) async fn admin_auth_qr_result(
                     account_id: result.account_id.clone(),
                     institution_cid_number,
                     institution_code: result.institution_code.clone(),
-                    admin_level: crate::core::chain_runtime::admin_level_label_for(
+                    admin_level: crate::chain_runtime::admin_level_label_for(
                         &result.institution_code,
                     ),
                     capabilities,

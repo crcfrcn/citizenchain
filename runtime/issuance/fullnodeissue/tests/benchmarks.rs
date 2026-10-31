@@ -32,4 +32,31 @@ mod benchmarks {
         #[extrinsic_call]
         rebind_reward_account(RawOrigin::Signed(miner_account_id), new_reward_account_id);
     }
+    /// 真实PoW作者、绑定接收方和新账户铸发的finalize最重路径。
+    #[benchmark]
+    fn on_finalize_reward() {
+        use codec::Encode;
+        use frame_support::traits::{Currency, FindAuthor, Hooks};
+        use sp_runtime::traits::{SaturatedConversion, Zero};
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        let miner: T::AccountId = account("pow-miner", 0, 0);
+        let recipient: T::AccountId = account("new-reward", 0, 0);
+        let encoded = miner.encode();
+        let author = T::FindAuthor::find_author([(*b"pow_", encoded.as_slice())])
+            .expect("真实PoW作者必须可解码");
+        frame_system::Pallet::<T>::deposit_log(sp_runtime::DigestItem::PreRuntime(
+            *b"pow_", encoded,
+        ));
+        pallet::RewardAccountIdByMiner::<T>::insert(&author, &recipient);
+        drop(T::Currency::make_free_balance_be(&recipient, Zero::zero()));
+        #[block]
+        {
+            Pallet::<T>::on_finalize(1u32.into());
+        }
+        assert_eq!(pallet::LastAuthoredBlockByMiner::<T>::get(&author), Some(1));
+        assert_eq!(
+            T::Currency::free_balance(&recipient),
+            primitives::pow_const::FULLNODE_BLOCK_REWARD.saturated_into()
+        );
+    }
 }

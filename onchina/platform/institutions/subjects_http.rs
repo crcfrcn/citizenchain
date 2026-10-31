@@ -32,13 +32,22 @@ pub(crate) fn service_error_to_response(e: ServiceError) -> axum::response::Resp
 /// 机构可见性闸,与全仓 get_visible_scope/includes_* 同一 fail-closed 语义——
 /// scope 省/市缺省即空可见域,拒绝任何机构。登录守卫已先拒空 scope 会话,此处为纵深一致性,
 /// 不再因 scope 字段为 None 而 fail-open 放行。
-pub(crate) fn ensure_institution_visible_to_admin(
+pub fn ensure_institution_visible_to_admin(
     inst: &Institution,
     ctx: &AdminAuthContext,
 ) -> Result<(), axum::response::Response> {
     let scope = crate::authorization::get_visible_scope(ctx);
-    if !scope.includes_institution(&inst.cid_number, &inst.province_name, &inst.city_name, &inst.town_name) {
-        return Err(api_error(StatusCode::FORBIDDEN, 1003, "institution out of current admin scope"));
+    if !scope.includes_institution(
+        &inst.cid_number,
+        &inst.province_name,
+        &inst.city_name,
+        &inst.town_name,
+    ) {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            1003,
+            "institution out of current admin scope",
+        ));
     }
     Ok(())
 }

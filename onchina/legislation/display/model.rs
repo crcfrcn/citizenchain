@@ -1,10 +1,10 @@
-//! 大屏看板 DTO(camelCase 出线,前端 `onchina/legislation/frontend/display_types.ts` 逐字镜像)。
+//! 大屏看板 DTO(camelCase 出线,前端 `onchina/legislationweb/display/types.ts` 逐字镜像)。
 //!
 //! 嵌入既有 `LegProposalState`(不重定义),叠加席位与聚合计数。
 
 use serde::Serialize;
 
-use crate::legislation::chain_read_proposal::LegProposalState;
+use crate::chain_read_proposal::LegProposalState;
 
 /// 单个席位(议员)对当前提案的投票态。
 #[derive(Debug, Clone, Serialize)]

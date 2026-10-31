@@ -1,8 +1,18 @@
+import {createSecureContext} from 'node:tls';
 import {spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep, delimiter} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {product} from './config.mjs';
+
+export function developmentTLS(certificate, privateKey) {
+  if (!certificate || !privateKey) throw new Error('缺少TLS证书或私钥路径');
+  try {
+    const options = { cert: readFileSync(certificate), key: readFileSync(privateKey), minVersion: 'TLSv1.3' };
+    createSecureContext(options);
+    return options;
+  } catch { throw new Error('TLS证书、私钥或配对无效'); }
+}
 
 const root = realpathSync(resolve(import.meta.dirname, '..'));
 const fail = message => { throw Error(message); };

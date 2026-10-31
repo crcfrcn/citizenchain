@@ -244,14 +244,17 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
+// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
+
 impl votebase::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
-    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
-    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
-    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Test, 8>;
+    type MaxAutoFinalizeWeightPerBlock = LogicBudget;
+    type MaxExecutionWeightPerBlock = LogicBudget;
+    type MaxCleanupWeightPerBlock = LogicBudget;
     type MaxProposalsPerExpiry = ConstU32<128>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;
@@ -519,9 +522,11 @@ pub fn create_institution(
     // 测试机构均非 UNIN，无父级可传。
     let protocol_accounts =
         crate::tests::accounts::build_required_protocol_accounts::<Test>(&cid_number, None)?;
-    let (created_accounts, _, _, _) = crate::tests::accounts::validate_initial_accounts::<
-        Test,
-    >(&cid_number, &protocol_accounts, None)?;
+    let (created_accounts, _, _, _) = crate::tests::accounts::validate_initial_accounts::<Test>(
+        &cid_number,
+        &protocol_accounts,
+        None,
+    )?;
     PrivateManage::store_default_legal_representative_role(&cid_number)?;
     pallet::Institutions::<Test>::insert(
         &cid_number,

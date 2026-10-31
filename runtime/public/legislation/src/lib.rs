@@ -10,12 +10,15 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "runtime-benchmarks")]
+#[path = "../tests/benchmarks.rs"]
+pub mod benchmarks;
 pub mod types;
 pub mod weights;
 
 pub use pallet::*;
-pub use types::{LawAction, LawStatus, Tier, VoteType};
 use primitives::genesis::LawRegion;
+pub use types::{LawAction, LawStatus, Tier, VoteType};
 
 /// 模块标识前缀,用于在 votebase `ProposalData` 中区分本模块提案,防止跨模块误解码。
 pub const MODULE_TAG: &[u8] = b"leg-yuan";
@@ -293,9 +296,7 @@ pub mod pallet {
         type LegislationVoteEngine: LegislationVoteEngine<Self::AccountId>;
 
         /// 机构存在性只按 CID 查询，不允许通过某个账户反推机构身份。
-        type InstitutionCidQuery: entitybase::InstitutionCidQuery<
-            votebase::types::CidNumber,
-        >;
+        type InstitutionCidQuery: entitybase::InstitutionCidQuery<votebase::types::CidNumber>;
 
         /// 机构岗位权限、有效任职与 CID 顶层能力的统一查询入口。
         type InstitutionRoleAuthorization: InstitutionRoleAuthorizationQuery<Self::AccountId>;
@@ -316,6 +317,8 @@ pub mod pallet {
         #[pallet::constant]
         type MaxPendingActivations: Get<u32>;
 
+        /// 待生效队列的单块独立权重预算。
+        type ActivationWeightBudget: Get<Weight>;
         type WeightInfo: crate::weights::WeightInfo;
     }
 
@@ -379,8 +382,11 @@ pub mod pallet {
 
     /// 待生效版本队列。每个区块用链上时间戳扫描,到时间即翻为 Effective。
     #[pallet::storage]
-    pub type PendingActivations<T: Config> =
-        StorageValue<_, BoundedVec<(u64, u32), <T as Config>::MaxPendingActivations>, ValueQuery>;
+    pub type PendingActivations<T: Config> = StorageValue<
+        _,
+        BoundedVec<(u64, u32, u64), <T as Config>::MaxPendingActivations>,
+        ValueQuery,
+    >;
 
     /// 不可修改条款 manifest(创世冻结,无 setter,见 [`ImmutableManifest`])。
     #[pallet::storage]
@@ -610,28 +616,36 @@ pub mod pallet {
         /// 用链上时间戳扫描待生效队列,到时间后自动切换生效版本。
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
             let now_ms = Self::now_ms();
-            let pending = PendingActivations::<T>::take();
-            let mut remain = BoundedVec::<(u64, u32), <T as Config>::MaxPendingActivations>::new();
-            let mut activated = 0u64;
-            let mut retained = 0u64;
-            for (law_id, version) in pending.into_iter() {
-                let should_activate = LawVersions::<T>::get(law_id, version)
-                    .map(|v| v.effective_at <= now_ms)
-                    .unwrap_or(false);
-                if should_activate {
-                    Self::set_effective(law_id, version);
-                    activated = activated.saturating_add(1);
-                } else if remain.try_push((law_id, version)).is_ok() {
-                    retained = retained.saturating_add(1);
+            let pending = PendingActivations::<T>::get();
+            let mut used = <T as Config>::WeightInfo::on_initialize_base();
+            if pending.is_empty() {
+                return used;
+            }
+            let per = <T as Config>::WeightInfo::process_activation()
+                .max(<T as Config>::WeightInfo::retain_activation());
+            let budget = T::ActivationWeightBudget::get();
+            let mut rest = sp_runtime::sp_std::vec::Vec::new();
+            let mut retained = sp_runtime::sp_std::vec::Vec::new();
+            let mut processed = 0usize;
+            for (law_id, version, effective_at) in pending.into_iter() {
+                if used.saturating_add(per).any_gt(budget) {
+                    rest.push((law_id, version, effective_at));
+                    continue;
+                }
+                used = used.saturating_add(per);
+                processed += 1;
+                if !Self::activate_version_if_due(law_id, version, effective_at, now_ms) {
+                    retained.push((law_id, version, effective_at));
                 }
             }
-            if !remain.is_empty() {
-                PendingActivations::<T>::put(remain);
+            // 未处理项优先，下轮再看已检查但未到期项，避免队首未来日期阻塞后方到期记录。
+            if processed > 0 {
+                rest.extend(retained);
+                let rest: BoundedVec<_, T::MaxPendingActivations> =
+                    rest.try_into().expect("队列只保留原有项");
+                PendingActivations::<T>::put(rest);
             }
-            T::DbWeight::get().reads_writes(
-                activated.saturating_add(retained).saturating_add(2),
-                activated.saturating_add(2),
-            )
+            used
         }
     }
 
@@ -639,7 +653,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// 立法(新法):立法机构议员/委员发起,走立法投票。
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as Config>::WeightInfo::propose_enact_law())]
+        #[pallet::weight(<T as Config>::WeightInfo::propose_enact_law().max(<T as Config>::WeightInfo::enact_text()).saturating_add(Weight::from_parts(0, chapters.encoded_size() as u64)))]
         pub fn propose_enact_law(
             origin: OriginFor<T>,
             tier: Tier,
@@ -709,7 +723,7 @@ pub mod pallet {
 
         /// 修法:针对既有法律提交新版本(整部全文快照),走立法投票。
         #[pallet::call_index(1)]
-        #[pallet::weight(<T as Config>::WeightInfo::propose_amend_law())]
+        #[pallet::weight(<T as Config>::WeightInfo::propose_amend_law().max(<T as Config>::WeightInfo::amend_text()).saturating_add(Weight::from_parts(0, chapters.encoded_size() as u64)))]
         pub fn propose_amend_law(
             origin: OriginFor<T>,
             law_id: u64,
@@ -865,6 +879,20 @@ pub mod pallet {
 
     // ──────────────── 内部 helper:校验 / 编排 / 执行器 / 查询 ────────────────
     impl<T: Config> Pallet<T> {
+        /// 检查原定生效时间；预算不足时由待生效队列留待后续区块处理。
+        pub(crate) fn activate_version_if_due(
+            law_id: u64,
+            version: u32,
+            effective_at: u64,
+            now_ms: u64,
+        ) -> bool {
+            if effective_at > now_ms {
+                return false;
+            }
+            Self::set_effective(law_id, version);
+            true
+        }
+
         /// 校验发起人是提案机构(proposer_body)的现任管理员(议员/委员)。
         /// ADR-027 修订:提案方与表决院解耦——市行政区 市自治会/市教委会 委员可提案,
         /// 但表决院恒为 houses[0]=市立法会,故 auth 校验对 proposer_body 而非 houses[0]。
@@ -1509,13 +1537,11 @@ pub mod pallet {
                     .chain(guard)
                     .map(votebase::types::AuthorizationSubject::Institution),
             );
-            let owner: BoundedVec<
-                u8,
-                ConstU32<{ entitybase::BUSINESS_MODULE_TAG_MAX_BYTES }>,
-            > = MODULE_TAG
-                .to_vec()
-                .try_into()
-                .map_err(|_| Error::<T>::VoteEngineCreateFailed)?;
+            let owner: BoundedVec<u8, ConstU32<{ entitybase::BUSINESS_MODULE_TAG_MAX_BYTES }>> =
+                MODULE_TAG
+                    .to_vec()
+                    .try_into()
+                    .map_err(|_| Error::<T>::VoteEngineCreateFailed)?;
             let vote_plan = VotePlanOf::<T::AccountId>::try_new(
                 BusinessActionId {
                     module_tag: owner.clone(),
@@ -1567,8 +1593,10 @@ pub mod pallet {
             if effective_at <= Self::now_ms() {
                 Self::set_effective(law_id, version);
             } else {
-                PendingActivations::<T>::try_mutate(|v| v.try_push((law_id, version)))
-                    .map_err(|_| Error::<T>::TooManyActivations)?;
+                PendingActivations::<T>::try_mutate(|v| {
+                    v.try_push((law_id, version, effective_at))
+                })
+                .map_err(|_| Error::<T>::TooManyActivations)?;
             }
             Ok(())
         }
@@ -1833,6 +1861,14 @@ pub mod pallet {
 /// 立法投票终态回调接入:投票引擎在立法提案达终态时按 kind 广播到此,
 /// 由本业务壳认领并写入法律(runtime 装配 `votebase::Config::LegislationVoteResultCallback = LegislationYuan`)。
 impl<T: pallet::Config> votebase::LegislationVoteResultCallback for pallet::Pallet<T> {
+    fn execution_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        let value = <T as pallet::Config>::WeightInfo::propose_enact_law()
+            .max(<T as pallet::Config>::WeightInfo::enact_text())
+            .max(<T as pallet::Config>::WeightInfo::propose_amend_law())
+            .max(<T as pallet::Config>::WeightInfo::amend_text());
+        frame_support::weights::Weight::from_parts(value.ref_time(), 0)
+    }
     fn on_legislation_vote_finalized(
         vote_proposal_id: u64,
         approved: bool,

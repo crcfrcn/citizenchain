@@ -86,14 +86,18 @@ impl system::Config for Test {
     type Lookup = IdentityLookup<Self::AccountId>;
 }
 
+// 本模块验证投票行为/条数/FIFO，资源约束由votebase预算回归及Runtime预算回归验证。
+// 避免FRAME通用测试默认的小预算掩盖本模块要验证的状态转换。
+frame_support::parameter_types! { pub const MaintenanceBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
+
 impl votebase::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
-    type MaxAutoFinalizeWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
-    type MaxExecutionWeightPerBlock = votebase::BlockWeightFraction<Test, 4>;
-    type MaxCleanupWeightPerBlock = votebase::BlockWeightFraction<Test, 8>;
+    type MaxAutoFinalizeWeightPerBlock = MaintenanceBudget;
+    type MaxExecutionWeightPerBlock = MaintenanceBudget;
+    type MaxCleanupWeightPerBlock = MaintenanceBudget;
     type MaxProposalsPerExpiry = ConstU32<128>;
     type MaxInternalProposalMutexBindings = ConstU32<256>;
     type MaxActiveProposals = ConstU32<10>;
@@ -469,9 +473,7 @@ impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader 
         (who == &nrc_admin(0)).then(|| test_citizen_subject(who))
     }
 
-    fn population_data(
-        scope: &votebase::PopulationScope,
-    ) -> Option<votebase::PopulationData> {
+    fn population_data(scope: &votebase::PopulationScope) -> Option<votebase::PopulationData> {
         Some(votebase::PopulationData {
             scope: scope.clone(),
             eligible_total: TEST_POPULATION_COUNT.with(|count| *count.borrow()),
@@ -589,9 +591,7 @@ fn subject_cids_for(actor_cid_number: &CidNumber) -> Vec<Vec<u8>> {
     sp_std::vec![actor_cid_number.to_vec()]
 }
 
-fn internal_mutex_for(
-    actor_cid_number: CidNumber,
-) -> Option<votebase::InternalProposalMutexState> {
+fn internal_mutex_for(actor_cid_number: CidNumber) -> Option<votebase::InternalProposalMutexState> {
     VotingEngine::internal_proposal_mutex(ProposalSubject::InstitutionCid(actor_cid_number))
 }
 
@@ -760,26 +760,22 @@ fn try_create_joint_proposal_for(
     let voter_subjects = CHINA_CB
         .iter()
         .map(|entry| {
-            votebase::types::AuthorizationSubject::Institution(
-                votebase::types::RoleSubject {
-                    cid_number: bounded_cid(entry.cid_number.as_bytes()),
-                    role_code: primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
-                        .to_vec()
-                        .try_into()
-                        .expect("bounded committee role"),
-                },
-            )
+            votebase::types::AuthorizationSubject::Institution(votebase::types::RoleSubject {
+                cid_number: bounded_cid(entry.cid_number.as_bytes()),
+                role_code: primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+                    .to_vec()
+                    .try_into()
+                    .expect("bounded committee role"),
+            })
         })
         .chain(CHINA_CH.iter().map(|entry| {
-            votebase::types::AuthorizationSubject::Institution(
-                votebase::types::RoleSubject {
-                    cid_number: bounded_cid(entry.cid_number.as_bytes()),
-                    role_code: primitives::governance_skeleton::ROLE_CODE_DIRECTOR
-                        .to_vec()
-                        .try_into()
-                        .expect("bounded director role"),
-                },
-            )
+            votebase::types::AuthorizationSubject::Institution(votebase::types::RoleSubject {
+                cid_number: bounded_cid(entry.cid_number.as_bytes()),
+                role_code: primitives::governance_skeleton::ROLE_CODE_DIRECTOR
+                    .to_vec()
+                    .try_into()
+                    .expect("bounded director role"),
+            })
         }))
         .collect();
     let module_tag: BoundedVec<u8, ConstU32<32>> = b"joint-test"
@@ -935,8 +931,8 @@ fn cast_internal_vote_via_extrinsic(
     let proposal = VotingEngine::proposals(proposal_id).expect("测试提案存在");
     let ticket_claim = if let Some(actor_cid_number) = proposal.actor_cid_number {
         let actor_text = core::str::from_utf8(actor_cid_number.as_slice()).expect("测试 CID 合法");
-        let code = votebase::types::institution_code_from_cid_number(actor_text)
-            .expect("测试机构码合法");
+        let code =
+            votebase::types::institution_code_from_cid_number(actor_text).expect("测试机构码合法");
         InternalVoteTicketClaim::InstitutionRole(
             test_institution_role(code)
                 .to_vec()

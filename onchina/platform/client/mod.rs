@@ -7,5 +7,5 @@
 //!
 //! 路由挂在 main.rs 的 `app_routes`(非 admin、`/api/app/` 命名空间)。
 
-#[path = "public_institution.rs"]
+#[path = "public.rs"]
 pub(crate) mod public_institution;

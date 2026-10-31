@@ -9,9 +9,9 @@ struct OrganizationCaCertificateInfoView {
 }
 
 #[derive(Clone, Copy)]
-struct DbPageCursor {
-    created_at: DateTime<Utc>,
-    id: i64,
+pub struct DbPageCursor {
+    pub created_at: DateTime<Utc>,
+    pub id: i64,
 }
 
 fn encode_db_page_cursor(created_at: DateTime<Utc>, id: i64) -> String {
@@ -19,7 +19,7 @@ fn encode_db_page_cursor(created_at: DateTime<Utc>, id: i64) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw)
 }
 
-fn decode_db_page_cursor(cursor: Option<&str>) -> Result<Option<DbPageCursor>, String> {
+pub fn decode_db_page_cursor(cursor: Option<&str>) -> Result<Option<DbPageCursor>, String> {
     let Some(raw_cursor) = cursor.map(str::trim).filter(|v| !v.is_empty()) else {
         return Ok(None);
     };
@@ -41,22 +41,22 @@ fn decode_db_page_cursor(cursor: Option<&str>) -> Result<Option<DbPageCursor>, S
     Ok(Some(DbPageCursor { created_at, id }))
 }
 
-fn institution_category_text(category: crate::cid::InstitutionCategory) -> &'static str {
+fn institution_category_text(category: crate::codes::InstitutionCategory) -> &'static str {
     match category {
-        crate::cid::InstitutionCategory::GovInstitution => "GOV_INSTITUTION",
-        crate::cid::InstitutionCategory::PrivateInstitution => "PRIVATE_INSTITUTION",
+        crate::codes::InstitutionCategory::GovInstitution => "GOV_INSTITUTION",
+        crate::codes::InstitutionCategory::PrivateInstitution => "PRIVATE_INSTITUTION",
     }
 }
 
-fn institution_category_from_text(category: &str) -> Option<crate::cid::InstitutionCategory> {
+fn institution_category_from_text(category: &str) -> Option<crate::codes::InstitutionCategory> {
     match category {
-        "GOV_INSTITUTION" => Some(crate::cid::InstitutionCategory::GovInstitution),
-        "PRIVATE_INSTITUTION" => Some(crate::cid::InstitutionCategory::PrivateInstitution),
+        "GOV_INSTITUTION" => Some(crate::codes::InstitutionCategory::GovInstitution),
+        "PRIVATE_INSTITUTION" => Some(crate::codes::InstitutionCategory::PrivateInstitution),
         _ => None,
     }
 }
 
-fn page_from_rows<T: Serialize>(
+pub fn page_from_rows<T: Serialize>(
     mut rows: Vec<(T, DateTime<Utc>, i64)>,
     page_size: usize,
 ) -> PageResult<T> {
@@ -80,7 +80,7 @@ fn page_from_rows<T: Serialize>(
     }
 }
 
-fn citizen_region_names(
+pub fn citizen_region_names(
     province_code: Option<&str>,
     city_code: Option<&str>,
     town_code: Option<&str>,
@@ -88,7 +88,7 @@ fn citizen_region_names(
     let Some(province_code) = province_code.map(str::trim).filter(|code| !code.is_empty()) else {
         return (None, None, None);
     };
-    crate::cid::china::area_name_by_codes(province_code, city_code, town_code)
+    crate::codes::china::area_name_by_codes(province_code, city_code, town_code)
         .map(|(province, city, town)| {
             (
                 Some(province.to_string()),
@@ -159,7 +159,7 @@ fn institution_row_from_pg_row(
     let province_code: String = row.get(6);
     let city_code: Option<String> = row.get(7);
     let town_code_value = town_code.clone().unwrap_or_default();
-    let (province_name, city_name, town_name) = crate::cid::china::area_display_names(
+    let (province_name, city_name, town_name) = crate::codes::china::area_display_names(
         province_code.as_str(),
         city_code.as_deref(),
         Some(town_code_value.as_str()),
@@ -224,7 +224,7 @@ fn institution_from_subject_row(
     let province_code: String = row.get(6);
     let city_code: Option<String> = row.get(7);
     let town_code_value = town_code.clone().unwrap_or_default();
-    let (province_name, city_name, town_name) = crate::cid::china::area_display_names(
+    let (province_name, city_name, town_name) = crate::codes::china::area_display_names(
         province_code.as_str(),
         city_code.as_deref(),
         Some(town_code_value.as_str()),

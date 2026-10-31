@@ -14,12 +14,12 @@ use axum::{
     Json,
 };
 
-use crate::authentication::login::require_admin_any;
-use crate::authorization::get_visible_scope;
-use crate::cid::china::{city_code_by_name, province_code_by_name, town_code_by_name};
-use crate::core::response::ApiResponse;
-use crate::institutions::subjects::model::InstitutionListRow;
 use crate::*;
+use onchina::authentication::login::require_admin_any;
+use onchina::authorization::get_visible_scope;
+use onchina::codes::china::{city_code_by_name, province_code_by_name, town_code_by_name};
+use onchina::institutions::subjects::model::InstitutionListRow;
+use onchina::response::ApiResponse;
 
 // 注册局原辖区查询参数。
 
@@ -50,7 +50,7 @@ pub(crate) async fn list_official_institutions(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&ctx) {
+    if let Err(resp) = onchina::authorization::rules::ensure_registry_admin(&ctx) {
         return resp;
     }
     let scope = get_visible_scope(&ctx);

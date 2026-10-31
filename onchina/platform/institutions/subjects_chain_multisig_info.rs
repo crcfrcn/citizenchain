@@ -2,8 +2,8 @@
 //!
 //! 公开只读接口直接查询 `subjects/accounts` 结构化表。
 
-use crate::core::response::ApiResponse;
 use crate::institutions::subjects::service::institution_account_kind_label;
+use crate::response::ApiResponse;
 use crate::*;
 use axum::{
     extract::{Path, State},
@@ -21,7 +21,7 @@ pub(crate) struct AppInstitutionDetail {
     pub(crate) cid_full_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) cid_short_name: Option<String>,
-    pub(crate) category: crate::cid::InstitutionCategory,
+    pub(crate) category: crate::codes::InstitutionCategory,
     pub(crate) p1: String,
     pub(crate) province_name: String,
     pub(crate) city_name: String,
@@ -55,7 +55,7 @@ pub(crate) struct AppInstitutionSearchRow {
     pub(crate) cid_number: String,
     pub(crate) cid_full_name: Option<String>,
     pub(crate) cid_short_name: Option<String>,
-    pub(crate) category: crate::cid::InstitutionCategory,
+    pub(crate) category: crate::codes::InstitutionCategory,
     pub(crate) province_name: String,
     pub(crate) city_name: String,
 }
@@ -78,10 +78,10 @@ pub(crate) struct AppInstitutionAccounts {
     pub(crate) accounts: Vec<AppAccountEntry>,
 }
 
-fn parse_category(value: &str) -> crate::cid::InstitutionCategory {
+fn parse_category(value: &str) -> crate::codes::InstitutionCategory {
     match value {
-        "GOV_INSTITUTION" => crate::cid::InstitutionCategory::GovInstitution,
-        _ => crate::cid::InstitutionCategory::PrivateInstitution,
+        "GOV_INSTITUTION" => crate::codes::InstitutionCategory::GovInstitution,
+        _ => crate::codes::InstitutionCategory::PrivateInstitution,
     }
 }
 
@@ -122,11 +122,12 @@ pub(crate) async fn app_search_institutions(
             .map(|row| {
                 let province_code: String = row.get(4);
                 let city_code: Option<String> = row.get(5);
-                let (province_name, city_name, _town_name) = crate::cid::china::area_display_names(
-                    province_code.as_str(),
-                    city_code.as_deref(),
-                    None,
-                );
+                let (province_name, city_name, _town_name) =
+                    crate::codes::china::area_display_names(
+                        province_code.as_str(),
+                        city_code.as_deref(),
+                        None,
+                    );
                 AppInstitutionSearchRow {
                     cid_number: row.get(0),
                     cid_full_name: row.get(1),
@@ -224,7 +225,7 @@ pub(crate) async fn app_list_accounts(
         Err(resp) => return resp,
     };
     let chain_accounts =
-        match crate::core::chain_runtime::institution_accounts_lookup(&code, &cid_number).await {
+        match crate::chain_runtime::institution_accounts_lookup(&code, &cid_number).await {
             Ok(v) => v,
             Err(err) => {
                 tracing::error!(error = %err, "read chain institution accounts failed");

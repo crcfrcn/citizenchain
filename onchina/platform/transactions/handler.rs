@@ -1,8 +1,8 @@
 //! 平台统一链交易提交与恢复；业务投影仍调用原所属业务实现。
 use super::session::{ChainSignSession, SessionLease};
 use crate::authentication::login::AdminAuthContext;
-use crate::core::chain_submit;
-use crate::core::chain_submit::parse_hex32;
+use crate::chain_submit;
+use crate::chain_submit::parse_hex32;
 use crate::crypto::pubkey::same_account_id;
 use crate::*;
 use axum::{
@@ -34,7 +34,7 @@ pub(crate) struct ChainSubmitOutput {
     pub(crate) citizen: Option<serde_json::Value>,
 }
 
-pub(crate) fn delete_session_best_effort(state: &AppState, request_id: &str, reason: &str) {
+pub fn delete_session_best_effort(state: &AppState, request_id: &str, reason: &str) {
     if let Err(err) = state.db.delete_chain_sign_session(request_id) {
         tracing::error!(
             error = %err,
@@ -508,7 +508,7 @@ pub(crate) async fn submit_chain_sign(
         Err(err) => {
             tracing::error!(error = %err, "chain submit failed");
             if let Some(tx_hash) = err.submitted_tx_hash() {
-                crate::core::runtime_ops::append_audit_log(
+                crate::audit_runtime::append_audit_log(
                     &state,
                     "CHAIN_SUBMIT_FINALIZED_UNCERTAIN",
                     &ctx.account_id,
@@ -612,7 +612,7 @@ async fn finish_finalized_session(
     // 已完成事务后才清理短期会话；清理失败也不会再次执行投影。
     delete_session_best_effort(state, &session.request_id, "completed");
     if let Some(citizen) = &citizen_output {
-        crate::core::runtime_ops::append_audit_log(
+        crate::audit_runtime::append_audit_log(
             state,
             "CITIZEN_CREATE",
             &session.account_id,
@@ -627,7 +627,7 @@ async fn finish_finalized_session(
         );
     }
 
-    crate::core::runtime_ops::append_audit_log(
+    crate::audit_runtime::append_audit_log(
         &state,
         "CHAIN_SIGN_SUBMIT",
         &session.account_id,
@@ -656,7 +656,7 @@ async fn finish_finalized_session(
     .into_response()
 }
 
-pub(crate) fn commit_projection(
+pub fn commit_projection(
     db: &Db,
     session: &ChainSignSession,
     lease: &SessionLease,
@@ -686,7 +686,7 @@ pub(crate) fn builtin_purposes() -> Vec<&'static str> {
     ]
 }
 
-pub(crate) fn origin_matches_binding(
+pub fn origin_matches_binding(
     session: &ChainSignSession,
     binding: &crate::authentication::login::NodeInstitutionBinding,
 ) -> bool {
@@ -785,5 +785,9 @@ async fn recover_one_chain_session(state: &AppState, id: &str) -> Result<(), Str
 
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-#[path = "handler_tests.rs"]
-pub(crate) mod tests;
+#[path = "../tests/transactions_handler.rs"]
+pub mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+#[path = "../tests/transactions_support.rs"]
+pub mod test_support;

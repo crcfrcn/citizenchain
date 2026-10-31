@@ -8,7 +8,7 @@
 
 use crate::{
     api_error,
-    core::qr::{bytes_to_b64, public_key_hex_to_b64, QR_V1},
+    qr::{bytes_to_b64, public_key_hex_to_b64, QR_V1},
 };
 use axum::http::StatusCode;
 
@@ -34,7 +34,7 @@ pub(crate) fn build_sign_request(
 ///
 /// 普通链交易传入值必须是完整 `review_payload`，钱包依赖它完整解码和中文展示；
 /// 32 字节 `signing_bytes` 只允许 Runtime 升级 hash-only 专用入口使用。
-pub(crate) fn build_sign_request_bytes(
+pub fn build_sign_request_bytes(
     request_id: &str,
     _issued_at: i64,
     expires_at: i64,
@@ -79,7 +79,7 @@ pub(crate) fn build_sign_request_bytes(
 /// - `d` = 带零账户槽的完整授权模板，已包含创世哈希、CID、revision 和过期时间。
 ///
 /// occupy/rebind 的字段顺序不同，钱包不得再把账户简单追加到 `d` 末尾。
-pub(crate) fn build_domain_sign_request_bytes(
+pub fn build_domain_sign_request_bytes(
     request_id: &str,
     expires_at: i64,
     authorization_template: &[u8],

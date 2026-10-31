@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use codec::{Decode, Encode};
 use subxt::dynamic;
 
-use crate::core::chain_url;
+use onchina::chain_url;
 
 #[derive(Decode, Encode)]
 struct RoleSubjectMirror {
@@ -98,7 +98,14 @@ pub(crate) struct BallotKey {
 impl BallotKey {
     pub(crate) fn seat_id(&self) -> String {
         // JSON 数组避免分隔符碰撞，仅用于 React 内部身份，不改变席位展示。
-        serde_json::json!([self.proposal_id,self.body_index,self.institution_cid_number,self.role_code,self.account_id]).to_string()
+        serde_json::json!([
+            self.proposal_id,
+            self.body_index,
+            self.institution_cid_number,
+            self.role_code,
+            self.account_id
+        ])
+        .to_string()
     }
 }
 
@@ -138,81 +145,26 @@ pub(crate) async fn fetch_representative_ballots(
         let mut raw = kv.value.encoded();
         let approve = bool::decode(&mut raw)
             .map_err(|e| format!("decode RepresentativeVotesByTicket value failed: {e}"))?;
-        if !raw.is_empty() { return Err("representative ballot value has trailing bytes".into()); }
+        if !raw.is_empty() {
+            return Err("representative ballot value has trailing bytes".into());
+        }
         let key = BallotKey {
-            proposal_id, body_index,
-            institution_cid_number: String::from_utf8(ticket.role_subject.cid_number).map_err(|_| "ballot CID is not UTF-8")?,
-            role_code: String::from_utf8(ticket.role_subject.role_code).map_err(|_| "ballot role is not UTF-8")?,
+            proposal_id,
+            body_index,
+            institution_cid_number: String::from_utf8(ticket.role_subject.cid_number)
+                .map_err(|_| "ballot CID is not UTF-8")?,
+            role_code: String::from_utf8(ticket.role_subject.role_code)
+                .map_err(|_| "ballot role is not UTF-8")?,
             account_id: format!("0x{}", hex::encode(ticket.voter_account_id)),
         };
-        if ballots.insert(key, approve).is_some() { return Err("duplicate representative ballot ticket".into()); }
+        if ballots.insert(key, approve).is_some() {
+            return Err("duplicate representative ballot ticket".into());
+        }
     }
     Ok(ballots)
 }
 
 #[cfg(test)]
-// 法规展示解码夹具必须成立，断言式解包仅限测试模块。
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod tests {
-    use super::*;
-    use codec::Encode;
-
-    /// 活跃提案 ID 列表:`BoundedVec<u64>` 与 `Vec<u64>` 同编码,镜像 decode 一致。
-    #[test]
-    fn active_proposal_ids_decode_from_vec_u64_golden() {
-        let ids: Vec<u64> = vec![7, 12, 99];
-        let encoded = ids.encode();
-        let decoded = Vec::<u64>::decode(&mut &encoded[..]).expect("decode Vec<u64>");
-        assert_eq!(decoded, vec![7, 12, 99]);
-    }
-
-    /// 空列表(点查缺省)解码为空。
-    #[test]
-    fn active_proposal_ids_decode_empty() {
-        let encoded = Vec::<u64>::new().encode();
-        let decoded = Vec::<u64>::decode(&mut &encoded[..]).expect("decode empty");
-        assert!(decoded.is_empty());
-    }
-
-    /// 活跃提案键必须是 ProposalSubject::InstitutionCid(CID),不是机构主账户。
-    #[test]
-    fn proposal_subject_institution_cid_key_encodes_scale_enum() {
-        let key = proposal_subject_institution_cid_key("LN001-NRP0G-000000001-2026")
-            .expect("encode subject key");
-        let mut expected = vec![0_u8];
-        expected.extend("LN001-NRP0G-000000001-2026".as_bytes().to_vec().encode());
-        assert_eq!(key, expected);
-    }
-
-    /// 逐席投票值 bool 解码(赞成/反对)。
-    #[test]
-    fn ballot_value_decodes_bool() {
-        assert!(bool::decode(&mut &true.encode()[..]).expect("decode true"));
-        assert!(!bool::decode(&mut &false.encode()[..]).expect("decode false"));
-    }
-
-    #[test]
-    fn representative_ticket_key_decodes_complete_role_identity() {
-        let encoded_ticket = (
-            2_u32,
-            InstitutionVoteTicketMirror {
-                role_subject: RoleSubjectMirror {
-                    cid_number: b"LN001-NRP0G-000000001-2026".to_vec(),
-                    role_code: b"HOUSE_MEMBER".to_vec(),
-                },
-                voter_account_id: [7_u8; 32],
-            },
-        )
-            .encode();
-        let mut storage_key = vec![0_u8; 72];
-        storage_key.extend(encoded_ticket);
-        let (body_index, ticket) =
-            decode_representative_ticket_storage_key(&storage_key).expect("decode ticket key");
-        assert_eq!(body_index, 2);
-        assert_eq!(ticket.role_subject.role_code, b"HOUSE_MEMBER");
-        assert_eq!(ticket.voter_account_id, [7_u8; 32]);
-
-        storage_key.push(0);
-        assert!(decode_representative_ticket_storage_key(&storage_key).is_err());
-    }
-}
+#[path = "../tests/display_chain_read.rs"]
+mod tests;

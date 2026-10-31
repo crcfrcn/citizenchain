@@ -11,26 +11,26 @@ use crate::authentication::operation_auth::AdminOperationAuth;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AdminActionChallenge {
-    pub(crate) action_id: String,
-    pub(crate) action_type: String,
-    pub(crate) actor_account_id: String,
-    pub(crate) actor_institution_code: String,
-    pub(crate) actor_cid_number: String,
-    pub(crate) actor_province_name: String,
+pub struct AdminActionChallenge {
+    pub action_id: String,
+    pub action_type: String,
+    pub actor_account_id: String,
+    pub actor_institution_code: String,
+    pub actor_cid_number: String,
+    pub actor_province_name: String,
     #[serde(default)]
-    pub(crate) actor_city_name: Option<String>,
-    pub(crate) auth_type: AdminOperationAuth,
-    pub(crate) target: String,
-    pub(crate) payload_text: String,
-    pub(crate) payload_hash: String,
-    pub(crate) before_hash: String,
-    pub(crate) after_hash: String,
-    pub(crate) request_payload: serde_json::Value,
-    pub(crate) issued_at: DateTime<Utc>,
+    pub actor_city_name: Option<String>,
+    pub auth_type: AdminOperationAuth,
+    pub target: String,
+    pub payload_text: String,
+    pub payload_hash: String,
+    pub before_hash: String,
+    pub after_hash: String,
+    pub request_payload: serde_json::Value,
+    pub issued_at: DateTime<Utc>,
     #[serde(with = "chrono::serde::ts_milliseconds")]
-    pub(crate) expires_at: DateTime<Utc>,
-    pub(crate) consumed: bool,
+    pub expires_at: DateTime<Utc>,
+    pub consumed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,39 +55,6 @@ pub(crate) struct AdminSecurityGrant {
 }
 
 #[cfg(test)]
-// 序列化夹具异常应使测试立即失败，断言式解包仅限本测试模块。
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn legacy_challenge_without_actor_cid_number_is_rejected() {
-        let now = Utc::now();
-        let challenge = AdminActionChallenge {
-            action_id: "action-1".to_string(),
-            action_type: "INSTITUTION_CREATE_ACCOUNT".to_string(),
-            actor_account_id: "0x1111111111111111111111111111111111111111111111111111111111111111"
-                .to_string(),
-            actor_institution_code: "FRG".to_string(),
-            actor_cid_number: "LN001-FRG0G-000000001-2026".to_string(),
-            actor_province_name: String::new(),
-            actor_city_name: None,
-            auth_type: AdminOperationAuth::PasskeyColdSign,
-            target: "target".to_string(),
-            payload_text: "{}".to_string(),
-            payload_hash: "0xaa".to_string(),
-            before_hash: "0xbb".to_string(),
-            after_hash: "0xcc".to_string(),
-            request_payload: serde_json::json!({}),
-            issued_at: now,
-            expires_at: now,
-            consumed: false,
-        };
-        let mut value = serde_json::to_value(challenge).expect("serialize challenge");
-        value
-            .as_object_mut()
-            .expect("challenge JSON object")
-            .remove("actorCidNumber");
-        assert!(serde_json::from_value::<AdminActionChallenge>(value).is_err());
-    }
-}
+#[path = "../tests/authentication_security_model.rs"]
+mod tests;

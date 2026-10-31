@@ -1,11 +1,21 @@
 //! 投票判定后由业务模块认领并执行的统一回调。
 
-use frame_support::dispatch::DispatchResult;
+use frame_support::{dispatch::DispatchResult, weights::Weight};
 use sp_runtime::DispatchError;
 
 use crate::{ProposalCancelDecision, ProposalExecutionOutcome};
 
 pub trait JointVoteResultCallback {
+    /// 业务执行的附加预算；维护还预留公共引擎及系统换码成本。
+    fn execution_weight() -> Weight {
+        Weight::zero()
+    }
+
+    /// 无终态副作用的默认实现为零；实现终态存储清理的业务必须提供所属实测预算。
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+    }
+
     fn on_joint_vote_finalized(
         vote_proposal_id: u64,
         approved: bool,
@@ -47,6 +57,16 @@ impl JointVoteResultCallback for () {
 ///
 /// 多业务模块通过 tuple 注册(见下方 `impl` for `(A,)`、`(A, B)` ... 等元组类型)。
 pub trait InternalVoteResultCallback {
+    /// 业务执行的附加预算；维护还预留公共引擎及系统换码成本。
+    fn execution_weight() -> Weight {
+        Weight::zero()
+    }
+
+    /// 无终态副作用的默认实现为零；实现终态存储清理的业务必须提供所属实测预算。
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+    }
+
     fn on_internal_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -111,6 +131,14 @@ fn merge_cancel_decision(
 // publicentity/privateentity / RuntimeAdminAccountQuery / destroy /
 // grandpakey),留 6 元组余量。如未来业务模块增加,补对应元组 impl。
 impl<A: InternalVoteResultCallback> InternalVoteResultCallback for (A,) {
+    fn execution_weight() -> Weight {
+        Weight::zero().max(A::execution_weight())
+    }
+
+    fn terminal_weight() -> Weight {
+        Weight::zero().saturating_add(A::terminal_weight())
+    }
+
     fn on_internal_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -132,6 +160,18 @@ impl<A: InternalVoteResultCallback> InternalVoteResultCallback for (A,) {
 impl<A: InternalVoteResultCallback, B: InternalVoteResultCallback> InternalVoteResultCallback
     for (A, B)
 {
+    fn execution_weight() -> Weight {
+        Weight::zero()
+            .max(A::execution_weight())
+            .max(B::execution_weight())
+    }
+
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+            .saturating_add(A::terminal_weight())
+            .saturating_add(B::terminal_weight())
+    }
+
     fn on_internal_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -161,6 +201,20 @@ impl<
         C: InternalVoteResultCallback,
     > InternalVoteResultCallback for (A, B, C)
 {
+    fn execution_weight() -> Weight {
+        Weight::zero()
+            .max(A::execution_weight())
+            .max(B::execution_weight())
+            .max(C::execution_weight())
+    }
+
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+            .saturating_add(A::terminal_weight())
+            .saturating_add(B::terminal_weight())
+            .saturating_add(C::terminal_weight())
+    }
+
     fn on_internal_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -200,6 +254,22 @@ impl<
         D: InternalVoteResultCallback,
     > InternalVoteResultCallback for (A, B, C, D)
 {
+    fn execution_weight() -> Weight {
+        Weight::zero()
+            .max(A::execution_weight())
+            .max(B::execution_weight())
+            .max(C::execution_weight())
+            .max(D::execution_weight())
+    }
+
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+            .saturating_add(A::terminal_weight())
+            .saturating_add(B::terminal_weight())
+            .saturating_add(C::terminal_weight())
+            .saturating_add(D::terminal_weight())
+    }
+
     fn on_internal_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -249,6 +319,24 @@ impl<
         E: InternalVoteResultCallback,
     > InternalVoteResultCallback for (A, B, C, D, E)
 {
+    fn execution_weight() -> Weight {
+        Weight::zero()
+            .max(A::execution_weight())
+            .max(B::execution_weight())
+            .max(C::execution_weight())
+            .max(D::execution_weight())
+            .max(E::execution_weight())
+    }
+
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+            .saturating_add(A::terminal_weight())
+            .saturating_add(B::terminal_weight())
+            .saturating_add(C::terminal_weight())
+            .saturating_add(D::terminal_weight())
+            .saturating_add(E::terminal_weight())
+    }
+
     fn on_internal_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -305,6 +393,26 @@ impl<
         F: InternalVoteResultCallback,
     > InternalVoteResultCallback for (A, B, C, D, E, F)
 {
+    fn execution_weight() -> Weight {
+        Weight::zero()
+            .max(A::execution_weight())
+            .max(B::execution_weight())
+            .max(C::execution_weight())
+            .max(D::execution_weight())
+            .max(E::execution_weight())
+            .max(F::execution_weight())
+    }
+
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+            .saturating_add(A::terminal_weight())
+            .saturating_add(B::terminal_weight())
+            .saturating_add(C::terminal_weight())
+            .saturating_add(D::terminal_weight())
+            .saturating_add(E::terminal_weight())
+            .saturating_add(F::terminal_weight())
+    }
+
     fn on_internal_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -364,6 +472,16 @@ impl<
 /// 立法投票终态业务回调(对称于 `JointVoteResultCallback`)。
 /// 核心在立法提案进入 PASSED/REJECTED/EXECUTION_FAILED 时按 kind 广播到业务壳 legislation。
 pub trait LegislationVoteResultCallback {
+    /// 业务执行的附加预算；维护还预留公共引擎及系统换码成本。
+    fn execution_weight() -> Weight {
+        Weight::zero()
+    }
+
+    /// 无终态副作用的默认实现为零；实现终态存储清理的业务必须提供所属实测预算。
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+    }
+
     fn on_legislation_vote_finalized(
         vote_proposal_id: u64,
         approved: bool,
@@ -392,6 +510,14 @@ impl LegislationVoteResultCallback for () {
 // 立法投票模块同时承载法律、任免和预算等业务的代表表决；各业务回调必须先以
 // ProposalOwner/MODULE_TAG 认领提案。元组只负责聚合，不在投票引擎中理解业务载荷。
 impl<A: LegislationVoteResultCallback> LegislationVoteResultCallback for (A,) {
+    fn execution_weight() -> Weight {
+        Weight::zero().max(A::execution_weight())
+    }
+
+    fn terminal_weight() -> Weight {
+        Weight::zero().saturating_add(A::terminal_weight())
+    }
+
     fn on_legislation_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -413,6 +539,18 @@ impl<A: LegislationVoteResultCallback> LegislationVoteResultCallback for (A,) {
 impl<A: LegislationVoteResultCallback, B: LegislationVoteResultCallback>
     LegislationVoteResultCallback for (A, B)
 {
+    fn execution_weight() -> Weight {
+        Weight::zero()
+            .max(A::execution_weight())
+            .max(B::execution_weight())
+    }
+
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+            .saturating_add(A::terminal_weight())
+            .saturating_add(B::terminal_weight())
+    }
+
     fn on_legislation_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -442,6 +580,20 @@ impl<
         C: LegislationVoteResultCallback,
     > LegislationVoteResultCallback for (A, B, C)
 {
+    fn execution_weight() -> Weight {
+        Weight::zero()
+            .max(A::execution_weight())
+            .max(B::execution_weight())
+            .max(C::execution_weight())
+    }
+
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+            .saturating_add(A::terminal_weight())
+            .saturating_add(B::terminal_weight())
+            .saturating_add(C::terminal_weight())
+    }
+
     fn on_legislation_vote_finalized(
         proposal_id: u64,
         approved: bool,
@@ -479,6 +631,16 @@ impl<
 /// 当前 electionvote 自己返回 Executed 表示“当选结果快照已生成”；
 /// 后续 admins/法定代表人接入后,这里可改为真正的结果写入器。
 pub trait ElectionVoteResultCallback {
+    /// 业务执行的附加预算；维护还预留公共引擎及系统换码成本。
+    fn execution_weight() -> Weight {
+        Weight::zero()
+    }
+
+    /// 无终态副作用的默认实现为零；实现终态存储清理的业务必须提供所属实测预算。
+    fn terminal_weight() -> Weight {
+        Weight::zero()
+    }
+
     fn on_election_vote_finalized(
         vote_proposal_id: u64,
         approved: bool,

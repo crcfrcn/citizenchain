@@ -1,5 +1,5 @@
 // 保留原有状态码、业务错误码、提示和追踪字段。
-fn api_error(status: StatusCode, code: u32, message: &str) -> axum::response::Response {
+pub fn api_error(status: StatusCode, code: u32, message: &str) -> axum::response::Response {
     (
         status,
         Json(ApiError {

@@ -104,6 +104,7 @@ impl fullnodeissue::Config for Test {
 }
 
 impl crate::pallet::Config for Test {
+    type WeightInfo = ();
     type Currency = Balances;
     type MaxTransferRemarkLen = frame_support::traits::ConstU32<99>;
     // 与 runtime 同口径：只转发 `primitives::fee_policy`，测试也不另立数字。

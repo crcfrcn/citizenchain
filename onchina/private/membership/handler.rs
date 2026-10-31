@@ -10,11 +10,11 @@ use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::authentication::login::{require_admin_any, AdminAuthContext};
-use crate::authentication::repo;
-use crate::core::chain_runtime::{self, PlatformMembershipSnapshot};
-use crate::crypto::pubkey::same_account_id;
 use crate::*;
+use onchina::authentication::login::{require_admin_any, AdminAuthContext};
+use onchina::authentication::repo;
+use onchina::chain_runtime::{self, PlatformMembershipSnapshot};
+use onchina::crypto::pubkey::same_account_id;
 
 use super::chain_call::{
     build_propose_platform_price_call, PlatformMembershipLevel, PROPOSE_PLATFORM_PRICE_ACTION,
@@ -162,7 +162,7 @@ pub(crate) async fn propose_platform_price(
         Err(response) => return response,
     };
     // 链上写(PasskeyColdSign 档):平台调价要发 extrinsic,会话 + passkey + 冷签缺一不可。
-    let passkey = match crate::authentication::passkey::require_passkey_assertion(
+    let passkey = match onchina::authentication::passkey::require_passkey_assertion(
         &state,
         &headers,
         ctx.account_id.as_str(),
@@ -193,7 +193,7 @@ pub(crate) async fn propose_platform_price(
         Err(message) => return api_error(StatusCode::BAD_REQUEST, 1001, message.as_str()),
     };
     let prepared =
-        match crate::core::chain_submit::prepare_signing(&call, ctx.account_id.as_str()).await {
+        match onchina::chain_submit::prepare_signing(&call, ctx.account_id.as_str()).await {
             Ok(value) => value,
             Err(err) => {
                 tracing::error!(error = %err, "prepare platform price signing failed");
@@ -205,9 +205,9 @@ pub(crate) async fn propose_platform_price(
             }
         };
     let now = Utc::now();
-    let expires_at = now + Duration::seconds(crate::transactions::session::SESSION_TTL_SECS);
+    let expires_at = now + Duration::seconds(onchina::transactions::session::SESSION_TTL_SECS);
     let request_id = format!("platform-price-{}", Uuid::new_v4());
-    let sign_request = match crate::core::qr::build_sign_request_bytes(
+    let sign_request = match onchina::qr::build_sign_request_bytes(
         request_id.as_str(),
         now.timestamp(),
         expires_at.timestamp(),
@@ -218,7 +218,7 @@ pub(crate) async fn propose_platform_price(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let session = crate::transactions::session::ChainSignSession {
+    let session = onchina::transactions::session::ChainSignSession {
         request_id: request_id.clone(),
         purpose: super::PURPOSE_PLATFORM_PRICE_PROPOSAL.to_string(),
         account_id: ctx.account_id.clone(),

@@ -8,7 +8,7 @@ pub use pallet::*;
 pub mod add;
 #[cfg(feature = "runtime-benchmarks")]
 #[path = "../tests/benchmarks.rs"]
-mod benchmarks;
+pub mod benchmarks;
 pub mod close;
 pub mod institution;
 pub mod traits;
@@ -660,7 +660,7 @@ pub mod pallet {
         /// 本入口只允许治理 `actor_cid_number == cid_number` 的本机构；注册局替
         /// 目标机构登记管理员集合必须走 `register_institution_admins`。
         #[pallet::call_index(8)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_institution_governance())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_institution_governance().max(<T as pallet::Config>::WeightInfo::governance_names()))]
         #[allow(clippy::too_many_arguments)]
         pub fn propose_institution_governance(
             origin: OriginFor<T>,
@@ -684,7 +684,7 @@ pub mod pallet {
         /// 本入口不创建目标机构内部投票；权限来自注册局 `actor_cid_number`，
         /// 最终仍写入同一个 `publicadmin::AdminAccounts[cid]` 真源。
         #[pallet::call_index(9)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::update_institution_info())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::register_institution_admins(admins.len() as u32))]
         #[allow(clippy::too_many_arguments)]
         pub fn register_institution_admins(
             origin: OriginFor<T>,
@@ -1012,9 +1012,7 @@ pub mod pallet {
 
             let owner: BoundedVec<
                 u8,
-                frame_support::traits::ConstU32<
-                    { entitybase::BUSINESS_MODULE_TAG_MAX_BYTES },
-                >,
+                frame_support::traits::ConstU32<{ entitybase::BUSINESS_MODULE_TAG_MAX_BYTES }>,
             > = crate::MODULE_TAG
                 .to_vec()
                 .try_into()
@@ -1394,6 +1392,20 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
         Ok(ProposalExecutionOutcome::Executed)
     }
 
+    fn execution_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        <T as crate::pallet::Config>::WeightInfo::propose_institution_governance()
+            .max(<T as crate::pallet::Config>::WeightInfo::governance_names())
+            .max(<T as crate::pallet::Config>::WeightInfo::add_institution_account())
+            .max(<T as crate::pallet::Config>::WeightInfo::propose_close_public_institution())
+    }
+
+    fn terminal_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        <T as crate::pallet::Config>::WeightInfo::terminal_callback()
+            .max(<T as crate::pallet::Config>::WeightInfo::terminal_callback_ignored())
+    }
+
     fn on_execution_failed_terminal(proposal_id: u64) -> DispatchResult {
         let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw) if raw.starts_with(crate::MODULE_TAG) => raw,
@@ -1419,6 +1431,158 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
             .map_err(|_| pallet::Error::<T>::ProposalActionNotFound)?;
             InstitutionPendingClose::<T>::remove(&action.institution_account_id);
         }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl<T: Config> Pallet<T> {
+    /// 固定岗位代码和席位沿用协议真源，仅补足任职引用的既有字节边界。
+    pub fn benchmark_fixed_roles(raw: &[u8]) -> sp_runtime::DispatchResult {
+        let cid: CidNumberOf<T> = raw
+            .to_vec()
+            .try_into()
+            .map_err(|_| sp_runtime::DispatchError::Other("benchmark CID"))?;
+        let entries =
+            InstitutionRoleAssignments::<T>::iter_prefix(&cid).collect::<sp_std::vec::Vec<_>>();
+        for (role, mut assignments) in entries {
+            for assignment in assignments.iter_mut() {
+                assignment.assignment_source_ref =
+                    sp_std::vec![b'r';entitybase::ASSIGNMENT_SOURCE_REF_MAX_BYTES as usize]
+                        .try_into()
+                        .unwrap();
+            }
+            InstitutionRoleAssignments::<T>::insert(&cid, role, assignments);
+        }
+        Ok(())
+    }
+
+    /// 仅基准准备阶段使用：验证真实名册、岗位与固定席位后写入所属任职存储。
+    pub fn benchmark_seed_role(
+        cid: &[u8],
+        role: &[u8],
+        action: u32,
+        accounts: sp_std::vec::Vec<T::AccountId>,
+    ) -> sp_runtime::DispatchResult {
+        use adminbase::InstitutionAdminQuery;
+        use frame_support::{ensure, traits::UnixTime};
+        let cid: CidNumberOf<T> = cid
+            .to_vec()
+            .try_into()
+            .map_err(|_| sp_runtime::DispatchError::Other("benchmark CID"))?;
+        let role: crate::institution::role::RoleCodeOf = role
+            .to_vec()
+            .try_into()
+            .map_err(|_| sp_runtime::DispatchError::Other("benchmark role"))?;
+        let institution = Institutions::<T>::get(&cid).ok_or(sp_runtime::DispatchError::Other(
+            "benchmark institution missing",
+        ))?;
+        use entitybase::InstitutionCapabilityPolicy;
+        let business_action_id = entitybase::BusinessActionId {
+            module_tag: entitybase::business_action::MODULE_LEGISLATION_YUAN.to_vec(),
+            action_code: action,
+        };
+        // 参议会仅有Vote能力；发起权限只授予能力目录实际允许的机构。
+        let operations = [
+            entitybase::RolePermissionOperation::Propose,
+            entitybase::RolePermissionOperation::Vote,
+        ]
+        .into_iter()
+        .filter(|operation| {
+            T::InstitutionCapabilityPolicy::allows(cid.as_slice(), &business_action_id, *operation)
+        })
+        .collect::<sp_std::vec::Vec<_>>();
+        ensure!(
+            operations.contains(&entitybase::RolePermissionOperation::Vote),
+            sp_runtime::DispatchError::Other("benchmark vote capability")
+        );
+        if !InstitutionRoles::<T>::contains_key(&cid, &role) {
+            InstitutionRoles::<T>::insert(
+                &cid,
+                &role,
+                entitybase::InstitutionRole {
+                    cid_number: cid.clone(),
+                    role_code: role.clone(),
+                    role_name: primitives::institution_constraints::member_composition_by_identity(
+                        institution.institution_code,
+                        cid.as_slice(),
+                    )
+                    .expect("立法基准必须使用真实成员岗位")
+                    .role_name
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+                    term_required: false,
+                    role_status: entitybase::InstitutionRoleStatus::Active,
+                },
+            );
+        }
+        let permissions: crate::institution::role::RolePermissionsOf<T> = operations
+            .into_iter()
+            .map(|operation| entitybase::RoleBusinessPermission {
+                role_subject: entitybase::RoleSubject {
+                    cid_number: cid.clone(),
+                    role_code: role.clone(),
+                },
+                business_action_id: entitybase::BusinessActionId {
+                    module_tag: business_action_id.module_tag.clone().try_into().unwrap(),
+                    action_code: action,
+                },
+                operation,
+            })
+            .collect::<sp_std::vec::Vec<_>>()
+            .try_into()
+            .unwrap();
+        InstitutionRolePermissions::<T>::insert(&cid, &role, permissions);
+        let info = InstitutionRoles::<T>::get(&cid, &role)
+            .ok_or(sp_runtime::DispatchError::Other("benchmark role missing"))?;
+        ensure!(
+            info.role_status == entitybase::InstitutionRoleStatus::Active,
+            sp_runtime::DispatchError::Other("benchmark inactive role")
+        );
+        if let Some(seats) = primitives::governance_skeleton::fixed_role_seats_by_identity(
+            institution.institution_code,
+            cid.as_slice(),
+            role.as_slice(),
+        ) {
+            ensure!(
+                accounts.len() == seats as usize,
+                sp_runtime::DispatchError::Other("benchmark fixed seats")
+            );
+        }
+        let day = u32::try_from(<T as votebase::Config>::TimeProvider::now().as_secs() / 86400)
+            .map_err(|_| sp_runtime::DispatchError::Other("benchmark date"))?;
+        let assignments = accounts
+            .into_iter()
+            .map(|account_id| {
+                ensure!(
+                    T::InstitutionAdminQuery::is_institution_admin(
+                        institution.institution_code,
+                        cid.as_slice(),
+                        &account_id
+                    ),
+                    sp_runtime::DispatchError::Other("benchmark admin absent")
+                );
+                Ok(entitybase::InstitutionAdminAssignment {
+                    cid_number: cid.clone(),
+                    account_id,
+                    role_code: role.clone(),
+                    term_start: if info.term_required { day.max(1) } else { 0 },
+                    term_end: if info.term_required {
+                        day.saturating_add(365)
+                    } else {
+                        0
+                    },
+                    assignment_source: entitybase::InstitutionAssignmentSource::Genesis,
+                    assignment_source_ref: Default::default(),
+                    assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+                })
+            })
+            .collect::<Result<sp_std::vec::Vec<_>, sp_runtime::DispatchError>>()?;
+        let assignments: crate::institution::role::RoleAssignmentsOf<T> = assignments
+            .try_into()
+            .map_err(|_| sp_runtime::DispatchError::Other("benchmark capacity"))?;
+        InstitutionRoleAssignments::<T>::insert(cid, role, assignments);
         Ok(())
     }
 }

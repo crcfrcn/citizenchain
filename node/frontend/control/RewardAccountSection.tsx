@@ -1,5 +1,5 @@
 import { sanitizeError } from "../client/tauri";
-import { AddressScanModal } from "../desktop/AddressScanModal";
+import { AddressScanModal } from "../desktop/scanner";
 import { accountIdToSs58, normalizeSs58Address } from "../client/ss58";
 import { settingsApi as api } from "./api";
 import type { RewardAccount } from "./types";

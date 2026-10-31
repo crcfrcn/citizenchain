@@ -47,31 +47,31 @@ pub(crate) struct AdminSession {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AdminInstitutionCandidate {
-    pub(crate) candidate_id: String,
-    pub(crate) institution_code: String,
-    pub(crate) admin_level: Option<String>,
-    pub(crate) institution_cid_number: Option<String>,
-    pub(crate) frg_province_code: Option<String>,
-    pub(crate) cid_full_name: Option<String>,
-    pub(crate) cid_short_name: Option<String>,
-    pub(crate) scope_province_name: Option<String>,
-    pub(crate) scope_city_name: Option<String>,
-    pub(crate) scope_town_name: Option<String>,
+pub struct AdminInstitutionCandidate {
+    pub candidate_id: String,
+    pub institution_code: String,
+    pub admin_level: Option<String>,
+    pub institution_cid_number: Option<String>,
+    pub frg_province_code: Option<String>,
+    pub cid_full_name: Option<String>,
+    pub cid_short_name: Option<String>,
+    pub scope_province_name: Option<String>,
+    pub scope_city_name: Option<String>,
+    pub scope_town_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct NodeInstitutionBinding {
-    pub(crate) binding_id: String,
+pub struct NodeInstitutionBinding {
+    pub binding_id: String,
     /// 绑定只持久化链上身份键；名称和行政权限禁止写入绑定表，使用时从各自真源派生。
-    pub(crate) candidate_id: String,
-    pub(crate) institution_code: String,
-    pub(crate) institution_cid_number: String,
-    pub(crate) bound_account_id: String,
-    pub(crate) bound_at: DateTime<Utc>,
-    pub(crate) status: String,
+    pub candidate_id: String,
+    pub institution_code: String,
+    pub institution_cid_number: String,
+    pub bound_account_id: String,
+    pub bound_at: DateTime<Utc>,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,23 +101,23 @@ pub(crate) struct QrLoginResultRecord {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AdminAuthContext {
-    pub(crate) account_id: String,
+pub struct AdminAuthContext {
+    pub account_id: String,
     /// 当前会话绑定的准确机构 CID；机构码只负责分类，不能代替机构唯一身份。
-    pub(crate) institution_cid_number: String,
+    pub institution_cid_number: String,
     /// 所属机构码(3/4 字符文本,前端据此渲染工作台入口与能力)。
-    pub(crate) institution_code: String,
+    pub institution_code: String,
     /// 行政层级标签(NATIONAL/PROVINCE/CITY/TOWN);私权法人/非法人无层级为 None。
-    pub(crate) admin_level: Option<String>,
-    pub(crate) family_name: String,
-    pub(crate) given_name: String,
-    pub(crate) scope_province_name: Option<String>,
+    pub admin_level: Option<String>,
+    pub family_name: String,
+    pub given_name: String,
+    pub scope_province_name: Option<String>,
     /// 市级及以下机构有值：登记的市（用于列表按市过滤、生成时强制锁定）。
-    pub(crate) scope_city_name: Option<String>,
+    pub scope_city_name: Option<String>,
     /// 镇级机构有值：登记的镇（用于列表按镇过滤、生成时强制锁定）。
-    pub(crate) scope_town_name: Option<String>,
+    pub scope_town_name: Option<String>,
     /// 当前管理员所属机构简称,字段名与 subjects.cid_short_name 保持唯一命名。
-    pub(crate) cid_short_name: Option<String>,
+    pub cid_short_name: Option<String>,
 }
 
 #[derive(Serialize)]

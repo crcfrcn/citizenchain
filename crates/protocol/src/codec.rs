@@ -48,7 +48,9 @@ fn node_deploy_text(value: &str, limit: usize, first_alnum: bool) -> Result<(), 
     if bytes.is_empty()
         || bytes.len() > limit
         || (first_alnum && !bytes[0].is_ascii_alphanumeric())
-        || !bytes.iter().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        || !bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
     {
         return Err(node_deploy_error());
     }
@@ -66,7 +68,10 @@ fn push_node_deploy_text(out: &mut Vec<u8>, value: &str, limit: usize) -> Result
 pub fn encode_node_deploy_intent(intent: &NodeDeployIntent) -> Result<Vec<u8>, CodecError> {
     node_deploy_text(&intent.node_id, 64, true)?;
     node_deploy_text(&intent.platform, 32, true)?;
-    if intent.version.is_empty() || intent.version.len() > 255 || intent.version.chars().any(char::is_control) {
+    if intent.version.is_empty()
+        || intent.version.len() > 255
+        || intent.version.chars().any(char::is_control)
+    {
         return Err(node_deploy_error());
     }
     let ip: IpAddr = intent.server_ip.parse().map_err(|_| node_deploy_error())?;
@@ -82,7 +87,10 @@ pub fn encode_node_deploy_intent(intent: &NodeDeployIntent) -> Result<Vec<u8>, C
     let mut out = Vec::with_capacity(256);
     out.push(2);
     out.extend_from_slice(NODE_DEPLOY_PRODUCT);
-    out.push(match intent.kind { NodeDeployKind::Authority => 1, NodeDeployKind::Stake => 2 });
+    out.push(match intent.kind {
+        NodeDeployKind::Authority => 1,
+        NodeDeployKind::Stake => 2,
+    });
     push_node_deploy_text(&mut out, &intent.node_id, 64)?;
     out.push(u8::try_from(intent.server_ip.len()).map_err(|_| node_deploy_error())?);
     out.extend_from_slice(intent.server_ip.as_bytes());
@@ -96,17 +104,28 @@ pub fn encode_node_deploy_intent(intent: &NodeDeployIntent) -> Result<Vec<u8>, C
     Ok(out)
 }
 
-fn take_node_deploy<'a>(bytes: &'a [u8], pos: &mut usize, len: usize) -> Result<&'a [u8], CodecError> {
+fn take_node_deploy<'a>(
+    bytes: &'a [u8],
+    pos: &mut usize,
+    len: usize,
+) -> Result<&'a [u8], CodecError> {
     let end = pos.checked_add(len).ok_or_else(node_deploy_error)?;
     let part = bytes.get(*pos..end).ok_or_else(node_deploy_error)?;
     *pos = end;
     Ok(part)
 }
 
-fn read_node_deploy_text(bytes: &[u8], pos: &mut usize, limit: usize) -> Result<String, CodecError> {
+fn read_node_deploy_text(
+    bytes: &[u8],
+    pos: &mut usize,
+    limit: usize,
+) -> Result<String, CodecError> {
     let len = usize::from(take_node_deploy(bytes, pos, 1)?[0]);
-    if len == 0 || len > limit { return Err(node_deploy_error()); }
-    let text = std::str::from_utf8(take_node_deploy(bytes, pos, len)?).map_err(|_| node_deploy_error())?;
+    if len == 0 || len > limit {
+        return Err(node_deploy_error());
+    }
+    let text =
+        std::str::from_utf8(take_node_deploy(bytes, pos, len)?).map_err(|_| node_deploy_error())?;
     Ok(text.to_string())
 }
 
@@ -114,7 +133,8 @@ fn read_node_deploy_text(bytes: &[u8], pos: &mut usize, limit: usize) -> Result<
 pub fn decode_node_deploy_intent(bytes: &[u8]) -> Result<NodeDeployIntent, CodecError> {
     let mut pos = 0;
     if take_node_deploy(bytes, &mut pos, 1)? != [2]
-        || take_node_deploy(bytes, &mut pos, NODE_DEPLOY_PRODUCT.len())? != NODE_DEPLOY_PRODUCT {
+        || take_node_deploy(bytes, &mut pos, NODE_DEPLOY_PRODUCT.len())? != NODE_DEPLOY_PRODUCT
+    {
         return Err(node_deploy_error());
     }
     let kind = match take_node_deploy(bytes, &mut pos, 1)?[0] {
@@ -126,14 +146,37 @@ pub fn decode_node_deploy_intent(bytes: &[u8]) -> Result<NodeDeployIntent, Codec
     let server_ip = read_node_deploy_text(bytes, &mut pos, 45)?;
     let platform = read_node_deploy_text(bytes, &mut pos, 32)?;
     let version = read_node_deploy_text(bytes, &mut pos, 255)?;
-    let artifact_sha256: [u8; 32] = take_node_deploy(bytes, &mut pos, 32)?.try_into().map_err(|_| node_deploy_error())?;
-    let task_id = std::str::from_utf8(take_node_deploy(bytes, &mut pos, 9)?).map_err(|_| node_deploy_error())?.to_string();
-    let expires_at = u64::from_le_bytes(take_node_deploy(bytes, &mut pos, 8)?.try_into().map_err(|_| node_deploy_error())?);
-    let nonce: [u8; 32] = take_node_deploy(bytes, &mut pos, 32)?.try_into().map_err(|_| node_deploy_error())?;
-    if pos != bytes.len() { return Err(node_deploy_error()); }
-    let result = NodeDeployIntent { kind, node_id, server_ip, platform, version,
-        artifact_sha256, task_id, expires_at, nonce };
-    if encode_node_deploy_intent(&result)? != bytes { return Err(node_deploy_error()); }
+    let artifact_sha256: [u8; 32] = take_node_deploy(bytes, &mut pos, 32)?
+        .try_into()
+        .map_err(|_| node_deploy_error())?;
+    let task_id = std::str::from_utf8(take_node_deploy(bytes, &mut pos, 9)?)
+        .map_err(|_| node_deploy_error())?
+        .to_string();
+    let expires_at = u64::from_le_bytes(
+        take_node_deploy(bytes, &mut pos, 8)?
+            .try_into()
+            .map_err(|_| node_deploy_error())?,
+    );
+    let nonce: [u8; 32] = take_node_deploy(bytes, &mut pos, 32)?
+        .try_into()
+        .map_err(|_| node_deploy_error())?;
+    if pos != bytes.len() {
+        return Err(node_deploy_error());
+    }
+    let result = NodeDeployIntent {
+        kind,
+        node_id,
+        server_ip,
+        platform,
+        version,
+        artifact_sha256,
+        task_id,
+        expires_at,
+        nonce,
+    };
+    if encode_node_deploy_intent(&result)? != bytes {
+        return Err(node_deploy_error());
+    }
     Ok(result)
 }
 
@@ -437,96 +480,3 @@ pub fn public_key_b64(public_key_bytes: &[u8], field: &str) -> Result<String, Co
 pub const PUBLIC_KEY_BYTES: usize = 32;
 /// 签名字节长度(sr25519 / ed25519 均为 64)。
 pub const SIGNATURE_BYTES: usize = 64;
-
-#[cfg(test)]
-// 编解码夹具异常必须立即中止测试,断言式解包仅限本测试模块。
-#[allow(clippy::expect_used, clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decodes_public_key_to_lowercase_prefixed_hex() {
-        let raw = [0xABu8; PUBLIC_KEY_BYTES];
-        let encoded = bytes_to_b64(&raw);
-        let hex_text = b64_to_prefixed_hex(&encoded, PUBLIC_KEY_BYTES, "b.u")
-            .expect("32 字节公钥必须解码成功");
-        assert_eq!(hex_text, format!("0x{}", "ab".repeat(PUBLIC_KEY_BYTES)));
-    }
-
-    #[test]
-    fn round_trips_signature_length() {
-        let raw = [0x01u8; SIGNATURE_BYTES];
-        let encoded = bytes_to_b64(&raw);
-        assert!(b64_to_prefixed_hex(&encoded, SIGNATURE_BYTES, "b.s").is_ok());
-    }
-
-    #[test]
-    fn rejects_wrong_length_without_truncating() {
-        let encoded = bytes_to_b64(&[0u8; 31]);
-        assert_eq!(
-            b64_to_prefixed_hex(&encoded, PUBLIC_KEY_BYTES, "b.u"),
-            Err(CodecError::BadLength {
-                field: "b.u".to_string(),
-                expected: 32,
-                actual: 31,
-            })
-        );
-    }
-
-    #[test]
-    fn rejects_non_base64url_input() {
-        // 标准 base64 的 `+` `/` 与 padding `=` 都不属于 base64url(no padding)。
-        assert_eq!(
-            b64_to_prefixed_hex("++//", 32, "b.u"),
-            Err(CodecError::NotBase64Url {
-                field: "b.u".to_string()
-            })
-        );
-    }
-
-    #[test]
-    fn public_key_b64_rejects_wrong_length() {
-        assert!(public_key_b64(&[0u8; 33], "b.u").is_err());
-        assert!(public_key_b64(&[0u8; PUBLIC_KEY_BYTES], "b.u").is_ok());
-    }
-
-    #[test]
-    fn schema_rejects_unknown_keys_and_noncanonical_account_id() {
-        let valid = serde_json::json!({
-            "p": QR_V1,
-            "k": 5,
-            "b": { "n": format!("0x{}", "11".repeat(32)) }
-        });
-        assert_eq!(
-            validate_qr_value(&valid)
-                .expect("规范账户码必须通过")
-                .kind_key,
-            "account_id_code"
-        );
-
-        let mut extra = valid.clone();
-        extra["b"]["account"] = Value::String("forbidden".into());
-        assert!(validate_qr_value(&extra).is_err());
-
-        let mut uppercase = valid;
-        uppercase["b"]["n"] = Value::String(format!("0x{}", "AA".repeat(32)));
-        assert!(validate_qr_value(&uppercase).is_err());
-    }
-
-    #[test]
-    fn schema_enforces_signer_public_key_action_condition() {
-        let payload = bytes_to_b64(&[0x22]);
-        let self_account = serde_json::json!({
-            "p": QR_V1,
-            "k": 1,
-            "i": "request-1",
-            "e": 1_800_000_000,
-            "b": { "a": 10, "g": 1, "u": "", "d": payload }
-        });
-        assert!(validate_qr_value(&self_account).is_ok());
-
-        let mut invalid = self_account;
-        invalid["b"]["u"] = Value::String(bytes_to_b64(&[0x11; PUBLIC_KEY_BYTES]));
-        assert!(validate_qr_value(&invalid).is_err());
-    }
-}

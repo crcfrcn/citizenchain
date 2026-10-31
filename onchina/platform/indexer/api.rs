@@ -60,7 +60,7 @@ pub(crate) async fn account_transactions(
     // 多查一条以判断 has_more
     let fetch_limit = limit + 1;
 
-    let Some(genesis) = crate::core::chain_runtime::cached_chain_genesis_hash_hex() else {
+    let Some(genesis) = crate::chain_runtime::cached_chain_genesis_hash_hex() else {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             1500,

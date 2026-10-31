@@ -171,7 +171,7 @@ pub mod pallet {
         /// 本入口只改个人多签管理员集合。个人多签账户创建/关闭
         /// 必须走 personalentity。
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_admin_set_change())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_admin_set_change(<T as Config>::MaxPersonalAccountAdmins::get()))]
         pub fn propose_admin_set_change(
             origin: OriginFor<T>,
             institution_code: InstitutionCode,
@@ -797,6 +797,14 @@ impl<T: pallet::Config> AdminAccountQuery<T::AccountId> for pallet::Pallet<T> {
 pub struct InternalVoteExecutor<T>(core::marker::PhantomData<T>);
 
 impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
+    fn execution_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        use frame_support::traits::Get;
+        <T as crate::pallet::Config>::WeightInfo::propose_admin_set_change(
+            <T as crate::pallet::Config>::MaxPersonalAccountAdmins::get(),
+        )
+    }
+
     fn on_internal_vote_finalized(
         proposal_id: u64,
         approved: bool,

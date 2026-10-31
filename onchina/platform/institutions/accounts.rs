@@ -4,6 +4,6 @@
 //! `chain_` 前缀规则,不新建独立链目录。
 
 #[path = "accounts_derive.rs"]
-pub(crate) mod derive;
+pub mod derive;
 #[path = "accounts_handler.rs"]
-pub(crate) mod handler;
+pub mod handler;

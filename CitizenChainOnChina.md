@@ -22,11 +22,16 @@ OnChina 地址库模块负责读取本地 `china.sqlite.addresses`，并构造 `
 
 ```text
 citizenchain/onchina/
-├── platform/       # 公共平台与共享功能
-├── registry/       # 注册局办理
-├── legislation/    # 立法业务
-├── judicial/       # 现有司法工作台
-└── private/        # 私权机构业务（membership 为基金会现有业务）
+├── platform/       # 平台Cargo后端，真实入口归modules
+├── platformweb/    # 平台npm前端，按功能组织子目录
+├── registry/       # 注册局Cargo后端
+├── registryweb/    # 注册局npm前端，按功能组织子目录
+├── legislation/    # 立法院Cargo后端
+├── legislationweb/ # 立法院npm前端，按功能组织子目录
+├── private/        # 私权机构Cargo后端
+│   └── frontend/   # 独立npm包，少量源码与测试直接放包根
+└── judicial/       # 司法Cargo后端
+    └── frontend/   # 独立npm包，少量源码与测试直接放包根
 ```
 
 #### 2. 数据边界
@@ -73,8 +78,8 @@ action = (33 << 8) | call_index
 #### 6. 验收
 
 ```text
-cargo check --manifest-path citizenchain/Cargo.toml -p onchina
-npm --prefix citizenchain/onchina/platform/frontend run build
+cargo check --manifest-path citizenchain/Cargo.toml -p onchina -p onchina-registry -p onchina-legislation -p onchina-private -p onchina-judicial
+npm --prefix citizenchain/onchina/platformweb run build
 sqlite3 citizenchain/onchina/platform/codes/china.sqlite "PRAGMA integrity_check"
 ```
 
@@ -97,20 +102,19 @@ citizenchain/onchina/
 
 #### 3. 目录铁律
 
-- 后端按功能归入 `<本仓根>/onchina/{platform,registry,legislation,judicial,private}/`，功能目录内直接放实现文件；前端归各自 frontend。不建立 src 或 backend 中间层。
-- 注册局办理只归 `onchina/registry`，私权机构自身业务只归 `onchina/private`；不建立职责重复的源码副本。
-- 通用链连接和 finalized 读取归 `onchina/platform/chain`；通用会话、交易提交与恢复归 `onchina/platform/transactions`。业务调用编码和投影校验仍归所属功能，公共层调用原实现，不复制或改写业务规则。
-- 二维码适配归 `onchina/platform/qr`，管理员认证归 `onchina/platform/authentication`，通用辖区规则归 `onchina/platform/authorization`，不得以其它目录重建同一实现。
-- 非法人机构公共能力归 `onchina/platform/institutions/subjects_unincorporated_org.rs`。
-- 平台工作台装配归 `onchina/platform/workspace`；各机构工作台声明归对应模块的 workspace。声明不保存第二份授权真源。
-- 本轮只移动既有实现及必要引用，不新增进程、装卸、升级、业务、UI 或交互能力。未来架构能力不得用空清单或假入口表示已完成。
+- platform、registry、legislation、private、judicial各为真实Cargo包，属于公民链根workspace。平台包提供公共lib与宿主bin，其余包只编入自身业务并依赖平台公开库；平台不依赖业务包，业务包之间不静态引用实现。
+- Cargo包根只保留Cargo.toml，真实入口由Cargo声明，归各包既有modules/workspace功能目录。复杂源码归第3级功能目录，少量小前端原位平铺，不为套模板造子目录。
+- 注册局办理归registry；法律与表决准备归legislation；私权机构自身业务归private；现有司法工作台归judicial。相近功能在所属包内组织，新增可独立交付的功能按同一公开装载接口增加包。
+- 五个前端分别拥有真实npm声明、原锁、配置和测试；有功能子目录的前端与后端平级，只有少量文件的前端包置于对应后端根frontend。完整工程配对见本文“工程配对和目录边界”，不设总前端声明或统一前端测试根。
+- 公共链读取、二维码、认证、授权、数据库基础和通用交易仍在platform中各有唯一实现。业务通过真实公开接口调用；公民SQL与投影保留在registry，注册局本地扩展trait复用平台Db连接和事务，不向平台反向引入公民业务。
+- 本次保留原进程、装载、重启、HTTP、QR/SCALE、数据库、UI和交互行为，不通过拆包开放预留业务。
 
 #### 4. Store 和表边界
 
 后端只承认结构化 PostgreSQL 表为主数据。`store/` 可以封装访问和短期缓存，但不得保存第二份业务主数据。
 
-- 机构主写入只进入 `onchina/platform/institutions`、`onchina/registry/institutions`、`onchina/registry/institutions`、`onchina/platform/institutions` 和 `onchina/platform/documents`。
-- 公民主写入只进入 `onchina/registry/citizens`、`subject`、`citizen`、`document`、`passport` 和 `sequence`。
+- 机构主写入只进入 `onchina/platform/institutions/mod.rs`、`onchina/registry/institutions/mod.rs`、`onchina/registry/institutions/mod.rs`、`onchina/platform/institutions/mod.rs` 和 `onchina/platform/documents/mod.rs`。
+- 公民主写入只进入 `onchina/registry/citizens/mod.rs`、`subject`、`citizen`、`document`、`passport` 和 `sequence`。
 - 管理员写入只进入 `admins`（本地展示元数据）和短生命周期安全运行态表；管理员字段固定为 `account_id + cid_number + family_name + given_name`，成员资格与岗位范围只来自链上，禁止建立本地管理员授权范围表。
 - 旧机构直接创建 API 当前固定返回 501，不写 `signing`、机构业务草稿、占用表或本地机构投影。第 6 步的新业务模块必须原子提交 CID 基础资料、admins、LR、初始治理岗位/权限/任职/投票规则和协议账户后，才能重新开放创建。
 - 创建机构和创建公民只有两种业务结果：链上确认成功后写正式投影；未链上确认就是失败，并删除对应短期签名会话，不保留名称、CID、管理员或公民档案占用。
@@ -157,7 +161,7 @@ citizenchain/onchina/
 - 联邦注册局管理员必须先选择分管省内城市后才能录入公民;市注册局管理员直接锁定本市。
 - 公民姓名统一为 `family_name` 和 `given_name`；展示姓名时由前端按中文顺序组合，数据库不保留拼接姓名或带 `citizen_` 前缀的别名列。
 - 公民身份 CID 由 `onchina/platform/codes/generator.rs` 生成,机构代码固定为 `CTZN`,个人码 R5 市段固定为 `000`。
-- 护照号由 `onchina/registry/passports/number.rs` 生成,OnChina 自持完整算法。
+- 护照号由 `onchina/registry/citizens/passport.rs` 生成,OnChina 自持完整算法。
 - 创建公民不得要求 `account_id`;未成年人或暂未开户公民可以先建立本地电子护照档案。
 - 推送链上公民身份时才录入严格格式的 `account_id`;签名请求使用当次 `signer_public_key` 验证该账户授权，`ss58_address` 只从账户字节派生用于边界展示，不进入授权存储。请求必须显式提供 `identity_level=voting/candidate`：投票身份要求对应账户签 `VotingIdentityPayload`，参选身份要求对应账户签 `CandidateIdentityPayload`。
 - 未满 16 周岁不得推送链上公民身份。年龄不入链载荷:OnChina 在生成签名二维码前按 `citizen_birth_date` 校验 ≥16(BFF 防误推门,投票/竞选都拦);runtime `identity` 只在竞选身份按 `birth_date` 实时算龄复核 `>= 16`,投票身份不在链上算/存年龄(能否投票由 `citizen_status=Normal` + 护照有效期窗口 + 注册局 `voting_eligible` 判定)。
@@ -165,26 +169,26 @@ citizenchain/onchina/
 - 居住/办理行政区直接使用链上中国统一行政区字段 `province_code / city_code / town_code`;前端只允许在当前办理城市下选择 `town_code`,不得恢复旧的第二套居住字段。
 - 护照有效期自动计算:创建时年满 16 周岁为 10 年,未满 16 周岁为 5 年,字段为 `passport_valid_from / passport_valid_until`。
 - `citizen` 表当前字段只表达公民档案、身份 CID、护照号、可为空的 `account_id`、出生地、居住地、护照有效期和投票资格。
-- 公民资料库独立使用 `document` 表和 `/api/admin/citizens/{cid_number}/documents` 接口,不得复用机构 `docs` 表或 `onchina/platform/documents` 逻辑。资料类型固定为“护照相片 / 出生证明 / 监护人护照 / 其他材料”,文件本体写入磁盘,表内只保存元数据和内容哈希。
+- 公民资料库独立使用 `document` 表和 `/api/admin/citizens/{cid_number}/documents` 接口,不得复用机构 `docs` 表或 `onchina/platform/documents/mod.rs` 逻辑。资料类型固定为“护照相片 / 出生证明 / 监护人护照 / 其他材料”,文件本体写入磁盘,表内只保存元数据和内容哈希。
 - `passport` 是护照号全局索引表;`passport_number_recycle_pool` 只保存可回收护照号,不得保存旧公民个人资料。
 
 #### 6. 链交互边界
 
 链交互按业务归属放置：
 
-- 机构注册信息凭证、账户列表 DTO 和 handler：`onchina/platform/institutions/subjects_chain_*.rs`
+- 机构注册信息凭证、账户列表 DTO 和 handler：`onchina/platform/institutions/subjects_chain_multisig_info.rs`
 - 投票资格提示查询：`onchina/registry/citizens/chain_vote.rs`
-- 公民链上身份推送：`onchina/registry/citizens/chain_identity.rs`
+- 公民链上身份推送：`onchina/registry/citizens/identity.rs`
   - `POST /api/admin/citizens/{cid_number}/onchain/prepare` 只消费一次 Passkey，建立 180 秒 `citizen_onchain_operations` 操作并生成 `a=2 citizen_identity` 签名请求；请求体必须包含 `account_id` 和 `identity_level`。
   - `identity_level=voting` 编码 `VotingIdentityPayload`，完成后生成 `0x0a00 register_voting_identity` 注册局管理员链上签名二维码。
   - `identity_level=candidate` 编码 `CandidateIdentityPayload`，完成后生成 `0x0a01 upgrade_to_candidate_identity` 注册局管理员链上签名二维码；该交易同时写入投票身份和参选身份。
   - `POST /api/admin/citizens/{cid_number}/onchain/complete` 不再二次认证；它按签名响应 `id` 校验管理员、机构、CID、账户、身份级别和完整 payload，原子消费操作后生成管理员最终链签二维码。账户绑定和上链投影只在最终链交易确认后一次性落库。
 - 联合投票本地人数查询：`onchina/registry/citizens/chain_joint_vote.rs`
 - 地址变更调用：`onchina/registry/address/chain_call.rs`
-- 立法法律只读链读：`onchina/legislation/laws/chain_read.rs` 负责读取 `Law`、`LawVersion`、`LawVersionLabels` 和宪法不可修改条款 manifest；`LawView.version_title/version_title_en` 只能来自链上 `LawVersionLabels[(law_id, version)]`。
-- 立法提案写入：`onchina/legislation/laws/chain_propose.rs` 的新法、修法、废法载荷必须在 `actor_cid_number` 后紧接必填 `proposer_role_code`。后端只做 1..64 字节和 SCALE 顺序校验，真正发起权限由 runtime 按完整岗位主体校验；不得从管理员登录态推导岗位码或恢复无岗位码旧载荷。
+- 立法法律只读链读：`onchina/legislation/laws/read.rs` 负责读取 `Law`、`LawVersion`、`LawVersionLabels` 和宪法不可修改条款 manifest；`LawView.version_title/version_title_en` 只能来自链上 `LawVersionLabels[(law_id, version)]`。
+- 立法提案写入：`onchina/legislation/laws/propose.rs` 的新法、修法、废法载荷必须在 `actor_cid_number` 后紧接必填 `proposer_role_code`。后端只做 1..64 字节和 SCALE 顺序校验，真正发起权限由 runtime 按完整岗位主体校验；不得从管理员登录态推导岗位码或恢复无岗位码旧载荷。
 - `onchina/legislation/proposals/chain_read_proposal.rs` 必须按当前核心 `Proposal` 布局解码；人口分母已独立存于投票引擎 `ProposalPopulationSnapshots`，不得在 Proposal 镜像恢复 `citizen_eligible_total` 尾字段。
-- 通用 SCALE、genesis hash、RPC URL 和交易提交辅助：`onchina/platform/chain` 和 `onchina/platform/transactions`
+- 通用 SCALE、genesis hash、RPC URL 和交易提交辅助：`onchina/platform/chain/runtime.rs` 和 `onchina/platform/transactions/mod.rs`
 
 业务模块不得新增全局链目录，不得在 handler 内手写 pallet/call 字节或二维码动作码。动作码、payload、签名/验签规则以 `CitizenChainOnChina.md` 为唯一登记入口。
 
@@ -215,7 +219,7 @@ PublicManage/PrivateManage call 5 及 `0x1e05/0x1f05` 已永久留洞，后端�
 
 #### 9. 管理员写操作
 
-市注册局本地目录维护、公民档案与资料修改、Passkey 管理、节点解绑和链写动作必须使用各自安全档。业务 handler 只负责构造业务动作，二维码协议包装和签名结果识别归 `onchina/platform/qr/`。
+市注册局本地目录维护、公民档案与资料修改、Passkey 管理、节点解绑和链写动作必须使用各自安全档。业务 handler 只负责构造业务动作，二维码协议包装和签名结果识别归 `onchina/platform/qr/mod.rs`。
 
 公民身份上链(`CITIZEN_ONCHAIN_PUSH`)固定为一次业务操作：管理员 Passkey 一次、目标公民账户签名一次、管理员最终链交易签名一次。最终链签已经承担管理员账户授权，不得再叠加安全 grant 冷签；`complete` 依靠一次性 `citizen_onchain_operations` 防串单、防过期和防重放。
 
@@ -259,7 +263,7 @@ passkey 的消费点统一钉在**创建冷签会话那一步**，不在 prepare
 
 #### 10. 机构工作台能力映射
 
-工作台类型和工作台入口由 `onchina/platform/workspace/` 生成，底层能力位由 `onchina/platform/modules/capability.rs` 单源下发给前端。runtime 已经实现 FRG 省级组登记权高于 CREG 本市登记权，OnChina 能力表必须只镜像这个目标状态，不能另行降权：
+工作台类型和工作台入口由 `onchina/platform/workspace/mod.rs` 生成，底层能力位由 `onchina/platform/modules/capability.rs` 单源下发给前端。runtime 已经实现 FRG 省级组登记权高于 CREG 本市登记权，OnChina 能力表必须只镜像这个目标状态，不能另行降权：
 
 - `FRG` 是 Tier1 创世注册局，进入 `registry` 工作台，能力必须是 `CREG` 的超集：可进入公民、私权、教育、公权机构、市注册局和联邦注册局，并可在本省范围内登记机构、写业务、维护市注册局管理员、维护本省联邦注册局管理员。
 - `CREG` 是 Tier2 下级注册局，进入 `registry` 工作台，保留本市公民/机构/业务写入能力；同时必须能进入“联邦注册局”入口，只读查看本省联邦注册局管理员列表，不得发起联邦注册局管理员编辑或更换。
@@ -267,7 +271,7 @@ passkey 的消费点统一钉在**创建冷签会话那一步**，不在 prepare
 - 立法机构进入 `legislation` 工作台或通用工作台的立法入口，立法能力由 `onchina/legislation/proposals/category.rs` 和 `can_*_legislation` 位决定。
 - 私权机构进入 `private` 工作台，只下发本机构信息、链上 active admin 与准确 CID 授权模块；普通公权、立法和非法人机构分别使用 `public`、`legislation`、`unincorporated` 工作台种类，可共用通用显示壳但不得恢复 `generic` 权限语义。
 - 登录、扫码登录轮询、鉴权检查和工作台返回统一携带 active binding 的准确 `institution_cid_number`；后端未能解析准确 CID 时 fail-closed，前端不得根据 `institution_code` 猜测。
-- 平台会员模块只在准确 CID 等于同一 finalized 区块的 `SquarePost::PlatformCidNumber` 时下发。`onchina/private/membership/` 只读取 finalized 价格、构造 `propose_set_platform_price` 和校验链上 `admins`，不保存价格、不实现投票。
+- 平台会员模块只在准确 CID 等于同一 finalized 区块的 `SquarePost::PlatformCidNumber` 时下发。`onchina/private/membership/mod.rs` 只读取 finalized 价格、构造 `propose_set_platform_price` 和校验链上 `admins`，不保存价格、不实现投票。
 - 所有链交易签名响应统一提交到 `POST /api/admin/chain/submit`；业务域只 prepare，不得新建第二套 submit handler。平台调价 prepare 必须携带 `proposer_role_code`，按 `actor_cid_number + proposer_role_code + membership_level + new_price_fen` 编码；prepare/submit 复核节点绑定和准确平台 CID，业务授权最终只认链上岗位任职与 `sqr-sub/5` 权限，不把 active admins 当授权真源。
 - `NRC`、`PRC`、`PRB` 走节点桌面端，不获得 OnChina 网页能力。
 - `PMUL` 和其它个人主体不获得 OnChina 网页能力。
@@ -308,12 +312,12 @@ passkey 的消费点统一钉在**创建冷签会话那一步**，不在 prepare
 
 ```text
 rg "mod chain;|crate::chain|chain::" citizenchain/onchina -g '*.rs'
-cargo check --manifest-path citizenchain/Cargo.toml -p onchina
+cargo check --manifest-path citizenchain/Cargo.toml -p onchina -p onchina-registry -p onchina-legislation -p onchina-private -p onchina-judicial
 ONCHINA_EMBEDDED_PG=0 DATABASE_URL=<local_pg> ONCHAIN_WS_URL=<chain_ws> cargo run --manifest-path citizenchain/Cargo.toml -p onchina -- sync-government
-curl -kfsS https://onchina.local:8964/api/health
-curl -kfsS https://onchina.local:8964/api/platform/ca-certificate/info
-curl -kfsS -o /tmp/onchina-org-root-ca.crt https://onchina.local:8964/api/platform/ca-certificate
-curl -ksS -i https://onchina.local:8964/api/admin/auth/check -H "authorization: Bearer <token>"
+curl --cacert <本轮机构CA公开证书> -fsS https://onchina.local:8964/api/health
+curl --cacert <本轮机构CA公开证书> -fsS https://onchina.local:8964/api/platform/ca-certificate/info
+curl --cacert <本轮机构CA公开证书> -fsS -o /tmp/onchina-org-root-ca.crt https://onchina.local:8964/api/platform/ca-certificate
+curl --cacert <本轮机构CA公开证书> -sS -i https://onchina.local:8964/api/admin/auth/check -H "authorization: Bearer <token>"
 ```
 
 涉及数据库、登录、管理员列表、机构详情和扫码签名的变更必须跑真实 HTTP 接口。只通过 `cargo check` 不能证明连接池、SQL 字段顺序和扫码验签流程正确。
@@ -356,14 +360,14 @@ CID 号格式为 `R5-K3P1C1-N9-D4`。
 - `N9`：9 位稳定散列序列。
 - `D4`：年份。
 
-CID 号生成和校验唯一源码目录为 `citizenchain/onchina/platform/codes/`。任何端不得维护第二份号码格式、机构码表或省码表。
+CID 号生成和校验唯一源码入口为 `citizenchain/onchina/platform/codes/mod.rs`，生成实现归 `citizenchain/onchina/platform/codes/generator.rs`。任何端不得维护第二份号码格式、机构码表或省码表。
 
 公权机构 CID 与机构信息不在 OnChina 运行态生成。所有公权机构唯一真源是链上 `PublicManage::Institutions` / `PublicManage::InstitutionAccounts`;OnChina 只保存 `sync-government` 同步出的本地查询投影,投影状态以 `projection(public-government)` 为准。CitizenApp 内置的 `assets/public_institutions/` 是从链上创世状态导出的公权机构快照缓存,只能用于本地快速展示和增量同步,不得作为第二真源。
 
 ##### 3.1 公民 CID 和护照号
 
 - 公民 CID 的机构代码固定为 `CTZN`;个人码不携带办理市码,R5 市段固定为 `000`。
-- 公民护照号由 `citizenchain/onchina/registry/passports/number.rs` 生成,格式为省码 2 位 + Crockford Base32 主体 8 位 + 校验位 1 位。
+- 公民护照号由 `citizenchain/onchina/registry/citizens/passport.rs` 生成,格式为省码 2 位 + Crockford Base32 主体 8 位 + 校验位 1 位。
 - 护照号终身唯一;`passport` 负责全局查重。
 - 护照号资源回收只允许通过 `passport_number_recycle_pool` 回收号码本身,不得保存旧公民姓名、出生地、账户、公民 CID 或其它个人资料。
 - 公民档案本地创建阶段允许没有 `account_id`;儿童或暂未开户公民不得被强制生成账户。
@@ -507,16 +511,16 @@ citizenchain/onchina/
 #### 3. 前端目录规则
 
 - 功能模块的 API 调用放在所属模块 frontend，沿用当前 `<功能>_api.ts` 文件命名；平台公共请求工具只有一份。
-- 通用 HTTP 封装只允许放在 `onchina/platform/frontend/helpers_http.ts`，不得承载业务接口。
-- 二维码解析、生成、签名响应识别和确认页字段展示必须走现有 `core` 统一实现；链交易固定复用 `onchina/platform/frontend/core_useChainSign.tsx` 的请求二维码、CitizenWallet 一次签名响应二维码和 OnChina 回扫流程。
+- 通用 HTTP 封装只允许放在 `onchina/platformweb/workspace/http.ts`，不得承载业务接口。
+- 二维码解析、生成、签名响应识别和确认页字段展示必须走现有 `core` 统一实现；链交易固定复用 `onchina/platformweb/qr/useChainSign.tsx` 的请求二维码、CitizenWallet 一次签名响应二维码和 OnChina 回扫流程。
 - 摄像头设备层唯一使用仓库根 `citizenchain/crates/scanner/` 的 `ScannerView`，固定走
-  `jsQR + canvas`。`onchina/platform/frontend/core_CitizenSignaturePanel.tsx` 与 `onchina/platform/frontend/core_ScanAccountModal.tsx` 只负责
+  `jsQR + canvas`。`onchina/platformweb/qr/CitizenSignaturePanel.tsx` 与 `onchina/platformweb/qr/ScanAccountModal.tsx` 只负责
   各自入口状态、允许码型、提示和业务动作；禁止恢复产品内 `cameraScanner.ts`、
   `BarcodeDetector` 或直接导入 `jsqr`。产品 `.npmrc` 固定 `install-links=true`，使共享
   包及其依赖独立安装在 OnChina 依赖树，不与 Node 的并发安装互相清理。
 - 四端节点 CI 的统一工具链指纹覆盖仓库全部 `package-lock.json`，并继续实际执行共享扫码适配器、节点前端与 OnChina 前端门禁。
 - 业务组件不得自己解析 `QR_V1`，不得自己翻译扫码端字段名。
-- `onchina/platform/frontend/core_citizenQr.ts`严格映射生成器的1..5码型，各业务入口按自身允许码型拒绝其他输入，不放宽共享注册表。
+- `onchina/platformweb/qr/citizenQr.ts`严格映射生成器的1..5码型，各业务入口按自身允许码型拒绝其他输入，不放宽共享注册表。
 - 前端不得恢复独立 `frontend/api/` 或 `frontend/chain/` 业务目录。
 - 机构差异不得继续塞进 `App.tsx`。新增机构 UI 必须进入 `onchina/<所属模块>/frontend` 的对应页面文件，`App.tsx` 只保留登录态、布局和工作台路由。
 - 前端行政权限只消费登录完成或 `/api/admin/auth/check` 返回的 `scope_*`；不得从机构详情、管理员目录或本地缓存反推权限。服务端判定会话失效时必须清除整个前端登录态并重新登录。
@@ -540,15 +544,15 @@ citizenchain/onchina/
 - 新增公民请求只提交 `province_name / city_name / town_code` 和 `birth_*` 字段;不得向后端发送旧的第二套居住字段。
 - 旧机构直接创建流程已关闭：共享创建弹窗当前只保留资料录入布局，按钮固定禁用并说明必须原子提交 LR、初始治理岗位、不可变权限、初始任职和投票规则；前端不得调用旧 API、生成旧签名二维码或提交 `0x1e05/0x1f05`。
 - 第 6 步接入新机构创建业务时，表单必须在同一业务载荷中收集机构资料、至少两个 admins、至少一个初始治理岗位及其权限和任职、初始投票规则；动态岗位码仍由 runtime 生成，前端不得手填或预生成。
-- 所有 `PASSKEY_COLD_SIGN` 正式业务提交必须同时携带冷签 grant 和 Passkey assertion。创建机构、创建/删除账户、公民身份上链等可直接使用 `onchina/platform/frontend/admins_securityApi.ts::createColdSignSubmitHeaders`；已由组件先取得 grant 的资料上传/删除、机构详情更新等必须使用 `securityGrantSubmitHeaders`。业务模块禁止手写 `x-cid-security-grant` 或只提交 grant 不提交 Passkey assertion。
+- 所有 `PASSKEY_COLD_SIGN` 正式业务提交必须同时携带冷签 grant 和 Passkey assertion。创建机构、创建/删除账户、公民身份上链等可直接使用 `onchina/platformweb/authentication/security.ts::createColdSignSubmitHeaders`；已由组件先取得 grant 的资料上传/删除、机构详情更新等必须使用 `securityGrantSubmitHeaders`。业务模块禁止手写 `x-cid-security-grant` 或只提交 grant 不提交 Passkey assertion。
 - 机构资料上传、资料删除、机构详情更新的扫码授权 payload 必须与后端 `grant_payload` 逐字段同形；资料上传使用 `target/fileName/docType/fileSize`，资料删除使用 `target/docId/fileName`，机构详情更新使用 `target/cidNumber/cidFullName/parentCidNumber/familyName/givenName/representativeCid/photoPath`。
 - 每个机构必须存在唯一 `LR / 法定代表人` 岗位且允许空缺；前端不得要求用户手填 LR 岗位码，也不得把“管理员”当成统一岗位名。
 - 股份公司等私权机构只有所有最小必填字段及至少两个不重复管理员 `account_id` 均合法时才启用生成按钮。协会 `SFAS` 必须显式选择盈利或非盈利，前端不得固定为非盈利。
 - 公民详情页负责链上身份上链:未满 16 周岁、无选举资格或档案非正常时禁用推送;推送时必须先选择“投票身份”或“参选身份”,再录入公民 `account_id`、生成目标公民签名二维码,验签后展示注册局管理员链上交易二维码。
 - “投票身份”提交 `identity_level=voting`,链交易为 `CitizenIdentity.register_voting_identity(10.0)`;“参选身份”提交 `identity_level=candidate`,链交易为 `CitizenIdentity.upgrade_to_candidate_identity(10.1)`。
-- 公民详情页底部必须显示公民独立资料库,资料类型固定为“护照相片 / 出生证明 / 监护人护照 / 其他材料”。该区域只调用 `onchina/registry/frontend/citizens_api.ts` 的公民资料接口,不得复用机构资料库 `onchina/platform/frontend/docs_DocsLibrary.tsx`。
+- 公民详情页底部必须显示公民独立资料库,资料类型固定为“护照相片 / 出生证明 / 监护人护照 / 其他材料”。该区域只调用 `onchina/registryweb/citizens/api.ts` 的公民资料接口,不得复用机构资料库 `onchina/platformweb/documents/Library.tsx`。
 - 投票账户只有一个输入框,用于填写 SS58 地址或点击扫码图标回填账户;提交后列表和详情只显示 SS58 地址。
-- 机构管理员列表使用 `onchina/platform/frontend/admins_InstitutionAssignmentCard.tsx` 展示由 `family_name + given_name` 合并的姓名、管理员账户、岗位、任期、任职来源和余额；没有岗位的管理员仍显示，岗位栏为空。同一账户在同一机构有多个岗位时按任职分别展示。岗位权限不作为卡片字段，由对应业务模块按硬规则决定。
+- 机构管理员列表使用 `onchina/platformweb/institutions/AssignmentCard.tsx` 展示由 `family_name + given_name` 合并的姓名、管理员账户、岗位、任期、任职来源和余额；没有岗位的管理员仍显示，岗位栏为空。同一账户在同一机构有多个岗位时按任职分别展示。岗位权限不作为卡片字段，由对应业务模块按硬规则决定。
 - 注册局管理员列表保持既有表格布局。非注册局机构的本机构管理员列表必须使用卡片墙，桌面端一行两张管理员卡片，小屏一行一张；不得再显示“管理员信息 / 操作”两列表头。
 - 非注册局本机构管理员卡片中，当前登录管理员自己的 passkey 按钮文案固定为“密钥”，按钮放在“余额”行右侧靠右；未设置 passkey 时继续用红点提示。
 - 管理员列表不得提供本地合并姓名编辑入口；登录态、注册局目录、机构创建和治理输入统一传递 `family_name / given_name`，只在 UI 渲染时合并。联邦注册局管理员岗位目录完全只读，换届由治理业务写入 entity 后自动反映。市注册局本地登记目录仍可新增/删除，但不得成为链上管理员资格或岗位真源。
@@ -558,7 +562,7 @@ citizenchain/onchina/
 
 #### 5. 提示入口
 
-所有用户提示统一由 `citizenchain/onchina/platform/frontend/helpers_notice.ts` 管理。业务组件只允许调用统一 notice 方法，禁止直接调用 Ant Design `message.*`、`Modal.confirm`、`Modal.warning` 或浏览器 `alert`。
+所有用户提示统一由 `citizenchain/onchina/platformweb/controls/notice.ts` 管理。业务组件只允许调用统一 notice 方法，禁止直接调用 Ant Design `message.*`、`Modal.confirm`、`Modal.warning` 或浏览器 `alert`。
 
 统一入口负责：
 
@@ -607,7 +611,7 @@ CitizenApp 不承担管理员登录 QR 职责。前端文案不得引导用户�
 - `NJD` 登录后进入 `judicial` 工作台，不复用注册局 tab。页面按“操作 / 显示 / 记录”分类；显示页只读展示本机构完整信息和本机构链上 active admin 卡片列表，当前登录管理员自己那张卡片显示“密钥”按钮。
 - 私权机构登录后进入 `private` 工作台，只展示本机构信息、链上 active admin 卡片和后端按准确 CID 下发的授权模块，不得复用注册局目录与登记 UI。
 - 普通公权机构进入 `public`、立法机构进入 `legislation`、非法人组织进入 `unincorporated` 工作台；前端可复用 `GenericWorkspace` 显示壳，但后端工作台种类不得退化成 `generic` 权限语义。
-- 只有登录态 `institution_cid_number` 与 finalized `PlatformCidNumber` 精确一致时才显示平台会员价格模块。调价固定使用 `onchina/private/frontend/membership_api.ts` prepare、`onchina/platform/frontend/core_useChainSign.tsx` 一次签名响应回扫和统一 chain submit，不得自建签名弹窗或提交器。
+- 只有登录态 `institution_cid_number` 与 finalized `PlatformCidNumber` 精确一致时才显示平台会员价格模块。调价固定使用 `onchina/private/frontend/Workspace.tsx` prepare、`onchina/platformweb/qr/useChainSign.tsx` 一次签名响应回扫和统一 chain submit，不得自建签名弹窗或提交器。
 - `NRC`、`PRC`、`PRB` 不显示前端工作台入口，登录阶段返回节点桌面端专用错误。
 - `PMUL` 和其它个人主体不显示前端工作台入口，登录阶段返回个人多签不支持错误。
 - 注册局管理员未设置 passkey 时，只显示自己机构的管理员列表入口，用于先完成本机 passkey 设置；设置完成后再显示完整注册局业务入口。
@@ -616,9 +620,9 @@ CitizenApp 不承担管理员登录 QR 职责。前端文案不得引导用户�
 #### 9. 验收
 
 ```text
-npm --prefix citizenchain/onchina/platform/frontend run build
-rg "旧独立身份系统名" citizenchain/onchina/platform/frontend --glob '!node_modules/**' --glob '!dist/**'
-rg "NotAllowedError.*摄像头" citizenchain/onchina/platform/frontend --glob '!node_modules/**' --glob '!dist/**'
+npm --prefix citizenchain/onchina/platformweb run build
+rg "旧独立身份系统名" citizenchain/onchina/platformweb --glob '!node_modules/**' --glob '!dist/**'
+rg "NotAllowedError.*摄像头" citizenchain/onchina/platformweb --glob '!node_modules/**' --glob '!dist/**'
 ```
 
 涉及登录、权限、扫码或页面展示的变更，必须启动真实本地服务并检查真实页面；只通过 `npm run build` 不算完成。
@@ -675,7 +679,7 @@ OnChina 可以向 CitizenApp 或 Cloudflare 边缘层提供公开目录、链上
 0. 节点桌面端默认不启动 OnChina；用户在节点设置页“链上中国平台”行点击“启动”并二次确认后，节点才拉起 OnChina 子进程。
 1. 读取 `DATABASE_URL`、`ONCHINA_CHINA_DB`、链 RPC 和安全配置。
 2. 直接初始化 PostgreSQL 最终 schema、约束和索引，不执行迁移或字段回填。
-3. 为 `subjects/citizens/citizen_documents/gov/private/accounts/docs/audit/institution_admins` 创建 `province_code` 分区。
+3. 为 `subject/citizen/document/government/account/attachment/audit` 创建 `province_code` 分区。
 4. 读取随包只读行政区 SQLite，并断言 SQLite 省表与 runtime primitives `PROVINCE_CODE_INFOS` 一致。
 5. 初始化登录、节点绑定和链路运行态结构化表。
 6. 初始化链上公权机构查询投影，并按 finalized 区块启动公民绑定投影和交易索引 worker。
@@ -689,38 +693,38 @@ schema 初始化和链上业务投影必须分离。schema 入口只允许幂等
 ##### 3.1 机构工作台框架
 
 - 后端 `citizenchain/onchina/platform/` 是当前登录机构工作台清单的唯一生成层，只输出 `workspace_kind / workspace_title / workspace_sections / workspace_modules`，不保存第二份管理员授权真源。实例级模块必须按登录态准确 `institution_cid_number` 和 finalized 链状态判定。
-- 平台工作台外壳与装配为 `onchina/platform/frontend/workspace_WorkspaceShell.tsx` 和 `onchina/platform/frontend/workspace_WorkspaceRouter.tsx`；注册局、私权和司法页面分别归所属模块 frontend，保持原有 UI、入口和权限条件。
+- 平台工作台外壳与装配为 `onchina/platformweb/workspace/WorkspaceShell.tsx` 和 `onchina/platformweb/workspace/WorkspaceRouter.tsx`；注册局、私权和司法页面分别归所属模块 frontend，保持原有 UI、入口和权限条件。
 - 工作台顶层分类固定为 `operations`（操作）、`display`（显示）、`records`（记录）。操作放本机构可发起的提案、投票、管理员变更等动作；显示放本机构身份、权限和管理员；记录放登录、链写、投票、管理员变更等事实记录。
 - 现有公权机构统一在创世阶段上链。OnChina 不在运行期生成既有公权机构目录，只读取链上机构和链上 active admins，并用本地 `subject/account/admin` 投影补齐展示字段。
-- 注册局工作台必须保持既有功能和 UI；私权机构不得看到注册局公民、机构目录和登记入口。新增司法院、立法院、学校、公司、公益组织等机构 UI 时，只能新增或扩展对应工作台目录，不得把机构差异重新塞回 `onchina/platform/frontend/App.tsx`。
+- 注册局工作台必须保持既有功能和 UI；私权机构不得看到注册局公民、机构目录和登记入口。新增司法院、立法院、学校、公司、公益组织等机构 UI 时，只能新增或扩展对应工作台目录，不得把机构差异重新塞回 `onchina/platformweb/workspace/App.tsx`。
 - 平台会员价格是准确 CID 实例模块：只有登录机构 CID 等于 finalized `SquarePost::PlatformCidNumber` 时，清单才包含 `platform_membership_price`。OnChina 只读取 finalized 价格，不在 PostgreSQL 保存第二份价格。
 
 #### 4. 行政区和 CID 号真源
 
 - 国家码、省级行政区码和机构码常量唯一真源：`citizenchain/runtime/primitives/src/cid/code.rs`。
 - 市、镇和地址段开发真源：`citizenchain/onchina/platform/codes/china.sqlite`。
-- CID 号生成和校验唯一源码目录：`citizenchain/onchina/platform/codes/`。
+- CID 号生成和校验唯一源码入口：`citizenchain/onchina/platform/codes/mod.rs`。
 
 生产环境中 `ONCHINA_CHINA_DB` 固定指向随包只读 SQLite。市镇地址段变更只能修改开发库并重新发布安装包，禁止运行期在线编辑行政区。
 
 #### 5. 结构化表
 
-目标结构共32张逻辑表250列，唯一DDL归 `onchina/platform/database/connection.rs`、`onchina/platform/institutions/subjects_schema.rs` 和 `onchina/platform/institutions/subjects_photos.rs`。
+目标结构共27张逻辑表205列，唯一DDL归 `onchina/platform/database/connection.rs`、`onchina/platform/institutions/subjects_schema.rs` 和 `onchina/platform/institutions/subjects_photos.rs`。
 
 - `identity`：唯一CID索引，真实列为 `cid_number/record_kind/province_code/city_code/created_at`。
-- `subject`、`government`、`private`、`account`、`member`：主体、机构扩展、账户和机构成员查询投影。主体名称列为 `full_name/short_name`，代表人列为 `family_name/given_name/representative_cid/representative_account`；公权来源使用 `source_kind='CHAIN'` 或 `'MANUAL'`。授权始终读取真实链上当前岗位及身份，不以本地投影替代。
+- `subject`、`government`、`account`：主体、公权扩展和账户查询投影；私权字段只保存于subject。主体名称列为 `full_name/short_name`，代表人列为 `family_name/given_name/representative_cid/representative_account`；公权来源使用 `source_kind='CHAIN'` 或 `'MANUAL'`。授权始终读取真实链上当前岗位及身份，不以本地投影替代。
 - `citizen`、`document`、`passport`、`recycle`、`sequence`：公民档案、独立资料库和护照分配。当前 `account_id` 只与 `binding_revision/binding_block/binding_hash` 一起保存为finalized绑定投影；不得回退到本地旧账户。机构资料另归 `attachment`；公民与机构资料不共表。
 - `photo`：代表人照片唯一正本，`file_data` 保存实际字节，`institution_cid` 唯一关联机构；`subject` 不保存照片路径、名称、类型和大小。查询联接后计算展示信息。
 - `admin`、`binding`：管理员元数据和本节点机构绑定；本地记录不构成链上成员资格或岗位权限。解绑通过既有 `NODE_BINDING_UNBIND` Passkey动作停用绑定。
 - `challenge`、`grant`、`login`、`enrollment`：只保存 `payload_json`。`session` 只保存 `token_hash/payload_json`，`result` 只保存 `challenge_id/payload_json`。身份、归属、期限和消费状态只来自同一严格JSON，索引直接读取其表达式；不再保存重复列。登录定向签名仍按固定QR_V1验证原目标账户。
-- `credential`、`ceremony`、`assertion`、`replay`：WebAuthn凭证、仪式、一次性断言和二维码消费记录。
-- `operation`、`signing`、`request`、`nonce`、`transaction`、`projection`、`audit`：链操作、短期签名会话、幂等、防重放、交易索引、唯一投影锚点与审计。签名会话的真实列为 `call_data/nonce_value/signing_hash/context_json` 等；已尝试提交的会话保留恢复锚点至finalized与投影完成。交易发送方和接收方列为 `sender_account/recipient_account`；交易记录与唯一 `projection(wallet-transactions)` 锚点同事务提交，不保留第二进度表。
+- `credential`、`ceremony`、`assertion`：WebAuthn凭证、仪式和一次性断言。
+- `operation`、`signing`、`transaction`、`projection`、`audit`：链操作、短期签名会话、交易索引、唯一投影锚点与审计。签名会话的真实列为 `call_data/nonce_value/signing_hash/context_json` 等；已尝试提交的会话保留恢复锚点至finalized与投影完成。交易发送方和接收方列为 `sender_account/recipient_account`；交易记录与唯一 `projection(wallet-transactions)` 锚点同事务提交，不保留第二进度表。
 
 `cid_number` 是唯一且不可变的身份标识；SS58仅在展示边界从账户派生。旧数据库明确拒绝，真实数据改造另行授权。
 
 ##### 5.1 公民 finalized 绑定单源
 
-- `citizenchain/onchina/platform/chain/citizen_identity.rs` 是公民公开身份快照的唯一链读取
+- `citizenchain/onchina/platform/chain/identity.rs` 是公民公开身份快照的唯一链读取
   入口。同一次读取必须固定在一个 finalized 区块，并同时读取 `CidRegistry`、
   `AccountIdByCid`、`BindingRevisionByCid`、`CidByAccountId`、
   `VotingIdentityByCid` 和 `CandidateIdentityByCid`。
@@ -755,21 +759,19 @@ OnChina 高并发目标建立在结构化表、组合索引、省分区和省市
 - 页面列表只读持久化结果，禁止同步触发全量对账。
 - 高频公开查询可增加短 TTL 缓存，但缓存不得成为主数据。
 
-必备索引：
+必备索引（列名以当前DDL为准）：
 
-- `subject(province_code, city_code, kind, status, cid_number)`
-- `subject(province_code, city_code, cid_full_name)`
-- `citizen(province_code, city_code, created_at DESC, id DESC)`
+- `subject(province_code, city_code, record_kind, cid_number)`
+- `subject(subject_kind, province_code, city_code, cid_number, full_name, short_name)`
+- `citizen(province_code, city_code, created_at DESC, row_id DESC)`
 - `citizen(province_code, city_code, cid_number, passport_no, account_id)`
-- `citizen(province_code, city_code, town_code, created_at DESC, id DESC)`
-- `document(province_code, cid_number, uploaded_at DESC, id DESC)`
-- `government(province_code, city_code, town_code, institution_code)`
-- `private(province_code, city_code, private_type, cid_number)`
+- `citizen(province_code, city_code, town_code, created_at DESC, row_id DESC)`
+- `document(province_code, cid_number, uploaded_at DESC, row_id DESC)`
+- `government(province_code, city_code, institution_code)`
 - `account(province_code, cid_number)`
-- `docs(province_code, cid_number, uploaded_at DESC)`
+- `attachment(province_code, cid_number, uploaded_at DESC)`
 - `audit(province_code, city_code, created_at DESC)`
-- `admins(institution_code, city_name)`
-- `admins(account_id)`（严格规范文本，不做 `lower(...)` 兼容）
+- `admin(institution_code, city_name)`
 
 #### 7. 管理员和安全
 
@@ -793,7 +795,7 @@ OnChina 高并发目标建立在结构化表、组合索引、省分区和省市
 
 #### 8. 前端规则
 
-前端所有用户提示统一走 `citizenchain/onchina/platform/frontend/helpers_notice.ts`。业务组件不得直接调用 Ant Design `message.*`、`Modal.confirm`、`Modal.warning` 或浏览器 `alert`。
+前端所有用户提示统一走 `citizenchain/onchina/platformweb/controls/notice.ts`。业务组件不得直接调用 Ant Design `message.*`、`Modal.confirm`、`Modal.warning` 或浏览器 `alert`。
 
 机构详情页身份字段统一显示为 `身份ID`，不得使用代码框包裹，不得展示 `SubjectProperty 类型` 或机构链上状态。机构链上状态只属于机构账户，允许在账户列表展示。
 
@@ -849,9 +851,9 @@ Cloudflare staging 的 D1/KV/R2 可清理真写通过，production 只读。仓�
 
 ```text
 rg "旧独立身份系统名" memory AGENTS.md citizenchain/onchina --glob '!tasks/**' --glob '!docs/**'
-cargo check --manifest-path citizenchain/Cargo.toml -p onchina
-cargo test --manifest-path citizenchain/Cargo.toml -p onchina
-npm --prefix citizenchain/onchina/platform/frontend exec tsc -- --noEmit
+cargo check --manifest-path citizenchain/Cargo.toml -p onchina -p onchina-registry -p onchina-legislation -p onchina-private -p onchina-judicial
+cargo test --manifest-path citizenchain/Cargo.toml -p onchina -p onchina-registry -p onchina-legislation -p onchina-private -p onchina-judicial
+npm --prefix citizenchain/onchina/platformweb exec tsc -- --noEmit
 ```
 
 如果工作区存在其它线程的未完成改动，验收必须说明受影响的命令和原因，不得把其它线程的失败混入本任务结论。
@@ -868,26 +870,38 @@ OnChina 是公民链 `citizenchain` 内置的链上中国平台能力，不再�
 - 源码目录：`citizenchain/onchina/`
 - 产品级文档：`CitizenChainOnChina.md`
 - 模块职责、接口和目录说明统一维护在本文，不建立第二技术文档目录。
-- 管理后台前端：`citizenchain/onchina/platform/frontend/`
+- 管理后台前端：`citizenchain/onchina/platformweb/`
 
 #### 源码边界
 
-- `onchina/platform/authentication`：登录、扫码认证、会话、Passkey 和统一安全动作调度。
-- `onchina/platform/authorization`：通用岗位与辖区上下文。
-- `onchina/platform/chain`、`onchina/platform/codes`：链读取、CID 与行政区字典。
+- `onchina/platform/authentication/mod.rs`：登录、扫码认证、会话、Passkey 和统一安全动作调度。
+- `onchina/platform/authorization/mod.rs`：通用岗位与辖区上下文。
+- `onchina/platform/chain/runtime.rs`、`onchina/platform/codes`：链读取、CID 与行政区字典。
 - `onchina/platform/transactions/session.rs`：唯一冷签会话模型、有效期和会话持久化。
 - `onchina/platform/transactions/handler.rs`：统一提交、恢复和业务回写调度；原业务校验及投影仍从所属模块调用。
-- `onchina/platform/institutions`：通用机构、账户、管理员展示 DTO 与本机构查询。
-- `onchina/platform/documents`：机构资料库；`onchina/platform/audit`：统一审计。
-- `onchina/platform/database`、`onchina/platform/security`、`onchina/platform/communication`：现有数据访问、HTTPS、防护、响应与路由。
-- `onchina/platform/indexer`：公共钱包索引及当前绑定机构投影；公民增量投影由注册局独立运行。
-- `onchina/registry/citizens`、`onchina/registry/passports`、`onchina/registry/documents`：公民办理、护照和公民资料库。
-- `onchina/registry/admins`：联邦与市注册局名册、机构管理员登记、办理校验及其数据查询。
-- `onchina/registry/institutions`、`onchina/registry/address`、`onchina/registry/projection`：机构登记、地址和注册局投影。
+- `onchina/platform/institutions/mod.rs`：通用机构、账户、管理员展示 DTO 与本机构查询。
+- `onchina/platform/documents/mod.rs`：机构资料库；`onchina/platform/audit/handler.rs`：统一审计。
+- `onchina/platform/database/connection.rs`、`onchina/platform/security/server.rs`、`onchina/platform/communication/routes.rs`：现有数据访问、HTTPS、防护、响应与路由。
+- `onchina/platform/indexer/mod.rs`：公共钱包索引及当前绑定机构投影；公民增量投影由注册局独立运行。
+- `onchina/registry/citizens/mod.rs`、`onchina/registry/citizens/passport.rs`、`onchina/registry/documents/mod.rs`：公民办理、护照和公民资料库。
+- `onchina/registry/admins/mod.rs`：联邦与市注册局名册、机构管理员登记、办理校验及其数据查询。
+- `onchina/registry/institutions/mod.rs`、`onchina/registry/address/mod.rs`、`onchina/registry/projection/mod.rs`：机构登记、地址和注册局投影。
 - `onchina/legislation`：法律、提案、表决调用、看板及现有预留模型。
 - `onchina/judicial`：现有司法工作台；`onchina/private`：私权机构工作台与基金会 membership 业务。
 
-前端源码归 `onchina/<所属部分>/frontend`；宿主与各模块分别使用现有入口构建，依赖声明及原始锁仍归 `onchina/platform/frontend`。通用机构信息面板归 `onchina/platform/frontend/institutions_OwnInstitutionInfoPanel.tsx`，司法页只组合现有公共面板。各模块消费公共前端接口，组件 JSX、样式、事件和请求语义保持不变。
+每个业务分别拥有独立Cargo后端工程与npm前端工程；具体位置和根文件规则见“工程配对和目录边界”。公共机构信息面板仍唯一归platformweb/institutions/InfoPanel.tsx，司法页只组合该真实公开实现。
+
+#### 工程配对和目录边界
+
+链上中国各工程目录位置保持。platformweb、registryweb、legislationweb本来已有真实功能子目录，与后端平级；private/frontend和judicial/frontend没有源码子目录，原位保留，不为套模板新增app、src或tests目录，也不移到后端同级。
+
+五个Rust包根只保留Cargo.toml。平台库与宿主入口归platform/modules/lib.rs和main.rs；其它业务的启动与实际软件接入实现归各自workspace/main.rs和module.rs；私权准确实例清单合入其module.rs。Cargo直接声明入口，原Rust逻辑模块关系及运行接口保持。
+
+三个复杂前端包根只保留package.json、原package-lock.json和必要.npmrc。平台宿主启动、应用、SDK公开入口、HTTP基础实现及HTML归platformweb/workspace；注册局组合组件归registryweb/controls/Workspace.tsx；立法院导出归并到legislationweb/proposals/LegislationView.tsx。软件接口1的公开标识仍由标准exports定位真实唯一源码，不保留旧路径桥接。
+
+两个小前端各自源码合为frontend/Workspace.tsx，原业务测试合为frontend/Workspace.test.tsx；加上声明、原锁及原file依赖确需的.npmrc，各只有5个真实根文件。六类私权登记的小页面/API/类型/转发归并成registryweb/private下的sole、partnership、company、corporation、welfare、association六个tsx模块；原机构码和值保持。
+
+浏览器和测试TypeScript编译作用域继续隔离，原严格选项由scripts/onchina.mjs唯一实现；每个前端自身的typecheck/test/build命令调用该公开入口，工具从本包原锁依赖加载。重复tsconfig、vite-env、Vite/Vitest转发配置与已无消费者的包内构建声明不保留。Vite真实构建、Vitest真实测试和独立类型检查仍分别执行，不额外引入构建框架或配置登记表。公共TLS读取与校验由scripts/build.mjs唯一实现，原证书输入、TLS1.3、WSS与代理验证保持。构建和预览沿用ONCHINA_FRONTEND_DIST，显式构建目标优先于环境输入。
 
 #### 数据真源
 
@@ -940,28 +954,30 @@ FRG/CREG，只返回同一 finalized 区块中的 CID 状态、当前账户、�
 
 ## 目录整合与平台输入
 
-前端二维码生成文件归入 `onchina/platform/frontend/core_qrBodies.g.ts`，导出器及调用方同时调整。中国行政区静态数据直接位于 `onchina/platform/codes/area_code_2024.csv.gz`；数据字节与查询语义保持不变。Runtime 与上游不参与本次目录调整。
+前端二维码生成文件归入 `onchina/platformweb/qr/qrBodies.g.ts`，导出器及调用方同时调整。中国行政区静态数据直接位于 `onchina/platform/codes/area_code_2024.csv.gz`；数据字节与查询语义保持不变。Runtime 与上游不参与本次目录调整。
 ## 目录与业务边界
 
-目录结构、Rust 模块定位和前端导入按以下归属维护。模块进程与前端产物可分别构建和替换，重启生效；现有 HTTP 路径、QR/SCALE 字节、业务序列化字段、数据库结构、签名次数、业务条件、UI 和交互保持。健康接口仅追加实际可用模块的软件元数据。
+五个真实Cargo包分别位于onchina/platform、registry、legislation、private、judicial。平台包名onchina，公共库入口platform/modules/lib.rs，宿主入口platform/modules/main.rs；四个业务包名及程序名分别为onchina-registry、onchina-legislation、onchina-private、onchina-judicial，各自Cargo.toml只声明本包workspace/main.rs。没有OnChina根Cargo.toml或根src；全部成员由公民链根Cargo.toml登记，共用原workspace锁。
 
-唯一 Cargo 包仍在 `onchina/platform/Cargo.toml`，其中五个真实 binary 目标分别指向 platform、registry、legislation、private、judicial 的现有 main.rs。宿主不静态编入其他业务模块；各入口 include 同一 platform/interface.rs，独立链接原公共实现与自己的业务。没有新增 Cargo 包、依赖、锁文件或源码包装层。
+平台公共库拥有原公共服务及模块接口，业务包通过路径依赖调用必要的公开类型和方法，不再include平台源码。实际业务声明、路由和回调归各包module.rs。运行时仍以原受校验HTTPS软件模块协议交接，不使用Rust动态库ABI。宿主不编入注册局、立法、私权或司法业务实现，新独立功能可以按相同软件接口新增包。
 
-源码根为 onchina，下一层是 platform、registry、legislation、judicial、private，再下一层是实际功能目录或 frontend；功能目录内只有文件。公民资料归 registry/documents，护照算法归 registry/passports；机构资料归 platform/documents。私权机构登记归 registry/institutions，基金会会员价格治理归 private/membership。通用安全、数据库、交易、机构、链读取、索引和审计仍只有原有实现。
+各后端包根只保留Cargo.toml，入口归modules/workspace，功能源码位于第3级目录，不再以几十个前缀文件堆在src中。注册局护照算法归registry/citizens/passport.rs，公民资料归registry/documents/mod.rs及documents/handler.rs；机构资料归platform/documents/mod.rs及documents/handler.rs；立法表决编码归legislation/laws/voting.rs；私权准确实例业务清单归private/workspace/module.rs。不存在被替代的旧目录桥接或第二份实现。
 
-各模块 frontend 使用原组件入口生成自己的 module.js 与 module.css；宿主入口只持有公共组件、React、认证 Context、请求和扫码状态的唯一实例，并通过公开导出供模块使用。原组件 JSX、文字、样式、事件及请求语义保持。Vite 禁止模块静态引用另一模块的运行实现，跨模块页面通过已装载模块公开导出调用；类型引用继续由现有 TypeScript 工程发现。OnChina 不再使用旧的整体前端缓存实现。
+每个Rust包只有自己的tests目录，单元、必要集成、测试辅助及所属金标都在那里。平台公共测试辅助只由cfg(test)或test-support加载，业务包仅在开发依赖中启用，正式构建不启用。真实ModuleBusiness声明、能力、工作台和业务路由分别在所属包验收；能力和路由金标只有各自所有者tests内的一份。
 
-原内联回归和二维码金标随实现迁移，输入与预期字节不变；新增结构回归核对实际模块路径、前端导入、旧目录残留以及迁移前的 HTTP 方法和路径清单。检查通过与编译、运行验收分别记录在唯一任务卡。
+前后端工程配对、必要根文件及小前端平铺规则统一见上文“工程配对和目录边界”。各包自身声明及原锁保持独立，公共工具执行只在本仓现有公开入口实现，JS/CSS交付和UI交互保持。
+
+行政区资产仍为platform/codes/china.sqlite与area_code_2024.csv.gz，原字节不变；Runtime输入不参与本次调整。Rust二维码生成文件归platform/qr/generated.rs，TypeScript生成文件仍归platformweb/qr/qrBodies.g.ts；导出及检查读取各自真实路径，不复制协议实现。
 
 ### 框架、鉴权与回归约束
 
-冷签会话、提交与恢复归 `platform/transactions`；注册局业务编码、finalized 身份校验和正式档案投影仍归 `registry`。HTTP 方法、URL、路由分区和中间件顺序由 `platform/modules/routes.fixture.json` 管理；`layout.fixture.json` 只登记目录闭集、真实入口、定义归属、原能力位及退役路径负例，不保存任务进度或“修复完成”状态。结构扫描包含生产和测试源码，以及仓库消费者与三份根技术文档。
+冷签会话、提交与恢复归 `platform/transactions/mod.rs`；注册局业务编码、finalized 身份校验和正式档案投影仍归 `registry`。平台HTTP方法、URL、路由分区和中间件顺序金标归platform/tests/routes.json，业务路由和能力/工作台金标分别归所属包tests；platform/tests/layout.json只登记实际目录、真实入口、定义归属、公共能力和退役路径负例，不保存任务进度或完成状态。结构扫描包含生产和测试源码，以及仓库消费者与三份根技术文档。
 
 公民与管理员 ID 均使用 `sequence` 原子递增并显式处理容量边界；已有 ID 保留。公民正本编辑锁后重读，出生日期等不可变字段不能并发覆盖，护照和相关索引一起提交；Passkey 有效期在获得绑定事务锁后按当前时间检查。链日期以真实日历校验并统一为 YYYY-MM-DD。Passkey 凭证消费绑定当时的账户与准确节点绑定，后续写入重核。机构治理、注册局登记管理员、法律案发起、代表表决及平台调价的链签名准备均复用一次现有 Passkey 认证；验证成功才发送业务请求，取消或失败不发送，后续钱包扫码提交不重复触发认证。后端校验不得降级。
 
 上传文件上限 10MiB，请求体另允许 64KiB multipart 开销；破损流失败并清理本次部分文件，元数据失败清理未提交文件。节点解绑和直接名册治理按现行动作类型执行一次 Passkey；其它 grant 不重复消费。挑战与 grant 的有效期须在等待事务锁后重新判定。
 
-测试声明复用原锁的 Tower，通过真实 Router 验证 CORS、方法、鉴权及上传边界；前端使用独立 Vitest 配置，不依赖开发 TLS/HMR 输入。数据库集成回归只接受控制台显式交付的本机 ONCHINA_TEST_DATABASE_URL，库名以 onchina_test 开头，用例只创建和清理自己 UUID 命名的 schema；默认 ignored，普通测试不隐式连接数据库。
+测试声明复用原锁的 Tower，通过真实 Router 验证 CORS、方法、鉴权及上传边界；前端使用独立 Vitest 配置，不依赖开发 TLS/HMR 输入。数据库集成回归只接受控制台显式交付的本机 ONCHINA_TEST_DATABASE_URL，库名以 onchina_test 开头，必须显式指定本机主机或Unix套接字，所有hostaddr实际地址必须为回环地址，连接前拒绝空目标与非本机地址；用例只创建和清理自己 UUID 命名的 schema；默认 ignored，普通测试不隐式连接数据库。
 
 回归覆盖当前 Runtime 元数据事件解码、溢出和坏事件停止、交易记录/锚点/进度原子性、并发 ID/公民编辑、绑定切换、名册准确归属、公民迁出正本保留、立法跨省同市号、同钱包多岗位票据及恢复互斥。源码断言与静态检查不能代替测试、类型检查、编译或运行验收；具体授权和执行证据只登记在唯一任务卡。
 
@@ -969,21 +985,21 @@ FRG/CREG，只返回同一 finalized 区块中的 CID 状态、当前账户、�
 
 ## 模块独立构建与装载
 
-唯一专属构建入口是 scripts/onchina.mjs。构建目标直接读取现有 platform/Cargo.toml 的真实 binary 声明；业务模块的 ID、独立软件版本、前端入口、公开导出、HTTP 路由、提交 purpose、安全动作和工作台能力由对应 main.rs 实际实现提供。构建时执行已编译程序的 --describe 取得声明，该动作在日志、数据库、TLS 和链连接初始化之前返回。夹具不作为生产配置，既不新增 module.json，也不从目录名猜测业务。
+唯一专属构建入口是 scripts/onchina.mjs。构建目标读取Cargo metadata中的真实workspace成员、manifest、package及bin；业务模块的 ID、独立软件版本、前端入口、公开导出、HTTP 路由、提交 purpose、安全动作和工作台能力由对应module.rs实际实现提供。构建时执行已编译程序的 --describe 取得声明，该动作在日志、数据库、TLS 和链连接初始化之前返回。夹具不作为生产配置，既不新增 module.json，也不从目录名猜测业务。
 
 scripts/build.mjs只保留GitHub正式整包编译限制；它直接调用scripts/onchina.mjs的buildPreparedOnChina公开实现，传入准确检出、已准备依赖、原生平台和本轮工作根。专属脚本复用现有checkWork、runBuildProcess、platformCargoEnvironment、npmCLI及Windows运行库处理，不恢复旧资源回执、工具库存、租约、GitHub管理或发布框架。调用方拥有的现场不由内部接口重新申请或清理；前端worker只消费调用方明确传入的工程、输出及实际程序声明。
 
-npm run build调用同一个专属脚本的build协调入口，默认构建开发用宿主与全部模块，交付到target/onchina/<原生平台>/all；node scripts/onchina.mjs build --module <ID>只构建和交付所选目标，默认到同级<ID>目录。--platform必须匹配现有产品声明的本机系统和架构；--output可指定一个不存在的新交付目录，拒绝覆盖已有目录，也不能指向源码、活动现场或其父目录。它不生成正式节点安装包、Tag或Release，不安装或改链。
+各前端npm run build调用同一个专属脚本并传入--frontend .，只构建所属前后端工程对，默认交付到target/onchina/<原生平台>/<ID>；直接执行node scripts/onchina.mjs build构建宿主与全部模块，交付到同平台all目录；node scripts/onchina.mjs build --module <ID>只构建和交付所选目标，默认到同级<ID>目录。--platform必须匹配现有产品声明的本机系统和架构；--output可指定一个不存在的新交付目录，拒绝覆盖已有目录，也不能指向源码、活动现场或其父目录。它不生成正式节点安装包、Tag或Release，不安装或改链。
 
-开发构建使用target/onchina/<平台>/work作为专属互斥现场，与正式整包的target/build/<平台>分开。只读Git清单复制当前完整源码，依赖按已有npm/Cargo锁及官方包管理器准备，工具版本直接核对scripts/config.mjs现有声明。不存在未授权的资源获取器；工具缺失、版本不符或原生平台不符明确失败。只有成功申请现场的调用者负责清理；普通失败及成功交付后清理，信号/超时等无法确认后代退出时保留现场，不清理别人的活动任务。默认开发交付在全部验收成功后替换；显式交付使用独占新目录，并支持跨磁盘复制。
+开发构建使用target/onchina/<平台>/work作为专属互斥现场，与正式整包的target/build/<平台>分开。构建直接读取当前准确检出，不复制开发源码；依赖按各自已有npm/Cargo锁及官方包管理器准备，工具版本直接核对scripts/config.mjs现有声明。不存在未授权的资源获取器；工具缺失、版本不符或原生平台不符明确失败。只有成功申请现场的调用者负责清理；普通失败及成功交付后清理，信号/超时等无法确认后代退出时保留现场，不清理别人的活动任务。默认开发交付在全部验收成功后替换；显式交付使用独占新目录，并支持跨磁盘复制。
 
-开发构建先运行结构回归、公共前端装载回归和所选Rust目标回归。all另运行完整前端typecheck和业务Vitest；单模块仅检查所选入口和原工具配置，不构建其他模块，也不把其他模块的业务测试作为产物入口。四个正式节点Workflow已有完整前端typecheck、Vitest、结构及Rust前置测试登记，失败不会进入编译，本轮不重复登记另一套Workflow测试。
+测试由调用产品流程的控制台及既有塔塔自动化登记执行；编译实现不隐式运行另一套测试。已取消脚本单元测试，保留真实源码结构、HTTP/能力合同、业务和实际产物验收；本地与塔塔自动化执行相同完整文件，不以名称过滤保留已取消的脚本mock用例。完整验收执行结构回归、各包Rust回归、完整前端typecheck和业务Vitest；单模块编译只选择所属package/bin及其库依赖，前端构建只检查所选生产入口；测试和完整类型检查分别走所属包公开命令，不编译其他业务或宿主bin。四个正式节点Workflow已有完整前端typecheck、Vitest、结构及Rust前置测试登记，失败不会进入编译，本轮不重复登记另一套Workflow测试。
 
 buildPreparedOnChina只编译所选Cargo目标与原前端入口。frontendOnly是公开函数的可选内部参数：不执行Cargo build，但要求对应真实业务程序已存在，复制其原字节与新前端配对后仍须验收。未消费的prepared/frontend命令入口已移除，frontend-worker只作内部子进程使用；导入脚本不执行工具、资源准备或构建。
 
-npm run dev沿用构建后预览流程；npm run preview经专属脚本定位同平台all/frontend，使用现有前端依赖中与原声明一致的Vite，仍要求原开发TLS证书输入。前端开发依赖按onchina/platform/frontend原锁准备，预览不自动下载替代Vite。/api与/modules由同一受校验HTTPS代理访问正在运行的宿主，预览不维护另一套模块资源副本。
+npm run dev沿用构建后预览流程；npm run preview读取宿主独立工程的target/onchina/<原生平台>/platform/frontend，使用现有前端依赖中与原声明一致的Vite，仍要求原开发TLS证书输入。前端开发依赖按onchina/platformweb原锁准备，预览不自动下载替代Vite。/api与/modules由同一受校验HTTPS代理访问正在运行的宿主，预览不维护另一套模块资源副本。
 
-宿主交付文件为 onchina（Windows 为 onchina.exe）和原 frontend；每个模块交付为 modules/<ID>/onchina-<ID>（Windows 带 .exe）以及同目录 frontend/module.js、frontend/module.css 和必需运行库。JS、CSS 首行均包含与后端一致的软件 ID、版本和接口版本；IIFE 导出也包含同一元数据。每次模块软件升级必须更新该模块 main.rs 的 VERSION，前后端作为同一套产物交付。共享接口发生不兼容变更时才调整 MODULE_INTERFACE_VERSION；它与链上 Runtime spec_version 无关。模块装载框架不改变 CID、CN、省代码、省内市编号及现有解析；法律地域协议单独采用本文件所述 LawRegion。
+宿主交付文件为 onchina（Windows 为 onchina.exe）和原 frontend；每个模块交付为 modules/<ID>/onchina-<ID>（Windows 带 .exe）以及同目录 frontend/module.js、frontend/module.css 和必需运行库。JS、CSS 首行均包含与后端一致的软件 ID、版本和接口版本；IIFE 导出也包含同一元数据。每次模块软件升级必须更新该模块workspace/module.rs的VERSION，前后端作为同一套产物交付。共享接口发生不兼容变更时才调整 MODULE_INTERFACE_VERSION；它与链上 Runtime spec_version 无关。模块装载框架不改变 CID、CN、省代码、省内市编号及现有解析；法律地域协议单独采用本文件所述 LawRegion。
 
 运行时只从一个实际模块目录装载：可用 ONCHINA_MODULE_DIR 指定绝对路径；macOS 默认是用户 Library/Application Support/gmb.dev/onchina-modules，在 .app 外；其它平台默认是宿主程序同级 modules。整套节点包包含初始模块交付文件；macOS 首次部署须在获得安装授权后把它们放入上述实际目录，不能只把 .app 内的构建产物当作已启用模块。本构建入口不安装、不发布、不修改链或持久数据；不隐式复制初始模块，也不在 App 启动时覆盖已独立升级的模块。
 
@@ -993,13 +1009,13 @@ npm run dev沿用构建后预览流程；npm run preview经专属脚本定位同
 
 公共机构投影、私权机构类别字符串及类别映射归 platform；注册局录入、查询、资料和公民投影归 registry。类别映射只是原有机构类别归属迁移，所有字符串和值保持。宿主初始化现有公共数据库结构，模块只连接已有库；本次未改变 schema。今后模块自己的数据升级应由模块自身负责，不能借独立升级重建公共表或清除其他模块数据。
 
-前端在原启动阶段仅装载一次健康接口登记的模块；健康声明与每组同源JS/CSS装载各自最多等待15秒。地址全部通过校验后才插入资源节点；失败或超时清除该模块节点、导出、事件和计时器，保留失败隔离结果，迟到资源不能恢复为可用模块。实际导出和前后端元数据均须匹配。公共 React、认证 Context、请求/401 状态从宿主公开接口取得；工作台按后端准确实例业务清单优先，再按实际模块的机构类声明选择，新增机构模块不需要增加宿主名称分支。原注册局管理员组件移至 registry/frontend/admins_ProvinceDetailView.tsx，专属状态和 API 移至同目录 admins_cityRegistryAdminsApi.ts；通用本机构管理员组件留在平台。基金会会员治理仍只是 private 中准确 CID 授权的一项业务。
+前端在原启动阶段仅装载一次健康接口登记的模块；健康声明与每组同源JS/CSS装载各自最多等待15秒。地址全部通过校验后才插入资源节点；失败或超时清除该模块节点、导出、事件和计时器，保留失败隔离结果，迟到资源不能恢复为可用模块。实际导出和前后端元数据均须匹配。公共 React、认证 Context、请求/401 状态从宿主公开接口取得；平台包默认入口引用宿主完整SDK对象，运行时子入口仅公开该唯一SDK真实导出的实现，共享认证类型使用标准types条件，测试辅助与HTML分别由明确用途的公开入口定位；工作台按后端准确实例业务清单优先，再按实际模块的机构类声明选择，新增机构模块不需要增加宿主名称分支。原注册局管理员组件移至 registryweb/admins/ProvinceDetailView.tsx，专属状态和 API 移至同目录 cityRegistryAdminsApi.ts；通用本机构管理员组件留在平台。基金会会员治理仍只是 private 中准确 CID 授权的一项业务。
 
 现有结构、HTTP 方法/路径金标、能力位金标、真实路由回归、恢复和授权回归随所有者同步；每个业务二进制单独对照原能力金标核验自身真实声明。模块装载回归覆盖正常资源、版本不符、样式失败、跨源拒绝、工作台冲突及准确实例优先。源码维护及静态核对与实际类型检查、测试、编译、部署验收分别记录在唯一任务卡。
 
 ## 当前交付归属
 
-OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scripts/onchina.mjs 的 buildPreparedOnChina 公开实现。它直接读取真实 Cargo 目标，执行已编译模块的 --describe，编译同一声明的前端并交付宿主、模块及所需运行库；控制台不实现模块编译。依赖由本仓各自原始 npm/Cargo 锁及官方包管理器准备，构建与测试输出只进入本轮 target 现场，工程直接使用本仓准确检出，不创建整仓源码副本或资源回执。测试由Workflow执行，build.mjs只做编译和完整产物。整个原 Run 结束后的历史清理、恢复不重派与版本规则统一见 CitizenChainNode.md 当前合同；OnChina 模块自身 VERSION 和 MODULE_INTERFACE_VERSION 不由交付命名改写。
+OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scripts/onchina.mjs 的 buildPreparedOnChina 公开实现。它直接读取真实workspace Cargo metadata目标，执行已编译模块的 --describe，编译同一声明的前端并交付宿主、模块及所需运行库；控制台不实现模块编译。依赖由本仓各自原始 npm/Cargo 锁及官方包管理器准备，构建与测试输出只进入本轮 target 现场，工程直接使用本仓准确检出，不创建整仓源码副本或资源回执。测试由Workflow执行，build.mjs只做编译和完整产物。整个原 Run 结束后的历史清理、恢复不重派与版本规则统一见 CitizenChainNode.md 当前合同；OnChina 模块自身 VERSION 和 MODULE_INTERFACE_VERSION 不由交付命名改写。
 
 
 ### 模块装载与维护边界
@@ -1010,7 +1026,7 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 内部实例工作台查询并行度最多4，单次请求含响应体读取最多5秒；该期限不应用于正式交易转发、扫码签名或最终确认。模块就绪最长等待120秒，说明进程最多10秒，独立等待不会串行阻塞其他同批模块。开发与预览的/api和/modules使用同一现有HTTPS代理和机构CA校验，不复制另一套前端资源。路径归属统一按原生relative边界判断，支持Windows分隔符并拒绝跨盘、父目录和同名前缀目录。
 
-能力夹具只为真实所属模块声明业务能力；无owner的NRC、PRC、PRB和未知码回归必须经过真实基础能力分支。工作台夹具完整保留分区、动作、文字、顺序及enabled值。普通回归使用独立测试进程和临时证书核验真实HTTPS转发、证书/主机名拒绝、退出和同路径程序替换，不连接业务数据库或链。真实业务IIFE验收由唯一verifyPreparedOnChina在编译后、打包或对外交付前登记：向既有结构测试及前端测试明确传入ONCHINA_TEST_MODULE_ROOT和ONCHINA_TEST_MODULE_IDS，只核验所选模块。实际--describe、JS/CSS首行、IIFE导出和宿主真实公开对象/React/认证Provider须一致；任一失败中止交付。普通单元测试未提供产物时明确跳过，不能把伪DOM回归作为真实产物验收。
+能力夹具只为真实所属模块声明业务能力；无owner的NRC、PRC、PRB和未知码回归必须经过真实基础能力分支。工作台夹具完整保留分区、动作、文字、顺序及enabled值。普通回归使用独立测试进程和临时证书核验真实HTTPS转发、证书/主机名拒绝、退出和同路径程序替换，不连接业务数据库或链。verifyPreparedOnChina只静态核对本轮产物；真实业务IIFE验收由既有四平台塔塔自动化在编译后、记录产物原始字节前登记：向既有结构测试及前端测试明确传入ONCHINA_TEST_MODULE_ROOT和ONCHINA_TEST_MODULE_IDS，只核验所选模块。实际--describe、JS/CSS首行、IIFE导出和宿主真实公开对象/React/认证Provider须一致；任一失败中止交付。普通单元测试未提供产物时明确跳过，不能把伪DOM回归作为真实产物验收。
 
 
 ### 法律地域协议
@@ -1019,7 +1035,7 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 法律只读 DTO 的 region 为 provinceCode/cityNumber 展示投影；全国 provinceCode 为空、cityNumber 为0，仅按层级解释。前端只发送层级和原业务字段；后端核对原会话范围，链端入口和执行回调均复核授权机构 CID 的地域。Runtime 查询 API v2 接收相同四字节地域，非法参数返回空列表；不同省相同市号分别索引。UI布局、操作顺序、Passkey及钱包扫码交互保持。
 
-当前只有创世宪法，不设计普通法律存量迁移，不改宪法字节、索引、国家立法院归属、众议会发起和两院表决规则，不改节点守卫。Runtime升级统一遵循CitizenChainRuntime.md的版本政策：每次正式升级两个版本各自加1，钱包同步交易版本；OnChina不生成或写回版本号，不以spec_version代替transaction_version。地域源码和配套维护已完成，本轮没有执行升级，保留版本数值。本节为源码合同，相关回归已编写但未运行；不表示类型检查、编译、节点守卫或链上部署已经通过。
+当前只有创世宪法，不设计普通法律存量迁移，不改宪法字节、索引、国家立法院归属、众议会发起和两院表决规则，不改节点守卫。Runtime升级统一遵循CitizenChainRuntime.md的版本政策：每次正式升级两个版本各自加1，钱包同步交易版本；OnChina不生成或写回版本号，不以spec_version代替transaction_version。地域接口与版本值按现有Runtime合同保持；源码维护不表示已经执行链上升级或部署，实际验证证据只归唯一任务卡。
 
 
 公共机构治理通过platform/institutions/model.rs的GovernanceCitizen与platform/database/records.rs的只读查询取得CID、姓、名及可空账户。查询沿用原修剪、空输入、created_at倒序及未找到语义，真实数据库失败原样返回；不静态编入注册局完整档案、写入或投影业务。Passkey一次性断言消费使用PostgreSQL官方GenericClient，连接与事务共用原SQL；事务回滚恢复可消费状态，提交后仍只消费一次。既有真实数据库回归覆盖查询字段、顺序、缺失与故障和断言事务语义，仍需控制台提供隔离测试数据库后显式执行，不以普通编译代替集成验收。
@@ -1032,7 +1048,7 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 照片正本只归photo，subject不再保存照片路径、名称、类型和大小；读取在唯一机构CID上关联，大小取真实字节数，保存后回读实际数据库对象。钱包交易记录与genesis/hash/height锚点归同一projection事务，不保存独立索引进度副本；旧历史无可信锚点仍失败，不自动补录或清除。
 
-结构初始化以PostgreSQL原生schema注释记录onchina:2格式。仅无业务对象的新命名空间或官方空public空间可事务初始化；已有结构核对格式、32张逻辑表、250列及全部表列命名，随后只读复用。模块connect_existing也先核验，旧结构、额外旧表或损坏列明确失败，不自动修补。schema声明不执行照片清理，业务过期仍由照片原读写入口校验。真实旧库数据处置留待单独批准。
+结构初始化以PostgreSQL原生schema注释记录onchina:3格式。仅无业务对象的新命名空间或官方空public空间可事务初始化；已有结构核对格式、27张逻辑表、205列及全部表列命名，随后只读复用。模块connect_existing也先核验，旧结构、额外旧表或损坏列明确失败，不自动修补。schema声明不执行照片清理，业务过期仍由照片原读写入口校验。真实旧库数据处置留待单独批准。
 
 固定协议边界：QR_V1 管理员签名、软件接口版本1健康响应和 CitizenApp 公开目录（含共享分页与法定代表人）保持其所属既有 JSON 格式。管理端自有 HTTP DTO 使用 camelCase；数据库恢复上下文只使用唯一 snake_case 键。测试隔离库在独立线程初始化与清理，避免同步 postgres 在异步测试内嵌套 runtime。
 
@@ -1043,3 +1059,21 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 公开目录的物理查询回归必须覆盖代表人列、keyset 边界、版本空窗口、自定义账户名与公开字段白名单；CitizenApp 的查询参数、分页和代表人字段保持已发布 snake_case 合同。
 
 注册局公民行、建档、身份签名准备/完成和finalized绑定的自有DTO只携带规范accountId；SS58展示复用前端既有encodeSs58。私有链签会话也不保存地址副本。账户校验仍要求小写0x与32字节，不改变QR签名载荷或CID控制账户判断。
+
+
+### 包与测试入口
+
+|Cargo包|源码入口|唯一Rust测试目录|
+|---|---|---|
+|onchina|onchina/platform/modules/lib.rs、src/main.rs|onchina/platform/tests|
+|onchina-registry|onchina/registry/workspace/main.rs、src/module.rs|onchina/registry/tests|
+|onchina-legislation|onchina/legislation/workspace/main.rs、src/module.rs|onchina/legislation/tests|
+|onchina-private|onchina/private/workspace/main.rs、src/module.rs|onchina/private/tests|
+|onchina-judicial|onchina/judicial/workspace/main.rs、src/module.rs|onchina/judicial/tests|
+
+五个前端测试分别归各自独立npm包；复杂前端使用本包tests，两个嵌套小前端各合为包根Workspace.test.tsx。共用安全mock和后端常量读取只归platformweb/tests/security.ts，由平台包公开testing入口提供。真实程序、JS/CSS首行及IIFE验收显式交付ONCHINA_TEST_MODULE_ROOT和ONCHINA_TEST_MODULE_IDS，既支持完整模块集合，也支持仅所选模块；没有产物输入的普通测试明确跳过实际产物项，不把跳过当通过。完整端到端、设备、预算性能与跨平台实际运行单独验收。
+
+
+数据库最终结构为27张顶层表、205列、54个显式索引，7类省分区按43省生成301个子表，含顶层表共328个表对象。member/replay/request/nonce不再声明，private重复存储及其动态备份、清理和分区登记一并移除；subject删除issuer_cid/proposal_id，government删除始终写空的home_province/home_city。私权原六类类型、可选合伙形态、盈利属性和有效市级作用域由subject条件约束承接，仅在record_kind=PRIVATE且private_type有值时校验；legal_personality保持subject原有可空语义，不持久化旧副表的派生false。全局identity/passport唯一约束、现有授权及事务边界保持。
+
+sequence唯一数值列为last_value，表示最后已分配值：公民和管理员首次接续原最大编号，护照首次分配1，随后均原子递增并返回当前值；护照地域命名空间、编码算法、回收与冲突重试保持。onchina:3仅初始化空schema，旧格式直接拒绝，不自动迁移、回填或清理。未安装实例时无需存量处置；将来存量转换必须区分原护照下一值与编号已分配值，另行明确授权。

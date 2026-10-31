@@ -10,7 +10,7 @@ use super::model::{
     WorkspaceSection, WorkspaceSectionKind,
 };
 
-pub(crate) fn action(action: WorkspaceAction, title: &str, enabled: bool) -> WorkspaceActionItem {
+pub fn action(action: WorkspaceAction, title: &str, enabled: bool) -> WorkspaceActionItem {
     WorkspaceActionItem {
         action,
         title: title.to_string(),
@@ -18,7 +18,7 @@ pub(crate) fn action(action: WorkspaceAction, title: &str, enabled: bool) -> Wor
     }
 }
 
-pub(crate) fn section(
+pub fn section(
     workspace_section: WorkspaceSectionKind,
     workspace_section_title: &str,
     workspace_actions: Vec<WorkspaceActionItem>,
@@ -50,7 +50,7 @@ fn workspace_title(
         .unwrap_or_else(|| format!("{institution_code}{fallback}"))
 }
 
-pub(crate) fn own_institution_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSection> {
+pub fn own_institution_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSection> {
     vec![
         section(
             WorkspaceSectionKind::Operations,
@@ -86,7 +86,7 @@ pub(crate) fn own_institution_sections(capabilities: CapabilitySet) -> Vec<Works
 }
 
 /// 构建当前登录机构的工作台清单。
-pub(crate) fn build_institution_workspace(
+pub fn build_institution_workspace(
     catalog: &crate::modules::ModuleCatalog,
     institution_code: &str,
     cid_short_name: Option<&str>,

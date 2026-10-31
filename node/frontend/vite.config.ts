@@ -3,25 +3,15 @@ import { defineConfig, type UserConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
-import { createSecureContext } from 'node:tls';
+import { createRequire } from 'node:module';
 
 const host = process.env.TAURI_DEV_HOST;
 
 // 开发及预览必须显式提供证书和私钥；构建静态资源不启动TLS服务。
-function developmentTLS() {
-  const certificate = process.env.CITIZENCHAIN_NODE_TLS_CERT_FILE;
-  const privateKey = process.env.CITIZENCHAIN_NODE_TLS_KEY_FILE;
-  if (!certificate || !privateKey) throw new Error('缺少TLS证书或私钥路径');
-  try {
-    const options = { cert: readFileSync(certificate), key: readFileSync(privateKey), minVersion: 'TLSv1.3' as const };
-    createSecureContext(options);
-    return options;
-  } catch { throw new Error('TLS证书、私钥或配对无效'); }
-}
+const { developmentTLS } = createRequire(import.meta.url)('../../scripts/build.mjs');
 
 export default defineConfig(({ command }): UserConfig => {
-  const https = command === "serve" ? developmentTLS() : undefined;
+  const https = command === "serve" ? developmentTLS(process.env.CITIZENCHAIN_NODE_TLS_CERT_FILE, process.env.CITIZENCHAIN_NODE_TLS_KEY_FILE) : undefined;
   return {
   plugins: [react()],
   // 本仓扫码组件与宿主共用同一React实例，避免链接包加载第二套Hooks运行库。

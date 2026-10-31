@@ -1,6 +1,7 @@
 //! 公平就绪 FIFO 的有界清理状态机。
 
 use crate::pallet::*;
+use crate::weights::WeightInfo;
 use crate::*;
 use frame_support::{traits::Get, weights::Weight};
 use frame_system::pallet_prelude::BlockNumberFor;
@@ -12,24 +13,12 @@ impl<T: Config> Pallet<T> {
             return Weight::zero();
         }
 
-        let cleanup_limit = T::CleanupKeysPerStep::get().max(1);
-        let db = T::DbWeight::get();
-        let mut weight = db.reads(2);
-        let track_upper_bound = <T::TrackHandlers as crate::tracks::ProposalTracks<
-            BlockNumberFor<T>,
-            T::AccountId,
-        >>::max_cleanup_chunk_weight(cleanup_limit)
-        .max(<T::TrackHandlers as crate::tracks::ProposalTracks<
-            BlockNumberFor<T>,
-            T::AccountId,
-        >>::max_cleanup_terminal_weight());
-        let step_upper_bound = track_upper_bound.saturating_add(db.reads_writes(
-            u64::from(cleanup_limit).saturating_add(8),
-            u64::from(cleanup_limit).saturating_add(20),
-        ));
-
+        let configured = T::CleanupKeysPerStep::get().max(1);
+        let mut weight = T::WeightInfo::cleanup_base();
         for _ in 0..max_steps {
-            if weight.saturating_add(step_upper_bound).any_gt(max_weight) {
+            // 先预留读取队列、阶段和互斥数量的成本，预算不足不弹出就绪任务。
+            let inspect = T::WeightInfo::cleanup_item();
+            if weight.saturating_add(inspect).any_gt(max_weight) {
                 break;
             }
             let head = PendingCleanupQueueHead::<T>::get();
@@ -37,21 +26,43 @@ impl<T: Config> Pallet<T> {
             if head >= tail {
                 break;
             }
-
-            let next_head = head.saturating_add(1);
-            let proposal_id = PendingCleanupQueue::<T>::take(head);
-            PendingCleanupQueueHead::<T>::put(next_head);
-            weight = weight.saturating_add(db.reads_writes(3, 2));
+            weight = weight.saturating_add(inspect);
+            let proposal_id = PendingCleanupQueue::<T>::get(head);
+            let stage = proposal_id.and_then(PendingProposalCleanups::<T>::get);
+            let bindings = if matches!(stage, Some(PendingCleanupStage::FinalCleanup)) {
+                proposal_id
+                    .and_then(ProposalMutexBindings::<T>::decode_len)
+                    .unwrap_or(0) as u32
+            } else {
+                0
+            };
+            let available = max_weight.saturating_sub(weight);
+            let mut low = 0u32;
+            let mut high = configured;
+            while low < high {
+                let mid = low + (high - low + 1) / 2;
+                if Self::cleanup_bound(stage, mid, bindings).any_gt(available) {
+                    high = mid - 1;
+                } else {
+                    low = mid;
+                }
+            }
+            if low == 0 {
+                break;
+            }
+            let cleanup_limit = low;
+            weight = weight.saturating_add(Self::cleanup_bound(stage, low, bindings));
+            PendingCleanupQueue::<T>::remove(head);
+            PendingCleanupQueueHead::<T>::put(head.saturating_add(1));
             let Some(proposal_id) = proposal_id else {
                 continue;
             };
-            let Some(stage) = PendingProposalCleanups::<T>::get(proposal_id) else {
+            let Some(stage) = stage else {
                 continue;
             };
 
-            let (next_stage, step_weight) =
+            let (next_stage, _step_weight) =
                 Self::process_pending_cleanup_step(proposal_id, stage, cleanup_limit);
-            weight = weight.saturating_add(step_weight);
             match next_stage {
                 Some(next) => {
                     PendingProposalCleanups::<T>::insert(proposal_id, next);
@@ -59,15 +70,41 @@ impl<T: Config> Pallet<T> {
                         // u64 序号耗尽时保留状态；创世重置前不可能达到该边界。
                         break;
                     }
-                    weight = weight.saturating_add(db.reads_writes(2, 3));
                 }
                 None => {
                     PendingProposalCleanups::<T>::remove(proposal_id);
-                    weight = weight.saturating_add(db.writes(1));
                 }
             }
         }
         weight
+    }
+
+    /// 按当前阶段和实际互斥数量预留，不让空快照承担最大终结成本。
+    pub(crate) fn cleanup_bound(
+        stage: Option<PendingCleanupStage>,
+        limit: u32,
+        bindings: u32,
+    ) -> Weight {
+        match stage {
+            Some(
+                PendingCleanupStage::AdminSnapshots
+                | PendingCleanupStage::VoterSnapshots
+                | PendingCleanupStage::InstitutionTicketCounts,
+            ) => T::WeightInfo::cleanup_step(limit),
+            Some(PendingCleanupStage::TrackData) => {
+                <T::TrackHandlers as crate::tracks::ProposalTracks<
+                    BlockNumberFor<T>,
+                    T::AccountId,
+                >>::max_cleanup_chunk_weight(limit)
+            }
+            Some(PendingCleanupStage::ProposalObject) => T::WeightInfo::cleanup_object(),
+            Some(PendingCleanupStage::FinalCleanup) => T::WeightInfo::cleanup_final(bindings)
+                .saturating_add(<T::TrackHandlers as crate::tracks::ProposalTracks<
+                    BlockNumberFor<T>,
+                    T::AccountId,
+                >>::max_cleanup_terminal_weight()),
+            None => Weight::zero(),
+        }
     }
 
     pub(crate) fn process_pending_cleanup_step(

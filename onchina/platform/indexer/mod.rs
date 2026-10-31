@@ -4,12 +4,12 @@
 //! 并通过 API 暴露给 CitizenApp 查询完整的钱包交易记录。
 
 #[path = "api.rs"]
-pub(crate) mod api;
+pub mod api;
 #[path = "db.rs"]
-pub(crate) mod db;
+pub mod db;
 #[path = "event_parser.rs"]
-pub(crate) mod event_parser;
+pub mod event_parser;
 #[path = "worker.rs"]
-pub(crate) mod worker;
+pub mod worker;
 
-pub(crate) use worker::{indexer_worker, bound_institution_projection_worker};
+pub(crate) use worker::{bound_institution_projection_worker, indexer_worker};

@@ -1,5 +1,5 @@
 import { sanitizeError } from "../client/tauri";
-import { CitizenSignatureModal } from "../desktop/CitizenSignatureModal";
+import { CitizenSignatureModal } from "../desktop/signing";
 import { adminsChangeApi as api } from "./admins";
 import { InstitutionAssignmentCard } from "./InstitutionAssignmentCard";
 import type { ActivateRequestResult, ActivatedAdmin, InstitutionAdminsRef, InstitutionDetail } from "./administrators";

@@ -281,7 +281,7 @@ pub mod pallet {
         ///
         /// 投票通过后由 `InternalVoteExecutor` 自动执行入金 + 激活。
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_create())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_create(admins.len() as u32))]
         pub fn propose_create(
             origin: OriginFor<T>,
             account_name: AccountNameOf<T>,
@@ -737,6 +737,21 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
                 _ => Ok(ProposalExecutionOutcome::Ignored),
             }
         }
+    }
+
+    fn execution_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        use frame_support::traits::Get;
+        <T as crate::pallet::Config>::WeightInfo::propose_create(
+            <T as crate::pallet::Config>::MaxPersonalAccountAdmins::get(),
+        )
+        .max(<T as crate::pallet::Config>::WeightInfo::propose_close())
+    }
+
+    fn terminal_weight() -> frame_support::weights::Weight {
+        use crate::weights::WeightInfo;
+        <T as crate::pallet::Config>::WeightInfo::terminal_callback()
+            .max(<T as crate::pallet::Config>::WeightInfo::terminal_callback_ignored())
     }
 
     fn on_execution_failed_terminal(proposal_id: u64) -> DispatchResult {

@@ -1,7 +1,7 @@
 import { proposalApi } from './api';
 import { accountIdToSs58 } from "../client/ss58";
 import { sanitizeError } from "../client/tauri";
-import { CitizenSignaturePanel } from "../desktop/CitizenSignaturePanel";
+import { CitizenSignaturePanel } from "../desktop/signing";
 import type { AdminSignerMatch } from "../institution/council";
 import type { VoteSignRequestResult } from "../client/signing";
 

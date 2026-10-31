@@ -20,8 +20,14 @@ fn administrators<T: Config>(n: u32) -> AdminsOf<T> {
         .map(|i| Admin {
             account_id: account("admin", i, 0),
             cid_number: Default::default(),
-            family_name: b"Family".to_vec().try_into().unwrap(),
-            given_name: b"Given".to_vec().try_into().unwrap(),
+            family_name:
+                sp_runtime::sp_std::vec![b'F'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
+                    .try_into()
+                    .unwrap(),
+            given_name:
+                sp_runtime::sp_std::vec![b'G'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
+                    .try_into()
+                    .unwrap(),
         })
         .collect::<Vec<_>>()
         .try_into()
@@ -39,7 +45,10 @@ mod benchmarks {
         }
         let admins = administrators::<T>(n);
         let caller = admins[0].account_id.clone();
-        let name: AccountNameOf<T> = b"benchmark-create".to_vec().try_into().unwrap();
+        let name: AccountNameOf<T> =
+            sp_runtime::sp_std::vec![b'n';T::MaxAccountNameLength::get() as usize]
+                .try_into()
+                .unwrap();
         let owner = Pallet::<T>::derive_personal_account(&caller, name.as_slice())?;
         let _ = T::Currency::make_free_balance_be(&caller, 1_000_000_000u128.saturated_into());
         let amount = <T as Config>::MinCreateAmount::get();
@@ -56,7 +65,7 @@ mod benchmarks {
     #[benchmark]
     fn propose_close() -> Result<(), BenchmarkError> {
         frame_system::Pallet::<T>::set_block_number(1u32.into());
-        let admins = administrators::<T>(3);
+        let admins = administrators::<T>(<T as Config>::MaxPersonalAccountAdmins::get());
         let caller = admins[0].account_id.clone();
         let name: AccountNameOf<T> = b"benchmark-close".to_vec().try_into().unwrap();
         let owner = Pallet::<T>::derive_personal_account(&caller, name.as_slice())?;
@@ -95,4 +104,57 @@ mod benchmarks {
         Ok(())
     }
     impl_benchmark_test_suite!(Pallet, crate::tests::new_test_ext(), crate::tests::Test);
+    #[benchmark]
+    fn terminal_callback_ignored() {
+        use frame_support::traits::Get;
+        let mut data = sp_runtime::sp_std::vec![0u8;<T as votebase::Config>::MaxProposalDataLen::get() as usize];
+        data[..5].copy_from_slice(b"other");
+        votebase::Pallet::<T>::benchmark_proposal(0, b"other", data);
+        #[block]
+        {
+            <crate::InternalVoteExecutor<T> as votebase::InternalVoteResultCallback>::on_execution_failed_terminal(0).expect("其它业务数据必须被忽略");
+        }
+    }
+
+    #[benchmark]
+    fn terminal_callback() {
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        let mut admins = administrators::<T>(<T as Config>::MaxPersonalAccountAdmins::get());
+        for a in admins.iter_mut() {
+            a.family_name =
+                sp_runtime::sp_std::vec![b'F';adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
+                    .try_into()
+                    .unwrap();
+            a.given_name =
+                sp_runtime::sp_std::vec![b'G';adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
+                    .try_into()
+                    .unwrap();
+        }
+        let caller = admins[0].account_id.clone();
+        drop(T::Currency::make_free_balance_be(
+            &caller,
+            1000000000u128.saturated_into(),
+        ));
+        let name: AccountNameOf<T> =
+            sp_runtime::sp_std::vec![b'n';T::MaxAccountNameLength::get() as usize]
+                .try_into()
+                .unwrap();
+        let account = Pallet::<T>::derive_personal_account(&caller, name.as_slice()).unwrap();
+        let id = votebase::Pallet::<T>::next_proposal_id();
+        let threshold = admins.len() as u32 / 2 + 1;
+        Pallet::<T>::propose_create(
+            RawOrigin::Signed(caller).into(),
+            name,
+            admins,
+            threshold,
+            <T as Config>::MinCreateAmount::get(),
+        )
+        .unwrap();
+        votebase::Pallet::<T>::benchmark_terminal(id);
+        #[block]
+        {
+            <crate::InternalVoteExecutor<T> as votebase::InternalVoteResultCallback>::on_execution_failed_terminal(id).unwrap();
+        }
+        assert!(!PersonalAccounts::<T>::contains_key(account));
+    }
 }

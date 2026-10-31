@@ -3,7 +3,7 @@
 //! 账户输入只接受小写 `0x` 加 64 位十六进制；SS58 仅用于展示，禁止作为授权、
 //! 存储或接口身份主键。
 
-pub(crate) fn normalize_account_id(input: &str) -> Option<String> {
+pub fn normalize_account_id(input: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.len() != 66 || !trimmed.starts_with("0x") {
         return None;
@@ -18,7 +18,7 @@ pub(crate) fn normalize_account_id(input: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-pub(crate) fn same_account_id(left: &str, right: &str) -> bool {
+pub fn same_account_id(left: &str, right: &str) -> bool {
     matches!(
         (normalize_account_id(left), normalize_account_id(right)),
         (Some(left), Some(right)) if left == right
@@ -49,38 +49,6 @@ pub(crate) fn account_id_to_ss58(account_id: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-// 公钥夹具是固定常量，解析失败应直接中止测试。
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    const ACCOUNT_ID: &str = "0x1111111111111111111111111111111111111111111111111111111111111111";
-
-    #[test]
-    fn account_id_accepts_only_canonical_text() {
-        assert_eq!(
-            normalize_account_id(ACCOUNT_ID).as_deref(),
-            Some(ACCOUNT_ID)
-        );
-        assert!(normalize_account_id(&ACCOUNT_ID[2..]).is_none());
-        assert!(normalize_account_id(&ACCOUNT_ID.to_uppercase()).is_none());
-        assert!(normalize_account_id("5GrwvaEF5zXb26Fz9rcQpDWSQ57Cr4NMh6t7vY6zT").is_none());
-    }
-
-    #[test]
-    fn account_comparison_has_no_case_or_prefix_fallback() {
-        assert!(same_account_id(ACCOUNT_ID, ACCOUNT_ID));
-        assert!(!same_account_id(ACCOUNT_ID, &ACCOUNT_ID.to_uppercase()));
-        assert!(!same_account_id(ACCOUNT_ID, &ACCOUNT_ID[2..]));
-    }
-
-    #[test]
-    fn ss58_is_derived_without_changing_account_id() {
-        let ss58_address = account_id_to_ss58(ACCOUNT_ID).expect("规范账户应能派生展示地址");
-        assert!(!ss58_address.starts_with("0x"));
-        assert_eq!(
-            normalize_account_id(ACCOUNT_ID).as_deref(),
-            Some(ACCOUNT_ID)
-        );
-    }
-}
+#[path = "../tests/crypto_pubkey.rs"]
+mod tests;

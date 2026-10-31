@@ -8,29 +8,23 @@ repository.workspace = true
 homepage.workspace = true
 license = "MIT"
 publish = false
+autotests = false
 
-# onchina 控制台作为独立二进制,由节点桌面端设置页二次确认后拉起为子进程。
+# 公共库与宿主共享同一实现，业务包通过路径依赖链接。
+[lib]
+path = "modules/lib.rs"
+
 [[bin]]
 name = "onchina"
-path = "main.rs"
+path = "modules/main.rs"
 
-# 各模块复用已有入口；不新增Cargo包、依赖或锁文件。
-[[bin]]
-name = "onchina-registry"
-path = "../registry/main.rs"
+[features]
+# 仅业务包开发依赖启用；正式构建不得包含测试工厂。
+test-support = []
 
-[[bin]]
-name = "onchina-legislation"
-path = "../legislation/main.rs"
-
-[[bin]]
-name = "onchina-private"
-path = "../private/main.rs"
-
-[[bin]]
-name = "onchina-judicial"
-path = "../judicial/main.rs"
-
+[package.metadata.onchina]
+# 唯一工程配对声明；前端自有npm声明、锁与公开exports。
+frontend = "../platformweb"
 
 [lints]
 workspace = true

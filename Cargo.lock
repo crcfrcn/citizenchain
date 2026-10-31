@@ -8219,6 +8219,7 @@ name = "legislation"
 version = "1.0.0"
 dependencies = [
  "entitybase",
+ "frame-benchmarking",
  "frame-support",
  "frame-system",
  "internalvote",
@@ -10812,6 +10813,84 @@ dependencies = [
  "webauthn-authenticator-rs",
  "webauthn-rs",
  "x509-parser 0.16.0",
+]
+
+[[package]]
+name = "onchina-judicial"
+version = "1.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "onchina",
+ "tokio",
+ "tower 0.5.3",
+]
+
+[[package]]
+name = "onchina-legislation"
+version = "1.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "entitybase",
+ "hex",
+ "legislation",
+ "onchina",
+ "parity-scale-codec",
+ "primitives",
+ "serde",
+ "serde_json",
+ "subxt 0.43.1",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "onchina-private"
+version = "1.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "onchina",
+ "parity-scale-codec",
+ "primitives",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "onchina-registry"
+version = "1.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "blake2 0.10.6",
+ "chrono",
+ "entitybase",
+ "hex",
+ "onchina",
+ "parity-scale-codec",
+ "postgres",
+ "primitives",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sp-core",
+ "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
+ "subxt 0.43.1",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

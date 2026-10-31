@@ -1,6 +1,6 @@
 //! 注册局名册以准确机构 CID 关联行政区；重绑后旧省/同名市行不会混入列表、计数或删除。
-use crate::authentication::model::AdminUser;
-use crate::authentication::repo::admin_from_row;
+use onchina::authentication::model::AdminUser;
+use onchina::authentication::repo::admin_from_row;
 
 pub(crate) fn get_admin_by_id_and_registry_org_conn(
     conn: &mut impl postgres::GenericClient,
@@ -17,9 +17,10 @@ pub(crate) fn city_registry_cid_conn(
     province: &str,
     city: &str,
 ) -> Result<String, String> {
-    let province = crate::cid::china::province_code_by_name(province).ok_or("unknown province")?;
-    let city = crate::cid::china::area_name_by_codes(province, None, None)
-        .and_then(|(name, _, _)| crate::cid::china::city_code_by_name(name, city))
+    let province =
+        onchina::codes::china::province_code_by_name(province).ok_or("unknown province")?;
+    let city = onchina::codes::china::area_name_by_codes(province, None, None)
+        .and_then(|(name, _, _)| onchina::codes::china::city_code_by_name(name, city))
         .ok_or("city outside province")?;
     let rows = conn.query("SELECT s.cid_number FROM subject s JOIN government g ON g.province_code=s.province_code AND g.cid_number=s.cid_number WHERE s.institution_code='CREG' AND s.province_code=$1 AND s.city_code=$2 AND s.state_code='ACTIVE' AND g.source_kind='CHAIN'", &[&province,&city]).map_err(|e| e.to_string())?;
     if rows.len() != 1 {
@@ -36,12 +37,14 @@ pub(crate) fn list_city_registry_admins_by_scope_conn(
     limit: usize,
     offset: usize,
 ) -> Result<(usize, Vec<AdminUser>), String> {
-    let province =
-        crate::cid::china::province_code_by_name(province).ok_or("admin province scope missing")?;
+    let province = onchina::codes::china::province_code_by_name(province)
+        .ok_or("admin province scope missing")?;
     let city = city_name
         .map(|name| {
-            crate::cid::china::area_name_by_codes(province, None, None)
-                .and_then(|(province, _, _)| crate::cid::china::city_code_by_name(province, name))
+            onchina::codes::china::area_name_by_codes(province, None, None)
+                .and_then(|(province, _, _)| {
+                    onchina::codes::china::city_code_by_name(province, name)
+                })
                 .ok_or("city outside province")
         })
         .transpose()?;
@@ -83,31 +86,5 @@ pub(crate) fn count_city_registry_admins_by_city_conn(
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-    #[test]
-    #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-    fn roster_counts_and_delete_guard_use_exact_institution_geography() {
-        let sandbox = crate::core::db::IsolatedTestDb::new();
-        sandbox.db.with_client(|conn| {
-            let mut users=Vec::new();
-            for (index,province,city) in [(1i64,"GD","001"),(2,"GZ","001")] {
-                let cid=format!("{province}{city}-CREG{}-000000001-2026",primitives::cid::number::checksum_char_m1(&format!("{province}{city}CREG0000000012026"),false));
-                conn.execute("INSERT INTO subject(cid_number,record_kind,province_code,city_code,institution_code,state_code,created_at,updated_at) VALUES($1,'PUBLIC',$2,$3,'CREG','ACTIVE',now(),now())", &[&cid,&province,&city]).unwrap();
-                conn.execute("INSERT INTO government(cid_number,province_code,city_code,institution_code,source_kind) VALUES($1,$2,$3,'CREG','CHAIN')", &[&cid,&province,&city]).unwrap();
-                let user=AdminUser { id:index as u64,account_id:format!("0x{}",format!("{index:02x}").repeat(32)),family_name:"测".into(),given_name:"试".into(),institution_code:"CREG".into(),institution_cid_number:Some(cid),built_in:false,creator_account_id:format!("0x{}","11".repeat(32)),created_at:chrono::Utc::now(),updated_at:None,city_name:"同名市".into() };
-                crate::authentication::repo::upsert_admin_conn(conn,&user).unwrap(); users.push(user);
-            }
-            let (count,rows)=list_city_registry_admins_by_scope_conn(conn,"广东省",None,None,100,0)?;
-            assert_eq!(count,1); assert_eq!(rows[0].id,1);
-            assert_eq!(count_city_registry_admins_by_city_conn(conn,"广东省","荔湾市")?,1);
-            assert!(super::super::city_registry_admins::can_manage_city_registry(Some("广东省"),&users[0]));
-            assert!(!super::super::city_registry_admins::can_manage_city_registry(Some("广东省"),&users[1]));
-            let mut unknown=users[1].clone(); unknown.id=3; unknown.account_id=format!("0x{}","33".repeat(32)); unknown.institution_cid_number=None;
-            crate::authentication::repo::upsert_admin_conn(conn,&unknown).unwrap();
-            assert!(!super::super::city_registry_admins::can_manage_city_registry(Some("广东省"),&unknown));
-            assert_eq!(list_city_registry_admins_by_scope_conn(conn,"广东省",None,None,100,0)?.0,1);
-            Ok(())
-        }).unwrap();
-    }
-}
+#[path = "../tests/admins_repo.rs"]
+mod tests;

@@ -1,6 +1,6 @@
 import { accountIdToSs58 } from "../client/ss58";
 import { sanitizeError } from "../client/tauri";
-import { AddressScanModal } from "../desktop/AddressScanModal";
+import { AddressScanModal } from "../desktop/scanner";
 import { transactionApi as api } from "./api";
 import type { SignMode, Wallet, WalletStore, WalletBalanceState } from "./types";
 
