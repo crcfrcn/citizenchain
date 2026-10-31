@@ -77,6 +77,22 @@ jobs:
         toolchain: 1.97.1
         targets: aarch64-apple-darwin, wasm32v1-none
         components: rust-src
+    - name: 恢复本平台官方增量缓存
+      continue-on-error: true
+      timeout-minutes: 5
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: |
+          target/build/macos/cargo-target/release/.fingerprint
+          target/build/macos/cargo-target/release/build
+          target/build/macos/cargo-target/release/deps
+          target/build/macos/cargo-target/release/incremental
+          target/cache/macos/npm
+          target/cache/macos/postgresql-*
+        key: citizenchain-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: 'citizenchain-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(''Cargo.lock'', ''crates/protocol/Cargo.lock'', ''config.toml'', ''crates/scanner/package-lock.json'', ''node/frontend/package-lock.json'', ''onchina/platformweb/package-lock.json'', ''onchina/registryweb/package-lock.json'', ''onchina/legislationweb/package-lock.json'', ''onchina/private/frontend/package-lock.json'', ''onchina/judicial/frontend/package-lock.json'') }}-
+
+          '
     - name: 准备 macOS 原生依赖、官方 protoc 与签名身份
       shell: bash
       run: |
@@ -93,19 +109,8 @@ jobs:
         export PATH="$(brew --prefix bison)/bin:$(brew --prefix flex)/bin:$PATH"
         export CPPFLAGS="-I$(brew --prefix openssl@3)/include"
         export LDFLAGS="-L$(brew --prefix openssl@3)/lib"
-        pg_version="$(node --input-type=module -e "import {product} from './scripts/config.mjs'; console.log(product.tools.postgres)")"
-        curl --fail --location --proto =https --proto-redir =https --retry 3 --output "$RUNNER_TEMP/postgres.tar.bz2" "https://ftp.postgresql.org/pub/source/v$pg_version/postgresql-$pg_version.tar.bz2"
-        tar -xjf "$RUNNER_TEMP/postgres.tar.bz2" -C "$RUNNER_TEMP"
-        (
-          cd "$RUNNER_TEMP/postgresql-$pg_version"
-          ./configure --prefix="$RUNNER_TEMP/pg-dist" --without-readline --without-icu --without-zlib --with-openssl
-          make -j4
-          make install
-          cp COPYRIGHT "$RUNNER_TEMP/pg-dist/COPYRIGHT"
-        )
-        # 系统cp跟随上游库别名生成物理副本，编译输入不带指向临时原件的链接。
-        cp -RL "$RUNNER_TEMP/pg-dist" "$RUNNER_TEMP/pg-runtime"
-        echo "CITIZENCHAIN_PG_DIST=$RUNNER_TEMP/pg-runtime" >> "$GITHUB_ENV"
+        # 与本机安装共用产品入口：先复用准确安装/缓存，缺件才从原官方来源准备。
+        node scripts/build.mjs postgres macos >> "$GITHUB_ENV"
         curl --fail --location --proto =https --proto-redir =https --retry 3 --output "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-aarch_64.zip
         mkdir -p "$RUNNER_TEMP/protoc"
         unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
@@ -119,21 +124,6 @@ jobs:
           echo "DEVELOPER_DIR=$developer"
           echo "CC=$developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
         } >> "$GITHUB_ENV"
-    - name: 恢复本平台官方增量缓存
-      continue-on-error: true
-      timeout-minutes: 5
-      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
-      with:
-        path: |
-          target/build/macos/cargo-target/release/.fingerprint
-          target/build/macos/cargo-target/release/build
-          target/build/macos/cargo-target/release/deps
-          target/build/macos/cargo-target/release/incremental
-          target/cache/macos/npm
-        key: citizenchain-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: 'citizenchain-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(''Cargo.lock'', ''crates/protocol/Cargo.lock'', ''config.toml'', ''crates/scanner/package-lock.json'', ''node/frontend/package-lock.json'', ''onchina/platformweb/package-lock.json'', ''onchina/registryweb/package-lock.json'', ''onchina/legislationweb/package-lock.json'', ''onchina/private/frontend/package-lock.json'', ''onchina/judicial/frontend/package-lock.json'') }}-
-
-          '
     - name: 执行产品所属真实测试
       shell: bash
       run: |
@@ -230,6 +220,7 @@ jobs:
           target/build/macos/cargo-target/release/deps
           target/build/macos/cargo-target/release/incremental
           target/cache/macos/npm
+          target/cache/macos/postgresql-*
         key: citizenchain-macos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
     - name: 上传完整Artifact
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

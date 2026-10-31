@@ -271,7 +271,18 @@ fn validate_workflow_stages(
         for step in steps {
             let run = step["run"].as_str().unwrap_or("");
             let script = step["with"]["script"].as_str().unwrap_or("");
-            if run.contains("scripts/build.mjs")
+            // 同一产品入口的准确资源准备命令不计作编译；其它Job和混入的调用仍拒绝。
+            let compilation = run
+                .lines()
+                .filter(|line| {
+                    !(name == "build"
+                        && platform == "macos"
+                        && line.trim()
+                            == "node scripts/build.mjs postgres macos >> \"$GITHUB_ENV\"")
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if compilation.contains("scripts/build.mjs")
                 || script.contains("scripts/build.mjs")
                 || run.contains("node scripts/runtime.mjs build")
                 || script.contains("node scripts/runtime.mjs build")
@@ -493,6 +504,31 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
                 format!("node scripts/build.mjs {platform}")
             });
         assert!(validate_workflow(&recompile, platform).is_err());
+        if platform == "macos" {
+            let mut resource_only = document.clone();
+            resource_only["jobs"]["build"]["steps"]
+                .as_sequence_mut()
+                .ok_or("缺少build步骤")?
+                .retain(|step| {
+                    !step["run"]
+                        .as_str()
+                        .unwrap_or("")
+                        .lines()
+                        .any(|line| line.trim() == "node scripts/build.mjs macos")
+                });
+            assert!(
+                validate_workflow(&resource_only, platform).is_err(),
+                "资源准备不能代替产品编译"
+            );
+            let mut misplaced = document.clone();
+            misplaced["jobs"]["release"]["steps"][0]["run"] = serde_yaml::Value::String(
+                "node scripts/build.mjs postgres macos >> \"$GITHUB_ENV\"".into(),
+            );
+            assert!(
+                validate_workflow(&misplaced, platform).is_err(),
+                "发布阶段不能借资源准备调用编译入口"
+            );
+        }
         if platform == "wasm" {
             let mut old_entry = document.clone();
             let steps = old_entry["jobs"]["build"]["steps"]

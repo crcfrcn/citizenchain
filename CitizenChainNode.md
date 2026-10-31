@@ -1,6 +1,6 @@
 # CitizenChain 节点交付与塔塔自动化
 
-公民链没有本机正式编译。节点编译命令为 `node scripts/build.mjs <平台>`，平台为 macos、windows、linux-arm、linux-amd；WASM唯一正式编译命令为 `node scripts/runtime.mjs build`。仅在本仓 GitHub main 的准确 Workflow、源码 SHA 与对应原生 Runner 执行。源码位置从实际检出解析，不写死开发者路径。
+公民链本机编译由塔塔安装器调用 `node scripts/build.mjs compile macos`，编译器交付本轮App，签名安装归控制台。节点编译命令为 `node scripts/build.mjs <平台>`，平台为 macos、windows、linux-arm、linux-amd；WASM唯一正式编译命令为 `node scripts/runtime.mjs build`。仅在本仓 GitHub main 的准确 Workflow、源码 SHA 与对应原生 Runner 执行。源码位置从实际检出解析，不写死开发者路径。
 
 ## 文件职责
 
@@ -15,7 +15,7 @@
 
 编译工具版本以公开声明为准，缺件或错误版本直接失败。Unix PostgreSQL使用官方源码与既定OpenSSL配方；实际从随包路径运行initdb，运行库使用官方平台工具处理。macOS先执行Tauri官方build --no-bundle，再由签名分段和官方bundle生成正式包，核对App签名身份、团队、时间戳、公证和DMG。Linux实际解包检查架构、宿主、模块、前端和PostgreSQL。Windows动态OpenSSL依赖及各进程使用Runner现有Visual Studio官方可再分发CRT进行应用本地部署，不能只因Runner已装VC运行库就把缺件安装包当作完整。签名材料仅交付编译入口的签名分段，不进入测试、编译器环境或缓存。节点真实服务和费用守卫回归要求内置本轮源码WASM；测试步骤用官方Cargo只清理Runtime本体输出后启用现有源码WasmBuilder，禁止缺WASM跳过。该WASM仅为同平台真实测试输入，不作为另一平台交付；正式节点打包仍使用不内置WASM的既有合同。
 
-本轮输出位于 `target/build/<平台>/artifact`。每个平台的 GitHub 工作现场彼此独立；Runner管理工具进程及取消，工作流在上传产物后清理该轮编译现场。官方 actions/cache 只恢复和保存本平台Cargo中间物及npm下载缓存，按平台、系统、架构及原锁隔离，限时且continue-on-error；不缓存安装包、附件、任务状态或机密。缓存失败不能掩盖真实测试、编译或完整产物失败。
+本轮输出位于 `target/build/<平台>/artifact`。每个平台的 GitHub 工作现场彼此独立；Runner管理工具进程及取消，工作流在上传产物后清理该轮编译现场。官方 actions/cache 恢复和保存本平台Cargo中间物、npm下载缓存及macOS准确版本PostgreSQL资源/源码缓存，按平台、系统、架构及原锁隔离，限时且continue-on-error；不缓存安装包、附件、任务状态或机密。缓存失败不能掩盖真实测试、编译或完整产物失败。
 
 测试读取源码使用Node原生文件路径API，不能把Windows盘符作为URL；结构夹具的路径统一使用斜线，实际读取沿用平台分隔符。QR仓库守卫使用既有serde_yaml按Job映射核对prepare、build、release及收尾边界，不要求Job文本顺序；四端release直接依赖[prepare, build]，分别消费准备阶段版本与编译产物，缺少任一依赖均拒绝。缺失编译阶段、发布绕过编译和收尾误编译均由同文件负例拒绝。
 
@@ -2804,3 +2804,19 @@ chain-signing的src按material、signature、extrinsic、preflight组织，lib�
 
 
 节点签名弹层和面板统一归node/frontend/desktop/signing.tsx；扫码设备外壳与地址扫码弹层统一归同目录scanner.tsx。原组件名、Props字段、样式、交互与共享ScannerView保持。开发TLS配置通过本仓scripts/build.mjs公开实现读取，开发证书路径、校验和TLS1.3保持；节点已有工程、创世、Runtime及资源位置保持。
+
+## macOS PostgreSQL资源准备
+
+本机安装和macOS塔塔自动化共用scripts/build.mjs的preparePostgres；Workflow通过postgres macos读取本轮CITIZENCHAIN_PG_DIST。先验证明确指定的目录，再查PATH对应安装、Homebrew当前主版本安装及本产品target/cache/macos下准确版本缓存；已有完整同版本直接复用。版本只接受官方完整版本和Homebrew发行后缀，不接受较新或近似版本。显式输入错误、可执行文件失败、缓存损坏均报错，不以下载掩盖。
+
+全部缺件才下载产品声明版本的原官方源码，已有源码包复用；原OpenSSL编译配方不变。缓存独占锁避免并发覆盖，下载完成和编译核验后才分别交付完整源码包和资源目录；本轮失败现场清理，已完成缓存保留。完整性检查覆盖postgres、initdb、lib、postgres.bki及COPYRIGHT。原件不写入，装配仍只复制资源和处理本轮动态库。protoc、Rust、Node版本声明及各自既有准备流程保持。
+
+控制台内置Node无npm时，npmCLI先检查当前解释器及PATH中的完整Node安装，再检查设备NVM的声明版本安装；只有实际Node版本准确匹配才使用其随附npm。安装编译环境加入该声明版本的NVM bin供npm生命周期调用，不能误用其它版本或要求控制台额外复制npm。
+
+本机编译子进程使用上述完整官方Node的node/npm配对；platformCargoEnvironment保留显式NODE，npm、模块前端与Tauri均用同一解释器，避免控制台内置加固Node在重新执行时丢弃DYLD_FALLBACK_LIBRARY_PATH。沿用Xcode已有libclang及原动态库搜索环境，不改变App权限、系统信任或上游依赖。
+
+本机Tauri编译的公开stderr与stdout进入同一任务日志流，确保长编译的最终错误可见；密钥、签名命令和捕获型接口仍使用原独立有界通道。该调整不改变编译退出码和成功判定。
+
+macOS装配从官方原件复制外部动态库时，保留本轮内存中的原路径；其@loader_path相邻依赖若尚未随包存在，就从该准确原路径递归复制并改写副本引用。既有依赖仍直接使用随包文件；来源无法确认和同名不同内容继续失败。该路径映射只存在本轮内存，不形成资源登记或第二真源。
+
+仓库守卫将build Job中的准确PostgreSQL资源准备行与唯一平台编译命令分别核验；资源步骤不能代替真实编译，也不能借此在发布/清理阶段调用编译文件。控制台跨产品冷签测试读取本仓tests下的现有协议金标，退役fixtures路径不恢复。
