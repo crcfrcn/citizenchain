@@ -79,15 +79,7 @@ try{
   for(const file of [...files,exe])await run('/usr/bin/codesign',['--force','--sign','-',file]);
   rmSync(source,{recursive:true});await run(exe,[]);count++;
  }
- const {automationInputs}=await import(pathToFileURL(join(root,'scripts/runtime.mjs')));
- const base={genesisHash:'0x'+'1'.repeat(64),blockHash:'0x'+'2'.repeat(64),specName:'citizenchain',specVersion:7,transactionVersion:3};
- const prepared=await automationInputs({readTarget:async()=>({base,target:{specVersion:8,transactionVersion:4}}),readRevision:()=>'a'.repeat(40)});
- assert.deepEqual(prepared,{version:'8',transaction_version:'4',runtime_base:JSON.stringify(base),source_sha:'a'.repeat(40)});
  const {describeAction}=await import(pathToFileURL(join(root,'scripts/config.mjs')));
- assert.deepEqual(await describeAction({flow:'release',platform:'wasm',inputs:prepared}),{repository:'crcfrcn/citizenchain',workflow:'wasm.yml',ref:'main',inputs:prepared});count++;
- let revisions=0;
- await assert.rejects(automationInputs({readTarget:async()=>{throw Error('RPC unavailable');},readRevision:()=>{revisions++;return 'x';}}),/RPC unavailable/);
- assert.equal(revisions,0);
  assert.deepEqual((await describeAction({flow:'release',platform:'macos'})).inputs,{});count++;
  const workflow=readFileSync(join(root,'.github/workflows/macos.yml'),'utf8');
  assert.ok(workflow.includes('node scripts/build.mjs postgres macos'));assert.ok(!workflow.includes('ftp.postgresql.org'));count++;

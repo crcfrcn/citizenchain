@@ -389,7 +389,6 @@ async function runtime(action) {
     if (existsSync(join(work, '.retain-runtime-work'))) fail('Runtime工具退出未确认，保留现场');
     const env = platformCargoEnvironment(platform, work, process.env);
     delete env.SKIP_WASM_BUILD;
-    env.WASM_BUILD_FROM_SOURCE = '1'; env.CITIZENCHAIN_PRODUCTION_WASM_BUILD = '1';
     const run = async(command, args, cwd = root, options) => {
       try { return await runBuildProcess(command, args, env, cwd, options); }
       catch (error) {
@@ -409,6 +408,13 @@ async function runtime(action) {
       copyRuntimeSource(root, source, files);
       const input = join(source, 'runtime/src/lib.rs');
       writeFileSync(input, patchRuntimeVersion(readFileSync(input, 'utf8'), target));
+      // SDK需要Cargo构建钩子；其实现只归本文件，仅写入本轮临时源码。
+      // 正式Runtime的build.rs只负责嵌入已有WASM，不启动源码编译。
+      writeFileSync(join(source, 'runtime/build.rs'), `#[cfg(feature = "std")]
+fn main() { substrate_wasm_builder::WasmBuilder::build_using_defaults(); }
+#[cfg(not(feature = "std"))]
+fn main() {}
+`);
       env.CITIZENCHAIN_SOURCE_ROOT = source;
       await cargo(source, ['build', '--locked', '--release', '-p', 'runtime', '--no-default-features', '--features', 'std']);
       const filesToPublish = cfg.product.platforms.wasm.files;

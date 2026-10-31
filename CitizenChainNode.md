@@ -2641,11 +2641,11 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 
 交付端先按既有CITIZENCHAIN_DATA_PROFILE及编译模式确认正式命名空间；开发身份不写正式证书。先只读校验候选目录（首次创建则检查父级）再调用既有目录与原子写入工具，不沿异常链接设权，不自动修复既有不安全目录；最终目录必须与节点现有解析结果一致。同文件通过同一交付函数的写入依赖替身验证明确写失败不回报交付成功，不制造真实磁盘故障。桌面夹具从CARGO_MANIFEST_DIR确定产品根target，不随Cargo的包工作目录写入node源码目录，结束只删除各自独立夹具。TLS夹具子进程仅接收公开证书与临时端点，失败保留其错误诊断，不以通用失败或预期拒绝掩盖衔接错误。
 
-Runtime正式候选及测试依赖WASM的唯一实现归scripts/runtime.mjs，节点安装包仍归scripts/build.mjs。config.mjs的WASM分支只转调；WASM工作流保留工具、原锁、权限及阶段顺序，五个业务步骤只调用runtime.mjs对应函数，原test及build命令保持。其他四端测试调用和金标不改；测试WASM不发布。build.mjs wasm旧入口继续拒绝。节点启动仅增加上述公开证书交付；协议升级入口、链上升级模块、权限、表决与UI保持。
+Runtime正式候选及测试依赖WASM的唯一实现归scripts/runtime.mjs，节点安装包仍归scripts/build.mjs。config.mjs的WASM分支只转调；WASM工作流保留工具、原锁、权限及阶段顺序，GitHub阶段由wasm.yml实现，源码编译仅调用runtime.mjs build。其他四端测试调用和金标不改；测试WASM不发布。build.mjs wasm旧入口继续拒绝。节点启动仅增加上述公开证书交付；协议升级入口、链上升级模块、权限、表决与UI保持。
 
-正式WASM派发由runtime.mjs装载节点公开证书后读取本机既有https://127.0.0.1:9944的冻结链身份及同一finalized块双版本，分别加1，并通过现有输入和本轮runtime_base JSON交给GitHub。prepare、build和发布前校验均归同一脚本；Runner只核对快照、目标及实际三份产物，不再次连接本机，不套X.Y.Z，也不要求新增RPC地址或证书配置。快照只对应读取时刻，不能保证构建期间链上版本不变；实际升级仍走原流程。缺少节点、公开证书不可用、可信连接失败或字段异常即停止，不猜值、不降级；不修改控制台、公民服务端或Runtime。原仓Node/Runtime源码不被WASM构建回写，节点交付源码修改仅限上述启动入口。临时输入和现场保护遵循CitizenChainRuntime.md。
+正式WASM派发由runtime.mjs装载节点公开证书后读取本机既有https://127.0.0.1:9944的冻结链身份及同一finalized块双版本，分别加1，并通过现有输入和本轮runtime_base JSON交给GitHub。准备和发布归wasm.yml；编译前只删除目标整数版本同名的旧Release及Tag，不存在则继续，删除失败停止，不处理其它版本。源码编译归runtime.mjs；Runner只核对快照、目标及实际三份产物，不再次连接本机，不套X.Y.Z，也不要求新增RPC地址或证书配置。快照只对应读取时刻，不能保证构建期间链上版本不变；实际升级仍走原流程。缺少节点、公开证书不可用、可信连接失败或字段异常即停止，不猜值、不降级；不修改控制台、公民服务端或Runtime。原仓Node/Runtime源码不被WASM构建回写，节点交付源码修改仅限上述启动入口。临时输入和现场保护遵循CitizenChainRuntime.md。
 
-QR协议repo_guard保留WASM唯一编译入口、阶段依赖、整数名称及发布记录连通断言，补runtime_base和转调边界负例；QR协议不改。WASM专属测试、夹具和实际收尾函数的内存替身集中到runtime.mjs，配置保留通用回归。源码及回归合同不代表已通过测试、GitHub编译、安装或升级，各阶段以实际执行记录为准。
+WASM塔塔自动化的编译实现仅归scripts/runtime.mjs，唯一工作流为.github/workflows/wasm.yml。runtime/build.rs仅嵌入既有WASM或生成空常量；SDK源码编译钩子由runtime.mjs仅在本轮临时源码中生成，退出后按原现场规则清理。Cargo依赖声明沿用原锁。协议repo_guard和节点构建测试不检查WASM塔塔自动化；节点使用WASM及链功能测试保持。
 
 
 五端历史维护直接归各自Workflow的cleanup；仅按真实已完成Run决定保留与删除，不再调用配置中的清理计划或包装函数，当前活动Run不能计为最终成功。

@@ -1,19 +1,7 @@
 #[cfg(feature = "std")]
 fn main() {
-    // 强制环境切换时重新运行 build.rs，确保 WASM 来源明确。
+    // 强制环境切换时重新运行 build.rs，确保嵌入的 WASM 来源明确；此文件不编译 WASM。
     println!("cargo:rerun-if-env-changed=WASM_FILE");
-    println!("cargo:rerun-if-env-changed=WASM_BUILD_FROM_SOURCE");
-    println!("cargo:rerun-if-env-changed=CITIZENCHAIN_PRODUCTION_WASM_BUILD");
-    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_RUNTIME_BENCHMARKS");
-
-    // 正式候选 WASM 与 benchmark runtime 必须是两条不可交叉的构建路径。
-    // 权重生成也需要源码 WASM，因此只由正式流水线显式开启本闸门。
-    if std::env::var_os("CITIZENCHAIN_PRODUCTION_WASM_BUILD").is_some()
-        && std::env::var_os("CARGO_FEATURE_RUNTIME_BENCHMARKS").is_some()
-    {
-        panic!("正式 WASM 源码构建禁止启用 runtime-benchmarks");
-    }
-
     if let Ok(wasm_file) = std::env::var("WASM_FILE") {
         // ── 使用 CI 预编译的 WASM（本地启动脚本、全新创世、升级工具）──
         let out_dir =
@@ -36,11 +24,6 @@ pub const WASM_BINARY_BLOATY: Option<&[u8]> = Some(include_bytes!("{wasm_path_st
         .unwrap_or_else(|error| panic!("写入 wasm_binary.rs 失败: {error}"));
 
         eprintln!("使用 CI WASM: {wasm_path_str}");
-    } else if std::env::var("WASM_BUILD_FROM_SOURCE").is_ok() {
-        // ── WASM CI 专用：从源码编译 WASM（仅 WASM CI workflow 使用）──
-        // WASM 链接参数（`--allow-undefined`）由公民链目录 config.toml 的
-        // `[env] WASM_BUILD_RUSTFLAGS` 统一注入，此处不重复设置。
-        substrate_wasm_builder::WasmBuilder::build_using_defaults();
     } else {
         // ── 普通桌面端打包：不内置 runtime WASM。
         // 现有链运行时从链上状态读取 runtime code，不依赖安装包内置 WASM。

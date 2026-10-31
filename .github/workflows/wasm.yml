@@ -30,6 +30,9 @@ permissions:
 jobs:
   prepare:
     name: 公民链·WASM·v${{ inputs.version }}
+    permissions:
+      contents: write
+      actions: read
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     env:
@@ -62,8 +65,16 @@ jobs:
           if(runs.some(run=>run.id!==context.runId&&run.status!=='completed'&&run.run_number<(runs.find(row=>row.id===context.runId)?.run_number||0)))throw Error('WASM已有活动编译Run');
           const tag=product.title+'·WASM·v'+version;
           const releases=await github.paginate(github.rest.repos.listReleases,{...context.repo,per_page:100});
-          if(releases.some(value=>value.tag_name===tag))throw Error('候选正式版本或草稿已存在');
-          try{await github.rest.git.getRef({...context.repo,ref:'tags/'+tag});throw Error('候选Tag已存在');}catch(error){if(error.status!==404)throw error;}
+          // 编译候选可能尚未上链；同目标版本的旧Release和Tag先删除，再重新编译。
+          for(const release of releases.filter(value=>value.tag_name===tag)){
+            await github.rest.repos.deleteRelease({...context.repo,release_id:release.id});
+            core.info('已删除目标版本旧Release：'+tag);
+          }
+          // 删除Tag的404只表示该目标版本不存在；其它失败直接使本轮失败。
+          try{
+            await github.rest.git.deleteRef({...context.repo,ref:'tags/'+tag});
+            core.info('已删除目标版本旧Tag：'+tag);
+          }catch(error){if(error.status!==404)throw error;}
           core.info('WASM候选已确认：'+tag);
   build:
     name: 公民链·WASM·v${{ inputs.version }}
@@ -129,7 +140,6 @@ jobs:
         set -euo pipefail
         mkdir -p "$CITIZENCHAIN_WORK_DIR"
         export NODE="$(node -p process.execPath)" CITIZENCHAIN_BUILD_PLATFORM="$PLATFORM"
-        export WASM_BUILD_FROM_SOURCE=1 CITIZENCHAIN_PRODUCTION_WASM_BUILD=1
         unset SKIP_WASM_BUILD WASM_FILE DOCS_RS
         for key in $(compgen -v); do
           case "$key" in APPLE_*|*_TOKEN|*_PASSWORD|*_PRIVATE_KEY|*_SECRET|NODE_OPTIONS|NODE_PATH|NODE_TEST_CONTEXT|SKIP_*_WASM_BUILD) unset "$key" ;; esac

@@ -155,7 +155,6 @@ jobs:
         npm test --prefix onchina/judicial/frontend
         export TAURI_CONFIG="$(node -e 'console.log(JSON.stringify({build:{beforeBuildCommand:null,frontendDist:process.env.GITHUB_WORKSPACE+"/node/frontend"}}))')"
         export NODE="$(node -p process.execPath)" CITIZENCHAIN_BUILD_PLATFORM="$PLATFORM"
-        export WASM_BUILD_FROM_SOURCE=1 CITIZENCHAIN_PRODUCTION_WASM_BUILD=1
         unset SKIP_WASM_BUILD WASM_FILE DOCS_RS
         for key in $(compgen -v); do
           case "$key" in APPLE_*|*_TOKEN|*_PASSWORD|*_PRIVATE_KEY|*_SECRET|NODE_OPTIONS|NODE_PATH|NODE_TEST_CONTEXT|SKIP_*_WASM_BUILD) unset "$key" ;; esac

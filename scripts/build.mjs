@@ -70,8 +70,8 @@ export function platformCargoEnvironment(platform, work, environment) {
   const env = {...environment, NODE: environment.NODE || process.execPath, CARGO: environment.CARGO || 'cargo', CARGO_INCREMENTAL: '1',
     CARGO_TARGET_DIR: join(work, 'cargo-target'), CITIZENCHAIN_SOURCE_ROOT: root, CITIZENCHAIN_WORK_DIR: work,
     CITIZENCHAIN_BUILD_PLATFORM: platform};
-  for (const key of Object.keys(env)) if (key.startsWith('APPLE_') || /(?:^|_)(?:TOKEN|PASSWORD|PRIVATE_KEY|SECRET)$/u.test(key) || ['GH_TOKEN', 'GITHUB_TOKEN', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_TEST_CONTEXT', 'WASM_FILE', 'DOCS_RS', 'SKIP_WASM_BUILD', 'WASM_BUILD_FROM_SOURCE', 'CITIZENCHAIN_PRODUCTION_WASM_BUILD'].includes(key) || /^SKIP_.+_WASM_BUILD$/u.test(key)) delete env[key];
-  // 节点/模块构建不自行编译WASM；Runtime专属入口按其模式显式开启。
+  for (const key of Object.keys(env)) if (key.startsWith('APPLE_') || /(?:^|_)(?:TOKEN|PASSWORD|PRIVATE_KEY|SECRET)$/u.test(key) || ['GH_TOKEN', 'GITHUB_TOKEN', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_TEST_CONTEXT', 'WASM_FILE', 'DOCS_RS', 'SKIP_WASM_BUILD'].includes(key) || /^SKIP_.+_WASM_BUILD$/u.test(key)) delete env[key];
+  // 节点/模块不构建WASM，SDK依赖的WASM构建保持关闭。
   env.SKIP_WASM_BUILD = '1';
   // rust-lang/rust#157750：macOS 27 会拒绝 Rust 剥离调试信息后未对齐的过程宏 dylib。
   if (platform === 'macos') env.CARGO_PROFILE_RELEASE_STRIP = 'none';

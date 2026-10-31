@@ -218,7 +218,7 @@ fn working_tree_scan_rejects_escaping_and_broken_links() -> Result<(), Box<dyn E
     Ok(())
 }
 
-// 五端各自使用原编译Run；历史步骤不能另派、重编、取消或吞掉错误。
+// 节点四端各自使用原编译Run；历史步骤不能另派、重编、取消或吞掉错误。
 fn validate_workflow_stages(
     document: &serde_yaml::Value,
     platform: &str,
@@ -232,17 +232,13 @@ fn validate_workflow_stages(
     let dependencies = cleanup["needs"].as_sequence().ok_or("清理缺少依赖")?;
     // 发布直接消费prepare的版本和build的产物，两个前置阶段必须同时保留。
     let release = &document["jobs"]["release"]["needs"];
-    let release_connected = if platform == "wasm" {
-        release.as_str() == Some("build")
-    } else {
-        release
-            .as_sequence()
-            .ok_or("发布缺少依赖")?
-            .iter()
-            .map(serde_yaml::Value::as_str)
-            .collect::<Vec<_>>()
-            == vec![Some("prepare"), Some("build")]
-    };
+    let release_connected = release
+        .as_sequence()
+        .ok_or("发布缺少依赖")?
+        .iter()
+        .map(serde_yaml::Value::as_str)
+        .collect::<Vec<_>>()
+        == vec![Some("prepare"), Some("build")];
     if jobs.len() != names.len() || names.iter().any(|name| !document["jobs"][*name].is_mapping())
         || jobs.keys().last().and_then(serde_yaml::Value::as_str) != Some("cleanup")
         || triggers.len() != 1 || !document["on"]["workflow_dispatch"].is_mapping()
@@ -255,13 +251,9 @@ fn validate_workflow_stages(
         || cleanup["permissions"]["actions"].as_str() != Some("write")
         || cleanup["permissions"]["contents"].as_str() != Some("write")
     {
-        return Err("五端必须在同一原Run中执行准备、编译、发布及末尾清理".into());
+        return Err("节点四端必须在同一原Run中执行准备、编译、发布及末尾清理".into());
     }
-    let command = if platform == "wasm" {
-        "node scripts/runtime.mjs build".to_string()
-    } else {
-        format!("node scripts/build.mjs {platform}")
-    };
+    let command = format!("node scripts/build.mjs {platform}");
     let mut calls = 0;
     let mut cleanup_script = false;
     for name in names {
@@ -284,8 +276,6 @@ fn validate_workflow_stages(
                 .join("\n");
             if compilation.contains("scripts/build.mjs")
                 || script.contains("scripts/build.mjs")
-                || run.contains("node scripts/runtime.mjs build")
-                || script.contains("node scripts/runtime.mjs build")
             {
                 if name != "build" || !run.lines().any(|line| line.trim() == command) {
                     return Err("只有build Job可调用本平台编译入口".into());
@@ -324,7 +314,7 @@ fn validate_workflow_stages(
     Ok(())
 }
 
-// 五端GitHub任务均归自身YAML；编译文件只接受实际编译调用。
+// 节点四端GitHub任务均归自身YAML；编译文件只接受实际编译调用。
 fn validate_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(), Box<dyn Error>> {
     validate_workflow_stages(document, platform)?;
     let names = ["prepare", "build", "release", "cleanup"];
@@ -338,66 +328,11 @@ fn validate_workflow(document: &serde_yaml::Value, platform: &str) -> Result<(),
                 "cfg.assertRelease",
                 "cfg.nativeCleanupPlan",
                 "cfg.cleanupNativeRuns",
-                "runtime.prepare(",
-                "runtime.recordAssets(",
-                "runtime.publish(",
-                "runtime.requestFinalize(",
-                "runtime.finalize(",
             ]
             .iter()
             .any(|value| script.contains(value))
             {
                 return Err("GitHub任务不能转调配置或编译文件中的流程函数".into());
-            }
-        }
-    }
-    if platform != "wasm" {
-        return Ok(());
-    }
-    let display = document["run-name"].as_str().ok_or("WASM缺少Run名称")?;
-    if display != "公民链·WASM·v${{ inputs.version }}"
-        || document["on"]["workflow_dispatch"]["inputs"]["transaction_version"]["required"]
-            .as_bool()
-            != Some(true)
-        || document["on"]["workflow_dispatch"]["inputs"]["runtime_base"]["required"].as_bool()
-            != Some(true)
-        || ["prepare", "build"].iter().any(|name| {
-            document["jobs"][*name]["env"]["CITIZENCHAIN_RUNTIME_BASE"].as_str()
-                != Some("${{ inputs.runtime_base }}")
-        })
-        || names
-            .iter()
-            .any(|name| document["jobs"][*name]["name"].as_str() != Some(display))
-        || document["jobs"]["release"]["env"]["RUNTIME_BUILD"].as_str()
-            != Some("${{ needs.build.outputs.runtime }}")
-        || document["jobs"]["release"]["env"]["BUILT_VERSION"].as_str()
-            != Some("${{ needs.build.outputs.version }}")
-        || document["jobs"]["build"]["outputs"]["runtime"].as_str()
-            != Some("${{ steps.assets.outputs.runtime }}")
-    {
-        return Err("WASM整数版本、双版本输入或GitHub名称未连通".into());
-    }
-    for name in names {
-        if !document["jobs"][name]["env"]["CITIZENCHAIN_RUNTIME_RPC_URL"].is_null() {
-            return Err("WASM Runner不能依赖本机RPC地址".into());
-        }
-        for step in document["jobs"][name]["steps"]
-            .as_sequence()
-            .ok_or("WASM缺少步骤")?
-        {
-            let script = step["with"]["script"].as_str().unwrap_or("");
-            if script.contains("nextDeliveryVersion")
-                || script.contains("deliveryVersion(")
-                || script.contains("node/tauri.conf.json")
-            {
-                return Err("WASM不能使用节点软件版本或SemVer推算".into());
-            }
-            let action = step["uses"].as_str().unwrap_or("");
-            if (action.starts_with("actions/upload-artifact@")
-                || action.starts_with("actions/download-artifact@"))
-                && step["with"]["name"].as_str() != Some(display)
-            {
-                return Err("WASM Artifact名称与Runtime版本不一致".into());
             }
         }
     }
@@ -414,7 +349,14 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
         .filter(|entry| entry.path().is_file())
         .map(|entry| entry.file_name().to_string_lossy().to_string())
         .collect::<Vec<_>>();
-    assert_eq!(entries.len(), 5);
+    // 这里只检查节点平台；WASM塔塔自动化不归协议测试。
+    let entries = entries
+        .into_iter()
+        .filter(|name| {
+            ["macos.yml", "windows.yml", "linuxarm.yml", "linuxamd.yml"].contains(&name.as_str())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(entries.len(), 4);
     let forbidden = [
         ["TATA", "_CONSOLE"].concat(),
         ["Tata", "Console"].concat(),
@@ -438,12 +380,11 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
             "windows.yml" => "windows",
             "linuxarm.yml" => "linux-arm",
             "linuxamd.yml" => "linux-amd",
-            "wasm.yml" => "wasm",
             _ => return Err("出现未声明平台Workflow".into()),
         };
         let document: serde_yaml::Value = serde_yaml::from_str(&workflow)?;
         validate_workflow(&document, platform)?;
-        if platform != "wasm" {
+        {
             let steps = document["jobs"]["cleanup"]["steps"]
                 .as_sequence()
                 .ok_or("清理缺少步骤")?;
@@ -498,11 +439,7 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
         let mut recompile = document.clone();
         let cleanup_name = "cleanup";
         recompile["jobs"][cleanup_name]["steps"][0]["run"] =
-            serde_yaml::Value::String(if platform == "wasm" {
-                "node scripts/runtime.mjs build".to_string()
-            } else {
-                format!("node scripts/build.mjs {platform}")
-            });
+            serde_yaml::Value::String(format!("node scripts/build.mjs {platform}"));
         assert!(validate_workflow(&recompile, platform).is_err());
         if platform == "macos" {
             let mut resource_only = document.clone();
@@ -528,53 +465,6 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
                 validate_workflow(&misplaced, platform).is_err(),
                 "发布阶段不能借资源准备调用编译入口"
             );
-        }
-        if platform == "wasm" {
-            let mut old_entry = document.clone();
-            let steps = old_entry["jobs"]["build"]["steps"]
-                .as_sequence_mut()
-                .ok_or("缺少build步骤")?;
-            let compile = steps
-                .iter_mut()
-                .find(|step| {
-                    step["run"]
-                        .as_str()
-                        .unwrap_or("")
-                        .contains("node scripts/runtime.mjs build")
-                })
-                .ok_or("缺少Runtime编译步骤")?;
-            compile["run"] = serde_yaml::Value::String("node scripts/build.mjs wasm".into());
-            assert!(validate_workflow(&old_entry, platform).is_err());
-            // 仅WASM增加负例，四端既有阶段及夹具保持。
-            let mut missing_transaction = document.clone();
-            missing_transaction["on"]["workflow_dispatch"]["inputs"]
-                .as_mapping_mut()
-                .ok_or("缺少inputs")?
-                .remove(&serde_yaml::Value::String("transaction_version".into()));
-            assert!(validate_workflow(&missing_transaction, platform).is_err());
-            let mut missing_base = document.clone();
-            missing_base["on"]["workflow_dispatch"]["inputs"]
-                .as_mapping_mut()
-                .ok_or("缺少inputs")?
-                .remove(&serde_yaml::Value::String("runtime_base".into()));
-            assert!(validate_workflow(&missing_base, platform).is_err());
-            let mut wrong_base = document.clone();
-            wrong_base["jobs"]["build"]["env"]["CITIZENCHAIN_RUNTIME_BASE"] =
-                serde_yaml::Value::String("{}".into());
-            assert!(validate_workflow(&wrong_base, platform).is_err());
-            let mut wrong_name = document.clone();
-            wrong_name["jobs"]["cleanup"]["name"] =
-                serde_yaml::Value::String("公民链·WASM·v${{ github.run_number }}".into());
-            assert!(validate_workflow(&wrong_name, platform).is_err());
-            let mut missing_runtime = document.clone();
-            missing_runtime["jobs"]["release"]["env"]["RUNTIME_BUILD"] =
-                serde_yaml::Value::String("{}".into());
-            assert!(validate_workflow(&missing_runtime, platform).is_err());
-            let mut semver = document.clone();
-            semver["jobs"]["prepare"]["steps"][0]["with"]["script"] = serde_yaml::Value::String(
-                "cfg.nextDeliveryVersion('wasm', [], [], '1.0.0')".into(),
-            );
-            assert!(validate_workflow(&semver, platform).is_err());
         }
     }
     Ok(())
