@@ -1,6 +1,6 @@
 import {createSecureContext} from 'node:tls';
 import {spawnSync} from 'node:child_process';
-import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
+import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statfsSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep, delimiter} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {product} from './config.mjs';
@@ -361,8 +361,15 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
       const app=oneBundle(join(env.CARGO_TARGET_DIR,'release/bundle/macos'),'.app');
       await consume({schema:1,product_id:product.id,platform,work,artifact:app,tools:{},signing:targets});return;
     }
-    // 按Tauri官方目标保留macOS App用于签名、公证核对，最终仅交付DMG。
-    await runBuildProcess(env.NODE, [tauri, 'bundle', '--config', JSON.stringify(config), '--bundles', platform === 'macos' ? 'app,dmg' : declared.bundle, '--ci'], platform === 'macos' ? signing : env, join(root, 'node'));
+    if (platform === 'macos') {
+      // Rust编译已全部结束；只释放本轮可再生的增量中间文件，为官方DMG临时映像留出空间。
+      const available = () => { const {bavail, bsize} = statfsSync(work); return Math.floor(bavail * bsize / 2 ** 20); };
+      const before = available();
+      rmSync(join(env.CARGO_TARGET_DIR, 'release/incremental'), {recursive: true, force: true});
+      process.stdout.write(`macOS封装前可用空间（MiB）：${before} -> ${available()}\n`);
+    }
+    // 按Tauri官方目标保留macOS App；详细日志保留DMG脚本真实错误，签名与公证仍由官方工具执行。
+    await runBuildProcess(env.NODE, [tauri, 'bundle', '--config', JSON.stringify(config), '--bundles', platform === 'macos' ? 'app,dmg' : declared.bundle, '--ci', ...(platform === 'macos' ? ['--verbose'] : [])], platform === 'macos' ? signing : env, join(root, 'node'));
     const installer = oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle', declared.bundle), declared.extension);
     if (platform === 'macos') {
       const app = oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle/macos'), '.app');

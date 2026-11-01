@@ -2677,7 +2677,7 @@ OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直
 
 macOS和两Linux工作流在PostgreSQL原make install完成后，以系统cp -RL把Runner临时pg-dist复制为pg-runtime普通文件树，CITIZENCHAIN_PG_DIST只交付该物理副本。原安装原件、PostgreSQL/Node锁定版本和依赖保持；坏链接复制失败仍立即终止。此步骤避免Node25.2.1递归cpSync的dereference回归把绝对库链接带入资源包，macOS的四种dylib别名与Linux多级库别名均由既有回归验证物理副本、资源复制内容及坏链接失败；既有build.mjs的链接拒绝、完整产物验收和Linux失败诊断均保留，不新增仓库辅助文件。
 
-macOS使用Tauri官方`--bundles app,dmg`一次打包，保留App供原有codesign身份、团队、时间戳与stapler校验，DMG仍通过hdiutil验证。只请求dmg时Tauri会清除中间App，不能再对已清除的App做完整产物核对；显式请求app不会重复编译节点。最终artifact及正式Release仍只交付唯一DMG，App随本轮现场清理，不新增交付类型或放宽原检查。
+macOS使用Tauri官方`--bundles app,dmg`一次打包，保留App供原有codesign身份、团队、时间戳与stapler校验，DMG仍通过hdiutil验证。只请求dmg时Tauri会清除中间App，不能再对已清除的App做完整产物核对；显式请求app不会重复编译节点。正式封装前，全部Rust编译及资源准备结束后，只移除本轮Cargo目标目录的release/incremental，保留编译库、最终二进制与资源，为DMG临时映像释放空间；输出清理前后可用MiB。macOS封装使用官方verbose日志保留脚本实际stdout/stderr，真实错误仍立即失败，不重试、不替换封装工具或绕过签名公证。最终artifact及正式Release仍只交付唯一DMG，App随本轮现场清理，不新增交付类型或放宽原检查。
 
 ### 原生构建精简与能力边界
 
