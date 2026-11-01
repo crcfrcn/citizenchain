@@ -13,7 +13,7 @@
 
 五份既有 `.github/workflows/macos.yml`、`windows.yml`、`linuxarm.yml`、`linuxamd.yml`、`wasm.yml` 各自核对候选和准确源码、准备官方工具、执行所属真实测试、编译并上传完整 Artifact。四端分别交付 DMG、NSIS EXE、ARM64 DEB、AMD64 DEB，包含节点、OnChina宿主、模块及前端、PostgreSQL和必要运行库；WASM精确交付 runtime.wasm、runtime.compact.wasm、runtime.compact.compressed.wasm。
 
-编译工具版本以公开声明为准，缺件或错误版本直接失败。Unix PostgreSQL使用官方源码与既定OpenSSL配方；实际从随包路径运行initdb，运行库使用官方平台工具处理。macOS先执行Tauri官方build --no-bundle，再由签名分段和官方bundle生成正式包，核对App签名身份、团队、时间戳、公证和DMG。Linux实际解包检查架构、宿主、模块、前端和PostgreSQL。Windows动态OpenSSL依赖及各进程使用Runner现有Visual Studio官方可再分发CRT进行应用本地部署，不能只因Runner已装VC运行库就把缺件安装包当作完整。签名材料仅交付编译入口的签名分段，不进入测试、编译器环境或缓存。节点默认编译测试不生成、下载或交付测试WASM。两项依赖真实WASM的Ethereum三节点/MetaMask整链验收只由默认关闭的runtime-tests feature登记；Runtime专项流程使用自身本轮WASM显式执行，原断言保持。正式节点打包仍不内置WASM。
+编译工具版本以公开声明为准，缺件或错误版本直接失败。Unix PostgreSQL使用官方源码与既定OpenSSL配方；实际从随包路径运行initdb，运行库使用官方平台工具处理。macOS先执行Tauri官方build --no-bundle，再由签名分段和官方bundle生成正式包，核对App签名身份、团队、时间戳、公证和DMG。Linux实际解包检查架构、宿主、模块、前端和PostgreSQL。Windows动态OpenSSL依赖及各进程使用Runner现有Visual Studio官方可再分发CRT进行应用本地部署，不能只因Runner已装VC运行库就把缺件安装包当作完整。签名材料仅交付编译入口的签名分段，不进入测试、编译器环境或缓存。节点默认编译测试不生成、下载或交付测试WASM。两项依赖真实WASM的Ethereum三节点/MetaMask整链验收只由默认关闭的runtime-tests feature登记；Runtime专项流程使用自身本轮WASM显式执行，原断言保持。正式节点打包仍不内置WASM。SDK的SKIP_WASM_BUILD只在嵌入文件缺失时生成None；缓存恢复若带回旧Some引用而未带回wbuild文件，测试前用官方cargo clean --release清理本轮runtime、revive-dev-runtime、substrate-test-runtime、frame-storage-access-test-runtime输出后再按原命令测试，不补造或下载WASM。
 
 本轮输出位于 `target/build/<平台>/artifact`。每个平台的 GitHub 工作现场彼此独立；Runner管理工具进程及取消，工作流在上传产物后清理该轮编译现场。官方 actions/cache 恢复和保存本平台Cargo中间物、npm下载缓存及macOS准确版本PostgreSQL资源/源码缓存，按平台、系统、架构及原锁隔离，限时且continue-on-error；不缓存安装包、附件、任务状态或机密。缓存失败不能掩盖真实测试、编译或完整产物失败。
 
@@ -23,7 +23,7 @@
 
 scripts/config.mjs只声明产品、平台、工具、原锁、静态产物模板及必要配置读取；不导入编译文件，不计算交付版本，不构造GitHub请求，不筛选Run或删除历史。四端artifact模板中的{version}由实际消费者代入，WASM三件文件名保持原声明。
 
-scripts/build.mjs负责Node编译、资源装配、签名和打包；scripts/runtime.mjs build负责WASM编译、临时版本输入及实际产物检查。编译脚本不管理GitHub Job、Release、Run或本地任务库，也不承载脚本测试。工作流直接调用原Cargo业务测试：原生四端保持--workspace --all-targets且不启用runtime-tests；WASM保持-p runtime --all-targets，并在Runtime本轮产物验真后执行node --lib --features runtime-tests的Ethereum专项。版本0金标及原业务断言保持；直接执行时交付原Node路径、平台以及macOS符号保留、Windows OpenSSL搜索环境。准确Git检出检查直接归Workflow编译步骤。QR协议位于crates/protocol独立Cargo工作区，根工作区显式排除它；必须另行执行cargo test --manifest-path crates/protocol/Cargo.toml --locked，根工作区全部目标通过不代表该协议守卫已经通过。
+scripts/build.mjs负责Node编译、资源装配、签名和打包；scripts/runtime.mjs build负责WASM编译、临时版本输入及实际产物检查。编译脚本不管理GitHub Job、Release、Run或本地任务库，也不承载脚本测试。工作流直接调用原Cargo业务测试：原生四端使用--workspace --exclude sc-consensus-grandpa --all-targets且不启用runtime-tests；WASM保持-p runtime --all-targets，并在Runtime本轮产物验真后执行node --lib --features runtime-tests的Ethereum专项与sc-consensus-grandpa --lib完整验收。版本0金标及原业务断言保持；直接执行时交付原Node路径、平台以及macOS符号保留、Windows OpenSSL搜索环境。准确Git检出检查直接归Workflow编译步骤。QR协议位于crates/protocol独立Cargo工作区，根工作区显式排除它；必须另行执行cargo test --manifest-path crates/protocol/Cargo.toml --locked，根工作区全部目标通过不代表该协议守卫已经通过。
 
 五份既有Workflow各自负责工具准备、版本输入、prepare/build/release/cleanup及GitHub产物。Node版本从本平台最新成功正式Release读取后patch加1，首次使用节点配置版本；测试步骤的TAURI_CONFIG同时保留同值version与build配置，不因覆盖构建选项丢失版本；WASM仍消费本轮冻结链快照及双版本各加1的输入，不使用Node的X.Y.Z。GitHub阶段不转调配置或编译文件中的流程函数。
 
@@ -75,7 +75,7 @@ Total output lines: 12501
 
 桌面节点只在同步作用域构造和销毁TaskManager，异步作用域仅等待退出；先回收服务，再关闭宿主Tokio Runtime。首个必要任务错误保留原文，清理panic只能追加。CPU矿工线程归本次TaskManager所有，停机通知外层等待和内层nonce搜索退出并等待线程结束，释放交易池与客户端引用；PoW算法、交易池出块门控和收费规则保持原合同。Ethereum初始化、方法装配、同步与TLS错误带准确阶段并保留原错误链。构建前定向回归使用真实嵌套Runtime、真实RocksDB停机后重开、原始错误与清理故障并存及空闲/忙碌矿工线程退出验证生命周期；实际通过与运行态结果仅记唯一任务卡。
 
-节点费用、升级事件、CID及服务级守卫常规回归由Workflow执行真实Cargo工作空间全部目标测试；两项需要真实WASM的整链验收归Runtime专项，默认节点流程不执行它们。Runtime编译入口在同一临时源码副本中复用自身已生成的WASM，恢复仅嵌入钩子并显式开启runtime-tests执行，成功后才交付产物；不生成第二份WASM，不用缺件返回或忽略断言冒充通过。实际验证结果仅记录于唯一任务卡。
+节点费用、升级事件、CID及服务级守卫常规回归由Workflow执行节点默认Cargo测试集；两项需要真实WASM的整链验收以及本地GRANDPA覆盖包自带的SDK验收归Runtime专项，默认节点流程不执行它们，原测试和断言全部保留。Runtime编译入口在同一临时源码副本中复用自身已生成的WASM，恢复仅嵌入钩子并显式开启runtime-tests执行，成功后才交付产物；不生成第二份产品Runtime，不用缺件返回或忽略断言冒充通过。实际验证结果仅记录于唯一任务卡。
 
 当前固定SDK对历史缺方法RPC只接受4003、无data与准确原文或准确框架包装全文；不做包含、后缀匹配和通用前缀剥离。进入Ethereum历史之后、当前最佳块或其它错误仍原样失败。实际启动必须消费准确已保存SDK提交，不能用开发工作树或只改节点接线代替固定消费。
 
@@ -2641,7 +2641,7 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 
 交付端先按既有CITIZENCHAIN_DATA_PROFILE及编译模式确认正式命名空间；开发身份不写正式证书。先只读校验候选目录（首次创建则检查父级）再调用既有目录与原子写入工具，不沿异常链接设权，不自动修复既有不安全目录；最终目录必须与节点现有解析结果一致。同文件通过同一交付函数的写入依赖替身验证明确写失败不回报交付成功，不制造真实磁盘故障。桌面夹具从CARGO_MANIFEST_DIR确定产品根target，不随Cargo的包工作目录写入node源码目录，结束只删除各自独立夹具。TLS夹具子进程仅接收公开证书与临时端点，失败保留其错误诊断，不以通用失败或预期拒绝掩盖衔接错误。
 
-Runtime正式候选及整链验收所用WASM的唯一实现归scripts/runtime.mjs，节点安装包仍归scripts/build.mjs。config.mjs的WASM分支只转调；WASM工作流保留原锁、权限及阶段顺序，复用节点已有系统链接依赖以执行专项验收，GitHub阶段由wasm.yml实现，源码编译仅调用runtime.mjs build。其他四端仍直接执行Cargo全部目标测试，默认不生成WASM；整链验收复用Runtime本轮候选，不另交付测试WASM，金标保持。build.mjs wasm旧入口继续拒绝。节点启动仅增加上述公开证书交付；协议升级入口、链上升级模块、权限、表决与UI保持。
+Runtime正式候选及整链验收所用WASM的唯一实现归scripts/runtime.mjs，节点安装包仍归scripts/build.mjs。config.mjs的WASM分支只转调；WASM工作流保留原锁、权限及阶段顺序，复用节点已有系统链接依赖以执行专项验收，GitHub阶段由wasm.yml实现，源码编译仅调用runtime.mjs build。其他四端仍直接执行所属Cargo全部目标测试，仅将依赖SDK测试WASM的GRANDPA整包验收交Runtime专项，默认不生成WASM；整链验收复用Runtime本轮候选，不另交付测试WASM，金标保持。build.mjs wasm旧入口继续拒绝。节点启动仅增加上述公开证书交付；协议升级入口、链上升级模块、权限、表决与UI保持。
 
 正式WASM派发由runtime.mjs装载节点公开证书后读取本机既有https://127.0.0.1:9944的冻结链身份及同一finalized块双版本，分别加1，并通过现有输入和本轮runtime_base JSON交给GitHub。准备和发布归wasm.yml；编译前只删除目标整数版本同名的旧Release及Tag，不存在则继续，删除失败停止，不处理其它版本。源码编译归runtime.mjs；Runner只核对快照、目标及实际三份产物，不再次连接本机，不套X.Y.Z，也不要求新增RPC地址或证书配置。快照只对应读取时刻，不能保证构建期间链上版本不变；实际升级仍走原流程。缺少节点、公开证书不可用、可信连接失败或字段异常即停止，不猜值、不降级；不修改控制台、公民服务端或Runtime。原仓Node/Runtime源码不被WASM构建回写，节点交付源码修改仅限上述启动入口。临时输入和现场保护遵循CitizenChainRuntime.md。
 

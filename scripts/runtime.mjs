@@ -423,7 +423,7 @@ fn main() {}
         if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) fail('Runtime产物不是普通文件');
         verifyRuntimeWasm(readFileSync(path), target);
       }
-      // 整链验收复用本轮WASM；恢复临时副本的嵌入钩子，不再编译第二份WASM。
+      // 整链验收复用本轮WASM；恢复临时副本的嵌入钩子，不再编译第二份产品Runtime。
       writeFileSync(join(source, 'runtime/build.rs'), readFileSync(join(root, 'runtime/build.rs')));
       env.WASM_FILE = join(env.CARGO_TARGET_DIR, 'release/wbuild/runtime/runtime.wasm');
       env.SKIP_WASM_BUILD = '1';
@@ -432,8 +432,14 @@ fn main() {}
       env.CITIZENCHAIN_RELEASE_VERSION = JSON.parse(readFileSync(join(source, 'node/tauri.conf.json'), 'utf8')).version;
       env.TAURI_CONFIG = JSON.stringify({version: env.CITIZENCHAIN_RELEASE_VERSION,
         build: {beforeBuildCommand: null, frontendDist: join(source, 'node/frontend')}});
+      // SDK跳过构建只补缺失的嵌入文件，清理旧引用后生成None；保留本轮产品WASM。
+      await cargo(source, ['clean', '--release', '--locked', '-p', 'revive-dev-runtime',
+        '-p', 'substrate-test-runtime', '-p', 'frame-storage-access-test-runtime']);
       await cargo(source, ['test', '--locked', '--release', '-p', 'node', '--lib', '--features', 'runtime-tests',
         'ethereum::tests::', '--', '--test-threads=1']);
+      // 本地GRANDPA覆盖包保留SDK原验收；仅本专项准备其SDK测试Runtime，不交付到节点包。
+      delete env.SKIP_WASM_BUILD;
+      await cargo(source, ['test', '--locked', '--release', '-p', 'sc-consensus-grandpa', '--lib']);
       mkdirSync(artifact);
       for (const name of filesToPublish) copyFileSync(join(env.CARGO_TARGET_DIR, 'release/wbuild/runtime', name), join(artifact, name));
       process.stdout.write('Runtime候选版本：' + target.specVersion + ' / ' + target.transactionVersion + '\n');

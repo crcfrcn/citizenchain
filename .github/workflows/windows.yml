@@ -180,8 +180,9 @@ jobs:
         export PATH="$(cygpath -u "$OPENSSL_DIR")/bin:$PATH"
         # 节点默认测试不生成SDK或产品WASM；真实整链验收归Runtime专项。
         export SKIP_WASM_BUILD=1
-        cargo --config config.toml clean -p runtime --locked
-        cargo --config config.toml test --locked --release --workspace --all-targets
+        # SDK跳过构建时不会覆盖旧嵌入文件；先清理缺少wbuild资源的旧生成输出。
+        cargo --config config.toml clean --release -p runtime -p revive-dev-runtime -p substrate-test-runtime -p frame-storage-access-test-runtime --locked
+        cargo --config config.toml test --locked --release --workspace --exclude sc-consensus-grandpa --all-targets
     - name: 编译及核对完整产物
       shell: bash
       run: |
