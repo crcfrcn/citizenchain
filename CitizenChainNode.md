@@ -23,7 +23,7 @@
 
 scripts/config.mjs只声明产品、平台、工具、原锁、静态产物模板及必要配置读取；不导入编译文件，不计算交付版本，不构造GitHub请求，不筛选Run或删除历史。四端artifact模板中的{version}由实际消费者代入，WASM三件文件名保持原声明。
 
-scripts/build.mjs负责Node编译、资源装配、签名和打包；scripts/runtime.mjs build负责WASM编译、临时版本输入及实际产物检查。编译脚本不管理GitHub Job、Release、Run或本地任务库，也不承载脚本测试。工作流直接调用原Cargo业务测试：原生四端保持--workspace --all-targets且不启用runtime-tests；WASM保持-p runtime --all-targets，并在Runtime本轮产物验真后执行node --lib --features runtime-tests的Ethereum专项。版本0金标及原业务断言保持；直接执行时交付原Node路径、平台以及macOS符号保留、Windows OpenSSL搜索环境。准确Git检出检查直接归Workflow编译步骤。
+scripts/build.mjs负责Node编译、资源装配、签名和打包；scripts/runtime.mjs build负责WASM编译、临时版本输入及实际产物检查。编译脚本不管理GitHub Job、Release、Run或本地任务库，也不承载脚本测试。工作流直接调用原Cargo业务测试：原生四端保持--workspace --all-targets且不启用runtime-tests；WASM保持-p runtime --all-targets，并在Runtime本轮产物验真后执行node --lib --features runtime-tests的Ethereum专项。版本0金标及原业务断言保持；直接执行时交付原Node路径、平台以及macOS符号保留、Windows OpenSSL搜索环境。准确Git检出检查直接归Workflow编译步骤。QR协议位于crates/protocol独立Cargo工作区，根工作区显式排除它；必须另行执行cargo test --manifest-path crates/protocol/Cargo.toml --locked，根工作区全部目标通过不代表该协议守卫已经通过。
 
 五份既有Workflow各自负责工具准备、版本输入、prepare/build/release/cleanup及GitHub产物。Node版本从本平台最新成功正式Release读取后patch加1，首次使用节点配置版本；测试步骤的TAURI_CONFIG同时保留同值version与build配置，不因覆盖构建选项丢失版本；WASM仍消费本轮冻结链快照及双版本各加1的输入，不使用Node的X.Y.Z。GitHub阶段不转调配置或编译文件中的流程函数。
 

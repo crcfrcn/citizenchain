@@ -246,7 +246,7 @@ fn validate_workflow_stages(
         || !release_connected
         || dependencies.iter().map(serde_yaml::Value::as_str).collect::<Vec<_>>()
             != vec![Some("prepare"), Some("build"), Some("release")]
-        || cleanup["if"].as_str() != Some("${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}")
+        || cleanup["if"].as_str() != Some("${{ always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}")
         || !(cleanup["continue-on-error"].is_null() || cleanup["continue-on-error"].as_bool() == Some(false))
         || cleanup["permissions"]["actions"].as_str() != Some("write")
         || cleanup["permissions"]["contents"].as_str() != Some("write")
@@ -406,6 +406,12 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
                     serde_yaml::Value::Mapping(Default::default()),
                 );
             assert!(validate_workflow(&detached, platform).is_err());
+            // 结构守卫与现有always收尾一致，拒绝恢复为取消时跳过清理的旧条件。
+            let mut cancelled = document.clone();
+            cancelled["jobs"]["cleanup"]["if"] = serde_yaml::Value::String(
+                "${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}".into(),
+            );
+            assert!(validate_workflow(&cancelled, platform).is_err());
             let mut ignored = document.clone();
             ignored["jobs"]["cleanup"]["continue-on-error"] = serde_yaml::Value::Bool(true);
             assert!(validate_workflow(&ignored, platform).is_err());

@@ -306,7 +306,7 @@ jobs:
           const ref=(await github.rest.git.getRef({...context.repo,ref:'tags/'+tag})).data;
           if(ref.object.type!=='commit'||ref.object.sha!==context.sha)throw Error('正式Tag提交不符');
           core.info('正式交付已确认：'+tag);
-  # 必须保留最近成功1条、失败1条；本次恢复并验收后禁改，遵守 /Users/rhett/tataconsole/TATA.md 第28条。
+  # 必须保留最近成功1条、失败1条；修复验收后禁止改动。
   cleanup:
     name: 公民链·LinuxAMD·v${{ needs.prepare.outputs.version }}
     if: ${{ always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
