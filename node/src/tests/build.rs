@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 const POSTGRES_TEST: &str = r#"
 import assert from 'node:assert/strict';
 import {mkdirSync, mkdtempSync, writeFileSync, existsSync, rmSync, realpathSync, readFileSync, copyFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {join,sep,win32} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
 const root=process.cwd();
@@ -17,6 +17,8 @@ function distribution(path){
   const file=join(path,name);mkdirSync(join(file,'..'),{recursive:true});writeFileSync(file,'fixture');
  }
 }
+// 同一模拟命令处理器必须识别POSIX与Windows路径，不能用固定斜杠判断命令名。
+const executable=file=>win32.basename(file);
 let count=0;
 try{
  const npm=npmCLI();const npmRun=spawnSync(process.execPath,[npm,'--version'],{encoding:'utf8'});
@@ -36,7 +38,9 @@ try{
  const version=async(file,args)=>({stdout:args[0]==='--version'?'postgres (PostgreSQL) 17.11 (Homebrew)\n':[join(file,'../..','bin'),join(file,'../..','lib'),join(file,'../..','share/postgresql')].join('\n')});
  const cache=join(work,'cache');
  let calls=[];
- const reuse=async(file,args)=>{calls.push(file);assert.deepEqual(args,file.endsWith('/pg_config')?['--bindir','--pkglibdir','--sharedir']:['--version']);return version(file,args);};
+ const reuse=async(file,args)=>{calls.push(file);assert.deepEqual(args,executable(file)==='pg_config'?['--bindir','--pkglibdir','--sharedir']:['--version']);return version(file,args);};
+ await reuse(win32.join(installed,'bin','pg_config'),['--bindir','--pkglibdir','--sharedir']);
+ assert.equal(calls.length,1);calls=[];count++;
  assert.equal(await preparePostgres(work,{CITIZENCHAIN_PG_DIST:installed},{run:reuse,candidates:[],cache}),realpathSync(installed));
  assert.equal(calls.length,2);count++;
  calls=[];
@@ -46,16 +50,16 @@ try{
  assert.equal(await preparePostgres(work,{}, {run:reuse,candidates:[],cache}),realpathSync(cache));count++;
  const external=async(file,args)=>args[0]==='--version'?version(file,args):{stdout:'/usr/lib\n/usr/lib\n/usr/lib'};
  await assert.rejects(preparePostgres(work,{CITIZENCHAIN_PG_DIST:installed},{run:external,candidates:[],cache}),/不可独立搬迁/);
- assert.equal(await preparePostgres(work,{}, {run:async(file,args)=>file.startsWith(installed+'/')?external(file,args):reuse(file,args),candidates:[installed],cache}),realpathSync(cache));count++;
+ assert.equal(await preparePostgres(work,{}, {run:async(file,args)=>file.startsWith(installed+sep)?external(file,args):reuse(file,args),candidates:[installed],cache}),realpathSync(cache));count++;
  await assert.rejects(preparePostgres(work,{CITIZENCHAIN_PG_DIST:join(work,'missing')},{run:reuse,candidates:[],cache}),/指定/);count++;
  await assert.rejects(preparePostgres(work,{}, {run:async()=>{throw Error('broken executable');},candidates:[installed],cache}),/broken executable/);count++;
  const fresh=join(work,'fresh');let downloads=0,dist;
  const build=async(file,args)=>{
-  if(file.endsWith('/curl')){downloads++;assert.ok(args.at(-1).endsWith('/v17.11/postgresql-17.11.tar.bz2'));writeFileSync(args[args.indexOf('--output')+1],'archive');}
-  else if(file.endsWith('/tar')){const source=join(args.at(-1),'postgresql-17.11');mkdirSync(source);writeFileSync(join(source,'COPYRIGHT'),'license');}
-  else if(file.endsWith('/configure')){dist=args[0].slice('--prefix='.length);}
-  else if(file.endsWith('/make')&&args[0]==='install')distribution(dist);
-  return file.endsWith('/pg_config')?version(file,args):{stdout:'postgres (PostgreSQL) 17.11\n'};
+  if(executable(file)==='curl'){downloads++;assert.ok(args.at(-1).endsWith('/v17.11/postgresql-17.11.tar.bz2'));writeFileSync(args[args.indexOf('--output')+1],'archive');}
+  else if(executable(file)==='tar'){const source=join(args.at(-1),'postgresql-17.11');mkdirSync(source);writeFileSync(join(source,'COPYRIGHT'),'license');}
+  else if(executable(file)==='configure'){dist=args[0].slice('--prefix='.length);}
+  else if(executable(file)==='make'&&args[0]==='install')distribution(dist);
+  return executable(file)==='pg_config'?version(file,args):{stdout:'postgres (PostgreSQL) 17.11\n'};
  };
  assert.equal(await preparePostgres(work,{}, {run:build,candidates:[],cache:fresh}),fresh);
  assert.equal(downloads,1);assert.equal(existsSync(fresh+'.lock'),false);count++;
