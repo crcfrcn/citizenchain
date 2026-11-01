@@ -138,3 +138,5 @@ gpu-mining = ["nodemining/gpu-mining"]
 runtime-benchmarks = ["frame-benchmarking-cli/runtime-benchmarks", "dep:pallet-staking", "runtime/runtime-benchmarks"]
 try-runtime = ["pallet-staking/try-runtime", "frame-system/try-runtime", "pallet-transaction-payment/try-runtime", "runtime/try-runtime", "sp-runtime/try-runtime"]
 test-support = ["nodeguard/test-support"]
+# 真实WASM整链验收仅由Runtime专项流程显式开启，不属于节点默认编译测试。
+runtime-tests = []

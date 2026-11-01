@@ -423,6 +423,17 @@ fn main() {}
         if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) fail('Runtime产物不是普通文件');
         verifyRuntimeWasm(readFileSync(path), target);
       }
+      // 整链验收复用本轮WASM；恢复临时副本的嵌入钩子，不再编译第二份WASM。
+      writeFileSync(join(source, 'runtime/build.rs'), readFileSync(join(root, 'runtime/build.rs')));
+      env.WASM_FILE = join(env.CARGO_TARGET_DIR, 'release/wbuild/runtime/runtime.wasm');
+      env.SKIP_WASM_BUILD = '1';
+      env.CITIZENCHAIN_SOURCE_ROOT = root;
+      // 节点应用版本与Runtime整数版本各归所属声明，不能把spec_version作为Tauri版本。
+      env.CITIZENCHAIN_RELEASE_VERSION = JSON.parse(readFileSync(join(source, 'node/tauri.conf.json'), 'utf8')).version;
+      env.TAURI_CONFIG = JSON.stringify({version: env.CITIZENCHAIN_RELEASE_VERSION,
+        build: {beforeBuildCommand: null, frontendDist: join(source, 'node/frontend')}});
+      await cargo(source, ['test', '--locked', '--release', '-p', 'node', '--lib', '--features', 'runtime-tests',
+        'ethereum::tests::', '--', '--test-threads=1']);
       mkdirSync(artifact);
       for (const name of filesToPublish) copyFileSync(join(env.CARGO_TARGET_DIR, 'release/wbuild/runtime', name), join(artifact, name));
       process.stdout.write('Runtime候选版本：' + target.specVersion + ' / ' + target.transactionVersion + '\n');

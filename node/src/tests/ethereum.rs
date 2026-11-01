@@ -973,6 +973,8 @@ fn session_native_balance(client: &FullClient, account: &sp_runtime::AccountId32
     AccountInfo::decode_all(&mut &data.0[..]).unwrap().data.free
 }
 
+// Runtime专项消费自身已生成的WASM；节点默认测试不创建整链会话。
+#[cfg(feature = "runtime-tests")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn metamask_three_node_session_uses_pool_pow_tls_and_grandpa() {
     use sc_transaction_pool_api::{
@@ -1582,6 +1584,7 @@ async fn pending_mapping_reads_native_storage_and_rejects_corrupt_accounts() {
     );
 }
 
+#[cfg(feature = "runtime-tests")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn signed_transactions_receipts_logs_finality_reorg_and_restart_over_real_tls_wasm() {
     let mut config = test_config("ethereum", tokio::runtime::Handle::current());
