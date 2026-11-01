@@ -270,3 +270,36 @@
   field_label_zh: 法律标题
 - field_key: vote_type
   field_label_zh: 表决类型
+
+- field_key: service_origin
+  field_label_zh: 充值服务来源
+
+- field_key: chain_genesis_hash
+  field_label_zh: 公民链创世哈希
+
+- field_key: package_id
+  field_label_zh: 充值套餐
+
+- field_key: token
+  field_label_zh: 付款币种
+
+- field_key: network
+  field_label_zh: 付款网络
+
+- field_key: asset
+  field_label_zh: 付款资产合约
+
+- field_key: recv_address
+  field_label_zh: 稳定币收款地址
+
+- field_key: pay_amount
+  field_label_zh: 付款金额
+
+- field_key: coin_fen
+  field_label_zh: 预计公民币
+
+- field_key: config_hash
+  field_label_zh: 付款配置指纹
+
+- field_key: recovery_hash
+  field_label_zh: 本次申请随机摘要

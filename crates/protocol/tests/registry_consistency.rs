@@ -301,8 +301,8 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "bd87109e2be4d6651f266e60ee785eff6da77dc3c46635a8a3c3fffa95e43ba3",
-        "Dart registry 与保留的原消费者完整字节不一致"
+        "75397e8e2682394b69f5a0548344a92026b5d0ee5e81a1eabdab851342b2722e",
+        "Dart registry 与包含充值动作的正式导出金标不一致"
     );
 }
 
@@ -403,4 +403,36 @@ fn generated_qr_body_validators_are_current() {
             .unwrap_or_else(|error| panic!("{} 读取失败: {error}", path.display()));
         assert_eq!(actual, expected, "{} 不是最新生成产物", path.display());
     }
+}
+
+#[test]
+fn topup_is_registered_full_offchain_authorization() {
+    let action = actions()
+        .unwrap()
+        .into_iter()
+        .find(|row| row.action_key == "topup")
+        .unwrap();
+    assert_eq!(action.action_code, 18);
+    assert_eq!(action.kind, qr_protocol::registry::ActionKind::OffchainSign);
+    assert_eq!(action.signing_category, SigningCategory::OffchainAuth);
+    assert!(!action.hash_only_allowed);
+    assert_eq!(
+        action.required_fields,
+        [
+            "service_origin",
+            "chain_genesis_hash",
+            "account_id",
+            "package_id",
+            "token",
+            "network",
+            "asset",
+            "recv_address",
+            "pay_amount",
+            "coin_fen",
+            "config_hash",
+            "recovery_hash"
+        ]
+    );
+    assert!(action.pallet.is_none());
+    assert!(action.call.is_none());
 }

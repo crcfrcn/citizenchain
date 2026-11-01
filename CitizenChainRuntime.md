@@ -3345,3 +3345,6 @@ Runtime真实端到端在tests/e2e.rs独立注册，通过所属脚本公开RPC�
 Runtime真实WASM整链验收由scripts/runtime.mjs build在本轮临时源码副本中执行：完成三份WASM校验后，将临时Runtime构建钩子恢复为本仓仅嵌入实现，通过WASM_FILE消费本轮runtime.wasm，关闭SDK额外WASM构建，再以node --lib --features runtime-tests执行原Ethereum专项及两项整链验收，成功后才复制正式产物。临时副本的Runtime双版本与该WASM一致；节点Tauri应用版本取节点自身配置，不使用Runtime整数版本。Ubuntu24.04专项Runner复用节点既有GTK/WebKit等系统链接依赖，无新增Cargo/npm依赖。节点四端默认不启用该feature，不生成、下载或交付测试WASM。专项开启节点测试前仅清理三个SDK生成包（revive-dev-runtime、substrate-test-runtime、frame-storage-access-test-runtime）的本轮release输出，避免部分缓存遗留的Some引用指向缺失wbuild文件；本轮产品runtime.wasm保持，不再生成第二份产品Runtime。
 
 本地GRANDPA覆盖包sc-consensus-grandpa的完整原验收归Runtime专项：节点默认工作区命令仅排除该包的测试，生产依赖仍正常编译；不删除、忽略或改写任何GRANDPA测试。Runtime专项完成产品Ethereum验收后，解除SDK的WASM跳过标记，执行sc-consensus-grandpa --lib，由锁定SDK构建自身测试Runtime并运行原测试客户端。SDK测试WASM只属于该专项输入，不进入节点包或正式Runtime三件产物；产品Runtime仍只编译一次。
+
+### 充值离线签名动作
+独立host协议工具crates/protocol登记topup动作18及完整审阅字段，类型offchain_sign/offchain_auth、QR_V1 sign_request；禁止hash-only。动作/中文字段唯一源仍为registry/actions.yaml与fields.yaml，由原export_registry生成既有消费表。该host登记不进入runtime wasm，不改变Runtime版本、链上调用或节点；SDK通用opaque签名接口不增加业务分支。

@@ -14,6 +14,31 @@
   required_fields:
     - system
 
+# 公民账户充值信息授权：完整原文审阅，签后才生成订单，付款另由外部钱包完成。
+- action_key: topup
+  action_code: 18
+  action_label_zh: 充值信息确认
+  kind: offchain_sign
+  qr_kind: sign_request
+  pallet:
+  call:
+  decoder: topup
+  hash_only_allowed: false
+  signing_category: offchain_auth
+  required_fields:
+    - service_origin
+    - chain_genesis_hash
+    - account_id
+    - package_id
+    - token
+    - network
+    - asset
+    - recv_address
+    - pay_amount
+    - coin_fen
+    - config_hash
+    - recovery_hash
+
 - action_key: citizen_identity
   action_code: 2
   action_label_zh: 公民签名确认
