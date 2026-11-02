@@ -33,8 +33,21 @@ use substrate_frame_rpc_system::AccountNonceApi;
 pub(crate) fn identity_binding(
     cid: &identity::CidNumberBound,
     account: &AccountId,
-    mut read: impl FnMut(Vec<u8>) -> Result<Option<Vec<u8>>, jsonrpsee::types::ErrorObjectOwned>,
+    genesis: runtime::Hash,
+    info: &sp_blockchain::Info<Block>,
+    mut read: impl FnMut(
+        runtime::Hash,
+        Vec<u8>,
+    ) -> Result<Option<Vec<u8>>, jsonrpsee::types::ErrorObjectOwned>,
 ) -> Result<Option<serde_json::Value>, jsonrpsee::types::ErrorObjectOwned> {
+    if info.genesis_hash != genesis {
+        return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+            -32013,
+            "chain_genesis_mismatch",
+            None::<()>,
+        ));
+    }
+    let at = info.finalized_hash;
     fn decoded<T: Decode>(
         raw: Option<Vec<u8>>,
     ) -> Result<Option<T>, jsonrpsee::types::ErrorObjectOwned> {
@@ -58,9 +71,10 @@ pub(crate) fn identity_binding(
         })
         .transpose()
     }
-    let registry = decoded::<identity::CidRecord<u32>>(read(identity::CidRegistry::<
-        runtime::Runtime,
-    >::hashed_key_for(cid))?)?;
+    let registry = decoded::<identity::CidRecord<u32>>(read(
+        at,
+        identity::CidRegistry::<runtime::Runtime>::hashed_key_for(cid),
+    )?)?;
     let Some(registry) = registry else {
         return Ok(None);
     };
@@ -72,12 +86,15 @@ pub(crate) fn identity_binding(
         ));
     }
     let forward = decoded::<AccountId>(read(
+        at,
         identity::AccountIdByCid::<runtime::Runtime>::hashed_key_for(cid),
     )?)?;
-    let reverse = decoded::<identity::CidNumberBound>(read(identity::CidByAccountId::<
-        runtime::Runtime,
-    >::hashed_key_for(account))?)?;
+    let reverse = decoded::<identity::CidNumberBound>(read(
+        at,
+        identity::CidByAccountId::<runtime::Runtime>::hashed_key_for(account),
+    )?)?;
     let revision = decoded::<u64>(read(
+        at,
         identity::BindingRevisionByCid::<runtime::Runtime>::hashed_key_for(cid),
     )?)?;
     if forward.as_ref() != Some(account)
@@ -94,7 +111,7 @@ pub(crate) fn identity_binding(
         jsonrpsee::types::ErrorObjectOwned::owned(-32010, "identity_state_unavailable", None::<()>)
     })?;
     Ok(Some(
-        serde_json::json!({"cid_number":cid,"account_id":format!("0x{}",hex::encode(account.encode())),"bind_rev":revision}),
+        serde_json::json!({"block":format!("0x{}",hex::encode(at.as_bytes())),"cid_number":cid,"account_id":format!("0x{}",hex::encode(account.encode())),"bind_rev":revision}),
     ))
 }
 
@@ -379,15 +396,7 @@ where
                 jsonrpsee::types::ErrorObjectOwned::owned(-32602, "invalid_genesis", None::<()>)
             })?;
             let info = client.info();
-            if info.genesis_hash != genesis {
-                return Err(jsonrpsee::types::ErrorObjectOwned::owned(
-                    -32013,
-                    "chain_genesis_mismatch",
-                    None::<()>,
-                ));
-            }
-            let at = info.finalized_hash;
-            identity_binding(&cid, &account, |key| {
+            identity_binding(&cid, &account, genesis, &info, |at, key| {
                 client
                     .storage(at, &sp_storage::StorageKey(key))
                     .map(|v| v.map(|v| v.0))
