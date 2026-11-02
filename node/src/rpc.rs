@@ -29,6 +29,75 @@ use std::sync::Arc;
 
 use substrate_frame_rpc_system::AccountNonceApi;
 
+/// 在同一既有finalized快照下严格读取最小绑定；不读取注册历史或投票等级。
+pub(crate) fn identity_binding(
+    cid: &identity::CidNumberBound,
+    account: &AccountId,
+    mut read: impl FnMut(Vec<u8>) -> Result<Option<Vec<u8>>, jsonrpsee::types::ErrorObjectOwned>,
+) -> Result<Option<serde_json::Value>, jsonrpsee::types::ErrorObjectOwned> {
+    fn decoded<T: Decode>(
+        raw: Option<Vec<u8>>,
+    ) -> Result<Option<T>, jsonrpsee::types::ErrorObjectOwned> {
+        raw.map(|bytes| {
+            let mut input = bytes.as_slice();
+            let value = T::decode(&mut input).map_err(|_| {
+                jsonrpsee::types::ErrorObjectOwned::owned(
+                    -32010,
+                    "identity_state_unavailable",
+                    None::<()>,
+                )
+            })?;
+            if !input.is_empty() {
+                return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+                    -32010,
+                    "identity_state_unavailable",
+                    None::<()>,
+                ));
+            }
+            Ok(value)
+        })
+        .transpose()
+    }
+    let registry = decoded::<identity::CidRecord<u32>>(read(identity::CidRegistry::<
+        runtime::Runtime,
+    >::hashed_key_for(cid))?)?;
+    let Some(registry) = registry else {
+        return Ok(None);
+    };
+    if registry.status != identity::CidRecordStatus::Active || registry.revoked_at.is_some() {
+        return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+            -32011,
+            "identity_revoked",
+            None::<()>,
+        ));
+    }
+    let forward = decoded::<AccountId>(read(
+        identity::AccountIdByCid::<runtime::Runtime>::hashed_key_for(cid),
+    )?)?;
+    let reverse = decoded::<identity::CidNumberBound>(read(identity::CidByAccountId::<
+        runtime::Runtime,
+    >::hashed_key_for(account))?)?;
+    let revision = decoded::<u64>(read(
+        identity::BindingRevisionByCid::<runtime::Runtime>::hashed_key_for(cid),
+    )?)?;
+    if forward.as_ref() != Some(account)
+        || reverse.as_ref() != Some(cid)
+        || !revision.is_some_and(|v| v > 0)
+    {
+        return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+            -32012,
+            "identity_binding_mismatch",
+            None::<()>,
+        ));
+    }
+    let cid = std::str::from_utf8(cid.as_slice()).map_err(|_| {
+        jsonrpsee::types::ErrorObjectOwned::owned(-32010, "identity_state_unavailable", None::<()>)
+    })?;
+    Ok(Some(
+        serde_json::json!({"cid_number":cid,"account_id":format!("0x{}",hex::encode(account.encode())),"bind_rev":revision}),
+    ))
+}
+
 const MAX_TRANSFER_REMARK_BYTES: usize = 99;
 
 /// Full client dependencies.
@@ -281,6 +350,56 @@ where
                     "合并 offchain 清算 RPC 失败:{e:?}"
                 )))
             })?;
+    }
+
+    // 此只读方法只聚合本地既有存储；不增加端口、不改变共识或最终性规则。
+    {
+        let client = client.clone();
+        module.register_method("identity_getBinding", move |params, _, _| {
+            let (cid, account, genesis): (String, String, String) = params.parse()?;
+            let cid: identity::CidNumberBound = cid.into_bytes().try_into().map_err(|_| {
+                jsonrpsee::types::ErrorObjectOwned::owned(-32602, "invalid_cid", None::<()>)
+            })?;
+            if cid.is_empty() || !cid.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'-') {
+                return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+                    -32602,
+                    "invalid_cid",
+                    None::<()>,
+                ));
+            }
+            let account_bytes = account
+                .strip_prefix("0x")
+                .and_then(|s| hex::decode(s).ok())
+                .and_then(|v| <[u8; 32]>::try_from(v).ok())
+                .ok_or_else(|| {
+                    jsonrpsee::types::ErrorObjectOwned::owned(-32602, "invalid_account", None::<()>)
+                })?;
+            let account = AccountId::new(account_bytes);
+            let genesis: runtime::Hash = genesis.parse().map_err(|_| {
+                jsonrpsee::types::ErrorObjectOwned::owned(-32602, "invalid_genesis", None::<()>)
+            })?;
+            let info = client.info();
+            if info.genesis_hash != genesis {
+                return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+                    -32013,
+                    "chain_genesis_mismatch",
+                    None::<()>,
+                ));
+            }
+            let at = info.finalized_hash;
+            identity_binding(&cid, &account, |key| {
+                client
+                    .storage(at, &sp_storage::StorageKey(key))
+                    .map(|v| v.map(|v| v.0))
+                    .map_err(|_| {
+                        jsonrpsee::types::ErrorObjectOwned::owned(
+                            -32010,
+                            "identity_state_unavailable",
+                            None::<()>,
+                        )
+                    })
+            })
+        })?;
     }
 
     module.merge(System::new(client.clone(), pool.clone()).into_rpc())?;
