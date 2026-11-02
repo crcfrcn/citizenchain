@@ -33,7 +33,10 @@ export const manifest=Object.freeze({
     ]
   }
 });
-export function describeConfiguration(){return JSON.parse(JSON.stringify(manifest));}
+// 配置入口只交付既定三字段；运行期证书声明由manifest保留，不混入配置闭集。
+export function describeConfiguration(){
+  return JSON.parse(JSON.stringify({schema:manifest.schema,product_id:manifest.product_id,configuration:manifest.configuration}));
+}
 
 // 平台、工具及产物模板只声明数据；编译和GitHub任务由各自入口实现。
 export const product=Object.freeze({id:'citizenchain',title:'公民链',repository:'crcfrcn/citizenchain',entry:'scripts/build.mjs',

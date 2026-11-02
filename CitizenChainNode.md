@@ -2853,3 +2853,6 @@ macOS、Windows、LinuxARM、LinuxAMD各自独立发行，工作流从本平台�
 
 
 注册绑定核验唯一只读RPC为identity_getBinding([cid_number,account_id,expected_genesis])。节点一次读取client.info，核对创世链并固定其finalized_hash为H，使用本链真实存储类型在H读取CidRegistry、AccountIdByCid、CidByAccountId及BindingRevisionByCid；仅有效、未吊销、双向一致且修订号为正时返回block、cid_number、account_id、bind_rev四字段。block是同一个H，不是best块哈希。不存在返回null；错误链、坏编码、缺失映射、无效修订或撤销均拒绝。一次服务端RPC，节点最多四次本地存储读取；不调用其它网络RPC、不改标准state_queryStorageAt、不新增Runtime API、端口、表或缓存。该结果只供服务端保存公开绑定事实，不授予登录或设备权限。
+
+
+公开配置入口describeConfiguration只返回schema、product_id、configuration三字段；manifest.runtime继续保留既有证书运行期声明。配置读取不交付runtime字段，沿用控制台既定闭集及受保护NRC_PUBLICKEY授权，不变更密钥、节点二进制、交易或Runtime；缺失运行期证书授权不阻塞独立的配置读取和节点软件部署。
