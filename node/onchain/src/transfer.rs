@@ -217,9 +217,10 @@ pub(crate) fn submit_hot_transfer_inner(
 ) -> Result<TransferSubmitResult, String> {
     // 阻塞任务内再次读取 Hot 事实，避免密码校验期间本机密钥发生变化后继续签名。
     let hot_wallet = require_wallet_sign_mode(app, &account_id, crate::wallet::SignMode::Hot)?;
-    let to_ss58_address = to_ss58_address.trim().to_string();
     let destination_account_id_bytes =
-        nodeclient::signing::account_id_from_ss58_address(&to_ss58_address)?;
+        nodeclient::signing::resolve_recipient_account_id(&to_ss58_address)?;
+    // 解析后固定实际收款账户；现有矿工 RPC 继续消费标准 SS58，不再解释原始输入。
+    let to_ss58_address = nodeclient::signing::account_id_to_ss58(&destination_account_id_bytes)?;
     let destination_account_id = format!("0x{}", hex::encode(destination_account_id_bytes));
     if destination_account_id == hot_wallet.account_id {
         return Err("收款地址不能与矿工热钱包相同".to_string());

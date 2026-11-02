@@ -119,7 +119,7 @@ export function TransferForm({ activeWallet, balance, balanceError, onRetryBalan
             type="text"
             value={toAddress}
             onChange={(e) => setToAddress(e.target.value)}
-            placeholder="请输入收款账户"
+            placeholder="请输入 公民链SS58地址 或 以太坊0x地址"
             disabled={formDisabled}
           />
           <button type="button" className="scan-icon-btn" onClick={() => setShowScan(true)} disabled={formDisabled} title="扫码填入">

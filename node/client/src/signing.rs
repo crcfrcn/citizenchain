@@ -231,6 +231,109 @@ pub fn account_id_from_ss58_address(ss58_address: &str) -> Result<[u8; 32], Stri
     Ok(out)
 }
 
+/// 首页转账共用入口：Ethereum 地址按同一 finalized 状态映射到原生账户。
+pub fn resolve_recipient_account_id(address: &str) -> Result<[u8; 32], String> {
+    resolve_recipient_account_id_with_rpc(address, |method, params| {
+        nodedesktop::rpc::rpc_post(
+            method,
+            params,
+            RPC_REQUEST_TIMEOUT,
+            if method == "state_getMetadata" {
+                nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE
+            } else {
+                RPC_RESPONSE_LIMIT_SMALL
+            },
+        )
+    })
+}
+
+fn resolve_recipient_account_id_with_rpc(
+    address: &str,
+    mut rpc: impl FnMut(&str, Value) -> Result<Value, String>,
+) -> Result<[u8; 32], String> {
+    let address = address.trim();
+    let Some(ethereum) = address.strip_prefix("0x") else {
+        return account_id_from_ss58_address(address);
+    };
+    if ethereum.len() != 40 || !ethereum.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("以太坊地址必须为 0x 加 40 位十六进制字符".into());
+    }
+    // 混合大小写必须先验证 EIP-55，不能先转小写抹掉校验信息。
+    let lower = ethereum.to_ascii_lowercase();
+    if ethereum.bytes().any(|b| b.is_ascii_lowercase())
+        && ethereum.bytes().any(|b| b.is_ascii_uppercase())
+    {
+        let hash = sp_crypto_hashing::keccak_256(lower.as_bytes());
+        for (i, byte) in ethereum.bytes().enumerate() {
+            let nibble = if i % 2 == 0 {
+                hash[i / 2] >> 4
+            } else {
+                hash[i / 2] & 15
+            };
+            if byte.is_ascii_alphabetic() && byte.is_ascii_uppercase() != (nibble >= 8) {
+                return Err("以太坊地址大小写校验和无效".into());
+            }
+        }
+    }
+    let ethereum = hex::decode(lower).map_err(|_| "以太坊地址解码失败".to_string())?;
+    let head = rpc("chain_getFinalizedHead", serde_json::json!([]))?;
+    let head = head.as_str().ok_or("最终确认区块哈希格式无效")?;
+    let head = format!("0x{}", normalize_hash_hex(head, "最终确认区块哈希")?);
+    // 缺少 Revive 的旧 Runtime 也会返回空 storage；先核验该块真实存储声明。
+    let metadata = rpc("state_getMetadata", serde_json::json!([head]))?;
+    let metadata = metadata.as_str().ok_or("Runtime 元数据响应格式无效")?;
+    let metadata =
+        crate::codec::decode_runtime_metadata(&crate::codec::decode_hex_storage(metadata)?)?;
+    // V16 扩展了 storage 元数据结构；取出三版共有的映射声明即可。
+    macro_rules! mapping {
+        ($value:expr) => {
+            $value
+                .pallets
+                .into_iter()
+                .find(|p| p.name == "Revive")
+                .and_then(|p| p.storage)
+                .and_then(|storage| {
+                    storage
+                        .entries
+                        .into_iter()
+                        .find(|entry| entry.name == "OriginalAccount")
+                        .map(|entry| (storage.prefix, entry.ty, entry.modifier))
+                })
+        };
+    }
+    let (prefix, mapping, modifier) = match metadata {
+        frame_metadata::RuntimeMetadata::V14(value) => mapping!(value),
+        frame_metadata::RuntimeMetadata::V15(value) => mapping!(value),
+        frame_metadata::RuntimeMetadata::V16(value) => mapping!(value),
+        _ => unreachable!("元数据版本已校验"),
+    }
+    .ok_or("当前最终确认 Runtime 不支持 Ethereum 账户映射")?;
+    if modifier != frame_metadata::v14::StorageEntryModifier::Optional
+        || !matches!(&mapping, frame_metadata::v14::StorageEntryType::Map { hashers, .. }
+        if hashers.as_slice() == [frame_metadata::v14::StorageHasher::Identity])
+    {
+        return Err("Runtime Ethereum 账户映射存储格式不受支持".into());
+    }
+    let mut key = nodedesktop::storage::prefix(prefix.as_bytes(), b"OriginalAccount");
+    key.extend_from_slice(&ethereum);
+    let mapped = rpc(
+        "state_getStorage",
+        serde_json::json!([format!("0x{}", hex::encode(key)), head]),
+    )?;
+    match mapped {
+        Value::Null => {
+            // 与锁定 SDK AccountId32Mapper 的无映射规则一致。
+            let mut account = [0xEE; 32];
+            account[..20].copy_from_slice(&ethereum);
+            Ok(account)
+        }
+        Value::String(value) => crate::codec::decode_hex_storage(&value)?
+            .try_into()
+            .map_err(|_| "Ethereum 账户映射必须为 32 字节".into()),
+        _ => Err("Ethereum 账户映射响应格式无效".into()),
+    }
+}
+
 /// 验证签名响应并提交 extrinsic（通用，支持 vote_transfer 和 joint_vote）。
 ///
 /// call_data 由调用方根据投票类型构建。

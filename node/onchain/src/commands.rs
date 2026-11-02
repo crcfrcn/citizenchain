@@ -150,7 +150,7 @@ pub fn build_cold_transfer_request(
 
     // 校验收款地址
     let destination_account_id_bytes =
-        nodeclient::signing::account_id_from_ss58_address(&to_ss58_address)?;
+        nodeclient::signing::resolve_recipient_account_id(&to_ss58_address)?;
     let destination_account_id = format!("0x{}", hex::encode(destination_account_id_bytes));
     if destination_account_id == signer_public_key {
         return Err("收款地址不能与发送方相同".to_string());

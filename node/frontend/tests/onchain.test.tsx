@@ -71,13 +71,23 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('现有四档金额和费用', () => {
+  it.each([destination, '0x6D66a0cB155051055F3FB3Cc73d9230D3Fb4D5B5'])(
+    '收款地址%s原样交给后端解析，不在前端改写大小写', (address) => {
+      const submit = vi.fn();
+      render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={submit} />);
+      fireEvent.change(screen.getByPlaceholderText('请输入 公民链SS58地址 或 以太坊0x地址'), { target: { value: ` ${address} ` } });
+      fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '2' } });
+      fireEvent.click(screen.getByRole('button', { name: '签名交易' }));
+      expect(submit).toHaveBeenCalledExactlyOnceWith(address, 2, '');
+    },
+  );
   it.each([[1, 0.10], [104.99, 0.10], [105, 0.11], [1000, 1]])(
     '%s GMB按既有规则预估为%s GMB，传入签名流程的金额保持一致', (amount, fee) => {
       expect(calculateTransferFeeYuan(amount)).toBe(fee);
       const submit = vi.fn();
       const view = render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={submit} />);
       expect(view.container.querySelector('.transfer-form-balance-label')?.textContent).toBe('钱包余额');
-      fireEvent.change(screen.getByPlaceholderText('请输入收款账户'), { target: { value: destination } });
+      fireEvent.change(screen.getByPlaceholderText('请输入 公民链SS58地址 或 以太坊0x地址'), { target: { value: destination } });
       fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: String(amount) } });
       expect(view.container.querySelector('.transfer-form-summary-line')?.textContent)
         .toContain(fee.toFixed(2));
@@ -89,7 +99,7 @@ describe('现有四档金额和费用', () => {
   it('零金额和超长UTF-8备注不发起签名', () => {
     const submit = vi.fn();
     render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={submit} />);
-    fireEvent.change(screen.getByPlaceholderText('请输入收款账户'), { target: { value: destination } });
+    fireEvent.change(screen.getByPlaceholderText('请输入 公民链SS58地址 或 以太坊0x地址'), { target: { value: destination } });
     fireEvent.click(screen.getByRole('button', { name: '签名交易' }));
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '105' } });
     fireEvent.change(screen.getByPlaceholderText('选填，最多 99 字节'), { target: { value: '中'.repeat(34) } });
@@ -270,7 +280,7 @@ describe('现有确认、扫码与提交', () => {
   it('交易池返回哈希后首页明确显示已提交', async () => {
     const view = render(<TransactionPanel />);
     await screen.findByText('1,000.00 元');
-    fireEvent.change(screen.getByPlaceholderText('请输入收款账户'), { target: { value: destination } });
+    fireEvent.change(screen.getByPlaceholderText('请输入 公民链SS58地址 或 以太坊0x地址'), { target: { value: destination } });
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '105' } });
     fireEvent.click(screen.getByRole('button', { name: '签名交易' }));
     fireEvent.click(screen.getByRole('button', { name: '确认转账' }));
