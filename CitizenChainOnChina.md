@@ -581,7 +581,6 @@ citizenchain/onchina/
 
 登录页与后台只使用节点公开的公信HTTPS入口；不提供CA下载、浏览器导入或信任设置流程。Passkey要求正常的HTTPS安全上下文，不把域名、证书或安全上下文错误误报为摄像头权限问题。
 
-
 passkey 客户端在调用 `navigator.credentials.create/get` 前必须检查 `window.isSecureContext`、`PublicKeyCredential` 和 `navigator.credentials`，并分别提示“证书未信任 / 浏览器不支持 / 用户取消”。
 
 摄像头扫码客户端在调用 `getUserMedia` 前必须检查 HTTPS 安全上下文和 `navigator.mediaDevices.getUserMedia`，避免把证书未信任误判成摄像头权限被拒绝。
@@ -842,8 +841,7 @@ PostgreSQL 完成总验收。当前 fresh genesis hash 为
 `0xafac9d55a77a10780b5c5cb29da6118ecf4a7b9652960e52502ebacf5d403535`，
 OnChina 投影为 49,593 个机构和 99,232 个账户；新增的一个计数来自联邦公民安全
 基金账户，不是机构重复行。CitizenApp 与 CitizenWallet 使用同一公开测试助记词恢复
-出相同规范 `account_id`，旧字段、非法大小写和 SS58 主键入口均失败关闭。
-Cloudflare staging 的 D1/KV/R2 可清理真写通过，production 只读。仓库没有 fresh
+出相同规范 `account_id`，旧字段、非法大小写和 SS58 主键入口均失败关闭。仓库没有 fresh
 创世管理员公开账户对应的私钥或助记词，因此本次没有伪造管理员成功登录或线上业务
 签名；链内正例由全 workspace runtime externalities 测试覆盖。
 
@@ -981,8 +979,6 @@ FRG/CREG，只返回同一 finalized 区块中的 CID 状态、当前账户、�
 
 回归覆盖当前 Runtime 元数据事件解码、溢出和坏事件停止、交易记录/锚点/进度原子性、并发 ID/公民编辑、绑定切换、名册准确归属、公民迁出正本保留、立法跨省同市号、同钱包多岗位票据及恢复互斥。源码断言与静态检查不能代替测试、类型检查、编译或运行验收；具体授权和执行证据只登记在唯一任务卡。
 
-
-
 ## 模块独立构建与装载
 
 唯一专属构建入口是 scripts/onchina.mjs。构建目标读取Cargo metadata中的真实workspace成员、manifest、package及bin；业务模块的 ID、独立软件版本、前端入口、公开导出、HTTP 路由、提交 purpose、安全动作和工作台能力由对应module.rs实际实现提供。构建时执行已编译程序的 --describe 取得声明，该动作在日志、数据库、TLS 和链连接初始化之前返回。夹具不作为生产配置，既不新增 module.json，也不从目录名猜测业务。
@@ -1017,7 +1013,6 @@ npm run dev沿用构建后预览流程；npm run preview读取宿主独立工程
 
 OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scripts/onchina.mjs 的 buildPreparedOnChina 公开实现。它直接读取真实workspace Cargo metadata目标，执行已编译模块的 --describe，编译同一声明的前端并交付宿主、模块及所需运行库；控制台不实现模块编译。依赖由本仓各自原始 npm/Cargo 锁及官方包管理器准备，构建与测试输出只进入本轮 target 现场，工程直接使用本仓准确检出，不创建整仓源码副本或资源回执。测试由Workflow执行，build.mjs只做编译和完整产物。整个原 Run 结束后的历史清理、恢复不重派与版本规则统一见 CitizenChainNode.md 当前合同；OnChina 模块自身 VERSION 和 MODULE_INTERFACE_VERSION 不由交付命名改写。
 
-
 ### 模块装载与维护边界
 
 登记机构管理员的现有 call 9 必须依次编码目标 CID、管理员集合、操作注册局 CID、actor_role_code；岗位码复用原治理表单输入，后端不代选岗位，原链端权限校验保持。界面、钱包扫码顺序与全部 HTTP 方法/路径保持；链签名准备前完成后端要求的一次Passkey认证。完整载荷回归使用现有 RuntimeCall 解码交叉核验；测试代码维护不表示已执行。
@@ -1028,7 +1023,6 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 能力夹具只为真实所属模块声明业务能力；无owner的NRC、PRC、PRB和未知码回归必须经过真实基础能力分支。工作台夹具完整保留分区、动作、文字、顺序及enabled值。普通回归使用独立测试进程和临时证书核验真实HTTPS转发、证书/主机名拒绝、退出和同路径程序替换，不连接业务数据库或链。verifyPreparedOnChina只静态核对本轮产物；真实业务IIFE验收由既有四平台塔塔自动化在编译后、记录产物原始字节前登记：向既有结构测试及前端测试明确传入ONCHINA_TEST_MODULE_ROOT和ONCHINA_TEST_MODULE_IDS，只核验所选模块。实际--describe、JS/CSS首行、IIFE导出和宿主真实公开对象/React/认证Provider须一致；任一失败中止交付。普通单元测试未提供产物时明确跳过，不能把伪DOM回归作为真实产物验收。
 
-
 ### 法律地域协议
 
 共享 Rust 类型及原机构 CID 派生入口唯一归 runtime/primitives/src/genesis.rs 的 LawRegion；不修改 CID 解析或地区字典。SCALE 顺序为 province_code:[u8;2]、city_number:u16 LE，固定四字节，保持原新法参数位置和后续字段偏移。省级为原字母省码及零市号；市级为原字母省码及原三位市号的数值，显示保留前导零。宪法/国家级使用显式四零字节，不表示国家代码改变或错误默认值；CN 保持。非法层级、省码或市号拒绝，不使用 MAX、数字省码映射或全国回退。
@@ -1037,12 +1031,9 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 当前只有创世宪法，不设计普通法律存量迁移，不改宪法字节、索引、国家立法院归属、众议会发起和两院表决规则，不改节点守卫。Runtime升级统一遵循CitizenChainRuntime.md的版本政策：每次正式升级两个版本各自加1，钱包同步交易版本；OnChina不生成或写回版本号，不以spec_version代替transaction_version。地域接口与版本值按现有Runtime合同保持；源码维护不表示已经执行链上升级或部署，实际验证证据只归唯一任务卡。
 
-
 公共机构治理通过platform/institutions/model.rs的GovernanceCitizen与platform/database/records.rs的只读查询取得CID、姓、名及可空账户。查询沿用原修剪、空输入、created_at倒序及未找到语义，真实数据库失败原样返回；不静态编入注册局完整档案、写入或投影业务。Passkey一次性断言消费使用PostgreSQL官方GenericClient，连接与事务共用原SQL；事务回滚恢复可消费状态，提交后仍只消费一次。既有真实数据库回归覆盖查询字段、顺序、缺失与故障和断言事务语义，仍需控制台提供隔离测试数据库后显式执行，不以普通编译代替集成验收。
 
-
 本轮链上中国自有HTTP DTO采用Serde官方camelCase，Rust成员仍为snake_case，业务字段不超过三个单词。软件模块装载版本1的ModuleDescription/工作台规范及固定QR_V1接口保留原声明；能力字段的Rust成员缩短，原公开装载JSON键由官方Serde明确保持，不建立新旧双读。当前Runtime源码、目录、metadata和SCALE合同冻结。数据库目标声明在本轮隔离验收，真实数据不自动迁移或清空。
-
 
 认证挑战、授权、登录请求和绑定挑战以严格Serde JSON作为唯一持久事实，身份/归属/过期从同一JSON的PostgreSQL表达式索引查询；内部期限使用Chrono官方UTC毫秒序列化，不改QR原始期限或签名内容。会话只额外保存令牌哈希，不保存明文或空令牌占位；查询后关联本次请求原令牌。二维码结果只额外保存原挑战键。
 
@@ -1060,7 +1051,6 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 注册局公民行、建档、身份签名准备/完成和finalized绑定的自有DTO只携带规范accountId；SS58展示复用前端既有encodeSs58。私有链签会话也不保存地址副本。账户校验仍要求小写0x与32字节，不改变QR签名载荷或CID控制账户判断。
 
-
 ### 包与测试入口
 
 |Cargo包|源码入口|唯一Rust测试目录|
@@ -1072,7 +1062,6 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 |onchina-judicial|onchina/judicial/workspace/main.rs、src/module.rs|onchina/judicial/tests|
 
 五个前端测试分别归各自独立npm包；复杂前端使用本包tests，两个嵌套小前端各合为包根Workspace.test.tsx。共用安全mock和后端常量读取只归platformweb/tests/security.ts，由平台包公开testing入口提供。真实程序、JS/CSS首行及IIFE验收显式交付ONCHINA_TEST_MODULE_ROOT和ONCHINA_TEST_MODULE_IDS，既支持完整模块集合，也支持仅所选模块；没有产物输入的普通测试明确跳过实际产物项，不把跳过当通过。完整端到端、设备、预算性能与跨平台实际运行单独验收。
-
 
 数据库最终结构为27张顶层表、205列、54个显式索引，7类省分区按43省生成301个子表，含顶层表共328个表对象。member/replay/request/nonce不再声明，private重复存储及其动态备份、清理和分区登记一并移除；subject删除issuer_cid/proposal_id，government删除始终写空的home_province/home_city。私权原六类类型、可选合伙形态、盈利属性和有效市级作用域由subject条件约束承接，仅在record_kind=PRIVATE且private_type有值时校验；legal_personality保持subject原有可空语义，不持久化旧副表的派生false。全局identity/passport唯一约束、现有授权及事务边界保持。
 

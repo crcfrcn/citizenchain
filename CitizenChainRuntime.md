@@ -2966,8 +2966,6 @@ WASM 的 fresh 临时节点正常启动，block#0 为
 | 扣款、收款、订阅状态 | CitizenChain | 首扣和到期自动扣款均在 runtime 原子执行 |
 | 真实公历到期时间 | CitizenChain | 从当前区块共识时间戳确定性计算 |
 | 自动续费调度 | CitizenChain | 到期后按时间顺序处理；停链期间到期周期在恢复出块后补扣 |
-| 创作者展示资料 | Cloudflare/D1 | 只保存名称、说明、权益和媒体资料 |
-| finalized 订阅镜像 | Cloudflare/D1 | 只做低频缓存、展示和门禁加速，可从链重建 |
 | 平台调价 | 统一投票引擎 | `SquarePost` 只创建提案并接收终态回调 |
 
 CitizenApp 对订阅、取消、换套餐以及创作者覆盖设置自己的套餐分别只签名一次，并展示链上时间戳。Cloudflare 不计算日期、不发起扣款、不扫描全链订阅、不决定价格或到期时间；App、设备和 Cloudflare 是否在线均不影响续费。
@@ -3132,22 +3130,11 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 
 订阅授权由订阅者第一次签名建立，并持续有效到订阅者签名取消。公历到期时间、自动扣款和状态变更由 runtime 唯一决定；CitizenApp 与 Cloudflare 都不能伪造、延长或触发续费。共识时间戳仍受区块生产与 Timestamp pallet 规则约束，但在同一链状态下所有节点执行完全相同的整数公历结果。
 
-#### 12. Cloudflare/D1
-
-- 服务端HTTP、授权、存储和恢复合同唯一归 /Users/rhett/citizenserve/CitizenServe.md。会员公开路径为/api/membergate，注册门禁归logingate；运行模块不改变本runtime的SCALE字段或交易编码。
-- 会员/创作者确认仅提交tx_hash与block_hash；平台确认可选include_state。Worker从canonical finalized交易与同块storage核对真实主体和用途，不接受客户端提供的签名字节、价格、状态、档位或展示数组作为确认事实。
-- 平台镜像表为square_membergates，创作者订阅为square_creator_subscriptions，档位为square_creator_tiers；chain_transaction_confirmations绑定准确主体、区块及入口/动作，拒绝跨用途复用，不保留旧裸动作兼容。
-- 日常业务使用D1的一次身份/设备/会话及会员快照，经唯一Permit授权；普通请求不查链、不因失败分支触发投影重建。缺检查点、未来时间、撤销、换绑、会话及会员到期仍拒绝。
-- 原六分钟Cron直接读取当前最终块H的身份、会员与创作者状态，将真实三档展示价格和原检查点同批提交；同H且价格完整时不写，缺价可补齐，失败整体回滚。没有chain_clock年龄门禁、逐块追赶或仅到期候选纠偏流程。
-- 展示价格只读D1，R2保存对象，Durable Objects只负责实时聊天；不使用Workers KV，宪法由App轻节点读取并本地保存。破坏性存储清理仍核验当前同块身份/订阅及原宽限、提醒和期限，复用同次身份与链时间，不读取无关报价。
-- CitizenApp保留真实finalized证明及有界待确认记录，服务端不可用时只重试原确认，不再次签名、广播或付款。runtime仍是扣款、公历续费和状态变更的唯一执行者。
-- P2P媒体不占用Cloudflare存储；Cloudflare上传、存储、中转及媒体交付仍由服务端当前门禁和额度合同约束，不虚构尚无的创作者专属路由。
-
 #### 13. 重新创世
 
 - 开发期全网重新创世直接生成 CID 键布局，不读取、转换或保留任何 AccountId 旧键。
 - SquarePost 不提供 storage migration、兼容枚举、旧 call 或双轨查询。
-- 新链的边缘投影必须来源于其真实finalized状态。任何既有D1结构或数据变更须单独审核授权；不包含KV重建、自动迁移或默认清空数据。
+- 新链的边缘投影必须来源于其真实finalized状态。
 - 创世后必须以真实本地链验证：CID A 绑定账户 1 完成订阅，换绑到账户 2 后关系不变，
   自动续费只扣账户 2；CID 或双向绑定不可用时不得扣账户 1。
 
@@ -3182,10 +3169,8 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 - runtime 覆盖月末、闰年、跨年、季和年周期计算、自动续费、停链后补扣和余额不足终止。
 - Cloudflare 严格解码新状态，拒绝尾随字节和非法标签，且不包含任何日期计算。
 - Cloudflare 必须验证 finalized 主链中完整已签名 extrinsic、同一区块状态和首次请求绑定；旧区块证明不能刷新链时钟。
-- 本地 Worker、D1 与 HTTP 必须实测缺设备证明的 finalized 镜像请求可进入业务校验，而其它受保护写请求仍保持设备证明门禁。
 - OnChina 已在隔离本地 PostgreSQL 上连接真实本地链并完成链投影同步；平台价格、调价提案和统一提交接口在无登录态时均 fail-closed，旧公民专属提交入口已移除。
 - OnChina、CitizenWallet 与统一二维码注册表已完成编译、静态分析和自动测试；最终跨端调价交易、内部投票终态及完整订阅生命周期纳入第 6 步总验收。
-- 后续步骤必须完成真机、真实本地链、真实 Worker/D1/HTTP 的端到端验收。
 
 #### 16. 禁止事项
 
@@ -3193,7 +3178,6 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 - 禁止在 CitizenApp 或 Cloudflare 计算并提交订阅到期时间。
 - 禁止外部 renew、周期确认、设备签名或 keeper。
 - 禁止跳过停链期间已经到期的周期或恢复旧订阅协议。
-- 禁止把 D1 镜像当作订阅真源。
 - 禁止在业务模块实现投票流程。
 - 禁止保留旧字段、旧注释、旧 UI 文案或兼容分支。
 
@@ -3232,7 +3216,6 @@ wasm.yml只接收workflow_dispatch，使用prepare、build、release、cleanup�
 
 Runtime开发升级仍属于控制台既有功能。该功能仅同步正式WASM读取处的静态配置消费，原冷签、授权、交易构造和实际链提交保持；产品编译和GitHub任务不迁入控制台。正式WASM交付不代表开发升级或服务器节点更新已完成。
 
-
 ### 法律地域固定布局
 
 法律主体、提案摘要、新法调用、LawsByScope第二键与LegislationApi v2统一复用primitives::genesis::LawRegion。字段按原顺序占四字节：province_code:[u8;2]原两位大写字母，city_number:u16小端原省内三位市号的数值；省级city_number=0表示不限定市。不把省码转换为数值，不改变原CID/省市解析。写入入口及投票完成回调将地域与已授权发起机构原CID派生结果核对，路由机构码、归属与表决规则不变。查询只接受0—3层级和匹配地域形状，不将非法层级视为市级。
@@ -3241,13 +3224,11 @@ Runtime开发升级仍属于控制台既有功能。该功能仅同步正式WASM
 
 原始u32=0法律记录金标和独立拼装的宪法索引键断言保留，并覆盖不同省同市号隔离、非法地域、CID与地域不符、最终写入回调复校验及第1001部法律。transaction_version是框架RuntimeVersion原生字段，交易使用框架CheckTxVersion；本次参数类型变化按上述统一升级政策处理，不再单独询问是否提高两个版本。地域源码和配套维护已完成，候选由scripts/runtime.mjs构建时依据真实部署基线派生该次版本。本轮保留版本数值，不根据仓库值推断运行节点版本；未执行测试、类型检查、编译、守卫验收、安装或链升级。
 
-
 Runtime产物验收由runtime.mjs读取三份实际WASM的runtime_version段，支持SDK原压缩格式并沿用其50MiB解压边界。WASM段长接受u32宽度内合法LEB128补零，保留超长、溢出、截断和段越界拒绝。三个产物必须属于citizenchain且双版本与本轮目标一致，不从文件名或Tag推断。runtime.mjs的recordAssets记录完整集合及原始字节摘要，publish读取同一Run的三份实际附件并复核双版本、字节和来源后创建草稿及正式交付；下载回读保持。输出version与runtime记录绑定source_sha、genesis_hash、base_block_hash、spec_name、基线及目标双版本，显示号等于目标spec_version，目标双版本分别为基线加1；配置中的原公开命名和证明接口仅转调该文件的WASM校验，不复制实现。正常退出清理临时源码；工具退出未确认时保留现场。
 
 WASM历史维护直接归原Workflow的cleanup，不派发repository_dispatch维护Run。本轮按已结束的prepare、build、release结果占用一个保留名额，三项全部成功才占成功名额，否则占失败名额；已完成历史按GitHub真实conclusion选择，保留最近成功1条、失败1条。活动Run不删除；旧资产按准确Run、SHA与Tag归属处理，删除后回读Run不存在并核对两类各最多1条，错误不得吞掉。本轮最终conclusion由GitHub在cleanup结束后确定，清理失败或外部强制中断不得报告严格两条已完成。
 
 WASM专属回归、临时夹具和断言集中在runtime.mjs，config.mjs保留声明及通用规则回归；协议所有者repo_guard.rs保留原阶段/依赖/拒绝断言，并校验runtime_base必需、Runner不依赖RPC地址及Workflow只转调Runtime。回归覆盖原始/压缩WASM、合法补零/非法长度、双版本加1、0/溢出、同基线重试、冻结链身份、基线完整性、派发传递、导入和创建声明无网络副作用、Runner仅消费快照、原源码不变、旧入口拒绝及整数名称。公开证书新增描述符读/关闭、UID及权限、链接/硬链接、ACL未知或写授权拒绝、文件/目录替换、格式与大小边界、HTTPS证书选项及失败不派发回归；本机派发夹具改用HTTPS请求注入，不再用全局fetch替身绕开生产本机请求。收尾回归直接调用同一finalize函数的内存GitHub替身，覆盖旧版本/失败草稿清理、保留项和活动Run保护、API拒绝、删除未确认、attempt漂移及未知来源；失败必须核对具体原因。这里只描述源码与回归合同，不构成测试、GitHub编译、安装或链升级通过的证据。
-
 
 ## 包、分组和源码结构
 
@@ -3326,7 +3307,6 @@ Runtime真实端到端在tests/e2e.rs独立注册，通过所属脚本公开RPC�
 属性用例固定随机种子以复现同批输入，关闭自动向源码树写失败持久文件；最小失败样本由原测试日志记录，修复时以所属tests内固定回归保留，不建立第二份金标。
 
 原生性能驱动另覆盖1001项地域法律索引读取及实际整链默认配置内存初始化，分别交付CITIZENCHAIN_PERF_LAWS_NS、CITIZENCHAIN_PERF_GENESIS_NS。前者验证超过旧容量仍完整只读，后者复用原49,593机构金标。仅操作隔离内存，不重生成磁盘创世输入；默认ignored留最终固定环境验收，不代表RPC、磁盘或整链吞吐已达标。
-
 
 本轮16包的97个模型由真实FRAME基准生成，Runtime统一连接各自WeightInfo/SubstrateWeight。普通转账、地址、多签两类遗漏提案、奖励及维护Hook均有对应模型；resolutionissue移除三个已退役方法。onchainissue/offchain保持禁用。
 

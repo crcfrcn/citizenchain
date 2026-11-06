@@ -8,7 +8,6 @@
 
 `scripts/onchina.mjs` 只实现宿主、所选模块和前端编译、类型检查、资源装配及必要产物检查，直接读取现有Cargo目标和模块--describe；不复制整仓，不启动Node、前端或Cargo测试。集成编译输出属于target/build/<平台>；开发编译直接使用本仓源码，保持target/onchina/<平台>的互斥工作根、整套/单模块输出及指定交付目录。模块业务、VERSION、MODULE_INTERFACE_VERSION、协议、数据库和UI保持。预览由前端package.json直接调用官方vite preview，vite.config.ts只读取产品静态平台声明选择原开发产物路径，原TLS和代理保持。四端Workflow在Node编译后、Artifact记录前调用既有实际模块产物和实际IIFE装载验收；原编译前业务测试保持。
 
-
 ## 五个平台的完整产物
 
 五份既有 `.github/workflows/macos.yml`、`windows.yml`、`linuxarm.yml`、`linuxamd.yml`、`wasm.yml` 各自核对候选和准确源码、准备官方工具、执行所属真实测试、编译并上传完整 Artifact。四端分别交付 DMG、NSIS EXE、ARM64 DEB、AMD64 DEB，包含节点、OnChina宿主、模块及前端、PostgreSQL和必要运行库；WASM精确交付 runtime.wasm、runtime.compact.wasm、runtime.compact.compressed.wasm。
@@ -132,7 +131,6 @@ CITIZENCHAIN_TEST_SESSION_SECONDS限定就绪后保留1至1800秒，默认自动
 既有三节点会话测试使用真实 eth_gasPrice、eth_maxPriorityFeePerGas 和 eth_estimateGas 构造 Legacy/EIP-1559 签名，真实完成 1、104.99、105、1000 GMB 转账，业务费分别为 0.10、0.10、0.11、1.00 GMB。gas 缓冲及价格上限未改变该费用；逐笔核对单次 FeePaid、付款者、转账余额、nonce、区块基价与精确回执乘积，三个独立数据库由官方 GRANDPA 最终确认到第5块，费用历史零优先费和无效金额/价格报价拒绝均通过。就绪记录保存四笔交易、每账户两次 nonce，累计收费分别为21分和110分；受控停机及端口释放通过。另一服务回归同时通过真实合约、分叉日志/回执、迟到第三节点、最终链和同库重启。完整5项测试耗时956.81秒，不表示 MetaMask 页面已经通过。
 
 普通MetaMask接入的唯一源码为node/frontend/desktop/metamask.mjs，正式页面与生成入口归该源码，25项页面测试归node/frontend/tests/metamask.test.mjs。直接执行node node/frontend/desktop/metamask.mjs向标准输出生成HTML；普通导入只导出installHtml，不输出页面或登记测试；node --test node/frontend/tests/metamask.test.mjs执行独立页面测试。原snap目录已删除，源码不保留第二份HTML，费用Snap源码、清单和npm包已取消。用户只需点击添加并切换公民链，分别确认wallet_addEthereumChain和wallet_switchEthereumChain；页面回读eth_chainId为0x7eb后才显示已切换。标准网络名称公民链，链ID2027，公民币GMB、EVM精度18；转账费率永久0.1%，最低0.10GMB，按整数分四舍五入。接入页直接展示上述制度，MetaMask原生估算读取真实eth_estimateGas与gas报价，可能包含钱包缓冲；实际收费以FeePaid及回执gasUsed×effectiveGasPrice核对，不安装插件或另改MetaMask界面。
-
 
 MetaMask接入页的唯一源码为node/frontend/desktop/metamask.mjs，图标准确使用/icons/gmb.png，PNG真源为icons/gmb.png。节点构建脚本通过产品已交付的NODE执行唯一正式生成入口；远端remoteStep将正在运行该产品入口的Node规范路径交付为NODE，沿用现有官方工具版本，不再从PATH搜索；源码视图按仓库根的直接子项沿用原过滤规则逐项复制，避免Node拒绝根向其子目录复制，target与原有资源目录仍排除；输出仅进入Cargo OUT_DIR并嵌入节点，PNG直接嵌入；节点启动不读取静态目录。现有rpc_tls监听器在同一HTTPS端口交付GET/HEAD根页面与GET/HEAD固定图标，根POST、OPTIONS和WSS沿用现有RPC；未知路径404，不支持的资源方法405，HEAD正文为空。固定资源与RPC共用Host/CORS检查及TLS连接额度，不开放文件系统路径、目录列表或任意代理。根WebSocket升级优先于普通页面GET。CitizenServe仍从既有CHAIN_URL的origin读取两个固定资源，使用既有服务端Access身份、3秒总超时、128KiB实际字节上限及类型校验，不复制上游头、Cookie或错误；本轮不改变已验收的Worker静态交付代码。
 
@@ -1744,8 +1742,6 @@ CitizenChain 云节点网络
 各层职责固定如下：
 
 - CitizenApp：内置 smoldot 轻节点，连接 CitizenChain P2P 网络；端上私钥只在本机签名；链上关键判断以 finalized 链状态为准。
-- Cloudflare 边缘层：提供 DNS/WAF/限流、Worker API Gateway、广场 R2 媒体存储、D1/KV/DO
-  边缘数据、Chat 无内容唤醒和 WebRTC SDP/ICE 信令、广场 feed、轻节点启动清单和服务健康信息。
 - Citizen API / OnChina 投影能力：提供非链上查询、公开目录、业务聚合、受控链事件投影和已签名交易广播；不托管私钥，不替用户签名。
 - CitizenChain 云节点网络：运行 `citizenchain/node + runtime + onchina` 安装包，承担 bootnode/full node/archive/indexer/RPC service node 等角色。
 
@@ -1786,13 +1782,10 @@ P2P 连接失败不等于整个 App 不可用。CitizenApp 运行态拆成三种
 ##### 5. 聊天和广场
 
 聊天采用 OpenMLS + Cloudflare 无内容唤醒/SDP/ICE 信令 + WebRTC DataChannel 设备直连
-Envelope、KeyPackage 与附件 + 近场通信。消息、会话、MLS 密文、Envelope、KeyPackage 和
-附件只存在于设备；Cloudflare D1 只保存操作系统推送端点，Durable Object 不保存 Chat 状态。
+Envelope、KeyPackage 与附件 + 近场通信。
 设备直连只使用公共 STUN 发现候选地址，不经过 TURN、HTTP、R2 或其它云端中继。
 
 本节的 Chat 边界由 ADR-043 进一步固化；与 ADR-043 冲突的历史云端转发口径均以 ADR-043 为准。
-
-广场继续采用当前正式路线：媒体文件存 Cloudflare R2，CDN 分发；CitizenChain 只保存发布所需的链上元数据、哈希、索引和费用结果；Worker/D1/KV/DO 承接登录、会员、上传、feed、推荐信号和发布确认。
 
 当前 ADR 不引入 Matrix，不恢复区块链节点聊天，不把聊天消息写入链上。
 
@@ -1900,7 +1893,6 @@ VotingEngine 已统一内部、联合、立法和选举投票，但核心仍按�
 - 平台收款账户由创世常量公民链基金会 CID 派生；缺失时 fail-closed。
 - 创作者必须拥有当前有效的平台订阅。
 - 创作者链上套餐只保存付款必需的 `tier_id`、`billing_period`、`price_fen`。
-- 名称、说明、权益文案和媒体只保存在 Cloudflare/D1。
 - 每次真实扣款读取当时的链上当前价格；当前已付周期不补差价。
 - 创作者订阅款按 `creator_cid_number` 解析当前双向绑定账户并全额进入该账户。
 
@@ -1949,13 +1941,9 @@ CitizenApp 只负责订阅、取消、换套餐签名和链上时间戳展示。
 - 平台价格、创作者付款套餐、扣款事实、订阅状态和权益截止时间：CitizenChain。
 - 真实公历计算、到期调度与自动扣款：CitizenChain runtime。
 - 订阅、取消、换套餐签名和日期展示：CitizenApp。
-- 创作者展示资料：Cloudflare/D1。
-- D1 订阅记录：finalized 链状态的可重建镜像。
 - finalized 镜像证明：交易哈希、区块哈希和完整已签名 extrinsic；Worker 必须复核签名钱包、调用参数、finalized 主链包含关系与同一区块 storage。
 - 平台调价：统一投票引擎。
 - 平台调价入口与提交：OnChina 读取准确机构 CID 和 finalized 链上真源，CitizenWallet 只签名一次并显示响应二维码，OnChina 回扫后通过唯一链提交入口广播。
-- 平台订阅、创作者身份、套餐和订阅关系的链上及 D1 业务键全部是 CID；
-  `account_id` 只表示当前交易签名者、实际付款/收款账户或不可变审计事实。
 
 Cloudflare 只承担低频镜像、展示与门禁加速，不保存第二份未来扣款价格，不计算日期，不持有扣款能力，不进行高频全链扫描。镜像中的最近扣款价格只用于审计和用量预算，不决定下一次扣款。
 
@@ -1980,7 +1968,6 @@ Cloudflare 只承担低频镜像、展示与门禁加速，不保存第二份未
 
 1. 不提供 storage migration、旧键读取、旧枚举或双轨兼容。
 2. `Subscriptions`、续费索引、`CreatorPlans` 和帖子发布计数全部直接使用 CID。
-3. Worker D1 与 KV 随创世部署同批重建，镜像由新链 finalized 状态产生。
 4. 真实验收必须覆盖订阅者和创作者换绑，证明关系不变且只使用当前账户付款/收款。
 
 #### 9. 后果
@@ -2229,8 +2216,6 @@ CidByAccountId[account_id] -> cid_number
 
 - 本 ADR 实施时尚未正式创世，因此 runtime 和 pallet StorageVersion 保持 `0`，直接采用
   最终结构且不写 migration；该开发期条件已于 2026-07-26 正式创世结束。
-- PostgreSQL、Isar、Cloudflare D1/R2 旧业务数据已在正式创世切换前全部删除并按最终
-  schema 重建；正式创世后的现行数据不得再次按本条开发期策略删除。
 - 不保留旧字段、旧 JSON、旧 SQL 列、双写、双读、fallback 或任何过渡兼容。
 - 助记词、seed、私钥、macOS Keychain、iOS Keychain、Android Keystore 和 GitHub Secrets 不属于待删除业务数据，必须保留；同一安全材料按未改变的派生规则得到同一账户。
 - CID 生成、签名 payload、SCALE 字段顺序或哈希材料不得因纯命名重构而改变字节。实施中若发现必须改变协议字节，必须停止并单独取得确认。
@@ -2249,7 +2234,6 @@ CidByAccountId[account_id] -> cid_number
 - 第 3 步已完成 Node、桌面直接消费者和 `chain-signing` 共享 crate 统一：账户、公钥和 SS58 已分层，跨进程账户与公钥严格使用小写 `0x` 加 64 位十六进制，签名流程先验公钥再比较账户，奖励账户 RPC 与本地非密钥缓存已按最终命名重建且没有兼容入口。
 - 第 4 步已完成 OnChina 后端、前端、PostgreSQL 最终 schema、HTTP/JSON、登录与授权上下文统一，并删除重建本地 PostgreSQL 业务数据库。经单独二次确认，已使用当前 Runtime WASM 启动隔离 fresh chain，真实完成 PostgreSQL、HTTPS OnChina、链投影、账户格式、登录验签和管理员链上门禁验收；验收后数据库再次清空重建且全部服务已停止。
 - 第 5—7 步已完成 QR registry 与生成物、CitizenApp/Isar、CitizenWallet/Isar 的账户、公钥、SS58 分层和严格边界统一；旧数据库按最终 schema 重建，不保留兼容读取。
-- 第 8 步已完成 Cloudflare Worker、D1、KV、R2、Queues 和边缘协议统一，staging/production 旧业务数据按用户确认删除重建，并以真实 HTTP 和运行状态验收。
 - 第 9 步已完成当时的 外部调用方 协议升级公钥命名、严格校验、WASM 版本职责隔离和验收；
   只有本机状态、依赖、日志、产物和机密继续忽略。旧 Keychain target 已经单独确认后删除，
   当前统一的 `NRC_PUBLICKEY` 由用户在受保护配置中另行录入。
@@ -2494,7 +2478,7 @@ FCM 不得接收、转发或保存文字、表情、贴纸、语音、图片、�
 3. 语音、图片、视频和文件通过独立的 WebRTC 可靠有序媒体通道分片直传，支持背压、断点
    续传、完整性校验和幂等接收。
 4. Cloudflare 只允许完成：当前 CID 会话鉴权、最小推送端点维护、无内容 `chat_wake`、
-   SDP/ICE/连接就绪信令的短暂内存转发。信令正文不得进入 D1、KV、R2 或业务日志。
+   SDP/ICE/连接就绪信令的短暂内存转发。
 5. 删除云端 Envelope 转发、云端 KeyPackage 库存、聊天绑定 nonce、R2 聊天中继、TURN
    聊天中继和累计设备数量限制，不保留旧接口兼容分支。
 6. OpenMLS `ChatKeyPackage` 在双方建立直连后直接交换；MLS 状态、Welcome、Commit 和应用
@@ -2534,10 +2518,6 @@ ADR-020 中 OpenMLS、本机加密存储、消息幂等和 WebRTC 端到端传�
   并以真实运行页面完成验收。
 
 #### 节点前置验证与 Runtime 候选字段合同
-
-#### CitizenServe D1 最终结构发布合同（2026-08-27）
-
-- 唯一数据库结构真源为 CitizenServe 正式 Release 内本产品根相对的 `schema/citizenserve.sql`，发布器不得维护表名或索引名副本。
 
 ## 目录整合与平台输入
 
@@ -2596,7 +2576,6 @@ registry与Git的目录源按原锁准确来源隔离，同名同版本不会混
 
 统一扫码SVG以原几何独立资源输出，消费端使用currentColor的CSS遮罩，保留18×18尺寸并在WebKit实际窗口显示；不依赖外部SVG symbol引用。Rust build-std依赖按已验真Rust工具原始Cargo.lock物化，产品Cargo锁和工具版本保持。
 
-
 ## 节点部署离线批准
 
 权威和权益节点实例的部署批准使用本仓独立 `crates/protocol` 的 QR_V1 `node_deploy=16` 链下动作；它不进入 Runtime WASM，不借用软件发布动作或链交易签名。载荷固定包含公民链产品、节点类别与编号、目标服务器 IP、版本、源码提交、产物摘要、控制台任务编号、期限和随机挑战，钱包必须完整解码并显示目标。签名消息使用独立 `GMB\0TATA_NODE_DEPLOY_V1\0` 前缀，控制台只接受受保护的 `rtupg:NRC_PUBLICKEY`；同一个国储会管理员公钥也是开发升级签名者，且只存 Touch ID Keychain，离线私钥不进入产品或控制台。节点部署是使用公民链的实例操作，由控制台节点管理维护，不等同于发布公民链软件。`scripts/build.mjs` 将独立 QR Cargo 锁纳入本轮受控资源供给，并在节点平台编译前测试该协议；本机受控供给使用离线原件，原生CI按原锁准备。失败即不编译。此协议准备阶段不执行节点部署，正式接线仍归控制台三级权限第④步。
@@ -2623,8 +2602,6 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 
 同文件回归覆盖XZ/BZIP2的正常链接及小数时间、绝对/相对越界、缺失和循环链接、链接父目录、特殊成员、转换失败及取消；继承租约使用真实子进程分别验证成功结果和首错在父层消费前仍存在，并验证同步/异步双错误与真实活动进程组保留现场。新增回归未运行前不得登记通过，实际验收证据归原任务卡。
 
-
-
 ### 链上中国宿主及模块的退出衔接
 
 设置页既有按钮、确认、文字和浏览器交互保持。节点启动链上中国宿主时持有专用父管道；停止及节点退出通过关闭管道通知，等待宿主排空请求、关闭和回收模块后再确认停止。等待40秒仍未完成时返回原错误通道并保留句柄，禁止报告已停止或继续替换运行文件。Unix启动前旧宿主清理同样使用TERM并等待完整收尾，超时拒绝重启，不以强杀宿主遗留模块。
@@ -2632,8 +2609,6 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 启动健康等待按真实经过时间包含HTTPS检查；60秒等待结束而宿主仍存活时使用原starting/启动中状态，子进程退出才报告启动失败。模块慢启动不等同于宿主崩溃。不修改节点前端、Runtime、CID、国家和省市编码或宪法守卫。
 
 ## 外部调用入口
-
-
 
 ### Runtime独立GitHub构建入口
 
@@ -2647,25 +2622,19 @@ Runtime正式候选及整链验收所用WASM的唯一实现归scripts/runtime.mj
 
 WASM塔塔自动化的编译实现仅归scripts/runtime.mjs，唯一工作流为.github/workflows/wasm.yml。runtime/build.rs仅嵌入既有WASM或生成空常量；SDK源码编译钩子由runtime.mjs仅在本轮临时源码中生成，退出后按原现场规则清理。Cargo依赖声明沿用原锁。协议repo_guard和节点构建测试不检查WASM塔塔自动化；节点普通链功能测试保持；两项真实WASM整链验收由Runtime专项显式开启runtime-tests。
 
-
 五端历史维护直接归各自Workflow的cleanup；已完成历史与本轮已结束的前置作业共同决定保留名额，避免排除本轮而多留第三条。只删除已完成旧Run，不调用配置中的清理计划或包装函数，也不把本轮名额判定写成GitHub最终conclusion。
-
 
 节点四端版本由各自Workflow准备阶段读取本平台最新成功正式Release的版本并patch加1，首次使用节点配置基准版本；候选冲突必须失败，不在配置或控制台复制版本推算函数。WASM保持其本轮冻结基线及双版本输入。
 
 原Run最后Job遇到旧来源Run的真实404时，不补造成功记录：先复用既有来源/附件校验并核对旧Tag，若本轮没有新的完整正式交付则保留旧产物并明确记录；只有本轮真实Release成功、替代交付重新回读完整有效且版本更高时，才删除该已被替代的旧Tag和Release并回读确认。未知错误、提交或附件漂移、不可变Release、删除失败仍明确报错；活动任务和其它平台保护，终态Run淘汰继续独立执行。
 
-
 macOS原编译Job通过Cargo官方CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none，明确关闭release构建期脚本、过程宏及其依赖的strip，避免锁定工具链在macOS产生LINKEDIT未对齐而无法被rustc加载的宏动态库。该输入由既有编译环境透传，不修改交付目标原profile、工具或依赖锁、Runtime入口及编译脚本，也不添加替代链接器、缓存删除或辅助文件。既有内嵌回归核对真实Workflow的Job范围、环境透传及其它平台隔离；实际宏加载、完整测试、产物与签名仍由原macOS自动化验收。
-
 
 OnChina管理动作的JSON反序列化通过Serde官方Deserialize接口委托既有parse_action_type，公开调度与JSON使用同一动作解析规则；两个已撤销的CITY_REGISTRY动作名统一拒绝，合法SUBORDINATE_REGISTRY名称、模块字符串格式及后续实际登记/授权沿用原实现。序列化名称不变，原拒绝断言及全部既有动作往返断言保留，补两入口的合法模块、格式边界和废弃名回归。
 
 OnChina事件交易投影与实体CID收集均使用既有SCALE codec::Decode解码原始Compact<u32>长度前缀，并按实际消费字节计数，禁止把Subxt长度解码错误后的零事件回退当成合法空块。官方空输入与合法零事件向量保持；原逐事件解码、总数/尾随字节、金额及数据库边界规则和负例不变，补坏前缀/合法空向量回归，不增加手写SCALE协议或依赖。
 
-
 跨平台原生测试的节点守卫临时库直接使用std::env::temp_dir，桌面生命周期验收以std::path::absolute读取既有本轮工作目录；不把Windows canonicalize的扩展路径传入会拼接路径的RocksDB。P2P、Ethereum三节点及同库重开验收消费真实TaskManager取得官方TaskRegistry，在原有超时内确认running_tasks为空且客户端/Backend持有者释放后，再删除或重新打开实际数据库。真实签名交易、PoW/TLS/GRANDPA、坏块拒绝、端口释放和原数据库重开断言保留；未退出仍失败，不用固定延时或忽略目录删除错误。OnChina坏长度前缀断言改用标准matches!同时断言Err及原错误前缀，不为成功数据类型额外要求Debug，不改变业务结构或原解析规则。
-
 
 OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直接启动当前测试程序，不复制、重写或替换临时可执行副本。每个夹具的UUID目录继续隔离证书、前端输入和会话参数；重启前仍等待旧进程退出，保留PID变化、版本回读、健康模块并发、超时、证书信任/主机名拒绝及进程/目录清理断言。夹具通过标准Stdio::inherit透传子进程stderr，健康等待保留请求和JSON解析错误链、HTTP状态及版本不匹配信息，不再静默丢弃诊断；不输出证书、私钥或环境。原250毫秒请求时限、1秒连接时限、10秒就绪断言与25毫秒轮询间隔保持。测试证书沿用原锁rcgen0.13.2官方sign-leaf-with-ca示例：CA和服务器使用不同DN，CA声明DigitalSignature/KeyCertSign/CrlSign，服务器声明DigitalSignature/ServerAuth及AuthorityKeyIdentifier；保留onchina.crcfrcn.com SAN和原CA签发关系，避免同名默认DN造成颁发者识别歧义。此变更仅限cfg(test)夹具，正式模块发现与启动器、依赖和Runtime均保持。
 
@@ -2691,7 +2660,6 @@ OnChina按真实Cargo入口用一次cargo build和重复--bin选项编译所选�
 
 上述精简不修改Runtime、build.mjs、Node锁定版本、PostgreSQL与系统工具链依赖，不放宽原业务断言、证书及主机名检查。锁文件由Cargo维护，只删除无引用项，不升级保留的版本或来源；真实原生编译和测试由产品GitHub工作流验收。
 
-
 本机入口为scripts/build.mjs compile macos，使用本产品既有官方依赖版本、原锁及同一完整资源编译实现，输出当前源码App并持有现场至调用方关闭stdin。签名、安装和安装回读唯一归塔塔控制台app/source/Installer.swift；GitHub原准确来源校验与正式DMG签名公证入口保留。
 
 compile macos作为公开CLI保留；模块公开实际宿主编译及资源装配接口，任务派发与观察由配置声明交付给通用调用方。
@@ -2712,7 +2680,6 @@ scripts/config.mjs的describeAction只返回repository、workflow、ref、inputs
 
 本产品配置项统一为name、description、accessLevel、kind、format五个必填字段；不适用规则明确填写“不适用”。name严格使用两组大写字母和一个下划线，同名共用控制台唯一值，当前页仅汇总实际声明的使用产品。操作列固定写入/更换、查看、删除；保密查看保留生物识别。现有配置消费者随声明同步改名，官方工具/API字段保持官方名称，不新增旧名兼容或配置副本。
 
-
 节点钱包持久化只保存名称、真实Hot/Cold签名路由和唯一accountId；冷钱包文件不保存SS58副本或无人读取的创建时间。展示由原accountIdToSs58按2027前缀编码。旧文件含被删除字段时严格拒绝，普通读取不迁移、覆盖或清空真实文件；真实数据处置须单独确认。Runtime、创世、QR_V1和签名合同保持。
 
 节点自有Tauri参数与DTO采用官方camelCase合同，Rust成员保持snake_case，删除同一DTO内改回snake_case的独立字段注解。当前Runtime、官方RPC、固定QR_V1与公开CLI拼写继续遵循其所属合同，不提前改动链上接口。
@@ -2725,13 +2692,11 @@ scripts/config.mjs的describeAction只返回repository、workflow、ref、inputs
 
 TLS集成回归中的阻塞HTTP客户端必须在原阻塞线程内创建、请求并析构；异步线程只等待结果。该测试仍严格核验真实证书、主机名、WSS与明文拒绝，不跳过或降低校验。
 
-
 ## 普通转账边界与测试入口
 
 普通转账继续使用既有amount_yuan IPC参数及Runtime手续费公式。元转分保留原舍入规则，但转换前必须拒绝乘100后的非有限值及超出u128范围的结果；金额、手续费与账户保留金使用checked_add，在读取链余额前拒绝溢出。正常金额与冷签调用SCALE字节保持原金标。
 节点组件测试命令为npm run test:transfer --prefix node/frontend，复用本产品crates/scanner原声明和原锁的Vitest、Testing Library、jsdom。配置只归既有node/frontend/vite.config.ts，测试限定onchain/transfer.test.tsx且统一React实例。普通开发和预览继续要求原TLS证书；普通--mode test不能跳过TLS要求。
 四个原生工作流执行节点转账组件测试；五个平台不再执行配置和编译脚本测试，发布、权限、版本和真实升级步骤保持。此处描述入口与合同，实际验收结果归唯一任务卡。
-
 
 ### 节点主入口与交易子模块挂载
 
@@ -2743,7 +2708,6 @@ Rust调用统一为`crate::multisig/offchain/onchain`及主入口进程函数；
 转发函数或兼容别名。桌面命令名、RPC、交易编码、手续费、清算逻辑与启动/停止行为保持。
 父管道生命周期测试随实现在main.rs保留，子进程精确用例名为
 `lifecycle_tests::pipe_child`；其专用ignored标记及全部超时/异常断言保持。
-
 
 ## 本机编译资源与版本来源
 
@@ -2795,13 +2759,11 @@ Node主包全部测试归node/src/tests；Cargo测试入口、build.rs和源码�
 
 仓库守卫枚举当前Git工作树中的跟踪及未忽略新文件，依据Git删除清单退出旧路径，规范路径必须在扫描范围内；Git或读取失败仍阻断。销毁载荷要求CID后恰好32字节账户及16字节金额，尾随或截断输入返回None；控制包十六进制解析复用原hex库，非法ASCII或Unicode返回None，原JSON字段、合法输入字节及余额偏移保持。这两项为本次明确批准的畸形输入修复，其余业务逻辑与UI交互布局不改。
 
-
 ## 共享包源码与测试归属
 
 chain-signing的src按material、signature、extrinsic、preflight组织，lib只登记原公开入口，测试归同包tests；blockchain-harness保持src/lib.rs及src/harness.rs，区块和定向篡改回归归tests。qr-protocol保留独立workspace与原锁，registry的四份YAML仍是生产声明，五份JSON金标与所有Rust回归统一归tests。scanner生产src与公开npm入口保持，原test统一为tests。各包保持原接口、业务算法、协议与依赖，测试按真实功能覆盖正常、失败、边界和回归。脚本及脚本测试不属于本轮重构范围；真实设备、整链及固定预算专项另行验收。
 
 共享扫码控制器开始新会话时清理已取流但尚未完成播放的旧会话；过期play完成只退出，不停止新会话。停止/释放的generation规则保持，控制器与ScannerView公开接口、扫码间隔、画布到jsQR路径、UI及码型业务职责不变。
-
 
 节点签名弹层和面板统一归node/frontend/desktop/signing.tsx；扫码设备外壳与地址扫码弹层统一归同目录scanner.tsx。原组件名、Props字段、样式、交互与共享ScannerView保持。开发TLS配置通过本仓scripts/build.mjs公开实现读取，开发证书路径、校验和TLS1.3保持；节点已有工程、创世、Runtime及资源位置保持。
 
@@ -2839,20 +2801,16 @@ PostgreSQL复用除完整版本和资源外，还通过其pg_config确认bin、p
 
 链上中国本机WSS客户端沿用固定jsonrpsee0.24接口：连接预算包含初次连接，设为1，仅连接原127.0.0.1地址，不跟随重定向；父进程公开证书与主机名校验保持。私有PostgreSQL归档命令对Shell路径与配置字符串分层转义，支持Application Support等含空格路径。启动时幂等维护所属四项配置并对已运行的私有集群重载，其余配置及持久数据库不重建。相关回归包含实际TLS握手、重定向目标零连接、错误证书/主机名拒绝，以及真实Shell归档和配置幂等。
 
-
 ### 设置页正式版下载与安装更新
 
 节点程序版本行由产品后端从GitHub仓库crcfrcn/citizenchain的Release列表选择当前平台最新成功正式版，按published_at排序，排除草稿、预发布和WASM，不使用Actions Artifact。沿用Release中的自动化记录确认本平台成功Run及原完整安装包。用户首次点击安装更新仅下载，后台按实际已收/总字节通过Tauri Channel交付进度，进度条在按钮左侧，按钮显示下载中且不可重复点击。完整下载并落盘后显示100%和安装更新；再次点击才执行安装。
 
 下载及安装状态归node/control/src/update.rs，前端不提交任意URL、文件路径或命令。下载只跟随GitHub HTTPS资产跳转；部分文件不交付安装，失败可重试，已下载完整包可在重开应用后恢复并离线安装。App.tsx持有显示状态，切换设置Tab不取消下载。安装由独立进程等待旧PID完全退出，沿用application.rs的Exit清理释放节点数据库锁，保留链数据、密钥及设置。macOS沿用DMG、原App路径及实际大小写，Windows沿用NSIS EXE和当前安装目录，Linux沿用DEB；管理员权限由系统正常申请，取消或失败保留错误和可重试包，不绕过授权。此为用户批准的产品内自更新，不改变控制台塔塔安装器的本机源码编译流程。
 
-
 ### 各平台节点产品版本唯一传递
 
 macOS、Windows、LinuxARM、LinuxAMD各自独立发行，工作流从本平台最新成功正式Release读取版本，下一轮候选仅补丁位加1；失败不增加正式版本，重试沿用同一候选号。不再从历史Artifact推算。既有node/tauri.conf.json的version只提供首次发行初始值；正式交付以本轮CITIZENCHAIN_RELEASE_VERSION为唯一输入，同值注入Rust节点公开版本常量NODE_VERSION和Tauri配置。设置页nodeVersion与命令行impl_version读取同一常量，移除旧Cargo固定版本读取和SDK拼接提交号的产品版本生成。本机塔塔安装器沿用本平台最新成功正式版，不增加版本，不再从Cargo内部包元数据确定软件版号。更新检查继续比较已安装版本与同平台最新正式版，内部Cargo/NPM包元数据不作为产品版本入口。上述仅统一节点软件版本，不改变其它版本体系。
 
-
 注册绑定核验唯一只读RPC为identity_getBinding([cid_number,account_id,expected_genesis])。节点一次读取client.info，核对创世链并固定其finalized_hash为H，使用本链真实存储类型在H读取CidRegistry、AccountIdByCid、CidByAccountId及BindingRevisionByCid；仅有效、未吊销、双向一致且修订号为正时返回block、cid_number、account_id、bind_rev四字段。block是同一个H，不是best块哈希。不存在返回null；错误链、坏编码、缺失映射、无效修订或撤销均拒绝。一次服务端RPC，节点最多四次本地存储读取；不调用其它网络RPC、不改标准state_queryStorageAt、不新增Runtime API、端口、表或缓存。该结果只供服务端保存公开绑定事实，不授予登录或设备权限。
-
 
 公开配置入口describeConfiguration只返回schema、product_id、configuration三字段；manifest.runtime继续保留既有证书运行期声明。配置读取不交付runtime字段，沿用控制台既定闭集及受保护NRC_PUBLICKEY授权，不变更密钥、节点二进制、交易或Runtime；缺失运行期证书授权不阻塞独立的配置读取和节点软件部署。
