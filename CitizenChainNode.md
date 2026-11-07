@@ -58,13 +58,9 @@ Runtime开发升级、节点部署、授权、冷签、安全及安装器属于�
 
 ## 聊天功能的唯一产品归属
 
-**聊天客户端的逻辑功能只能在 TataChatSDK 中实现；聊天服务端的逻辑功能只能在 CitizenServe.tatachat 中实现。公民、途遇及其他产品只依赖使用。**
+聊天客户端归公民App的chat普通本地包，随App源码构建；协议唯一源为公民App的network/proto。聊天服务端归CitizenServe的chat模块。本产品不声明独立聊天客户端产品或分发路线。
 
 CitizenChainNode 涉及聊天时只作为依赖使用方；本条不代表尚未接入聊天的产品已经具备聊天能力。
-
-- 消息、会话、群组、加密、协议、传输、同步、重试、聊天存储、附件、通话及聊天界面行为，按客户端与服务端职责分别归 TataChatSDK 和 CitizenServe.tatachat；新增功能、缺陷修复和平台差异也必须在所属产品内完成。
-- 消费产品只提供产品入口、身份与业务权益结果、服务地址及授权、主题和公开接口要求的平台配置；只通过公开接口接入，禁止复制、重写、包装成另一套聊天内核或维护产品专属聊天实现。CitizenServe、TuyuServe 的产品身份与权益授权不包含聊天数据面的实现职责。
-- 本机开发直接依赖仓库路径；公民、途遇等产品的正式版本依赖塔塔聊天正式 Release；第三方市场分发使用公开市场版本。依赖使用不以公开市场发布为前置条件，也不改变实现归属。
 
 Total output lines: 12501
 
@@ -2326,7 +2322,7 @@ iOS Secure Enclave/Keychain 与 Android StrongBox/Keystore。页面不是存储�
 
 Chat 换绑暂存由 Chat 域专属 `ChatAccountHandoverEntity` 承载；清单只保存来源与目标公开绑定、
 会话或消息稳定键、本地 Isar 行 ID 及内容摘要。清单与消息记录由操作系统保护，不派生额外应用密钥。
-MLS 协议状态由 TataChatSDK 管理，钱包签名只授权公开账户绑定，不能替代丢失的 MLS 状态。
+MLS 协议状态由 公民App的chat包 管理，钱包签名只授权公开账户绑定，不能替代丢失的 MLS 状态。
 清单的唯一范围由 `cid_number + target binding_revision + target account_id` 确定，暂存、提交和丢弃
 全部在 `ChatIsar` 内完成；钱包私钥与 MLS 私有协议状态不得进入清单。
 
