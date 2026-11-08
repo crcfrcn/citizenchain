@@ -100,6 +100,7 @@ sp-timestamp = { workspace = true, default-features = true }
 substrate-frame-rpc-system = { workspace = true, default-features = true }
 tauri = { version = "=2.11.5", features = [] }
 tauri-plugin-dialog = "=2.6.0"
+tauri-plugin-opener = "=2.5.5"
 tokio = { workspace = true, default-features = true, features = ["time"] }
 zeroize = "=1.9.0"
 

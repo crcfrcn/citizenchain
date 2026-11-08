@@ -234,10 +234,8 @@ body {
   border-top: none;
 }
 
-.settings-onchina-platform-section {
-  margin-top: 12px;
-  padding-top: 0;
-  border-top: none;
+.onchina-platform-section {
+  min-width: 0;
 }
 
 .node-mode-panel {
@@ -401,7 +399,101 @@ body {
   opacity: 0.65;
 }
 
+.onchina-modules {
+  margin-top: 28px;
+}
+
+.onchina-modules h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.onchina-modules > p {
+  margin: 6px 0 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.onchina-module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.onchina-module {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 120px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #171f30;
+  color: var(--text-primary);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.onchina-module:enabled:hover {
+  border-color: var(--primary);
+}
+
+.onchina-module:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.onchina-module-icon {
+  flex: 0 0 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #223043;
+  color: #93acc3;
+}
+
+.onchina-module-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.onchina-module-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.onchina-module-copy strong {
+  font-size: 16px;
+}
+
+.onchina-module-copy span,
+.onchina-module-arrow {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.onchina-module-arrow {
+  margin-left: auto;
+  color: var(--primary);
+}
+
+.onchina-module:disabled .onchina-module-arrow {
+  color: #71869c;
+}
+
 @media (max-width: 720px) {
+  .onchina-module-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .onchina-platform-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -701,6 +793,7 @@ button[disabled] {
 
 .top-nav {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-start;
   gap: 4px;
   margin-bottom: 10px;

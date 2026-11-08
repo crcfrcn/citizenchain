@@ -738,7 +738,10 @@ fn verify_frontend(directory: &Path, module: &ModuleDescription) -> Result<(), S
         let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
         if value["id"] != module.id
             || value["version"] != module.version
-            || value["interfaceVersion"] != module.interface_version
+            || value
+                .get("interface_version")
+                .or_else(|| value.get("interfaceVersion"))
+                != Some(&serde_json::Value::from(module.interface_version))
         {
             return Err("module backend/frontend versions mismatch".into());
         }

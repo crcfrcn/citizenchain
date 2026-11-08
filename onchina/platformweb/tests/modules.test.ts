@@ -35,7 +35,10 @@ describe('模块前端装载与重启边界', () => {
       if (options.pendingHealth) return new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
       });
-      return new Response(JSON.stringify({ code: 0, data: { modules: items } }));
+      const wire = items.map(({interface_version, institution_codes, ...rest}) => ({
+        ...rest, interfaceVersion: interface_version, institutionCodes: institution_codes,
+      }));
+      return new Response(JSON.stringify({ code: 0, data: { modules: wire } }));
     });
     const loader = await import('../workspace/modules');
     return { loader, fetcher, elements, views, dispose: () => { fetcher.mockRestore(); vi.unstubAllGlobals(); vi.useRealTimers(); } };
@@ -122,4 +125,21 @@ describe('模块前端装载与重启边界', () => {
       expect(context.loader.workspaceView({ institutionCode: 'UNKNOWN' } as never)).toBeNull();
     } finally { context.dispose(); }
   });
+  it('模块落点依据已装载资源和扫码后的机构授权', async () => {
+    const context = await fixture([asset('registry'), asset('legislation', ['NLG']), asset('private', ['SFGF'])]);
+    try {
+      await context.loader.initializeModules();
+      const registry = { institutionCode:'FRG', workspace:{workspace_kind:'registry',workspace_modules:[]} } as never;
+      const privateInstitution = { institutionCode:'SFGF', workspace:{workspace_kind:'private',workspace_modules:['private']} } as never;
+      const legislature = { institutionCode:'NLG', workspace:{workspace_kind:'legislation',workspace_modules:[]}, capabilities:{canViewLegislation:true} } as never;
+      expect(context.loader.resolveModuleLanding(registry, 'registry')).toBe('workspace');
+      expect(context.loader.resolveModuleLanding(registry, 'private')).toBe('forbidden');
+      expect(context.loader.resolveModuleLanding(privateInstitution, 'private')).toBe('workspace');
+      expect(context.loader.resolveModuleLanding(legislature, 'legislation')).toBe('legislation');
+      expect(context.loader.resolveModuleLanding(registry, 'legislation')).toBe('forbidden');
+      expect(context.loader.resolveModuleLanding(registry, 'judicial')).toBe('unavailable');
+      expect(context.loader.resolveModuleLanding(registry, 'https://other.example/')).toBe('unavailable');
+    } finally { context.dispose(); }
+  });
+
 });

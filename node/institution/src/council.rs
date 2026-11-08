@@ -38,6 +38,7 @@ pub(crate) struct InstitutionBalances {
     cb_fee_fen: Option<String>,
     nrc_fee_fen: Option<String>,
     fund_balance_fen: Option<String>,
+    he_balance_fen: Option<String>,
 }
 
 struct ChainQueryContext {
@@ -143,14 +144,18 @@ fn collect_institution_balances(
     match entry {
         crate::registry::InstitutionRef::Nrc(_) => {
             let fee_account_id = entry.fee_account_id();
-            let Some(fund_account_id) = entry.fund_account_id() else {
-                warnings.push("国家储委会安全基金账户 AccountId 缺失".to_string());
-                return balances;
-            };
             balances.nrc_fee_fen =
                 load_balance_at_block(&fee_account_id, block_hash, "费用账户余额", warnings);
-            balances.fund_balance_fen =
-                load_balance_at_block(&fund_account_id, block_hash, "安全基金账户余额", warnings);
+            if let Some(account_id) = entry.fund_account_id() {
+                balances.fund_balance_fen =
+                    load_balance_at_block(&account_id, block_hash, "安全基金账户余额", warnings);
+            } else {
+                warnings.push("国家储委会安全基金账户 AccountId 缺失".to_string());
+            }
+            if let Some(account_id) = entry.he_account_id() {
+                balances.he_balance_fen =
+                    load_balance_at_block(&account_id, block_hash, "两和基金账户余额", warnings);
+            }
         }
         crate::registry::InstitutionRef::Prc(_) => {
             let fee_account_id = entry.fee_account_id();
@@ -236,6 +241,8 @@ fn build_institution_detail_sync(
         nrc_fee_fen: balances.nrc_fee_fen,
         fund_account_id,
         fund_balance_fen: balances.fund_balance_fen,
+        he_account_id: entry.he_account_id(),
+        he_balance_fen: balances.he_balance_fen,
         warning: join_warnings(context.warnings),
     })
 }
@@ -258,6 +265,7 @@ pub(crate) fn build_institution_balance_update_sync(
         cb_fee_fen: balances.cb_fee_fen,
         nrc_fee_fen: balances.nrc_fee_fen,
         fund_balance_fen: balances.fund_balance_fen,
+        he_balance_fen: balances.he_balance_fen,
         warning: join_warnings(context.warnings),
     })
 }
@@ -360,6 +368,10 @@ pub struct InstitutionDetail {
     pub fund_account_id: Option<String>,
     /// 国家储委会安全基金账户余额（分，仅 NRC）。
     pub fund_balance_fen: Option<String>,
+    /// 国家储委会两和基金账户 AccountId hex（仅 NRC）。
+    pub he_account_id: Option<String>,
+    /// 国家储委会两和基金账户余额（分，仅 NRC）。
+    pub he_balance_fen: Option<String>,
     /// 告警信息。
     pub warning: Option<String>,
 }
@@ -382,6 +394,8 @@ pub struct InstitutionBalanceUpdate {
     pub nrc_fee_fen: Option<String>,
     /// 国家储委会安全基金账户链上余额（分，仅 NRC）。
     pub fund_balance_fen: Option<String>,
+    /// 国家储委会两和基金账户余额（分，仅 NRC）。
+    pub he_balance_fen: Option<String>,
     /// 链上查询告警。
     pub warning: Option<String>,
 }

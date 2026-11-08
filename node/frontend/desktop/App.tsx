@@ -5,10 +5,11 @@ import { ClearingBankSection } from "../offchain/section";
 import { HomeNodeSection, OtherTabsSection, SettingsSection } from "../control/index";
 import { TransactionPanel } from "../onchain/TransactionPanel";
 import { MiningDashboardSection } from "../mining/index";
+import { OnChinaPlatformSection } from "../control/OnChinaPlatformSection";
 import { settingsApi } from "../control/api";
 import { shouldShowDesktopUpdateDot } from "../control/updateIndicator";
 import type { DesktopInstaller, DesktopUpdateInfo, DesktopUpdateProgress } from "../control/types";
-// 节点 UI 顶级 tab 栏：首页 / 挖矿 / 国家储委会 / 省储委会 / 省储行 / 清算行 / 白皮书 / 公民宪法 / 设置。
+// 节点 UI 顶级 tab 栏：首页 / 挖矿 / 国家储委会 / 省储委会 / 省储行 / 清算行 / 白皮书 / 公民宪法 / 链上中国 / 设置。
 import { useCallback, useEffect, useState } from 'react';
 
 type TabKey =
@@ -20,6 +21,7 @@ type TabKey =
   | 'clearing-bank'
   | 'whitepaper'
   | 'constitution'
+  | 'onchina'
   | 'settings';
 
 export default function App() {
@@ -105,6 +107,7 @@ export default function App() {
         <button className={tab === 'clearing-bank' ? 'active' : ''} onClick={() => setTab('clearing-bank')}>清算行</button>
         <button className={tab === 'whitepaper' ? 'active' : ''} onClick={() => setTab('whitepaper')}>白皮书</button>
         <button className={tab === 'constitution' ? 'active' : ''} onClick={() => setTab('constitution')}>公民宪法</button>
+        <button className={tab === 'onchina' ? 'active' : ''} onClick={() => setTab('onchina')}>链上中国</button>
         <button
           className={`top-nav-settings-button ${tab === 'settings' ? 'active' : ''}`}
           onClick={() => setTab('settings')}
@@ -132,6 +135,8 @@ export default function App() {
       ) : (
         <main className="app">
           <section className="content">
+            {tab === 'onchina' ? <OnChinaPlatformSection /> : null}
+
             {tab === 'settings' ? (
               <SettingsSection
                 desktopUpdateInfo={desktopUpdateInfo}

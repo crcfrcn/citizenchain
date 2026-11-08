@@ -15,7 +15,7 @@
 #[cfg(test)]
 use nodedesktop::cid::parse_deployment;
 use nodedesktop::cid::{deployment, onchina_binary_path, platform_url};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -32,7 +32,7 @@ use tauri::Manager;
 // 节点桌面端拉起 / 停止 onchina 控制台子进程。
 //
 // 形态:onchina 控制台是独立二进制(`onchina` crate)。节点桌面端不随启动自动拉起,
-// 只在设置页二次确认后启动;App 退出时通过父管道通知并等待本进程拉起的服务退出。
+// 只在链上中国页二次确认后启动;App 退出时通过父管道通知并等待本进程拉起的服务退出。
 //
 // Card 05:onchina 二进制 + PostgreSQL 官方二进制 + 前端产物 + china.sqlite 均随安装包
 // (Tauri resources)。本模块**不碰 PG**——只把资源/数据路径用环境变量告诉 onchina,
@@ -435,10 +435,28 @@ pub struct OnChinaPlatformState {
     status_label: &'static str,
     url: String,
     detail: Option<String>,
+    modules: Vec<String>,
 }
 
 // 与浏览器同样验证公信 HTTPS；仅把连接指向产品声明的主机地址，保持域名 SNI。
-fn onchina_health_ok(app: &AppHandle) -> Result<(), String> {
+fn onchina_health_modules(app: &AppHandle) -> Result<Vec<String>, String> {
+    #[derive(Deserialize)]
+    struct HealthModule {
+        id: String,
+    }
+
+    #[derive(Deserialize)]
+    struct HealthData {
+        status: String,
+        modules: Vec<HealthModule>,
+    }
+
+    #[derive(Deserialize)]
+    struct HealthResponse {
+        code: u32,
+        data: HealthData,
+    }
+
     let deployment = deployment(app)?;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(900))
@@ -456,18 +474,17 @@ fn onchina_health_ok(app: &AppHandle) -> Result<(), String> {
         return Err("链上中国健康检查状态无效".to_string());
     }
     let payload = response
-        .json::<serde_json::Value>()
+        .json::<HealthResponse>()
         .map_err(|_| "链上中国健康检查响应无效".to_string())?;
-    if payload
-        .get("data")
-        .and_then(|data| data.get("status"))
-        .and_then(|value| value.as_str())
-        == Some("UP")
-    {
-        Ok(())
-    } else {
-        Err("链上中国平台健康检查未通过".to_string())
+    if payload.code != 0 || payload.data.status != "UP" {
+        return Err("链上中国平台健康检查未通过".to_string());
     }
+    Ok(payload
+        .data
+        .modules
+        .into_iter()
+        .map(|module| module.id)
+        .collect())
 }
 
 fn current_state(app: &AppHandle) -> OnChinaPlatformState {
@@ -481,13 +498,13 @@ fn current_state(app: &AppHandle) -> OnChinaPlatformState {
             startup_error().unwrap_or_else(|| "链上中国子进程已退出".into()),
         );
     }
-    let health = process_running.then(|| onchina_health_ok(app));
-    let (status, status_label, detail) = match health {
-        None => ("stopped", "未开启", None),
-        Some(Ok(())) => ("enabled", "已开启", None),
+    let health = process_running.then(|| onchina_health_modules(app));
+    let (status, status_label, detail, modules) = match health {
+        None => ("stopped", "未开启", None, Vec::new()),
+        Some(Ok(modules)) => ("enabled", "已开启", None, modules),
         // 进程已启动但健康检查暂未通过时，只能表达“启动中”。
         // 退出后从公开诊断通道报告具体失败；活跃但未通过 HTTPS 的进程保持启动中。
-        Some(Err(error)) => ("starting", "启动中", Some(error)),
+        Some(Err(error)) => ("starting", "启动中", Some(error), Vec::new()),
     };
     OnChinaPlatformState {
         running: process_running,
@@ -495,6 +512,7 @@ fn current_state(app: &AppHandle) -> OnChinaPlatformState {
         status_label,
         url: platform_url(),
         detail,
+        modules,
     }
 }
 
@@ -505,6 +523,7 @@ fn failed_state(running: bool, detail: String) -> OnChinaPlatformState {
         status_label: "启动失败",
         url: platform_url(),
         detail: Some(detail),
+        modules: Vec::new(),
     }
 }
 
@@ -513,6 +532,40 @@ pub(crate) async fn get_onchina_platform(app: AppHandle) -> Result<OnChinaPlatfo
     tauri::async_runtime::spawn_blocking(move || current_state(&app))
         .await
         .map_err(|_| "查询链上中国状态失败".into())
+}
+
+fn onchina_module_entry(
+    mut base: reqwest::Url,
+    module_id: &str,
+    modules: &[String],
+) -> Result<reqwest::Url, String> {
+    if !matches!(
+        module_id,
+        "registry" | "legislation" | "judicial" | "private"
+    ) || !modules.iter().any(|id| id == module_id)
+    {
+        return Err("所选链上中国模块未就绪".into());
+    }
+    base.query_pairs_mut().append_pair("module", module_id);
+    Ok(base)
+}
+
+#[tauri::command]
+pub(crate) async fn open_onchina_module(app: AppHandle, module_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = current_state(&app);
+        if state.status != "enabled" {
+            return Err("链上中国平台尚未就绪".into());
+        }
+        // 只使用已经校验的宿主部署地址；WebView 仅提交模块 ID。
+        let base = reqwest::Url::parse(&deployment(&app)?.url)
+            .map_err(|_| "链上中国入口无效".to_string())?;
+        let url = onchina_module_entry(base, &module_id, &state.modules)?;
+        tauri_plugin_opener::open_url(url.as_str(), None::<&str>)
+            .map_err(|error| format!("打开系统浏览器失败: {error}"))
+    })
+    .await
+    .map_err(|_| "打开链上中国任务失败".to_string())?
 }
 
 #[tauri::command]

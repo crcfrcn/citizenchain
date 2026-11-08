@@ -1,4 +1,5 @@
 import { councilApi } from './council';
+import './styles.css';
 import { proposalApi } from '../proposal/api';
 import { sanitizeError } from "../client/tauri";
 import { formatBalance } from "../client/format";
@@ -22,10 +23,9 @@ type Props = {
   onCreateSweep?: (cidNumber: string, institutionAccountId: string, cidFullName: string, adminSigners: AdminSignerMatch[]) => void;
   /** 隐藏返回按钮（用于直接作为 Tab 内容显示时）。 */
   hideBackButton?: boolean;
-  layout?: 'nrc';
 };
 
-export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSelectProposal, onCreateProposal, onCreateProtocolUpgrade, onChangeGrandpaKey, onCreateSafetyFund, onCreateSweep, hideBackButton, layout }: Props) {
+export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSelectProposal, onCreateProposal, onCreateProtocolUpgrade, onChangeGrandpaKey, onCreateSafetyFund, onCreateSweep, hideBackButton }: Props) {
   const [detail, setDetail] = useState<InstitutionDetail | null>(null);
   const [proposals, setProposals] = useState<ProposalListItem[]>([]);
   const [proposalHasMore, setProposalHasMore] = useState(false);
@@ -139,7 +139,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   if (error) {
     return (
       <div className="governance-section">
-        <button className="back-button" onClick={onBack}>← 返回</button>
+        <button className="back-button" onClick={onBack}>{hideBackButton ? '← 返回' : '← 返回机构列表'}</button>
         <div className="error">{error}</div>
       </div>
     );
@@ -242,196 +242,84 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
     </>
   );
 
-  if (layout === 'nrc') {
-    const accounts = [
-      { name: '主账户', accountId: detail.mainAccountId, balanceFen: detail.balanceFen },
+  const accounts: { name: string; accountId: string | null; balanceFen: string | null }[] = [
+    { name: '主账户', accountId: detail.mainAccountId, balanceFen: detail.balanceFen },
+  ];
+  if (detail.orgType === 0) {
+    accounts.push(
       { name: '费用账户', accountId: detail.nrcAccountId, balanceFen: detail.nrcFeeFen },
       { name: '安全基金账户', accountId: detail.fundAccountId, balanceFen: detail.fundBalanceFen },
-    ];
-
-    return (
-      <div className="governance-section nrc-overview">
-        <header className="nrc-header">
-          <div className="nrc-heading">
-            <h2>
-              {detail.cidFullName}
-              <span className="nrc-voting-rules">
-                （ 内部投票阈值 <strong>{detail.internalThreshold}票</strong>
-                {' ｜ 联合投票权重 '}<strong>{detail.jointVoteWeight}票</strong> ）
-              </span>
-            </h2>
-            <button
-              type="button"
-              className="nrc-admin-button"
-              onClick={() => onOpenAdminList?.(cidNumber, detail.orgType)}
-            >
-              管理员（{detail.admins.length}人）
-              <span aria-hidden="true">›</span>
-            </button>
-          </div>
-          <p className="nrc-cid">
-            机构CID号 <code>{detail.cidNumber}</code>
-            {activatedCount > 0 && <span className="admin-badge">已激活 {activatedCount} 人</span>}
-          </p>
-        </header>
-
-        {detail.warning && <div className="warning">{detail.warning}</div>}
-
-        <section className="nrc-accounts" aria-labelledby="nrc-accounts-title">
-          <h3 id="nrc-accounts-title">账户列表</h3>
-          <table className="nrc-account-table">
-            <thead>
-              <tr>
-                <th scope="col">账户名称</th>
-                <th scope="col">账户地址</th>
-                <th scope="col">链上余额（元）</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map(({ name, accountId, balanceFen }) => (
-                <tr key={name}>
-                  <th scope="row">{name}</th>
-                  <td><code>{accountId ? accountIdToSs58(accountId) : '—'}</code></td>
-                  <td>{balanceFen == null ? '—' : formatBalance(balanceFen).replace(/ 元$/, '')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-
-        <section className="nrc-proposals">
-          <div className="nrc-proposal-toolbar">
-            {proposalTitle}
-            {proposalActions}
-          </div>
-          {proposalList}
-        </section>
-      </div>
+      { name: '两和基金账户', accountId: detail.heAccountId, balanceFen: detail.heBalanceFen },
+    );
+  } else if (detail.orgType === 1) {
+    accounts.push({ name: '费用账户', accountId: detail.cbAccountId, balanceFen: detail.cbFeeFen });
+  } else if (detail.orgType === 2) {
+    accounts.push(
+      { name: '永久质押账户', accountId: detail.stakeAccountId, balanceFen: detail.stakingBalanceFen },
+      { name: '费用账户', accountId: detail.feeAccountId, balanceFen: detail.feeBalanceFen },
     );
   }
 
   return (
-    <div className="governance-section">
+    <div className="governance-section institution-overview">
       {!hideBackButton && (
-        <button className="back-button" onClick={onBack}>← 返回机构列表</button>
+        <button type="button" className="back-button" onClick={onBack}>← 返回机构列表</button>
       )}
-
-      <div className="institution-title-row">
-        <h2>{detail.cidFullName}</h2>
-        {isAdmin && (
-          <span className="admin-badge">管理员</span>
-        )}
-      </div>
+      <header className="institution-overview-header">
+        <div className="institution-overview-heading">
+          <h2>
+            {detail.cidFullName}
+            <span className="institution-overview-voting-rules">
+              （ 内部投票阈值 <strong>{detail.internalThreshold}票</strong>
+              {' ｜ 联合投票权重 '}<strong>{detail.jointVoteWeight}票</strong> ）
+            </span>
+          </h2>
+          <button
+            type="button"
+            className="institution-overview-admin-button"
+            onClick={() => onOpenAdminList?.(cidNumber, detail.orgType)}
+          >
+            管理员（{detail.admins.length}人）
+            <span aria-hidden="true">›</span>
+          </button>
+        </div>
+        <p className="institution-overview-cid">
+          机构CID号 <code>{detail.cidNumber}</code>
+          {activatedCount > 0 && <span className="admin-badge">已激活 {activatedCount} 人</span>}
+        </p>
+      </header>
 
       {detail.warning && <div className="warning">{detail.warning}</div>}
 
-      {/* 机构信息卡片 */}
-      <div className="institution-detail-grid">
-        <div className="metric-card">
-          <div className="metric-label">机构类型 /身份CID号 <code className="metric-label-id">{detail.cidNumber}</code></div>
-          <div className="metric-value">{detail.orgTypeLabel}</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">主账户 <code className="metric-label-id">{accountIdToSs58(detail.mainAccountId)}</code></div>
-          <div className="metric-value">
-            {detail.balanceFen != null
-              ? formatBalance(detail.balanceFen)
-              : '—'}
-          </div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">内部投票阈值</div>
-          <div className="metric-value">{detail.internalThreshold} 票</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">联合投票权重</div>
-          <div className="metric-value">{detail.jointVoteWeight} 票</div>
-        </div>
-        {detail.orgType === 2 && detail.stakeAccountId && (
-          <div className="metric-card">
-            <div className="metric-label">永久质押账户 <code className="metric-label-id">{accountIdToSs58(detail.stakeAccountId)}</code></div>
-            <div className="metric-value">
-              {detail.stakingBalanceFen != null
-                ? formatBalance(detail.stakingBalanceFen)
-                : '—'}
-            </div>
-          </div>
-        )}
-        {detail.orgType === 2 && detail.feeAccountId && (
-          <div className="metric-card">
-            <div className="metric-label">费用账户 <code className="metric-label-id">{accountIdToSs58(detail.feeAccountId)}</code></div>
-            <div className="metric-value">
-              {detail.feeBalanceFen != null
-                ? formatBalance(detail.feeBalanceFen)
-                : '—'}
-            </div>
-          </div>
-        )}
-        {detail.orgType === 1 && detail.cbAccountId && (
-          <div className="metric-card">
-            <div className="metric-label">费用账户 <code className="metric-label-id">{accountIdToSs58(detail.cbAccountId)}</code></div>
-            <div className="metric-value">
-              {detail.cbFeeFen != null
-                ? formatBalance(detail.cbFeeFen)
-                : '—'}
-            </div>
-          </div>
-        )}
-        {detail.nrcAccountId && (
-          <div className="metric-card">
-            <div className="metric-label">费用账户 <code className="metric-label-id">{accountIdToSs58(detail.nrcAccountId)}</code></div>
-            <div className="metric-value">
-              {detail.nrcFeeFen != null
-                ? formatBalance(detail.nrcFeeFen)
-                : '—'}
-            </div>
-          </div>
-        )}
-        {detail.fundAccountId && (
-          <div className="metric-card">
-            <div className="metric-label">安全基金账户 <code className="metric-label-id">{accountIdToSs58(detail.fundAccountId)}</code></div>
-            <div className="metric-value">
-              {detail.fundBalanceFen != null
-                ? formatBalance(detail.fundBalanceFen)
-                : '—'}
-            </div>
-          </div>
-        )}
-      </div>
+      <section className="institution-overview-accounts" aria-labelledby="institution-overview-accounts-title">
+        <h3 id="institution-overview-accounts-title">账户列表</h3>
+        <table className="institution-overview-account-table">
+          <thead>
+            <tr>
+              <th scope="col">账户名称</th>
+              <th scope="col">账户地址</th>
+              <th scope="col">链上余额（元）</th>
+            </tr>
+          </thead>
+          <tbody>
+            {accounts.map(({ name, accountId, balanceFen }) => (
+              <tr key={name}>
+                <th scope="row">{name}</th>
+                <td><code>{accountId ? accountIdToSs58(accountId) : '—'}</code></td>
+                <td>{balanceFen == null ? '—' : formatBalance(balanceFen).replace(/ 元$/, '')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
 
-      {/* 管理员入口卡片（折叠，点击进入管理员列表页） */}
-      <div className="institution-info-section">
-        <div
-          className="metric-card admin-entry-card"
-          onClick={() => detail && onOpenAdminList?.(cidNumber, detail.orgType)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && detail && onOpenAdminList?.(cidNumber, detail.orgType)}
-        >
-          <div className="admin-entry-left">
-            <div className="admin-entry-title">管理员列表（{detail.admins.length} 人）</div>
-            {activatedCount > 0 && (
-              <div className="admin-entry-activated">已激活 {activatedCount} 人</div>
-            )}
-          </div>
-          <span className="admin-entry-arrow">→</span>
+      <section className="institution-overview-proposals">
+        <div className="institution-overview-proposal-toolbar">
+          {proposalTitle}
+          {proposalActions}
         </div>
-      </div>
-
-      {/* 提案类型入口（始终显示，未激活时灰色禁用） */}
-      <div className="institution-info-section">
-        <h3>发起提案</h3>
-        {proposalActions}
-        {!isAdmin && (
-          <p className="no-data">激活管理员后可操作提案功能</p>
-        )}
-      </div>
-
-      {/* 提案列表（分页） */}
-      <div className="institution-info-section">
-        {proposalTitle}
         {proposalList}
-      </div>
+      </section>
     </div>
   );
 }

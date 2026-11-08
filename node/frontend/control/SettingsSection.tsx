@@ -3,8 +3,7 @@ import { homeNodeApi, settingsApi } from "./api";
 import { RewardAccountSection } from "./RewardAccountSection";
 import { NodeModeSection } from "./NodeModeSection";
 import { NodeKeySection } from "./NodeKeySection";
-import { OnChinaPlatformSection } from "./OnChinaPlatformSection";
-import type { ChainStatus, BootnodeKey, DesktopUpdateInfo, NodeModeState, OnChinaPlatformState, RewardAccount } from "./types";
+import type { ChainStatus, BootnodeKey, DesktopUpdateInfo, NodeModeState, RewardAccount } from "./types";
 import { useCallback, useEffect, useState } from 'react';
 
 type SettingsSectionProps = {
@@ -17,8 +16,6 @@ export function SettingsSection({
   onUpdateDesktop,
 }: SettingsSectionProps) {
   const [nodeMode, setNodeMode] = useState<NodeModeState | null>(null);
-  const [onChinaPlatform, setOnChinaPlatform] =
-    useState<OnChinaPlatformState | null>(null);
   const [rewardAccount, setRewardAccount] = useState<RewardAccount>({
     accountId: null,
   });
@@ -31,16 +28,14 @@ export function SettingsSection({
   const [isAdmin, setIsAdmin] = useState(false);
 
   const loadSettings = useCallback(async () => {
-    const [m, p, w, k, c, a] = await Promise.allSettled([
+    const [m, w, k, c, a] = await Promise.allSettled([
       settingsApi.getNodeMode(),
-      settingsApi.getOnChinaPlatform(),
       settingsApi.getRewardAccount(),
       settingsApi.getBootnodeKey(),
       homeNodeApi.getChainStatus(),
       adminsChangeApi.hasAnyActivatedAdmin(),
     ]);
     if (m.status === 'fulfilled') setNodeMode(m.value);
-    if (p.status === 'fulfilled') setOnChinaPlatform(p.value);
     if (w.status === 'fulfilled') setRewardAccount(w.value);
     if (k.status === 'fulfilled') setNodeKey(k.value);
     if (c.status === 'fulfilled') setChainStatus(c.value);
@@ -54,10 +49,6 @@ export function SettingsSection({
   return (
     <>
       <NodeModeSection nodeMode={nodeMode} onUpdated={setNodeMode} />
-      <OnChinaPlatformSection
-        platform={onChinaPlatform}
-        onUpdated={setOnChinaPlatform}
-      />
       <RewardAccountSection
         rewardAccount={rewardAccount}
         onUpdated={setRewardAccount}

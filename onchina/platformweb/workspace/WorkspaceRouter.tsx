@@ -6,9 +6,10 @@ import type { CapabilitySet } from '../authentication/Context';
 import type { CidMetaResult } from '../codes/api';
 import { GenericWorkspace } from './GenericWorkspace';
 
-import { workspaceView } from './modules';
+import { resolveModuleLanding, workspaceView } from './modules';
 export type WorkspaceRouterProps = {
   auth: AdminAuth;
+  requestedModule?: string | null;
   capabilities: CapabilitySet;
   passkeyRegistered: boolean | null;
   cidMeta: CidMetaResult | null;
@@ -17,6 +18,7 @@ export type WorkspaceRouterProps = {
 
 export function WorkspaceRouter({
   auth,
+  requestedModule,
   capabilities,
   passkeyRegistered,
   cidMeta,
@@ -25,6 +27,19 @@ export function WorkspaceRouter({
   if (!auth.workspace) {
     return <Alert type="error" showIcon message="后端未返回机构工作台，已拒绝加载页面" />;
   }
+  if (requestedModule != null) {
+    switch (resolveModuleLanding(auth, requestedModule)) {
+      case 'unavailable':
+        return <Alert type="error" showIcon message="所选模块未加载或已不可用" />;
+      case 'forbidden':
+        return <Alert type="error" showIcon message="当前登录身份无权访问所选模块" />;
+      case 'legislation':
+        return <GenericWorkspace auth={auth} focusLegislation />;
+      case 'workspace':
+        break;
+    }
+  }
+
   const authWithWorkspace = auth;
   const RegisteredWorkspace = workspaceView<WorkspaceRouterProps>(authWithWorkspace);
   if (RegisteredWorkspace) {

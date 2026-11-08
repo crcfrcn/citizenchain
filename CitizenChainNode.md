@@ -1,6 +1,6 @@
 # CitizenChain 节点交付与塔塔自动化
 
-公民链本机编译由塔塔安装器调用 `node scripts/build.mjs compile macos`，编译器交付本轮App，签名安装归控制台。节点编译命令为 `node scripts/build.mjs <平台>`，平台为 macos、windows、linux-arm、linux-amd；WASM唯一正式编译命令为 `node scripts/runtime.mjs build`。仅在本仓 GitHub main 的准确 Workflow、源码 SHA 与对应原生 Runner 执行。源码位置从实际检出解析，不写死开发者路径。
+公民链本机编译由塔塔安装器调用 `node scripts/build.mjs compile macos`，编译器复用本机已有的 gh 登录核对对应平台的正式 Release 和成功 Run，并交付本轮 App。签名安装归控制台。节点编译命令为 `node scripts/build.mjs <平台>`，平台为 macos、windows、linux-arm、linux-amd；WASM唯一正式编译命令为 `node scripts/runtime.mjs build`。仅在本仓 GitHub main 的准确 Workflow、源码 SHA 与对应原生 Runner 执行。源码位置从实际检出解析，不写死开发者路径。
 
 ## 文件职责
 

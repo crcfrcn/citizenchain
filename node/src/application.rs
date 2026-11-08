@@ -27,6 +27,7 @@ pub fn run_desktop() {
             nodecontrol::mode::get_node_mode,
             nodecontrol::mode::set_node_mode,
             crate::platform::get_onchina_platform,
+            crate::platform::open_onchina_module,
             crate::platform::start_onchina_platform,
             crate::platform::stop_onchina_platform,
             nodecontrol::reward::get_reward_account,

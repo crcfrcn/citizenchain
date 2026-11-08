@@ -95,21 +95,21 @@
   line-height: 1.45;
 }
 
-.governance-section.nrc-overview {
-  --nrc-secondary: #a2aec1;
-  --nrc-divider: #293548;
-  --nrc-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+.governance-section.institution-overview {
+  --institution-overview-secondary: #a2aec1;
+  --institution-overview-divider: #293548;
+  --institution-overview-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   margin-top: -4px;
   padding-bottom: 28px;
 }
 
-.nrc-overview .nrc-header {
+.institution-overview .institution-overview-header {
   padding-bottom: 19px;
-  border-bottom: 1px solid var(--nrc-divider);
+  border-bottom: 1px solid var(--institution-overview-divider);
 }
 
-.nrc-overview .nrc-heading,
-.nrc-overview .nrc-proposal-toolbar {
+.institution-overview .institution-overview-heading,
+.institution-overview .institution-overview-proposal-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -117,26 +117,26 @@
   gap: 8px 16px;
 }
 
-.nrc-overview .nrc-heading h2 {
+.institution-overview .institution-overview-heading h2 {
   margin: 0;
   font-size: 20px;
   line-height: 1.4;
   font-weight: 600;
 }
 
-.nrc-overview .nrc-voting-rules {
+.institution-overview .institution-overview-voting-rules {
   display: inline-block;
   font-size: 14px;
   font-weight: 400;
-  color: var(--nrc-secondary);
+  color: var(--institution-overview-secondary);
 }
 
-.nrc-overview .nrc-voting-rules strong {
+.institution-overview .institution-overview-voting-rules strong {
   color: var(--text-primary);
   font-weight: 600;
 }
 
-.nrc-overview .nrc-cid {
+.institution-overview .institution-overview-cid {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -147,14 +147,14 @@
   line-height: 18px;
 }
 
-.nrc-overview .nrc-cid code,
-.nrc-overview .nrc-account-table code {
-  color: var(--nrc-secondary);
-  font-family: var(--nrc-mono);
+.institution-overview .institution-overview-cid code,
+.institution-overview .institution-overview-account-table code {
+  color: var(--institution-overview-secondary);
+  font-family: var(--institution-overview-mono);
   overflow-wrap: anywhere;
 }
 
-.nrc-overview .nrc-admin-button {
+.institution-overview .institution-overview-admin-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -171,21 +171,21 @@
   font-weight: 600;
 }
 
-.nrc-overview .nrc-admin-button:hover {
+.institution-overview .institution-overview-admin-button:hover {
   border-color: var(--primary);
 }
 
-.nrc-overview .nrc-admin-button span {
-  color: var(--nrc-secondary);
+.institution-overview .institution-overview-admin-button span {
+  color: var(--institution-overview-secondary);
   font-size: 18px;
   line-height: 1;
 }
 
-.nrc-overview .nrc-accounts {
+.institution-overview .institution-overview-accounts {
   margin-top: 17px;
 }
 
-.nrc-overview h3 {
+.institution-overview h3 {
   margin: 0;
   color: var(--text-primary);
   font-size: 17px;
@@ -193,10 +193,10 @@
   font-weight: 600;
 }
 
-.nrc-overview .nrc-account-table {
+.institution-overview .institution-overview-account-table {
   width: 100%;
   margin-top: 10px;
-  border: 1px solid var(--nrc-divider);
+  border: 1px solid var(--institution-overview-divider);
   border-spacing: 0;
   border-radius: 8px;
   overflow: hidden;
@@ -204,91 +204,91 @@
   background: #151e2e;
 }
 
-.nrc-overview .nrc-account-table :is(th, td) {
+.institution-overview .institution-overview-account-table :is(th, td) {
   padding: 8px clamp(8px, 1.2vw, 16px);
   text-align: left;
   overflow-wrap: anywhere;
 }
 
-.nrc-overview .nrc-account-table thead th {
+.institution-overview .institution-overview-account-table thead th {
   height: 39px;
   background: #1d2739;
-  color: var(--nrc-secondary);
+  color: var(--institution-overview-secondary);
   font-size: 13px;
   font-weight: 500;
 }
 
-.nrc-overview .nrc-account-table th:first-child {
+.institution-overview .institution-overview-account-table th:first-child {
   width: 22.7%;
 }
 
-.nrc-overview .nrc-account-table :is(th, td):last-child {
+.institution-overview .institution-overview-account-table :is(th, td):last-child {
   width: 26%;
   text-align: right;
 }
 
-.nrc-overview .nrc-account-table tbody :is(th, td) {
+.institution-overview .institution-overview-account-table tbody :is(th, td) {
   height: 56px;
-  border-top: 1px solid var(--nrc-divider);
+  border-top: 1px solid var(--institution-overview-divider);
 }
 
-.nrc-overview .nrc-account-table tbody th {
+.institution-overview .institution-overview-account-table tbody th {
   font-size: 14.5px;
   font-weight: 500;
 }
 
-.nrc-overview .nrc-account-table tbody code {
+.institution-overview .institution-overview-account-table tbody code {
   font-size: 13.5px;
 }
 
-.nrc-overview .nrc-account-table tbody td:last-child {
-  font-family: var(--nrc-mono);
+.institution-overview .institution-overview-account-table tbody td:last-child {
+  font-family: var(--institution-overview-mono);
   font-size: 15.5px;
   font-weight: 600;
 }
 
-.nrc-overview .nrc-proposals {
+.institution-overview .institution-overview-proposals {
   margin-top: 28px;
 }
 
-.nrc-overview .nrc-proposal-toolbar {
+.institution-overview .institution-overview-proposal-toolbar {
   margin-bottom: 17px;
 }
 
-.nrc-overview .nrc-proposal-toolbar .proposal-type-grid {
+.institution-overview .institution-overview-proposal-toolbar .proposal-type-grid {
   max-width: 100%;
   justify-content: flex-end;
   margin-left: auto;
 }
 
-.nrc-overview .proposal-type-button {
+.institution-overview .proposal-type-button {
   min-width: 66px;
   min-height: 34px;
   padding: 0 17px;
   font-family: inherit;
 }
 
-.nrc-overview .proposal-type-button:disabled {
+.institution-overview .proposal-type-button:disabled {
   opacity: 1;
   border-color: #303b4e;
   background: #151c2d;
   color: #8693a7;
 }
 
-.nrc-overview .nrc-proposals .no-data {
+.institution-overview .institution-overview-proposals .no-data {
   display: grid;
   place-items: center;
   min-height: 174px;
   margin: 0;
-  border: 1px solid var(--nrc-divider);
+  border: 1px solid var(--institution-overview-divider);
   border-radius: 8px;
   background: #141c2c;
-  color: var(--nrc-secondary);
+  color: var(--institution-overview-secondary);
   font-size: 14px;
 }
 
 @media (max-width: 640px) {
-  .nrc-overview .nrc-proposals .proposal-list {
+  .institution-overview .institution-overview-proposals .proposal-list {
     grid-template-columns: minmax(0, 1fr);
   }
 }

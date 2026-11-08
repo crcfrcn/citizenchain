@@ -3,7 +3,7 @@ use crate::council::InstitutionListItem;
 use crate::council::InstitutionType;
 use primitives::cid::china::china_cb::ChinaCb;
 use primitives::cid::china::china_cb::CHINA_CB;
-use primitives::cid::china::china_cb::SAFETY_FUND_ACCOUNT;
+use primitives::cid::china::china_cb::{NRC_HE_ACCOUNT, SAFETY_FUND_ACCOUNT};
 use primitives::cid::china::china_ch::ChinaCh;
 use primitives::cid::china::china_ch::CHINA_CH;
 
@@ -106,6 +106,13 @@ impl InstitutionRef {
             crate::registry::InstitutionRef::Prc(_) | crate::registry::InstitutionRef::Prb(_) => {
                 None
             }
+        }
+    }
+
+    pub(crate) fn he_account_id(self) -> Option<String> {
+        match self {
+            Self::Nrc(_) => Some(format!("0x{}", hex::encode(NRC_HE_ACCOUNT))),
+            Self::Prc(_) | Self::Prb(_) => None,
         }
     }
 

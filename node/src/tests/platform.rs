@@ -88,3 +88,16 @@ fn deployment_is_read_from_product_description_and_rejects_ambiguous_endpoints()
     }
     assert!(parse_deployment(br#"{"id":"platform"}"#).is_err());
 }
+
+#[test]
+fn module_link_only_uses_the_deployment_origin_and_loaded_modules() {
+    let base = reqwest::Url::parse("https://product.example:1988/").unwrap();
+    let loaded = vec!["registry".to_string(), "https://other.example/".to_string()];
+    let result = onchina_module_entry(base.clone(), "registry", &loaded).unwrap();
+    assert_eq!(
+        result.as_str(),
+        "https://product.example:1988/?module=registry"
+    );
+    assert!(onchina_module_entry(base.clone(), "judicial", &loaded).is_err());
+    assert!(onchina_module_entry(base, "https://other.example/", &loaded).is_err());
+}

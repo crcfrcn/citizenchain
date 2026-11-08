@@ -1,6 +1,6 @@
 import { Channel } from '@tauri-apps/api/core';
 import { invoke } from "../client/tauri";
-import type { BootnodeKey, BootnodeOption, DesktopInstaller, DesktopUpdateProgress, GrandpaKey, NodeMode, NodeModeState, OnChinaPlatformState, RewardAccount, ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake, OtherTabsPayload, WhitepaperDocument } from "./types";
+import type { BootnodeKey, BootnodeOption, DesktopInstaller, DesktopUpdateProgress, GrandpaKey, OnChinaModuleId, NodeMode, NodeModeState, OnChinaPlatformState, RewardAccount, ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake, OtherTabsPayload, WhitepaperDocument } from "./types";
 import type { RuntimeConstitutionDocument } from "../guard/types";
 
 
@@ -9,6 +9,7 @@ export const settingsApi = {
   getNodeMode: () => invoke<NodeModeState>('get_node_mode'),
   setNodeMode: (mode: NodeMode) => invoke<NodeModeState>('set_node_mode', { mode }),
   getOnChinaPlatform: () => invoke<OnChinaPlatformState>('get_onchina_platform'),
+  openOnChinaModule: (moduleId: OnChinaModuleId) => invoke<void>('open_onchina_module', { moduleId }),
   startOnChinaPlatform: () => invoke<OnChinaPlatformState>('start_onchina_platform'),
   stopOnChinaPlatform: () => invoke<OnChinaPlatformState>('stop_onchina_platform'),
   getRewardAccount: () => invoke<RewardAccount>('get_reward_account'),

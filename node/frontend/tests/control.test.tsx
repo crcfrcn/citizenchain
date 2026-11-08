@@ -3,7 +3,7 @@ import {homeNodeApi} from '../control/api';
 const mocks=vi.hoisted(()=>({invoke:vi.fn()}));
 vi.mock('../client/tauri',()=>({invoke:mocks.invoke,sanitizeError:(error:unknown)=>String(error)}));
 const api=homeNodeApi as unknown as Record<string,(...args:unknown[])=>Promise<unknown>>;
-beforeEach(()=>mocks.invoke.mockReset());
+beforeEach(()=>{mocks.invoke.mockReset();});
 it("getNodeStatus保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["getNodeStatus"](...[])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("get_node_status"); });
 it("startNode保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["startNode"](...[])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("start_node"); });
 it("stopNode保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["stopNode"](...[])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("stop_node"); });
@@ -42,7 +42,7 @@ it('白皮书请求中可切换、失败可重试、成功后重新进入复用�
 
 import {SettingsSection} from '../control/SettingsSection';
 vi.mock('../control/NodeModeSection',()=>({NodeModeSection:()=>null}));
-vi.mock('../control/OnChinaPlatformSection',()=>({OnChinaPlatformSection:()=>null}));
+import {OnChinaPlatformSection} from '../control/OnChinaPlatformSection';
 vi.mock('../control/RewardAccountSection',()=>({RewardAccountSection:()=>null}));
 it.each([
   ['available','安装更新',false,0], ['downloading','下载中',true,45],
@@ -71,21 +71,43 @@ it.each(['downloading','ready','installing'] as const)('状态%s保留设置新�
 it('下载失败仍保留已知新版标记',()=>expect(shouldShowDesktopUpdateDot({status:'error',latestVersion:'1.0.1'})).toBe(true));
 
 it('链上中国未取得产品说明时显示入口加载中，不显示替代地址',async()=>{
-  const {OnChinaPlatformSection}=await vi.importActual<typeof import('../control/OnChinaPlatformSection')>('../control/OnChinaPlatformSection');
-  const view=render(<OnChinaPlatformSection platform={null} onUpdated={vi.fn()}/>);
+  mocks.invoke.mockImplementation(() => new Promise(() => {}));
+  const view=render(<OnChinaPlatformSection/>);
   expect(screen.getByText('入口加载中')).toBeTruthy();
   expect((screen.getByRole('button',{name:'启动'}) as HTMLButtonElement).disabled).toBe(true);
   view.unmount();
 });
 it('链上中国只显示宿主交付的入口和具体启动诊断',async()=>{
-  const {OnChinaPlatformSection}=await vi.importActual<typeof import('../control/OnChinaPlatformSection')>('../control/OnChinaPlatformSection');
-  const view=render(<OnChinaPlatformSection platform={{running:false,status:'error',statusLabel:'启动失败',url:'https://product.example:1988/',detail:'主机尚未配置固定地址'}} onUpdated={vi.fn()}/>);
-  expect(screen.getByText('https://product.example:1988')).toBeTruthy();
+  mocks.invoke.mockResolvedValue({running:false,status:'error',statusLabel:'启动失败',url:'https://product.example:1988/',detail:'主机尚未配置固定地址',modules:[]});
+  const view=render(<OnChinaPlatformSection/>);
+  expect(await screen.findByText('https://product.example:1988')).toBeTruthy();
   const status = screen.getByRole('status');
   expect(status.textContent?.trim()).toBe('启动失败');
   expect(status.getAttribute('data-status')).toBe('error');
   expect(status.classList.contains('error')).toBe(false);
   expect(status.parentElement).toBe(screen.getByText('链上中国平台').parentElement);
   expect(screen.getByText('主机尚未配置固定地址')).toBeTruthy();
+  view.unmount();
+});
+
+it('链上中国只允许打开已就绪模块，并只传模块 ID', async () => {
+  mocks.invoke.mockImplementation(async (command: string) => {
+    if (command === 'get_onchina_platform') {
+      return {running:true,status:'enabled',statusLabel:'已开启',url:'https://product.example:1988/',modules:['registry']};
+    }
+    if (command === 'open_onchina_module') throw new Error('浏览器不可用');
+    throw new Error(command);
+  });
+  const view = render(<OnChinaPlatformSection />);
+  await screen.findByText('已开启');
+  const available = screen.getByRole<HTMLButtonElement>('button', {name:/^注册局/});
+  const unavailable = screen.getByRole<HTMLButtonElement>('button', {name:/^立法/});
+  expect(available.disabled).toBe(false);
+  expect(unavailable.disabled).toBe(true);
+  fireEvent.click(unavailable);
+  expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  fireEvent.click(available);
+  expect((await screen.findByRole('alert')).textContent).toContain('浏览器不可用');
+  expect(mocks.invoke).toHaveBeenLastCalledWith('open_onchina_module', {moduleId:'registry'});
   view.unmount();
 });

@@ -7,7 +7,6 @@ import { SweepProposalPage } from "../multisig/SweepProposalPage";
 import { ProtocolUpgradeProposalPage } from "../upgrade/index";
 import { GrandpaKeyChangePage } from "../grandpakey/GrandpaKeyChangePage";
 import type { AdminSignerMatch } from "./council";
-import './styles.css';
 // 国家储委会顶级 Section：直接渲染国家储委会机构详情页（单机构，无列表层）。
 // 特权动作：协议升级、安全基金转账提案 — 仅国家储委会管理员可发起。
 import { useState } from 'react';
@@ -118,7 +117,6 @@ export function NrcSection() {
       cidNumber={NRC_CID_NUMBER}
       onBack={backToDetail}
       hideBackButton
-      layout="nrc"
       onOpenAdminList={() => setView({ page: 'admin-list' })}
       onSelectProposal={(proposalId, adminSigners, sid) =>
         setView({ page: 'proposal-detail', proposalId, adminSigners, cidNumber: sid })

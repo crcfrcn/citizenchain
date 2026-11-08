@@ -117,6 +117,8 @@ export type InstitutionDetail = {
   nrcFeeFen: string | null;
   fundAccountId: string | null;
   fundBalanceFen: string | null;
+  heAccountId: string | null;
+  heBalanceFen: string | null;
   warning: string | null;
 };
 
@@ -129,5 +131,6 @@ export type InstitutionBalanceUpdate = {
   cbFeeFen: string | null;
   nrcFeeFen: string | null;
   fundBalanceFen: string | null;
+  heBalanceFen: string | null;
   warning: string | null;
 };

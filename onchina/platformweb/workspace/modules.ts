@@ -65,6 +65,11 @@ export type ModuleAsset = {
   id: string; version: string; interface_version: number; script: string; stylesheet: string;
   exports: string[]; institution_codes: string[]; workspace: string | null;
 };
+// HTTP 响应与模块产物的元数据命名各有约定，仅在装载入口做转换。
+type HealthModuleAsset = Omit<ModuleAsset, 'interface_version' | 'institution_codes'> & {
+  interfaceVersion: number;
+  institutionCodes: string[];
+};
 export type ModuleMetadata = Pick<ModuleAsset, 'id' | 'version' | 'interface_version'>;
 export type LoadedModule = Record<string, unknown> & { __onchina?: ModuleMetadata };
 // 全局声明随实际公开接口进入浏览器与测试工程，不依赖编辑器隐式发现d.ts。
@@ -145,10 +150,16 @@ export function initializeModules(): Promise<void> {
   initialization = (async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), MODULE_LOAD_TIMEOUT_MS);
-    const health = await request<{ modules: ModuleAsset[] }>('/api/health', { signal: controller.signal })
+    const health = await request<{ modules: (HealthModuleAsset | ModuleAsset)[] }>('/api/health', { signal: controller.signal })
       .finally(() => clearTimeout(timer));
     if (!Array.isArray(health.modules)) throw new Error('平台未返回模块声明');
-    assets = health.modules;
+    assets = health.modules.map(asset => {
+      if ('interfaceVersion' in asset) {
+        const { interfaceVersion, institutionCodes, ...fields } = asset;
+        return { ...fields, interface_version: interfaceVersion, institution_codes: institutionCodes };
+      }
+      return asset;
+    });
     const ids = new Set<string>();
     await Promise.all(assets.map(async asset => {
       try {
@@ -168,10 +179,27 @@ export function moduleView<Props extends object>(id: string, name: string): Comp
   return value as ComponentType<Props>;
 }
 /** 已验证会话的实例级模块优先，其次使用模块声明的机构类工作台。 */
-export function workspaceView<Props extends object>(auth: AdminAuth): ComponentType<Props> | null {
+function workspaceAsset(auth: AdminAuth): ModuleAsset | undefined {
   const instance = assets.filter(asset => asset.workspace && auth.workspace?.workspace_modules.includes(asset.id));
   const owned = instance.length ? instance : assets.filter(asset => asset.workspace && asset.institution_codes.includes(auth.institutionCode));
   if (owned.length > 1) throw new Error('机构工作台模块归属冲突');
-  const asset = owned[0];
+  return owned[0];
+}
+
+export function workspaceView<Props extends object>(auth: AdminAuth): ComponentType<Props> | null {
+  const asset = workspaceAsset(auth);
   return asset?.workspace ? moduleView<Props>(asset.id, asset.workspace) : null;
+}
+
+export function resolveModuleLanding(auth: AdminAuth, id: string) {
+  if (!['registry', 'legislation', 'judicial', 'private'].includes(id)
+      || initializationError || failures.has(id) || !assets.some(asset => asset.id === id)) {
+    return 'unavailable';
+  }
+  if (id === 'legislation') {
+    return auth.workspace?.workspace_kind === 'legislation' && auth.capabilities?.canViewLegislation
+      ? 'legislation'
+      : 'forbidden';
+  }
+  return workspaceAsset(auth)?.id === id ? 'workspace' : 'forbidden';
 }

@@ -31,6 +31,7 @@ function resolveHeaderAdminIdentity(auth: AdminAuth | null): { cidShortName: str
 
 function AppInner() {
   const { auth, setAuth, capabilities } = useAuth();
+  const requestedModule = new URLSearchParams(window.location.search).get('module');
   const [bootstrapping, setBootstrapping] = useState(true);
   const [cidMeta, setCidMeta] = useState<CidMetaResult | null>(null);
   // 当前管理员是否已注册 passkey(null=未知);工作台据此决定注册局默认落点。
@@ -248,6 +249,7 @@ function AppInner() {
       ) : (
         <Content style={{ position: 'relative', zIndex: 1, padding: '16px 24px 24px' }}>
           <WorkspaceRouter
+            requestedModule={requestedModule}
             auth={auth}
             capabilities={capabilities}
             passkeyRegistered={passkeyRegistered}

@@ -11,14 +11,17 @@ import { WorkspaceShell } from './WorkspaceShell';
 
 export type GenericWorkspaceProps = {
   auth: AdminAuth;
+  focusLegislation?: boolean;
 };
 
-function GenericOperations({ auth }: GenericWorkspaceProps) {
+function GenericOperations({ auth, focusLegislation }: GenericWorkspaceProps) {
   // 账户管理归本机构在册管理员;立法与表决仅在后端开放能力位时叠加显示。
+  const legislation = auth.capabilities?.canViewLegislation ? <LegislationView auth={auth} /> : null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {focusLegislation ? legislation : null}
       <AccountManageSection auth={auth} />
-      {auth.capabilities?.canViewLegislation ? <LegislationView auth={auth} /> : null}
+      {focusLegislation ? null : legislation}
     </div>
   );
 }
@@ -39,13 +42,13 @@ function GenericRecords() {
   return <Empty description="暂无记录" />;
 }
 
-export function GenericWorkspace({ auth }: GenericWorkspaceProps) {
+export function GenericWorkspace({ auth, focusLegislation }: GenericWorkspaceProps) {
   const workspace = auth.workspace;
   if (!workspace) return null;
   return (
     <WorkspaceShell
       workspace={workspace}
-      operations={<GenericOperations auth={auth} />}
+      operations={<GenericOperations auth={auth} focusLegislation={focusLegislation} />}
       display={<GenericDisplay auth={auth} />}
       records={<GenericRecords />}
     />

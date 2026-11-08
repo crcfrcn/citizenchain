@@ -174,7 +174,7 @@ impl HttpsFixture {
         std::fs::create_dir_all(&frontend).unwrap();
         let marker = format!(
             "/*onchina:{}*/\n",
-            serde_json::json!({"id":&self.id,"version":version,"interfaceVersion":model::MODULE_INTERFACE_VERSION})
+            serde_json::json!({"id":&self.id,"version":version,"interface_version":model::MODULE_INTERFACE_VERSION})
         );
         for name in ["module.js", "module.css"] {
             std::fs::write(frontend.join(name), &marker).unwrap();

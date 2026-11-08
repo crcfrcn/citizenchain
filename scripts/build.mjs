@@ -1,5 +1,5 @@
 import {createSecureContext} from 'node:tls';
-import {spawnSync} from 'node:child_process';
+import {execFileSync, spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep, delimiter} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -35,20 +35,16 @@ function buildVersion(value) {
 }
 // 本机安装沿用本平台最新成功正式版，不计算新版本，不读取Actions Artifact。
 // GitHub请求和版本计算不在控制台实现，也不借用Cargo内部包元数据。
-export async function latestReleaseVersion(platform, {fetchImpl = fetch} = {}) {
+export async function latestReleaseVersion(platform, {read} = {}) {
   const declared = product.platforms[platform];
   if (!declared || platform === 'wasm') fail('没有对应的节点平台');
-  const github = async path => {
-    const response = await fetchImpl('https://api.github.com/repos/' + product.repository + '/' + path, {
-      redirect: 'error', signal: AbortSignal.timeout(30000),
-      headers: {'User-Agent': 'CitizenChain', Accept: 'application/vnd.github+json'},
-    });
-    if (!response.ok) fail('读取本平台正式版本失败：HTTP ' + response.status);
-    return response.json();
-  };
+  const env = {...process.env, PATH:[process.env.PATH, ...(process.platform==='darwin'?['/opt/homebrew/bin','/usr/local/bin']:[])].filter(Boolean).join(delimiter),
+    GH_HOST:'github.com',GH_PROMPT_DISABLED:'1',GH_NO_UPDATE_NOTIFIER:'1',GH_DEBUG:''};
+  read ??= path => JSON.parse(execFileSync('gh',['api','repos/'+product.repository+'/'+path],
+    {env,encoding:'utf8',timeout:30000,maxBuffer:16*1024*1024}));
   const releases = [];
   for (let page = 1;; page++) {
-    const rows = await github('releases?per_page=100&page=' + page);
+    const rows = await read('releases?per_page=100&page=' + page);
     if (!Array.isArray(rows)) fail('正式Release列表无效');
     releases.push(...rows);
     if (rows.length < 100) break;
@@ -67,7 +63,7 @@ export async function latestReleaseVersion(platform, {fetchImpl = fetch} = {}) {
     if (proof.schema !== 1 || proof.workflow !== '.github/workflows/' + declared.workflow
       || release.tag_name !== prefix + version || proof.tag !== release.tag_name
       || !Number.isSafeInteger(proof.run_id) || proof.run_id <= 0) fail('本平台正式版本记录无效');
-    const run = await github('actions/runs/' + proof.run_id);
+    const run = await read('actions/runs/' + proof.run_id);
     if (run.status !== 'completed' || run.conclusion !== 'success') continue;
     if (run.path !== proof.workflow || run.head_branch !== 'main' || run.event !== 'workflow_dispatch'
       || run.head_sha !== proof.source_sha || run.run_attempt !== proof.run_attempt) fail('本平台正式版本与成功Run不符');

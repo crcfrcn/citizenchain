@@ -39,12 +39,15 @@ export type NodeModeState = {
   options: NodeModeOption[];
 };
 
+export type OnChinaModuleId = 'registry' | 'legislation' | 'judicial' | 'private';
+
 export type OnChinaPlatformState = {
   running: boolean;
   status: 'stopped' | 'starting' | 'enabled' | 'error';
   statusLabel: string;
   url: string;
   detail?: string | null;
+  modules: string[];
 };
 
 export type DesktopUpdateStatus =
