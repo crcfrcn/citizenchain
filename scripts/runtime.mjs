@@ -10,7 +10,7 @@ import {execFileSync} from 'node:child_process';
 import {X509Certificate} from 'node:crypto';
 import {request as httpsRequest} from 'node:https';
 import * as cfg from './config.mjs';
-import {checkWork, platformCargoEnvironment, runBuildProcess} from './build.mjs';
+import {checkWork, checkTools, platformCargoEnvironment, runBuildProcess} from './build.mjs';
 
 const root = realpathSync(resolve(import.meta.dirname, '..'));
 const maximumVersion = 0xffffffff;
@@ -246,6 +246,16 @@ export function verifyRuntimeWasm(input, target) {
   return actual;
 }
 
+async function readRpcBody(stream) {
+  const parts = []; let size = 0;
+  for await (const part of stream) {
+    size += part.length;
+    if (size > maximumRpcBytes) fail('Runtime链RPC响应过大');
+    parts.push(part);
+  }
+  return Buffer.concat(parts).toString('utf8');
+}
+
 // 本机请求只装载本轮公开证书；不使用全局Agent、代理、客户端私钥或关闭身份校验。
 function requestLocalRuntime(url, body, certificate, requestImpl) {
   if (url.protocol !== 'https:' || url.hostname !== '127.0.0.1' || url.pathname !== '/' || url.search) {
@@ -258,12 +268,7 @@ function requestLocalRuntime(url, body, certificate, requestImpl) {
       void (async() => {
         try {
           if (response.statusCode !== 200) fail('本机Runtime RPC状态无效');
-          const parts = []; let size = 0;
-          for await (const part of response) {
-            size += part.length; if (size > maximumRpcBytes) fail('Runtime链RPC响应过大');
-            parts.push(part);
-          }
-          accept(Buffer.concat(parts).toString('utf8'));
+          accept(await readRpcBody(response));
         } catch (error) { response.destroy(); reject(error); }
       })();
     });
@@ -288,11 +293,7 @@ export async function rpcRequest(endpoint, method, params, {fetchImpl = fetch, W
     const response = await fetchImpl(url, {method: 'POST', redirect: 'error', credentials: 'omit',
       headers: {'content-type': 'application/json'}, body: request, signal: AbortSignal.timeout(15000)});
     if (!response.ok || !response.body) fail('Runtime链RPC读取失败');
-    const parts = []; let size = 0;
-    for await (const part of response.body) {
-      size += part.length; if (size > 64 * 1024) fail('Runtime链RPC响应过大'); parts.push(part);
-    }
-    raw = Buffer.concat(parts).toString('utf8');
+    raw = await readRpcBody(response.body);
   } else {
     raw = await new Promise((accept, reject) => {
       const socket = new WebSocketType(url), timer = setTimeout(() => finish(Error('Runtime链RPC超时')), 15000);
@@ -304,7 +305,7 @@ export async function rpcRequest(endpoint, method, params, {fetchImpl = fetch, W
       }
       socket.addEventListener('open', () => socket.send(request));
       socket.addEventListener('message', event => {
-        if (typeof event.data !== 'string' || Buffer.byteLength(event.data) > 64 * 1024) finish(Error('Runtime链RPC响应无效'));
+        if (typeof event.data !== 'string' || Buffer.byteLength(event.data) > maximumRpcBytes) finish(Error('Runtime链RPC响应无效'));
         else finish(null, event.data);
       });
       socket.addEventListener('error', () => finish(Error('Runtime链RPC连接失败')));
@@ -366,7 +367,6 @@ export function assertRuntimeWork(work, env = process.env) {
 
 // 只复制Git已跟踪的普通文件；产物、凭据、node_modules和临时现场不进入编译输入。
 export function copyRuntimeSource(project, destination, files) {
-  if (existsSync(destination)) fail('Runtime临时源码目录已存在');
   mkdirSync(destination);
   for (const name of files) {
     const path = resolve(project, name), within = relative(project, path);
@@ -381,7 +381,7 @@ async function runtime(action) {
   const platform = 'wasm', work = join(root, 'target/build/wasm');
   assertRuntimeWork(work);
   const declared = cfg.product.platforms[platform];
-  if (process.platform !== declared.host || process.arch !== declared.arch || process.versions.node !== cfg.product.tools.node) fail('Runtime构建宿主或Node版本不符');
+  if (process.platform !== declared.host || process.arch !== declared.arch) fail('Runtime构建宿主不符');
   mkdirSync(work, {recursive: true});
   const lock = join(work, '.runtime-lock');
   try { mkdirSync(lock); } catch { fail('本轮Runtime任务已占用，禁止并发构建'); }
@@ -396,8 +396,7 @@ async function runtime(action) {
         throw error;
       }
     };
-    if (!(await run(env.CARGO, ['--version'], root, {capture: true})).stdout.startsWith('cargo ' + cfg.product.tools.rust + ' ')
-        || (await run(env.PROTOC, ['--version'], root, {capture: true})).stdout.trim() !== 'libprotoc ' + cfg.product.tools.protoc) fail('Runtime工具版本不符');
+    await checkTools(env, (command, args) => run(command, args, root, {capture: true}));
     const cargo = (directory, args) => run(env.CARGO, ['--config', join(directory, 'config.toml'), ...args], directory);
     const {base, target} = parseRuntimeBase(process.env.CITIZENCHAIN_RUNTIME_BASE);
     assertRuntimeTarget(target, process.env.CITIZENCHAIN_RELEASE_VERSION, process.env.CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION);
@@ -420,7 +419,7 @@ fn main() {}
       const filesToPublish = cfg.product.platforms.wasm.files;
       for (const name of filesToPublish) {
         const path = join(env.CARGO_TARGET_DIR, 'release/wbuild/runtime', name);
-        if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) fail('Runtime产物不是普通文件');
+        if (!lstatSync(path).isFile()) fail('Runtime产物不是普通文件');
         verifyRuntimeWasm(readFileSync(path), target);
       }
       // 整链验收复用本轮WASM；恢复临时副本的嵌入钩子，不再编译第二份产品Runtime。

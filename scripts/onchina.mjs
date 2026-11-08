@@ -2,17 +2,16 @@
 import {Agent} from 'node:https';
 // 链上中国唯一专属构建实现；只生成所选软件产物，不安装、不发布、不改链。
 import {copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
-import {basename, dirname, isAbsolute, join, relative, resolve, sep} from 'node:path';
+import {basename, dirname, isAbsolute, join, relative, resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {product} from './config.mjs';
 import {
-  checkWork, runBuildProcess, platformCargoEnvironment, npmCLI, stageWindowsOpenSsl, developmentTLS,
+  checkWork, inside, checkTools, runBuildProcess, platformCargoEnvironment, npmCLI, stageWindowsOpenSsl, developmentTLS,
 } from './build.mjs';
 
 const root = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 const moduleId = value => typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/u.test(value);
-function inside(parent, child) { const value = relative(parent, child); return value === '' || value !== '..' && !value.startsWith('..' + sep) && !isAbsolute(value); }
 function fail(message) { throw new Error(message); }
 
 /** 原生平台只读取产品现有声明，不复制平台或工具需求清单。 */
@@ -28,7 +27,7 @@ export function buildTargets(project = root, metadata) {
   const members = new Set(metadata.workspace_members), result = new Map();
   for (const pkg of metadata.packages.filter(pkg => members.has(pkg.id))) {
     const manifest = pkg.manifest_path;
-    if (typeof manifest !== 'string' || !inside(join(project, 'onchina'), manifest)) continue;
+    if (typeof manifest !== 'string' || !inside(join(project, 'onchina'), manifest, true)) continue;
     const binaries = pkg.targets.filter(target => target.kind.includes('bin'));
     if (!binaries.length) continue;
     if (binaries.length !== 1) fail('链上中国每个软件包必须只有自己的bin');
@@ -36,11 +35,11 @@ export function buildTargets(project = root, metadata) {
     const id = name === 'onchina' ? 'platform' : name.startsWith('onchina-') ? name.slice(8) : '';
     if (!moduleId(id) || result.has(id)) fail('链上中国构建目标重复或无效');
     const entry = target.src_path;
-    if (!isAbsolute(entry) || !inside(dirname(manifest), entry) || !existsSync(entry) || !lstatSync(entry).isFile()) fail('链上中国入口无效');
+    if (!isAbsolute(entry) || !inside(dirname(manifest), entry, true) || !existsSync(entry) || !lstatSync(entry).isFile()) fail('链上中国入口无效');
     const declaration = pkg.metadata?.onchina?.frontend;
     if (typeof declaration !== 'string') fail('链上中国缺少前端工程配对声明');
     const frontend = resolve(dirname(manifest), declaration);
-    if (!inside(join(project, 'onchina'), frontend) || realpathSync(frontend) !== frontend) fail('前端工程越界或经过链接');
+    if (!inside(join(project, 'onchina'), frontend, true) || realpathSync(frontend) !== frontend) fail('前端工程越界或经过链接');
     const frontendPackage = JSON.parse(readFileSync(join(frontend, 'package.json'), 'utf8'));
     if (frontendPackage.version !== pkg.version || !frontendPackage.exports || [...result.values()].some(value => value.frontend === frontend || value.frontendPackage === frontendPackage.name)) fail('前端工程版本、公开入口或独立归属无效');
     result.set(id, {id, name, entry, package: pkg.name, manifest, frontend, frontendPackage: frontendPackage.name});
@@ -48,8 +47,7 @@ export function buildTargets(project = root, metadata) {
   if (!result.has('platform')) fail('链上中国缺少宿主目标');
   return result;
 }
-export function selectTargets(project, selection = 'all', metadata) {
-  const targets = buildTargets(project, metadata);
+export function selectTargets(project, selection = 'all', metadata, targets = buildTargets(project, metadata)) {
   if (selection === 'all') return [...targets.values()];
   if (isAbsolute(selection)) {
     const selected = [...targets.values()].filter(target => target.frontend === selection);
@@ -100,7 +98,7 @@ async function prepareFrontend(project, environment, targets) {
 }
 
 function ownedPath(work, path, label) {
-  if (!isAbsolute(path) || path === work || !inside(work, path)) fail(label + '必须属于本次构建输出，不能覆盖工程或工作根');
+  if (!isAbsolute(path) || !inside(work, path)) fail(label + '必须属于本次构建输出，不能覆盖工程或工作根');
   let parent = path;
   while (!existsSync(parent)) parent = dirname(parent);
   if (realpathSync(parent) !== parent) fail(label + '不能经过符号链接');
@@ -135,7 +133,8 @@ export async function buildPreparedOnChina({
   const cargoResult = await runBuildProcess(cargo, ['--config', join(project, 'config.toml'), 'metadata', '--no-deps', '--format-version', '1', '--locked', '--offline'], env, project, {capture: true});
   let metadata;
   try { metadata = JSON.parse(cargoResult.stdout); } catch { fail('Cargo元数据不是有效JSON'); }
-  const targets = selectTargets(project, selection, metadata);
+  const allTargets = buildTargets(project, metadata);
+  const targets = selectTargets(project, selection, metadata, allTargets);
   if (prepareDependencies) await prepareFrontend(project, env, targets);
   // 同时准确选择所属package与bin；单模块仅链接平台lib，不编译宿主或其他业务。
   if (!frontendOnly) {
@@ -166,23 +165,17 @@ export async function buildPreparedOnChina({
     host: join(targetDirectory, 'release', 'onchina' + (platform === 'windows' ? '.exe' : '')),
     frontend: output, modules, targets: targets.map(target => target.id),
   };
-  await verifyPreparedOnChina({project, work, result, metadata});
+  await verifyPreparedOnChina({project, work, result, metadata, allTargets});
   return result;
 }
 
-/** 真正的类型检查和Vite执行只在构建子进程内进行，导入脚本不执行这些操作。 */
-/** 使用原生路径边界，避免Windows分隔符或同名前缀目录绕过模块归属。 */
-export function insideModule(parent, child, paths = { relative, isAbsolute, sep }) {
-  const value = paths.relative(parent, child);
-  return value !== '' && value !== '..' && !value.startsWith('..' + paths.sep) && !paths.isAbsolute(value);
-}
 /** 前端公开入口只由本包标准exports定位；软件接口1的入口标识保持。 */
 export function frontendEntry(frontend, descriptor) {
   const declared = JSON.parse(readFileSync(join(frontend, 'package.json'), 'utf8'));
   const source = declared.exports?.['./' + descriptor.frontend_source];
   if (declared.version !== descriptor.version || typeof source !== 'string' || !source.startsWith('./')) throw new Error('前端版本或公开入口声明无效');
   const entry = resolve(frontend, source);
-  if (!insideModule(frontend, entry) || !existsSync(entry) || realpathSync(entry) !== entry) throw new Error('模块入口越界或不存在');
+  if (!inside(frontend, entry) || !existsSync(entry) || realpathSync(entry) !== entry) throw new Error('模块入口越界或不存在');
   return entry;
 }
 function moduleBuild(owner, platform, project, descriptor, normalizePath) {
@@ -208,7 +201,7 @@ function moduleBuild(owner, platform, project, descriptor, normalizePath) {
       if (typeof source !== 'string') throw new Error('模块引用未公开的平台入口：' + id);
       path = resolve(platform, source);
     }
-    if (!path || !insideModule(platform, path)) return null;
+    if (!path || !inside(platform, path)) return null;
     const key = normalizePath(path.replace(/\.tsx?$/, ''));
     if (!exposed.has(key)) throw new Error('模块引用未公开的平台实现：' + relative(platform, path));
     return key;
@@ -224,7 +217,7 @@ function moduleBuild(owner, platform, project, descriptor, normalizePath) {
       if (id.startsWith('@gmb/onchina-')) throw new Error('跨模块运行时调用必须经公开装载入口');
       if (importer && (isAbsolute(id) || id.startsWith('.'))) {
         const path = isAbsolute(id) ? id : resolve(dirname(importer), id);
-        if (insideModule(join(project, 'onchina'), path) && !insideModule(owner, path)) throw new Error('跨模块运行时调用必须经公开装载入口');
+        if (inside(join(project, 'onchina'), path) && !inside(owner, path)) throw new Error('跨模块运行时调用必须经公开装载入口');
       }
       return null;
     },
@@ -239,14 +232,14 @@ function moduleBuild(owner, platform, project, descriptor, normalizePath) {
 
 
 function frontendProject(frontend) {
-  if (!isAbsolute(frontend) || !inside(join(root, 'onchina'), frontend) || realpathSync(frontend) !== frontend || !existsSync(join(frontend, 'package.json'))) fail('前端工程不属于本产品');
+  if (!isAbsolute(frontend) || !inside(join(root, 'onchina'), frontend, true) || realpathSync(frontend) !== frontend || !existsSync(join(frontend, 'package.json'))) fail('前端工程不属于本产品');
   return JSON.parse(readFileSync(join(frontend, 'package.json'), 'utf8'));
 }
 function publicFile(frontend, key) {
   const source = frontendProject(frontend).exports?.[key];
   if (typeof source !== 'string' || !source.startsWith('./')) fail('缺少前端真实公开入口：' + key);
   const path = resolve(frontend, source);
-  if (!insideModule(frontend, path) || !existsSync(path) || realpathSync(path) !== path) fail('前端入口越界或不存在');
+  if (!inside(frontend, path) || !existsSync(path) || realpathSync(path) !== path) fail('前端入口越界或不存在');
   return path;
 }
 function hostEntry(frontend) {
@@ -254,7 +247,7 @@ function hostEntry(frontend) {
   const source = readFileSync(page, 'utf8').match(/<script\b[^>]*\bsrc=["']([^"']+)["']/u)?.[1];
   if (!source) fail('宿主页面缺少真实脚本');
   const entry = resolve(dirname(page), source.replace(/^\/+/, ''));
-  if (!insideModule(frontend, entry) || !existsSync(entry) || realpathSync(entry) !== entry) fail('宿主脚本越界或不存在');
+  if (!inside(frontend, entry) || !existsSync(entry) || realpathSync(entry) !== entry) fail('宿主脚本越界或不存在');
   return entry;
 }
 /** 官方编译选项只有本产品的一份实现，浏览器和测试作用域仍分开。 */
@@ -308,6 +301,7 @@ export async function frontendConfiguration(frontend, {command = 'build', descri
     proxy = Object.fromEntries(['/api', '/modules'].map(path => [path, {target, changeOrigin: true, secure: true, agent}]));
   }
 
+  const listener = {https, port: 5179, host: 'localhost', strictPort: true, proxy};
   return {
   // OnChina 后端同源托管 dist,base 用相对路径以适配任意内网挂载路径。
   root: module ? frontend : dirname(page),
@@ -325,21 +319,11 @@ export async function frontendConfiguration(frontend, {command = 'build', descri
     } : {})
   },
   server: {
+    ...listener,
     fs: { allow: [frontend, platform, join(project, 'icons'), join(project, 'crates/scanner')] },
-    https,
-    hmr: { protocol: "wss", clientPort: 5179 },
-    port: 5179,
-    host: 'localhost',
-    strictPort: true,
-    proxy
+    hmr: { protocol: 'wss', clientPort: listener.port },
   },
-  preview: {
-    https,
-    port: 5179,
-    host: 'localhost',
-    strictPort: true,
-    proxy
-  }
+  preview: listener,
   };
 }
 async function runFrontend(action, args) {
@@ -374,7 +358,7 @@ async function frontendWorker() {
   let job;
   try { job = JSON.parse(process.env.ONCHINA_BUILD_JOB || ''); } catch { fail('缺少前端构建任务'); }
   buildProject(job.project, job.work);
-  if (!isAbsolute(job.frontend) || !inside(join(job.project, 'onchina'), job.frontend) || realpathSync(job.frontend) !== job.frontend || !existsSync(join(job.frontend, 'package.json'))) fail('前端工程不属于本次完整工程');
+  if (!isAbsolute(job.frontend) || !inside(join(job.project, 'onchina'), job.frontend, true) || realpathSync(job.frontend) !== job.frontend || !existsSync(join(job.frontend, 'package.json'))) fail('前端工程不属于本次完整工程');
   ownedPath(job.work, job.destination, '前端输出');
   const entry = job.description ? frontendEntry(job.frontend, job.description) : hostEntry(job.frontend);
   typecheckFrontend(job.frontend, entry);
@@ -385,7 +369,7 @@ async function frontendWorker() {
 }
 function diagnosticHost(ts, frontend) { return {getCanonicalFileName: file => file, getCurrentDirectory: () => frontend, getNewLine: () => '\n'}; }
 /** 只检查本轮编译产物的文件、资源路径和模块集合，不启动测试。 */
-export async function verifyPreparedOnChina({project, work, result, metadata}) {
+export async function verifyPreparedOnChina({project, work, result, metadata, allTargets}) {
   buildProject(project, work);
   if (result.targets.includes('platform')) {
     const frontend = ownedPath(work, result.frontend, '宿主前端');
@@ -395,13 +379,13 @@ export async function verifyPreparedOnChina({project, work, result, metadata}) {
     const links = [...html.matchAll(/<link\b[^>]*\bhref=["']([^"']+)["']/gu)];
     for (const match of [...scripts, ...links]) {
       const file = resolve(frontend, match[1]);
-      if (!inside(frontend, file) || !lstatSync(file).isFile() || realpathSync(file) !== file) fail('宿主前端脚本越界或缺失');
+      if (!inside(frontend, file, true) || !lstatSync(file).isFile() || realpathSync(file) !== file) fail('宿主前端脚本越界或缺失');
     }
   }
   if (!result.targets.some(id => id !== 'platform')) return;
   const modules = ownedPath(work, result.modules, '模块产物');
   const ids = result.targets.filter(id => id !== 'platform');
-  const all = selectTargets(project, 'all', metadata).filter(target => target.id !== 'platform').map(target => target.id).sort();
+  const all = [...(allTargets ?? buildTargets(project, metadata)).keys()].filter(id => id !== 'platform').sort();
   if (JSON.stringify([...ids].sort()) === JSON.stringify(all) && JSON.stringify(readdirSync(modules).sort()) !== JSON.stringify(all)) fail('完整模块产物混入残留或缺少目标');
 
 }
@@ -427,18 +411,13 @@ async function cli(args) {
   if (options.platform !== nativePlatform()) fail('链上中国必须使用声明对应的原生平台');
   const paths = buildPaths(options.platform, options.selection);
   let output = options.output ? resolve(options.output) : paths.output;
-  if (inside(root, output) && !inside(join(root, 'target'), output) || inside(paths.work, output) || inside(output, paths.work)) fail('交付位置必须位于源码和活动现场之外');
+  if (inside(root, output, true) && !inside(join(root, 'target'), output, true) || inside(paths.work, output, true) || inside(output, paths.work, true)) fail('交付位置必须位于源码和活动现场之外');
   if (options.output && existsSync(output)) fail('指定交付目录已存在，禁止覆盖');
   await withOnChinaWork(paths.work, async work => {
     const env = platformCargoEnvironment(options.platform, work, process.env);
     // 开发构建不继承运行服务的输出目录。
     for (const name of ['ONCHINA_FRONTEND_DIST', 'ONCHINA_MODULE_DIST']) delete env[name];
-    if (process.versions.node !== product.tools.node) fail('Node版本不符合产品声明');
-    const cargo = await runBuildProcess(env.CARGO, ['--version'], env, root, {capture: true});
-    if (!cargo.stdout.startsWith('cargo ' + product.tools.rust + ' ')) fail('Rust版本不符合产品声明');
-    if (!env.PROTOC) fail('缺少产品声明的官方protoc');
-    const protoc = await runBuildProcess(env.PROTOC, ['--version'], env, root, {capture: true});
-    if (protoc.stdout.trim() !== 'libprotoc ' + product.tools.protoc) fail('protoc版本不符合产品声明');
+    await checkTools(env, (command, args) => runBuildProcess(command, args, env, root, {capture: true}));
     const result = await buildPreparedOnChina({project: root, work, platform: options.platform, environment: env, selection: options.frontend ? resolve(process.cwd(), options.frontend) : options.selection});
     if (options.frontend && !options.output) output = buildPaths(options.platform, result.targets[0]).output;
     const staged = join(work, 'delivery'); mkdirSync(staged);

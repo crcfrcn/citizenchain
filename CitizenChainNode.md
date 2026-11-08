@@ -24,7 +24,7 @@ scripts/config.mjs只声明产品、平台、工具、原锁、静态产物模�
 
 scripts/build.mjs负责Node编译、资源装配、签名和打包；scripts/runtime.mjs build负责WASM编译、临时版本输入及实际产物检查。编译脚本不管理GitHub Job、Release、Run或本地任务库，也不承载脚本测试。工作流直接调用原Cargo业务测试：原生四端使用--workspace --exclude sc-consensus-grandpa --all-targets且不启用runtime-tests；WASM保持-p runtime --all-targets，并在Runtime本轮产物验真后执行node --lib --features runtime-tests的Ethereum专项与sc-consensus-grandpa --lib完整验收。版本0金标及原业务断言保持；直接执行时交付原Node路径、平台以及macOS符号保留、Windows OpenSSL搜索环境。准确Git检出检查直接归Workflow编译步骤。QR协议位于crates/protocol独立Cargo工作区，根工作区显式排除它；必须另行执行cargo test --manifest-path crates/protocol/Cargo.toml --locked，根工作区全部目标通过不代表该协议守卫已经通过。
 
-五份既有Workflow各自负责工具准备、版本输入、prepare/build/release/cleanup及GitHub产物。Node版本从本平台最新成功正式Release读取后patch加1，首次使用节点配置版本；测试步骤的TAURI_CONFIG同时保留同值version与build配置，不因覆盖构建选项丢失版本；WASM仍消费本轮冻结链快照及双版本各加1的输入，不使用Node的X.Y.Z。GitHub阶段不转调配置或编译文件中的流程函数。
+五份既有Workflow各自负责工具准备、版本输入、prepare/build/release/cleanup及GitHub产物。Node版本从本平台最新成功正式Release读取后patch加1，首次使用节点配置版本；测试步骤的TAURI_CONFIG同时保留同值version与build配置，不因覆盖构建选项丢失版本；WASM仍消费本轮冻结链快照及双版本各加1的输入，不使用Node的X.Y.Z。五份工作流共用.github/release.mjs完成工具准备、版本核对、测试编排、产物记录和正式发布。平台编译及历史清理仍由各自工作流调度。
 
 ## 正式Tag、Release
 
@@ -2642,7 +2642,7 @@ OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直
 
 macOS和两Linux工作流在PostgreSQL原make install完成后，以系统cp -RL把Runner临时pg-dist复制为pg-runtime普通文件树，CITIZENCHAIN_PG_DIST只交付该物理副本。原安装原件、PostgreSQL/Node锁定版本和依赖保持；坏链接复制失败仍立即终止。此步骤避免Node25.2.1递归cpSync的dereference回归把绝对库链接带入资源包，macOS的四种dylib别名与Linux多级库别名均由既有回归验证物理副本、资源复制内容及坏链接失败；既有build.mjs的链接拒绝、完整产物验收和Linux失败诊断均保留，不新增仓库辅助文件。
 
-macOS使用Tauri官方`--bundles app,dmg`一次打包，保留App供原有codesign身份、团队、时间戳与stapler校验，DMG仍通过hdiutil验证。只请求dmg时Tauri会清除中间App，不能再对已清除的App做完整产物核对；显式请求app不会重复编译节点。正式封装前，全部Rust编译及资源准备结束后，只移除本轮Cargo目标目录的release/incremental，保留编译库、最终二进制与资源，为DMG临时映像释放空间；输出清理前后可用MiB。macOS封装使用官方verbose日志保留脚本实际stdout/stderr，真实错误仍立即失败，不重试、不替换封装工具或绕过签名公证。最终artifact及正式Release仍只交付唯一DMG，App随本轮现场清理，不新增交付类型或放宽原检查。
+macOS使用Tauri官方`--bundles app,dmg`一次打包，保留App供原有codesign身份、团队、时间戳与stapler校验，DMG仍通过hdiutil验证。只请求dmg时Tauri会清除中间App，不能再对已清除的App做完整产物核对；显式请求app不会重复编译节点。正式封装前，全部Rust编译及资源准备结束后，只移除本轮Cargo目标目录的release/incremental，保留编译库、最终二进制与资源，为DMG临时映像释放空间。macOS封装使用官方verbose日志保留脚本实际stdout/stderr，真实错误仍立即失败，不重试、不替换封装工具或绕过签名公证。最终artifact及正式Release仍只交付唯一DMG，App随本轮现场清理，不新增交付类型或放宽原检查。
 
 ### 原生构建精简与能力边界
 
@@ -2765,7 +2765,7 @@ chain-signing的src按material、signature、extrinsic、preflight组织，lib�
 
 ## macOS PostgreSQL资源准备
 
-本机安装和macOS塔塔自动化共用scripts/build.mjs的preparePostgres；Workflow通过postgres macos读取本轮CITIZENCHAIN_PG_DIST。先验证明确指定的目录，再查PATH对应安装、Homebrew当前主版本安装及本产品target/cache/macos下准确版本缓存；已有完整同版本且目录可独立搬迁的分发直接复用。版本只接受官方完整版本和Homebrew发行后缀，不接受较新或近似版本。显式输入错误、可执行文件失败、缓存损坏均报错，不以下载掩盖。
+本机安装和macOS塔塔自动化共用scripts/build.mjs的preparePostgres；工作流通过.github/release.mjs的共用工具准备调用postgres macos并读取本轮CITIZENCHAIN_PG_DIST。先验证明确指定的目录，再查PATH对应安装、Homebrew当前主版本安装及本产品target/cache/macos下准确版本缓存；已有完整同版本且目录可独立搬迁的分发直接复用。版本只接受官方完整版本和Homebrew发行后缀，不接受较新或近似版本。显式输入错误、可执行文件失败、缓存损坏均报错，不以下载掩盖。
 
 全部缺件才下载产品声明版本的原官方源码，已有源码包复用；原OpenSSL编译配方不变。缓存独占锁避免并发覆盖，下载完成和编译核验后才分别交付完整源码包和资源目录；本轮失败现场清理，已完成缓存保留。完整性检查覆盖postgres、initdb、pg_config、lib、postgres.bki及COPYRIGHT，并核对实际bin、pkglibdir、sharedir均属于分发内部。原件不写入，装配仍只复制资源和处理本轮动态库。protoc、Rust、Node版本声明及各自既有准备流程保持。
 
@@ -2785,7 +2785,7 @@ macOS装配从官方原件复制外部动态库时，保留本轮内存中的原
 
 白皮书命令异步读取官网正文，分块累积前限制1MiB；前端在本次程序会话中保留成功正文并共享进行中的请求，失败不缓存，重试仍读取官网。切换页面不重复获取已经成功的正文，首次立即显示加载状态。钱包持久化仍仅接受name、signMode、accountId及既有列表根结构；本轮仅对已授权本机文件一次性移除废弃字段，无兼容读取或自动迁移入口。
 
-本机macOS装配完成动态库路径改写后，对随包Mach-O资源临时签名并检查；正式发布仍使用原正式签名。两条路径均在交付前以C locale实际执行独占临时initdb并检查PG_VERSION及postgresql.conf；本机不得提前返回而跳过初始化验收。最终App身份签名与安装继续归塔塔安装器。
+本机macOS装配完成动态库路径改写后，对随包Mach-O资源临时签名。正式发布仍使用原正式签名，本机交付由塔塔安装器在最终签名后验证整包。两条路径均在交付前以C locale实际执行独占临时initdb并检查PG_VERSION及postgresql.conf；本机不得提前返回而跳过初始化验收。最终App身份签名与安装继续归塔塔安装器。
 
 ## 通用本机签名交付
 

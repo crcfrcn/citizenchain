@@ -1,94 +1,46 @@
 # WASM的GitHub任务归本工作流；编译只调用产品Runtime入口。
----
 name: 公民链·WASM
 run-name: 公民链·WASM·v${{ inputs.version }}
 'on':
   workflow_dispatch:
     inputs:
-      version:
-        description: 读取链上spec_version后加1的目标整数版本
-        required: true
-        type: string
-      transaction_version:
-        description: 读取链上transaction_version后加1的目标整数版本
-        required: true
-        type: string
-      runtime_base:
-        description: 本机节点读取的Runtime基线JSON，仅属于本轮任务
-        required: true
-        type: string
-      source_sha:
-        description: 批准的main完整提交
-        required: true
-        type: string
+      version: {description: '读取链上spec_version后加1的目标整数版本', required: true, type: string}
+      transaction_version: {description: '读取链上transaction_version后加1的目标整数版本', required: true, type: string}
+      runtime_base: {description: '本机节点读取的Runtime基线JSON，仅属于本轮任务', required: true, type: string}
+      source_sha: {description: '批准的main完整提交', required: true, type: string}
 concurrency:
   group: "${{ github.repository }}-wasm-${{ github.event_name }}"
   cancel-in-progress: false
-permissions:
-  contents: read
-  actions: read
+permissions: {contents: read, actions: read}
+defaults: {run: {shell: bash}}
+env:
+  PLATFORM: wasm
+  CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
+  CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION: "${{ inputs.transaction_version }}"
+  CITIZENCHAIN_RUNTIME_BASE: "${{ inputs.runtime_base }}"
+  CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
 jobs:
   prepare:
     name: 公民链·WASM·v${{ inputs.version }}
-    permissions:
-      contents: write
-      actions: read
+    permissions: {contents: write, actions: read}
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    env:
-      PLATFORM: wasm
-      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION: "${{ inputs.transaction_version }}"
-      CITIZENCHAIN_RUNTIME_BASE: "${{ inputs.runtime_base }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
     steps:
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      with:
-        ref: "${{ github.sha }}"
-        persist-credentials: false
+      with: {ref: "${{ github.sha }}", persist-credentials: false}
     - name: 核对产品候选及准确源码
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
       with:
         retries: 0
         script: |
-          const {pathToFileURL}=await import('node:url');
-          const {product}=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
-          const {readFileSync}=await import('node:fs');
-          const version=process.env.CITIZENCHAIN_RELEASE_VERSION,transaction=process.env.CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION;
-          const base=JSON.parse(process.env.CITIZENCHAIN_RUNTIME_BASE),u32=value=>/^(0|[1-9][0-9]*)$/u.test(value)&&Number(value)<=0xffffffff;
-          const frozen=readFileSync(process.env.GITHUB_WORKSPACE+'/runtime/primitives/src/genesis.rs','utf8').match(/pub const GENESIS_HASH:\s*\[u8;\s*32\]\s*=\s*hex_literal::hex!\("([a-f0-9]{64})"\)/u);
-          if(context.ref!=='refs/heads/main'||context.sha!==process.env.CITIZENCHAIN_SOURCE_SHA||!u32(version)||!u32(transaction)
-            ||!frozen||base.genesisHash!=='0x'+frozen[1]||!/^0x[0-9a-f]{64}$/u.test(base.blockHash)||base.specName!==product.id
-            ||!Number.isInteger(base.specVersion)||!Number.isInteger(base.transactionVersion)||base.specVersion<0||base.transactionVersion<0
-            ||Number(version)!==base.specVersion+1||Number(transaction)!==base.transactionVersion+1)throw Error('WASM源码、冻结基线或双版本不符');
-          const runs=await github.paginate(github.rest.actions.listWorkflowRuns,{...context.repo,workflow_id:product.platforms.wasm.workflow,branch:'main',event:'workflow_dispatch',per_page:100});
-          if(runs.some(run=>run.id!==context.runId&&run.status!=='completed'&&run.run_number<(runs.find(row=>row.id===context.runId)?.run_number||0)))throw Error('WASM已有活动编译Run');
-          const tag=product.title+'·WASM·v'+version;
-          const releases=await github.paginate(github.rest.repos.listReleases,{...context.repo,per_page:100});
-          // 编译候选可能尚未上链；同目标版本的旧Release和Tag先删除，再重新编译。
-          for(const release of releases.filter(value=>value.tag_name===tag)){
-            await github.rest.repos.deleteRelease({...context.repo,release_id:release.id});
-            core.info('已删除目标版本旧Release：'+tag);
-          }
-          // 仅接受404或GitHub明确返回的422引用不存在，其它删除错误使本轮失败。
-          try{
-            await github.rest.git.deleteRef({...context.repo,ref:'tags/'+tag});
-            core.info('已删除目标版本旧Tag：'+tag);
-          }catch(error){
-            if(error.status!==404&&(error.status!==422||error.response?.data?.message!=='Reference does not exist'))throw error;
-          }
-          core.info('WASM候选已确认：'+tag);
+          const {wasmVersion}=await import(require('node:url').pathToFileURL(process.env.GITHUB_WORKSPACE+'/.github/release.mjs').href);
+          await wasmVersion({context,github,core});
   build:
     name: 公民链·WASM·v${{ inputs.version }}
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
-      PLATFORM: wasm
-      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION: "${{ inputs.transaction_version }}"
-      CITIZENCHAIN_RUNTIME_BASE: "${{ inputs.runtime_base }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
       CARGO_TARGET_DIR: "${{ github.workspace }}/target/build/wasm/cargo-target"
       CITIZENCHAIN_SOURCE_ROOT: "${{ github.workspace }}"
       CITIZENCHAIN_WORK_DIR: "${{ github.workspace }}/target/build/wasm"
@@ -100,58 +52,30 @@ jobs:
       version: "${{ steps.assets.outputs.version }}"
     steps:
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      with:
-        ref: "${{ github.sha }}"
-        persist-credentials: false
+      with: {ref: "${{ github.sha }}", persist-credentials: false}
     - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-      with:
-        node-version: 25.2.1
+      with: {node-version: '25.2.1'}
     - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
-      with:
-        toolchain: 1.97.1
-        targets: wasm32v1-none
-        components: rust-src
+      with: {toolchain: '1.97.1', targets: 'wasm32v1-none', components: rust-src}
     - name: 安装编译依赖与固定 protoc
-      shell: bash
-      run: |
-        set -euo pipefail
-        sudo apt-get update
-        # 专项整链验收复用节点已有GTK/WebKit等链接依赖，不引入另一份节点或WASM构建实现。
-        sudo apt-get install -y clang llvm llvm-dev libclang-dev libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libpam0g-dev libxdo-dev pkg-config file unzip
-        curl --fail --location --proto =https --proto-redir =https --retry 3 --output "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip
-        mkdir -p "$RUNNER_TEMP/protoc"
-        unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
-        echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc" >> "$GITHUB_ENV"
+      run: node --input-type=module -e "import {prepareTools} from './.github/release.mjs'; await prepareTools()"
     - name: 恢复本平台官方增量缓存
       continue-on-error: true
       timeout-minutes: 5
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
-        path: |
+        path: &cachePaths |
           target/build/wasm/cargo-target/release/.fingerprint
           target/build/wasm/cargo-target/release/build
           target/build/wasm/cargo-target/release/deps
           target/build/wasm/cargo-target/release/incremental
           target/cache/wasm/npm
-        key: citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: 'citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(''Cargo.lock'', ''crates/protocol/Cargo.lock'', ''config.toml'', ''crates/scanner/package-lock.json'', ''node/frontend/package-lock.json'', ''onchina/platformweb/package-lock.json'', ''onchina/registryweb/package-lock.json'', ''onchina/legislationweb/package-lock.json'', ''onchina/private/frontend/package-lock.json'', ''onchina/judicial/frontend/package-lock.json'') }}-
-
-          '
+        key: &cacheKey citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: 'citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(''Cargo.lock'', ''crates/protocol/Cargo.lock'', ''config.toml'', ''crates/scanner/package-lock.json'', ''node/frontend/package-lock.json'', ''onchina/platformweb/package-lock.json'', ''onchina/registryweb/package-lock.json'', ''onchina/legislationweb/package-lock.json'', ''onchina/private/frontend/package-lock.json'', ''onchina/judicial/frontend/package-lock.json'') }}-'
     - name: 执行产品所属真实测试
-      shell: bash
-      run: |
-        set -euo pipefail
-        mkdir -p "$CITIZENCHAIN_WORK_DIR"
-        export NODE="$(node -p process.execPath)" CITIZENCHAIN_BUILD_PLATFORM="$PLATFORM"
-        unset SKIP_WASM_BUILD WASM_FILE DOCS_RS
-        for key in $(compgen -v); do
-          case "$key" in APPLE_*|*_TOKEN|*_PASSWORD|*_PRIVATE_KEY|*_SECRET|NODE_OPTIONS|NODE_PATH|NODE_TEST_CONTEXT|SKIP_*_WASM_BUILD) unset "$key" ;; esac
-        done
-        cargo --config config.toml clean -p runtime --locked
-        cargo --config config.toml test --locked --release -p runtime --all-targets
+      run: node --input-type=module -e "import {test} from './.github/release.mjs'; await test()"
     - name: 编译、执行整链验收及核对完整产物
       id: runtime
-      shell: bash
       run: |
         set -euo pipefail
         test "$(git rev-parse HEAD)" = "$CITIZENCHAIN_SOURCE_SHA"
@@ -163,118 +87,44 @@ jobs:
       with:
         retries: 0
         script: |
-          const {pathToFileURL}=await import('node:url');
-          const {product}=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
-          const {createReadStream,lstatSync,readdirSync}=await import('node:fs');
-          const {createHash}=await import('node:crypto');
-          const p=process.env.PLATFORM,version=process.env.CITIZENCHAIN_RELEASE_VERSION,declared=product.platforms[p];
-          const names=declared.files||[declared.artifact.replace('{version}',version)];
-          const tag=product.title+'·'+declared.name+'·v'+version,directory=process.env.GITHUB_WORKSPACE+'/target/build/'+p+'/artifact';
-          if(JSON.stringify(readdirSync(directory).sort())!==JSON.stringify([...names].sort()))throw Error('完整产物集合不符');
-          const assets=[];
-          for(const name of names){
-            const path=directory+'/'+name,info=lstatSync(path);
-            if(!info.isFile()||info.isSymbolicLink()||info.size<=0)throw Error('产物不是非空普通文件');
-            const hash=createHash('sha256');for await(const bytes of createReadStream(path))hash.update(bytes);
-            assets.push({name,label:tag+(p==='wasm'?name.slice('runtime'.length):declared.extension),size:info.size,sha256:hash.digest('hex')});
-          }
-          core.setOutput('assets',JSON.stringify(assets));
-          const base=JSON.parse(process.env.CITIZENCHAIN_RUNTIME_BASE);
-          core.setOutput('version',version);
-          core.setOutput('runtime',JSON.stringify({source_sha:context.sha,genesis_hash:base.genesisHash,base_block_hash:base.blockHash,spec_name:base.specName,
-            base_spec_version:base.specVersion,base_transaction_version:base.transactionVersion,
-            spec_version:Number(version),transaction_version:Number(process.env.CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION)}));
+          const {recordAssets}=await import(require('node:url').pathToFileURL(process.env.GITHUB_WORKSPACE+'/.github/release.mjs').href);
+          await recordAssets({context,core});
     - name: 保存本平台官方增量缓存
       if: success() || failure()
       continue-on-error: true
       timeout-minutes: 5
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
-        path: |
-          target/build/wasm/cargo-target/release/.fingerprint
-          target/build/wasm/cargo-target/release/build
-          target/build/wasm/cargo-target/release/deps
-          target/build/wasm/cargo-target/release/incremental
-          target/cache/wasm/npm
-        key: citizenchain-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'crates/protocol/Cargo.lock', 'config.toml', 'crates/scanner/package-lock.json', 'node/frontend/package-lock.json', 'onchina/platformweb/package-lock.json', 'onchina/registryweb/package-lock.json', 'onchina/legislationweb/package-lock.json', 'onchina/private/frontend/package-lock.json', 'onchina/judicial/frontend/package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        path: *cachePaths
+        key: *cacheKey
     - name: 上传完整Artifact
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-      with:
-        name: 公民链·WASM·v${{ inputs.version }}
-        path: target/build/wasm/artifact
-        if-no-files-found: error
+      with: {name: "公民链·WASM·v${{ inputs.version }}", path: "target/build/wasm/artifact", if-no-files-found: error}
     - name: 清理本轮编译现场
       if: always()
-      shell: bash
       run: node --input-type=module -e "import {cleanWork} from './scripts/runtime.mjs'; cleanWork();"
   release:
     name: 公民链·WASM·v${{ inputs.version }}
     needs: build
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-      actions: read
+    permissions: {contents: write, actions: read}
     env:
       RUNTIME_BUILD: "${{ needs.build.outputs.runtime }}"
       BUILT_VERSION: "${{ needs.build.outputs.version }}"
-      PLATFORM: wasm
-      CITIZENCHAIN_RELEASE_VERSION: "${{ inputs.version }}"
-      CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION: "${{ inputs.transaction_version }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ inputs.source_sha }}"
       GH_TOKEN: "${{ github.token }}"
       SOURCE_ASSETS: "${{ needs.build.outputs.assets }}"
     steps:
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      with:
-        ref: "${{ github.sha }}"
-        persist-credentials: false
+      with: {ref: "${{ github.sha }}", persist-credentials: false}
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-      with:
-        name: 公民链·WASM·v${{ inputs.version }}
-        path: "${{ runner.temp }}/artifact"
+      with: {name: "公民链·WASM·v${{ inputs.version }}", path: "${{ runner.temp }}/artifact"}
     - name: 创建并回读正式Tag与Release
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
       with:
         retries: 0
         script: |
-          const {pathToFileURL}=await import('node:url');
-          const {product}=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
-          const {readFileSync,writeFileSync,createReadStream}=await import('node:fs');
-          const {createHash}=await import('node:crypto');
-          const {execFileSync}=await import('node:child_process');
-          const p=process.env.PLATFORM,version=process.env.CITIZENCHAIN_RELEASE_VERSION,declared=product.platforms[p];
-          const tag=product.title+'·'+declared.name+'·v'+version,assets=JSON.parse(process.env.SOURCE_ASSETS);
-          const names=declared.files||[declared.artifact.replace('{version}',version)],source=process.env.RUNNER_TEMP+'/artifact';
-          if(context.sha!==process.env.CITIZENCHAIN_SOURCE_SHA||context.ref!=='refs/heads/main')throw Error('发布源码身份不符');
-          if(JSON.stringify(assets.map(asset=>asset.name).sort())!==JSON.stringify([...names].sort()))throw Error('正式产物集合不完整');
-          for(const asset of assets){
-            const bytes=readFileSync(source+'/'+asset.name),hash=createHash('sha256');
-            for await(const chunk of createReadStream(source+'/'+asset.name))hash.update(chunk);
-            if(bytes.length!==asset.size||hash.digest('hex')!==asset.sha256)throw Error('正式产物字节不符');
-          }
-          const proof={schema:1,repository:product.repository,product_id:product.id,platform:p,workflow:'.github/workflows/'+declared.workflow,
-            run_id:context.runId,run_attempt:Number(process.env.GITHUB_RUN_ATTEMPT),source_sha:context.sha,version,tag,assets};
-          if(p==='wasm'){
-            const runtime=JSON.parse(process.env.RUNTIME_BUILD);
-            if(String(runtime.spec_version)!==version||process.env.BUILT_VERSION!==version||runtime.source_sha!==context.sha)throw Error('WASM实际版本不符');
-            proof.runtime=runtime;
-          }
-          const notes=process.env.RUNNER_TEMP+'/release-notes.txt';writeFileSync(notes,'<!-- automation:'+JSON.stringify(proof)+' -->\n');
-          execFileSync('gh',['release','create',tag,...assets.map(asset=>source+'/'+asset.name+'#'+asset.label),
-            '--repo',product.repository,'--target',context.sha,'--title',tag,'--notes-file',notes,'--draft','--latest=false'],{stdio:['ignore','pipe','pipe']});
-          const drafts=(await github.paginate(github.rest.repos.listReleases,{...context.repo,per_page:100})).filter(value=>value.tag_name===tag);
-          if(drafts.length!==1)throw Error('本轮草稿不唯一');
-          const published=drafts[0];
-          if(!published.draft||published.prerelease||published.assets.length!==assets.length)throw Error('本轮草稿或附件状态不符');
-          for(const asset of published.assets){
-            const original=assets.find(value=>value.name===asset.name);
-            if(!original||asset.state!=='uploaded'||asset.size!==original.size||asset.digest!=='sha256:'+original.sha256||asset.label!==original.label)throw Error('正式附件回读不符');
-          }
-          const result=(await github.rest.repos.updateRelease({...context.repo,release_id:published.id,draft:false})).data;
-          if(result.draft||result.prerelease||!result.published_at)throw Error('正式Release发布未确认');
-          const ref=(await github.rest.git.getRef({...context.repo,ref:'tags/'+tag})).data;
-          if(ref.object.type!=='commit'||ref.object.sha!==context.sha)throw Error('正式Tag提交不符');
-          core.info('正式交付已确认：'+tag);
+          const {publish}=await import(require('node:url').pathToFileURL(process.env.GITHUB_WORKSPACE+'/.github/release.mjs').href);
+          await publish({context,github,core});
   # 必须保留最近成功1条、失败1条；修复验收后禁止改动。
   cleanup:
     name: 公民链·WASM·v${{ inputs.version }}

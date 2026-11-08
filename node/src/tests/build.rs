@@ -9,7 +9,7 @@ import {join,sep,win32} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
 const root=process.cwd();
-const {preparePostgres,postgresVersion,npmCLI,nodeTools,platformCargoEnvironment,macLibraries,runBuildProcess,signLocalResources,appleSigning}=await import(pathToFileURL(join(root,'scripts/build.mjs')));
+const {inside,checkTools,preparePostgres,postgresVersion,npmCLI,nodeTools,platformCargoEnvironment,macLibraries,runBuildProcess,signLocalResources,appleSigning}=await import(pathToFileURL(join(root,'scripts/build.mjs')));
 const parent=join(root,'target/test');mkdirSync(parent,{recursive:true});
 const work=mkdtempSync(join(parent,'postgres-'));
 function distribution(path){
@@ -31,6 +31,17 @@ try{
   const forwarded=spawnSync(env.NODE,['-e',"console.log(process.env.DYLD_FALLBACK_LIBRARY_PATH)"],{env,encoding:'utf8'});
   assert.equal(forwarded.status,0);assert.equal(forwarded.stdout.trim(),'/usr/lib');
  }count++;
+ assert.ok(inside('C:\\repo','C:\\repo\\child',false,win32));
+ assert.ok(!inside('C:\\repo','D:\\repo\\child',true,win32));
+ assert.ok(!inside('C:\\repo','C:\\repo',false,win32));
+ assert.ok(inside('C:\\repo','C:\\repo',true,win32));
+ const captured=[];
+ await checkTools({CARGO:'cargo',PROTOC:'protoc'},async command=>{
+  captured.push(command);
+  return {stdout:command==='cargo'?'cargo 1.97.1 (fixture)':'libprotoc 35.0\n'};
+ });
+ assert.deepEqual(captured,['cargo','protoc']);
+ await assert.rejects(checkTools({CARGO:'cargo'},async()=>({stdout:'cargo 1.97.1 (fixture)'})),/protoc/);count++;
  assert.equal(postgresVersion('postgres (PostgreSQL) 17.11 (Homebrew)\n'),'17.11');
  assert.equal(postgresVersion('postgres (PostgreSQL) 17.110'),'17.110');
  assert.equal(postgresVersion('postgres (PostgreSQL) 17.11 unexpected'),undefined);count++;
@@ -87,6 +98,7 @@ try{
   assert.deepEqual(signing.at(-1),{path:'.',entitlements:join(root,'node/Entitlements.plist')});
   assert.ok(signing.some(item=>item.path==='Contents/Resources/postgres/macos/lib/libb.dylib'&&item.entitlements===null));
   await signLocalResources([...files,exe],env);
+  await run('/usr/bin/codesign',['--verify','--strict',exe]);
   await assert.rejects(signLocalResources([join(work,'missing')],env),/codesign/);
   const portable=join(work,'Portable/Contents/Resources'),portableExe=join(work,'Portable/Contents/MacOS/main');
   mkdirSync(join(portable,'postgres/macos/lib'),{recursive:true});mkdirSync(join(portableExe,'..'),{recursive:true});
@@ -104,7 +116,10 @@ try{
  const {describeAction}=await import(pathToFileURL(join(root,'scripts/config.mjs')));
  assert.deepEqual((await describeAction({flow:'release',platform:'macos'})).inputs,{});count++;
  const workflow=readFileSync(join(root,'.github/workflows/macos.yml'),'utf8');
- assert.ok(workflow.includes('node scripts/build.mjs postgres macos'));assert.ok(!workflow.includes('ftp.postgresql.org'));count++;
+ const shared=readFileSync(join(root,'.github/release.mjs'),'utf8');
+ assert.ok(workflow.includes('await prepareTools()'));
+ assert.ok(shared.includes('node scripts/build.mjs postgres macos'));
+ assert.ok(!workflow.includes('ftp.postgresql.org'));count++;
  console.log('PostgreSQL资源回归通过：'+count+'组');
 }finally{rmSync(work,{recursive:true,force:true});}
 "#;

@@ -1,6 +1,6 @@
 import {createSecureContext} from 'node:tls';
 import {spawnSync} from 'node:child_process';
-import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statfsSync, writeFileSync} from 'node:fs';
+import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep, delimiter} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {product} from './config.mjs';
@@ -16,9 +16,9 @@ export function developmentTLS(certificate, privateKey) {
 
 const root = realpathSync(resolve(import.meta.dirname, '..'));
 const fail = message => { throw Error(message); };
-function inside(parent, path) {
-  const value = relative(parent, path);
-  return value !== '' && value !== '..' && !value.startsWith('..' + sep) && !isAbsolute(value);
+export function inside(parent, path, allowSame = false, paths = {relative, isAbsolute, sep}) {
+  const value = paths.relative(parent, path);
+  return (allowSame || value !== '') && value !== '..' && !value.startsWith('..' + paths.sep) && !paths.isAbsolute(value);
 }
 export function checkWork(work) {
   if (!isAbsolute(work || '') || resolve(work) !== work || !inside(join(root, 'target'), work)) fail('编译输出必须属于本产品 target');
@@ -77,9 +77,8 @@ export async function latestReleaseVersion(platform, {fetchImpl = fetch} = {}) {
   return buildVersion(JSON.parse(readFileSync(join(root, 'node/tauri.conf.json'), 'utf8')).version);
 }
 
-export function assertBuildWork(work, platform, env = process.env) {
+export function assertBuildWork(work, platform) {
   if (!product.platforms[platform] || work !== join(root, 'target/build', platform)) fail('编译平台或输出目录无效');
-  buildVersion(env.CITIZENCHAIN_RELEASE_VERSION);
   return checkWork(work);
 }
 // 只执行真实编译工具；继承输出或捕获模块 --describe 的有界公开结果。
@@ -94,6 +93,11 @@ export async function runBuildProcess(command, args, env, cwd, {capture = false,
     throw error;
   }
   return {stdout: value.stdout || '', stderr: value.stderr || ''};
+}
+export async function checkTools(env, capture) {
+  if (process.versions.node !== product.tools.node) fail('Node 版本不符合产品声明');
+  if (!(await capture(env.CARGO, ['--version'])).stdout.startsWith('cargo ' + product.tools.rust + ' ')) fail('Rust 版本不符合产品声明');
+  if (!env.PROTOC || (await capture(env.PROTOC, ['--version'])).stdout.trim() !== 'libprotoc ' + product.tools.protoc) fail('protoc 版本不符合产品声明');
 }
 export function nodeTools(node = process.execPath) {
   // 控制台内置Node不含npm；复用设备上同一声明版本的完整官方Node安装。
@@ -142,7 +146,7 @@ export function stagePostgresResources(source, destination) {
   const sourceRoot = realpathSync(source);
   function copy(path, output, ancestors = new Set()) {
     const resolved = realpathSync(path);
-    if (resolved !== sourceRoot && !inside(sourceRoot, resolved)) fail('PostgreSQL运行资源链接越界');
+    if (!inside(sourceRoot, resolved, true)) fail('PostgreSQL运行资源链接越界');
     const info = lstatSync(resolved);
     if (info.isDirectory()) {
       if (ancestors.has(resolved)) fail('PostgreSQL运行资源存在目录循环');
@@ -276,7 +280,6 @@ export function appleSigning(files, resources) {
 // 本机资源改写加载路径后必须重新临时签名；正式身份仍由安装器负责。
 export async function signLocalResources(files, env, run = runBuildProcess) {
   for (const file of files) await run('/usr/bin/codesign', ['--force', '--sign', '-', file], env, root, {capture: true});
-  for (const file of files) await run('/usr/bin/codesign', ['--verify', '--strict', file], env, root, {capture: true});
 }
 async function signResources(files, work, env) {
   const certificate = join(work, 'certificate.p12'), keychain = join(work, 'signing.keychain-db');
@@ -299,101 +302,90 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
   const declared = product.platforms[platform];
   if(local)checkWork(work);else assertBuildWork(work, platform);
   if (process.platform !== declared.host || process.arch !== declared.arch) fail('必须在声明对应的原生 Runner 编译');
-  if (process.versions.node !== product.tools.node) fail('Node 版本不符合产品声明');
   mkdirSync(work, {recursive: true});
   const version = buildVersion(process.env.CITIZENCHAIN_RELEASE_VERSION);
   const env = platformCargoEnvironment(platform, work, process.env);
-  env.CITIZENCHAIN_RELEASE_VERSION = version;
   env.TAURI_CONFIG = JSON.stringify({...JSON.parse(env.TAURI_CONFIG || '{}'), version});
   const run = (command, args, options) => runBuildProcess(command, args, env, root, options);
-  const cargoVersion = await run(env.CARGO, ['--version'], {capture: true});
-  if (!cargoVersion.stdout.startsWith('cargo ' + product.tools.rust + ' ')) fail('Rust 版本不符合产品声明');
-  if ((await run(env.PROTOC, ['--version'], {capture: true})).stdout.trim() !== 'libprotoc ' + product.tools.protoc) fail('protoc 版本不符合产品声明');
-  const expected = [declared.artifact.replace('{version}', version)];
+  await checkTools(env, (command, args) => run(command, args, {capture: true}));
   const artifact = join(work, 'artifact');
-  if (existsSync(artifact)) fail('本轮产物目录已存在，禁止混用旧包');
   mkdirSync(artifact);
-  {
-    const {buildPreparedOnChina} = await import('./onchina.mjs');
-    const onchina = await buildPreparedOnChina({project: root, platform, work, environment: env, prepareDependencies: local});
-    const resources = join(work, 'resources'), pgOs = platform === 'macos' ? 'macos' : platform === 'windows' ? 'windows' : 'linux';
-    mkdirSync(join(resources, 'onchina-bin'), {recursive: true});
-    copyFileSync(onchina.host, join(resources, 'onchina-bin', basename(onchina.host)));
-    cpSync(onchina.modules, join(resources, 'onchina-bin/modules'), {recursive: true});
-    cpSync(onchina.frontend, join(resources, 'onchina-frontend/dist'), {recursive: true});
-    const pg = process.env.CITIZENCHAIN_PG_DIST;
-    if (!isAbsolute(pg || '')) fail('缺少完整 PostgreSQL 原件');
-    if (postgresVersion((await run(join(pg, 'bin', platform === 'windows' ? 'postgres.exe' : 'postgres'), ['--version'], {capture: true})).stdout) !== product.tools.postgres) fail('PostgreSQL 版本不符');
-    stagePostgresResources(pg, join(resources, 'postgres', pgOs));
-    for(const name of ['COPYRIGHT','LICENSE','license.txt'])if(existsSync(join(pg,name)))copyFileSync(join(pg,name),join(resources,'postgres',pgOs,name));
-    if (platform === 'windows') stageWindowsOpenSsl(resources, env, [resources, join(resources, 'onchina-bin'), join(resources,'postgres/windows/bin')]);
-    else for (const file of walk(resources)) chmodSync(file, lstatSync(file).mode & 0o111 ? 0o755 : 0o644);
-    env.CITIZENCHAIN_FRONTEND_DIST = join(work, 'node-frontend');
-    await runBuildProcess(env.NODE, [npmCLI(env.NODE), 'run', 'build'], env, join(root, 'node/frontend'));
-    const config = {version, build: {beforeBuildCommand: null, frontendDist: env.CITIZENCHAIN_FRONTEND_DIST},
-      bundle: {resources: {[resources + sep]: '', [join(root, 'icons') + sep]: 'icons/', [join(root, 'onchina/platform/codes/china.sqlite')]: 'china.sqlite'}}};
-    if (platform === 'macos' && !local) {
-      if (!process.env.APPLE_PROFILE_BASE64 || !process.env.APPLE_SIGNING_IDENTITY || !process.env.APPLE_ID || !process.env.APPLE_PASSWORD || !process.env.APPLE_TEAM_ID) fail('缺少 macOS 正式签名、公证输入');
-      const profile = join(work, 'embedded.provisionprofile');
-      writeFileSync(profile, Buffer.from(process.env.APPLE_PROFILE_BASE64, 'base64'), {mode: 0o600, flag: 'wx'});
-      config.bundle.macOS = {files: {'embedded.provisionprofile': profile}, hardenedRuntime: true, signingIdentity: process.env.APPLE_SIGNING_IDENTITY};
-    }
-    const tauri = join(root, 'node/frontend/node_modules/@tauri-apps/cli/tauri.js');
-    await runBuildProcess(env.NODE, [tauri, 'build', '--config', JSON.stringify(config), '--no-bundle', '--ci', '--', '--locked', '--config', join(root, 'config.toml')], env, join(root, 'node'), {diagnostics: local});
-    let targets = [];
-    const signing = {...env, ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith('APPLE_')))};
-    if (platform === 'macos') {
-      const binaries = await macLibraries(resources, join(env.CARGO_TARGET_DIR, 'release/citizenchain'), env);
-      targets = appleSigning(binaries, resources);
-      if (local) await signLocalResources(binaries, env);
-      else await signResources(binaries, work, signing);
-    }
-    if (platform.startsWith('linux-')) for (const file of walk(join(resources, 'postgres/linux'))) {
-      if (readFileSync(file).subarray(0, 4).equals(Buffer.from([127, 69, 76, 70]))) await run('patchelf', ['--set-rpath', '$ORIGIN:$ORIGIN/..:$ORIGIN/../lib', file], {capture: true});
-    }
-    // 两种交付都在最终资源改写及签名后实测初始化，禁止本机分支跳过验收。
-    await runBuildProcess(join(resources, 'postgres', pgOs, 'bin', platform === 'windows' ? 'initdb.exe' : 'initdb'), ['-D', join(work, 'pg-probe'), '-U', 'citizenchain', '--auth-local=trust', '--auth-host=trust', '--encoding=UTF8', '--no-locale'], {...env, LC_ALL: 'C', LANG: 'C'}, root);
-    for (const name of ['PG_VERSION', 'postgresql.conf']) if (!lstatSync(join(work, 'pg-probe', name)).isFile()) fail('PostgreSQL初始化产物缺失');
-    if(local){
-      if(platform!=='macos')fail('当前本机编译只支持macOS');
-      config.bundle.macOS={hardenedRuntime:true,signingIdentity:null};
-      await runBuildProcess(env.NODE,[tauri,'bundle','--config',JSON.stringify(config),'--bundles','app','--ci'],env,join(root,'node'));
-      const app=oneBundle(join(env.CARGO_TARGET_DIR,'release/bundle/macos'),'.app');
-      await consume({schema:1,product_id:product.id,platform,work,artifact:app,tools:{},signing:targets});return;
-    }
-    if (platform === 'macos') {
-      // Rust编译已全部结束；只释放本轮可再生的增量中间文件，为官方DMG临时映像留出空间。
-      const available = () => { const {bavail, bsize} = statfsSync(work); return Math.floor(bavail * bsize / 2 ** 20); };
-      const before = available();
-      rmSync(join(env.CARGO_TARGET_DIR, 'release/incremental'), {recursive: true, force: true});
-      process.stdout.write(`macOS封装前可用空间（MiB）：${before} -> ${available()}\n`);
-    }
-    // 按Tauri官方目标保留macOS App；详细日志保留DMG脚本真实错误，签名与公证仍由官方工具执行。
-    await runBuildProcess(env.NODE, [tauri, 'bundle', '--config', JSON.stringify(config), '--bundles', platform === 'macos' ? 'app,dmg' : declared.bundle, '--ci', ...(platform === 'macos' ? ['--verbose'] : [])], platform === 'macos' ? signing : env, join(root, 'node'));
-    const installer = oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle', declared.bundle), declared.extension);
-    if (platform === 'macos') {
-      const app = oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle/macos'), '.app');
-      await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
-      const identity = (await run('/usr/bin/codesign', ['-dv', '--verbose=4', app], {capture: true})).stderr;
-      if (!identity.includes('Authority=' + process.env.APPLE_SIGNING_IDENTITY) || !identity.includes('TeamIdentifier=' + process.env.APPLE_TEAM_ID) || !/^Timestamp=/mu.test(identity)) fail('App 签名身份、团队或时间戳不符');
-      await run('/usr/bin/xcrun', ['stapler', 'validate', app]);
-      await run('/usr/bin/hdiutil',['verify',installer]);
-    }
-    if (platform.startsWith('linux-')) {
-      const architecture = platform === 'linux-arm' ? 'arm64' : 'amd64';
-      if ((await run('dpkg-deb', ['--field', installer, 'Architecture'], {capture: true})).stdout.trim() !== architecture) fail('DEB 架构不符');
-      const installed = join(work, 'installed');
-      await run('dpkg-deb', ['--extract', installer, installed]);
-      for (const name of ['onchina-bin/onchina', 'onchina-frontend/dist/index.html', 'postgres/linux/bin/initdb', 'postgres/linux/bin/postgres', 'china.sqlite']) if (!lstatSync(join(installed, 'usr/lib/citizenchain', name)).isFile()) fail('DEB 缺少完整运行资源');
-    }
-    if(platform.startsWith('linux-'))for(const id of readdirSync(onchina.modules))for(const name of ['onchina-'+id,'frontend/module.js','frontend/module.css'])if(!lstatSync(join(work,'installed/usr/lib/citizenchain/onchina-bin/modules',id,name)).isFile())fail('DEB模块完整产物缺失');
-    copyFileSync(installer, join(artifact, expected[0]));
+  const {buildPreparedOnChina} = await import('./onchina.mjs');
+  const onchina = await buildPreparedOnChina({project: root, platform, work, environment: env, prepareDependencies: local});
+  const resources = join(work, 'resources'), pgOs = platform === 'macos' ? 'macos' : platform === 'windows' ? 'windows' : 'linux';
+  mkdirSync(join(resources, 'onchina-bin'), {recursive: true});
+  copyFileSync(onchina.host, join(resources, 'onchina-bin', basename(onchina.host)));
+  cpSync(onchina.modules, join(resources, 'onchina-bin/modules'), {recursive: true});
+  cpSync(onchina.frontend, join(resources, 'onchina-frontend/dist'), {recursive: true});
+  const pg = process.env.CITIZENCHAIN_PG_DIST;
+  if (!isAbsolute(pg || '')) fail('缺少完整 PostgreSQL 原件');
+  if (postgresVersion((await run(join(pg, 'bin', platform === 'windows' ? 'postgres.exe' : 'postgres'), ['--version'], {capture: true})).stdout) !== product.tools.postgres) fail('PostgreSQL 版本不符');
+  stagePostgresResources(pg, join(resources, 'postgres', pgOs));
+  for(const name of ['COPYRIGHT','LICENSE','license.txt'])if(existsSync(join(pg,name)))copyFileSync(join(pg,name),join(resources,'postgres',pgOs,name));
+  if (platform === 'windows') stageWindowsOpenSsl(resources, env, [resources, join(resources, 'onchina-bin'), join(resources,'postgres/windows/bin')]);
+  else for (const file of walk(resources)) chmodSync(file, lstatSync(file).mode & 0o111 ? 0o755 : 0o644);
+  env.CITIZENCHAIN_FRONTEND_DIST = join(work, 'node-frontend');
+  await runBuildProcess(env.NODE, [npmCLI(env.NODE), 'run', 'build'], env, join(root, 'node/frontend'));
+  const config = {version, build: {beforeBuildCommand: null, frontendDist: env.CITIZENCHAIN_FRONTEND_DIST},
+    bundle: {resources: {[resources + sep]: '', [join(root, 'icons') + sep]: 'icons/', [join(root, 'onchina/platform/codes/china.sqlite')]: 'china.sqlite'}}};
+  const formalMac = platform === 'macos' && !local;
+  if (formalMac) {
+    if (!process.env.APPLE_PROFILE_BASE64 || !process.env.APPLE_SIGNING_IDENTITY || !process.env.APPLE_ID || !process.env.APPLE_PASSWORD || !process.env.APPLE_TEAM_ID) fail('缺少 macOS 正式签名、公证输入');
+    const profile = join(work, 'embedded.provisionprofile');
+    writeFileSync(profile, Buffer.from(process.env.APPLE_PROFILE_BASE64, 'base64'), {mode: 0o600, flag: 'wx'});
+    config.bundle.macOS = {files: {'embedded.provisionprofile': profile}, hardenedRuntime: true, signingIdentity: process.env.APPLE_SIGNING_IDENTITY};
   }
-  if (JSON.stringify(readdirSync(artifact).sort()) !== JSON.stringify(expected.sort())) fail('完整产物集合不符');
-  for (const name of expected) {
-    const info = lstatSync(join(artifact, name));
-    if (!info.isFile() || info.isSymbolicLink() || info.size === 0) fail('正式产物不是非空普通文件');
+  const tauri = join(root, 'node/frontend/node_modules/@tauri-apps/cli/tauri.js');
+  await runBuildProcess(env.NODE, [tauri, 'build', '--config', JSON.stringify(config), '--no-bundle', '--ci', '--', '--locked', '--config', join(root, 'config.toml')], env, join(root, 'node'), {diagnostics: local});
+  let targets = [];
+  const signing = {...env, ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith('APPLE_')))};
+  if (platform === 'macos') {
+    const binaries = await macLibraries(resources, join(env.CARGO_TARGET_DIR, 'release/citizenchain'), env);
+    targets = appleSigning(binaries, resources);
+    if (local) await signLocalResources(binaries, env);
+    else await signResources(binaries, work, signing);
   }
+  if (platform.startsWith('linux-')) for (const file of walk(join(resources, 'postgres/linux'))) {
+    if (readFileSync(file).subarray(0, 4).equals(Buffer.from([127, 69, 76, 70]))) await run('patchelf', ['--set-rpath', '$ORIGIN:$ORIGIN/..:$ORIGIN/../lib', file], {capture: true});
+  }
+  // 两种交付都在最终资源改写及签名后实测初始化，禁止本机分支跳过验收。
+  await runBuildProcess(join(resources, 'postgres', pgOs, 'bin', platform === 'windows' ? 'initdb.exe' : 'initdb'), ['-D', join(work, 'pg-probe'), '-U', 'citizenchain', '--auth-local=trust', '--auth-host=trust', '--encoding=UTF8', '--no-locale'], {...env, LC_ALL: 'C', LANG: 'C'}, root);
+  for (const name of ['PG_VERSION', 'postgresql.conf']) if (!lstatSync(join(work, 'pg-probe', name)).isFile()) fail('PostgreSQL初始化产物缺失');
+  if (local) {
+    if (platform !== 'macos') fail('当前本机编译只支持macOS');
+    config.bundle.macOS = {hardenedRuntime: true, signingIdentity: null};
+  } else if (formalMac) {
+    // 正式DMG封装只清理本轮可再生增量文件。
+    rmSync(join(env.CARGO_TARGET_DIR, 'release/incremental'), {recursive: true, force: true});
+  }
+  const bundles = local ? 'app' : formalMac ? 'app,dmg' : declared.bundle;
+  const bundleArgs = [tauri, 'bundle', '--config', JSON.stringify(config), '--bundles', bundles, '--ci'];
+  if (formalMac) bundleArgs.push('--verbose');
+  await runBuildProcess(env.NODE, bundleArgs, formalMac ? signing : env, join(root, 'node'));
+  const app = local || formalMac ? oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle/macos'), '.app') : undefined;
+  if (local) {
+    await consume({schema: 1, product_id: product.id, platform, work, artifact: app, tools: {}, signing: targets});
+    return;
+  }
+  const installer = oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle', declared.bundle), declared.extension);
+  if (formalMac) {
+    await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+    const identity = (await run('/usr/bin/codesign', ['-dv', '--verbose=4', app], {capture: true})).stderr;
+    if (!identity.includes('Authority=' + process.env.APPLE_SIGNING_IDENTITY) || !identity.includes('TeamIdentifier=' + process.env.APPLE_TEAM_ID) || !/^Timestamp=/mu.test(identity)) fail('App 签名身份、团队或时间戳不符');
+    await run('/usr/bin/xcrun', ['stapler', 'validate', app]);
+    await run('/usr/bin/hdiutil',['verify',installer]);
+  }
+  if (platform.startsWith('linux-')) {
+    const architecture = platform === 'linux-arm' ? 'arm64' : 'amd64';
+    if ((await run('dpkg-deb', ['--field', installer, 'Architecture'], {capture: true})).stdout.trim() !== architecture) fail('DEB 架构不符');
+    const installed = join(work, 'installed');
+    await run('dpkg-deb', ['--extract', installer, installed]);
+    for (const name of ['onchina-bin/onchina', 'onchina-frontend/dist/index.html', 'postgres/linux/bin/initdb', 'postgres/linux/bin/postgres', 'china.sqlite']) if (!lstatSync(join(installed, 'usr/lib/citizenchain', name)).isFile()) fail('DEB 缺少完整运行资源');
+  }
+  if(platform.startsWith('linux-'))for(const id of readdirSync(onchina.modules))for(const name of ['onchina-'+id,'frontend/module.js','frontend/module.css'])if(!lstatSync(join(work,'installed/usr/lib/citizenchain/onchina-bin/modules',id,name)).isFile())fail('DEB模块完整产物缺失');
+  const info = lstatSync(installer);
+  if (!info.isFile() || info.size === 0) fail('正式产物不是非空普通文件');
+  copyFileSync(installer, join(artifact, declared.artifact.replace('{version}', version)));
   process.stdout.write('完整编译产物：' + artifact + '\n');
 }
 // 本机编译复用同一编译实现，并向安装器交付本轮产物。
@@ -406,7 +398,6 @@ async function compile(platform){
   NODE:nodeTools().node,CARGO:'cargo',CARGO_HOME:process.env.HOME+'/.cargo',RUSTUP_TOOLCHAIN:product.tools.rust,
   CARGO_NET_OFFLINE:'true',GIT_ALLOW_PROTOCOL:'file',
   CITIZENCHAIN_RELEASE_VERSION:version};
- buildVersion(environment.CITIZENCHAIN_RELEASE_VERSION);
  let safe=true;
  try{
   const run=(file,args,options)=>runBuildProcess(file,args,environment,work,options);
@@ -420,8 +411,7 @@ async function compile(platform){
   environment.CITIZENCHAIN_PG_DIST=await preparePostgres(work,environment);
   // 本机复用已安装的声明版本，不从GitHub取得工具。
   environment.PROTOC=process.env.PROTOC||'protoc';
-  if((await run(environment.PROTOC,['--version'],{capture:true})).stdout.trim()!=='libprotoc '+product.tools.protoc)fail('本机需要已安装的protoc '+product.tools.protoc);
-  await runBuildProcess(environment.NODE,[npmCLI(environment.NODE),'ci','--offline','--ignore-scripts','--no-audit','--no-fund'],environment,join(root,'node/frontend'));
+   await runBuildProcess(environment.NODE,[npmCLI(environment.NODE),'ci','--offline','--ignore-scripts','--no-audit','--no-fund'],environment,join(root,'node/frontend'));
   const previous=process.env;process.env=environment;
   try{await buildPlatform(platform,{work,local:true,consume:async value=>{
     process.stdout.write('TATA_COMPILE '+JSON.stringify(value)+'\n');

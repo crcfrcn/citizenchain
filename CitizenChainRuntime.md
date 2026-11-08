@@ -3210,7 +3210,7 @@ Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.
 
 真实macOS TLS回归从产品已交付的NODE启动导入脚本，使用独立哨兵参数避免误入构建CLI；监听器用非阻塞accept限制等待，接受的socket显式转为带超时的阻塞流，避免继承非阻塞属性后把WouldBlock误作TLS失败。临时服务完整消费Content-Length或分块POST正文再响应，并发送TLS close_notify，防止夹具提前关闭制造ECONNRESET；失败保留客户端及服务端诊断。不启动真实节点或派发GitHub任务。
 
-Runtime正式候选的编译入口为scripts/runtime.mjs build。该文件只处理编译输入、WASM构建、产物检查和本轮编译现场；配置只声明数据。GitHub源码身份、候选检查、版本显示、作业、发布与历史清理由wasm.yml直接实现。WASM仍使用链上双版本各加1，显示号取目标spec_version；原Runtime及Node源码不写入，仅临时编译输入的VERSION替换两个数字，冻结创世输入、升级授权、表决与宪法规则保持。
+Runtime正式候选的编译入口为scripts/runtime.mjs build。 工具版本复用scripts/build.mjs的checkTools，进程退出状态不明时仍由Runtime入口保留现场。该文件只处理编译输入、WASM构建、产物检查和本轮编译现场；配置只声明数据。wasm.yml编排候选检查、测试、编译、发布和历史清理。共用工作流实现由.github/release.mjs提供，WASM候选校验复用本文件的基线和双版本校验。WASM仍使用链上双版本各加1，显示号取目标spec_version；原Runtime及Node源码不写入，仅临时编译输入的VERSION替换两个数字，冻结创世输入、升级授权、表决与宪法规则保持。
 
 候选输入沿用version、transaction_version、source_sha和runtime_base。readRuntimeTarget只读本机既有公开证书及同一finalized块的冻结链身份、双版本；声明读取不读链、不派发。Workflow的prepare核对准确源码及基线加1关系，编译入口重新检查冻结创世与双版本并核对实际WASM。Runner不连接本机RPC；旧请求构造、launch/read/dispatch回调和配置转调均不保留。
 
