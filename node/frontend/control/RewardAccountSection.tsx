@@ -23,21 +23,6 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [bindStatus, setBindStatus] = useState<BindStatus>(null);
   const [showAddressScan, setShowAddressScan] = useState(false);
-  const [minerAddress, setMinerAddress] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.getLocalMinerSs58Address()
-      .then((addr) => {
-        if (!cancelled) setMinerAddress(addr);
-      })
-      .catch(() => {
-        if (!cancelled) setMinerAddress(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
   const hasBoundAddress = Boolean(rewardAccount.accountId);
   const actionText = hasBoundAddress ? '变更地址' : '绑定地址';
 
@@ -112,21 +97,15 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
 
   return (
     <section className="section settings-reward-account-section">
-      <div className="reward-account-inline reward-account-inline-readonly">
-        <span className="reward-account-current">
-          本机矿工账户
-          <span className="reward-account-bind-state">{minerAddress ?? '未生成（节点启动中…）'}</span>
-        </span>
-      </div>
       <div className="reward-account-inline">
         <span className="reward-account-current">
-          手续费收款地址
+          矿工收款账户
           <span className="reward-account-bind-state">{rewardAccount.accountId ? accountIdToSs58(rewardAccount.accountId) : '未绑定'}</span>
         </span>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="请输入手续费收款账户的 SS58 地址"
+          placeholder="请输入矿工收款账户的 SS58 地址"
           disabled={saving}
         />
         <button type="button" className="scan-icon-btn" onClick={() => setShowAddressScan(true)} disabled={saving} title="扫码填入">
@@ -137,7 +116,7 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
           onClick={() => {
             let nextAddress = '';
             try {
-              nextAddress = normalizeSs58Address(input, '请输入手续费收款账户的 SS58 地址');
+              nextAddress = normalizeSs58Address(input, '请输入矿工收款账户的 SS58 地址');
             } catch (e) {
               setError(sanitizeError(e));
               return;

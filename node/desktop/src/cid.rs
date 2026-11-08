@@ -1,23 +1,62 @@
-//! 节点各功能只读取宿主公开的部署说明；不复制固定地址、不设环境回退或私有 CA。
+//! 节点共用宿主的公开 HTTPS 入口与本次子进程回传的实际监听地址。
 use serde::Deserialize;
 use std::{
+    net::SocketAddr,
     path::{Path, PathBuf},
     process::Command,
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
 };
 use tauri::{AppHandle, Manager};
 
 /// 部署信息由产品宿主公开说明提供，节点不复制域名、地址或端口常量。
 #[derive(Clone, Debug, Deserialize)]
 pub struct PlatformDeployment {
-    /// TLS 主机名；连接地址单独使用公开声明的局域网 IP。
+    /// TLS 主机名。
     pub host: String,
-    /// 产品声明的固定监听地址。
-    pub address: std::net::SocketAddr,
+    /// 公开 HTTPS 入口端口。
+    pub port: u16,
     /// 经过 HTTPS 与端点一致性验证的浏览器入口。
     pub url: String,
 }
 static ONCHINA_DEPLOYMENT: OnceLock<PlatformDeployment> = OnceLock::new();
+
+struct LocalPlatform {
+    pid: u32,
+    address: Option<SocketAddr>,
+}
+
+static LOCAL_PLATFORM: Mutex<Option<LocalPlatform>> = Mutex::new(None);
+
+/// 为本次宿主进程登记地址回执的接收者。
+pub fn begin_local_platform(pid: u32) {
+    if let Ok(mut local) = LOCAL_PLATFORM.lock() {
+        *local = Some(LocalPlatform { pid, address: None });
+    }
+}
+
+/// 只接受当前宿主进程的已校验回执。
+pub fn record_local_platform_address(pid: u32, address: SocketAddr) {
+    if let Ok(mut local) = LOCAL_PLATFORM.lock() {
+        if let Some(local) = local.as_mut().filter(|local| local.pid == pid) {
+            local.address = Some(address);
+        }
+    }
+}
+
+/// 宿主退出后释放其地址，忽略已被替换的旧进程。
+pub fn end_local_platform(pid: u32) {
+    if let Ok(mut local) = LOCAL_PLATFORM.lock() {
+        if local.as_ref().is_some_and(|local| local.pid == pid) {
+            *local = None;
+        }
+    }
+}
+
+/// 当前桌面端拥有的链上中国宿主监听地址。
+pub fn local_platform_address() -> Option<SocketAddr> {
+    LOCAL_PLATFORM.lock().ok()?.as_ref()?.address
+}
+
 fn validate_base_url(value: &str) -> Result<String, String> {
     let url = reqwest::Url::parse(value).map_err(|_| "OnChina地址无效".to_string())?;
     if url.scheme() != "https"
@@ -47,10 +86,9 @@ pub fn parse_deployment(bytes: &[u8]) -> Result<PlatformDeployment, String> {
         reqwest::Url::parse(&validate_base_url(&value.url)?).map_err(|_| "链上中国入口无效")?;
     if description["id"] != "platform"
         || url.host_str() != Some(value.host.as_str())
-        || url.port_or_known_default() != Some(value.address.port())
+        || url.port_or_known_default() != Some(value.port)
         || url.path() != "/"
-        || !matches!(value.address.ip(), std::net::IpAddr::V4(ip) if ip.is_private())
-        || value.address.port() == 0
+        || value.port == 0
     {
         return Err("链上中国部署信息与 HTTPS 入口不一致".into());
     }

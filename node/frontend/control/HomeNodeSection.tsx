@@ -18,6 +18,7 @@ export function HomeNodeSection() {
   const [status, setStatus] = useState<NodeStatus>({ running: false, state: 'stopped', pid: null, lastError: null });
   const [chain, setChain] = useState<ChainStatus>(EMPTY_CHAIN);
   const [identity, setIdentity] = useState<NodeIdentity>(EMPTY_IDENTITY);
+  const [minerAddress, setMinerAddress] = useState<string | null>(null);
   const [issuance, setIssuance] = useState<TotalIssuance>(EMPTY_ISSUANCE);
   const [stake, setStake] = useState<TotalStake>(EMPTY_STAKE);
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +119,21 @@ export function HomeNodeSection() {
   }, [runLoadHome]);
 
   useEffect(() => {
+    // 首次启动可能尚未生成地址，节点运行状态变化后重新读取本机账户。
+    let cancelled = false;
+    api.getLocalMinerSs58Address()
+      .then((address) => {
+        if (!cancelled) setMinerAddress(address);
+      })
+      .catch(() => {
+        if (!cancelled) setMinerAddress(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status.running]);
+
+  useEffect(() => {
     const timer = globalThis.setInterval(() => {
       if (refreshInFlightRef.current) {
         return;
@@ -209,7 +225,7 @@ export function HomeNodeSection() {
         </button>
       </p>
       <ChainSection chain={chain} nodeRunning={status.running} />
-      <IdentitySection identity={identity} />
+      <IdentitySection identity={identity} minerAddress={minerAddress} />
       <IssuanceSection issuance={issuance} stake={stake} />
       {status.lastError ? <pre className="error">{status.lastError}</pre> : null}
       {error ? <pre className="error">{error}</pre> : null}

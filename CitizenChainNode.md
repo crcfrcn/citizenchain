@@ -323,14 +323,14 @@ PG 官方二进制来源:https://www.postgresql.org/download/(解压后含 bin/l
 
 - 节点 `desktop` setup 不启动 OnChina；用户在设置页“链上中国平台”行点击“启动”并二次确认后，`start_onchina_platform` 调用 `crate::start_onchina(app)`。
 - `main.rs` 中的进程管理入口通过环境变量把资源/数据路径告诉 OnChina(`ONCHINA_PG_BIN_DIR`/`ONCHINA_PG_DATA_DIR`/`ONCHINA_PG_PORT`/`ONCHINA_TLS_DIR`/`ONCHINA_PG_WAL_ARCHIVE_DIR`/`ONCHINA_FRONTEND_DIST`/`ONCHINA_CHINA_DB`/`ONCHAIN_WS_URL`/`ONCHAIN_LOCAL_RPC_CERTIFICATE`/`ONCHINA_EMBEDDED_PG=1`)。桌面父进程只通过后者交付本次RPC证书的公开DER十六进制，不交付私钥。
-- OnChina 启动：预留固定监听 → 准备公信 HTTPS 证书 → `embedded_pg::ensure_started()`（首启 initdb、启动私有PG并建库）→ schema幂等初始化 → 链投影与模块装载 → HTTPS服务；宿主和同机模块共用证书。
+- OnChina 启动：自动选择并预留局域网监听地址 → 准备公信 HTTPS 证书 → `embedded_pg::ensure_started()`（首启 initdb、启动私有PG并建库）→ schema幂等初始化 → 链投影与模块装载 → HTTPS服务；宿主和同机模块共用证书。
 - 退出:node 停子进程信号 → OnChina 收 SIGTERM/Ctrl-C → `embedded_pg::stop()` → 退出。node **不碰 PG**。
 - 开发期(无随包 PG)继承 `run.sh` / `clean-run.sh` 注入的外部 PostgreSQL 二进制、数据目录、前端产物和 HTTPS 配置。
 
 #### 内网 TLS + 扫码鉴权
 
-- OnChina 内网 API 唯一入口为 `https://onchina.crcfrcn.com:1988/`，服务只监听 `192.168.20.27:1988`；主机网卡、局域网 DNS 和放行规则由安装用户一次配置。域名、地址和端口只在公共库声明，节点通过宿主 `--describe` 读取，不另设默认地址或环境变量覆盖。
-- 节点设置页、健康检查和清算行查询共用 `node/desktop/src/cid.rs` 读取宿主的公开部署说明，正常验证公信HTTPS和域名，不设另一缺省入口或私有CA选项。办证流程、密钥存储、续期与模块协议唯一归 `CitizenChainOnChina.md` 第7节；节点编译、安装和主节点功能不依赖运行期办证授权。
+- OnChina 内网 API 入口为 `https://onchina.crcfrcn.com:1988/`。节点通过宿主 `--describe` 读取域名和端口。每次启动宿主优先绑定有线网卡的私有 IPv4，没有可用有线时用 Wi-Fi，两者均不可用时停止启动。宿主通过子进程回执交付实际监听地址，浏览器继续依赖局域网 DNS 将域名解析到该地址。
+- 链上中国页、健康检查和清算行查询共用 `node/desktop/src/cid.rs` 读取宿主的公开部署说明。健康检查使用本次子进程的监听地址，清算行查询在本机宿主未提供地址时按局域网 DNS 解析同一域名，正常验证公信HTTPS和域名，不设另一缺省入口或私有CA选项。办证流程、密钥存储、续期与模块协议唯一归 `CitizenChainOnChina.md` 第7节；节点编译、安装和主节点功能不依赖运行期办证授权。
 - 身份认证 = 扫码签名(3b 链上 Active 管理员集合鉴权),TLS 只负责传输加密。与 node 的 libp2p WSS 证书相互独立。
 
 #### 大市机房形态(如香港:800万公民/500万公司/百管理员)
@@ -2527,7 +2527,7 @@ Runtime按所属技术文档的包/src/tests结构组织；上游/派生源码�
 
 ### 固定产物产品目录
 
-桌面节点客户端的本机RPC地址来自本次节点会话，不要求用户设置CITIZENCHAIN_RPC_URL；远端查询仍只接受可信HTTPS且禁止重定向。链上中国健康检查按产品公开说明访问固定主机，正常验证公信链与onchina.crcfrcn.com域名；它向桌面链RPC发起的HTTPS/WSS连接仍单独验证父进程交付的本次公开证书及回环IP，不与浏览器HTTPS证书混用。局域网浏览器入口为1988端口。烘焙/审计/历史导出脚本保留功能但要求显式可信HTTPS，禁止重定向；上游Apache法律注释原件保持，Runtime无任何修改。
+桌面节点客户端的本机RPC地址来自本次节点会话，不要求用户设置CITIZENCHAIN_RPC_URL；远端查询仍只接受可信HTTPS且禁止重定向。链上中国健康检查访问本次子进程回传的监听地址，正常验证公信链与onchina.crcfrcn.com域名；它向桌面链RPC发起的HTTPS/WSS连接仍单独验证父进程交付的本次公开证书及回环IP，不与浏览器HTTPS证书混用。局域网浏览器入口为1988端口。烘焙/审计/历史导出脚本保留功能但要求显式可信HTTPS，禁止重定向；上游Apache法律注释原件保持，Runtime无任何修改。
 
 公开仓门禁保留 Apache、MIT、Unlicense 三种准确官方行注释引用；字符串、额外路径及其它网址继续拒绝。Runtime 未修改。
 

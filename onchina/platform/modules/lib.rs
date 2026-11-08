@@ -52,6 +52,8 @@ pub mod qr;
 /// HTTP API 通用响应、分页和健康检查输出模型。
 #[path = "../communication/response.rs"]
 pub mod response;
+#[path = "../security/lan.rs"]
+mod lan;
 #[path = "../security/http.rs"]
 pub(crate) mod security_http;
 /// 公信 HTTPS 证书申请、续期和热加载。
@@ -83,16 +85,13 @@ pub use authentication::login::{parse_account_id_bytes, require_admin_any};
 pub use authentication::model::*;
 pub use institutions::model::*;
 
-/// 固定部署唯一真源；宿主通过 --describe 向节点公开，不由调用方复制配置。
+/// HTTPS 入口唯一真源；宿主通过 --describe 向节点公开。
 pub const PLATFORM_HOST: &str = "onchina.crcfrcn.com";
-/// 本产品只监听用户一次配置的固定局域网主机地址。
-pub const PLATFORM_ADDRESS: SocketAddr = SocketAddr::new(
-    std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 20, 27)),
-    1988,
-);
+/// 宿主在本次选中的局域网地址上监听此端口。
+pub const PLATFORM_PORT: u16 = 1988;
 /// 浏览器、Passkey 与调用方共用的完整 HTTPS 入口。
 pub fn platform_url() -> String {
-    format!("https://{}:{}/", PLATFORM_HOST, PLATFORM_ADDRESS.port())
+    format!("https://{}:{}/", PLATFORM_HOST, PLATFORM_PORT)
 }
 
 #[derive(Clone)]

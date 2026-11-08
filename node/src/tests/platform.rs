@@ -59,11 +59,11 @@ fn abnormal_exit_is_not_reported_as_success() {
 #[test]
 fn deployment_is_read_from_product_description_and_rejects_ambiguous_endpoints() {
     let receipt = serde_json::json!({"id":"platform","deployment":{
-        "host":"onchina.crcfrcn.com","address":"192.168.20.27:1988","url":"https://onchina.crcfrcn.com:1988/"
+        "host":"onchina.crcfrcn.com","port":1988,"url":"https://onchina.crcfrcn.com:1988/"
     }});
     let value = parse_deployment(&serde_json::to_vec(&receipt).unwrap()).unwrap();
     assert_eq!(value.url, "https://onchina.crcfrcn.com:1988/");
-    assert_eq!(value.address.to_string(), "192.168.20.27:1988");
+    assert_eq!(value.port, 1988);
     for url in [
         "http://onchina.crcfrcn.com:1988/",
         "https://wrong.invalid:1988/",
@@ -76,17 +76,41 @@ fn deployment_is_read_from_product_description_and_rejects_ambiguous_endpoints()
         invalid["deployment"]["url"] = serde_json::Value::String(url.into());
         assert!(parse_deployment(&serde_json::to_vec(&invalid).unwrap()).is_err());
     }
-    for address in [
-        "127.0.0.1:1988",
-        "0.0.0.0:1988",
-        "8.8.8.8:1988",
-        "192.168.20.27:0",
-    ] {
+    for port in [0, 1989] {
         let mut invalid = receipt.clone();
-        invalid["deployment"]["address"] = serde_json::Value::String(address.into());
+        invalid["deployment"]["port"] = serde_json::Value::from(port);
         assert!(parse_deployment(&serde_json::to_vec(&invalid).unwrap()).is_err());
     }
     assert!(parse_deployment(br#"{"id":"platform"}"#).is_err());
+}
+
+#[test]
+fn listen_address_is_validated_and_scoped_to_the_current_host() {
+    for invalid in [
+        "127.0.0.1:1988",
+        "0.0.0.0:1988",
+        "8.8.8.8:1988",
+        "192.168.1.4:1989",
+    ] {
+        assert!(parse_listen_address(invalid, 1988).is_none());
+    }
+    let first = parse_listen_address("192.168.1.4:1988", 1988).unwrap();
+    let second = parse_listen_address("172.16.1.5:1988", 1988).unwrap();
+
+    begin_local_platform(1);
+    record_local_platform_address(1, first);
+    assert_eq!(local_platform_address(), Some(first));
+    end_local_platform(1);
+    assert_eq!(local_platform_address(), None);
+
+    begin_local_platform(2);
+    record_local_platform_address(1, first);
+    assert_eq!(local_platform_address(), None);
+    record_local_platform_address(2, second);
+    end_local_platform(1);
+    assert_eq!(local_platform_address(), Some(second));
+    end_local_platform(2);
+    assert_eq!(local_platform_address(), None);
 }
 
 #[test]

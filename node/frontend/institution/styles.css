@@ -255,6 +255,80 @@
   margin-bottom: 17px;
 }
 
+.institution-overview-proposal-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.institution-overview-vote-help-button {
+  padding: 4px 0;
+  background: transparent;
+  color: #60a5fa;
+  font-family: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.institution-overview-vote-help-button:hover {
+  text-decoration: underline;
+}
+
+.institution-vote-help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.institution-vote-help-dialog {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+}
+
+.institution-vote-help-dialog h2 {
+  margin: 0 0 20px;
+  font-size: 22px;
+  text-align: center;
+}
+
+.institution-vote-help-dialog section + section {
+  margin-top: 16px;
+}
+
+.institution-vote-help-dialog h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.institution-vote-help-dialog ol {
+  margin: 0;
+  padding-left: 22px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.institution-vote-help-dialog li + li {
+  margin-top: 4px;
+}
+
+.institution-vote-help-dialog strong {
+  color: var(--text-primary);
+}
+
 .institution-overview .institution-overview-proposal-toolbar .proposal-type-grid {
   max-width: 100%;
   justify-content: flex-end;

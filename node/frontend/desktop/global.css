@@ -655,16 +655,6 @@ body {
   overflow: hidden;
 }
 
-.settings-reward-account-section .reward-account-inline + .reward-account-inline {
-  margin-top: 12px;
-}
-
-.settings-reward-account-section .reward-account-inline-readonly {
-  display: flex;
-  align-items: center;
-  min-height: 56px;
-}
-
 .settings-reward-account-section .reward-account-current,
 .settings-nodekey-section .bootnode-inline h2 {
   margin: 0;

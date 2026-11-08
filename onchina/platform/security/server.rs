@@ -103,7 +103,7 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
             None => serde_json::to_value(serde_json::json!({
                 "id":"platform", "interface_version":modules::model::MODULE_INTERFACE_VERSION,
                 "module_directory":modules::module_directory().unwrap_or_else(|e| panic!("{e}")),
-                "deployment": { "host": PLATFORM_HOST, "address": PLATFORM_ADDRESS, "url": platform_url() }
+                "deployment": { "host": PLATFORM_HOST, "port": PLATFORM_PORT, "url": platform_url() }
             })),
         }
         .unwrap_or_else(|e| panic!("describe backend failed: {e}"));
@@ -142,10 +142,13 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
         shutdown_signal(signal_parent).await;
         let _ = signal_sender.send(true);
     });
-    // 先占用固定监听，再准备证书；地址、授权或证书失败不初始化数据库或链任务。
+    // 先选择并绑定监听地址，再准备证书；启动失败不初始化数据库或链任务。
     let listener = if matches!(command, BackendCommand::Serve) {
         let address = if is_host {
-            resolve_backend_bind_addr()
+            lan::listen_address(PLATFORM_PORT).unwrap_or_else(|error| {
+                report_startup_error(&error);
+                std::process::exit(1)
+            })
         } else {
             let address: SocketAddr = required_env("ONCHINA_MODULE_BIND")
                 .parse()
@@ -156,19 +159,21 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
             );
             address
         };
-        Some(
-            std::net::TcpListener::bind(address).unwrap_or_else(|error| {
-                let detail = match error.kind() {
-                    std::io::ErrorKind::AddrInUse => format!("链上中国监听地址 {address} 已被占用"),
-                    std::io::ErrorKind::AddrNotAvailable => {
-                        format!("主机尚未配置链上中国固定地址 {address}")
-                    }
-                    _ => format!("无法监听链上中国固定地址 {address}：{}", error.kind()),
-                };
-                report_startup_error(&detail);
-                std::process::exit(1)
-            }),
-        )
+        let listener = std::net::TcpListener::bind(address).unwrap_or_else(|error| {
+            let detail = match error.kind() {
+                std::io::ErrorKind::AddrInUse => format!("链上中国监听地址 {address} 已被占用"),
+                std::io::ErrorKind::AddrNotAvailable => {
+                    format!("链上中国监听地址 {address} 已不可用，请检查网络后重试")
+                }
+                _ => format!("无法监听链上中国地址 {address}：{}", error.kind()),
+            };
+            report_startup_error(&detail);
+            std::process::exit(1)
+        });
+        if is_host && std::env::var_os("ONCHINA_PARENT_PIPE").is_some() {
+            println!("{}", serde_json::json!({"onchina_listening": address}));
+        }
+        Some(listener)
     } else {
         None
     };

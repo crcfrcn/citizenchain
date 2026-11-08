@@ -18,8 +18,6 @@ export const settingsApi = {
       ss58Address,
       unlockPassword: unlockPassword,
     }),
-  getLocalMinerSs58Address: () =>
-    invoke<string | null>('get_local_miner_ss58_address'),
   getBootnodeKey: () => invoke<BootnodeKey>('get_bootnode_key'),
   getGrandpaKey: () => invoke<GrandpaKey>('get_grandpa_key'),
   setBootnodeKey: (nodeKey: string, unlockPassword: string) =>
@@ -47,6 +45,7 @@ export const homeNodeApi = {
   stopNode: () => invoke<NodeStatus>('stop_node'),
   getChainStatus: () => invoke<ChainStatus>('get_chain_status'),
   getNodeIdentity: () => invoke<NodeIdentity>('get_node_identity'),
+  getLocalMinerSs58Address: () => invoke<string | null>('get_local_miner_ss58_address'),
   getTotalIssuance: () => invoke<TotalIssuance>('get_total_issuance'),
   getTotalStake: () => invoke<TotalStake>('get_total_stake'),
 };

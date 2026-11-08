@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react';
 
 const modules: { id: OnChinaModuleId; title: string; description: string; icon: string }[] = [
   { id: 'registry', title: '注册局', description: '公民和机构登记、资料管理', icon: 'M3 5h18v14H3z M7 14c0-3 6-3 6 0 M10 8a1.5 1.5 0 1 0 0 3a1.5 1.5 0 0 0 0-3 M16 10h2 M16 14h2' },
-  { id: 'legislation', title: '立法', description: '查看立法提案，按权限发起或表决', icon: 'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6' },
-  { id: 'judicial', title: '司法', description: '司法院工作台、机构资料和管理员', icon: 'M3 8l9-5 9 5z M5 11v7 M10 11v7 M14 11v7 M19 11v7 M3 21h18' },
+  { id: 'legislation', title: '立法院', description: '查看立法提案，按权限发起或表决', icon: 'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6' },
+  { id: 'judicial', title: '司法院', description: '司法院工作台、机构资料和管理员', icon: 'M3 8l9-5 9 5z M5 11v7 M10 11v7 M14 11v7 M19 11v7 M3 21h18' },
   { id: 'private', title: '私权机构', description: '本机构资料及已授权业务', icon: 'M4 21V4h11v17 M15 10h5v11 M2 21h20 M8 8h3 M8 12h3 M8 16h3' },
 ];
 

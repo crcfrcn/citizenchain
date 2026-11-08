@@ -9,7 +9,8 @@ import type { ActivatedAdmin, AdminSignerMatch, InstitutionBalanceUpdate, Instit
 import type { ProposalListItem } from "../proposal/types";
 // 机构详情页：机构信息 → 管理员入口 → 发起提案 → 提案列表（分页）。
 // 管理员列表折叠到独立的 AdminListPage，点击入口卡片右箭头进入。
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 type Props = {
   cidNumber: string;
@@ -25,6 +26,71 @@ type Props = {
   hideBackButton?: boolean;
 };
 
+function VotingHelpDialog({ onClose }: { onClose: () => void }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
+  return createPortal(
+    <div
+      className="institution-vote-help-overlay"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        className="institution-vote-help-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="institution-vote-help-title"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onClose();
+          } else if (event.key === 'Tab') {
+            // 说明弹窗没有其他可聚焦元素，保持焦点在正文区域。
+            event.preventDefault();
+          }
+        }}
+      >
+        <h2 id="institution-vote-help-title">投票说明</h2>
+        <section>
+          <h3>一、内部投票</h3>
+          <ol>
+            <li>投票引擎的内部投票模块组织本机构管理员投票，投票资格以提案快照为准。</li>
+            <li>省储委会和省储行每机构共 9 名管理员，赞成票达到 6 票即通过。</li>
+            <li>国家储委会共 19 名管理员，赞成票达到 13 票即通过。</li>
+            <li>即使剩余选民全部赞成也达不到阈值，或满 30 天仍未通过，提案即否决。</li>
+          </ol>
+        </section>
+        <section>
+          <h3>二、联合投票</h3>
+          <ol>
+            <li>投票引擎的联合投票模块组织全体治理机构投票，各机构在同一联合提案内形成机构结果。</li>
+            <li>治理机构包括 1 个国家储委会、43 个省储委会和 43 个省储行。</li>
+            <li>国家储委会的票权为 19 票，每个省储委会和省储行各 1 票，共 105 票。</li>
+            <li>所有机构内部投票均通过，累计 105 票赞成，联合投票立即通过。</li>
+            <li>任一机构否决，或 30 天期满仍未全票通过，则转入联合公投。</li>
+          </ol>
+        </section>
+        <section>
+          <h3>三、联合公投</h3>
+          <ol>
+            <li>投票引擎的联合公投流程由提案人口快照中的合资格链上公民投票。</li>
+            <li>赞成票<strong>严格超过提案人口快照中全体合资格选民的 50%</strong>，提案即通过。</li>
+            <li>反对票<strong>达到提案人口快照中全体合资格选民的 50%</strong>，提案即否决。</li>
+            <li>从进入联合公投阶段起重新计 30 天，期满仍未达到赞成票门槛，提案即否决。</li>
+          </ol>
+        </section>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSelectProposal, onCreateProposal, onCreateProtocolUpgrade, onChangeGrandpaKey, onCreateSafetyFund, onCreateSweep, hideBackButton }: Props) {
   const [detail, setDetail] = useState<InstitutionDetail | null>(null);
   const [proposals, setProposals] = useState<ProposalListItem[]>([]);
@@ -34,6 +100,8 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   const [activatedAdmins, setActivatedAdmins] = useState<ActivatedAdmin[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showVotingHelp, setShowVotingHelp] = useState(false);
+  const votingHelpButtonRef = useRef<HTMLButtonElement>(null);
 
   const PROPOSAL_PAGE_SIZE = 10;
   const isAdmin = activatedAdmins.length > 0;
@@ -315,11 +383,28 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
 
       <section className="institution-overview-proposals">
         <div className="institution-overview-proposal-toolbar">
-          {proposalTitle}
+          <div className="institution-overview-proposal-heading">
+            {proposalTitle}
+            <button
+              ref={votingHelpButtonRef}
+              type="button"
+              className="institution-overview-vote-help-button"
+              aria-haspopup="dialog"
+              onClick={() => setShowVotingHelp(true)}
+            >
+              投票说明
+            </button>
+          </div>
           {proposalActions}
         </div>
         {proposalList}
       </section>
+      {showVotingHelp && (
+        <VotingHelpDialog onClose={() => {
+          setShowVotingHelp(false);
+          votingHelpButtonRef.current?.focus();
+        }} />
+      )}
     </div>
   );
 }

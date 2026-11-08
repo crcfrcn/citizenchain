@@ -14,10 +14,14 @@
 #![warn(missing_docs)]
 #[cfg(test)]
 use nodedesktop::cid::parse_deployment;
-use nodedesktop::cid::{deployment, onchina_binary_path, platform_url};
+use nodedesktop::cid::{
+    begin_local_platform, deployment, end_local_platform, local_platform_address,
+    onchina_binary_path, platform_url, record_local_platform_address,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::collections::BTreeSet;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
@@ -48,8 +52,14 @@ fn startup_error() -> Option<String> {
     ONCHINA_ERROR.lock().ok().and_then(|value| value.clone())
 }
 
-/// 只读取宿主公开的去敏错误，不把 PostgreSQL、账户、密钥或完整日志送入界面。
-fn capture_startup_errors(stdout: std::process::ChildStdout, pid: u32) {
+fn parse_listen_address(value: &str, port: u16) -> Option<SocketAddr> {
+    let address: SocketAddr = value.parse().ok()?;
+    (address.port() == port && matches!(address.ip(), std::net::IpAddr::V4(ip) if ip.is_private()))
+        .then_some(address)
+}
+
+/// 只读取宿主公开的监听地址和去敏错误。
+fn capture_startup_events(stdout: std::process::ChildStdout, pid: u32, port: u16) {
     std::thread::spawn(move || {
         use std::io::Read;
         let mut reader = stdout;
@@ -64,6 +74,13 @@ fn capture_startup_errors(stdout: std::process::ChildStdout, pid: u32) {
                 if *byte == b'\n' {
                     if !oversized {
                         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) {
+                            if let Some(address) = value
+                                .get("onchina_listening")
+                                .and_then(|value| value.as_str())
+                                .and_then(|value| parse_listen_address(value, port))
+                            {
+                                record_local_platform_address(pid, address);
+                            }
                             if let Some(error) = value
                                 .get("onchina_error")
                                 .and_then(|value| value.as_str())
@@ -89,6 +106,7 @@ fn capture_startup_errors(stdout: std::process::ChildStdout, pid: u32) {
                 }
             }
         }
+        end_local_platform(pid);
     });
 }
 
@@ -170,6 +188,7 @@ fn reap_finished_child(child: &mut Option<Child>) {
         Ok(None) => {}
         Ok(Some(status)) => {
             eprintln!("[onchina] onchina 控制台子进程已退出,status={status}");
+            end_local_platform(running.id());
             *child = None;
         }
         Err(err) => {
@@ -350,7 +369,7 @@ pub(crate) fn start_onchina(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let deployment = deployment(app)?;
-    clean_stale_onchina_processes_before_start(deployment.address.port())?;
+    clean_stale_onchina_processes_before_start(deployment.port)?;
     if let Ok(mut error) = ONCHINA_ERROR.lock() {
         *error = None;
     }
@@ -368,9 +387,11 @@ pub(crate) fn start_onchina(app: &AppHandle) -> Result<(), String> {
     apply_onchina_env(app, &mut cmd)?;
     match cmd.spawn() {
         Ok(mut child) => {
-            ONCHINA_PID.store(child.id(), std::sync::atomic::Ordering::Release);
+            let pid = child.id();
+            begin_local_platform(pid);
+            ONCHINA_PID.store(pid, std::sync::atomic::Ordering::Release);
             if let Some(stdout) = child.stdout.take() {
-                capture_startup_errors(stdout, child.id());
+                capture_startup_events(stdout, pid, deployment.port);
             }
             eprintln!("[onchina] 已启动 onchina 控制台子进程 pid={}", child.id());
             *guard = Some(child);
@@ -410,6 +431,7 @@ pub(crate) fn stop_onchina_checked() -> Result<(), String> {
         drop(child.stdin.take());
         // 覆盖HTTPS排空10秒、模块排空12秒及启动中说明读取的退出收尾。
         wait_onchina_exit(child, Duration::from_secs(40))?;
+        end_local_platform(child.id());
         *guard = None;
         eprintln!("[onchina] 已确认宿主及模块退出");
     }
@@ -438,7 +460,7 @@ pub struct OnChinaPlatformState {
     modules: Vec<String>,
 }
 
-// 与浏览器同样验证公信 HTTPS；仅把连接指向产品声明的主机地址，保持域名 SNI。
+// 保留公信 HTTPS 与域名 SNI，连接到当前宿主回传的监听地址。
 fn onchina_health_modules(app: &AppHandle) -> Result<Vec<String>, String> {
     #[derive(Deserialize)]
     struct HealthModule {
@@ -458,12 +480,13 @@ fn onchina_health_modules(app: &AppHandle) -> Result<Vec<String>, String> {
     }
 
     let deployment = deployment(app)?;
+    let address = local_platform_address().ok_or("链上中国正在选择局域网监听地址")?;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(900))
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
         .no_proxy()
-        .resolve(&deployment.host, deployment.address)
+        .resolve(&deployment.host, address)
         .build()
         .map_err(|e| format!("创建链上中国健康检查客户端失败:{e}"))?;
     let response = client

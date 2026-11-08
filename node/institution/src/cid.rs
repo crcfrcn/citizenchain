@@ -102,9 +102,12 @@ pub(crate) fn search_eligible_clearing_banks(
 fn onchina_client(
     deployment: &nodedesktop::cid::PlatformDeployment,
 ) -> reqwest::blocking::ClientBuilder {
-    reqwest::blocking::Client::builder()
+    let client = reqwest::blocking::Client::builder()
         .https_only(true)
         .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .resolve(&deployment.host, deployment.address)
+        .redirect(reqwest::redirect::Policy::none());
+    match nodedesktop::cid::local_platform_address() {
+        Some(address) => client.resolve(&deployment.host, address),
+        None => client,
+    }
 }

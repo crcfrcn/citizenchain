@@ -1,8 +1,4 @@
 // 既有连接检查、命令解析与维护操作；不改变触发条件。
-fn resolve_backend_bind_addr() -> SocketAddr {
-    crate::PLATFORM_ADDRESS
-}
-
 fn database_url_targets_local_host_only(database_url: &str) -> Result<bool, String> {
     let config = database_url
         .parse::<postgres::Config>()

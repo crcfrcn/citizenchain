@@ -92,6 +92,15 @@ adminbase = { path = "../../runtime/admins/adminbase" }
 entitybase = { path = "../../runtime/entity/entitybase" }
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = "=0.7.0"
+
+[target.'cfg(any(target_os = "linux", windows))'.dependencies]
+if-addrs = "=0.15.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+
 [dev-dependencies]
 # 复用原锁的 Tower，以实际分发请求验证路由、鉴权与上传限制。
 tower = { version = "=0.5.3", features = ["util"] }

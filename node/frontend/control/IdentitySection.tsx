@@ -3,9 +3,10 @@ import type { NodeIdentity } from "./types";
 
 type Props = {
   identity: NodeIdentity;
+  minerAddress: string | null;
 };
 
-export function IdentitySection({ identity }: Props) {
+export function IdentitySection({ identity, minerAddress }: Props) {
   return (
     <section className="section home-summary-section">
       <h2>身份</h2>
@@ -13,6 +14,10 @@ export function IdentitySection({ identity }: Props) {
         <div className="identity-detail-row">
           <dt className="identity-detail-key">节点角色：</dt>
           <dd className="identity-detail-value">{identity.role ?? '全节点'}</dd>
+        </div>
+        <div className="identity-detail-row">
+          <dt className="identity-detail-key">本机矿工：</dt>
+          <dd className="identity-detail-value identity-detail-code">{minerAddress || '-'}</dd>
         </div>
         <div className="identity-detail-row">
           <dt className="identity-detail-key">节点地址：</dt>

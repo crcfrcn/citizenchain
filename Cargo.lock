@@ -10938,6 +10938,7 @@ dependencies = [
  "frame-system",
  "hex",
  "http-body-util",
+ "if-addrs",
  "instant-acme",
  "keyring",
  "legislation",
@@ -10959,6 +10960,7 @@ dependencies = [
  "sp-core",
  "sp-crypto-hashing 0.1.0 (git+https://github.com/crcfrcn/polkadot-sdk.git?rev=05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4)",
  "subxt 0.43.1",
+ "system-configuration",
  "time",
  "tokio",
  "tower 0.5.3",
@@ -10970,6 +10972,7 @@ dependencies = [
  "webauthn-authenticator-rs",
  "webauthn-rs",
  "webpki-roots 1.0.11",
+ "windows-sys 0.61.2",
  "x509-parser 0.16.0",
  "zeroize",
 ]
