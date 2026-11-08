@@ -2614,7 +2614,7 @@ GitHub接口使用普通参数和已授权令牌，返回本仓既有版本计�
 
 Runtime正式候选及整链验收所用WASM的唯一实现归scripts/runtime.mjs，节点安装包仍归scripts/build.mjs。config.mjs的WASM分支只转调；WASM工作流保留原锁、权限及阶段顺序，复用节点已有系统链接依赖以执行专项验收，GitHub阶段由wasm.yml实现，源码编译仅调用runtime.mjs build。其他四端仍直接执行所属Cargo全部目标测试，仅将依赖SDK测试WASM的GRANDPA整包验收交Runtime专项，默认不生成WASM；整链验收复用Runtime本轮候选，不另交付测试WASM，金标保持。build.mjs wasm旧入口继续拒绝。节点启动仅增加上述公开证书交付；协议升级入口、链上升级模块、权限、表决与UI保持。
 
-正式WASM派发由runtime.mjs装载节点公开证书后读取本机既有https://127.0.0.1:9944的冻结链身份及同一finalized块双版本，分别加1，并通过现有输入和本轮runtime_base JSON交给GitHub。准备和发布归wasm.yml；编译前只删除目标整数版本同名的旧Release及Tag，不存在则继续，删除失败停止，不处理其它版本。源码编译归runtime.mjs；Runner只核对快照、目标及实际三份产物，不再次连接本机，不套X.Y.Z，也不要求新增RPC地址或证书配置。快照只对应读取时刻，不能保证构建期间链上版本不变；实际升级仍走原流程。缺少节点、公开证书不可用、可信连接失败或字段异常即停止，不猜值、不降级；不修改控制台、公民服务端或Runtime。原仓Node/Runtime源码不被WASM构建回写，节点交付源码修改仅限上述启动入口。临时输入和现场保护遵循CitizenChainRuntime.md。
+正式WASM派发由runtime.mjs装载节点公开证书后读取本机既有https://127.0.0.1:9944的冻结链身份及同一finalized块双版本，分别加1，并通过现有输入和本轮runtime_base JSON交给GitHub。准备和发布归wasm.yml；编译前只删除目标整数版本同名的旧Release及Tag，不处理其它版本。目标Release不存在时继续。删除目标Tag收到404或422且响应正文的message为`Reference does not exist`时继续，其它删除错误停止。源码编译归runtime.mjs；Runner只核对快照、目标及实际三份产物，不再次连接本机，不套X.Y.Z，也不要求新增RPC地址或证书配置。快照只对应读取时刻，不能保证构建期间链上版本不变；实际升级仍走原流程。缺少节点、公开证书不可用、可信连接失败或字段异常即停止，不猜值、不降级；不修改控制台、公民服务端或Runtime。原仓Node/Runtime源码不被WASM构建回写，节点交付源码修改仅限上述启动入口。临时输入和现场保护遵循CitizenChainRuntime.md。
 
 WASM塔塔自动化的编译实现仅归scripts/runtime.mjs，唯一工作流为.github/workflows/wasm.yml。runtime/build.rs仅嵌入既有WASM或生成空常量；SDK源码编译钩子由runtime.mjs仅在本轮临时源码中生成，退出后按原现场规则清理。Cargo依赖声明沿用原锁。协议repo_guard和节点构建测试不检查WASM塔塔自动化；节点普通链功能测试保持；两项真实WASM整链验收由Runtime专项显式开启runtime-tests。
 

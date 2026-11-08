@@ -70,11 +70,13 @@ jobs:
             await github.rest.repos.deleteRelease({...context.repo,release_id:release.id});
             core.info('已删除目标版本旧Release：'+tag);
           }
-          // 删除Tag的404只表示该目标版本不存在；其它失败直接使本轮失败。
+          // 仅接受404或GitHub明确返回的422引用不存在，其它删除错误使本轮失败。
           try{
             await github.rest.git.deleteRef({...context.repo,ref:'tags/'+tag});
             core.info('已删除目标版本旧Tag：'+tag);
-          }catch(error){if(error.status!==404)throw error;}
+          }catch(error){
+            if(error.status!==404&&(error.status!==422||error.response?.data?.message!=='Reference does not exist'))throw error;
+          }
           core.info('WASM候选已确认：'+tag);
   build:
     name: 公民链·WASM·v${{ inputs.version }}
