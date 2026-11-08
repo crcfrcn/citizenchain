@@ -75,6 +75,8 @@ fn set_day_offset(days: i64) {
 }
 
 pub struct TestCitizenIdentityAuthority;
+const CITY_REGISTRY_CID: &[u8] = b"NX013-CREGN-937676656-2026";
+
 impl CitizenIdentityAuthority<u64, pallet::SignatureOf<Test>> for TestCitizenIdentityAuthority {
     fn can_manage_voting_identity(
         registrar: &u64,
@@ -86,7 +88,8 @@ impl CitizenIdentityAuthority<u64, pallet::SignatureOf<Test>> for TestCitizenIde
         _action_code: u32,
     ) -> bool {
         *registrar == 100
-            && actor_cid_number == registrar_cid_number().as_slice()
+            && (actor_cid_number == registrar_cid_number().as_slice()
+                || actor_cid_number == CITY_REGISTRY_CID)
             && actor_role_code == registrar_role_code().as_slice()
             && residence_province_code == b"43"
             && residence_city_code == b"4301"

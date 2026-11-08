@@ -11,6 +11,7 @@ pub use pallet::*;
 #[cfg(feature = "runtime-benchmarks")]
 #[path = "../tests/benchmarks.rs"]
 mod benchmarks;
+mod qualify;
 pub mod weights;
 
 use alloc::vec::Vec;
@@ -656,6 +657,15 @@ pub mod pallet {
     #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
+    /// 市注册局自规则启用以来的累计正式登记人数和首次达标名次。
+    #[pallet::storage]
+    pub type CityRegistryProgress<T: Config> =
+        StorageMap<_, Blake2_128Concat, CidNumberBound, qualify::Progress, ValueQuery>;
+
+    /// 全国已达标的市注册局数量。
+    #[pallet::storage]
+    pub type QualifiedCityCount<T> = StorageValue<_, u32, ValueQuery>;
+
     #[pallet::storage]
     /// 永久公民 CID 到投票身份。CID 是身份主键，账户不参与身份寻址。
     pub type VotingIdentityByCid<T: Config> = StorageMap<
@@ -980,6 +990,7 @@ pub mod pallet {
         #[pallet::weight(
             T::WeightInfo::register_voting_identity()
                 .saturating_add(T::OnVotingIdentityRegistered::on_voting_identity_registered_weight())
+                .saturating_add(qualify::weight::<T>())
         )]
         pub fn register_voting_identity(
             origin: OriginFor<T>,
@@ -1030,6 +1041,7 @@ pub mod pallet {
                 &payload.account_id,
                 &payload.cid_number,
             );
+            Self::record_city_registration(&actor_cid_number);
             Self::deposit_event(Event::<T>::VotingIdentityRegistered {
                 account_id: payload.account_id,
                 cid_number: payload.cid_number,
@@ -1041,6 +1053,7 @@ pub mod pallet {
         #[pallet::weight(
             <T as Config>::WeightInfo::upgrade_to_candidate_identity()
                 .saturating_add(T::OnVotingIdentityRegistered::on_voting_identity_registered_weight())
+                .saturating_add(qualify::weight::<T>())
         )]
         pub fn upgrade_to_candidate_identity(
             origin: OriginFor<T>,
@@ -1111,6 +1124,9 @@ pub mod pallet {
                     updated_at: frame_system::Pallet::<T>::block_number(),
                 },
             );
+            if is_first_onchain_identity {
+                Self::record_city_registration(&actor_cid_number);
+            }
             Self::deposit_event(Event::<T>::CandidateIdentityUpgraded {
                 account_id: payload.voting.account_id,
                 cid_number: payload.voting.cid_number,

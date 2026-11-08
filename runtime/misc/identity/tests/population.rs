@@ -2,6 +2,103 @@
 use super::*;
 
 #[test]
+fn city_registration_counts_first_identity_once_for_the_actual_registry() {
+    new_test_ext().execute_with(|| {
+        let registry = cid(CITY_REGISTRY_CID);
+        let voting_cid = citizen_cid_number("city-voting");
+        let candidate_cid = citizen_cid_number("city-candidate");
+        // 占号与正式登记由不同机构办理，累计只归正式登记方。
+        occupy_tag_as("city-voting", 1);
+        occupy_tag_as("city-candidate", 2);
+        assert_eq!(CityRegistryProgress::<Test>::get(&registry).registered, 0);
+
+        let register = |signature| {
+            CitizenIdentity::register_voting_identity(
+                RuntimeOrigin::signed(100),
+                registry.clone(),
+                registrar_role_code(),
+                voting_payload(1, &voting_cid),
+                identity_version(&voting_cid),
+                identity_expires_at(),
+                signature,
+            )
+        };
+        assert_noop!(
+            register(Default::default()),
+            Error::<Test>::InvalidCitizenSignature
+        );
+        assert_ok!(register(valid_signature()));
+        assert_noop!(
+            register(valid_signature()),
+            Error::<Test>::VotingIdentityAlreadyExists
+        );
+
+        let candidate = |account, citizen_cid: &[u8]| {
+            CitizenIdentity::upgrade_to_candidate_identity(
+                RuntimeOrigin::signed(100),
+                registry.clone(),
+                registrar_role_code(),
+                candidate_payload(account, citizen_cid),
+                identity_version(citizen_cid),
+                identity_expires_at(),
+                valid_signature(),
+            )
+        };
+        assert_ok!(candidate(1, &voting_cid));
+        assert_eq!(CityRegistryProgress::<Test>::get(&registry).registered, 1);
+        assert_ok!(candidate(2, &candidate_cid));
+        assert_eq!(CityRegistryProgress::<Test>::get(&registry).registered, 2);
+        assert_eq!(
+            CityRegistryProgress::<Test>::get(registrar_cid_number()).registered,
+            0
+        );
+
+        assert_ok!(CitizenIdentity::revoke_identity(
+            RuntimeOrigin::signed(100),
+            registry.clone(),
+            registrar_role_code(),
+            cid(&voting_cid),
+        ));
+        assert_eq!(CityRegistryProgress::<Test>::get(&registry).registered, 2);
+    });
+}
+
+#[test]
+fn city_registration_uses_the_next_national_rank_and_qualifies_once() {
+    for (already_qualified, minimum) in [
+        (0, 1_001),
+        (99, 1_001),
+        (100, 10_001),
+        (999, 10_001),
+        (1_000, 100_001),
+    ] {
+        new_test_ext().execute_with(|| {
+            let registry = cid(CITY_REGISTRY_CID);
+            QualifiedCityCount::<Test>::put(already_qualified);
+            CityRegistryProgress::<Test>::mutate(&registry, |progress| {
+                progress.registered = minimum - 2;
+            });
+
+            CitizenIdentity::record_city_registration(&registry);
+            assert_eq!(
+                CityRegistryProgress::<Test>::get(&registry).registered,
+                minimum - 1
+            );
+            assert_eq!(CityRegistryProgress::<Test>::get(&registry).rank, None);
+            assert_eq!(QualifiedCityCount::<Test>::get(), already_qualified);
+
+            CitizenIdentity::record_city_registration(&registry);
+            CitizenIdentity::record_city_registration(&registry);
+            assert_eq!(
+                CityRegistryProgress::<Test>::get(&registry).rank,
+                Some(already_qualified + 1)
+            );
+            assert_eq!(QualifiedCityCount::<Test>::get(), already_qualified + 1);
+        });
+    }
+}
+
+#[test]
 fn register_voting_identity_stores_identity_and_counts_scope() {
     new_test_ext().execute_with(|| {
         // 占号先行:身份写入前置。

@@ -1914,33 +1914,35 @@ citizenapp（Dart 端）必须逐字节对齐唯一
 
 | Storage | 类型 | 语义 |
 |---|---|---|
-| `UserBank` | `StorageMap<L3, BankMain, OptionQuery>` | L3 → 绑定的清算行主账户 |
-| `DepositBalance` | `StorageDoubleMap<BankMain, L3, u128>` | 权威账本:各 L3 在该清算行的存款(分) |
-| `BankTotalDeposits` | `StorageMap<BankMain, u128>` | 清算行存款总额(偿付对账) |
+| `UserBank` | `StorageMap<L3, InstitutionCidNumber, OptionQuery>` | L3 → 绑定的清算行机构 CID |
+| `DepositBalance` | `StorageDoubleMap<InstitutionCidNumber, L3, u128>` | 权威账本:各 L3 在该清算行的存款(分) |
+| `BankTotalDeposits` | `StorageMap<InstitutionCidNumber, u128>` | 清算行存款总额(偿付对账) |
 | `L3PaymentNonce` | `StorageMap<L3, u64>` | L3 单调递增 nonce(防重放,Step 2 起激活) |
 
-不变式:`BankTotalDeposits[bank] == Σ DepositBalance[bank][*]`。
-Step 2 起增加偿付自动保护:`主账户链上余额 ≥ BankTotalDeposits[bank]`。
+不变式:`BankTotalDeposits[bank_cid] == Σ DepositBalance[bank_cid][*]`。
+Step 2 起增加偿付自动保护:`清算账户链上余额 ≥ BankTotalDeposits[bank_cid]`。
 
 #### 7. 新增 Call(call_index 30-33)
 
 | call_index | 方法 | 费用归类 | 说明 |
 |---|---|---|---|
-| 30 | `bind_clearing_bank(bank_main)` | 签名者链上操作 0.1 元 | 绑定即开户无预存 |
-| 31 | `deposit(amount)` | 链上资金 0.1% 最低 0.1 元 | 自持 → 清算行主账户 |
-| 32 | `withdraw(amount)` | 链上资金 0.1% 最低 0.1 元 | 清算行主账户 → 自持 |
-| 33 | `switch_bank(new_bank)` | 签名者链上操作 0.1 元 | 前置:旧清算行余额为 0 |
+| 30 | `bind_clearing_bank(bank_cid)` | 签名者链上操作 0.1 元 | 绑定即开户无预存 |
+| 31 | `deposit(amount)` | 链上资金 0.1% 最低 0.1 元 | 自持 → 清算行清算账户 |
+| 32 | `withdraw(amount)` | 链上资金 0.1% 最低 0.1 元 | 清算行清算账户 → 自持 |
+| 33 | `switch_bank(new_bank_cid)` | 签名者链上操作 0.1 元 | 旧行存款为零，目标为不同且合格的清算行 |
 
 费用与付款方由 `citizenchain/runtime/src/configs.rs::RuntimeFeeRouter` 的 `OffchainTransaction` 分支显式返回统一 `FeeRoute`，不走兜底。
 
 #### 8. 新增 Event(4 个)
 
 ```
-BankBound      { user, bank }
-Deposited      { user, bank, amount }
-Withdrawn      { user, bank, amount }
-BankSwitched   { user, old_bank, new_bank }
+BankBound      { user, bank_cid }
+Deposited      { user, bank_cid, amount }
+Withdrawn      { user, bank_cid, amount }
+BankSwitched   { user, old_bank_cid, new_bank_cid }
 ```
+
+跨行回归用两家合格清算行。旧行存款非零时返回 `MustClearBalanceFirst`，绑定和余额不变且不发切换事件。提现清零后，旧账项删除，新账项以零建立，`UserBank` 更新为目标 CID，`BankSwitched` 中用户、旧 CID 和新 CID 各自匹配。
 
 #### 9. 新增 Error(19 个)
 

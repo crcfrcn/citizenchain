@@ -73,34 +73,42 @@ fn bind_rejects_unregistered_bank() {
 fn switch_requires_zero_balance() {
     new_test_ext().execute_with(|| {
         let (alice, _) = new_l3_user(&[1u8; 32], 1_000_000);
+        let (old_bank, new_bank) = (bank_cid(), bank2_cid());
         assert_ok!(OffchainTx::bind_clearing_bank(
             RuntimeOrigin::signed(alice.clone()),
-            bank_cid()
+            old_bank.clone()
         ));
         assert_ok!(OffchainTx::deposit(
             RuntimeOrigin::signed(alice.clone()),
             10_000
         ));
-        // 余额 > 0,不能切换
         assert_noop!(
-            OffchainTx::switch_bank(RuntimeOrigin::signed(alice.clone()), bank_cid()),
+            OffchainTx::switch_bank(RuntimeOrigin::signed(alice.clone()), old_bank.clone()),
             Error::<Test>::NewBankSameAsCurrent
         );
-        // 切换到同一家也应被拒(NewBankSameAsCurrent 优先于 MustClearBalanceFirst)
+        assert_noop!(
+            OffchainTx::switch_bank(RuntimeOrigin::signed(alice.clone()), new_bank.clone()),
+            Error::<Test>::MustClearBalanceFirst
+        );
+        assert_eq!(UserBank::<Test>::get(&alice), Some(old_bank.clone()));
+        assert_eq!(DepositBalance::<Test>::get(&old_bank, &alice), 10_000);
+        assert_eq!(BankTotalDeposits::<Test>::get(&old_bank), 10_000);
+        assert!(!DepositBalance::<Test>::contains_key(&new_bank, &alice));
+        assert!(!System::events().iter().any(|record| matches!(
+            &record.event,
+            RuntimeEvent::OffchainTx(Event::BankSwitched { .. })
+        )));
     });
 }
 
 #[test]
 fn switch_after_withdraw_all_works() {
     new_test_ext().execute_with(|| {
-        // 当前 fixture 只有一家清算行 bank_main;切到"同一家"会被 NewBankSameAsCurrent
-        // 拒绝。这里先通过另一家 mock 来验证路径。
-        // 简化:直接 withdraw 全部 → 再 switch 到同一家拒绝(= NewBankSameAsCurrent)。
-        // 真正的跨行切换需要 fixture 扩展。
         let (alice, _) = new_l3_user(&[1u8; 32], 1_000_000);
+        let (old_bank, new_bank) = (bank_cid(), bank2_cid());
         assert_ok!(OffchainTx::bind_clearing_bank(
             RuntimeOrigin::signed(alice.clone()),
-            bank_cid()
+            old_bank.clone()
         ));
         assert_ok!(OffchainTx::deposit(
             RuntimeOrigin::signed(alice.clone()),
@@ -110,12 +118,38 @@ fn switch_after_withdraw_all_works() {
             RuntimeOrigin::signed(alice.clone()),
             10_000
         ));
-        assert_eq!(DepositBalance::<Test>::get(bank_cid(), &alice), 0);
-        // 零余额但切到同家仍被 NewBankSameAsCurrent 拒绝 —— 行为正确。
+        assert_eq!(DepositBalance::<Test>::get(&old_bank, &alice), 0);
         assert_noop!(
-            OffchainTx::switch_bank(RuntimeOrigin::signed(alice.clone()), bank_cid()),
+            OffchainTx::switch_bank(RuntimeOrigin::signed(alice.clone()), old_bank.clone()),
             Error::<Test>::NewBankSameAsCurrent
         );
+        assert_ok!(OffchainTx::switch_bank(
+            RuntimeOrigin::signed(alice.clone()),
+            new_bank.clone()
+        ));
+        assert_eq!(UserBank::<Test>::get(&alice), Some(new_bank.clone()));
+        assert!(!DepositBalance::<Test>::contains_key(&old_bank, &alice));
+        assert!(DepositBalance::<Test>::contains_key(&new_bank, &alice));
+        assert_eq!(DepositBalance::<Test>::get(&new_bank, &alice), 0);
+        assert_eq!(BankTotalDeposits::<Test>::get(&old_bank), 0);
+        assert_eq!(BankTotalDeposits::<Test>::get(&new_bank), 0);
+
+        let switches: Vec<_> = System::events()
+            .into_iter()
+            .filter_map(|record| match record.event {
+                RuntimeEvent::OffchainTx(Event::BankSwitched {
+                    user,
+                    old_bank_cid,
+                    new_bank_cid,
+                }) => Some((user, old_bank_cid, new_bank_cid)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(switches.len(), 1);
+        let (user, old_bank_cid, new_bank_cid) = &switches[0];
+        assert_eq!(user, &alice);
+        assert_eq!(old_bank_cid, &old_bank);
+        assert_eq!(new_bank_cid, &new_bank);
     });
 }
 

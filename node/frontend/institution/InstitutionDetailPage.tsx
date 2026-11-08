@@ -22,9 +22,10 @@ type Props = {
   onCreateSweep?: (cidNumber: string, institutionAccountId: string, cidFullName: string, adminSigners: AdminSignerMatch[]) => void;
   /** 隐藏返回按钮（用于直接作为 Tab 内容显示时）。 */
   hideBackButton?: boolean;
+  layout?: 'nrc';
 };
 
-export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSelectProposal, onCreateProposal, onCreateProtocolUpgrade, onChangeGrandpaKey, onCreateSafetyFund, onCreateSweep, hideBackButton }: Props) {
+export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSelectProposal, onCreateProposal, onCreateProtocolUpgrade, onChangeGrandpaKey, onCreateSafetyFund, onCreateSweep, hideBackButton, layout }: Props) {
   const [detail, setDetail] = useState<InstitutionDetail | null>(null);
   const [proposals, setProposals] = useState<ProposalListItem[]>([]);
   const [proposalHasMore, setProposalHasMore] = useState(false);
@@ -149,6 +150,166 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   const activatedCount = activatedAdmins.length;
   const feeAccountId = detail.feeAccountId ?? detail.cbAccountId ?? detail.nrcAccountId;
 
+  const proposalActions = (
+    <div className="proposal-type-grid">
+      <button
+        className="proposal-type-button"
+        disabled={!isAdmin}
+        onClick={() => isAdmin && onCreateProposal?.(
+          cidNumber, detail.orgType, detail.cidFullName, detail.mainAccountId, adminSigners
+        )}
+      >转账</button>
+      <button className="proposal-type-button" disabled title="即将上线">决议销毁</button>
+      {(detail.orgType === 0 || detail.orgType === 2) && (
+        <button
+          className="proposal-type-button"
+          disabled={!isAdmin || !feeAccountId}
+          onClick={() => isAdmin && feeAccountId && onCreateSweep?.(cidNumber, feeAccountId, detail.cidFullName, adminSigners)}
+        >手续费划转</button>
+      )}
+      {detail.orgType === 0 && (
+        <button
+          className="proposal-type-button"
+          disabled={!isAdmin || !detail.fundAccountId}
+          onClick={() => isAdmin && detail.fundAccountId && onCreateSafetyFund?.(cidNumber, detail.fundAccountId, adminSigners)}
+        >安全基金转账</button>
+      )}
+      {(detail.orgType === 0 || detail.orgType === 1) && (
+        <>
+          <button className="proposal-type-button" disabled title="即将上线">决议发行</button>
+          <button
+            className="proposal-type-button"
+            disabled={grandpaAdminSigners.length === 0 || !onChangeGrandpaKey}
+            onClick={() => grandpaAdminSigners.length > 0 && onChangeGrandpaKey?.(grandpaAdminSigners)}
+          >验证密钥</button>
+          <button
+            className="proposal-type-button"
+            disabled={!isAdmin || !onCreateProtocolUpgrade}
+            onClick={() => isAdmin && onCreateProtocolUpgrade?.(adminSigners)}
+          >协议升级</button>
+        </>
+      )}
+    </div>
+  );
+  const proposalTitle = <h3>提案列表{proposals.length > 0 ? `（${proposals.length}${proposalHasMore ? '+' : ''}）` : ''}</h3>;
+  const proposalList = (
+    <>
+      {proposals.length === 0 ? (
+        <p className="no-data">暂无提案</p>
+      ) : (
+        <div className="proposal-list">
+          {proposals.map((item) => (
+            <div
+              key={item.proposalId}
+              className="proposal-card clickable"
+              onClick={() => {
+                onSelectProposal?.(item.proposalId, adminSigners, cidNumber);
+              }}
+            >
+              <div className="proposal-card-header">
+                <span className="proposal-id">{item.displayId}</span>
+                <div className="proposal-card-header-right">
+                  {isAdmin && item.status === 0 && (
+                    <span className="vote-entry-badge">可投票</span>
+                  )}
+                  <span className={`proposal-status status-${item.status}`}>
+                    {item.statusLabel}
+                  </span>
+                </div>
+              </div>
+              <div className="proposal-card-body">
+                <div className="proposal-card-tags">
+                  <span className="proposal-tag">{item.kindLabel}</span>
+                  {item.kind === 1 && (
+                    <span className="proposal-tag">{item.stageLabel}</span>
+                  )}
+                </div>
+                <div className="proposal-summary">{item.summary}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {proposalHasMore && (
+        <button
+          className="load-more-button"
+          onClick={loadMoreProposals}
+          disabled={loadingMoreProposals}
+        >
+          {loadingMoreProposals ? '加载中…' : '加载更多'}
+        </button>
+      )}
+    </>
+  );
+
+  if (layout === 'nrc') {
+    const accounts = [
+      { name: '主账户', accountId: detail.mainAccountId, balanceFen: detail.balanceFen },
+      { name: '费用账户', accountId: detail.nrcAccountId, balanceFen: detail.nrcFeeFen },
+      { name: '安全基金账户', accountId: detail.fundAccountId, balanceFen: detail.fundBalanceFen },
+    ];
+
+    return (
+      <div className="governance-section nrc-overview">
+        <header className="nrc-header">
+          <div className="nrc-heading">
+            <h2>
+              {detail.cidFullName}
+              <span className="nrc-voting-rules">
+                （ 内部投票阈值 <strong>{detail.internalThreshold}票</strong>
+                {' ｜ 联合投票权重 '}<strong>{detail.jointVoteWeight}票</strong> ）
+              </span>
+            </h2>
+            <button
+              type="button"
+              className="nrc-admin-button"
+              onClick={() => onOpenAdminList?.(cidNumber, detail.orgType)}
+            >
+              管理员（{detail.admins.length}人）
+              <span aria-hidden="true">›</span>
+            </button>
+          </div>
+          <p className="nrc-cid">
+            机构CID号 <code>{detail.cidNumber}</code>
+            {activatedCount > 0 && <span className="admin-badge">已激活 {activatedCount} 人</span>}
+          </p>
+        </header>
+
+        {detail.warning && <div className="warning">{detail.warning}</div>}
+
+        <section className="nrc-accounts" aria-labelledby="nrc-accounts-title">
+          <h3 id="nrc-accounts-title">账户列表</h3>
+          <table className="nrc-account-table">
+            <thead>
+              <tr>
+                <th scope="col">账户名称</th>
+                <th scope="col">账户地址</th>
+                <th scope="col">链上余额（元）</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map(({ name, accountId, balanceFen }) => (
+                <tr key={name}>
+                  <th scope="row">{name}</th>
+                  <td><code>{accountId ? accountIdToSs58(accountId) : '—'}</code></td>
+                  <td>{balanceFen == null ? '—' : formatBalance(balanceFen).replace(/ 元$/, '')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        <section className="nrc-proposals">
+          <div className="nrc-proposal-toolbar">
+            {proposalTitle}
+            {proposalActions}
+          </div>
+          {proposalList}
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="governance-section">
       {!hideBackButton && (
@@ -260,45 +421,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
       {/* 提案类型入口（始终显示，未激活时灰色禁用） */}
       <div className="institution-info-section">
         <h3>发起提案</h3>
-        <div className="proposal-type-grid">
-          <button
-            className="proposal-type-button"
-            disabled={!isAdmin}
-            onClick={() => isAdmin && onCreateProposal?.(
-              cidNumber, detail.orgType, detail.cidFullName, detail.mainAccountId, adminSigners
-            )}
-          >转账</button>
-          <button className="proposal-type-button" disabled title="即将上线">决议销毁</button>
-          {(detail.orgType === 0 || detail.orgType === 2) && (
-            <button
-              className="proposal-type-button"
-              disabled={!isAdmin || !feeAccountId}
-              onClick={() => isAdmin && feeAccountId && onCreateSweep?.(cidNumber, feeAccountId, detail.cidFullName, adminSigners)}
-            >手续费划转</button>
-          )}
-          {detail.orgType === 0 && (
-            <button
-              className="proposal-type-button"
-              disabled={!isAdmin || !detail.fundAccountId}
-              onClick={() => isAdmin && detail.fundAccountId && onCreateSafetyFund?.(cidNumber, detail.fundAccountId, adminSigners)}
-            >安全基金转账</button>
-          )}
-          {(detail.orgType === 0 || detail.orgType === 1) && (
-            <>
-              <button className="proposal-type-button" disabled title="即将上线">决议发行</button>
-              <button
-                className="proposal-type-button"
-                disabled={grandpaAdminSigners.length === 0 || !onChangeGrandpaKey}
-                onClick={() => grandpaAdminSigners.length > 0 && onChangeGrandpaKey?.(grandpaAdminSigners)}
-              >验证密钥</button>
-              <button
-                className="proposal-type-button"
-                disabled={!isAdmin || !onCreateProtocolUpgrade}
-                onClick={() => isAdmin && onCreateProtocolUpgrade?.(adminSigners)}
-              >协议升级</button>
-            </>
-          )}
-        </div>
+        {proposalActions}
         {!isAdmin && (
           <p className="no-data">激活管理员后可操作提案功能</p>
         )}
@@ -306,52 +429,8 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
 
       {/* 提案列表（分页） */}
       <div className="institution-info-section">
-        <h3>提案列表{proposals.length > 0 ? `（${proposals.length}${proposalHasMore ? '+' : ''}）` : ''}</h3>
-        {proposals.length === 0 ? (
-          <p className="no-data">暂无提案</p>
-        ) : (
-          <div className="proposal-list">
-            {proposals.map((item) => (
-              <div
-                key={item.proposalId}
-                className="proposal-card clickable"
-                onClick={() => {
-                  onSelectProposal?.(item.proposalId, adminSigners, cidNumber);
-                }}
-              >
-                <div className="proposal-card-header">
-                  <span className="proposal-id">{item.displayId}</span>
-                  <div className="proposal-card-header-right">
-                    {isAdmin && item.status === 0 && (
-                      <span className="vote-entry-badge">可投票</span>
-                    )}
-                    <span className={`proposal-status status-${item.status}`}>
-                      {item.statusLabel}
-                    </span>
-                  </div>
-                </div>
-                <div className="proposal-card-body">
-                  <div className="proposal-card-tags">
-                    <span className="proposal-tag">{item.kindLabel}</span>
-                    {item.kind === 1 && (
-                      <span className="proposal-tag">{item.stageLabel}</span>
-                    )}
-                  </div>
-                  <div className="proposal-summary">{item.summary}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {proposalHasMore && (
-          <button
-            className="load-more-button"
-            onClick={loadMoreProposals}
-            disabled={loadingMoreProposals}
-          >
-            {loadingMoreProposals ? '加载中…' : '加载更多'}
-          </button>
-        )}
+        {proposalTitle}
+        {proposalList}
       </div>
     </div>
   );

@@ -1018,11 +1018,19 @@ impl primitives::institution_asset::InstitutionAsset<AccountId> for RuntimeInsti
         // 8. 联邦公民安全基金（FSC 专属）：只允许经 FSC 内部投票的多签转账支出。
         //    该基金由联邦安全局的 LR + 局长两岗经内部投票（2/2 严格过半）复用通用多签
         //    转账动作从中转出；其余资金动作（注资/关闭/费用归集等）一律拒绝，杜绝旁路挪用。
-        if is_federal_citizen_security_fund_account(source) {
-            return matches!(
-                action,
-                primitives::institution_asset::InstitutionAssetAction::MultisigTransferExecute
-            );
+        if let Some(account) = publicentity::AccountRegisteredCid::<Runtime>::get(source) {
+            if account.account_name.as_slice() == primitives::account_derive::RESERVED_NAME_FCSF {
+                return matches!(
+                    action,
+                    primitives::institution_asset::InstitutionAssetAction::MultisigTransferExecute
+                );
+            }
+            // 复用同一次账户反查，仅市注册局主账户需要读达标记录。
+            if publicentity::creg::main_cid::<Runtime>(&account)
+                .is_some_and(|cid| identity::CityRegistryProgress::<Runtime>::get(cid).rank.is_none())
+            {
+                return false;
+            }
         }
 
         // 9. 普通账户：全放行
@@ -1880,6 +1888,29 @@ impl frame_support::traits::OnUnbalanced<pallet_balances::NegativeImbalance<Runt
     }
 }
 
+pub struct RuntimeMultisigWeights;
+
+impl multisig::weights::WeightInfo for RuntimeMultisigWeights {
+    fn propose_transfer() -> Weight {
+        // 多签提案与执行都使用此权重上界，额外计入达标记录的一次读取。
+        multisig::weights::SubstrateWeight::<Runtime>::propose_transfer()
+            .saturating_add(Weight::from_parts(10_000_000, 3_000))
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads(1))
+    }
+
+    fn propose_safety_fund_transfer() -> Weight {
+        multisig::weights::SubstrateWeight::<Runtime>::propose_safety_fund_transfer()
+    }
+
+    fn propose_sweep_to_main() -> Weight {
+        multisig::weights::SubstrateWeight::<Runtime>::propose_sweep_to_main()
+    }
+
+    fn terminal_callback() -> Weight {
+        multisig::weights::SubstrateWeight::<Runtime>::terminal_callback()
+    }
+}
+
 impl multisig::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
@@ -1894,7 +1925,7 @@ impl multisig::Config for Runtime {
     // 转账治理时 multisig-transfer 通过 union 调用,先问个人侧、再问机构侧。
     type PersonalQuery = personalentity::Pallet<Runtime>;
     type InstitutionQuery = RuntimeInstitutionQuery;
-    type WeightInfo = multisig::weights::SubstrateWeight<Runtime>;
+    type WeightInfo = RuntimeMultisigWeights;
 }
 
 /// 机构生命周期聚合查询。

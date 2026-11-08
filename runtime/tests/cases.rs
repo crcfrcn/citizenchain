@@ -2006,6 +2006,52 @@ fn onchain_issuance_rejects_non_admin_and_non_nrc_monitor_actor() {
         );
     });
 }
+#[test]
+fn city_registry_main_account_can_receive_before_qualifying_and_spend_afterwards() {
+    use entitybase::InstitutionMultisigQuery;
+    use primitives::account_derive::{RESERVED_NAME_FEE, RESERVED_NAME_MAIN};
+
+    new_test_ext().execute_with(|| {
+        let cid = test_cid_number(b"NX013-CREGN-937676656-2026");
+        let main = RuntimeInstitutionQuery::lookup_institution_account(&cid, RESERVED_NAME_MAIN)
+            .expect("city registry genesis main account");
+        let fee = RuntimeInstitutionQuery::lookup_institution_account(&cid, RESERVED_NAME_FEE)
+            .expect("city registry genesis fee account");
+        let payer = AccountId::new([173; 32]);
+        let amount = EXISTENTIAL_DEPOSIT * 2;
+        let _ = Balances::deposit_creating(&payer, amount * 4);
+        let action = InstitutionAssetAction::MultisigTransferExecute;
+
+        let before = Balances::free_balance(&main);
+        assert_ok!(OnchainTransaction::transfer_with_remark(
+            RuntimeOrigin::signed(payer.clone()),
+            main.clone(),
+            amount,
+            Default::default(),
+        ));
+        assert_eq!(Balances::free_balance(&main), before + amount);
+        assert!(RuntimeInstitutionAsset::can_spend(&fee, action));
+        assert_noop!(
+            MultisigTransfer::propose_transfer(
+                RuntimeOrigin::signed(payer.clone()),
+                Some(cid.clone()),
+                None,
+                main.clone(),
+                payer,
+                amount,
+                Default::default(),
+            ),
+            multisig::Error::<Runtime>::InstitutionSpendNotAllowed
+        );
+
+        identity::CityRegistryProgress::<Runtime>::mutate(&cid, |progress| {
+            progress.registered = 1_001;
+            progress.rank = Some(1);
+        });
+        assert!(RuntimeInstitutionAsset::can_spend(&main, action));
+    });
+}
+
 // 簇 3:机构资金白名单允许矩阵(4 个用例)
 #[test]
 fn stake_account_is_completely_blocked() {

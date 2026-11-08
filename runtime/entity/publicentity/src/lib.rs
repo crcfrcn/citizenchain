@@ -10,6 +10,8 @@ pub mod add;
 #[path = "../tests/benchmarks.rs"]
 pub mod benchmarks;
 pub mod close;
+pub mod creg;
+mod frg;
 pub mod institution;
 pub mod traits;
 pub mod weights;
@@ -935,7 +937,10 @@ pub mod pallet {
             Self::ensure_lifecycle_institution_code(&info.institution_code)?;
             // `build_institution_vote_plan` 一次校验 CID、岗位码、任职账户和业务权限；
             // 禁止在业务入口把管理员名册成员身份单独当成授权。
-            Self::ensure_governance_action_valid(&action)?;
+            let frg_change = crate::frg::handles::<T>(info.institution_code, &cid_number, &action);
+            if !frg_change {
+                Self::ensure_governance_action_valid(&action)?;
+            }
             let proposal = InstitutionGovernanceProposal {
                 institution_code: info.institution_code,
                 cid_number: cid_number.to_vec(),
@@ -944,13 +949,23 @@ pub mod pallet {
             let mut data = Vec::from(crate::MODULE_TAG);
             data.push(ACTION_GOVERNANCE);
             data.extend_from_slice(&proposal.encode());
-            let vote_plan = Self::build_institution_vote_plan(
-                &who,
-                cid_number.as_slice(),
-                proposer_role_code.as_slice(),
-                entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
-                &data,
-            )?;
+            let vote_plan = if frg_change {
+                crate::frg::vote_plan::<T>(
+                    &who,
+                    &cid_number,
+                    &proposer_role_code,
+                    &proposal.action,
+                    &data,
+                )?
+            } else {
+                Self::build_institution_vote_plan(
+                    &who,
+                    cid_number.as_slice(),
+                    proposer_role_code.as_slice(),
+                    entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
+                    &data,
+                )?
+            };
             let proposal_id = if Self::governance_action_replaces_admins(&proposal.action) {
                 T::InternalVoteEngine::create_institution_admin_change_proposal_with_data(
                     who.clone(),
@@ -1091,6 +1106,9 @@ pub mod pallet {
                 .clone()
                 .try_into()
                 .map_err(|_| Error::<T>::InvalidAssignmentResultInstitution)?;
+            if crate::frg::handles::<T>(proposal.institution_code, &cid_number, &proposal.action) {
+                return crate::frg::execute::<T>(proposal_id, &cid_number, &proposal.action);
+            }
             let result_source_ref = proposal_id.to_le_bytes().to_vec();
             match proposal.action {
                 InstitutionGovernanceAction::ReplaceAdmins { admins } => {
