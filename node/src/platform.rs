@@ -143,7 +143,7 @@ fn apply_onchina_env(app: &AppHandle, cmd: &mut Command) -> Result<(), String> {
     cmd.env("ONCHAIN_LOCAL_RPC_CERTIFICATE", hex::encode(certificate));
 
     // 只有**打包形态**(随包 PostgreSQL 官方二进制存在)才用随包资源路径覆盖
-    // china.sqlite / 前端产物 / 内嵌 PG / TLS;开发期(cargo tauri dev,无随包 PG)这些全
+    // china.sqlite / 前端产物 / 业务模块 / 内嵌 PG / TLS;开发期(cargo tauri dev,无随包 PG)这些全
     // 由启动脚本 run.sh/clean-run.sh 的环境变量提供,节点启动入口不覆盖,避免拿占位资源
     // 路径把 dev 配置盖掉。
     let Some(res) = app.path().resource_dir().ok() else {
@@ -163,6 +163,7 @@ fn apply_onchina_env(app: &AppHandle, cmd: &mut Command) -> Result<(), String> {
         "ONCHINA_FRONTEND_DIST",
         res.join("onchina-frontend").join("dist"),
     );
+    cmd.env("ONCHINA_MODULE_DIR", res.join("onchina-bin").join("modules"));
     cmd.env("ONCHINA_EMBEDDED_PG", "1");
     cmd.env("ONCHINA_PG_BIN_DIR", &pg_bin_dir);
     if let Ok(base) = nodedesktop::security::app_data_dir(app) {

@@ -142,7 +142,7 @@ it.each([
     const signingDialog = screen.getByRole('dialog', { name: title });
     const signingPanel = within(signingDialog);
     const role = orgType === 2 ? 'DIRECTOR' : 'COMMITTEE_MEMBER';
-    fireEvent.change(signingPanel.getByLabelText('提案发起岗位码'), { target: { value: role } });
+    expect(signingPanel.queryByLabelText('提案发起岗位码')).toBeNull();
     fireEvent.change(signingPanel.getByLabelText(/金额/), { target: { value: '10.00' } });
     if (call === 'sweep') {
       const destination = signingPanel.getByLabelText('收款地址（本机构主账户）') as HTMLInputElement;

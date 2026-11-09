@@ -15,13 +15,14 @@ type Props = {
   title: string;
   sourceAccountLabel: string;
   institutionAccountId: string;
+  proposerRoleCode: string;
   adminSigners: AdminSignerMatch[];
   onBack: () => void;
   onSuccess: () => void;
 };
 
 export function CreateMultisigTransferPage({
-  cidNumber, cidFullName, title, sourceAccountLabel, institutionAccountId, adminSigners, onBack, onSuccess,
+  cidNumber, cidFullName, title, sourceAccountLabel, institutionAccountId, proposerRoleCode, adminSigners, onBack, onSuccess,
 }: Props) {
   const [step, setStep] = useState<TransferProposalStep>('form');
 
@@ -30,7 +31,6 @@ export function CreateMultisigTransferPage({
     adminSigners.length === 1 ? adminSigners[0] : null
   );
   const [beneficiary, setBeneficiary] = useState('');
-  const [proposerRoleCode, setProposerRoleCode] = useState('');
   const [amountYuan, setAmountYuan] = useState('');
   const [remark, setRemark] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -64,7 +64,6 @@ export function CreateMultisigTransferPage({
 
   const validateForm = (): string | null => {
     if (!selectedSigner) return '请选择管理员账户';
-    if (!proposerRoleCode.trim()) return '请输入提案发起岗位码';
     if (!beneficiary.trim()) return '请输入收款地址';
     const amount = parseFloat(amountYuan.replace(/,/g, ''));
     if (isNaN(amount) || amount < 1.11) return '转账金额不能低于 1.11 元';
@@ -84,7 +83,7 @@ export function CreateMultisigTransferPage({
       formValuesRef.current = { beneficiary: beneficiary.trim(), amountYuan: amount, remark };
 
       const result = await api.buildMultisigTransferRequest(
-        selectedSigner!.accountId, cidNumber, proposerRoleCode.trim(), institutionAccountId,
+        selectedSigner!.accountId, cidNumber, proposerRoleCode, institutionAccountId,
         beneficiary.trim(), amount, remark,
       );
 
@@ -115,7 +114,7 @@ export function CreateMultisigTransferPage({
       const { beneficiary: ben, amountYuan: amt, remark: rmk } = formValuesRef.current;
       const result = await api.submitMultisigTransfer(
         req.requestId, wallet.accountId, req.expectedPayloadHash,
-        cidNumber, proposerRoleCode.trim(), institutionAccountId, ben, amt, rmk,
+        cidNumber, proposerRoleCode, institutionAccountId, ben, amt, rmk,
         req.signNonce, req.signBlockNumber, responseText,
       );
       setTxHash(result.txHash);
@@ -160,7 +159,7 @@ export function CreateMultisigTransferPage({
                 const w = adminSigners.find((w) => w.accountId === e.target.value);
                 setSelectedSigner(w || null);
               }}
-              disabled={adminSigners.length <= 1}
+              disabled={adminSigners.length <= 1 || submitting}
             >
               {adminSigners.length === 0 && <option value="">无已激活管理员</option>}
               {adminSigners.length === 1 ? (
@@ -181,15 +180,6 @@ export function CreateMultisigTransferPage({
             <input id="transfer-source" type="text" value={accountIdToSs58(institutionAccountId)} readOnly />
           </div>
 
-          <div className="wallet-form-field">
-            <label htmlFor="transfer-role">提案发起岗位码</label>
-            <input id="transfer-role"
-              type="text" value={proposerRoleCode}
-              onChange={(e) => setProposerRoleCode(e.target.value)}
-              placeholder="填写当前任职且拥有转账提案权限的岗位码"
-              maxLength={64} disabled={submitting}
-            />
-          </div>
 
           <div className="wallet-form-field">
             <label htmlFor="transfer-recipient">收款地址（SS58）</label>

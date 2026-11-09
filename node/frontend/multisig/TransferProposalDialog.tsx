@@ -66,7 +66,7 @@ export function TransferProposalDialog({
         {step !== 'submit' && (
           <footer className="institution-transfer-actions">
             {step !== 'done' && (
-              <button type="button" onClick={onCancel} disabled={generating}>取消</button>
+              <button type="button" className="institution-transfer-cancel" onClick={onCancel} disabled={generating}>取消</button>
             )}
             {step === 'form' && (
               <button type="button" className="institution-transfer-primary" onClick={onSign} disabled={signDisabled || generating}>

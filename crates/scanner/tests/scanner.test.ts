@@ -18,10 +18,11 @@ describe('ScannerController', () => {
       onRawValue: (raw) => detected.push(raw),
       onReady: () => readyCount += 1,
     });
-    expect(readyCount).toBe(1);
+    expect(readyCount).toBe(0);
     expect(harness.frames).toHaveLength(1);
 
     harness.frames[0]?.(0);
+    expect(readyCount).toBe(1);
     expect(detected).toEqual(['QR_V1']);
     expect(harness.context.drawImage).toHaveBeenCalledOnce();
     expect(harness.context.getImageData).toHaveBeenCalledOnce();
@@ -173,7 +174,7 @@ function fakeContext(): CanvasRenderingContext2D {
 
 function fakeVideo(): HTMLVideoElement {
   return {
-    HAVE_ENOUGH_DATA: 4,
+    HAVE_CURRENT_DATA: 2,
     readyState: 4,
     videoWidth: 2,
     videoHeight: 2,
@@ -193,8 +194,55 @@ describe('ScannerController 生命周期边界', () => {
     const h = createHarness(() => null); const ready = vi.fn();
     await h.controller.start(h.video, { onRawValue: vi.fn(), onReady: ready });
     await h.controller.start(h.video, { onRawValue: vi.fn(), onReady: ready });
-    expect(h.video.play).toHaveBeenCalledOnce(); expect(ready).toHaveBeenCalledOnce(); expect(h.frames).toHaveLength(1);
+    expect(h.video.play).toHaveBeenCalledOnce(); expect(h.frames).toHaveLength(1);
+    h.frames[0]?.(0);
+    expect(ready).toHaveBeenCalledOnce();
     h.controller.stop(); h.controller.stop(); expect(h.track.stop).toHaveBeenCalledOnce();
+  });
+
+  it('首帧超时释放媒体流，迟到的解码帧不能恢复旧会话', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness(() => ({ data: 'late' }));
+    const ready = vi.fn();
+    const found = vi.fn();
+    const failed = vi.fn();
+    try {
+      Object.defineProperty(harness.video, 'readyState', { value: 0, configurable: true });
+      await harness.controller.start(harness.video, { onRawValue: found, onReady: ready, onFailure: failed });
+      harness.frames[0]?.(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(failed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ kind: 'camera-unavailable' }));
+      expect(harness.track.stop).toHaveBeenCalledOnce();
+      Object.defineProperty(harness.video, 'readyState', { value: 2 });
+      harness.frames[harness.frames.length - 1]?.(11_000);
+      expect(ready).not.toHaveBeenCalled();
+      expect(found).not.toHaveBeenCalled();
+    } finally {
+      harness.controller.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['mute', 'ended'])('视频流 %s 后释放摄像头并只报告一次', async (eventName) => {
+    const track = Object.assign(new EventTarget(), { kind: 'video', readyState: 'live', stop: vi.fn() });
+    const video = fakeVideo();
+    const failed = vi.fn();
+    const frames: FrameRequestCallback[] = [];
+    const controller = new ScannerController({
+      getUserMedia: async () => ({ getTracks: () => [track] }) as unknown as MediaStream,
+      createCanvas: () => fakeCanvas(fakeContext()),
+      requestFrame: (callback) => frames.push(callback),
+      cancelFrame: vi.fn(),
+      isSecureContext: () => true,
+      decode: () => null,
+    });
+    await controller.start(video, { onRawValue: vi.fn(), onFailure: failed });
+    frames[0]?.(0);
+    track.dispatchEvent(new Event(eventName));
+    track.dispatchEvent(new Event('ended'));
+    expect(failed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ kind: 'camera-unavailable' }));
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(video.srcObject).toBeNull();
   });
 
   it('节流边界为250毫秒，停止后的旧帧不继续解码', async () => {

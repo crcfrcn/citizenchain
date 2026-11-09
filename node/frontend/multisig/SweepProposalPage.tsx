@@ -10,6 +10,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 type Props = {
   actorCidNumber: string;
   institutionAccountId: string;
+  proposerRoleCode: string;
   mainAccountId: string;
   cidFullName: string;
   adminSigners: AdminSignerMatch[];
@@ -18,14 +19,13 @@ type Props = {
 };
 
 export function SweepProposalPage({
-  actorCidNumber, institutionAccountId, mainAccountId, cidFullName, adminSigners, onBack, onSuccess,
+  actorCidNumber, institutionAccountId, proposerRoleCode, mainAccountId, cidFullName, adminSigners, onBack, onSuccess,
 }: Props) {
   const [step, setStep] = useState<TransferProposalStep>('form');
   const [selectedSigner, setSelectedSigner] = useState<AdminSignerMatch | null>(
     adminSigners.length === 1 ? adminSigners[0] : null
   );
   const [amountYuan, setAmountYuan] = useState('');
-  const [proposerRoleCode, setProposerRoleCode] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -53,7 +53,6 @@ export function SweepProposalPage({
 
   const handleSubmit = async () => {
     if (!selectedSigner) { setFormError('请选择管理员账户'); return; }
-    if (!proposerRoleCode.trim()) { setFormError('请输入提案发起岗位码'); return; }
     const amount = parseFloat(amountYuan.replace(/,/g, ''));
     if (isNaN(amount) || amount <= 0) { setFormError('金额必须大于 0'); return; }
     setFormError(null);
@@ -62,7 +61,7 @@ export function SweepProposalPage({
     try {
       formValuesRef.current = { amountYuan: amount };
       const result = await api.buildProposeSweepRequest(
-        selectedSigner.accountId, actorCidNumber, proposerRoleCode.trim(), institutionAccountId, amount,
+        selectedSigner.accountId, actorCidNumber, proposerRoleCode, institutionAccountId, amount,
       );
       signRequestRef.current = result;
       setRequestJson(result.requestJson);
@@ -85,7 +84,7 @@ export function SweepProposalPage({
     try {
       const result = await api.submitProposeSweep(
         req.requestId, wallet.accountId, req.expectedPayloadHash,
-        actorCidNumber, proposerRoleCode.trim(), institutionAccountId, formValuesRef.current.amountYuan,
+        actorCidNumber, proposerRoleCode, institutionAccountId, formValuesRef.current.amountYuan,
         req.signNonce, req.signBlockNumber, responseText,
       );
       setTxHash(result.txHash);
@@ -116,7 +115,7 @@ export function SweepProposalPage({
             <select id="transfer-signer"
               value={selectedSigner?.accountId || ''}
               onChange={(e) => setSelectedSigner(adminSigners.find((w) => w.accountId === e.target.value) || null)}
-              disabled={adminSigners.length <= 1}
+              disabled={adminSigners.length <= 1 || submitting}
             >
               {adminSigners.length === 0 && <option value="">无已激活管理员</option>}
               {adminSigners.length === 1 ? (
@@ -138,15 +137,6 @@ export function SweepProposalPage({
           <div className="wallet-form-field">
             <label htmlFor="sweep-destination">收款地址（本机构主账户）</label>
             <input id="sweep-destination" type="text" value={accountIdToSs58(mainAccountId)} readOnly />
-          </div>
-          <div className="wallet-form-field">
-            <label htmlFor="transfer-role">提案发起岗位码</label>
-            <input id="transfer-role"
-              type="text" value={proposerRoleCode}
-              onChange={(e) => setProposerRoleCode(e.target.value)}
-              placeholder="NRC/PRC 填 COMMITTEE_MEMBER，PRB 填 DIRECTOR"
-              maxLength={64} disabled={submitting}
-            />
           </div>
           <div className="wallet-form-field">
             <label htmlFor="transfer-amount">划转金额（元）</label>

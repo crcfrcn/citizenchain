@@ -13,19 +13,19 @@ type Props = {
   actorCidNumber: string;
   cidFullName: string;
   institutionAccountId: string;
+  proposerRoleCode: string;
   adminSigners: AdminSignerMatch[];
   onBack: () => void;
   onSuccess: () => void;
 };
 
-export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutionAccountId, adminSigners, onBack, onSuccess }: Props) {
+export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutionAccountId, proposerRoleCode, adminSigners, onBack, onSuccess }: Props) {
   const [step, setStep] = useState<TransferProposalStep>('form');
 
   const [selectedSigner, setSelectedSigner] = useState<AdminSignerMatch | null>(
     adminSigners.length === 1 ? adminSigners[0] : null
   );
   const [beneficiary, setBeneficiary] = useState('');
-  const [proposerRoleCode, setProposerRoleCode] = useState('COMMITTEE_MEMBER');
   const [amountYuan, setAmountYuan] = useState('');
   const [remark, setRemark] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -56,7 +56,6 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
 
   const validateForm = (): string | null => {
     if (!selectedSigner) return '请选择管理员账户';
-    if (!proposerRoleCode.trim()) return '请输入提案发起岗位码';
     if (!beneficiary.trim()) return '请输入收款地址';
     const amount = parseFloat(amountYuan.replace(/,/g, ''));
     if (isNaN(amount) || amount < 1.11) return '转账金额不能低于 1.11 元';
@@ -76,7 +75,7 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
       formValuesRef.current = { beneficiary: beneficiary.trim(), amountYuan: amount, remark };
 
       const result = await api.buildProposeSafetyFundRequest(
-        selectedSigner!.accountId, actorCidNumber, proposerRoleCode.trim(), institutionAccountId,
+        selectedSigner!.accountId, actorCidNumber, proposerRoleCode, institutionAccountId,
         beneficiary.trim(), amount, remark,
       );
 
@@ -106,7 +105,7 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
       const { beneficiary: ben, amountYuan: amt, remark: rmk } = formValuesRef.current;
       const result = await api.submitProposeSafetyFund(
         req.requestId, wallet.accountId, req.expectedPayloadHash,
-        actorCidNumber, proposerRoleCode.trim(), institutionAccountId,
+        actorCidNumber, proposerRoleCode, institutionAccountId,
         ben, amt, rmk,
         req.signNonce, req.signBlockNumber, responseText,
       );
@@ -152,7 +151,7 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
                 const w = adminSigners.find((w) => w.accountId === e.target.value);
                 setSelectedSigner(w || null);
               }}
-              disabled={adminSigners.length <= 1}
+              disabled={adminSigners.length <= 1 || submitting}
             >
               {adminSigners.length === 0 && <option value="">无已激活管理员</option>}
               {adminSigners.length === 1 ? (
@@ -168,14 +167,6 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
             </select>
           </div>
 
-          <div className="wallet-form-field">
-            <label htmlFor="transfer-role">提案发起岗位码</label>
-            <input id="transfer-role"
-              type="text" value={proposerRoleCode}
-              onChange={(e) => setProposerRoleCode(e.target.value)}
-              maxLength={64} disabled={submitting}
-            />
-          </div>
 
           <div className="wallet-form-field">
             <label htmlFor="transfer-source">转出地址（安全基金账户）</label>

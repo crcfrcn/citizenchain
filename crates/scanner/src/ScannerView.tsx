@@ -57,6 +57,7 @@ export function ScannerView({
       .start(video, {
         onRawValue: (raw) => callbacksRef.current.onRawValue(raw),
         onReady: () => callbacksRef.current.onReady?.(),
+        onFailure: (failure) => callbacksRef.current.onFailure?.(failure),
       })
       .catch((error: unknown) => {
         const failure =

@@ -241,6 +241,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   if (!detail) return null;
 
   const activatedCount = activatedAdmins.length;
+  const proposerRoleCode = detail.orgType === 2 ? 'DIRECTOR' : 'COMMITTEE_MEMBER';
   const feeAccountId = detail.orgType === 0 ? detail.nrcAccountId
     : detail.orgType === 1 ? detail.cbAccountId : detail.feeAccountId;
   // 省储委会入口随链上岗位权限生效，旧 Runtime 不提供可签名的入口。
@@ -467,16 +468,19 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
       </section>
       {activeTransfer?.kind === 'sweep' && (
         <SweepProposalPage actorCidNumber={cidNumber} cidFullName={detail.cidFullName}
+          proposerRoleCode={proposerRoleCode}
           institutionAccountId={activeTransfer.accountId} mainAccountId={detail.mainAccountId}
           adminSigners={activeTransfer.signers} onBack={closeTransfer} onSuccess={completeTransfer} />
       )}
       {activeTransfer?.kind === 'safety' && (
         <SafetyFundProposalPage actorCidNumber={cidNumber} cidFullName={detail.cidFullName}
+          proposerRoleCode={proposerRoleCode}
           institutionAccountId={activeTransfer.accountId} adminSigners={activeTransfer.signers}
           onBack={closeTransfer} onSuccess={completeTransfer} />
       )}
       {(activeTransfer?.kind === 'transfer' || activeTransfer?.kind === 'he') && (
         <CreateMultisigTransferPage cidNumber={cidNumber} cidFullName={detail.cidFullName}
+          proposerRoleCode={proposerRoleCode}
           title={activeTransfer.kind === 'he' ? '两和基金转账提案' : '发起转账提案'}
           sourceAccountLabel={activeTransfer.kind === 'he' ? '两和基金账户' : '主账户'}
           institutionAccountId={activeTransfer.accountId} adminSigners={activeTransfer.signers}

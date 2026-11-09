@@ -11,15 +11,37 @@ type ScannerProps = {
 };
 
 export function QrScanner({ onScan, onError }: ScannerProps) {
+  const [ready, setReady] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
   return (
     <div className="qr-scanner-wrapper">
-      <ScannerView
-        className="qr-scanner-video"
-        onRawValue={onScan}
-        onFailure={(failure) => onError(failure.message)}
-      />
+      {!cameraError && (
+        <ScannerView
+          className="qr-scanner-video"
+          onRawValue={onScan}
+          onReady={() => setReady(true)}
+          onFailure={(failure) => {
+            if (failure.kind === 'camera-unavailable' || failure.kind === 'operation-failed') {
+              setReady(false);
+              setCameraError(failure.message);
+            } else {
+              onError(failure.message);
+            }
+          }}
+        />
+      )}
       <div className="qr-scanner-overlay">
-        <div className="qr-scanner-frame" />
+        {ready ? <div className="qr-scanner-frame" /> : (
+          <div className="qr-scanner-notice">
+            <p role="status">{cameraError ?? '正在准备摄像头'}</p>
+            {cameraError && (
+              <button type="button" className="cancel-button" onClick={() => setCameraError(null)}>
+                重新打开相机
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import jsQR from 'jsqr';
 
 const scanIntervalMs = 250;
+const cameraStartTimeoutMs = 10_000;
 
 /** 统一二维码解码器签名；正式环境固定由 jsQR 实现。 */
 export type QrDecoder = (
@@ -35,6 +36,7 @@ export class ScannerFailure extends Error {
 export interface ScannerCallbacks {
   onRawValue: (raw: string) => void;
   onReady?: () => void;
+  onFailure?: (failure: ScannerFailure) => void;
 }
 
 /**
@@ -79,6 +81,8 @@ export class ScannerController implements ScannerControllerLike {
   private stream: MediaStream | null = null;
   private video: HTMLVideoElement | null = null;
   private frameHandle: number | null = null;
+  private startupTimer: ReturnType<typeof setTimeout> | null = null;
+  private removeMediaListeners: (() => void) | null = null;
   private generation = 0;
   private running = false;
   private disposed = false;
@@ -137,6 +141,16 @@ export class ScannerController implements ScannerControllerLike {
     this.stop();
     const generation = ++this.generation;
     this.claimed = false;
+    let hasFrame = false;
+    const fail = (message: string) => {
+      if (generation !== this.generation) return;
+      this.stop();
+      callbacks.onFailure?.(new ScannerFailure('camera-unavailable', message));
+    };
+    this.startupTimer = setTimeout(
+      () => fail('等待摄像头画面超时'),
+      cameraStartTimeoutMs,
+    );
     try {
       const stream = await this.getUserMedia({
         video: {
@@ -153,6 +167,24 @@ export class ScannerController implements ScannerControllerLike {
 
       this.stream = stream;
       this.video = video;
+      const track = stream.getTracks().find((item) => item.kind === 'video');
+      const onEnded = () => fail('摄像头视频流已结束');
+      const onMute = () => {
+        if (hasFrame) fail('摄像头视频流已中断');
+      };
+      const onVideoError = () => fail('无法播放摄像头画面');
+      track?.addEventListener('ended', onEnded);
+      track?.addEventListener('mute', onMute);
+      video.addEventListener?.('error', onVideoError);
+      this.removeMediaListeners = () => {
+        track?.removeEventListener('ended', onEnded);
+        track?.removeEventListener('mute', onMute);
+        video.removeEventListener?.('error', onVideoError);
+      };
+      if (track?.readyState === 'ended') {
+        onEnded();
+        return;
+      }
       video.srcObject = stream;
       await video.play();
       if (this.disposed || generation !== this.generation) {
@@ -160,17 +192,23 @@ export class ScannerController implements ScannerControllerLike {
         return;
       }
 
-      this.running = true;
-      callbacks.onReady?.();
       const canvas = this.createCanvas();
       const context = getCanvasContext(canvas);
+      this.running = true;
       let lastScanAt = Number.NEGATIVE_INFINITY;
       const scanFrame = (timestamp: number) => {
         if (!this.running || generation !== this.generation) return;
         if (timestamp - lastScanAt >= scanIntervalMs) {
           lastScanAt = timestamp;
           try {
-            const raw = this.decodeVideoFrame(video, canvas, context);
+            const frame = this.readVideoFrame(video, canvas, context);
+            if (frame !== null && !hasFrame) {
+              hasFrame = true;
+              this.clearStartupTimer();
+              callbacks.onReady?.();
+            }
+            if (!this.running || generation !== this.generation) return;
+            const raw = frame === null ? null : this.decodeRaw(frame)?.trim() || null;
             if (raw !== null && !this.claimed) {
               this.claimed = true;
               this.stop();
@@ -181,11 +219,14 @@ export class ScannerController implements ScannerControllerLike {
             // 单帧读取失败不终止摄像头；下一帧继续识别。
           }
         }
-        this.frameHandle = this.requestFrame(scanFrame);
+        if (this.running && generation === this.generation) {
+          this.frameHandle = this.requestFrame(scanFrame);
+        }
       };
       this.frameHandle = this.requestFrame(scanFrame);
     } catch (error) {
-      if (generation === this.generation) this.stop();
+      if (generation !== this.generation) return;
+      this.stop();
       if (error instanceof ScannerFailure) throw error;
       throw mapDeviceFailure(error, '打开摄像头失败');
     }
@@ -194,6 +235,9 @@ export class ScannerController implements ScannerControllerLike {
   stop(): void {
     this.generation += 1;
     this.running = false;
+    this.clearStartupTimer();
+    this.removeMediaListeners?.();
+    this.removeMediaListeners = null;
     if (this.frameHandle !== null) {
       this.cancelFrame(this.frameHandle);
       this.frameHandle = null;
@@ -244,13 +288,19 @@ export class ScannerController implements ScannerControllerLike {
     this.disposed = true;
   }
 
-  private decodeVideoFrame(
+  private clearStartupTimer(): void {
+    if (this.startupTimer === null) return;
+    clearTimeout(this.startupTimer);
+    this.startupTimer = null;
+  }
+
+  private readVideoFrame(
     video: HTMLVideoElement,
     canvas: HTMLCanvasElement,
     context: CanvasRenderingContext2D,
-  ): string | null {
+  ): ImageData | null {
     if (
-      video.readyState < video.HAVE_ENOUGH_DATA ||
+      video.readyState < video.HAVE_CURRENT_DATA ||
       video.videoWidth <= 0 ||
       video.videoHeight <= 0
     ) {
@@ -259,9 +309,7 @@ export class ScannerController implements ScannerControllerLike {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return this.decodeRaw(
-      context.getImageData(0, 0, canvas.width, canvas.height),
-    )?.trim() || null;
+    return context.getImageData(0, 0, canvas.width, canvas.height);
   }
 
   private decodeRaw(image: ImageData): string | null {

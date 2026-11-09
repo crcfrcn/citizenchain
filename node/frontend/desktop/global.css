@@ -2539,6 +2539,12 @@ select option:checked {
   justify-content: center;
 }
 
+.qr-scanner-notice {
+  padding: 12px;
+  color: var(--text-primary);
+  text-align: center;
+}
+
 .qr-scanner-frame {
   width: 200px;
   height: 200px;
