@@ -3,7 +3,7 @@ export const manifest=Object.freeze({
   "schema": 1,
   "product_id": "citizenchain",
   // 运行期声明与编译配置分开：缺少办证授权不得阻塞节点编译、安装或其它功能。
-  "runtime": { "certificate": { "command": "onchina authorize-tls", "input": "hidden-terminal", "storage": "system-keyring" } },
+  "runtime": { "certificate": { "command": "onchina authorize-tls", "input": "hidden-terminal", "storage": "private-files" } },
   "configuration": {
     "id": "citizenchain",
     "kind": "chain",

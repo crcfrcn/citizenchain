@@ -101,6 +101,7 @@ export type ChainStatus = {
   finalizedHeight: number | null;
   syncing: boolean | null;
   specVersion: number | null;
+  transactionVersion: number | null;
   nodeVersion: string;
 };
 

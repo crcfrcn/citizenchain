@@ -97,6 +97,12 @@ export function SettingsSection({
               {chainStatus.specVersion != null ? `spec ${chainStatus.specVersion}` : '节点未运行'}
             </span>
           </div>
+          <div className="settings-version-row">
+            <span className="settings-version-label">交易签名版本</span>
+            <span className="settings-version-value">
+              {chainStatus.transactionVersion ?? '未取得链上版本'}
+            </span>
+          </div>
         </div>
       )}
     </>

@@ -23,6 +23,7 @@ members = [
     "onchina/private",
     "onchina/judicial",
     "crates/harness",             # 区块链真实验收与坏块构造测试工具（非生产路径）
+    "crates/private",             # 节点与链上中国共用的私密文件写入
     "crates/signing",                  # Rust host 端链交易签名材料唯一真源
     "runtime",                               # 链上运行时
     "runtime/primitives",                    # 运行时共享常量与基础类型

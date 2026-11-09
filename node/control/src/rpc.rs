@@ -108,13 +108,15 @@ fn syncing_flag() -> Option<bool> {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// 首页展示的链同步状态。
+/// 首页和设置页使用的链状态。
 pub struct ChainStatus {
     pub block_height: Option<u64>,
     pub finalized_height: Option<u64>,
     pub syncing: Option<bool>,
     /// 链上 runtime 的 spec_version（节点运行时可用）。
     pub spec_version: Option<u32>,
+    /// 链上 runtime 的交易签名版本。
+    pub transaction_version: Option<u32>,
     /// 节点程序版本号（始终可用）。
     pub node_version: String,
 }
@@ -122,13 +124,17 @@ pub struct ChainStatus {
 /// 本平台本次交付的唯一节点产品版本，由产品编译入口统一注入。
 pub const NODE_VERSION: &str = env!("CITIZENCHAIN_RELEASE_VERSION");
 
-/// 从 state_getRuntimeVersion RPC 获取 spec_version。
-fn fetch_spec_version() -> Option<u32> {
-    let result = rpc_post("state_getRuntimeVersion", Value::Array(vec![])).ok()?;
-    result
-        .get("specVersion")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32)
+fn parse_runtime_versions(result: &Value) -> (Option<u32>, Option<u32>) {
+    let read_version = |key| {
+        result
+            .get(key)
+            .and_then(Value::as_u64)
+            .and_then(|version| u32::try_from(version).ok())
+    };
+    (
+        read_version("specVersion"),
+        read_version("transactionVersion"),
+    )
 }
 
 fn get_chain_status_sync(app: AppHandle) -> Result<ChainStatus, String> {
@@ -140,6 +146,7 @@ fn get_chain_status_sync(app: AppHandle) -> Result<ChainStatus, String> {
             finalized_height: None,
             syncing: None,
             spec_version: None,
+            transaction_version: None,
             node_version,
         });
     }
@@ -150,13 +157,19 @@ fn get_chain_status_sync(app: AppHandle) -> Result<ChainStatus, String> {
         .and_then(header_block_height);
     let finalized_height = finalized_block_height();
     let syncing = syncing_flag();
-    let spec_version = fetch_spec_version();
+    // 同一份 RPC 响应对应同一个链上 Runtime，升级期间也不会混用两个版本。
+    let (spec_version, transaction_version) =
+        rpc_post("state_getRuntimeVersion", Value::Array(vec![]))
+            .as_ref()
+            .map(parse_runtime_versions)
+            .unwrap_or_default();
 
     Ok(ChainStatus {
         block_height,
         finalized_height,
         syncing,
         spec_version,
+        transaction_version,
         node_version,
     })
 }

@@ -50,7 +50,7 @@ it.each([
   ['error','重试下载',false,0],
 ] as const)('设置更新状态%s显示正确按钮与实际进度',async(status,label,disabled,downloaded)=>{
   mocks.invoke.mockImplementation(async(command:string)=>command==='get_chain_status'
-    ? {nodeVersion:'1.0.0',specVersion:2} : null);
+    ? {nodeVersion:'1.0.0',specVersion:2,transactionVersion:1} : null);
   const onUpdateDesktop=vi.fn().mockResolvedValue(undefined);
   const view=render(<SettingsSection desktopUpdateInfo={{status,currentVersion:'1.0.0',latestVersion:'1.0.1',
     downloaded,total:100,error:status==='error'?'下载中断':null}} onUpdateDesktop={onUpdateDesktop}/>);
@@ -63,6 +63,41 @@ it.each([
   fireEvent.click(button);
   expect(onUpdateDesktop).toHaveBeenCalledTimes(disabled?0:1);
   view.unmount();
+});
+
+it.each([[0, '0'], [null, '未取得链上版本']] as const)(
+  '设置页在 Runtime 版本下一行显示交易签名版本 %s',
+  async (transactionVersion, expected) => {
+    mocks.invoke.mockImplementation(async (command: string) => command === 'get_chain_status'
+      ? { nodeVersion: '1.0.0', specVersion: 7, transactionVersion }
+      : null);
+    render(<SettingsSection desktopUpdateInfo={{ status: 'unavailable', currentVersion: '1.0.0',
+      latestVersion: null, error: null }} onUpdateDesktop={vi.fn()}/>);
+    const label = await screen.findByText('交易签名版本');
+    const row = label.closest('.settings-version-row');
+    expect(row?.querySelector('.settings-version-value')?.textContent).toBe(expected);
+    expect(row?.previousElementSibling?.textContent).toContain('Runtime 版本');
+    expect(row?.previousElementSibling?.textContent).toContain('spec 7');
+  },
+);
+
+it('设置页显示引导节点和最终性节点的标题、私钥占位和空输入提示', async () => {
+  mocks.invoke.mockImplementation(async (command: string) => {
+    if (command === 'has_any_activated_admin') return true;
+    if (command === 'get_bootnode_key') return { nodeKey: null, peerId: null, cidShortName: null };
+    if (command === 'get_grandpa_key') return { key: null, cidShortName: null };
+    return null;
+  });
+  render(<SettingsSection desktopUpdateInfo={{ status: 'unavailable', currentVersion: '1.0.0',
+    latestVersion: null, error: null }} onUpdateDesktop={vi.fn()}/>);
+  expect(await screen.findByRole('heading', { name: /^引导节点/ })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: /^最终性节点/ })).toBeTruthy();
+  expect(screen.getByPlaceholderText('请输入引导节点私钥（Ed25519 十六进制）')).toBeTruthy();
+  expect(screen.getByPlaceholderText('请输入最终性节点私钥')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '绑定身份' }));
+  expect(screen.getByText('请输入引导节点私钥')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '上传私钥' }));
+  expect(screen.getByText('请输入最终性节点私钥')).toBeTruthy();
 });
 it.each(['downloading','ready','installing'] as const)('状态%s保留设置新版标记',status=>{
   expect(shouldShowDesktopUpdateDot({status})).toBe(true);

@@ -1,0 +1,13 @@
+[package]
+name = "private"
+description = "CitizenChain shared private file storage"
+publish = false
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rand = { workspace = true, default-features = true }

@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn chain_versions_keep_zero_and_validate_each_field_independently() {
+    assert_eq!(
+        parse_runtime_versions(&serde_json::json!({"specVersion": 7, "transactionVersion": 0})),
+        (Some(7), Some(0))
+    );
+    assert_eq!(
+        parse_runtime_versions(&serde_json::json!({"specVersion": -1, "transactionVersion": 5})),
+        (None, Some(5))
+    );
+    assert_eq!(
+        parse_runtime_versions(&serde_json::json!({
+            "specVersion": 7, "transactionVersion": u64::from(u32::MAX) + 1,
+        })),
+        (Some(7), None)
+    );
+    assert_eq!(parse_runtime_versions(&serde_json::json!({})), (None, None));
+}
+
+#[test]
 fn header_height_requires_hex_string_and_checks_overflow() {
     assert_eq!(
         header_block_height(&serde_json::json!({"number":"0xff"})),

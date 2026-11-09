@@ -319,6 +319,8 @@ PG 官方二进制来源:https://www.postgresql.org/download/(解压后含 bin/l
 
 - 外部调用方 本机 macOS 入口使用仓库锁定的 Tauri CLI。`run.sh` 必须通过动态 `--config "$tauri_override"` 注入当前 `frontendDist`、节点资源、OnChina 前端和 `china.sqlite`，再按 `build --no-bundle --ci -- --locked`、`bundle --bundles app --ci` 的顺序完成编译与签名封装；仓库依赖门禁和扫码权限测试共同锁定这一完整命令，禁止退回不含资源覆盖的短命令。
 
+设置页的「引导节点」绑定创世引导节点的 P2P 私钥，「最终性节点」绑定 GRANDPA 投票私钥。「Runtime 版本」和下一行的「交易签名版本」分别显示本机节点同一次 `state_getRuntimeVersion` 响应中的 `specVersion` 和 `transactionVersion`。
+
 #### 进程编排(设置页手动拉起,OnChina 自管 PG/TLS)
 
 - 节点 `desktop` setup 不启动 OnChina；用户在设置页“链上中国平台”行点击“启动”并二次确认后，`start_onchina_platform` 调用 `crate::start_onchina(app)`。

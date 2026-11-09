@@ -386,7 +386,7 @@ body:has(.institution-transfer-dialog[open]) {
 
 .institution-transfer-body .wallet-form-field input,
 .institution-transfer-body #transfer-signer {
-  height: 30px;
+  height: var(--scan-icon-size);
 }
 
 .institution-transfer-body #transfer-signer {
@@ -420,17 +420,19 @@ body:has(.institution-transfer-dialog[open]) {
 }
 
 .institution-transfer-actions {
+  --transfer-action-width: min(88px, calc(100% / 3));
   display: flex;
   justify-content: center;
-  gap: 12px;
+  gap: var(--transfer-action-width);
   padding: 14px 24px;
   border-top: 1px solid var(--border);
 }
 
 .institution-transfer-actions button {
-  min-width: 88px;
+  flex: 0 0 var(--transfer-action-width);
+  min-width: 0;
   min-height: 36px;
-  padding: 6px 16px;
+  padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-app);

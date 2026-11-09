@@ -8,7 +8,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const PARTIAL_REFRESH_ERROR_PREFIX = '部分数据刷新失败：';
 
-const EMPTY_CHAIN: ChainStatus = { blockHeight: null, finalizedHeight: null, syncing: null, specVersion: null, nodeVersion: '' };
+const EMPTY_CHAIN: ChainStatus = {
+  blockHeight: null, finalizedHeight: null, syncing: null,
+  specVersion: null, transactionVersion: null, nodeVersion: '',
+};
 const EMPTY_IDENTITY: NodeIdentity = { peerId: null, role: null, genesisHash: null };
 const EMPTY_ISSUANCE: TotalIssuance = { totalIssuance: null };
 const EMPTY_STAKE: TotalStake = { totalStake: null };
@@ -184,8 +187,8 @@ export function HomeNodeSection() {
         : status.state === 'stopping'
           ? '关闭中...'
           : status.running
-            ? '关闭'
-            : '启动';
+            ? '关闭节点'
+            : '启动节点';
   const statusLabel = status.running
     ? '运行中'
     : status.state === 'initializing'
@@ -211,19 +214,25 @@ export function HomeNodeSection() {
 
   return (
     <>
-      <p className="status-line">
-        <span className={`status-dot ${status.running ? 'running' : 'stopped'}`} />
-        <span>状态: {statusLabel}</span>
+      <div className="home-node-toolbar">
+        <div className="status-line">
+          <span className={`status-dot ${status.running ? 'running' : 'stopped'}`} aria-hidden="true" />
+          <span>状态：{statusLabel}</span>
+        </div>
         <button
           type="button"
           className={`node-lifecycle-button ${status.running ? 'stop' : 'start'}`}
           onClick={requestNodeToggle}
           disabled={lifecycleBusy}
-          title={status.running ? '停止本机节点' : '启动本机节点'}
+          title={nodeActionLabel}
+          aria-label={nodeActionLabel}
         >
-          {nodeActionLabel}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.72 0" />
+          </svg>
         </button>
-      </p>
+      </div>
       <ChainSection chain={chain} nodeRunning={status.running} />
       <IdentitySection identity={identity} minerAddress={minerAddress} />
       <IssuanceSection issuance={issuance} stake={stake} />

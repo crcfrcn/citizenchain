@@ -1,5 +1,5 @@
-//! 固定局域网入口的公信 HTTPS：标准 ACME、DNS-01、系统密钥存储和证书热加载。
-//! 私钥、账户和办证授权只存系统密钥库；磁盘只保存公开证书链。客户端无需导入 CA。
+//! 固定局域网入口的公信 HTTPS：标准 ACME、DNS-01、私密文件和证书热加载。
+//! 宿主和模块读取同一份公信证书与服务私钥，只有宿主申请和续期。
 
 use axum_server::tls_rustls::RustlsConfig;
 use bytes::Bytes;
@@ -17,7 +17,7 @@ use rustls::{
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::Write,
+    io::{ErrorKind, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -25,48 +25,82 @@ use std::{
 use tokio::sync::watch;
 use zeroize::{Zeroize, Zeroizing};
 
-const KEYRING_SERVICE: &str = crate::PLATFORM_HOST;
 const AUTHORIZATION: &str = "dns-authorization";
 const ACCOUNT: &str = "acme-account";
 const SERVER_KEY: &str = "server-key";
 const PENDING_DNS: &str = "pending-dns";
+const PRIVATE_DIR: &str = "private";
 const SERVER_CERT: &str = "onchina-server.crt";
 const ACME_DIRECTORY: &str = "https://acme-v02.api.letsencrypt.org/directory";
 const CLOUDFLARE_API: &str = "https://api.cloudflare.com/client/v4";
 const DNS_QUERY: &str = "https://cloudflare-dns.com/dns-query";
 const CERTIFICATE_LIMIT: u64 = 64 * 1024;
+const PRIVATE_ENTRY_LIMIT: u64 = 64 * 1024;
 const RESPONSE_LIMIT: usize = 1024 * 1024;
 const RENEW_INTERVAL: Duration = Duration::from_secs(6 * 3600);
 
-// 抽象仅隔离系统密钥存储，生产始终使用系统实现；测试不接触用户的真实密钥。
+// 将凭据存储与证书签发分开，测试仅使用临时目录和合成凭据。
 trait Vault: Send + Sync {
     fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, String>;
     fn set(&self, name: &str, value: &str) -> Result<(), String>;
     fn delete(&self, name: &str) -> Result<(), String>;
 }
-struct SystemVault;
-impl Vault for SystemVault {
-    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, String> {
-        let entry =
-            keyring::Entry::new(KEYRING_SERVICE, name).map_err(|_| "无法访问链上中国系统密钥库")?;
-        match entry.get_password() {
-            Ok(value) => Ok(Some(Zeroizing::new(value))),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err("读取链上中国系统密钥库失败".into()),
+struct FileVault(PathBuf);
+
+impl FileVault {
+    fn new(tls_dir: &Path) -> Self {
+        Self(tls_dir.join(PRIVATE_DIR))
+    }
+
+    fn entry_path(&self, name: &str) -> Result<PathBuf, String> {
+        if !matches!(name, AUTHORIZATION | ACCOUNT | SERVER_KEY | PENDING_DNS) {
+            return Err("无效的链上中国凭据条目".into());
         }
+        match fs::symlink_metadata(&self.0) {
+            Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            _ => return Err("链上中国私密文件目录不可用".into()),
+        }
+        Ok(self.0.join(name))
+    }
+}
+
+impl Vault for FileVault {
+    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, String> {
+        let path = self.entry_path(name)?;
+        match fs::symlink_metadata(&path) {
+            Ok(meta)
+                if meta.is_file()
+                    && !meta.file_type().is_symlink()
+                    && meta.len() <= PRIVATE_ENTRY_LIMIT => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            _ => return Err("链上中国私密文件无效".into()),
+        }
+        let mut value = Zeroizing::new(String::new());
+        fs::File::open(&path)
+            .and_then(|file| {
+                file.take(PRIVATE_ENTRY_LIMIT + 1)
+                    .read_to_string(&mut value)
+            })
+            .map_err(|_| "读取链上中国私密文件失败")?;
+        if value.len() as u64 > PRIVATE_ENTRY_LIMIT {
+            return Err("链上中国私密文件超出长度限制".into());
+        }
+        Ok(Some(value))
     }
     fn set(&self, name: &str, value: &str) -> Result<(), String> {
-        keyring::Entry::new(KEYRING_SERVICE, name)
-            .map_err(|_| "无法访问链上中国系统密钥库")?
-            .set_password(value)
-            .map_err(|_| "保存链上中国系统密钥失败".into())
+        let path = self.entry_path(name)?;
+        if value.len() as u64 > PRIVATE_ENTRY_LIMIT {
+            return Err("链上中国私密文件超出长度限制".into());
+        }
+        private::write_secret_bytes_atomic(&path, value.as_bytes())
+            .map_err(|_| "保存链上中国私密文件失败".into())
     }
     fn delete(&self, name: &str) -> Result<(), String> {
-        let entry =
-            keyring::Entry::new(KEYRING_SERVICE, name).map_err(|_| "无法访问链上中国系统密钥库")?;
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err("清理链上中国系统密钥条目失败".into()),
+        match fs::remove_file(self.entry_path(name)?) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+            Err(_) => Err("清理链上中国私密文件失败".into()),
         }
     }
 }
@@ -111,12 +145,12 @@ pub(crate) fn authorize() -> Result<(), String> {
     authorization.validate()?;
     let encoded =
         Zeroizing::new(serde_json::to_string(&authorization).map_err(|_| "编码办证授权失败")?);
-    SystemVault.set(AUTHORIZATION, &encoded)?;
-    println!("办证授权已保存至本机系统密钥库。启动链上中国后自动申请及续期证书。");
+    FileVault::new(&tls_dir()?).set(AUTHORIZATION, &encoded)?;
+    println!("办证授权已保存至本机私密文件。启动链上中国后自动申请及续期证书。");
     Ok(())
 }
 
-/// 公开证书目录与节点数据同根；独立执行也不写应用安装目录。
+/// 公开证书及独立的 private 子目录与节点数据同根。
 pub(crate) fn tls_dir() -> Result<PathBuf, String> {
     if let Some(value) = std::env::var_os("ONCHINA_TLS_DIR").filter(|value| !value.is_empty()) {
         return Ok(PathBuf::from(value));
@@ -179,8 +213,8 @@ fn validate_material(
     let start = parsed.validity().not_before.timestamp();
     let end = parsed.validity().not_after.timestamp();
     let renew_at = end - ((end - start) / 3).max(3600);
-    let key = PrivateKeyDer::from_pem_slice(key.as_bytes())
-        .map_err(|_| "系统密钥库中的 HTTPS 私钥无效")?;
+    let key =
+        PrivateKeyDer::from_pem_slice(key.as_bytes()).map_err(|_| "私密文件中的 HTTPS 私钥无效")?;
     let config =
         ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
@@ -212,17 +246,15 @@ fn load_material(
         return Err("公信 HTTPS 证书文件无效".into());
     }
     let certificate = fs::read_to_string(&path).map_err(|_| "读取公信 HTTPS 证书失败")?;
-    let key = vault
-        .get(SERVER_KEY)?
-        .ok_or("系统密钥库中缺少 HTTPS 私钥")?;
+    let key = vault.get(SERVER_KEY)?.ok_or("私密文件中缺少 HTTPS 私钥")?;
     validate_material(certificate, &key, roots, now())
 }
 fn server_key(vault: &dyn Vault) -> Result<Zeroizing<String>, String> {
     if let Some(key) = vault.get(SERVER_KEY)? {
-        KeyPair::from_pem(&key).map_err(|_| "系统密钥库中的 HTTPS 私钥损坏，拒绝覆盖")?;
+        KeyPair::from_pem(&key).map_err(|_| "私密文件中的 HTTPS 私钥损坏，拒绝覆盖")?;
         return Ok(key);
     }
-    // 同一主机续期复用系统中的密钥，公开证书链单文件原子切换，不存在证书/私钥半更新。
+    // 同一主机续期复用私密文件中的密钥，公开证书链单文件原子切换，不存在证书/私钥半更新。
     let key = Zeroizing::new(
         KeyPair::generate()
             .map_err(|_| "生成 HTTPS 私钥失败")?
@@ -546,7 +578,7 @@ async fn account(
     let builder = Account::builder_with_http(Box::new(AcmeTransport(client)));
     if let Some(encoded) = vault.get(ACCOUNT)? {
         let credentials =
-            serde_json::from_str(&encoded).map_err(|_| "系统密钥库中的 ACME 账户无效")?;
+            serde_json::from_str(&encoded).map_err(|_| "私密文件中的 ACME 账户无效")?;
         return builder
             .from_credentials(credentials)
             .await
@@ -619,7 +651,7 @@ async fn issue_order(
     {
         return Err("ACME 证书订单尚未就绪".into());
     }
-    let pair = KeyPair::from_pem(&key).map_err(|_| "HTTPS 系统私钥无效")?;
+    let pair = KeyPair::from_pem(&key).map_err(|_| "HTTPS 私钥无效")?;
     let mut parameters = CertificateParams::new(vec![crate::PLATFORM_HOST.into()])
         .map_err(|_| "HTTPS 域名声明无效")?;
     parameters.distinguished_name = rcgen::DistinguishedName::new();
@@ -656,7 +688,7 @@ async fn issue(
         .get(AUTHORIZATION)?
         .ok_or("尚未配置域名办证授权，请由域名所有者在主机执行 onchina authorize-tls 一次")?;
     let authorization: DnsAuthorization =
-        serde_json::from_str(&encoded).map_err(|_| "系统密钥库中的办证授权无效")?;
+        serde_json::from_str(&encoded).map_err(|_| "私密文件中的办证授权无效")?;
     authorization.validate()?;
     let provider = DnsProvider {
         client: https_client()?,
@@ -680,7 +712,7 @@ async fn issue_process(
             result.unwrap_or_else(|_| Err("公信证书申请超时".into()))
         }
     };
-    // 失败和取消也走同一清理路径；中断或清理失败的记录保存在系统密钥库供下次继续。
+    // 失败和取消也走同一清理路径；中断或清理失败的记录保存在私密文件供下次继续。
     let cleanup = tokio::time::timeout(Duration::from_secs(30), provider.cleanup(vault))
         .await
         .unwrap_or_else(|_| Err("DNS 验证记录清理超时，已保留待办".into()));
@@ -701,11 +733,12 @@ pub(crate) async fn prepare(
 ) -> Result<RustlsConfig, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = tls_dir()?;
-    let material = match load_material(&dir, &SystemVault, public_roots()) {
+    let vault = FileVault::new(&dir);
+    let material = match load_material(&dir, &vault, public_roots()) {
         Ok(material) => material,
         Err(error) if !host => return Err(error),
         Err(_) => {
-            let material = issue(&SystemVault, public_roots(), cancel).await?;
+            let material = issue(&vault, public_roots(), cancel).await?;
             publish_certificate(&dir, &material)?;
             material
         }
@@ -720,19 +753,20 @@ pub(crate) async fn maintain(
     mut cancel: watch::Receiver<bool>,
 ) -> Result<(), String> {
     let dir = tls_dir()?;
-    let mut loaded = load_material(&dir, &SystemVault, public_roots())?.certificate;
+    let vault = FileVault::new(&dir);
+    let mut loaded = load_material(&dir, &vault, public_roots())?.certificate;
     let mut next_attempt = tokio::time::Instant::now();
     loop {
         if *cancel.borrow() {
             return Ok(());
         }
-        let current = load_material(&dir, &SystemVault, public_roots())?;
+        let current = load_material(&dir, &vault, public_roots())?;
         if current.certificate != loaded {
             config.reload_from_config(current.config.clone());
             loaded = current.certificate.clone();
         }
         if host && now() >= current.renew_at && tokio::time::Instant::now() >= next_attempt {
-            match issue(&SystemVault, public_roots(), cancel.clone()).await {
+            match issue(&vault, public_roots(), cancel.clone()).await {
                 Ok(material) => match publish_certificate(&dir, &material) {
                     Ok(()) => {
                         config.reload_from_config(material.config);

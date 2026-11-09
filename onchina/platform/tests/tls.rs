@@ -131,11 +131,12 @@ fn strict_chain_hostname_expiry_and_key_validation() {
 }
 
 #[test]
-fn stable_system_key_and_atomic_public_certificate_update() {
-    let vault = MemoryVault::default();
+fn stable_private_file_key_and_atomic_public_certificate_update() {
     let dir = TestDir::new();
+    let vault = FileVault::new(&dir.0);
     let key = server_key(&vault).unwrap();
-    assert!(server_key(&vault).unwrap().as_str() == key.as_str());
+    let reopened = FileVault::new(&dir.0);
+    assert!(server_key(&reopened).unwrap().as_str() == key.as_str());
     let pair = KeyPair::from_pem(&key).unwrap();
     let (ca, ca_key, roots) = issuer();
     let current = now();
@@ -151,8 +152,9 @@ fn stable_system_key_and_atomic_public_certificate_update() {
     assert!(material.renew_at > current && material.renew_at < material.expires_at);
     publish_certificate(&dir.0, &material).unwrap();
     assert_eq!(fs::read_to_string(dir.0.join(SERVER_CERT)).unwrap(), chain);
-    assert!(load_material(&dir.0, &vault, roots).is_ok());
-    assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+    assert!(load_material(&dir.0, &reopened, roots).is_ok());
+    assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 2);
+    assert_eq!(fs::read_dir(dir.0.join(PRIVATE_DIR)).unwrap().count(), 1);
     assert!(!fs::read_to_string(dir.0.join(SERVER_CERT))
         .unwrap()
         .contains("PRIVATE KEY"));
@@ -160,6 +162,37 @@ fn stable_system_key_and_atomic_public_certificate_update() {
     assert!(server_key(&vault).is_err());
     assert!(vault.get(SERVER_KEY).unwrap().unwrap().as_str() == "synthetic-corrupt-key");
     assert_eq!(fs::read_to_string(dir.0.join(SERVER_CERT)).unwrap(), chain);
+}
+
+#[test]
+fn private_credentials_are_replaced_and_cleaned_in_the_tls_private_directory() {
+    let dir = TestDir::new();
+    let vault = FileVault::new(&dir.0);
+    assert!(vault.get(AUTHORIZATION).unwrap().is_none());
+    assert!(!dir.0.join(PRIVATE_DIR).exists());
+    vault.set(AUTHORIZATION, "first-synthetic-token").unwrap();
+    vault.set(AUTHORIZATION, "replacement-token").unwrap();
+    let path = dir.0.join(PRIVATE_DIR).join(AUTHORIZATION);
+    assert_eq!(
+        vault.get(AUTHORIZATION).unwrap().unwrap().as_str(),
+        "replacement-token"
+    );
+    assert!(vault.set("../outside", "must-not-be-written").is_err());
+    assert!(!dir.0.join("outside").exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        symlink(&path, dir.0.join(PRIVATE_DIR).join(PENDING_DNS)).unwrap();
+        assert!(vault.get(PENDING_DNS).is_err());
+    }
+    vault.delete(PENDING_DNS).unwrap();
+    vault.delete(PENDING_DNS).unwrap();
+    assert!(vault.get(PENDING_DNS).unwrap().is_none());
+    assert!(path.is_file());
 }
 
 #[test]
@@ -362,7 +395,7 @@ impl Drop for MockServer {
     }
 }
 impl MockServer {
-    async fn new(vault: &MemoryVault) -> Self {
+    async fn new(vault: &dyn Vault) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (ca, ca_key, roots) = issuer();
         let key = server_key(vault).unwrap();
@@ -448,11 +481,11 @@ impl MockServer {
 
 #[tokio::test]
 async fn acme_https_issue_reuses_account_and_key_and_cleans_only_owned_txt() {
-    let vault = MemoryVault::default();
+    let dir = TestDir::new();
+    let vault = FileVault::new(&dir.0);
     let server = MockServer::new(&vault).await;
     let provider = server.provider();
     let (stop, cancel) = watch::channel(false);
-    let dir = TestDir::new();
     for _ in 0..2 {
         let material = issue_process(
             &vault,
@@ -471,13 +504,17 @@ async fn acme_https_issue_reuses_account_and_key_and_cleans_only_owned_txt() {
     }
     assert_eq!(server.state.account_count.load(Ordering::SeqCst), 1);
     assert_eq!(server.state.csr_count.load(Ordering::SeqCst), 2);
+    let reopened = FileVault::new(&dir.0);
+    assert!(reopened.get(ACCOUNT).unwrap().is_some());
+    assert!(reopened.get(SERVER_KEY).unwrap().is_some());
+    assert!(reopened.get(PENDING_DNS).unwrap().is_none());
     drop(stop);
 }
 
 #[tokio::test]
 async fn cancelling_dns_wait_cleans_challenge_and_preserves_current_certificate() {
     let vault = Arc::new(MemoryVault::default());
-    let server = MockServer::new(&vault).await;
+    let server = MockServer::new(vault.as_ref()).await;
     server.state.stall_dns.store(true, Ordering::SeqCst);
     let directory = TestDir::new();
     fs::write(directory.0.join(SERVER_CERT), &server.state.certificate).unwrap();

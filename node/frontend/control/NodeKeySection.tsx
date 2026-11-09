@@ -51,7 +51,7 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
     <section className="section settings-nodekey-section">
       <div className="bootnode-inline">
         <h2>
-          节点身份密钥
+          引导节点
           <span className="grandpa-bind-state">
             {bootnodeCidShortName ?? '未绑定'}
           </span>
@@ -59,7 +59,7 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="请输入节点身份密钥（Ed25519 私钥 hex）"
+          placeholder="请输入引导节点私钥（Ed25519 十六进制）"
           type="password"
           disabled={saving}
         />
@@ -67,7 +67,7 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
           disabled={saving}
           onClick={() => {
             if (!input.trim()) {
-              setBootnodeError('请输入节点身份密钥');
+              setBootnodeError('请输入引导节点私钥');
               return;
             }
             setBootnodeError(null);
@@ -82,7 +82,7 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
       </div>
       <div className="bootnode-inline grandpa-inline">
         <h2>
-          确定性投票节点
+          最终性节点
           <span className="grandpa-bind-state">
             {grandpaCidShortName ?? '未绑定'}
           </span>
@@ -90,7 +90,7 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
         <input
           value={grandpaInput}
           onChange={(e) => setGrandpaInput(e.target.value)}
-          placeholder="请输入确定性投票节点私钥"
+          placeholder="请输入最终性节点私钥"
           type="password"
           disabled={savingGrandpa}
         />
@@ -98,7 +98,7 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
           disabled={savingGrandpa}
           onClick={() => {
             if (!grandpaInput.trim()) {
-              setGrandpaError('请输入确定性投票节点私钥');
+              setGrandpaError('请输入最终性节点私钥');
               return;
             }
             setGrandpaError(null);
