@@ -222,26 +222,32 @@ pub(crate) fn fetch_proposal_full(proposal_id: u64) -> Result<ProposalFullInfo, 
 }
 
 fn fetch_voter_role_subjects(proposal_id: u64) -> Result<Vec<VoterRoleSubject>, String> {
-    let key = nodeclient::query::map_key("VotingEngine", "VotePlans", &proposal_id.to_le_bytes());
+    let key = nodeclient::query::map_key(
+        "VotingEngine",
+        "ProposalVotePlans",
+        &proposal_id.to_le_bytes(),
+    );
     let Some(hex_value) = nodeclient::query::fetch_finalized_storage(&key)? else {
-        return Err(format!("提案 {proposal_id} 缺少 VotingEngine::VotePlans"));
+        return Err(format!(
+            "提案 {proposal_id} 缺少 VotingEngine::ProposalVotePlans"
+        ));
     };
     let bytes = hex::decode(hex_value.trim_start_matches("0x"))
-        .map_err(|error| format!("VotePlans hex 解码失败: {error}"))?;
+        .map_err(|error| format!("ProposalVotePlans hex 解码失败: {error}"))?;
     let mut input = &bytes[..];
     let plan = votebase::types::VotePlanOf::<sp_runtime::AccountId32>::decode(&mut input)
-        .map_err(|error| format!("VotePlans SCALE 解码失败: {error}"))?;
+        .map_err(|error| format!("ProposalVotePlans SCALE 解码失败: {error}"))?;
     if !input.is_empty() {
-        return Err("VotePlans SCALE 存在尾随字节".into());
+        return Err("ProposalVotePlans SCALE 存在尾随字节".into());
     }
     let mut subjects = Vec::new();
     for subject in plan.voter_subjects {
         if let AuthorizationSubject::Institution(role) = subject {
             subjects.push(VoterRoleSubject {
                 cid_number: String::from_utf8(role.cid_number.into_inner())
-                    .map_err(|_| "VotePlans cid_number 不是 UTF-8".to_string())?,
+                    .map_err(|_| "ProposalVotePlans cid_number 不是 UTF-8".to_string())?,
                 role_code: String::from_utf8(role.role_code.into_inner())
-                    .map_err(|_| "VotePlans role_code 不是 UTF-8".to_string())?,
+                    .map_err(|_| "ProposalVotePlans role_code 不是 UTF-8".to_string())?,
             });
         }
     }

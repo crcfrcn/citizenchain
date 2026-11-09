@@ -506,6 +506,21 @@ body:has(.institution-transfer-dialog[open]) {
   font-size: 14px;
 }
 
+@media (min-width: 1000px) {
+  .institution-overview .institution-overview-proposals .proposal-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .institution-overview .institution-overview-proposals .proposal-card {
+    overflow-wrap: anywhere;
+  }
+
+  .institution-overview .institution-overview-proposals .proposal-card-header {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+}
+
 @media (max-width: 640px) {
   .institution-overview .institution-overview-proposals .proposal-list {
     grid-template-columns: minmax(0, 1fr);
