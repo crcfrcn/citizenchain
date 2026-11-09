@@ -28,7 +28,6 @@ function TransferDetailCard({
           <span className="proposal-transfer-label">转出账户</span>
           <code>{accountIdToSs58(fundingAccountId)}</code>
         </div>
-        <span className="proposal-transfer-arrow" aria-hidden="true">→</span>
         <div className="proposal-transfer-field proposal-transfer-destination">
           <span className="proposal-transfer-label">收款账户</span>
           {beneficiaryAccountId

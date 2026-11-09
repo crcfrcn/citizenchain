@@ -1,10 +1,7 @@
 use nodedesktop::address::decode_hex_32_with_optional_0x;
-use nodedesktop::address::decode_ss58_prefix;
 use nodedesktop::constants::EXPECTED_SS58_PREFIX;
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE;
-use nodedesktop::constants::SS58_PREFIX;
 use nodedesktop::validation::normalize_account_id;
-use nodedesktop::validation::normalize_ss58_address;
 use serde::Deserialize;
 use serde::Serialize;
 use std::fs;
@@ -110,42 +107,6 @@ pub fn local_powr_miner_account_id(app: &AppHandle) -> Result<Option<String>, St
         }
     }
     Ok(None)
-}
-
-fn decode_ss58_account_id(address: &str) -> Result<[u8; 32], String> {
-    let data = bs58::decode(address)
-        .into_vec()
-        .map_err(|_| "SS58 地址解码失败".to_string())?;
-    let (prefix, prefix_len) = decode_ss58_prefix(&data)?;
-    if prefix != SS58_PREFIX {
-        return Err("SS58 地址前缀无效，必须为 2027".to_string());
-    }
-    if data.len() < prefix_len + 32 + 2 {
-        return Err("SS58 地址长度无效".to_string());
-    }
-    let payload_len = data.len() - prefix_len - 2;
-    if payload_len != 32 {
-        return Err("SS58 地址账户长度无效，必须是 32 字节".to_string());
-    }
-
-    let (without_checksum, checksum) = data.split_at(data.len() - 2);
-    let hash = blake2b_simd::Params::new()
-        .hash_length(64)
-        .to_state()
-        .update(b"SS58PRE")
-        .update(without_checksum)
-        .finalize();
-    if checksum != &hash.as_bytes()[..2] {
-        return Err("SS58 地址校验和无效".to_string());
-    }
-
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&data[prefix_len..prefix_len + 32]);
-    Ok(out)
-}
-
-fn account_id_from_ss58_address(ss58_address: &str) -> Result<[u8; 32], String> {
-    decode_ss58_account_id(ss58_address)
 }
 
 fn ensure_expected_reward_account_rpc_node() -> Result<(), String> {
@@ -308,10 +269,12 @@ pub async fn set_reward_account(
     }
     let unlock = nodedesktop::security::ensure_unlock_password(&unlock_password)?;
     crate::password::verify_device_login_password(&app, unlock)?;
-    let ss58_address = normalize_ss58_address(&ss58_address)?;
-
-    // SS58 只用于输入；进入授权和存储前立即转成唯一账户 ID。
-    let target_account_id = account_id_from_ss58_address(&ss58_address)?;
+    // 公民链及以太坊地址进入授权和存储前统一转换为链上账户 ID。
+    let target_account_id = tauri::async_runtime::spawn_blocking(move || {
+        nodeclient::signing::resolve_recipient_account_id(&ss58_address)
+    })
+    .await
+    .map_err(|_| "矿工收款账户地址解析任务失败".to_string())??;
     let target_account_id_hex = format!("0x{}", hex::encode(target_account_id));
 
     // 同步路径提前拒绝：奖励账户不能与矿工账户相同。

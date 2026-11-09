@@ -1,6 +1,8 @@
 
 import { blake2b } from '@noble/hashes/blake2.js';
 
+export const ADDRESS_INPUT_PLACEHOLDER = '请输入公民链或以太坊地址';
+
 const SS58_PREFIX = 2027;
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const BASE58_INDEX = new Map<string, number>(

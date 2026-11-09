@@ -258,8 +258,7 @@
   gap: 6px;
 }
 
-.institution-overview .proposal-card-identity,
-.institution-overview .proposal-card-action {
+.institution-overview .proposal-card-identity {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -277,10 +276,16 @@
 }
 
 .institution-overview .proposal-card-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px;
   font-weight: 600;
 }
 
 .institution-overview .proposal-card-amount {
+  text-align: right;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 
@@ -642,10 +647,10 @@ body:has(.institution-transfer-dialog[open]) {
 
 .proposal-detail-page .proposal-transfer-route {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-areas:
-    "source arrow destination"
-    "remark . proposer";
+    "source destination"
+    "remark proposer";
   gap: 12px;
   margin-top: 12px;
   text-align: left;
@@ -667,13 +672,6 @@ body:has(.institution-transfer-dialog[open]) {
 .proposal-detail-page .proposal-transfer-destination { grid-area: destination; }
 .proposal-detail-page .proposal-transfer-remark { grid-area: remark; white-space: pre-wrap; }
 .proposal-detail-page .proposal-transfer-proposer { grid-area: proposer; }
-
-.proposal-detail-page .proposal-transfer-arrow {
-  grid-area: arrow;
-  place-self: center;
-  color: #67d7ee;
-  font-size: 19px;
-}
 
 .proposal-detail-page .proposal-detail-admin-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, max(268px, calc((100% - 36px) / 4))), 1fr));
@@ -707,33 +705,20 @@ body:has(.institution-transfer-dialog[open]) {
 
 .proposal-detail-page .institution-assignment-name-term {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 5fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: baseline;
-  gap: 4px;
-  min-height: 20px;
-}
-
-.proposal-detail-page .institution-assignment-compact-name {
-  width: max-content;
-  max-width: calc(100% + 4px);
-  font-size: 13px;
-  overflow-wrap: anywhere;
+  gap: 12px;
 }
 
 .proposal-detail-page .institution-assignment-compact-term {
   color: var(--text-secondary);
   font-size: 12px;
-  text-align: center;
   overflow-wrap: anywhere;
 }
 
 @media (max-width: 640px) {
   .proposal-detail-page .proposal-transfer-route {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "source" "arrow" "destination" "remark" "proposer";
-  }
-
-  .proposal-detail-page .proposal-transfer-arrow {
-    transform: rotate(90deg);
+    grid-template-areas: "source" "destination" "remark" "proposer";
   }
 }

@@ -213,7 +213,7 @@ pub fn account_id_from_ss58_address(ss58_address: &str) -> Result<[u8; 32], Stri
     if prefix != SS58_PREFIX {
         return Err(format!("SS58 地址前缀无效，期望 2027，实际 {prefix}"));
     }
-    if data.len() < prefix_len + 32 + 2 {
+    if data.len() != prefix_len + 32 + 2 {
         return Err("SS58 地址长度无效".to_string());
     }
     let (without_checksum, checksum) = data.split_at(data.len() - 2);

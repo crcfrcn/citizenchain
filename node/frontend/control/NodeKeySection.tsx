@@ -9,53 +9,95 @@ type Props = {
   onApplied: () => void;
 };
 
+type KeyAction = 'bootnode' | 'grandpa' | 'onchina';
+type HostKeyStatus = { configured: boolean } | { error: string };
+const HOST_KEY_PLACEHOLDER = '请输入链上中国主机HTTPS密钥';
+
 export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
-  type PendingAction = 'bootnode' | 'grandpa' | null;
-
-  const [input, setInput] = useState(nodeKey.nodeKey ?? '');
-  const [bootnodeCidShortName, setBootnodeCidShortName] = useState<string | null>(
-    nodeKey.cidShortName ?? null,
-  );
+  const [input, setInput] = useState('');
   const [grandpaInput, setGrandpaInput] = useState('');
-  const [grandpaCidShortName, setGrandpaCidShortName] = useState<string | null>(null);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [hostKeyInput, setHostKeyInput] = useState('');
+  const [grandpaConfigured, setGrandpaConfigured] = useState(false);
+  const [hostKeyStatus, setHostKeyStatus] = useState<HostKeyStatus | null>(null);
   const [unlockPassword, setUnlockPassword] = useState('');
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [pendingAction, setPendingAction] = useState<KeyAction | null>(null);
   const [saving, setSaving] = useState(false);
-  const [savingGrandpa, setSavingGrandpa] = useState(false);
-  const [bootnodeError, setBootnodeError] = useState<string | null>(null);
-  const [grandpaError, setGrandpaError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setInput(nodeKey.nodeKey ?? '');
-    setBootnodeCidShortName(nodeKey.cidShortName ?? null);
-  }, [nodeKey.nodeKey, nodeKey.cidShortName]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void api
-      .getGrandpaKey()
-      .then((k) => {
-        if (cancelled) return;
-        setGrandpaInput(k.key ?? '');
-        setGrandpaCidShortName(k.cidShortName ?? null);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
+    void api.getGrandpaKey().then((key) => {
+      if (!cancelled) setGrandpaConfigured(Boolean(key.cidShortName));
+    }).catch(() => undefined);
+    void api.getOnChinaHostKeyStatus().then((configured) => {
+      if (!cancelled) setHostKeyStatus((current) => current ?? { configured });
+    }).catch((error) => {
+      if (!cancelled) setHostKeyStatus((current) => current ?? { error: sanitizeError(error) });
+    });
+    return () => { cancelled = true; };
   }, []);
+
+  function requestUpload(action: KeyAction, value: string, emptyMessage: string) {
+    if (!value.trim()) {
+      setError(emptyMessage);
+      return;
+    }
+    setError(null);
+    setUnlockPassword('');
+    setPendingAction(action);
+  }
+
+  function closePasswordModal() {
+    if (saving) return;
+    setPendingAction(null);
+    setUnlockPassword('');
+    setError(null);
+  }
+
+  async function uploadKey() {
+    const password = unlockPassword.trim();
+    if (!password) {
+      setError('请输入设备开机密码');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      switch (pendingAction) {
+        case 'bootnode': {
+          const next = await api.setBootnodeKey(input.trim(), password);
+          onUpdated(next);
+          onApplied();
+          setInput('');
+          break;
+        }
+        case 'grandpa': {
+          const next = await api.setGrandpaKey(grandpaInput.trim(), password);
+          setGrandpaConfigured(Boolean(next.cidShortName));
+          setGrandpaInput('');
+          break;
+        }
+        case 'onchina': {
+          await api.setOnChinaHostKey(hostKeyInput.trim(), password);
+          setHostKeyStatus({ configured: true });
+          setHostKeyInput('');
+          break;
+        }
+      }
+      setPendingAction(null);
+    } catch (error) {
+      setError(sanitizeError(error));
+    } finally {
+      setUnlockPassword('');
+      setSaving(false);
+    }
+  }
 
   return (
     <section className="section settings-nodekey-section">
-      <div className="bootnode-inline">
-        <h2>
-          引导节点
-          <span className="grandpa-bind-state">
-            {bootnodeCidShortName ?? '未绑定'}
-          </span>
-        </h2>
+      <div className="settings-credential-row">
+        <h2>引导节点</h2>
+        <span className="settings-credential-state">{nodeKey.peerId ? '已设置' : '未设置'}</span>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -64,67 +106,69 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
           disabled={saving}
         />
         <button
+          className="settings-credential-action"
           disabled={saving}
-          onClick={() => {
-            if (!input.trim()) {
-              setBootnodeError('请输入引导节点私钥');
-              return;
-            }
-            setBootnodeError(null);
-            setGrandpaError(null);
-            setPendingAction('bootnode');
-            setUnlockPassword('');
-            setShowPasswordModal(true);
-          }}
+          onClick={() => requestUpload('bootnode', input, '请输入引导节点私钥')}
         >
-          {saving ? '绑定中...' : '绑定身份'}
+          {saving && pendingAction === 'bootnode' ? '绑定中...' : '绑定身份'}
         </button>
       </div>
-      <div className="bootnode-inline grandpa-inline">
-        <h2>
-          最终性节点
-          <span className="grandpa-bind-state">
-            {grandpaCidShortName ?? '未绑定'}
-          </span>
-        </h2>
+      <div className="settings-credential-row">
+        <h2>最终性节点</h2>
+        <span className="settings-credential-state">{grandpaConfigured ? '已设置' : '未设置'}</span>
         <input
           value={grandpaInput}
           onChange={(e) => setGrandpaInput(e.target.value)}
           placeholder="请输入最终性节点私钥"
           type="password"
-          disabled={savingGrandpa}
+          disabled={saving}
         />
         <button
-          disabled={savingGrandpa}
-          onClick={() => {
-            if (!grandpaInput.trim()) {
-              setGrandpaError('请输入最终性节点私钥');
-              return;
-            }
-            setGrandpaError(null);
-            setBootnodeError(null);
-            setPendingAction('grandpa');
-            setUnlockPassword('');
-            setShowPasswordModal(true);
-          }}
+          className="settings-credential-action"
+          disabled={saving}
+          onClick={() => requestUpload('grandpa', grandpaInput, '请输入最终性节点私钥')}
         >
-          {savingGrandpa ? '上传中...' : '上传私钥'}
+          {saving && pendingAction === 'grandpa' ? '上传中...' : '上传私钥'}
         </button>
       </div>
-      {bootnodeError ? <p className="section-inline-error">{bootnodeError}</p> : null}
-      {grandpaError ? <p className="section-inline-error">{grandpaError}</p> : null}
-
-      {showPasswordModal ? (
-        <div
-          className="unlock-modal-mask"
-          onClick={() => {
-            if (!(saving || savingGrandpa)) {
-              setShowPasswordModal(false);
-              setUnlockPassword('');
-              setPendingAction(null);
+      <div className="settings-credential-row">
+        <h2>链上中国主机</h2>
+        <span className="settings-credential-state">
+          {hostKeyStatus && 'configured' in hostKeyStatus
+            ? hostKeyStatus.configured ? '已设置' : '未设置'
+            : '—'}
+        </span>
+        <input
+          value={hostKeyInput}
+          onChange={(e) => setHostKeyInput(e.target.value)}
+          onPaste={(e) => {
+            const pasted = e.clipboardData.getData('text');
+            if (/[\r\n]/.test(pasted)) {
+              // 单行密码框会丢弃换行，直接保留剪贴板中的多行 PEM。
+              e.preventDefault();
+              setHostKeyInput(pasted);
             }
           }}
+          placeholder={HOST_KEY_PLACEHOLDER}
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          disabled={saving}
+        />
+        <button
+          className="settings-credential-action"
+          aria-label="上传链上中国主机私钥"
+          disabled={saving}
+          onClick={() => requestUpload('onchina', hostKeyInput, HOST_KEY_PLACEHOLDER)}
         >
+          {saving && pendingAction === 'onchina' ? '上传中...' : '上传私钥'}
+        </button>
+      </div>
+      {hostKeyStatus && 'error' in hostKeyStatus && <p className="section-inline-error">{hostKeyStatus.error}</p>}
+      {!pendingAction && error && <p className="section-inline-error">{error}</p>}
+
+      {pendingAction && (
+        <div className="unlock-modal-mask" onClick={closePasswordModal}>
           <div className="unlock-modal" onClick={(e) => e.stopPropagation()}>
             <h3>设备密码验证</h3>
             <input
@@ -133,79 +177,18 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
               value={unlockPassword}
               onChange={(e) => setUnlockPassword(e.target.value)}
               placeholder="请输入设备开机密码"
-              disabled={saving || savingGrandpa}
+              disabled={saving}
             />
+            {error && <p className="section-inline-error">{error}</p>}
             <div className="unlock-modal-actions">
-              <button
-                onClick={() => {
-                  setShowPasswordModal(false);
-                  setUnlockPassword('');
-                  setPendingAction(null);
-                }}
-                disabled={saving || savingGrandpa}
-              >
-                取消
-              </button>
-              <button
-                onClick={async () => {
-                  const password = unlockPassword.trim();
-                  if (!password) {
-                    if (pendingAction === 'grandpa') {
-                      setGrandpaError('请输入设备开机密码');
-                    } else {
-                      setBootnodeError('请输入设备开机密码');
-                    }
-                    return;
-                  }
-
-                  if (pendingAction === 'bootnode') {
-                    setSaving(true);
-                    try {
-                      const next = await api.setBootnodeKey(input.trim(), password);
-                      onUpdated(next);
-                      onApplied();
-                      setBootnodeCidShortName(next.cidShortName ?? null);
-                      setInput('');
-                      setShowPasswordModal(false);
-                      setPendingAction(null);
-                      setBootnodeError(null);
-                    } catch (e) {
-                      setBootnodeError(sanitizeError(e));
-                    } finally {
-                      setUnlockPassword('');
-                      setSaving(false);
-                    }
-                    return;
-                  }
-
-                  if (pendingAction === 'grandpa') {
-                    setSavingGrandpa(true);
-                    try {
-                      const next = await api.setGrandpaKey(grandpaInput.trim(), password);
-                      setGrandpaInput('');
-                      setGrandpaCidShortName(next.cidShortName ?? null);
-                      setShowPasswordModal(false);
-                      setPendingAction(null);
-                      setGrandpaError(null);
-                    } catch (e) {
-                      setGrandpaError(sanitizeError(e));
-                    } finally {
-                      setUnlockPassword('');
-                      setSavingGrandpa(false);
-                    }
-                    return;
-                  }
-
-                  setBootnodeError('未选择上传类型，请重新点击上传按钮');
-                }}
-                disabled={saving || savingGrandpa}
-              >
-                {saving || savingGrandpa ? '验证中...' : '确认'}
+              <button onClick={closePasswordModal} disabled={saving}>取消</button>
+              <button onClick={uploadKey} disabled={saving}>
+                {saving ? '验证中...' : '确认'}
               </button>
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </section>
   );
 }

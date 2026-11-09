@@ -111,6 +111,25 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
         return;
     }
     disable_core_dumps();
+    if local.is_none() {
+        let operation = match std::env::args().nth(1).as_deref() {
+            Some("tls-key-status") => Some(crate::tls::host_key_configured().map(|configured| {
+                println!("{}", if configured { "configured" } else { "missing" });
+            })),
+            Some("import-tls-key") if std::env::args().len() == 2 => {
+                Some(crate::tls::import_host_key_from_stdin())
+            }
+            Some("import-tls-key") => Some(Err("HTTPS 私钥只接受标准输入".into())),
+            _ => None,
+        };
+        if let Some(result) = operation {
+            if let Err(error) = result {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+            return;
+        }
+    }
     if local.is_none() && std::env::args().nth(1).as_deref() == Some("authorize-tls") {
         if std::env::args().len() != 2 {
             eprintln!("办证授权只接受主机终端隐藏输入，禁止通过命令参数传递");

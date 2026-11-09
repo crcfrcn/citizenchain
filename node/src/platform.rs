@@ -21,6 +21,7 @@ use nodedesktop::cid::{
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::collections::BTreeSet;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
@@ -32,6 +33,7 @@ use std::time::Duration;
 use std::time::Instant;
 use tauri::AppHandle;
 use tauri::Manager;
+use zeroize::Zeroizing;
 
 // 节点桌面端拉起 / 停止 onchina 控制台子进程。
 //
@@ -125,6 +127,16 @@ fn pg_os_subdir() -> &'static str {
     }
 }
 
+fn bundled_pg_bin_dir(resources: &Path) -> Option<PathBuf> {
+    let path = resources.join("postgres").join(pg_os_subdir()).join("bin");
+    let initdb = if cfg!(windows) {
+        "initdb.exe"
+    } else {
+        "initdb"
+    };
+    path.join(initdb).exists().then_some(path)
+}
+
 /// 把内嵌 PG / 内网 TLS / 前端产物 / china.sqlite / 链 RPC 的路径用环境变量传给 onchina。
 ///
 /// 仅当随包 PostgreSQL 二进制确实存在(打包构建)才开内嵌 PG + HTTPS;
@@ -149,21 +161,18 @@ fn apply_onchina_env(app: &AppHandle, cmd: &mut Command) -> Result<(), String> {
     let Some(res) = app.path().resource_dir().ok() else {
         return Ok(());
     };
-    let pg_bin_dir = res.join("postgres").join(pg_os_subdir()).join("bin");
-    let initdb = pg_bin_dir.join(if cfg!(windows) {
-        "initdb.exe"
-    } else {
-        "initdb"
-    });
-    if !initdb.exists() {
+    let Some(pg_bin_dir) = bundled_pg_bin_dir(&res) else {
         return Ok(());
-    }
+    };
     cmd.env("ONCHINA_CHINA_DB", res.join("china.sqlite"));
     cmd.env(
         "ONCHINA_FRONTEND_DIST",
         res.join("onchina-frontend").join("dist"),
     );
-    cmd.env("ONCHINA_MODULE_DIR", res.join("onchina-bin").join("modules"));
+    cmd.env(
+        "ONCHINA_MODULE_DIR",
+        res.join("onchina-bin").join("modules"),
+    );
     cmd.env("ONCHINA_EMBEDDED_PG", "1");
     cmd.env("ONCHINA_PG_BIN_DIR", &pg_bin_dir);
     if let Ok(base) = nodedesktop::security::app_data_dir(app) {
@@ -175,9 +184,107 @@ fn apply_onchina_env(app: &AppHandle, cmd: &mut Command) -> Result<(), String> {
 /// 数据目录派生的环境变量:PG 数据目录 / TLS 证书目录 / WAL 归档目录(与节点数据同根)。
 fn apply_data_dir_env(base: &Path, cmd: &mut Command) {
     cmd.env("ONCHINA_PG_DATA_DIR", base.join("pgdata"));
-    cmd.env("ONCHINA_TLS_DIR", base.join("onchina-tls"));
+    apply_tls_dir_env(base, cmd);
     // 默认归档到节点数据目录；机房部署可由运维将归档目录指向 NAS。
     cmd.env("ONCHINA_PG_WAL_ARCHIVE_DIR", base.join("pg-wal-archive"));
+}
+
+fn apply_tls_dir_env(base: &Path, cmd: &mut Command) {
+    cmd.env("ONCHINA_TLS_DIR", base.join("onchina-tls"));
+}
+
+fn run_onchina_key_command(
+    app: &AppHandle,
+    action: &str,
+    key: Option<&str>,
+) -> Result<String, String> {
+    let binary = onchina_binary_path(app).ok_or("未找到链上中国平台二进制")?;
+    let mut cmd = Command::new(binary);
+    cmd.arg(action)
+        .stdin(if key.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if app
+        .path()
+        .resource_dir()
+        .ok()
+        .as_deref()
+        .and_then(bundled_pg_bin_dir)
+        .is_some()
+    {
+        apply_tls_dir_env(&nodedesktop::security::app_data_dir(app)?, &mut cmd);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = cmd.spawn().map_err(|_| "启动链上中国密钥工具失败")?;
+    let sent = key.map(|key| {
+        child
+            .stdin
+            .take()
+            .ok_or("无法打开 HTTPS 私钥输入通道")?
+            .write_all(key.as_bytes())
+            .map_err(|_| "发送 HTTPS 私钥失败")
+    });
+    let output = child
+        .wait_with_output()
+        .map_err(|_| "读取链上中国密钥工具结果失败")?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(if detail.trim().is_empty() {
+            "链上中国密钥操作失败".into()
+        } else {
+            detail.trim().into()
+        });
+    }
+    sent.transpose()?;
+    String::from_utf8(output.stdout).map_err(|_| "链上中国密钥工具返回格式无效".into())
+}
+
+#[tauri::command]
+pub(crate) async fn get_onchina_host_key_status(app: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match run_onchina_key_command(&app, "tls-key-status", None)?.trim() {
+            "configured" => Ok(true),
+            "missing" => Ok(false),
+            _ => Err("链上中国主机密钥状态无效".into()),
+        }
+    })
+    .await
+    .map_err(|_| "查询链上中国主机密钥任务失败".to_string())?
+}
+
+#[tauri::command]
+pub(crate) async fn set_onchina_host_key(
+    app: AppHandle,
+    key: String,
+    unlock_password: String,
+) -> Result<(), String> {
+    let key = Zeroizing::new(key);
+    let password = Zeroizing::new(unlock_password);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = nodedesktop::security::append_audit_log(&app, "set_onchina_host_key", "attempt");
+        let unlock = nodedesktop::security::ensure_unlock_password(&password)?;
+        nodecontrol::password::verify_device_login_password(&app, unlock)?;
+        // 与启动共用进程锁，避免首次签发和手动导入同时写入同一私钥。
+        let mut child = ONCHINA_CHILD.lock().map_err(|_| "无法锁定链上中国平台")?;
+        reap_finished_child(&mut child);
+        if child.is_some() {
+            return Err("请关闭链上中国后再上传主机 HTTPS 私钥".into());
+        }
+        run_onchina_key_command(&app, "import-tls-key", Some(&key))?;
+        let _ = nodedesktop::security::append_audit_log(&app, "set_onchina_host_key", "success");
+        Ok(())
+    })
+    .await
+    .map_err(|_| "写入链上中国主机密钥任务失败".to_string())?
 }
 
 /// 清理已经退出的 onchina 子进程句柄,避免状态误判为运行中。

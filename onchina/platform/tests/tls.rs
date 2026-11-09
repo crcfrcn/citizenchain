@@ -165,6 +165,35 @@ fn stable_private_file_key_and_atomic_public_certificate_update() {
 }
 
 #[test]
+fn import_requires_matching_existing_certificate_and_preserves_previous_key_on_failure() {
+    let dir = TestDir::new();
+    let vault = FileVault::new(&dir.0);
+    let pair = KeyPair::generate().unwrap();
+    let pem = pair.serialize_pem();
+    import_host_key(&dir.0, &pem).unwrap();
+    assert_eq!(server_key(&vault).unwrap().as_str(), pem);
+
+    let (ca, ca_key, _) = issuer();
+    let current = now();
+    let chain = certificate(
+        crate::PLATFORM_HOST,
+        &pair,
+        &ca,
+        &ca_key,
+        current - 60,
+        current + 86400,
+    );
+    fs::write(dir.0.join(SERVER_CERT), &chain).unwrap();
+    import_host_key(&dir.0, &pem).unwrap();
+
+    let other = KeyPair::generate().unwrap().serialize_pem();
+    assert!(import_host_key(&dir.0, &other).is_err());
+    assert!(import_host_key(&dir.0, "invalid PEM").is_err());
+    assert_eq!(server_key(&vault).unwrap().as_str(), pem);
+    assert_eq!(fs::read_to_string(dir.0.join(SERVER_CERT)).unwrap(), chain);
+}
+
+#[test]
 fn private_credentials_are_replaced_and_cleaned_in_the_tls_private_directory() {
     let dir = TestDir::new();
     let vault = FileVault::new(&dir.0);

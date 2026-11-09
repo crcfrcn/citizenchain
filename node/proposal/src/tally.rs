@@ -98,8 +98,10 @@ pub(crate) fn fetch_user_vote_status(
     let meta =
         fetch_proposal_meta(proposal_id)?.ok_or_else(|| format!("提案 {proposal_id} 不存在"))?;
 
-    let signer_public_key_bytes =
-        hex::decode(signer_public_key).map_err(|e| format!("公钥解码失败: {e}"))?;
+    let signer_public_key_bytes: [u8; 32] = decode_hex_storage(signer_public_key)
+        .map_err(|e| format!("公钥解码失败: {e}"))?
+        .try_into()
+        .map_err(|_| "投票账户公钥必须为 32 字节".to_string())?;
 
     // 查询内部投票状态（个人账户票或 CID + 岗位码 + 钱包票据）。
     let internal_vote = {

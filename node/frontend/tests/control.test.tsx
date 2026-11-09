@@ -14,7 +14,7 @@ import {shouldShowDesktopUpdateDot} from '../control/updateIndicator';
 it.each(['checking','unavailable','error'] as const)('状态%s不显示新版标记', status => { expect(shouldShowDesktopUpdateDot({status})).toBe(false); });
 it('已发现新版持续显示标记', () => { expect(shouldShowDesktopUpdateDot({status:'available'})).toBe(true); });
 
-import {fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {OtherTabsSection} from '../control/OtherTabsSection';
 vi.mock('../control/LocalDocViewer',()=>({LocalDocViewer:({doc}:{doc:{markdown:string}})=><article>{doc.markdown}</article>}));
 vi.mock('../guard/RuntimeConstitutionViewer',()=>({RuntimeConstitutionViewer:()=>null}));
@@ -98,6 +98,32 @@ it('设置页显示引导节点和最终性节点的标题、私钥占位和空�
   expect(screen.getByText('请输入引导节点私钥')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '上传私钥' }));
   expect(screen.getByText('请输入最终性节点私钥')).toBeTruthy();
+});
+
+it('链上中国主机在设备密码验证后提交完整多行 PEM 并更新设置状态', async () => {
+  mocks.invoke.mockImplementation(async (command: string) => {
+    if (command === 'has_any_activated_admin') return true;
+    if (command === 'get_bootnode_key') return { peerId: 'test-peer-id' };
+    if (command === 'get_grandpa_key') return { cidShortName: null };
+    if (command === 'get_onchina_host_key_status') return false;
+    if (command === 'set_onchina_host_key') return undefined;
+    return null;
+  });
+  render(<SettingsSection desktopUpdateInfo={{ status: 'unavailable', currentVersion: '1.0.0',
+    latestVersion: null, error: null }} onUpdateDesktop={vi.fn()}/>);
+  const heading = await screen.findByRole('heading', { name: '链上中国主机' });
+  const hostRow = within(heading.closest<HTMLElement>('.settings-credential-row')!);
+  await hostRow.findByText('未设置');
+  const field = hostRow.getByPlaceholderText<HTMLInputElement>('请输入链上中国主机HTTPS密钥');
+  const pem = '-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----';
+  fireEvent.paste(field, { clipboardData: { getData: () => pem } });
+  fireEvent.click(hostRow.getByRole('button', { name: '上传链上中国主机私钥' }));
+  expect(mocks.invoke.mock.calls.some(([command]) => command === 'set_onchina_host_key')).toBe(false);
+  fireEvent.change(screen.getByPlaceholderText('请输入设备开机密码'), { target: { value: 'fixture-password' } });
+  fireEvent.click(screen.getByRole('button', { name: '确认' }));
+  await hostRow.findByText('已设置');
+  expect(mocks.invoke).toHaveBeenCalledWith('set_onchina_host_key', { key: pem, unlockPassword: 'fixture-password' });
+  expect(field.value).toBe('');
 });
 it.each(['downloading','ready','installing'] as const)('状态%s保留设置新版标记',status=>{
   expect(shouldShowDesktopUpdateDot({status})).toBe(true);

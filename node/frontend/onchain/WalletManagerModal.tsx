@@ -1,4 +1,4 @@
-import { accountIdToSs58 } from "../client/ss58";
+import { accountIdToSs58, ADDRESS_INPUT_PLACEHOLDER } from "../client/ss58";
 import { sanitizeError } from "../client/tauri";
 import { AddressScanModal } from "../desktop/scanner";
 import { transactionApi as api } from "./api";
@@ -129,7 +129,7 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
           <div className="address-input-row">
             <input
               type="text"
-              placeholder="SS58 地址"
+              placeholder={ADDRESS_INPUT_PLACEHOLDER}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className="wallet-add-input"

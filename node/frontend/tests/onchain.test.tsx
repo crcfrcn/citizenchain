@@ -2,6 +2,7 @@ import { calculateTransferFeeYuan } from "../onchain/fee";
 import { TransferForm } from "../onchain/TransferForm";
 import { TransferSigningFlow } from "../onchain/TransferSigningFlow";
 import { TransactionPanel } from "../onchain/TransactionPanel";
+import { RewardAccountSection } from "../control/RewardAccountSection";
 import { parseAddressQr } from "../client/parseAddressQr";
 import { accountIdToSs58 } from "../client/ss58";
 import type { Wallet } from "../onchain/types";
@@ -28,6 +29,26 @@ vi.mock("../desktop/signing", () => ({
   },
 }));
 vi.mock("../desktop/scanner", () => ({ AddressScanModal: () => null }));
+
+it('矿工收款账户展示截断地址，提交时保留完整以太坊地址', async () => {
+  const accountId = '0x' + '11'.repeat(32);
+  const currentAddress = accountIdToSs58(accountId);
+  const ethereumAddress = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
+  mocks.invoke.mockResolvedValue({ accountId });
+  const onUpdated = vi.fn();
+  render(<RewardAccountSection rewardAccount={{ accountId }} onUpdated={onUpdated} />);
+
+  expect(screen.getByText('已绑定')).toBeTruthy();
+  expect(screen.getByText(`${currentAddress.slice(0, 6)}…${currentAddress.slice(-10)}`).title).toBe(currentAddress);
+  fireEvent.change(screen.getByPlaceholderText('请输入公民链或以太坊地址'), { target: { value: ethereumAddress } });
+  fireEvent.click(screen.getByRole('button', { name: '变更地址' }));
+  fireEvent.change(screen.getByPlaceholderText('请输入设备开机密码'), { target: { value: 'fixture-password' } });
+  fireEvent.click(screen.getAllByRole('button', { name: '变更地址' })[1]);
+  await waitFor(() => expect(onUpdated).toHaveBeenCalledWith({ accountId }));
+  expect(mocks.invoke).toHaveBeenCalledWith('set_reward_account', {
+    ss58Address: ethereumAddress, unlockPassword: 'fixture-password',
+  });
+});
 
 const wallet: Wallet = {
   name: '合成冷钱包', signMode: 'cold',
@@ -75,7 +96,7 @@ describe('现有四档金额和费用', () => {
     '收款地址%s原样交给后端解析，不在前端改写大小写', (address) => {
       const submit = vi.fn();
       render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={submit} />);
-      fireEvent.change(screen.getByPlaceholderText('请输入 公民链SS58地址 或 以太坊0x地址'), { target: { value: ` ${address} ` } });
+      fireEvent.change(screen.getByPlaceholderText('请输入公民链或以太坊地址'), { target: { value: ` ${address} ` } });
       fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '2' } });
       fireEvent.click(screen.getByRole('button', { name: '签名交易' }));
       expect(submit).toHaveBeenCalledExactlyOnceWith(address, 2, '');
@@ -87,7 +108,7 @@ describe('现有四档金额和费用', () => {
       const submit = vi.fn();
       const view = render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={submit} />);
       expect(view.container.querySelector('.transfer-form-balance-label')?.textContent).toBe('钱包余额');
-      fireEvent.change(screen.getByPlaceholderText('请输入 公民链SS58地址 或 以太坊0x地址'), { target: { value: destination } });
+      fireEvent.change(screen.getByPlaceholderText('请输入公民链或以太坊地址'), { target: { value: destination } });
       fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: String(amount) } });
       expect(view.container.querySelector('.transfer-form-summary-line')?.textContent)
         .toContain(fee.toFixed(2));
@@ -99,7 +120,7 @@ describe('现有四档金额和费用', () => {
   it('零金额和超长UTF-8备注不发起签名', () => {
     const submit = vi.fn();
     render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={submit} />);
-    fireEvent.change(screen.getByPlaceholderText('请输入 公民链SS58地址 或 以太坊0x地址'), { target: { value: destination } });
+    fireEvent.change(screen.getByPlaceholderText('请输入公民链或以太坊地址'), { target: { value: destination } });
     fireEvent.click(screen.getByRole('button', { name: '签名交易' }));
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '105' } });
     fireEvent.change(screen.getByPlaceholderText('选填，最多 99 字节'), { target: { value: '中'.repeat(34) } });
@@ -298,7 +319,7 @@ describe('现有确认、扫码与提交', () => {
   it('交易池返回哈希后首页明确显示已提交', async () => {
     const view = render(<TransactionPanel nodeReady />);
     await screen.findByText('1,000.00 元');
-    fireEvent.change(screen.getByPlaceholderText('请输入 公民链SS58地址 或 以太坊0x地址'), { target: { value: destination } });
+    fireEvent.change(screen.getByPlaceholderText('请输入公民链或以太坊地址'), { target: { value: destination } });
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '105' } });
     fireEvent.click(screen.getByRole('button', { name: '签名交易' }));
     fireEvent.click(screen.getByRole('button', { name: '确认转账' }));

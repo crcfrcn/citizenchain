@@ -20,6 +20,9 @@ export const settingsApi = {
     }),
   getBootnodeKey: () => invoke<BootnodeKey>('get_bootnode_key'),
   getGrandpaKey: () => invoke<GrandpaKey>('get_grandpa_key'),
+  getOnChinaHostKeyStatus: () => invoke<boolean>('get_onchina_host_key_status'),
+  setOnChinaHostKey: (key: string, unlockPassword: string) =>
+    invoke<void>('set_onchina_host_key', { key, unlockPassword }),
   setBootnodeKey: (nodeKey: string, unlockPassword: string) =>
     invoke<BootnodeKey>('set_bootnode_key', { nodeKey, unlockPassword }),
   setGrandpaKey: (key: string, unlockPassword: string) =>

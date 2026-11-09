@@ -1,6 +1,6 @@
 import { sanitizeError } from "../client/tauri";
 import { AddressScanModal } from "../desktop/scanner";
-import { accountIdToSs58, normalizeSs58Address } from "../client/ss58";
+import { accountIdToSs58, ADDRESS_INPUT_PLACEHOLDER, normalizeSs58Address } from "../client/ss58";
 import { settingsApi as api } from "./api";
 import type { RewardAccount } from "./types";
 import scanIcon from "../../../icons/scan.svg?url";
@@ -15,7 +15,7 @@ type BindStatus = null | 'binding' | 'success' | 'failed' | 'timeout';
 
 /** 管理奖励账户；账户 ID 是唯一标识，SS58 地址仅用于输入与展示。 */
 export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
-  const [input, setInput] = useState(rewardAccount.accountId ? accountIdToSs58(rewardAccount.accountId) : '');
+  const [input, setInput] = useState('');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [unlockPassword, setUnlockPassword] = useState('');
   const [pendingAddress, setPendingAddress] = useState<string | null>(null);
@@ -23,7 +23,8 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [bindStatus, setBindStatus] = useState<BindStatus>(null);
   const [showAddressScan, setShowAddressScan] = useState(false);
-  const hasBoundAddress = Boolean(rewardAccount.accountId);
+  const boundAddress = rewardAccount.accountId ? accountIdToSs58(rewardAccount.accountId) : null;
+  const hasBoundAddress = boundAddress !== null;
   const actionText = hasBoundAddress ? '变更地址' : '绑定地址';
 
   // 监听后台链上绑定结果事件（仅在用户主动发起绑定后才响应）
@@ -76,7 +77,7 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
     try {
       const next = await api.setRewardAccount(pendingAddress, password);
       onUpdated(next);
-      setInput(next.accountId ? accountIdToSs58(next.accountId) : '');
+      setInput('');
       setShowPasswordModal(false);
       setPendingAddress(null);
       setError(null);
@@ -97,26 +98,33 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
 
   return (
     <section className="section settings-reward-account-section">
-      <div className="reward-account-inline">
-        <span className="reward-account-current">
-          矿工收款账户
-          <span className="reward-account-bind-state">{rewardAccount.accountId ? accountIdToSs58(rewardAccount.accountId) : '未绑定'}</span>
-        </span>
+      <div className="settings-credential-row">
+        <h2>矿工收款账户</h2>
+        <span className="settings-credential-state">{hasBoundAddress ? '已绑定' : '未绑定'}</span>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="请输入矿工收款账户的 SS58 地址"
+          placeholder={ADDRESS_INPUT_PLACEHOLDER}
           disabled={saving}
         />
         <button type="button" className="scan-icon-btn" onClick={() => setShowAddressScan(true)} disabled={saving} title="扫码填入">
           <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url("${scanIcon}")`,WebkitMaskImage:`url("${scanIcon}")`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
         </button>
+        {boundAddress && (
+          <span className="settings-credential-address" title={boundAddress}>
+            {boundAddress.length > 16 ? `${boundAddress.slice(0, 6)}…${boundAddress.slice(-10)}` : boundAddress}
+          </span>
+        )}
         <button
+          className="settings-credential-action"
           disabled={saving}
           onClick={() => {
             let nextAddress = '';
             try {
-              nextAddress = normalizeSs58Address(input, '请输入矿工收款账户的 SS58 地址');
+              const address = input.trim();
+              nextAddress = address.startsWith('0x')
+                ? address
+                : normalizeSs58Address(address, ADDRESS_INPUT_PLACEHOLDER);
             } catch (e) {
               setError(sanitizeError(e));
               return;

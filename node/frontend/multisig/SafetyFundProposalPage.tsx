@@ -1,5 +1,5 @@
 import { sanitizeError } from "../client/tauri";
-import { accountIdToSs58 } from "../client/ss58";
+import { accountIdToSs58, ADDRESS_INPUT_PLACEHOLDER } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
 import { TransferProposalDialog, type TransferProposalStep } from "./TransferProposalDialog";
 import { AddressScanModal } from "../desktop/scanner";
@@ -56,7 +56,7 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
 
   const validateForm = (): string | null => {
     if (!selectedSigner) return '请选择管理员账户';
-    if (!beneficiary.trim()) return '请输入收款地址';
+    if (!beneficiary.trim()) return ADDRESS_INPUT_PLACEHOLDER;
     const amount = parseFloat(amountYuan.replace(/,/g, ''));
     if (isNaN(amount) || amount < 1.11) return '转账金额不能低于 1.11 元';
     const remarkBytes = new TextEncoder().encode(remark);
@@ -179,7 +179,7 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
               <input id="transfer-recipient"
                 type="text" value={beneficiary}
                 onChange={(e) => setBeneficiary(e.target.value)}
-                placeholder="请输入公民链 SS58 地址或以太坊 0x 地址"
+                placeholder={ADDRESS_INPUT_PLACEHOLDER}
                 disabled={submitting}
               />
               <button type="button" className="scan-icon-btn" onClick={() => setShowAddressScan(true)} disabled={submitting} title="扫码填入">

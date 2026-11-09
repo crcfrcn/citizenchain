@@ -20,13 +20,15 @@ type Props = {
   onBack: () => void;
 };
 
+type VoteStatuses = Partial<Record<string, UserVoteStatus>>;
+
 export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSigners, cidNumber: externalCidNumber, onBack }: Props) {
   const [info, setInfo] = useState<ProposalFullInfo | null>(null);
   const [institution, setInstitution] = useState<InstitutionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [votingSigner, setVotingSigner] = useState<AdminSignerMatch | null>(null);
-  const [voteStatuses, setVoteStatuses] = useState<Record<string, UserVoteStatus>>({});
+  const [voteStatuses, setVoteStatuses] = useState<VoteStatuses>({});
   const [detectedAdminSigners, setDetectedAdminSigners] = useState<AdminSignerMatch[]>([]);
   const [resolvedCidNumber, setResolvedCidNumber] = useState<string | undefined>(externalCidNumber);
   // 投票中（已提交但未确认上链）的签名账户 ID → 提交时间
@@ -51,17 +53,19 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
         .filter((subject) => subject.cidNumber === sid)
         .map((subject) => subject.roleCode),
     );
-    const results: Record<string, UserVoteStatus> = {};
+    const results: VoteStatuses = {};
     await Promise.all(
       admins.flatMap((admin) => {
         const assignments = admin.assignments.filter((assignment) =>
           eligibleRoleCodes.has(assignment.roleCode));
         return assignments.map(async (assignment) => {
           try {
-            const roleCode = assignment?.roleCode;
+            const { roleCode } = assignment;
             const vs = await proposalApi.checkVoteStatus(pid, admin.accountId, sid, roleCode);
-            results[`${admin.accountId}:${roleCode ?? ''}`] = vs;
-          } catch (_) {}
+            results[`${admin.accountId}:${roleCode}`] = vs;
+          } catch (_) {
+            // 查询失败的岗位没有结果，只有链上确认未投票的岗位才能发起签名。
+          }
         });
       }),
     );
@@ -270,12 +274,15 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
               const voted = hasVoted && assignmentVotes.every((vote) => vote === true);
               const hasPendingTicket = eligibleAssignments.some((assignment) =>
                 pendingVotes.has(`${accountId}:${assignment.roleCode}`));
-              const hasAvailableTicket = eligibleAssignments.some((assignment) => {
+              const availableAssignments = eligibleAssignments.filter((assignment) => {
                 const ticketKey = `${accountId}:${assignment.roleCode}`;
-                return voteStatuses[ticketKey]?.internalVote == null &&
-                  voteStatuses[ticketKey]?.jointVote == null && !pendingVotes.has(ticketKey);
+                const status = voteStatuses[ticketKey];
+                return status != null && status.internalVote == null &&
+                  status.jointVote == null && !pendingVotes.has(ticketKey);
               });
-              const canVote = localSigner && meta.status === 0 && hasAvailableTicket;
+              const hasUnknownStatus = eligibleAssignments.some((assignment) =>
+                voteStatuses[`${accountId}:${assignment.roleCode}`] == null);
+              const canVote = localSigner && meta.status === 0 && availableAssignments.length > 0;
 
               return (
                 <InstitutionAssignmentCard
@@ -289,11 +296,7 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
                     canVote ? (
                       <button className="vote-button-inline" onClick={() => setVotingSigner({
                         ...localSigner,
-                        roleAssignments: eligibleAssignments.filter((assignment) => {
-                          const ticketKey = `${accountId}:${assignment.roleCode}`;
-                          return voteStatuses[ticketKey]?.internalVote == null &&
-                            voteStatuses[ticketKey]?.jointVote == null && !pendingVotes.has(ticketKey);
-                        }),
+                        roleAssignments: availableAssignments,
                       })}>
                         投票
                       </button>
@@ -304,7 +307,9 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
                         {voted ? '全部赞成' : `已投 ${votedCount}/${eligibleAssignments.length}`}
                       </span>
                     ) : (
-                      <span className="vote-result-tag vote-none-tag">未投票</span>
+                      <span className="vote-result-tag vote-none-tag">
+                        {hasUnknownStatus ? '投票状态未知' : '未投票'}
+                      </span>
                     )
                   }
                 />

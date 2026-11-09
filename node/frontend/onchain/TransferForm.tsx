@@ -1,3 +1,4 @@
+import { ADDRESS_INPUT_PLACEHOLDER } from "../client/ss58";
 import { AddressScanModal } from "../desktop/scanner";
 import { calculateTransferFeeYuan } from "./fee";
 import type { Wallet } from "./types";
@@ -120,7 +121,7 @@ export function TransferForm({ activeWallet, nodeReady = true, balance, balanceE
             type="text"
             value={toAddress}
             onChange={(e) => setToAddress(e.target.value)}
-            placeholder="请输入 公民链SS58地址 或 以太坊0x地址"
+            placeholder={ADDRESS_INPUT_PLACEHOLDER}
             disabled={formDisabled}
           />
           <button type="button" className="scan-icon-btn" onClick={() => setShowScan(true)} disabled={formDisabled} title="扫码填入">

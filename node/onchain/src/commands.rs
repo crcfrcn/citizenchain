@@ -15,8 +15,11 @@ use crate::transfer::validate_transfer_remark;
 use crate::transfer::wallet_store_for_frontend;
 use crate::types::TransferSignRequestResult;
 use crate::types::TransferSubmitResult;
+use std::sync::Mutex;
 
 // ──── 钱包管理命令 ────
+
+static WALLET_UPDATE: Mutex<()> = Mutex::new(());
 
 #[tauri::command]
 pub fn get_wallets(app: tauri::AppHandle) -> Result<WalletStore, String> {
@@ -25,7 +28,7 @@ pub fn get_wallets(app: tauri::AppHandle) -> Result<WalletStore, String> {
 }
 
 #[tauri::command]
-pub fn add_wallet(
+pub async fn add_wallet(
     app: tauri::AppHandle,
     name: String,
     ss58_address: String,
@@ -34,9 +37,14 @@ pub fn add_wallet(
     if name.is_empty() {
         return Err("钱包名称不能为空".to_string());
     }
-    let account_id_bytes = nodeclient::signing::account_id_from_ss58_address(ss58_address.trim())?;
+    let account_id_bytes = tauri::async_runtime::spawn_blocking(move || {
+        nodeclient::signing::resolve_recipient_account_id(&ss58_address)
+    })
+    .await
+    .map_err(|_| "钱包地址解析任务失败".to_string())??;
     let account_id = format!("0x{}", hex::encode(account_id_bytes));
 
+    let _update = WALLET_UPDATE.lock().map_err(|_| "钱包配置正在更新")?;
     let mut store = crate::wallet::load(&app)?;
     validate_persisted_store(&store)?;
 
@@ -72,6 +80,7 @@ pub fn add_wallet(
 
 #[tauri::command]
 pub fn remove_wallet(app: tauri::AppHandle, account_id: String) -> Result<WalletStore, String> {
+    let _update = WALLET_UPDATE.lock().map_err(|_| "钱包配置正在更新")?;
     let account_id = normalize_account_id(&account_id)?;
     let miner_wallet = local_miner_wallet(&app)?;
     if miner_wallet
@@ -103,6 +112,7 @@ pub fn remove_wallet(app: tauri::AppHandle, account_id: String) -> Result<Wallet
 
 #[tauri::command]
 pub fn set_active_wallet(app: tauri::AppHandle, account_id: String) -> Result<WalletStore, String> {
+    let _update = WALLET_UPDATE.lock().map_err(|_| "钱包配置正在更新")?;
     let account_id = normalize_account_id(&account_id)?;
     let mut store = crate::wallet::load(&app)?;
     validate_persisted_store(&store)?;

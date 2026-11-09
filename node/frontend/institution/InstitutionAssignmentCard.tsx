@@ -73,9 +73,7 @@ export function InstitutionAssignmentCard({
       {compactVote ? (
         <div className="institution-assignment-account">
           <div className="institution-assignment-name-term">
-            <span className="institution-assignment-compact-name" aria-label={`管理员姓名：${personName || '未填写'}`}>
-              {personName || '—'}
-            </span>
+            <AssignmentField label="管理员姓名" value={personName.trim() || '未填写'} />
             <span className="institution-assignment-compact-term">任期：{compactTerm.replace(/ ~ /g, '–')}</span>
           </div>
           <AssignmentField label="账户余额" value={balanceText} />

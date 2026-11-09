@@ -213,42 +213,93 @@ fn validate_material(
     let start = parsed.validity().not_before.timestamp();
     let end = parsed.validity().not_after.timestamp();
     let renew_at = end - ((end - start) / 3).max(3600);
-    let key =
-        PrivateKeyDer::from_pem_slice(key.as_bytes()).map_err(|_| "私密文件中的 HTTPS 私钥无效")?;
-    let config =
-        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .map_err(|_| "HTTPS 协议配置失败")?
-            .with_no_client_auth()
-            .with_single_cert(certificates, key)
-            .map_err(|_| "HTTPS 证书与系统私钥不匹配")?;
     Ok(Material {
         certificate,
-        config: Arc::new(config),
+        config: Arc::new(server_config(certificates, key)?),
         renew_at,
         expires_at: end,
     })
 }
+
+fn server_config(
+    certificates: Vec<CertificateDer<'static>>,
+    key: &str,
+) -> Result<ServerConfig, String> {
+    let key =
+        PrivateKeyDer::from_pem_slice(key.as_bytes()).map_err(|_| "私密文件中的 HTTPS 私钥无效")?;
+    ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .map_err(|_| "HTTPS 协议配置失败")?
+        .with_no_client_auth()
+        .with_single_cert(certificates, key)
+        .map_err(|_| "HTTPS 证书与私钥不匹配".into())
+}
 fn now() -> i64 {
     time::OffsetDateTime::now_utc().unix_timestamp()
 }
-fn load_material(
-    dir: &Path,
-    vault: &dyn Vault,
-    roots: Arc<RootCertStore>,
-) -> Result<Material, String> {
+
+fn read_certificate(dir: &Path) -> Result<Option<String>, String> {
     let path = dir.join(SERVER_CERT);
-    let metadata = fs::symlink_metadata(&path).map_err(|_| "公信 HTTPS 证书尚未准备")?;
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("读取公信 HTTPS 证书失败".into()),
+    };
     if !metadata.is_file()
         || metadata.file_type().is_symlink()
         || metadata.len() > CERTIFICATE_LIMIT
     {
         return Err("公信 HTTPS 证书文件无效".into());
     }
-    let certificate = fs::read_to_string(&path).map_err(|_| "读取公信 HTTPS 证书失败")?;
+    fs::read_to_string(path)
+        .map(Some)
+        .map_err(|_| "读取公信 HTTPS 证书失败".into())
+}
+
+fn load_material(
+    dir: &Path,
+    vault: &dyn Vault,
+    roots: Arc<RootCertStore>,
+) -> Result<Material, String> {
+    let certificate = read_certificate(dir)?.ok_or("公信 HTTPS 证书尚未准备")?;
     let key = vault.get(SERVER_KEY)?.ok_or("私密文件中缺少 HTTPS 私钥")?;
     validate_material(certificate, &key, roots, now())
 }
+
+pub(crate) fn host_key_configured() -> Result<bool, String> {
+    let Some(key) = FileVault::new(&tls_dir()?).get(SERVER_KEY)? else {
+        return Ok(false);
+    };
+    KeyPair::from_pem(&key).map_err(|_| "已保存的链上中国主机 HTTPS 私钥无效")?;
+    Ok(true)
+}
+
+pub(crate) fn import_host_key_from_stdin() -> Result<(), String> {
+    let mut key = Zeroizing::new(String::new());
+    std::io::stdin()
+        .lock()
+        .take(PRIVATE_ENTRY_LIMIT + 1)
+        .read_to_string(&mut key)
+        .map_err(|_| "读取链上中国主机 HTTPS 私钥失败")?;
+    import_host_key(&tls_dir()?, &key)
+}
+
+fn import_host_key(dir: &Path, key: &str) -> Result<(), String> {
+    if key.len() as u64 > PRIVATE_ENTRY_LIMIT {
+        return Err("链上中国主机 HTTPS 私钥超出长度限制".into());
+    }
+    let pair = KeyPair::from_pem(key.trim()).map_err(|_| "请输入有效的 PEM 格式 HTTPS 私钥")?;
+    let key = Zeroizing::new(pair.serialize_pem());
+    if let Some(certificate) = read_certificate(dir)? {
+        let certificates = CertificateDer::pem_slice_iter(certificate.as_bytes())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "HTTPS 证书链格式无效")?;
+        // 导入仅核对证书与私钥是否匹配，公信链、域名及有效期在启动时继续校验。
+        server_config(certificates, &key)?;
+    }
+    FileVault::new(dir).set(SERVER_KEY, &key)
+}
+
 fn server_key(vault: &dyn Vault) -> Result<Zeroizing<String>, String> {
     if let Some(key) = vault.get(SERVER_KEY)? {
         KeyPair::from_pem(&key).map_err(|_| "私密文件中的 HTTPS 私钥损坏，拒绝覆盖")?;
