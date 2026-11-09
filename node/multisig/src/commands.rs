@@ -59,7 +59,7 @@ pub async fn submit_multisig_transfer(
     tauri::async_runtime::spawn_blocking(move || {
         let amount_fen = (amount_yuan * 100.0).round() as u128;
         let beneficiary_bytes =
-            nodeclient::signing::account_id_from_ss58_address(&beneficiary_ss58_address)?;
+            nodeclient::signing::resolve_recipient_account_id(&beneficiary_ss58_address)?;
         let remark_bytes = remark.as_bytes();
         let institution_account_id =
             crate::account::institution_account_from_id(&institution_account_id)?;

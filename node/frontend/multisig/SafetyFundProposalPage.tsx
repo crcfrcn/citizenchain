@@ -174,12 +174,12 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
           </div>
 
           <div className="wallet-form-field">
-            <label htmlFor="transfer-recipient">收款地址（SS58）</label>
+            <label htmlFor="transfer-recipient">收款地址（SS58 或以太坊）</label>
             <div className="address-input-row">
               <input id="transfer-recipient"
                 type="text" value={beneficiary}
                 onChange={(e) => setBeneficiary(e.target.value)}
-                placeholder="输入 SS58 格式收款地址"
+                placeholder="请输入公民链 SS58 地址或以太坊 0x 地址"
                 disabled={submitting}
               />
               <button type="button" className="scan-icon-btn" onClick={() => setShowAddressScan(true)} disabled={submitting} title="扫码填入">

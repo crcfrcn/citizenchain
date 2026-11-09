@@ -26,7 +26,7 @@ pub(crate) fn build_propose_transfer_sign_request(
     }
 
     let beneficiary_bytes =
-        nodeclient::signing::account_id_from_ss58_address(beneficiary_ss58_address)?;
+        nodeclient::signing::resolve_recipient_account_id(beneficiary_ss58_address)?;
 
     let institution_account_id =
         crate::account::institution_account_from_id(institution_account_id)?;
@@ -125,7 +125,7 @@ pub(crate) fn build_safety_fund_call_data(
         ));
     }
     let beneficiary_bytes =
-        nodeclient::signing::account_id_from_ss58_address(beneficiary_ss58_address)?;
+        nodeclient::signing::resolve_recipient_account_id(beneficiary_ss58_address)?;
     let institution_account_id =
         crate::account::institution_account_from_id(institution_account_id)?;
     let actor_cid = encode_actor_cid(actor_cid_number)?;

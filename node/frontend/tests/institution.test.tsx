@@ -76,6 +76,7 @@ const feeAccountId = accountId('02');
 const safetyFundAccountId = accountId('03');
 const signerAccountId = accountId('06');
 const receiver = accountIdToSs58(accountId('07'));
+const ethereumReceiver = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
 const transferCid = 'TEST-TRANSFER-CID';
 const powParams = {
   paramsVersion: 1, algorithmVersion: 1, targetBlockTimeMs: 1000,
@@ -137,12 +138,22 @@ function installDialogMock() {
   };
 }
 
-it.each([
+const transferCases = [
   { button: '转账', title: '发起转账提案', orgType: 2, source: mainAccountId, call: 'transfer' },
   { button: '两和基金转账', title: '两和基金转账提案', orgType: 0, source: heAccountId, call: 'transfer' },
   { button: '安全基金转账', title: '安全基金转账提案', orgType: 0, source: safetyFundAccountId, call: 'safety_fund' },
   { button: '手续费划转', title: '手续费划转提案', orgType: 1, source: feeAccountId, call: 'sweep' },
-])('$button 在原机构详情上方弹出，并使用对应账户与签名调用', async ({ button, title, orgType, source, call }) => {
+].flatMap((testCase) => {
+  const addresses: { addressKind: string; recipient: string | null }[] = testCase.call === 'sweep'
+    ? [{ addressKind: '固定主账户', recipient: null }]
+    : [
+      { addressKind: 'SS58', recipient: receiver },
+      { addressKind: '以太坊', recipient: ethereumReceiver },
+    ];
+  return addresses.map((address) => ({ ...testCase, ...address }));
+});
+
+it.each(transferCases)('$button 在原机构详情上方弹出，使用 $addressKind 收款地址签名和提交', async ({ button, title, orgType, source, call, recipient }) => {
   const restoreDialog = installDialogMock();
   mockTransferInstitution(orgType, true);
   const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
@@ -168,20 +179,20 @@ it.each([
     const role = orgType === 2 ? 'DIRECTOR' : 'COMMITTEE_MEMBER';
     expect(signingPanel.queryByLabelText('提案发起岗位码')).toBeNull();
     fireEvent.change(signingPanel.getByLabelText(/金额/), { target: { value: '10.00' } });
-    if (call === 'sweep') {
+    if (recipient === null) {
       const destination = signingPanel.getByLabelText('收款地址（本机构主账户）') as HTMLInputElement;
       expect(destination.readOnly).toBe(true);
       expect(destination.value).toBe(accountIdToSs58(mainAccountId));
       expect(signingPanel.getByText(/至少保留 1\.11 元.*80%/)).toBeTruthy();
     } else {
-      fireEvent.change(signingPanel.getByLabelText('收款地址（SS58）'), { target: { value: receiver } });
+      fireEvent.change(signingPanel.getByLabelText('收款地址（SS58 或以太坊）'), { target: { value: recipient } });
     }
     fireEvent.click(signingPanel.getByRole('button', { name: '签名' }));
     const scanner = await signingPanel.findByRole('button', { name: '扫描签名响应' });
     expect(screen.getByRole('dialog', { name: title })).toBe(signingDialog);
     const requestArgs = {
       actorCidNumber: transferCid, proposerRoleCode: role, institutionAccountId: source, amountYuan: 10,
-      ...(call === 'sweep' ? {} : { beneficiarySs58Address: receiver, remark: '' }),
+      ...(recipient === null ? {} : { beneficiarySs58Address: recipient, remark: '' }),
     };
     expect(mocks.invoke).toHaveBeenCalledWith(`build_multisig_${call}_request`, { signerPublicKey: signerAccountId, ...requestArgs });
     fireEvent.click(scanner);
