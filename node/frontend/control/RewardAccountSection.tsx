@@ -99,8 +99,10 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
   return (
     <section className="section settings-reward-account-section">
       <div className="settings-credential-row">
-        <h2>矿工收款账户</h2>
-        <span className="settings-credential-state">{hasBoundAddress ? '已绑定' : '未绑定'}</span>
+        <div className="settings-credential-label">
+          <h2>矿工收款账户</h2>
+          <span className="settings-credential-state">{hasBoundAddress ? '已绑定' : '未绑定'}</span>
+        </div>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -112,7 +114,7 @@ export function RewardAccountSection({ rewardAccount, onUpdated }: Props) {
         </button>
         {boundAddress && (
           <span className="settings-credential-address" title={boundAddress}>
-            {boundAddress.length > 16 ? `${boundAddress.slice(0, 6)}…${boundAddress.slice(-10)}` : boundAddress}
+            {boundAddress.length > 24 ? `${boundAddress.slice(0, 6)}........${boundAddress.slice(-10)}` : boundAddress}
           </span>
         )}
         <button

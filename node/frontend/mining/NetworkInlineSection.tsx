@@ -1,13 +1,7 @@
 import { sanitizeError } from "../client/tauri";
 import { miningApi as api } from "./api";
 import type { NetworkOverview } from "./types";
-// 挖矿页内嵌的网络统计面板：治理节点、在线节点两张并排卡片。
-// 位置：由 MiningDashboardSection 注入在收益看板与出块记录之间。
-// 设计决策：
-//   - 治理节点：国家储委会 ｜ 省储委会 ｜ 省储行
-//   - 在线节点：在线节点 ｜ 全节点 ｜ 轻节点
-// 数据轮询：独立 5 秒间隔，与 MiningDashboardSection 的 10 秒收益轮询解耦，
-// 因为网络拓扑变化频率高于收益刷新频率。
+// 挖矿页顶部的网络统计独立于收益数据，每 5 秒刷新。
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function NetworkInlineSection() {
@@ -59,49 +53,25 @@ export function NetworkInlineSection() {
     };
   }, [loadNetwork]);
 
-  // 两张卡片共用三列结构：每列一个数字和对应节点类型。
-  const governanceCols: Array<{ name: string; value: number }> = [
+  const nodes = [
+    { name: '在线节点', value: network.onlineNodes },
     { name: '国家储委会', value: network.nrcNodes },
     { name: '省储委会', value: network.prcNodes },
     { name: '省储行', value: network.prbNodes },
-  ];
-  const onlineCols: Array<{ name: string; value: number }> = [
-    { name: '在线节点', value: network.onlineNodes },
     { name: '全节点', value: network.fullNodes },
     { name: '轻节点', value: network.lightNodes },
   ];
 
   return (
-    <section className="section network-inline-section">
-      <h2>网络</h2>
-      <div className="network-inline-grid">
-        <div className="metric-card">
-          <div className="metric-label">治理节点</div>
-          <div className="network-node-grid">
-            {governanceCols.map((col) => (
-              <div key={col.name} className="network-node-col">
-                <div className="network-node-value">
-                  {loading ? '—' : col.value}
-                </div>
-                <div className="network-node-name">{col.name}</div>
-              </div>
-            ))}
+    <section aria-label="网络节点统计">
+      <dl className="network-node-grid">
+        {nodes.map(({ name, value }) => (
+          <div key={name} className="network-node-item">
+            <dt className="network-node-name">{name}</dt>
+            <dd className="network-node-value">{loading ? '—' : value}</dd>
           </div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">在线节点</div>
-          <div className="network-node-grid">
-            {onlineCols.map((col) => (
-              <div key={col.name} className="network-node-col">
-                <div className="network-node-value">
-                  {loading ? '—' : col.value}
-                </div>
-                <div className="network-node-name">{col.name}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+        ))}
+      </dl>
       {network.warning ? <pre className="warning">{network.warning}</pre> : null}
       {error ? <pre className="error">{error}</pre> : null}
     </section>

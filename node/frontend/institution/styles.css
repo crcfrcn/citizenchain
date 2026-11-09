@@ -658,19 +658,27 @@ body:has(.institution-transfer-dialog[open]) {
 
 .proposal-detail-page .proposal-transfer-field {
   display: grid;
-  gap: 3px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .proposal-detail-page .proposal-transfer-label {
   color: var(--text-secondary);
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.proposal-detail-page .proposal-transfer-value {
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .proposal-detail-page .proposal-transfer-source { grid-area: source; }
 .proposal-detail-page .proposal-transfer-destination { grid-area: destination; }
-.proposal-detail-page .proposal-transfer-remark { grid-area: remark; white-space: pre-wrap; }
+.proposal-detail-page .proposal-transfer-remark { grid-area: remark; }
+.proposal-detail-page .proposal-transfer-remark .proposal-transfer-value { white-space: pre-wrap; }
 .proposal-detail-page .proposal-transfer-proposer { grid-area: proposer; }
 
 .proposal-detail-page .proposal-detail-admin-grid {
@@ -680,8 +688,8 @@ body:has(.institution-transfer-dialog[open]) {
 
 .proposal-detail-page .institution-assignment-compact-vote {
   align-content: start;
-  gap: 5px;
-  padding: 10px 12px;
+  gap: 9px;
+  padding: 10px 12px 14px;
 }
 
 .proposal-detail-page .institution-assignment-compact-vote .institution-assignment-top {
@@ -700,13 +708,28 @@ body:has(.institution-transfer-dialog[open]) {
 }
 
 .proposal-detail-page .institution-assignment-compact-vote .institution-assignment-account {
-  gap: 4px;
+  gap: 3px;
+}
+
+.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-field,
+.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-value {
+  min-height: 0;
+}
+
+.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-label,
+.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-value,
+.proposal-detail-page .institution-assignment-compact-term {
+  line-height: 18px;
+}
+
+.proposal-detail-page .institution-assignment-compact-vote .vote-result-tag {
+  white-space: nowrap;
 }
 
 .proposal-detail-page .institution-assignment-name-term {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: baseline;
+  align-items: start;
   gap: 12px;
 }
 

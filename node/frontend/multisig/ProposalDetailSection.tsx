@@ -26,24 +26,24 @@ function TransferDetailCard({
       <div className="proposal-transfer-route">
         <div className="proposal-transfer-field proposal-transfer-source">
           <span className="proposal-transfer-label">转出账户</span>
-          <code>{accountIdToSs58(fundingAccountId)}</code>
+          <code className="proposal-transfer-value">{accountIdToSs58(fundingAccountId)}</code>
         </div>
         <div className="proposal-transfer-field proposal-transfer-destination">
           <span className="proposal-transfer-label">收款账户</span>
           {beneficiaryAccountId
-            ? <code>{accountIdToSs58(beneficiaryAccountId)}</code>
-            : <span>本机构主账户</span>}
+            ? <code className="proposal-transfer-value">{accountIdToSs58(beneficiaryAccountId)}</code>
+            : <span className="proposal-transfer-value">本机构主账户</span>}
         </div>
         {remark != null && (
           <div className="proposal-transfer-field proposal-transfer-remark">
             <span className="proposal-transfer-label">备注</span>
-            <span>{remark || '—'}</span>
+            <span className="proposal-transfer-value">{remark || '—'}</span>
           </div>
         )}
         {proposerAccountId && (
           <div className="proposal-transfer-field proposal-transfer-proposer">
             <span className="proposal-transfer-label">发起人</span>
-            <code>{accountIdToSs58(proposerAccountId)}</code>
+            <code className="proposal-transfer-value">{accountIdToSs58(proposerAccountId)}</code>
           </div>
         )}
       </div>

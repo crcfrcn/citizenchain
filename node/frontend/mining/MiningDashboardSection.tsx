@@ -66,69 +66,32 @@ export function MiningDashboardSection() {
     };
   }, [loadMining]);
 
+  const incomeCards = [
+    { label: '累计收益额', amount: mining.income.totalIncome },
+    { label: '手续费收益', amount: mining.income.totalFeeIncome },
+    { label: '铸块奖励', amount: mining.income.totalRewardIncome },
+    { label: '今日收益', amount: mining.income.todayIncome },
+  ];
+
   return (
     <>
+      <NetworkInlineSection />
+
       <section className="section mining-section">
         <h2>挖矿收益</h2>
         <div className="mining-income-grid">
-          <div className="metric-card">
-            <div className="metric-label">实际到账收益总额</div>
-            <div className="metric-value">
-              {loading ? (
-                '加载中...'
-              ) : (
-                <>
-                  {formatIncomeDisplay(mining.income.totalIncome)}元
-                  <span className="metric-value-currency">（公民币）</span>
-                </>
-              )}
+          {incomeCards.map(({ label, amount }) => (
+            <div key={label} className="metric-card">
+              <div className="metric-label">{label}</div>
+              <div className="metric-value">
+                {loading ? '加载中...' : `${formatIncomeDisplay(amount)}元`}
+              </div>
             </div>
-          </div>
-          <div className="metric-card">
-            <div className="metric-label">累计手续费到账收益</div>
-            <div className="metric-value">
-              {loading ? (
-                '加载中...'
-              ) : (
-                <>
-                  {formatIncomeDisplay(mining.income.totalFeeIncome)}元
-                  <span className="metric-value-currency">（公民币）</span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="metric-card">
-            <div className="metric-label">累计铸块奖励到账</div>
-            <div className="metric-value">
-              {loading ? (
-                '加载中...'
-              ) : (
-                <>
-                  {formatIncomeDisplay(mining.income.totalRewardIncome)}元
-                  <span className="metric-value-currency">（公民币）</span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="metric-card">
-            <div className="metric-label">今日实际到账收益</div>
-            <div className="metric-value">
-              {loading ? (
-                '加载中...'
-              ) : (
-                <>
-                  {formatIncomeDisplay(mining.income.todayIncome)}元
-                  <span className="metric-value-currency">（公民币）</span>
-                </>
-              )}
-            </div>
-          </div>
+          ))}
         </div>
       </section>
 
-      <NetworkInlineSection />
-
-      <section className="section">
+      <section className="section mining-records-section">
         <h2>出块记录</h2>
         <div className="table-wrap">
           <table className="mining-table">

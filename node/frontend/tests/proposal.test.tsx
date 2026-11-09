@@ -53,8 +53,8 @@ it.each([0, 1])('提案类型 %i 只允许链上确认未投票的管理员岗�
 
   const card = (accountId: string) =>
     within(screen.getByText(accountIdToSs58(accountId)).closest<HTMLElement>('.institution-assignment-card')!);
-  expect(card(approved).getByText('全部赞成')).toBeTruthy();
-  expect(card(rejected).getByText('已投 1/1')).toBeTruthy();
+  expect(card(approved).getByText('赞成').classList.contains('vote-yes-tag')).toBe(true);
+  expect(card(rejected).getByText('反对').classList.contains('vote-no-tag')).toBe(true);
   expect(card(failed).getByText('投票状态未知')).toBeTruthy();
   expect(card(unvoted).getByRole('button', { name: '投票' })).toBeTruthy();
   expect(screen.getAllByRole('button', { name: '投票' })).toHaveLength(1);

@@ -39,7 +39,7 @@ it('矿工收款账户展示截断地址，提交时保留完整以太坊地址'
   render(<RewardAccountSection rewardAccount={{ accountId }} onUpdated={onUpdated} />);
 
   expect(screen.getByText('已绑定')).toBeTruthy();
-  expect(screen.getByText(`${currentAddress.slice(0, 6)}…${currentAddress.slice(-10)}`).title).toBe(currentAddress);
+  expect(screen.getByText(`${currentAddress.slice(0, 6)}........${currentAddress.slice(-10)}`).title).toBe(currentAddress);
   fireEvent.change(screen.getByPlaceholderText('请输入公民链或以太坊地址'), { target: { value: ethereumAddress } });
   fireEvent.click(screen.getByRole('button', { name: '变更地址' }));
   fireEvent.change(screen.getByPlaceholderText('请输入设备开机密码'), { target: { value: 'fixture-password' } });

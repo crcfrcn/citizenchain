@@ -96,8 +96,10 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
   return (
     <section className="section settings-nodekey-section">
       <div className="settings-credential-row">
-        <h2>引导节点</h2>
-        <span className="settings-credential-state">{nodeKey.peerId ? '已设置' : '未设置'}</span>
+        <div className="settings-credential-label">
+          <h2>引导节点</h2>
+          <span className="settings-credential-state">{nodeKey.peerId ? '已设置' : '未设置'}</span>
+        </div>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -114,8 +116,10 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
         </button>
       </div>
       <div className="settings-credential-row">
-        <h2>最终性节点</h2>
-        <span className="settings-credential-state">{grandpaConfigured ? '已设置' : '未设置'}</span>
+        <div className="settings-credential-label">
+          <h2>最终性节点</h2>
+          <span className="settings-credential-state">{grandpaConfigured ? '已设置' : '未设置'}</span>
+        </div>
         <input
           value={grandpaInput}
           onChange={(e) => setGrandpaInput(e.target.value)}
@@ -132,12 +136,14 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
         </button>
       </div>
       <div className="settings-credential-row">
-        <h2>链上中国主机</h2>
-        <span className="settings-credential-state">
-          {hostKeyStatus && 'configured' in hostKeyStatus
-            ? hostKeyStatus.configured ? '已设置' : '未设置'
-            : '—'}
-        </span>
+        <div className="settings-credential-label">
+          <h2>链上中国主机</h2>
+          <span className="settings-credential-state">
+            {hostKeyStatus && 'configured' in hostKeyStatus
+              ? hostKeyStatus.configured ? '已设置' : '未设置'
+              : '—'}
+          </span>
+        </div>
         <input
           value={hostKeyInput}
           onChange={(e) => setHostKeyInput(e.target.value)}

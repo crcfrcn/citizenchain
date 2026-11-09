@@ -269,9 +269,9 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
                 const vs = voteStatuses[`${accountId}:${assignment.roleCode}`];
                 return meta.kind === 1 ? vs?.jointVote : vs?.internalVote;
               });
-              const votedCount = assignmentVotes.filter((vote) => vote != null).length;
-              const hasVoted = eligibleAssignments.length > 0 && votedCount === eligibleAssignments.length;
-              const voted = hasVoted && assignmentVotes.every((vote) => vote === true);
+              const hasVoted = assignmentVotes.length > 0 && assignmentVotes.every((vote) => vote != null);
+              const votedYes = assignmentVotes.includes(true);
+              const votedNo = assignmentVotes.includes(false);
               const hasPendingTicket = eligibleAssignments.some((assignment) =>
                 pendingVotes.has(`${accountId}:${assignment.roleCode}`));
               const availableAssignments = eligibleAssignments.filter((assignment) => {
@@ -291,26 +291,28 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
                   compactVote
                   index={i + 1}
                   balanceFen={admin.balanceFen}
-                  className={hasVoted ? (voted ? 'admin-card-voted-yes' : 'admin-card-voted-no') : ''}
+                  className={hasVoted && votedYes !== votedNo
+                    ? (votedYes ? 'admin-card-voted-yes' : 'admin-card-voted-no')
+                    : ''}
                   action={
-                    canVote ? (
-                      <button className="vote-button-inline" onClick={() => setVotingSigner({
-                        ...localSigner,
-                        roleAssignments: availableAssignments,
-                      })}>
-                        投票
-                      </button>
-                    ) : hasPendingTicket && !hasVoted ? (
-                      <span className="vote-result-tag vote-pending-tag">投票中</span>
-                    ) : hasVoted ? (
-                      <span className={`vote-result-tag ${voted ? 'vote-yes-tag' : 'vote-no-tag'}`}>
-                        {voted ? '全部赞成' : `已投 ${votedCount}/${eligibleAssignments.length}`}
-                      </span>
-                    ) : (
-                      <span className="vote-result-tag vote-none-tag">
-                        {hasUnknownStatus ? '投票状态未知' : '未投票'}
-                      </span>
-                    )
+                    <>
+                      {votedYes && <span className="vote-result-tag vote-yes-tag">赞成</span>}
+                      {votedNo && <span className="vote-result-tag vote-no-tag">反对</span>}
+                      {canVote ? (
+                        <button className="vote-button-inline" onClick={() => setVotingSigner({
+                          ...localSigner,
+                          roleAssignments: availableAssignments,
+                        })}>
+                          投票
+                        </button>
+                      ) : hasPendingTicket && !hasVoted ? (
+                        <span className="vote-result-tag vote-pending-tag">投票中</span>
+                      ) : !votedYes && !votedNo && (
+                        <span className="vote-result-tag vote-none-tag">
+                          {hasUnknownStatus ? '投票状态未知' : '未投票'}
+                        </span>
+                      )}
+                    </>
                   }
                 />
               );
