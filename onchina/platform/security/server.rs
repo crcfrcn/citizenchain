@@ -325,4 +325,7 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
             crate::database_embedded::stop();
         }
     });
+    // 后台任务清理期间保留数据库连接池，最后由同步线程释放。
+    drop(runtime);
+    drop(state);
 }

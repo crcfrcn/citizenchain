@@ -2,8 +2,6 @@ import { AdminListPage } from "./index";
 import { InstitutionListView } from "./InstitutionListView";
 import { InstitutionDetailPage } from "./InstitutionDetailPage";
 import { ProposalDetailPage } from "../proposal/ProposalDetailPage";
-import { CreateMultisigTransferPage } from "../multisig/CreateProposalPage";
-import { SweepProposalPage } from "../multisig/SweepProposalPage";
 import type { AdminSignerMatch } from "./council";
 // 省储行顶级 Section：列表（orgType=2）→ 机构详情 两级导航。
 // 与 PrcSection 同构；唯一差异是 orgTypeFilter=2。省储行同样支持手续费划转提案。
@@ -13,9 +11,7 @@ type PrbView =
   | { page: 'list' }
   | { page: 'detail'; cidNumber: string }
   | { page: 'admin-list'; cidNumber: string; orgType: number }
-  | { page: 'proposal-detail'; proposalId: number; adminSigners: AdminSignerMatch[]; cidNumber?: string; originCidNumber: string }
-  | { page: 'create-proposal'; cidNumber: string; orgType: number; cidFullName: string; institutionAccountId: string; adminSigners: AdminSignerMatch[] }
-  | { page: 'propose-sweep'; cidNumber: string; institutionAccountId: string; cidFullName: string; adminSigners: AdminSignerMatch[] };
+  | { page: 'proposal-detail'; proposalId: number; adminSigners: AdminSignerMatch[]; cidNumber?: string; originCidNumber: string };
 
 export function PrbSection() {
   const [view, setView] = useState<PrbView>({ page: 'list' });
@@ -44,32 +40,6 @@ export function PrbSection() {
     );
   }
 
-  if (view.page === 'create-proposal') {
-    return (
-      <CreateMultisigTransferPage
-        cidNumber={view.cidNumber}
-        cidFullName={view.cidFullName}
-        institutionAccountId={view.institutionAccountId}
-        adminSigners={view.adminSigners}
-        onBack={() => backToDetail(view.cidNumber)}
-        onSuccess={() => backToDetail(view.cidNumber)}
-      />
-    );
-  }
-
-  if (view.page === 'propose-sweep') {
-    return (
-      <SweepProposalPage
-        actorCidNumber={view.cidNumber}
-        institutionAccountId={view.institutionAccountId}
-        cidFullName={view.cidFullName}
-        adminSigners={view.adminSigners}
-        onBack={() => backToDetail(view.cidNumber)}
-        onSuccess={() => backToDetail(view.cidNumber)}
-      />
-    );
-  }
-
   if (view.page === 'detail') {
     const cidNumber = view.cidNumber;
     return (
@@ -79,12 +49,6 @@ export function PrbSection() {
         onOpenAdminList={(sid, orgType) => setView({ page: 'admin-list', cidNumber: sid, orgType })}
         onSelectProposal={(proposalId, adminSigners, sid) =>
           setView({ page: 'proposal-detail', proposalId, adminSigners, cidNumber: sid, originCidNumber: cidNumber })
-        }
-        onCreateProposal={(sid, orgType, cidFullName, institutionAccountId, aw) =>
-          setView({ page: 'create-proposal', cidNumber: sid, orgType, cidFullName, institutionAccountId, adminSigners: aw })
-        }
-        onCreateSweep={(sid, institutionAccountId, cidFullName, aw) =>
-          setView({ page: 'propose-sweep', cidNumber: sid, institutionAccountId, cidFullName, adminSigners: aw })
         }
       />
     );

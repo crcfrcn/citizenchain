@@ -262,7 +262,11 @@ pub fn fixed_role_permission_specs(
                 ACTION_GRANDPA_KEY_ROTATION,
                 RolePermissionOperation::Propose,
             );
-            push_both(&mut out, MODULE_MULTISIG, ACTION_MULTISIG_TRANSFER);
+            push_actions_both(
+                &mut out,
+                MODULE_MULTISIG,
+                &[ACTION_MULTISIG_TRANSFER, ACTION_FEE_SWEEP_TO_MAIN],
+            );
         }
         PRB if role_code == ROLE_CODE_DIRECTOR => {
             push_both(

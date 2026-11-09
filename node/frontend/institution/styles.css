@@ -329,6 +329,95 @@
   color: var(--text-primary);
 }
 
+body:has(.institution-transfer-dialog[open]) {
+  overflow: hidden;
+}
+
+.institution-transfer-dialog {
+  width: min(680px, calc(100% - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+}
+
+.institution-transfer-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.institution-transfer-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 34px);
+}
+
+.institution-transfer-panel > header {
+  padding: 20px 24px 12px;
+  text-align: center;
+}
+
+.institution-transfer-panel > header h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+
+.institution-transfer-panel > header p {
+  margin: 0;
+}
+
+.institution-transfer-body {
+  min-height: 0;
+  padding: 8px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.institution-transfer-body .create-proposal-form {
+  margin-inline: auto;
+}
+
+.institution-transfer-body .vote-signing-body,
+.institution-transfer-body .citizen-signature-panel {
+  padding-inline: 0;
+}
+
+.institution-transfer-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+}
+
+.institution-transfer-actions button {
+  min-width: 88px;
+  min-height: 36px;
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.institution-transfer-actions .institution-transfer-primary {
+  margin-left: auto;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--bg-app);
+  font-weight: 600;
+}
+
+.institution-transfer-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .institution-overview .institution-overview-proposal-toolbar .proposal-type-grid {
   max-width: 100%;
   justify-content: flex-end;

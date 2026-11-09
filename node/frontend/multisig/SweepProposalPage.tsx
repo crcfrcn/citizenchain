@@ -1,6 +1,7 @@
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
+import { TransferProposalDialog, type TransferProposalStep } from "./TransferProposalDialog";
 import { multisigTransferApi as api } from "./api";
 import type { AdminSignerMatch, VoteSignRequestResult } from "./types";
 // 手续费划转提案页面：金额输入 + QR 签名流程。
@@ -9,18 +10,17 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 type Props = {
   actorCidNumber: string;
   institutionAccountId: string;
+  mainAccountId: string;
   cidFullName: string;
   adminSigners: AdminSignerMatch[];
   onBack: () => void;
   onSuccess: () => void;
 };
 
-type Step = 'form' | 'qr' | 'submit' | 'done' | 'error';
-
 export function SweepProposalPage({
-  actorCidNumber, institutionAccountId, cidFullName, adminSigners, onBack, onSuccess,
+  actorCidNumber, institutionAccountId, mainAccountId, cidFullName, adminSigners, onBack, onSuccess,
 }: Props) {
-  const [step, setStep] = useState<Step>('form');
+  const [step, setStep] = useState<TransferProposalStep>('form');
   const [selectedSigner, setSelectedSigner] = useState<AdminSignerMatch | null>(
     adminSigners.length === 1 ? adminSigners[0] : null
   );
@@ -29,21 +29,24 @@ export function SweepProposalPage({
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const [signRequest, setSignRequest] = useState<VoteSignRequestResult | null>(null);
   const [requestJson, setRequestJson] = useState('');
   const [countdown, setCountdown] = useState(90);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
 
   const formValuesRef = useRef({ amountYuan: 0 });
-  const signRequestRef = useRef(signRequest);
+  const signRequestRef = useRef<VoteSignRequestResult | null>(null);
   const selectedSignerRef = useRef(selectedSigner);
-  signRequestRef.current = signRequest;
   selectedSignerRef.current = selectedSigner;
 
   useEffect(() => {
     if (step !== 'qr') return;
-    if (countdown <= 0) { setError('签名请求已过期'); setStep('error'); return; }
+    if (countdown <= 0) {
+      signRequestRef.current = null;
+      setError('签名请求已过期');
+      setStep('error');
+      return;
+    }
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
   }, [step, countdown]);
@@ -61,7 +64,7 @@ export function SweepProposalPage({
       const result = await api.buildProposeSweepRequest(
         selectedSigner.accountId, actorCidNumber, proposerRoleCode.trim(), institutionAccountId, amount,
       );
-      setSignRequest(result);
+      signRequestRef.current = result;
       setRequestJson(result.requestJson);
       setCountdown(90);
       setStep('qr');
@@ -74,8 +77,10 @@ export function SweepProposalPage({
 
   const handleScanResult = useCallback(async (responseText: string) => {
     const req = signRequestRef.current;
+    if (!req) return;
+    signRequestRef.current = null;
     const wallet = selectedSignerRef.current;
-    if (!req || !wallet) { setError('数据丢失，请重试'); setStep('error'); return; }
+    if (!wallet) { setError('数据丢失，请重试'); setStep('error'); return; }
     setStep('submit');
     try {
       const result = await api.submitProposeSweep(
@@ -92,17 +97,23 @@ export function SweepProposalPage({
   }, [actorCidNumber, proposerRoleCode, institutionAccountId]);
 
   return (
-    <div className="governance-section">
-      <button className="back-button" onClick={onBack}>← 返回</button>
-      <h2>手续费划转提案</h2>
-      <p className="proposal-institution-name">{cidFullName}</p>
-
+    <TransferProposalDialog
+      title="手续费划转提案"
+      institutionName={cidFullName}
+      step={step}
+      generating={submitting}
+      signDisabled={!selectedSigner || !amountYuan}
+      onCancel={() => { signRequestRef.current = null; onBack(); }}
+      onSign={handleSubmit}
+      onComplete={onSuccess}
+      onRetry={() => { setError(null); setStep('form'); }}
+    >
       {step === 'form' && (
         <div className="create-proposal-form">
-          {formError && <div className="error">{formError}</div>}
+          {formError && <div className="error" role="alert">{formError}</div>}
           <div className="wallet-form-field">
-            <label>发起管理员</label>
-            <select
+            <label htmlFor="transfer-signer">发起管理员</label>
+            <select id="transfer-signer"
               value={selectedSigner?.accountId || ''}
               onChange={(e) => setSelectedSigner(adminSigners.find((w) => w.accountId === e.target.value) || null)}
               disabled={adminSigners.length <= 1}
@@ -121,12 +132,16 @@ export function SweepProposalPage({
             </select>
           </div>
           <div className="wallet-form-field">
-            <label>转出地址（费用账户）</label>
-            <input type="text" value={accountIdToSs58(institutionAccountId)} disabled />
+            <label htmlFor="sweep-source">转出地址（费用账户）</label>
+            <input id="sweep-source" type="text" value={accountIdToSs58(institutionAccountId)} readOnly />
           </div>
           <div className="wallet-form-field">
-            <label>提案发起岗位码</label>
-            <input
+            <label htmlFor="sweep-destination">收款地址（本机构主账户）</label>
+            <input id="sweep-destination" type="text" value={accountIdToSs58(mainAccountId)} readOnly />
+          </div>
+          <div className="wallet-form-field">
+            <label htmlFor="transfer-role">提案发起岗位码</label>
+            <input id="transfer-role"
               type="text" value={proposerRoleCode}
               onChange={(e) => setProposerRoleCode(e.target.value)}
               placeholder="NRC/PRC 填 COMMITTEE_MEMBER，PRB 填 DIRECTOR"
@@ -134,8 +149,8 @@ export function SweepProposalPage({
             />
           </div>
           <div className="wallet-form-field">
-            <label>划转金额（元）</label>
-            <input
+            <label htmlFor="transfer-amount">划转金额（元）</label>
+            <input id="transfer-amount"
               type="text" inputMode="decimal" value={amountYuan}
               onChange={(e) => {
                 const v = e.target.value.replace(/[^0-9.,]/g, '');
@@ -150,15 +165,8 @@ export function SweepProposalPage({
             />
           </div>
           <p style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-            划转后手续费账户至少保留 1111.11 元，单次不超过可用余额的 80%
+            扣除划转本金和手续费后，费用账户至少保留 1.11 元。单次划转本金不超过扣除 1.11 元后可用余额的 80%。
           </p>
-          <button
-            className="vote-signing-confirm"
-            onClick={handleSubmit}
-            disabled={submitting || !selectedSigner || !amountYuan}
-          >
-            {submitting ? '生成中…' : '生成签名请求'}
-          </button>
         </div>
       )}
 
@@ -168,7 +176,12 @@ export function SweepProposalPage({
             qrValue={requestJson}
             countdownSeconds={countdown}
             onScan={handleScanResult}
-            onScanError={(e) => { setError(e); setStep('error'); }}
+            onScanError={(e) => {
+              if (!signRequestRef.current) return;
+              signRequestRef.current = null;
+              setError(e);
+              setStep('error');
+            }}
           />
         </div>
       )}
@@ -183,16 +196,14 @@ export function SweepProposalPage({
             <p>手续费划转提案已提交</p>
             {txHash && <code className="tx-hash">交易哈希: {txHash}</code>}
           </div>
-          <button className="vote-signing-confirm" onClick={onSuccess}>完成</button>
         </div>
       )}
 
       {step === 'error' && (
         <div className="vote-signing-body">
           <div className="error">{error}</div>
-          <button className="vote-signing-confirm" onClick={() => { setError(null); setStep('form'); }}>重试</button>
         </div>
       )}
-    </div>
+    </TransferProposalDialog>
   );
 }

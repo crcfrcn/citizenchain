@@ -40,7 +40,7 @@ use frame_support::{
     traits::{
         fungible::{Balanced, Credit},
         ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, Contains, EnsureOrigin, FindAuthor,
-        OnUnbalanced, VariantCountOf,
+        OnRuntimeUpgrade, OnUnbalanced, VariantCountOf,
     },
     weights::{
         constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -98,12 +98,128 @@ parameter_types! {
     pub const SS58Prefix: u16 = primitives::core_const::SS58_FORMAT;
 }
 
-/// All migrations of the runtime, aside from the ones declared in the pallets.
-///
-/// This can be a tuple of types, each implementing `OnRuntimeUpgrade`.
-///
-/// 开发期零用户、重新创世模型：各 pallet 不设迁移；这里仅保留 runtime 级独立迁移集合，当前为空。
-type SingleBlockMigrations = ();
+/// 现有链上的固定委员岗位权限由 Runtime 升级补齐。
+type SingleBlockMigrations = (AddPrcFeeSweepPermissions,);
+
+const PRC_FEE_SWEEP_MIGRATED: &[u8] = b":citizenchain:prc-fee-sweep-permissions:v1";
+
+type PrcFeeSweepPermissionUpdates = Vec<(
+    publicentity::pallet::CidNumberOf<Runtime>,
+    publicentity::RolePermissionsOf<Runtime>,
+)>;
+
+pub struct AddPrcFeeSweepPermissions;
+
+impl AddPrcFeeSweepPermissions {
+    fn prepare() -> Result<(publicentity::RoleCodeOf, PrcFeeSweepPermissionUpdates), &'static str> {
+        use entitybase::business_action::{ACTION_FEE_SWEEP_TO_MAIN, MODULE_MULTISIG};
+        use primitives::cid::china::china_cb::CHINA_CB;
+        use primitives::cid::code::{institution_code_from_cid_number, PRC};
+        use primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER;
+
+        let role_code: publicentity::RoleCodeOf = ROLE_CODE_COMMITTEE_MEMBER
+            .to_vec()
+            .try_into()
+            .map_err(|_| "PRC fee sweep migration: invalid committee role code")?;
+        let module_tag: publicentity::ModuleTagOf = MODULE_MULTISIG
+            .to_vec()
+            .try_into()
+            .map_err(|_| "PRC fee sweep migration: invalid module tag")?;
+        let mut updates = Vec::new();
+
+        for institution in CHINA_CB
+            .iter()
+            .filter(|entry| institution_code_from_cid_number(entry.cid_number) == Some(PRC))
+        {
+            let cid = publicentity::pallet::CidNumberOf::<Runtime>::try_from(
+                institution.cid_number.as_bytes().to_vec(),
+            )
+            .map_err(|_| "PRC fee sweep migration: invalid institution CID")?;
+            let role = publicentity::InstitutionRoles::<Runtime>::get(&cid, &role_code)
+                .ok_or("PRC fee sweep migration: fixed committee role missing")?;
+            if role.cid_number != cid
+                || role.role_code != role_code
+                || role.role_status != entitybase::InstitutionRoleStatus::Active
+            {
+                return Err("PRC fee sweep migration: invalid fixed committee role");
+            }
+
+            let mut permissions =
+                publicentity::InstitutionRolePermissions::<Runtime>::try_get(&cid, &role_code)
+                    .map_err(|_| "PRC fee sweep migration: committee permissions missing")?;
+            let old_len = permissions.len();
+            for operation in [
+                RolePermissionOperation::Propose,
+                RolePermissionOperation::Vote,
+            ] {
+                let permission = entitybase::RoleBusinessPermission {
+                    role_subject: entitybase::RoleSubject {
+                        cid_number: cid.clone(),
+                        role_code: role_code.clone(),
+                    },
+                    business_action_id: entitybase::BusinessActionId {
+                        module_tag: module_tag.clone(),
+                        action_code: ACTION_FEE_SWEEP_TO_MAIN,
+                    },
+                    operation,
+                };
+                if !permissions.contains(&permission) {
+                    permissions.try_push(permission).map_err(|_| {
+                        "PRC fee sweep migration: committee permissions at capacity"
+                    })?;
+                }
+            }
+            if permissions.len() != old_len {
+                updates.push((cid, permissions));
+            }
+        }
+        Ok((role_code, updates))
+    }
+}
+
+impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
+    fn on_runtime_upgrade() -> Weight {
+        let db = RocksDbWeight::get();
+        if frame_support::storage::unhashed::get::<bool>(PRC_FEE_SWEEP_MIGRATED) == Some(true) {
+            return db.reads(1);
+        }
+        // 每个固定 CID 最多读取岗位和权限各一次，另计迁移标记。
+        let reads = 1 + 2 * primitives::cid::china::china_cb::CHINA_CB.len() as u64;
+        // 先验证所有目标并准备有界权限列表，再写入，避免只更新部分省储委会。
+        let (role_code, updates) = match Self::prepare() {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                sp_runtime::print(error);
+                return db.reads(reads);
+            }
+        };
+        let writes = updates.len() as u64 + 1;
+        for (cid, permissions) in updates {
+            publicentity::InstitutionRolePermissions::<Runtime>::insert(
+                cid,
+                &role_code,
+                permissions,
+            );
+        }
+        frame_support::storage::unhashed::put(PRC_FEE_SWEEP_MIGRATED, &true);
+        db.reads_writes(reads, writes)
+    }
+
+    #[cfg(feature = "try-runtime")]
+    fn pre_upgrade() -> Result<Vec<u8>, sp_runtime::TryRuntimeError> {
+        Self::prepare()?;
+        Ok(Vec::new())
+    }
+
+    #[cfg(feature = "try-runtime")]
+    fn post_upgrade(_state: Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+        let (_, pending) = Self::prepare()?;
+        if !pending.is_empty() {
+            return Err("PRC fee sweep migration: permissions remain missing".into());
+        }
+        Ok(())
+    }
+}
 
 pub fn is_stake_account(address: &AccountId) -> bool {
     primitives::cid::china::china_ch::CHINA_CH

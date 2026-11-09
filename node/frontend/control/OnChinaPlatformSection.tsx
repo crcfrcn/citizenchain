@@ -104,10 +104,12 @@ export function OnChinaPlatformSection() {
       {statusError ? <p role="alert" className="section-inline-error">{statusError}</p> : null}
       {error ? <p role="alert" className="section-inline-error">{error}</p> : null}
       <section className="onchina-modules" aria-labelledby="onchina-modules-title">
-        <h2 id="onchina-modules-title">平台模块</h2>
-        <p>{status === 'enabled'
-          ? '点击模块，在系统默认浏览器扫码登录。'
-          : '平台启动后，点击模块在系统默认浏览器扫码登录。'}</p>
+        <div className="onchina-modules-heading">
+          <h2 id="onchina-modules-title">平台模块</h2>
+          <p>{status === 'enabled'
+            ? '点击模块，在系统默认浏览器扫码登录。'
+            : '平台启动后，点击模块在系统默认浏览器扫码登录。'}</p>
+        </div>
         <div className="onchina-module-grid">
           {modules.map(({ id, title, description, icon }) => (
             <button

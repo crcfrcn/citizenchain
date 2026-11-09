@@ -403,30 +403,40 @@ body {
   margin-top: 28px;
 }
 
-.onchina-modules h2 {
+.onchina-modules-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.onchina-modules-heading h2 {
   margin: 0;
   font-size: 19px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
-.onchina-modules > p {
-  margin: 6px 0 14px;
+.onchina-modules-heading p {
+  margin: 0;
   font-size: 13px;
   color: var(--text-secondary);
 }
 
 .onchina-module-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(4, 210px);
+  gap: 12px;
+  overflow-x: auto;
 }
 
 .onchina-module {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 16px;
-  min-height: 120px;
-  padding: 16px;
+  gap: 10px;
+  min-height: 88px;
+  padding: 12px 26px 12px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #171f30;
@@ -481,7 +491,9 @@ body {
 }
 
 .onchina-module-arrow {
-  margin-left: auto;
+  position: absolute;
+  top: 10px;
+  right: 10px;
   color: var(--primary);
 }
 
@@ -490,10 +502,6 @@ body {
 }
 
 @media (max-width: 720px) {
-  .onchina-module-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .onchina-platform-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }

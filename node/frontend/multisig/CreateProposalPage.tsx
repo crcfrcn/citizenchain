@@ -1,6 +1,7 @@
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
+import { TransferProposalDialog, type TransferProposalStep } from "./TransferProposalDialog";
 import { AddressScanModal } from "../desktop/scanner";
 import { multisigTransferApi as api } from "./api";
 import type { AdminSignerMatch, VoteSignRequestResult } from "./types";
@@ -11,18 +12,18 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 type Props = {
   cidNumber: string;
   cidFullName: string;
+  title: string;
+  sourceAccountLabel: string;
   institutionAccountId: string;
   adminSigners: AdminSignerMatch[];
   onBack: () => void;
   onSuccess: () => void;
 };
 
-type Step = 'form' | 'qr' | 'submit' | 'done' | 'error';
-
 export function CreateMultisigTransferPage({
-  cidNumber, cidFullName, institutionAccountId, adminSigners, onBack, onSuccess,
+  cidNumber, cidFullName, title, sourceAccountLabel, institutionAccountId, adminSigners, onBack, onSuccess,
 }: Props) {
-  const [step, setStep] = useState<Step>('form');
+  const [step, setStep] = useState<TransferProposalStep>('form');
 
   // 表单
   const [selectedSigner, setSelectedSigner] = useState<AdminSignerMatch | null>(
@@ -37,7 +38,6 @@ export function CreateMultisigTransferPage({
   const [showAddressScan, setShowAddressScan] = useState(false);
 
   // QR 签名
-  const [signRequest, setSignRequest] = useState<VoteSignRequestResult | null>(null);
   const [requestJson, setRequestJson] = useState('');
   const [countdown, setCountdown] = useState(90);
   const [error, setError] = useState<string | null>(null);
@@ -45,15 +45,15 @@ export function CreateMultisigTransferPage({
 
   // 用 ref 持有最新值，避免摄像头回调中的闭包过期
   const formValuesRef = useRef({ beneficiary: '', amountYuan: 0, remark: '' });
-  const signRequestRef = useRef(signRequest);
+  const signRequestRef = useRef<VoteSignRequestResult | null>(null);
   const selectedSignerRef = useRef(selectedSigner);
-  signRequestRef.current = signRequest;
   selectedSignerRef.current = selectedSigner;
 
 
   useEffect(() => {
     if (step !== 'qr') return;
     if (countdown <= 0) {
+      signRequestRef.current = null;
       setError('签名请求已过期，请重新操作');
       setStep('error');
       return;
@@ -88,7 +88,7 @@ export function CreateMultisigTransferPage({
         beneficiary.trim(), amount, remark,
       );
 
-      setSignRequest(result);
+      signRequestRef.current = result;
       setRequestJson(result.requestJson);
       setCountdown(90);
       setStep('qr');
@@ -102,8 +102,10 @@ export function CreateMultisigTransferPage({
   // 扫描结果处理（通过 ref 读取最新值）
   const handleScanResult = useCallback(async (responseText: string) => {
     const req = signRequestRef.current;
+    if (!req) return;
+    signRequestRef.current = null;
     const wallet = selectedSignerRef.current;
-    if (!req || !wallet) {
+    if (!wallet) {
       setError('签名请求数据丢失，请重试');
       setStep('error');
       return;
@@ -125,18 +127,34 @@ export function CreateMultisigTransferPage({
   }, [cidNumber, proposerRoleCode, institutionAccountId]);
 
   return (
-    <div className="governance-section">
-      <button className="back-button" onClick={onBack}>← 返回</button>
-      <h2>发起转账提案</h2>
-      <p className="proposal-institution-name">{cidFullName}</p>
-
+    <TransferProposalDialog
+      title={title}
+      institutionName={cidFullName}
+      step={step}
+      generating={submitting}
+      signDisabled={!selectedSigner || !beneficiary.trim() || !amountYuan}
+      onCancel={() => { signRequestRef.current = null; onBack(); }}
+      onSign={handleSubmit}
+      onComplete={onSuccess}
+      onRetry={() => { setError(null); setStep('form'); }}
+      scanner={showAddressScan && (
+        <AddressScanModal
+          onResult={({ ss58Address }) => {
+            // 账户码只声明账户，不带金额与备注；两者一律由本端手工填写。
+            setBeneficiary(ss58Address);
+            setShowAddressScan(false);
+          }}
+          onClose={() => setShowAddressScan(false)}
+        />
+      )}
+    >
       {step === 'form' && (
         <div className="create-proposal-form">
-          {formError && <div className="error">{formError}</div>}
+          {formError && <div className="error" role="alert">{formError}</div>}
 
           <div className="wallet-form-field">
-            <label>发起管理员</label>
-            <select
+            <label htmlFor="transfer-signer">发起管理员</label>
+            <select id="transfer-signer"
               value={selectedSigner?.accountId || ''}
               onChange={(e) => {
                 const w = adminSigners.find((w) => w.accountId === e.target.value);
@@ -159,13 +177,13 @@ export function CreateMultisigTransferPage({
           </div>
 
           <div className="wallet-form-field">
-            <label>转出地址（机构多签）</label>
-            <input type="text" value={accountIdToSs58(institutionAccountId)} disabled />
+            <label htmlFor="transfer-source">转出地址（{sourceAccountLabel}）</label>
+            <input id="transfer-source" type="text" value={accountIdToSs58(institutionAccountId)} readOnly />
           </div>
 
           <div className="wallet-form-field">
-            <label>提案发起岗位码</label>
-            <input
+            <label htmlFor="transfer-role">提案发起岗位码</label>
+            <input id="transfer-role"
               type="text" value={proposerRoleCode}
               onChange={(e) => setProposerRoleCode(e.target.value)}
               placeholder="填写当前任职且拥有转账提案权限的岗位码"
@@ -174,9 +192,9 @@ export function CreateMultisigTransferPage({
           </div>
 
           <div className="wallet-form-field">
-            <label>收款地址（SS58）</label>
+            <label htmlFor="transfer-recipient">收款地址（SS58）</label>
             <div className="address-input-row">
-              <input
+              <input id="transfer-recipient"
                 type="text" value={beneficiary}
                 onChange={(e) => setBeneficiary(e.target.value)}
                 placeholder="输入 SS58 格式收款地址"
@@ -189,8 +207,8 @@ export function CreateMultisigTransferPage({
           </div>
 
           <div className="wallet-form-field">
-            <label>转账金额（元，最少 1.11）</label>
-            <input
+            <label htmlFor="transfer-amount">转账金额（元，最少 1.11）</label>
+            <input id="transfer-amount"
               type="text" inputMode="decimal" value={amountYuan}
               onChange={(e) => {
                 const v = e.target.value.replace(/[^0-9.,]/g, '');
@@ -206,32 +224,13 @@ export function CreateMultisigTransferPage({
           </div>
 
           <div className="wallet-form-field">
-            <label>备注（可选，最长 256 字节）</label>
-            <input
+            <label htmlFor="transfer-remark">备注（可选，最长 256 字节）</label>
+            <input id="transfer-remark"
               type="text" value={remark}
               onChange={(e) => setRemark(e.target.value)}
               placeholder="转账备注" disabled={submitting}
             />
           </div>
-
-          <button
-            className="vote-signing-confirm"
-            onClick={handleSubmit}
-            disabled={submitting || !selectedSigner || !beneficiary.trim() || !amountYuan}
-          >
-            {submitting ? '生成中…' : '生成签名请求'}
-          </button>
-
-          {showAddressScan && (
-            <AddressScanModal
-              onResult={({ ss58Address }) => {
-                // 账户码只声明账户，不带金额与备注；两者一律由本端手工填写。
-                setBeneficiary(ss58Address);
-                setShowAddressScan(false);
-              }}
-              onClose={() => setShowAddressScan(false)}
-            />
-          )}
         </div>
       )}
 
@@ -241,7 +240,12 @@ export function CreateMultisigTransferPage({
             qrValue={requestJson}
             countdownSeconds={countdown}
             onScan={handleScanResult}
-            onScanError={(e) => { setError(e); setStep('error'); }}
+            onScanError={(e) => {
+              if (!signRequestRef.current) return;
+              signRequestRef.current = null;
+              setError(e);
+              setStep('error');
+            }}
           />
         </div>
       )}
@@ -256,16 +260,14 @@ export function CreateMultisigTransferPage({
             <p>提案已提交</p>
             {txHash && <code className="tx-hash">交易哈希: {txHash}</code>}
           </div>
-          <button className="vote-signing-confirm" onClick={onSuccess}>完成</button>
         </div>
       )}
 
       {step === 'error' && (
         <div className="vote-signing-body">
           <div className="error">{error}</div>
-          <button className="vote-signing-confirm" onClick={() => { setError(null); setStep('form'); }}>重试</button>
         </div>
       )}
-    </div>
+    </TransferProposalDialog>
   );
 }

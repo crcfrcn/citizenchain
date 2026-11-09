@@ -339,6 +339,80 @@ fn institution_transfer_route_uses_exact_fee_account() {
 }
 
 #[test]
+fn nrc_he_fund_transfer_debits_he_and_pays_execution_fee_from_nrc_fee_account() {
+    use entitybase::InstitutionMultisigQuery;
+    use primitives::account_derive::RESERVED_NAME_HE;
+    use primitives::cid::china::china_cb::NRC_HE_ACCOUNT;
+
+    new_test_ext().execute_with(|| {
+        let nrc = &CHINA_CB[0];
+        let cid: votebase::types::CidNumber = nrc
+            .cid_number
+            .as_bytes()
+            .to_vec()
+            .try_into()
+            .expect("NRC CID fits");
+        let role: votebase::types::RoleCode =
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+                .to_vec()
+                .try_into()
+                .expect("committee role fits");
+        let he = AccountId::new(NRC_HE_ACCOUNT);
+        let main = AccountId::new(nrc.main_account);
+        let fee_account = AccountId::new(nrc.fee_account);
+        let receiver = AccountId::new([99; 32]);
+        let amount = 100_000;
+        let _ = Balances::deposit_creating(&he, amount * 2);
+        let _ = Balances::deposit_creating(&fee_account, amount);
+        let he_before = Balances::free_balance(&he);
+        let main_before = Balances::free_balance(&main);
+        let fee_before = Balances::free_balance(&fee_account);
+        let receiver_before = Balances::free_balance(&receiver);
+        assert_eq!(
+            RuntimeInstitutionQuery::lookup_institution_account(cid.as_slice(), RESERVED_NAME_HE),
+            Some(he.clone())
+        );
+
+        assert_ok!(MultisigTransfer::propose_transfer(
+            RuntimeOrigin::signed(AccountId::new(nrc.admins[0])),
+            Some(cid),
+            Some(role.clone()),
+            he.clone(),
+            receiver.clone(),
+            amount,
+            Default::default(),
+        ));
+        let pid = VotingEngine::next_proposal_id() - 1;
+        assert_eq!(Balances::free_balance(&he), he_before);
+        for admin in &nrc.admins[1..primitives::count_const::NRC_INTERNAL_THRESHOLD as usize] {
+            assert_ok!(InternalVote::cast(
+                RuntimeOrigin::signed(AccountId::new(*admin)),
+                pid,
+                internalvote::InternalVoteTicketClaim::InstitutionRole(role.clone()),
+                true,
+            ));
+        }
+        <VotingEngine as frame_support::traits::Hooks<BlockNumber>>::on_initialize(
+            System::block_number(),
+        );
+
+        let fee = primitives::fee_policy::calculate_onchain_fee(amount);
+        let nrc_share = fee * Balance::from(primitives::fee_policy::ONCHAIN_FEE_NRC_PERCENT) / 100;
+        assert_eq!(
+            VotingEngine::proposals(pid).unwrap().status,
+            votebase::STATUS_EXECUTED
+        );
+        assert_eq!(Balances::free_balance(&he), he_before - amount);
+        assert_eq!(Balances::free_balance(&main), main_before);
+        assert_eq!(Balances::free_balance(&receiver), receiver_before + amount);
+        assert_eq!(
+            Balances::free_balance(&fee_account),
+            fee_before - fee + nrc_share
+        );
+    });
+}
+
+#[test]
 fn institution_operation_debits_only_exact_fee_account_without_signer_fallback() {
     use frame_support::dispatch::GetDispatchInfo;
     use pallet_transaction_payment::OnChargeTransaction;
@@ -3105,13 +3179,13 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
     });
 }
 
-/// 固定权限必须由创世直接写入；协议升级和决议发行均为 NRC/PRC 发起并投票、PRB 仅投票。
+/// 固定权限由创世写入；储委会委员可发起并投票划转，协议升级和决议发行仍由省储行仅投票。
 #[test]
 fn genesis_fixed_role_permissions_match_the_shared_catalog() {
     use entitybase::{
         business_action::{
-            ACTION_RESOLUTION_ISSUANCE, ACTION_RUNTIME_UPGRADE, MODULE_RESOLUTION_ISSUANCE,
-            MODULE_RUNTIME_UPGRADE,
+            ACTION_FEE_SWEEP_TO_MAIN, ACTION_RESOLUTION_ISSUANCE, ACTION_RUNTIME_UPGRADE,
+            MODULE_MULTISIG, MODULE_RESOLUTION_ISSUANCE, MODULE_RUNTIME_UPGRADE,
         },
         RolePermissionOperation,
     };
@@ -3139,6 +3213,17 @@ fn genesis_fixed_role_permissions_match_the_shared_catalog() {
             let code = role_code(primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER);
             let permissions =
                 publicentity::InstitutionRolePermissions::<Runtime>::get(&cid_number, &code);
+            for operation in [
+                RolePermissionOperation::Propose,
+                RolePermissionOperation::Vote,
+            ] {
+                assert!(has(
+                    &permissions,
+                    MODULE_MULTISIG,
+                    ACTION_FEE_SWEEP_TO_MAIN,
+                    operation
+                ));
+            }
             assert!(has(
                 &permissions,
                 MODULE_RUNTIME_UPGRADE,
@@ -3189,6 +3274,181 @@ fn genesis_fixed_role_permissions_match_the_shared_catalog() {
         assert!(publicentity::InstitutionRolePermissions::<Runtime>::contains_key(&nrc_cid, &lr));
         assert!(publicentity::InstitutionRolePermissions::<Runtime>::get(&nrc_cid, lr).is_empty());
     });
+}
+
+#[test]
+fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
+    use entitybase::business_action::{ACTION_FEE_SWEEP_TO_MAIN, MODULE_MULTISIG};
+    use entitybase::RolePermissionOperation::{Propose, Vote};
+    use frame_support::traits::OnRuntimeUpgrade;
+    use primitives::cid::code::{institution_code_from_cid_number, PRC};
+    type Migrations = <Runtime as frame_system::Config>::SingleBlockMigrations;
+
+    new_test_ext().execute_with(|| {
+        let role_code: publicentity::RoleCodeOf =
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+                .to_vec()
+                .try_into()
+                .expect("committee role fits");
+        let is_sweep = |permission: &publicentity::institution::role::RolePermissionOf<Runtime>| {
+            permission.business_action_id.module_tag.as_slice() == MODULE_MULTISIG
+                && permission.business_action_id.action_code == ACTION_FEE_SWEEP_TO_MAIN
+        };
+        let old_rows: Vec<_> = CHINA_CB
+            .iter()
+            .filter(|institution| {
+                institution_code_from_cid_number(institution.cid_number) == Some(PRC)
+            })
+            .enumerate()
+            .map(|(index, institution)| {
+                let cid: publicentity::pallet::CidNumberOf<Runtime> = institution
+                    .cid_number
+                    .as_bytes()
+                    .to_vec()
+                    .try_into()
+                    .expect("PRC CID fits");
+                let mut permissions =
+                    publicentity::InstitutionRolePermissions::<Runtime>::get(&cid, &role_code);
+                // 第一省只缺 Vote，其余省两项均缺，覆盖已有部分权限的状态。
+                permissions.retain(|permission| {
+                    !is_sweep(permission) || (index == 0 && permission.operation == Propose)
+                });
+                publicentity::InstitutionRolePermissions::<Runtime>::insert(
+                    &cid,
+                    &role_code,
+                    &permissions,
+                );
+                (cid, permissions)
+            })
+            .collect();
+        assert_eq!(old_rows.len(), 43);
+
+        let nrc_cid: publicentity::pallet::CidNumberOf<Runtime> = CHINA_CB[0]
+            .cid_number
+            .as_bytes()
+            .to_vec()
+            .try_into()
+            .expect("NRC CID fits");
+        let nrc_before =
+            publicentity::InstitutionRolePermissions::<Runtime>::get(&nrc_cid, &role_code);
+        let (last_cid, last_permissions) = old_rows.last().unwrap();
+        publicentity::InstitutionRolePermissions::<Runtime>::remove(last_cid, &role_code);
+        Migrations::on_runtime_upgrade();
+        let (first_cid, first_permissions) = &old_rows[0];
+        assert_eq!(
+            &publicentity::InstitutionRolePermissions::<Runtime>::get(first_cid, &role_code),
+            first_permissions
+        );
+        publicentity::InstitutionRolePermissions::<Runtime>::insert(
+            last_cid,
+            &role_code,
+            last_permissions,
+        );
+
+        #[cfg(feature = "try-runtime")]
+        assert_ok!(Migrations::try_on_runtime_upgrade(true));
+        #[cfg(not(feature = "try-runtime"))]
+        Migrations::on_runtime_upgrade();
+        let migrated_rows: Vec<_> = old_rows
+            .iter()
+            .map(|(cid, original)| {
+                let permissions =
+                    publicentity::InstitutionRolePermissions::<Runtime>::get(cid, &role_code);
+                let added_count = 2 - original.iter().filter(|entry| is_sweep(entry)).count();
+                assert_eq!(permissions.len(), original.len() + added_count);
+                assert_eq!(&permissions[..original.len()], original.as_slice());
+                for operation in [Propose, Vote] {
+                    assert_eq!(
+                        permissions
+                            .iter()
+                            .filter(|entry| is_sweep(entry)
+                                && entry.operation == operation
+                                && &entry.role_subject.cid_number == cid
+                                && entry.role_subject.role_code == role_code)
+                            .count(),
+                        1
+                    );
+                }
+                permissions
+            })
+            .collect();
+        assert_eq!(
+            publicentity::InstitutionRolePermissions::<Runtime>::get(&nrc_cid, &role_code),
+            nrc_before
+        );
+
+        let root_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        Migrations::on_runtime_upgrade();
+        assert_eq!(
+            sp_io::storage::root(sp_runtime::StateVersion::V1),
+            root_before
+        );
+        for ((cid, _), expected) in old_rows.iter().zip(migrated_rows) {
+            assert_eq!(
+                publicentity::InstitutionRolePermissions::<Runtime>::get(cid, &role_code),
+                expected
+            );
+        }
+    });
+}
+
+#[test]
+fn runtime_prc_sweep_accepts_exactly_111_fen_left_and_rejects_less() {
+    assert_eq!(EXISTENTIAL_DEPOSIT, 111);
+    for (amount, executes) in [(10, true), (11, false)] {
+        new_test_ext().execute_with(|| {
+            let prc = &CHINA_CB[1];
+            let cid: votebase::types::CidNumber = prc
+                .cid_number
+                .as_bytes()
+                .to_vec()
+                .try_into()
+                .expect("PRC CID fits");
+            let role: votebase::types::RoleCode =
+                primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+                    .to_vec()
+                    .try_into()
+                    .expect("committee role fits");
+            let main = AccountId::new(prc.main_account);
+            let fee_account = AccountId::new(prc.fee_account);
+            let initial_fee = 131;
+            let _ = Balances::deposit_creating(&main, EXISTENTIAL_DEPOSIT);
+            assert_ok!(Balances::force_set_balance(
+                RuntimeOrigin::root(),
+                sp_runtime::MultiAddress::Id(fee_account.clone()),
+                initial_fee,
+            ));
+            let main_before = Balances::free_balance(&main);
+            assert_ok!(MultisigTransfer::propose_sweep_to_main(
+                RuntimeOrigin::signed(AccountId::new(prc.admins[0])),
+                cid,
+                role.clone(),
+                fee_account.clone(),
+                amount,
+            ));
+            let pid = VotingEngine::next_proposal_id() - 1;
+            for admin in &prc.admins[1..primitives::count_const::PRC_INTERNAL_THRESHOLD as usize] {
+                assert_ok!(InternalVote::cast(
+                    RuntimeOrigin::signed(AccountId::new(*admin)),
+                    pid,
+                    internalvote::InternalVoteTicketClaim::InstitutionRole(role.clone()),
+                    true,
+                ));
+            }
+            <VotingEngine as frame_support::traits::Hooks<BlockNumber>>::on_initialize(
+                System::block_number(),
+            );
+            let (status, main_after, fee_after) = if executes {
+                (votebase::STATUS_EXECUTED, main_before + amount, 111)
+            } else {
+                assert!(votebase::ProposalExecutionRetryStates::<Runtime>::contains_key(pid));
+                (votebase::STATUS_PASSED, main_before, initial_fee)
+            };
+            assert_eq!(VotingEngine::proposals(pid).unwrap().status, status);
+            assert_eq!(Balances::free_balance(&main), main_after);
+            assert_eq!(Balances::free_balance(&fee_account), fee_after);
+        });
+    }
 }
 
 /// runtime 必须把选举结果路由到 publicentity，并在写入前拒绝固定岗位席位漂移。

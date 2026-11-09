@@ -65,6 +65,104 @@ fn prc_transfer_executes_when_internal_vote_reaches_threshold() {
 }
 
 #[test]
+fn prc_fee_sweep_rejects_other_cids_and_pays_its_main_at_six_votes() {
+    new_test_ext().execute_with(|| {
+        let cid = prc_actor_cid();
+        let role: RoleCode = test_role_code(PRC)
+            .to_vec()
+            .try_into()
+            .expect("PRC role fits");
+        let amount = 1_000;
+        let fee = primitives::fee_policy::calculate_onchain_fee(amount);
+        assert_noop!(
+            MultisigTransfer::propose_sweep_to_main(
+                RuntimeOrigin::signed(prc_admin(0)),
+                cid.clone(),
+                role.clone(),
+                nrc_fee_account(),
+                amount,
+            ),
+            Error::<Test>::InvalidInstitution
+        );
+        assert_ok!(MultisigTransfer::propose_sweep_to_main(
+            RuntimeOrigin::signed(prc_admin(0)),
+            cid,
+            role,
+            prc_fee_account(),
+            amount,
+        ));
+        let pid = last_proposal_id();
+        let votes = prc_pass_pairs();
+        assert_eq!(votes.len(), 6);
+        // 发起时已有一票，补四票后仍不得划转。
+        assert_ok!(cast_transfer_votes_n(&votes[1..5], 4, pid));
+        assert_eq!(VotingEngine::proposals(pid).unwrap().status, STATUS_VOTING);
+        assert_eq!(Balances::free_balance(prc_main_account()), 10_000);
+        assert_eq!(Balances::free_balance(prc_fee_account()), 10_000);
+
+        assert_ok!(cast_transfer_votes_n(&votes[5..], 1, pid));
+        assert_eq!(
+            VotingEngine::proposals(pid).unwrap().status,
+            STATUS_EXECUTED
+        );
+        assert_eq!(Balances::free_balance(prc_main_account()), 10_000 + amount);
+        assert_eq!(
+            Balances::free_balance(prc_fee_account()),
+            10_000 - amount - fee
+        );
+        assert_eq!(Balances::free_balance(nrc_main_account()), 10_000);
+        assert_eq!(Balances::free_balance(nrc_fee_account()), 10_000);
+        assert_eq!(Balances::free_balance(prb_main_account()), 10_000);
+    });
+}
+
+#[test]
+fn fee_sweep_keeps_ed_and_caps_principal_at_eighty_percent() {
+    let ed = Balances::minimum_balance();
+    // 前两组隔离保留额校验，后两组隔离本金上限。手续费均为 10 分。
+    for (available, amount, executes) in [
+        (20, 10, true),
+        (20, 11, false),
+        (1_000, 800, true),
+        (1_000, 801, false),
+    ] {
+        new_test_ext().execute_with(|| {
+            let before = ed + available;
+            assert_ok!(Balances::force_set_balance(
+                RuntimeOrigin::root(),
+                prc_fee_account(),
+                before
+            ));
+            assert_ok!(MultisigTransfer::propose_sweep_to_main(
+                RuntimeOrigin::signed(prc_admin(0)),
+                prc_actor_cid(),
+                test_role_code(PRC)
+                    .to_vec()
+                    .try_into()
+                    .expect("PRC role fits"),
+                prc_fee_account(),
+                amount,
+            ));
+            let pid = last_proposal_id();
+            assert_ok!(cast_transfer_votes_n(
+                &prc_pass_pairs()[1..],
+                prc_pass_count() - 1,
+                pid
+            ));
+            let (status, main, fee) = if executes {
+                (STATUS_EXECUTED, 10_000 + amount, before - amount - 10)
+            } else {
+                assert!(votebase::ProposalExecutionRetryStates::<Test>::contains_key(pid));
+                (STATUS_PASSED, 10_000, before)
+            };
+            assert_eq!(VotingEngine::proposals(pid).unwrap().status, status);
+            assert_eq!(Balances::free_balance(prc_main_account()), main);
+            assert_eq!(Balances::free_balance(prc_fee_account()), fee);
+        });
+    }
+}
+
+#[test]
 fn prb_transfer_executes_when_internal_vote_reaches_threshold() {
     new_test_ext().execute_with(|| {
         let funding_account_id = prb_main_account();

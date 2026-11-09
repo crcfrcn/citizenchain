@@ -5,11 +5,14 @@ import { sanitizeError } from "../client/tauri";
 import { formatBalance } from "../client/format";
 import { accountIdToSs58 } from "../client/ss58";
 import { adminsChangeApi } from "./admins";
+import { CreateMultisigTransferPage } from "../multisig/CreateProposalPage";
+import { SafetyFundProposalPage } from "../multisig/SafetyFundProposalPage";
+import { SweepProposalPage } from "../multisig/SweepProposalPage";
 import type { ActivatedAdmin, AdminSignerMatch, InstitutionBalanceUpdate, InstitutionDetail } from "./council";
 import type { ProposalListItem } from "../proposal/types";
 // 机构详情页：机构信息 → 管理员入口 → 发起提案 → 提案列表（分页）。
 // 管理员列表折叠到独立的 AdminListPage，点击入口卡片右箭头进入。
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 type Props = {
@@ -17,14 +20,20 @@ type Props = {
   onBack: () => void;
   onOpenAdminList?: (cidNumber: string, orgType: number) => void;
   onSelectProposal?: (proposalId: number, adminSigners: AdminSignerMatch[], cidNumber: string) => void;
-  onCreateProposal?: (cidNumber: string, orgType: number, cidFullName: string, institutionAccountId: string, adminSigners: AdminSignerMatch[]) => void;
   onCreateProtocolUpgrade?: (adminSigners: AdminSignerMatch[]) => void;
   onChangeGrandpaKey?: (adminSigners: AdminSignerMatch[]) => void;
-  onCreateSafetyFund?: (cidNumber: string, institutionAccountId: string, adminSigners: AdminSignerMatch[]) => void;
-  onCreateSweep?: (cidNumber: string, institutionAccountId: string, cidFullName: string, adminSigners: AdminSignerMatch[]) => void;
   /** 隐藏返回按钮（用于直接作为 Tab 内容显示时）。 */
   hideBackButton?: boolean;
 };
+
+type TransferKind = 'transfer' | 'he' | 'safety' | 'sweep';
+type ActiveTransfer = {
+  kind: TransferKind;
+  accountId: string;
+  signers: AdminSignerMatch[];
+};
+
+const PROPOSAL_PAGE_SIZE = 10;
 
 function VotingHelpDialog({ onClose }: { onClose: () => void }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -91,19 +100,21 @@ function VotingHelpDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSelectProposal, onCreateProposal, onCreateProtocolUpgrade, onChangeGrandpaKey, onCreateSafetyFund, onCreateSweep, hideBackButton }: Props) {
+export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSelectProposal, onCreateProtocolUpgrade, onChangeGrandpaKey, hideBackButton }: Props) {
   const [detail, setDetail] = useState<InstitutionDetail | null>(null);
   const [proposals, setProposals] = useState<ProposalListItem[]>([]);
   const [proposalHasMore, setProposalHasMore] = useState(false);
   const [proposalNextStartId, setProposalNextStartId] = useState<number | null>(null);
   const [loadingMoreProposals, setLoadingMoreProposals] = useState(false);
+  const [proposalRefreshError, setProposalRefreshError] = useState<string | null>(null);
+  const proposalPageGeneration = useRef(0);
   const [activatedAdmins, setActivatedAdmins] = useState<ActivatedAdmin[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showVotingHelp, setShowVotingHelp] = useState(false);
   const votingHelpButtonRef = useRef<HTMLButtonElement>(null);
-
-  const PROPOSAL_PAGE_SIZE = 10;
+  const [activeTransfer, setActiveTransfer] = useState<ActiveTransfer | null>(null);
+  const transferButtonRef = useRef<HTMLButtonElement | null>(null);
   const isAdmin = activatedAdmins.length > 0;
 
   // 将已激活管理员转换为 AdminSignerMatch 格式,账户标签不复用机构名称字段。
@@ -121,37 +132,49 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   );
   const grandpaAdminSigners = adminSigners.filter((admin) => committeeAccountIds.has(admin.accountId));
 
+  const refreshProposals = useCallback(async () => {
+    const generation = ++proposalPageGeneration.current;
+    setLoadingMoreProposals(true);
+    setProposalRefreshError(null);
+    try {
+      const page = await proposalApi.getInstitutionProposalPage(cidNumber, Number.MAX_SAFE_INTEGER, PROPOSAL_PAGE_SIZE);
+      if (generation !== proposalPageGeneration.current) return;
+      setProposals(page.items);
+      setProposalHasMore(page.hasMore);
+      const lastId = page.items[page.items.length - 1]?.proposalId ?? 0;
+      setProposalNextStartId(lastId > 0 ? lastId - 1 : null);
+    } catch (e) {
+      if (generation === proposalPageGeneration.current) setProposalRefreshError(sanitizeError(e));
+    } finally {
+      if (generation === proposalPageGeneration.current) setLoadingMoreProposals(false);
+    }
+  }, [cidNumber]);
+
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setProposals([]);
+    setProposalHasMore(false);
+    setProposalNextStartId(null);
+    setActiveTransfer(null);
     councilApi.getInstitutionDetail(cidNumber)
       .then(async (d) => {
         const aa = await adminsChangeApi
           .getActivatedAdmins(cidNumber, { cidNumber })
           .catch(() => [] as ActivatedAdmin[]);
+        if (cancelled) return;
         setDetail(d);
         setActivatedAdmins(aa);
-        try {
-          // 双层 ID v1:不再需要 getNextProposalId 找起点 — 反向索引内部按 startId 过滤,
-          // 用 Number.MAX_SAFE_INTEGER 作首页起点等价于"从最新一条开始取"。
-          const page = await proposalApi.getInstitutionProposalPage(
-            cidNumber,
-            Number.MAX_SAFE_INTEGER,
-            PROPOSAL_PAGE_SIZE,
-          );
-          setProposals(page.items);
-          setProposalHasMore(page.hasMore);
-          if (page.items.length > 0) {
-            const lastId = page.items[page.items.length - 1].proposalId;
-            setProposalNextStartId(lastId > 0 ? lastId - 1 : null);
-          }
-        } catch (_) {
-          setProposals([]);
-        }
         setError(null);
+        await refreshProposals();
       })
-      .catch((e) => setError(sanitizeError(e)))
-      .finally(() => setLoading(false));
-  }, [cidNumber]);
+      .catch((e) => { if (!cancelled) setError(sanitizeError(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => {
+      cancelled = true;
+      proposalPageGeneration.current++;
+    };
+  }, [cidNumber, refreshProposals]);
 
   // 只刷新链上金额和告警，不改现有页面结构。
   useEffect(() => {
@@ -184,9 +207,11 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   // 加载更多提案
   const loadMoreProposals = useCallback(() => {
     if (loadingMoreProposals || proposalNextStartId == null || !proposalHasMore) return;
+    const generation = proposalPageGeneration.current;
     setLoadingMoreProposals(true);
     proposalApi.getInstitutionProposalPage(cidNumber, proposalNextStartId, PROPOSAL_PAGE_SIZE)
       .then((page) => {
+        if (generation !== proposalPageGeneration.current) return;
         setProposals(prev => [...prev, ...page.items]);
         setProposalHasMore(page.hasMore);
         if (page.items.length > 0) {
@@ -196,8 +221,8 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
           setProposalHasMore(false);
         }
       })
-      .catch(() => setProposalHasMore(false))
-      .finally(() => setLoadingMoreProposals(false));
+      .catch(() => { if (generation === proposalPageGeneration.current) setProposalHasMore(false); })
+      .finally(() => { if (generation === proposalPageGeneration.current) setLoadingMoreProposals(false); });
   }, [cidNumber, loadingMoreProposals, proposalNextStartId, proposalHasMore]);
 
   if (loading) {
@@ -216,31 +241,71 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   if (!detail) return null;
 
   const activatedCount = activatedAdmins.length;
-  const feeAccountId = detail.feeAccountId ?? detail.cbAccountId ?? detail.nrcAccountId;
+  const feeAccountId = detail.orgType === 0 ? detail.nrcAccountId
+    : detail.orgType === 1 ? detail.cbAccountId : detail.feeAccountId;
+  // 省储委会入口随链上岗位权限生效，旧 Runtime 不提供可签名的入口。
+  const sweepSigners = detail.orgType === 1
+    ? adminSigners.filter(({ accountId }) => detail.admins.some((admin) =>
+      admin.accountId === accountId && admin.assignments.some((assignment) =>
+        assignment.roleCode === 'COMMITTEE_MEMBER' &&
+        'permissions' in assignment && Array.isArray(assignment.permissions) &&
+        assignment.permissions.some((permission) =>
+          permission.moduleTag === 'multisig' && permission.actionCode === 2 && permission.operation === 0))))
+    : adminSigners;
+
+  const openTransfer = (
+    event: MouseEvent<HTMLButtonElement>, kind: TransferKind,
+    accountId: string | null, signers = adminSigners,
+  ) => {
+    if (!accountId || signers.length === 0) return;
+    transferButtonRef.current = event.currentTarget;
+    setActiveTransfer({ kind, accountId, signers });
+  };
+  const closeTransfer = () => {
+    const trigger = transferButtonRef.current;
+    setActiveTransfer(null);
+    requestAnimationFrame(() => trigger?.focus({ preventScroll: true }));
+  };
+  const completeTransfer = () => {
+    closeTransfer();
+    void refreshProposals();
+  };
 
   const proposalActions = (
     <div className="proposal-type-grid">
       <button
+        type="button"
         className="proposal-type-button"
         disabled={!isAdmin}
-        onClick={() => isAdmin && onCreateProposal?.(
-          cidNumber, detail.orgType, detail.cidFullName, detail.mainAccountId, adminSigners
-        )}
+        aria-haspopup="dialog"
+        onClick={(event) => openTransfer(event, 'transfer', detail.mainAccountId)}
       >转账</button>
       <button className="proposal-type-button" disabled title="即将上线">决议销毁</button>
-      {(detail.orgType === 0 || detail.orgType === 2) && (
-        <button
-          className="proposal-type-button"
-          disabled={!isAdmin || !feeAccountId}
-          onClick={() => isAdmin && feeAccountId && onCreateSweep?.(cidNumber, feeAccountId, detail.cidFullName, adminSigners)}
-        >手续费划转</button>
-      )}
+      <button
+        type="button"
+        className="proposal-type-button"
+        disabled={!feeAccountId || sweepSigners.length === 0}
+        aria-haspopup="dialog"
+        title={detail.orgType === 1 && sweepSigners.length === 0 ? '需已激活且拥有链上划转发起权限的省储委会委员' : undefined}
+        onClick={(event) => openTransfer(event, 'sweep', feeAccountId, sweepSigners)}
+      >手续费划转</button>
       {detail.orgType === 0 && (
-        <button
-          className="proposal-type-button"
-          disabled={!isAdmin || !detail.fundAccountId}
-          onClick={() => isAdmin && detail.fundAccountId && onCreateSafetyFund?.(cidNumber, detail.fundAccountId, adminSigners)}
-        >安全基金转账</button>
+        <>
+          <button
+            type="button"
+            className="proposal-type-button"
+            disabled={!isAdmin || !detail.fundAccountId}
+            aria-haspopup="dialog"
+            onClick={(event) => openTransfer(event, 'safety', detail.fundAccountId)}
+          >安全基金转账</button>
+          <button
+            type="button"
+            className="proposal-type-button"
+            disabled={!isAdmin || !detail.heAccountId}
+            aria-haspopup="dialog"
+            onClick={(event) => openTransfer(event, 'he', detail.heAccountId)}
+          >两和基金转账</button>
+        </>
       )}
       {(detail.orgType === 0 || detail.orgType === 1) && (
         <>
@@ -397,8 +462,26 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
           </div>
           {proposalActions}
         </div>
+        {proposalRefreshError && <p className="error" role="alert">提案列表刷新失败：{proposalRefreshError}</p>}
         {proposalList}
       </section>
+      {activeTransfer?.kind === 'sweep' && (
+        <SweepProposalPage actorCidNumber={cidNumber} cidFullName={detail.cidFullName}
+          institutionAccountId={activeTransfer.accountId} mainAccountId={detail.mainAccountId}
+          adminSigners={activeTransfer.signers} onBack={closeTransfer} onSuccess={completeTransfer} />
+      )}
+      {activeTransfer?.kind === 'safety' && (
+        <SafetyFundProposalPage actorCidNumber={cidNumber} cidFullName={detail.cidFullName}
+          institutionAccountId={activeTransfer.accountId} adminSigners={activeTransfer.signers}
+          onBack={closeTransfer} onSuccess={completeTransfer} />
+      )}
+      {(activeTransfer?.kind === 'transfer' || activeTransfer?.kind === 'he') && (
+        <CreateMultisigTransferPage cidNumber={cidNumber} cidFullName={detail.cidFullName}
+          title={activeTransfer.kind === 'he' ? '两和基金转账提案' : '发起转账提案'}
+          sourceAccountLabel={activeTransfer.kind === 'he' ? '两和基金账户' : '主账户'}
+          institutionAccountId={activeTransfer.accountId} adminSigners={activeTransfer.signers}
+          onBack={closeTransfer} onSuccess={completeTransfer} />
+      )}
       {showVotingHelp && (
         <VotingHelpDialog onClose={() => {
           setShowVotingHelp(false);

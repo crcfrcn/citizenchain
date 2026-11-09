@@ -2,8 +2,6 @@ import { AdminListPage } from "./index";
 import { InstitutionListView } from "./InstitutionListView";
 import { InstitutionDetailPage } from "./InstitutionDetailPage";
 import { ProposalDetailPage } from "../proposal/ProposalDetailPage";
-import { CreateMultisigTransferPage } from "../multisig/CreateProposalPage";
-import { SweepProposalPage } from "../multisig/SweepProposalPage";
 import { ProtocolUpgradeProposalPage } from "../upgrade/index";
 import { GrandpaKeyChangePage } from "../grandpakey/GrandpaKeyChangePage";
 import type { AdminSignerMatch } from "./council";
@@ -15,10 +13,8 @@ type PrcView =
   | { page: 'detail'; cidNumber: string }
   | { page: 'admin-list'; cidNumber: string; orgType: number }
   | { page: 'proposal-detail'; proposalId: number; adminSigners: AdminSignerMatch[]; cidNumber?: string; originCidNumber: string }
-  | { page: 'create-proposal'; cidNumber: string; orgType: number; cidFullName: string; institutionAccountId: string; adminSigners: AdminSignerMatch[] }
   | { page: 'protocol-upgrade'; cidNumber: string; adminSigners: AdminSignerMatch[] }
-  | { page: 'grandpa-key'; cidNumber: string; adminSigners: AdminSignerMatch[] }
-  | { page: 'propose-sweep'; cidNumber: string; institutionAccountId: string; cidFullName: string; adminSigners: AdminSignerMatch[] };
+  | { page: 'grandpa-key'; cidNumber: string; adminSigners: AdminSignerMatch[] };
 
 export function PrcSection() {
   const [view, setView] = useState<PrcView>({ page: 'list' });
@@ -47,19 +43,6 @@ export function PrcSection() {
     );
   }
 
-  if (view.page === 'create-proposal') {
-    return (
-      <CreateMultisigTransferPage
-        cidNumber={view.cidNumber}
-        cidFullName={view.cidFullName}
-        institutionAccountId={view.institutionAccountId}
-        adminSigners={view.adminSigners}
-        onBack={() => backToDetail(view.cidNumber)}
-        onSuccess={() => backToDetail(view.cidNumber)}
-      />
-    );
-  }
-
   if (view.page === 'protocol-upgrade') {
     return (
       <ProtocolUpgradeProposalPage
@@ -83,19 +66,6 @@ export function PrcSection() {
     );
   }
 
-  if (view.page === 'propose-sweep') {
-    return (
-      <SweepProposalPage
-        actorCidNumber={view.cidNumber}
-        institutionAccountId={view.institutionAccountId}
-        cidFullName={view.cidFullName}
-        adminSigners={view.adminSigners}
-        onBack={() => backToDetail(view.cidNumber)}
-        onSuccess={() => backToDetail(view.cidNumber)}
-      />
-    );
-  }
-
   if (view.page === 'detail') {
     const cidNumber = view.cidNumber;
     return (
@@ -106,17 +76,11 @@ export function PrcSection() {
         onSelectProposal={(proposalId, adminSigners, sid) =>
           setView({ page: 'proposal-detail', proposalId, adminSigners, cidNumber: sid, originCidNumber: cidNumber })
         }
-        onCreateProposal={(sid, orgType, cidFullName, institutionAccountId, aw) =>
-          setView({ page: 'create-proposal', cidNumber: sid, orgType, cidFullName, institutionAccountId, adminSigners: aw })
-        }
         onCreateProtocolUpgrade={(aw) =>
           setView({ page: 'protocol-upgrade', cidNumber, adminSigners: aw })
         }
         onChangeGrandpaKey={(aw) =>
           setView({ page: 'grandpa-key', cidNumber, adminSigners: aw })
-        }
-        onCreateSweep={(sid, institutionAccountId, cidFullName, aw) =>
-          setView({ page: 'propose-sweep', cidNumber: sid, institutionAccountId, cidFullName, adminSigners: aw })
         }
       />
     );

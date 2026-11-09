@@ -3,7 +3,7 @@
 //! 本模块为所有机构多签账户和个人多签账户提供链上转账治理流程：
 //! - 机构由具备目标业务权限的岗位任职人发起，个人多签由管理员发起；统一经内部投票执行。
 //! - 自动执行失败时保留提案状态，可通过 `VotingEngine::retry_passed_proposal` 手动重试。
-//! - 余额在提案创建和执行两个时点双重检查，含手续费和 ED 保留。
+//! - 普通转账和安全基金转账在提案创建及执行时检查余额。手续费划转在执行时校验 ED 保留和 80% 本金上限。
 //! - 收款地址不能是转出资金账户自身，也不能是受保护地址(质押地址等)。
 //! - 本模块只处理转账提案与执行；个人多签生命周期归 `personalentity`，
 //!   个人多签管理员真源归 `personaladmin`。
@@ -26,7 +26,7 @@ use primitives::fee_policy::OnchainFeeCharger;
 use votebase::{
     types::{
         institution_code_from_cid_number, AuthorizationSubject, BusinessActionId, CidNumber,
-        InstitutionCode, RoleCode, RoleSubject, VotePlanOf, VotingEngineKind, NRC, PMUL, PRB,
+        InstitutionCode, RoleCode, RoleSubject, VotePlanOf, VotingEngineKind, NRC, PMUL, PRB, PRC,
     },
     InternalVoteResultCallback, ProposalExecutionOutcome, PROPOSAL_KIND_INTERNAL, STAGE_INTERNAL,
     STATUS_PASSED,
@@ -182,7 +182,7 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// 手续费划转提案动作存储（省储行 + 国家储委会共用）。
+    /// 手续费划转提案动作存储（国家储委会、省储委会和省储行共用）。
     #[pallet::storage]
     pub type SweepProposalActions<T: Config> =
         StorageMap<_, Blake2_128Concat, u64, SweepAction<T::AccountId, BalanceOf<T>>, OptionQuery>;
@@ -773,13 +773,13 @@ pub mod pallet {
 
         /// 判断治理机构码类型用于 sweep 提案。
         ///
-        /// sweep 只服务治理机构费用账户，不接入个人多签或注册机构账户。
+        /// 只允许国家储委会、省储委会和省储行将本机构费用划回主账户。
         fn resolve_sweep_org(cid_number: &CidNumber) -> Result<InstitutionCode, Error<T>> {
             let text = core::str::from_utf8(cid_number.as_slice())
                 .map_err(|_| Error::<T>::InvalidInstitution)?;
             let code =
                 institution_code_from_cid_number(text).ok_or(Error::<T>::InvalidInstitution)?;
-            ensure!(matches!(code, NRC | PRB), Error::<T>::InvalidInstitution);
+            ensure!(matches!(code, NRC | PRC | PRB), Error::<T>::InvalidInstitution);
             Ok(code)
         }
 

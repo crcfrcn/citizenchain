@@ -1,14 +1,11 @@
 import { AdminListPage } from "./index";
 import { InstitutionDetailPage } from "./InstitutionDetailPage";
 import { ProposalDetailPage } from "../proposal/ProposalDetailPage";
-import { CreateMultisigTransferPage } from "../multisig/CreateProposalPage";
-import { SafetyFundProposalPage } from "../multisig/SafetyFundProposalPage";
-import { SweepProposalPage } from "../multisig/SweepProposalPage";
 import { ProtocolUpgradeProposalPage } from "../upgrade/index";
 import { GrandpaKeyChangePage } from "../grandpakey/GrandpaKeyChangePage";
 import type { AdminSignerMatch } from "./council";
 // 国家储委会顶级 Section：直接渲染国家储委会机构详情页（单机构，无列表层）。
-// 特权动作：协议升级、安全基金转账提案 — 仅国家储委会管理员可发起。
+// 机构详情负责发起转账类提案，本层保留其他子页导航。
 import { useState } from 'react';
 
 // 国家储委会 cidNumber（全链唯一，直接进入详情）。
@@ -18,11 +15,8 @@ type NrcView =
   | { page: 'detail' }
   | { page: 'admin-list' }
   | { page: 'proposal-detail'; proposalId: number; adminSigners: AdminSignerMatch[]; cidNumber?: string }
-  | { page: 'create-proposal'; orgType: number; cidFullName: string; institutionAccountId: string; adminSigners: AdminSignerMatch[] }
   | { page: 'protocol-upgrade'; adminSigners: AdminSignerMatch[] }
-  | { page: 'grandpa-key'; adminSigners: AdminSignerMatch[] }
-  | { page: 'propose-safety-fund'; actorCidNumber: string; institutionAccountId: string; adminSigners: AdminSignerMatch[] }
-  | { page: 'propose-sweep'; actorCidNumber: string; institutionAccountId: string; cidFullName: string; adminSigners: AdminSignerMatch[] };
+  | { page: 'grandpa-key'; adminSigners: AdminSignerMatch[] };
 
 export function NrcSection() {
   const [view, setView] = useState<NrcView>({ page: 'detail' });
@@ -50,19 +44,6 @@ export function NrcSection() {
     );
   }
 
-  if (view.page === 'create-proposal') {
-    return (
-      <CreateMultisigTransferPage
-        cidNumber={NRC_CID_NUMBER}
-        cidFullName={view.cidFullName}
-        institutionAccountId={view.institutionAccountId}
-        adminSigners={view.adminSigners}
-        onBack={backToDetail}
-        onSuccess={backToDetail}
-      />
-    );
-  }
-
   if (view.page === 'protocol-upgrade') {
     return (
       <ProtocolUpgradeProposalPage
@@ -86,31 +67,6 @@ export function NrcSection() {
     );
   }
 
-  if (view.page === 'propose-safety-fund') {
-    return (
-      <SafetyFundProposalPage
-        actorCidNumber={view.actorCidNumber}
-        institutionAccountId={view.institutionAccountId}
-        adminSigners={view.adminSigners}
-        onBack={backToDetail}
-        onSuccess={backToDetail}
-      />
-    );
-  }
-
-  if (view.page === 'propose-sweep') {
-    return (
-      <SweepProposalPage
-        actorCidNumber={view.actorCidNumber}
-        institutionAccountId={view.institutionAccountId}
-        cidFullName={view.cidFullName}
-        adminSigners={view.adminSigners}
-        onBack={backToDetail}
-        onSuccess={backToDetail}
-      />
-    );
-  }
-
   // 默认直接渲染国家储委会机构详情（hideBackButton 以保持 tab 语义）。
   return (
     <InstitutionDetailPage
@@ -121,20 +77,11 @@ export function NrcSection() {
       onSelectProposal={(proposalId, adminSigners, sid) =>
         setView({ page: 'proposal-detail', proposalId, adminSigners, cidNumber: sid })
       }
-      onCreateProposal={(_sid, orgType, cidFullName, institutionAccountId, aw) =>
-        setView({ page: 'create-proposal', orgType, cidFullName, institutionAccountId, adminSigners: aw })
-      }
       onCreateProtocolUpgrade={(aw) =>
         setView({ page: 'protocol-upgrade', adminSigners: aw })
       }
       onChangeGrandpaKey={(aw) =>
         setView({ page: 'grandpa-key', adminSigners: aw })
-      }
-      onCreateSafetyFund={(actorCidNumber, institutionAccountId, aw) =>
-        setView({ page: 'propose-safety-fund', actorCidNumber, institutionAccountId, adminSigners: aw })
-      }
-      onCreateSweep={(actorCidNumber, institutionAccountId, cidFullName, aw) =>
-        setView({ page: 'propose-sweep', actorCidNumber, institutionAccountId, cidFullName, adminSigners: aw })
       }
     />
   );

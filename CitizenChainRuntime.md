@@ -1780,13 +1780,21 @@ Substrate 框架的 `sr25519_generate_new(key_type, None)` 行为：
    `on_finalize` 预算仍由 `on_initialize` 预申报。
 5. …32451 tokens truncated…建立岗位阈值；达阈值后回调本模块自动执行 sweep。
 
+##### 手续费划转准入与岗位权限
+
+国家储委会、省储委会和省储行均使用 `propose_sweep_to_main`。发起机构 CID 与转出的费用账户必须匹配。收款主账户由链上按同一 CID 查询。省储委会由 `COMMITTEE_MEMBER` 岗位发起和投票，达到 6 张赞成票后执行。
+
+固定岗位目录为新创世写入省储委会划转的发起权和投票权。现有链通过 `runtime/src/configs.rs` 注册的 `SingleBlockMigrations` 补齐 43 个固定省储委会的存量权限。升级钩子先检查全部目标岗位和权限容量，再追加缺失项并记录完成标记。原有权限和其他机构记录保持原值。
+
+国家储委会两和基金通过 `propose_transfer` 转账。链上核对两和基金账户属于发起机构，两和基金账户支付本金，同一 CID 的国储会费用账户支付执行手续费。
+
 ##### 3. try_execute_sweep（内部方法）
 
 1. 校验提案状态为 `STATUS_PASSED`
 2. `InstitutionAsset::can_spend` 检查（action = `OffchainFeeSweepExecute`）
 3. 计算手续费：`calculate_onchain_fee(amount)` — 费率 0.1%，有最低值
-4. **余额检查**：划转和手续费支出后，费用账户余额必须 `>= ED`
-5. **Cap 检查**：`amount <= (fee_balance - ED) * 80 / 100`
+4. **余额检查**。划转本金与执行手续费扣除后，费用账户余额至少保留链上 ED，当前为 111 分（1.11 元）。
+5. **本金上限**。`amount <= (fee_balance - ED) * 80 / 100`，按整数分向下取整。
 6. 在同一 storage transaction 中先由 `OnchainFeeCharger::charge(fee_account, amount)` 收取执行手续费，再执行 `Currency::transfer` 从 fee_account 到 main_account（KeepAlive）
 7. 任一失败时手续费、分账和本金划转全部回滚
 8. 成功手续费经 `OnchainExecutionFeeDistributor` -> `OnchainFeeRouter` 按 80/10/10 分账
@@ -1805,7 +1813,7 @@ Substrate 框架的 `sr25519_generate_new(key_type, None)` 行为：
 | 错误 | 触发条件 |
 |------|----------|
 | `InvalidSweepAmount` | 金额为 0 |
-| `InvalidInstitution` | 机构非 NRC/PRB |
+| `InvalidInstitution` | 机构非 NRC/PRC/PRB，或转出账户与发起 CID 的费用账户不匹配 |
 | `UnauthorizedAdmin` | 稳定错误码：调用者不是所提交岗位的有效任职人，或该岗位没有 sweep 提案权限 |
 | `SweepProposalNotFound` | proposal_id 无对应记录 |
 | `SweepProposalNotPassed` | 提案未通过 |
