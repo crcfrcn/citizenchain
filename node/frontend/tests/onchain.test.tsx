@@ -109,13 +109,31 @@ describe('现有四档金额和费用', () => {
 });
 
 describe('钱包余额查询状态', () => {
+  it('节点启动期间不查余额，就绪后自动查询', async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_wallets') return { wallets: [wallet], activeAccountId: wallet.accountId };
+      if (command === 'get_wallet_balance') return '12345';
+      throw new Error(`非预期调用：${command}`);
+    });
+    const view = render(<TransactionPanel nodeReady={false} />);
+    await waitFor(() => expect(screen.queryByText('请先在钱包管理中添加钱包')).toBeNull());
+    expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('-');
+    expect(mocks.invoke.mock.calls.map(([command]) => command)).toEqual(['get_wallets']);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: '重试查询' })).toBeNull();
+
+    view.rerender(<TransactionPanel nodeReady />);
+    await screen.findByText('123.45 元');
+    expect(mocks.invoke).toHaveBeenCalledWith('get_wallet_balance', { accountId: wallet.accountId });
+  });
+
   it('链上无账户记录时显示零余额，钱包列表也不再显示加载中', async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === 'get_wallets') return { wallets: [wallet], activeAccountId: wallet.accountId };
       if (command === 'get_wallet_balance') return null;
       throw new Error(`非预期调用：${command}`);
     });
-    const view = render(<TransactionPanel />);
+    const view = render(<TransactionPanel nodeReady />);
     await waitFor(() => expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('0.00 元'));
     expect(screen.queryByText('查询中...')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '钱包管理' }));
@@ -134,7 +152,7 @@ describe('钱包余额查询状态', () => {
       }
       throw new Error(`非预期调用：${command}`);
     });
-    render(<TransactionPanel />);
+    render(<TransactionPanel nodeReady />);
     await screen.findByRole('alert');
     expect(screen.getByRole('alert').textContent).toContain('合成RPC连接失败');
     expect(screen.queryByText('查询中...')).toBeNull();
@@ -151,7 +169,7 @@ describe('钱包余额查询状态', () => {
       if (command === 'get_wallet_balance') throw new Error('合成RPC超时');
       throw new Error(`非预期调用：${command}`);
     });
-    const view = render(<TransactionPanel />);
+    const view = render(<TransactionPanel nodeReady />);
     await screen.findByRole('alert');
     fireEvent.click(screen.getByRole('button', { name: '钱包管理' }));
     await waitFor(() => expect(view.container.querySelector('.wallet-row-balance')?.textContent).toBe('查询失败'));
@@ -172,7 +190,7 @@ describe('钱包余额查询状态', () => {
       }
       throw new Error(`非预期调用：${command}`);
     });
-    const view = render(<TransactionPanel />);
+    const view = render(<TransactionPanel nodeReady />);
     await waitFor(() => expect(oldRequests).toBe(1));
     fireEvent.click(screen.getByRole('button', { name: '钱包管理' }));
     await screen.findByText('另一钱包 · Cold');
@@ -278,7 +296,7 @@ describe('现有确认、扫码与提交', () => {
   });
 
   it('交易池返回哈希后首页明确显示已提交', async () => {
-    const view = render(<TransactionPanel />);
+    const view = render(<TransactionPanel nodeReady />);
     await screen.findByText('1,000.00 元');
     fireEvent.change(screen.getByPlaceholderText('请输入 公民链SS58地址 或 以太坊0x地址'), { target: { value: destination } });
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '105' } });

@@ -109,7 +109,7 @@ it('链上中国未取得产品说明时显示入口加载中，不显示替代�
   mocks.invoke.mockImplementation(() => new Promise(() => {}));
   const view=render(<OnChinaPlatformSection/>);
   expect(screen.getByText('入口加载中')).toBeTruthy();
-  expect((screen.getByRole('button',{name:'启动'}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button',{name:'启动链上中国'}) as HTMLButtonElement).disabled).toBe(true);
   view.unmount();
 });
 it('链上中国只显示宿主交付的入口和具体启动诊断',async()=>{
@@ -117,10 +117,10 @@ it('链上中国只显示宿主交付的入口和具体启动诊断',async()=>{
   const view=render(<OnChinaPlatformSection/>);
   expect(await screen.findByText('https://product.example:1988')).toBeTruthy();
   const status = screen.getByRole('status');
-  expect(status.textContent?.trim()).toBe('启动失败');
+  expect(status.getAttribute('aria-label')).toBe('启动失败');
   expect(status.getAttribute('data-status')).toBe('error');
   expect(status.classList.contains('error')).toBe(false);
-  expect(status.parentElement).toBe(screen.getByText('链上中国平台').parentElement);
+  expect(status.nextElementSibling).toBe(screen.getByText('链上中国平台'));
   expect(screen.getByText('主机尚未配置固定地址')).toBeTruthy();
   view.unmount();
 });
@@ -134,7 +134,10 @@ it('链上中国只允许打开已就绪模块，并只传模块 ID', async () =
     throw new Error(command);
   });
   const view = render(<OnChinaPlatformSection />);
-  await screen.findByText('已开启');
+  await screen.findByRole('status', {name:'已开启'});
+  fireEvent.click(screen.getByRole('button', {name:'关闭链上中国'}));
+  expect(screen.getByText('确认关闭链上中国平台？')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name:'取消'}));
   const available = screen.getByRole<HTMLButtonElement>('button', {name:/^注册局/});
   const unavailable = screen.getByRole<HTMLButtonElement>('button', {name:/^立法/});
   expect(available.disabled).toBe(false);

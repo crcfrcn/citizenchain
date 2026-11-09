@@ -6,7 +6,7 @@ import { TransferForm } from "./TransferForm";
 import { TransferSigningFlow } from "./TransferSigningFlow";
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-export function TransactionPanel() {
+export function TransactionPanel({ nodeReady }: { nodeReady: boolean }) {
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [balanceResult, setBalanceResult] = useState<{
@@ -21,7 +21,7 @@ export function TransactionPanel() {
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeWallet = wallets.find((wallet) => wallet.accountId === activeAccountId) ?? null;
-  const balanceState = balanceResult?.accountId === activeWallet?.accountId
+  const balanceState = nodeReady && balanceResult?.accountId === activeWallet?.accountId
     ? balanceResult?.state : undefined;
 
   // 加载钱包列表
@@ -32,9 +32,9 @@ export function TransactionPanel() {
     }).catch((e) => setError(sanitizeError(e)));
   }, []);
 
-  // 轮询当前钱包余额（5s）
+  // RPC 就绪后立即查询当前钱包余额，随后每 5 秒刷新。
   useEffect(() => {
-    if (!activeWallet) { setBalanceResult(null); return; }
+    if (!nodeReady || !activeWallet) { setBalanceResult(null); return; }
     const accountId = activeWallet.accountId;
     let cancelled = false;
     let inFlight = false;
@@ -54,7 +54,7 @@ export function TransactionPanel() {
     fetch();
     const interval = setInterval(fetch, 5000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [activeWallet?.accountId, balanceRetry]);
+  }, [activeWallet?.accountId, balanceRetry, nodeReady]);
 
   const handleWalletUpdate = useCallback((store: WalletStore) => {
     setWallets(store.wallets);
@@ -92,6 +92,7 @@ export function TransactionPanel() {
 
       <TransferForm
         activeWallet={activeWallet}
+        nodeReady={nodeReady}
         balance={balanceState?.status === 'ready' ? balanceState.balance : null}
         balanceError={balanceState?.status === 'error' ? balanceState.message : null}
         onRetryBalance={() => setBalanceRetry((value) => value + 1)}

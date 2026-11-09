@@ -1,15 +1,15 @@
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
+import { TransferProposalDialog, type TransferProposalStep } from "../multisig/TransferProposalDialog";
 import type { AdminSignerMatch } from "../institution/council";
 import { grandpaKeyChangeApi as api } from "./api";
 import type { GrandpaChangeKind, GrandpaKeyChangeRequest, GrandpaKeyChangeStatus } from "./types";
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-type FlowStep = 'form' | 'qr' | 'submit' | 'done' | 'error';
-
 type Props = {
   actorCidNumber: string;
+  institutionName: string;
   adminSigners: AdminSignerMatch[];
   onBack: () => void;
   onSuccess: () => void;
@@ -21,6 +21,7 @@ function kindLabel(kind: GrandpaChangeKind | null): string {
 
 export function GrandpaKeyChangePage({
   actorCidNumber,
+  institutionName,
   adminSigners,
   onBack,
   onSuccess,
@@ -31,7 +32,7 @@ export function GrandpaKeyChangePage({
     adminSigners.length === 1 ? adminSigners[0].accountId : '',
   );
   const [unlockPassword, setUnlockPassword] = useState('');
-  const [step, setStep] = useState<FlowStep>('form');
+  const [step, setStep] = useState<TransferProposalStep>('form');
   const [request, setRequest] = useState<GrandpaKeyChangeRequest | null>(null);
   const [countdown, setCountdown] = useState(90);
   const [txHash, setTxHash] = useState<string | null>(null);
@@ -109,134 +110,135 @@ export function GrandpaKeyChangePage({
     }
   }, []);
 
-  if (status?.pending && step === 'form') {
-    return (
-      <div className="governance-section">
-        <button className="back-button" onClick={onBack}>← 返回</button>
-        <h2>验证密钥</h2>
-        <div className="warning">
-          本机已有{kindLabel(status.changeKind)}流程，旧、新私钥正在同时保留。
-          finalized 确认新 authority 生效后，节点会自动删除旧私钥并重启。
-        </div>
-        <div className="institution-detail-grid">
-          <div className="metric-card">
-            <div className="metric-label">旧 GRANDPA 公钥</div>
-            <code>{status.oldPublicKey ?? '—'}</code>
-          </div>
-          <div className="metric-card">
-            <div className="metric-label">新 GRANDPA 公钥</div>
-            <code>{status.newPublicKey ?? '—'}</code>
-          </div>
-        </div>
-        {status.txHash ? <code className="tx-hash">交易哈希: {status.txHash}</code> : (
-          <p className="no-data">管理员交易尚未提交；请在当前签名会话中继续完成。</p>
-        )}
-      </div>
-    );
-  }
+  const showingPending = status?.pending && step === 'form';
 
   return (
-    <div className="governance-section">
-      <button className="back-button" onClick={onBack}>← 返回</button>
-      <h2>验证密钥</h2>
-      <p className="upgrade-proposal-hint">
-        正常更换由单个委员发起并要求旧、新 GRANDPA 私钥共同签名；旧私钥不可用时，
-        才选择紧急恢复并进入本机构委员内部投票。这里不使用联合投票。
-      </p>
-
-      {step === 'form' && (
-        <div className="create-proposal-form">
-          {error && <div className="error">{error}</div>}
-          <div className="wallet-form-field">
-            <label>更换路径</label>
-            <select
-              value={changeKind}
-              onChange={(event) => setChangeKind(event.target.value as GrandpaChangeKind)}
-              disabled={building}
-            >
-              <option value="routine_rotation">正常更换：单个委员 + 旧/新私钥签名</option>
-              <option value="emergency_recovery">紧急恢复：旧私钥不可用 + 本机构内部投票</option>
-            </select>
+    <TransferProposalDialog
+      title="验证密钥"
+      institutionName={institutionName}
+      step={showingPending ? 'done' : step}
+      generating={building}
+      signDisabled={!selectedSignerAccountId || !unlockPassword}
+      onCancel={onBack}
+      onSign={buildRequest}
+      onComplete={showingPending ? onBack : onSuccess}
+      completeLabel={showingPending ? '关闭' : undefined}
+    >
+      {showingPending && status ? (
+        <>
+          <div className="warning">
+            本机已有{kindLabel(status.changeKind)}流程，旧、新私钥正在同时保留。
+            finalized 确认新 authority 生效后，节点会自动删除旧私钥并重启。
           </div>
+          <div className="institution-detail-grid">
+            <div className="metric-card">
+              <div className="metric-label">旧 GRANDPA 公钥</div>
+              <code>{status.oldPublicKey ?? '—'}</code>
+            </div>
+            <div className="metric-card">
+              <div className="metric-label">新 GRANDPA 公钥</div>
+              <code>{status.newPublicKey ?? '—'}</code>
+            </div>
+          </div>
+          {status.txHash ? <code className="tx-hash">交易哈希: {status.txHash}</code> : (
+            <p className="no-data">管理员交易尚未提交；请在当前签名会话中继续完成。</p>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="upgrade-proposal-hint">
+            正常更换由单个委员发起并要求旧、新 GRANDPA 私钥共同签名；旧私钥不可用时，
+            才选择紧急恢复并进入本机构委员内部投票。这里不使用联合投票。
+          </p>
 
-          {changeKind === 'emergency_recovery' && (
-            <div className="warning">
-              仅在旧私钥已经丢失或无法签名时使用。NRC 只由 NRC 委员内部投票；
-              各 PRC 只由本 PRC 委员内部投票。
+          {step === 'form' && (
+            <div className="create-proposal-form">
+              {error && <div className="error">{error}</div>}
+              <div className="wallet-form-field">
+                <label htmlFor="grandpa-change-kind">更换路径</label>
+                <select
+                  id="grandpa-change-kind"
+                  value={changeKind}
+                  onChange={(event) => setChangeKind(event.target.value as GrandpaChangeKind)}
+                  disabled={building}
+                >
+                  <option value="routine_rotation">正常更换：单个委员 + 旧/新私钥签名</option>
+                  <option value="emergency_recovery">紧急恢复：旧私钥不可用 + 本机构内部投票</option>
+                </select>
+              </div>
+
+              {changeKind === 'emergency_recovery' && (
+                <div className="warning">
+                  仅在旧私钥已经丢失或无法签名时使用。NRC 只由 NRC 委员内部投票；
+                  各 PRC 只由本 PRC 委员内部投票。
+                </div>
+              )}
+
+              <div className="wallet-form-field">
+                <label htmlFor="grandpa-change-signer">发起委员</label>
+                <select
+                  id="grandpa-change-signer"
+                  value={selectedSignerAccountId}
+                  onChange={(event) => setSelectedSignerAccountId(event.target.value)}
+                  disabled={adminSigners.length <= 1 || building}
+                >
+                  {adminSigners.length !== 1 && <option value="">请选择…</option>}
+                  {adminSigners.map((admin) => (
+                    <option key={admin.accountId} value={admin.accountId}>
+                      {accountIdToSs58(admin.accountId)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="wallet-form-field">
+                <label htmlFor="grandpa-change-password">本机解锁密码</label>
+                <input
+                  id="grandpa-change-password"
+                  type="password"
+                  value={unlockPassword}
+                  onChange={(event) => setUnlockPassword(event.target.value)}
+                  autoComplete="current-password"
+                  disabled={building}
+                />
+              </div>
             </div>
           )}
 
-          <div className="wallet-form-field">
-            <label>发起委员</label>
-            <select
-              value={selectedSignerAccountId}
-              onChange={(event) => setSelectedSignerAccountId(event.target.value)}
-              disabled={adminSigners.length <= 1 || building}
-            >
-              {adminSigners.length !== 1 && <option value="">请选择…</option>}
-              {adminSigners.map((admin) => (
-                <option key={admin.accountId} value={admin.accountId}>
-                  {accountIdToSs58(admin.accountId)}
-                </option>
-              ))}
-            </select>
-          </div>
+          {step === 'qr' && request && (
+            <div className="vote-signing-body">
+              <div className="warning">
+                新私钥已写入本机 keystore，旧私钥仍保留。新公钥：{request.newPublicKey}
+              </div>
+              <CitizenSignaturePanel
+                qrValue={request.requestJson}
+                countdownSeconds={countdown}
+                onScan={submit}
+                onScanError={(message) => {
+                  setError(message);
+                  setStep('error');
+                }}
+              />
+            </div>
+          )}
 
-          <div className="wallet-form-field">
-            <label>本机解锁密码</label>
-            <input
-              type="password"
-              value={unlockPassword}
-              onChange={(event) => setUnlockPassword(event.target.value)}
-              autoComplete="current-password"
-              disabled={building}
-            />
-          </div>
+          {step === 'submit' && <p className="qr-instruction">正在验签并提交换钥交易…</p>}
 
-          <button
-            className="vote-signing-confirm"
-            disabled={!selectedSignerAccountId || !unlockPassword || building}
-            onClick={buildRequest}
-          >
-            {building ? '正在生成并安全保存候选密钥…' : '生成换钥签名请求'}
-          </button>
-        </div>
+          {step === 'done' && (
+            <div className="vote-success">
+              <p>{changeKind === 'emergency_recovery' ? '紧急恢复提案已进入本机构内部投票。' : '正常更换已调度延迟生效。'}</p>
+              {txHash && <code className="tx-hash">交易哈希: {txHash}</code>}
+              <p>finalized 确认新 authority 后，本机将自动删除旧私钥并重启节点。</p>
+            </div>
+          )}
+
+          {step === 'error' && (
+            <div className="vote-signing-body">
+              <div className="error">{error}</div>
+            </div>
+          )}
+        </>
       )}
-
-      {step === 'qr' && request && (
-        <div className="vote-signing-body">
-          <div className="warning">
-            新私钥已写入本机 keystore，旧私钥仍保留。新公钥：{request.newPublicKey}
-          </div>
-          <CitizenSignaturePanel
-            qrValue={request.requestJson}
-            countdownSeconds={countdown}
-            onScan={submit}
-            onScanError={(message) => {
-              setError(message);
-              setStep('error');
-            }}
-          />
-        </div>
-      )}
-
-      {step === 'submit' && <p className="qr-instruction">正在验签并提交换钥交易…</p>}
-
-      {step === 'done' && (
-        <div className="vote-success">
-          <p>{changeKind === 'emergency_recovery' ? '紧急恢复提案已进入本机构内部投票。' : '正常更换已调度延迟生效。'}</p>
-          {txHash && <code className="tx-hash">交易哈希: {txHash}</code>}
-          <p>finalized 确认新 authority 后，本机将自动删除旧私钥并重启节点。</p>
-          <button className="vote-signing-confirm" onClick={onSuccess}>完成</button>
-        </div>
-      )}
-
-      {step === 'error' && (
-        <div className="vote-signing-body">
-          <div className="error">{error}</div>
-          <button className="vote-signing-confirm" onClick={onBack}>返回机构详情</button>
-        </div>
-      )}
-    </div>
+    </TransferProposalDialog>
   );
 }

@@ -1,6 +1,7 @@
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
+import { TransferProposalDialog, type TransferProposalStep } from "../multisig/TransferProposalDialog";
 import { runtimeUpgradeApi as api } from "./api";
 import type { AdminSignerMatch } from "../institution/council";
 import type { PowDifficultyParams, ProposeUpgradeRequestResult } from "./api";
@@ -8,23 +9,22 @@ import type { PowDifficultyParams, ProposeUpgradeRequestResult } from "./api";
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 
-type FlowStep = 'form' | 'qr' | 'submit' | 'done' | 'error';
-
 type Props = {
   actorCidNumber: string;
+  institutionName: string;
   adminSigners: AdminSignerMatch[];
   onBack: () => void;
   onSuccess: () => void;
 };
 
-export function ProtocolUpgradeProposalPage({ actorCidNumber, adminSigners, onBack, onSuccess }: Props) {
+export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, adminSigners, onBack, onSuccess }: Props) {
   const [wasmPath, setWasmPath] = useState('');
   const [wasmFileName, setWasmFileName] = useState('');
   const [reason, setReason] = useState('');
   const [selectedSignerAccountId, setSelectedSignerAccountId] = useState(
     adminSigners.length === 1 ? adminSigners[0].accountId : ''
   );
-  const [step, setStep] = useState<FlowStep>('form');
+  const [step, setStep] = useState<TransferProposalStep>('form');
   const [signRequest, setSignRequest] = useState<ProposeUpgradeRequestResult | null>(null);
   const [requestJson, setRequestJson] = useState('');
   const [countdown, setCountdown] = useState(90);
@@ -125,9 +125,17 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, adminSigners, onBa
   const canSubmit = wasmPath.trim() && selectedSignerAccountId && reason.trim() && powParams;
 
   return (
-    <div className="governance-section">
-      <button className="back-button" onClick={onBack}>&larr; 返回</button>
-      <h2>协议升级</h2>
+    <TransferProposalDialog
+      title="协议升级"
+      institutionName={institutionName}
+      step={step}
+      generating={building}
+      signDisabled={!canSubmit}
+      onCancel={onBack}
+      onSign={handleBuildRequest}
+      onComplete={onSuccess}
+      onRetry={() => { setError(null); setStep('form'); }}
+    >
       <p className="upgrade-proposal-hint">
         提交运行期协议升级提案，进入联合投票流程。
       </p>
@@ -137,15 +145,15 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, adminSigners, onBa
           {error && <div className="error">{error}</div>}
 
           <div className="wallet-form-field">
-            <label>升级理由</label>
+            <label htmlFor="upgrade-reason">升级理由</label>
             <textarea
+              id="upgrade-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="请输入本次升级的理由说明"
               rows={6}
               maxLength={1024}
               disabled={building}
-              style={{ minHeight: '120px', resize: 'vertical' }}
             />
           </div>
 
@@ -189,14 +197,15 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, adminSigners, onBa
           )}
 
           <div className="wallet-form-field">
-            <label>发起管理员</label>
+            <label htmlFor="upgrade-signer">发起管理员</label>
             {adminSigners.length === 0 ? (
               <p className="upgrade-no-wallet">无已激活管理员</p>
             ) : (
               <select
+                id="upgrade-signer"
                 value={selectedSignerAccountId}
                 onChange={(e) => setSelectedSignerAccountId(e.target.value)}
-                disabled={adminSigners.length <= 1}
+                disabled={adminSigners.length <= 1 || building}
               >
                 {adminSigners.length === 1 ? (
                   <option value={adminSigners[0].accountId}>{accountIdToSs58(adminSigners[0].accountId)}</option>
@@ -211,14 +220,6 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, adminSigners, onBa
               </select>
             )}
           </div>
-
-          <button
-            className="vote-signing-confirm"
-            disabled={!canSubmit || building}
-            onClick={handleBuildRequest}
-          >
-            {building ? '正在生成协议升级签名请求…' : '生成协议升级签名请求'}
-          </button>
         </div>
       )}
 
@@ -246,16 +247,14 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, adminSigners, onBa
             {txHash && <code className="tx-hash">交易哈希: {txHash}</code>}
           </div>
           <p className="upgrade-done-note">提案已进入联合投票阶段。</p>
-          <button className="vote-signing-confirm" onClick={onSuccess}>完成</button>
         </div>
       )}
 
       {step === 'error' && (
         <div className="vote-signing-body">
           <div className="error">{error}</div>
-          <button className="vote-signing-confirm" onClick={() => { setError(null); setStep('form'); }}>重试</button>
         </div>
       )}
-    </div>
+    </TransferProposalDialog>
   );
 }

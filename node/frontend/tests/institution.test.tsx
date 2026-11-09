@@ -3,6 +3,7 @@ import {adminsChangeApi} from '../institution/admins';
 const mocks=vi.hoisted(()=>({invoke:vi.fn(),listen:vi.fn()}));
 vi.mock('../client/tauri',()=>({invoke:mocks.invoke,sanitizeError:String}));
 vi.mock('@tauri-apps/api/event',()=>({listen:mocks.listen}));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(async () => '/tmp/fixture-runtime.wasm') }));
 const api=adminsChangeApi as unknown as Record<string,(...args:unknown[])=>Promise<unknown>>;
 beforeEach(()=>{
   mocks.invoke.mockReset();
@@ -76,6 +77,10 @@ const safetyFundAccountId = accountId('03');
 const signerAccountId = accountId('06');
 const receiver = accountIdToSs58(accountId('07'));
 const transferCid = 'TEST-TRANSFER-CID';
+const powParams = {
+  paramsVersion: 1, algorithmVersion: 1, targetBlockTimeMs: 1000,
+  adjustmentInterval: 20, maxAdjustUpFactor: 2, maxAdjustDownDivisor: 2,
+};
 
 function mockTransferInstitution(orgType: number, canProposeSweep: boolean) {
   mocks.invoke.mockImplementation(async (command: string) => {
@@ -99,6 +104,15 @@ function mockTransferInstitution(orgType: number, canProposeSweep: boolean) {
         };
       case 'get_activated_admins': return [{ accountId: signerAccountId }];
       case 'get_institution_proposal_page': return { items: [], hasMore: false };
+      case 'get_grandpa_key_change_status': return { pending: false };
+      case 'get_pow_difficulty_params': return powParams;
+      case 'build_grandpa_key_change_request':
+      case 'build_propose_upgrade_request':
+        return { requestId: 'governance-request', requestJson: '{}', expectedPayloadHash: 'hash',
+          signNonce: 1, signBlockNumber: 2, newPublicKey: accountId('08') };
+      case 'submit_grandpa_key_change':
+      case 'submit_propose_upgrade':
+        return { txHash: '0x1234' };
     }
     if (command.startsWith('build_multisig_')) {
       return { requestId: 'request', requestJson: '{}', expectedPayloadHash: 'hash', signNonce: 1, signBlockNumber: 2 };
@@ -107,19 +121,29 @@ function mockTransferInstitution(orgType: number, canProposeSweep: boolean) {
   });
 }
 
+function installDialogMock() {
+  const prototype = HTMLDialogElement.prototype;
+  const show = Object.getOwnPropertyDescriptor(prototype, 'showModal');
+  const close = Object.getOwnPropertyDescriptor(prototype, 'close');
+  Object.defineProperties(prototype, {
+    showModal: { configurable: true, value(this: HTMLDialogElement) { this.open = true; } },
+    close: { configurable: true, value(this: HTMLDialogElement) { this.open = false; } },
+  });
+  return () => {
+    if (show) Object.defineProperty(prototype, 'showModal', show);
+    else Reflect.deleteProperty(prototype, 'showModal');
+    if (close) Object.defineProperty(prototype, 'close', close);
+    else Reflect.deleteProperty(prototype, 'close');
+  };
+}
+
 it.each([
   { button: '转账', title: '发起转账提案', orgType: 2, source: mainAccountId, call: 'transfer' },
   { button: '两和基金转账', title: '两和基金转账提案', orgType: 0, source: heAccountId, call: 'transfer' },
   { button: '安全基金转账', title: '安全基金转账提案', orgType: 0, source: safetyFundAccountId, call: 'safety_fund' },
   { button: '手续费划转', title: '手续费划转提案', orgType: 1, source: feeAccountId, call: 'sweep' },
 ])('$button 在原机构详情上方弹出，并使用对应账户与签名调用', async ({ button, title, orgType, source, call }) => {
-  const dialogPrototype = HTMLDialogElement.prototype;
-  const show = Object.getOwnPropertyDescriptor(dialogPrototype, 'showModal');
-  const close = Object.getOwnPropertyDescriptor(dialogPrototype, 'close');
-  Object.defineProperties(dialogPrototype, {
-    showModal: { configurable: true, value(this: HTMLDialogElement) { this.open = true; } },
-    close: { configurable: true, value(this: HTMLDialogElement) { this.open = false; } },
-  });
+  const restoreDialog = installDialogMock();
   mockTransferInstitution(orgType, true);
   const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
   try {
@@ -170,10 +194,55 @@ it.each([
     expect(mocks.invoke.mock.calls.filter(([name]) => name === 'get_institution_proposal_page')).toHaveLength(2);
   } finally {
     view.unmount();
-    if (show) Object.defineProperty(dialogPrototype, 'showModal', show);
-    else Reflect.deleteProperty(dialogPrototype, 'showModal');
-    if (close) Object.defineProperty(dialogPrototype, 'close', close);
-    else Reflect.deleteProperty(dialogPrototype, 'close');
+    restoreDialog();
+  }
+});
+
+it.each([
+  { title: '验证密钥', orgType: 1, build: 'build_grandpa_key_change_request', submit: 'submit_grandpa_key_change' },
+  { title: '协议升级', orgType: 0, build: 'build_propose_upgrade_request', submit: 'submit_propose_upgrade' },
+])('$title 保留机构详情并在同一弹窗完成签名和刷新', async ({ title, orgType, build, submit }) => {
+  const restoreDialog = installDialogMock();
+  mockTransferInstitution(orgType, true);
+  const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
+  try {
+    const trigger = await screen.findByRole('button', { name: title });
+    const overview = screen.getByRole('heading', { name: '提案列表' });
+    fireEvent.click(trigger);
+    const initialDialog = screen.getByRole('dialog', { name: title });
+    fireEvent.click(initialDialog);
+    expect(screen.getByRole('dialog', { name: title })).toBe(initialDialog);
+    fireEvent.click(within(initialDialog).getByRole('button', { name: '取消' }));
+    expect(screen.queryByRole('dialog', { name: title })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(mocks.invoke.mock.calls.some(([command]) => command === build)).toBe(false);
+
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: title });
+    const panel = within(dialog);
+    if (title === '验证密钥') {
+      fireEvent.change(panel.getByLabelText('本机解锁密码'), { target: { value: 'fixture-password' } });
+    } else {
+      fireEvent.change(panel.getByLabelText('升级理由'), { target: { value: '测试升级理由' } });
+      fireEvent.click(panel.getByRole('button', { name: '选择文件' }));
+      await panel.findByText('fixture-runtime.wasm');
+    }
+    fireEvent.click(panel.getByRole('button', { name: '签名' }));
+    fireEvent.click(await panel.findByRole('button', { name: '扫描签名响应' }));
+    expect(screen.getByRole('dialog', { name: title })).toBe(dialog);
+    expect(mocks.invoke).toHaveBeenCalledWith(build, expect.objectContaining({
+      actorCidNumber: transferCid, signerPublicKey: signerAccountId,
+    }));
+    expect(mocks.invoke).toHaveBeenCalledWith(submit, expect.objectContaining({
+      requestId: 'governance-request', expectedPublicKey: signerAccountId, responseJson: '模拟签名响应',
+    }));
+    fireEvent.click(await panel.findByRole('button', { name: '完成' }));
+    expect(screen.queryByRole('dialog', { name: title })).toBeNull();
+    expect(screen.getByRole('heading', { name: '提案列表' })).toBe(overview);
+    expect(mocks.invoke.mock.calls.filter(([command]) => command === 'get_institution_proposal_page')).toHaveLength(2);
+  } finally {
+    view.unmount();
+    restoreDialog();
   }
 });
 

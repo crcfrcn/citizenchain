@@ -12,14 +12,15 @@ type Props = {
   onCancel: () => void;
   onSign: () => void;
   onComplete: () => void;
-  onRetry: () => void;
+  onRetry?: () => void;
+  completeLabel?: string;
   scanner?: ReactNode;
   children: ReactNode;
 };
 
 export function TransferProposalDialog({
   title, institutionName, step, generating, signDisabled,
-  onCancel, onSign, onComplete, onRetry, scanner, children,
+  onCancel, onSign, onComplete, onRetry, completeLabel = '完成', scanner, children,
 }: Props) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -52,6 +53,7 @@ export function TransferProposalDialog({
     <dialog
       ref={dialogRef}
       className="institution-transfer-dialog"
+      data-step={step}
       aria-labelledby={titleId}
       onCancel={(event) => event.preventDefault()}
     >
@@ -73,11 +75,11 @@ export function TransferProposalDialog({
                 {generating ? '生成中…' : '签名'}
               </button>
             )}
-            {step === 'error' && (
+            {step === 'error' && onRetry && (
               <button type="button" className="institution-transfer-primary" onClick={onRetry}>重试</button>
             )}
             {step === 'done' && (
-              <button type="button" className="institution-transfer-primary" onClick={onComplete}>完成</button>
+              <button type="button" className="institution-transfer-primary" onClick={onComplete}>{completeLabel}</button>
             )}
           </footer>
         )}

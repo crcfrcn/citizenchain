@@ -6,6 +6,7 @@ import { useState } from 'react';
 
 type Props = {
   activeWallet: Wallet | null;
+  nodeReady?: boolean;
   balance: string | null;
   balanceError?: string | null;
   onRetryBalance?: () => void;
@@ -58,7 +59,7 @@ function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
-export function TransferForm({ activeWallet, balance, balanceError, onRetryBalance, onSubmit, disabled }: Props) {
+export function TransferForm({ activeWallet, nodeReady = true, balance, balanceError, onRetryBalance, onSubmit, disabled }: Props) {
   const [toAddress, setToAddress] = useState('');
   // 金额用字符串存储，显示带千分位
   const [amountText, setAmountText] = useState('');
@@ -93,14 +94,14 @@ export function TransferForm({ activeWallet, balance, balanceError, onRetryBalan
         {/* 后端返回 finalized 的 free 余额，不能把账户保留金也称为可用金额。 */}
         <span className="transfer-form-balance-label">钱包余额</span>
         <span className="transfer-form-balance-value">
-          {activeWallet && balanceError != null ? '查询失败' : activeWallet && balance != null
+          {!activeWallet || !nodeReady ? '-' : balanceError != null ? '查询失败' : balance != null
             ? `${fenToYuan(balance)} 元`
-            : (activeWallet ? '查询中...' : '-')
+            : '查询中...'
           }
         </span>
       </div>
 
-      {activeWallet && balanceError != null && (
+      {activeWallet && nodeReady && balanceError != null && (
         <div className="error" role="alert">
           余额查询失败：{balanceError}
           {onRetryBalance && <button type="button" onClick={onRetryBalance}>重试查询</button>}
@@ -156,9 +157,10 @@ export function TransferForm({ activeWallet, balance, balanceError, onRetryBalan
       </div>
 
       <div className="transfer-form-field">
-        <label>转账备注</label>
-        <input
-          type="text"
+        <label htmlFor="transfer-form-remark">转账备注</label>
+        <textarea
+          id="transfer-form-remark"
+          className="transfer-form-remark"
           value={remark}
           onChange={(e) => setRemark(e.target.value)}
           placeholder="选填，最多 99 字节"

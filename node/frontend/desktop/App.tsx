@@ -24,6 +24,25 @@ type TabKey =
   | 'onchina'
   | 'settings';
 
+function HomePanels() {
+  const [nodeReady, setNodeReady] = useState(false);
+
+  return (
+    <div className="home-dual-panel">
+      <main className="app">
+        <section className="content">
+          <HomeNodeSection onNodeReadyChange={setNodeReady} />
+        </section>
+      </main>
+      <aside className="app">
+        <section className="content">
+          <TransactionPanel nodeReady={nodeReady} />
+        </section>
+      </aside>
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<TabKey>('home');
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopInstaller | null>(null);
@@ -120,18 +139,7 @@ export default function App() {
       </nav>
 
       {tab === 'home' ? (
-        <div className="home-dual-panel">
-          <main className="app">
-            <section className="content">
-              <HomeNodeSection />
-            </section>
-          </main>
-          <aside className="app">
-            <section className="content">
-              <TransactionPanel />
-            </section>
-          </aside>
-        </div>
+        <HomePanels />
       ) : (
         <main className="app">
           <section className="content">

@@ -22,7 +22,7 @@ export function OnChinaPlatformSection() {
   const statusLabel = platform?.statusLabel ?? '未开启';
   // 仅省略显示用的根路径斜杠，连接地址仍由宿主统一声明。
   const url = platform?.url?.replace(/\/$/u, '') || '入口加载中';
-  const actionText = running ? '关闭' : '启动';
+  const actionLabel = saving ? '处理中' : running ? '关闭链上中国' : '启动链上中国';
 
   useEffect(() => {
     // 启停期间停掉轮询，避免旧状态覆盖启停结果。
@@ -83,20 +83,24 @@ export function OnChinaPlatformSection() {
     <section className="onchina-platform-section">
       <div className="onchina-platform-row">
         <span className="onchina-platform-heading">
+          <span
+            className={`status-dot ${status === 'enabled' ? 'running' : 'stopped'}`}
+            data-status={status}
+            role="status"
+            title={statusLabel}
+            aria-label={statusLabel}
+          />
           <span className="onchina-platform-label">链上中国平台</span>
-          <span className="onchina-platform-status" data-status={status} role="status">
-            {statusLabel}
-          </span>
         </span>
         <span className="onchina-platform-url">{url}</span>
         <button
           type="button"
-          className="onchina-platform-button"
+          className={`node-lifecycle-button ${running ? 'stop' : 'start'}`}
+          title={actionLabel}
+          aria-label={actionLabel}
           disabled={!platform || saving}
           onClick={() => setPendingAction(running ? 'stop' : 'start')}
-        >
-          {saving ? '处理中' : actionText}
-        </button>
+        />
       </div>
       {platform?.detail ? (
         <p className="section-inline-error">{platform.detail}</p>
