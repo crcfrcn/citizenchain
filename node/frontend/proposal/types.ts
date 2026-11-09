@@ -37,6 +37,11 @@ export type ProposalListItem = {
   statusLabel: string;
   cidFullName: string | null;
   summary: string;
+  card?: {
+    actionLabel: string;
+    amountFen: string | null;
+    remark: string | null;
+  } | null;
 };
 
 

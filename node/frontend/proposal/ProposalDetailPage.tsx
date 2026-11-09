@@ -175,15 +175,24 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
 
   const { meta } = info;
   const displayId = formatProposalId(meta.proposalId, displayMeta);
-  const displayStatus = { code: meta.status, label: statusLabel(meta.status) };
 
   return (
-    <div className="governance-section">
+    <div className="governance-section proposal-detail-page">
       <button className="back-button" onClick={onBack}>← 返回</button>
-      <h2>提案 {displayId}</h2>
-      {info.cidFullName && (
-        <p className="proposal-institution-name">{info.cidFullName}</p>
-      )}
+      <header className="proposal-detail-heading">
+        <div className="proposal-detail-heading-row">
+          <h2>
+            <span>{kindLabel(meta.kind)}</span>{' '}
+            <span className="proposal-detail-number">{displayId}</span>
+          </h2>
+          <span className="proposal-detail-status" data-status={meta.status}>
+            {statusLabel(meta.status)}
+          </span>
+        </div>
+        {info.cidFullName && (
+          <p className="proposal-institution-name">{info.cidFullName}</p>
+        )}
+      </header>
 
       {votingSigner && (
         <VoteSigningFlow
@@ -195,32 +204,6 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
           onSuccess={handleVoteSuccess}
         />
       )}
-
-      {/* 元数据卡片 */}
-      <div className="institution-detail-grid">
-        <div className="metric-card">
-          <div className="metric-label">提案类型</div>
-          <div className="metric-value">{kindLabel(meta.kind)}</div>
-        </div>
-        {meta.kind === 1 && (
-          <div className="metric-card">
-            <div className="metric-label">当前阶段</div>
-            <div className="metric-value">{stageLabel(meta.stage)}</div>
-          </div>
-        )}
-        <div className="metric-card">
-          <div className="metric-label">状态</div>
-          <div className={`metric-value status-text-${displayStatus.code}`}>
-            {displayStatus.label}
-          </div>
-        </div>
-        {meta.internalCode && (
-          <div className="metric-card">
-            <div className="metric-label">机构码</div>
-            <div className="metric-value">{meta.internalCode}</div>
-          </div>
-        )}
-      </div>
 
       <MultisigTransferProposalDetailSection info={info} />
 
@@ -247,7 +230,10 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
 
       {/* 投票进度 */}
       <div className="institution-info-section">
-        <h3>投票进度</h3>
+        <div className="proposal-detail-tally-heading">
+          <h3>投票进度</h3>
+          {meta.kind === 1 && <span>当前阶段：{stageLabel(meta.stage)}</span>}
+        </div>
         {info.internalTally && (
           <VoteTallyBar title="内部投票" yes={info.internalTally.yes} no={info.internalTally.no} />
         )}
@@ -266,7 +252,7 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
       {institution && (
         <div className="institution-info-section">
           <h3>管理员投票状态（{institution.admins.length} 人）</h3>
-          <div className="admin-grid">
+          <div className="admin-grid proposal-detail-admin-grid">
             {institution.admins.map((admin, i) => {
               const accountId = admin.accountId;
               const localSigner = adminSigners.find(
@@ -295,6 +281,7 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
                 <InstitutionAssignmentCard
                   key={accountId}
                   admin={admin}
+                  compactVote
                   index={i + 1}
                   balanceFen={admin.balanceFen}
                   className={hasVoted ? (voted ? 'admin-card-voted-yes' : 'admin-card-voted-no') : ''}

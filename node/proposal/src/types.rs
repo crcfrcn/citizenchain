@@ -122,6 +122,15 @@ pub struct FeeRateProposalDetail {
     pub new_rate_bp: u32,
 }
 
+/// 机构详情的简介卡片内容，直接从业务动作提取。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalCardContent {
+    pub action_label: &'static str,
+    pub amount_fen: Option<String>,
+    pub remark: Option<String>,
+}
+
 /// 提案列表项（轻量，用于列表展示）。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -137,6 +146,7 @@ pub struct ProposalListItem {
     pub cid_full_name: Option<String>,
     /// 简要描述（转账提案：金额+备注，升级提案：reason 前 50 字）。
     pub summary: String,
+    pub card: Option<ProposalCardContent>,
 }
 
 /// 提案分页结果。

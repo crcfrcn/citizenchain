@@ -346,24 +346,24 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
               }}
             >
               <div className="proposal-card-header">
-                <span className="proposal-id">{item.displayId}</span>
-                <div className="proposal-card-header-right">
-                  {isAdmin && item.status === 0 && (
-                    <span className="vote-entry-badge">可投票</span>
-                  )}
-                  <span className={`proposal-status status-${item.status}`}>
-                    {item.statusLabel}
-                  </span>
+                <div className="proposal-card-identity">
+                  <span className="proposal-id">{item.displayId}</span>
+                  <span className="proposal-card-vote-kind">{item.kindLabel}</span>
                 </div>
+                <span className={`proposal-status status-${item.status}`}>
+                  {item.statusLabel}
+                </span>
               </div>
               <div className="proposal-card-body">
-                <div className="proposal-card-tags">
-                  <span className="proposal-tag">{item.kindLabel}</span>
-                  {item.kind === 1 && (
-                    <span className="proposal-tag">{item.stageLabel}</span>
+                <div className="proposal-card-action">
+                  <span>{item.card?.actionLabel ?? '未知提案'}</span>
+                  {item.card?.amountFen != null && (
+                    <span className="proposal-card-amount">{formatBalance(item.card.amountFen)}</span>
                   )}
                 </div>
-                <div className="proposal-summary">{item.summary}</div>
+                {item.card?.remark && (
+                  <div className="proposal-summary proposal-card-remark">{item.card.remark}</div>
+                )}
               </div>
             </div>
           ))}

@@ -2131,16 +2131,6 @@ select option:checked {
   align-items: center;
 }
 
-.vote-entry-badge {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-  font-weight: 500;
-  margin-right: 6px;
-}
-
 .proposal-card.clickable {
   cursor: pointer;
 }

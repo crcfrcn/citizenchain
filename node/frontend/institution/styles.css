@@ -251,6 +251,45 @@
   margin-top: 28px;
 }
 
+.institution-overview .institution-overview-proposals .proposal-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.institution-overview .proposal-card-identity,
+.institution-overview .proposal-card-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+}
+
+.institution-overview .proposal-card-vote-kind {
+  color: var(--institution-overview-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.institution-overview .proposal-card-header .proposal-status {
+  white-space: nowrap;
+}
+
+.institution-overview .proposal-card-action {
+  font-weight: 600;
+}
+
+.institution-overview .proposal-card-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.institution-overview .proposal-card-remark {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .institution-overview .institution-overview-proposal-toolbar {
   margin-bottom: 17px;
 }
@@ -514,15 +553,187 @@ body:has(.institution-transfer-dialog[open]) {
   .institution-overview .institution-overview-proposals .proposal-card {
     overflow-wrap: anywhere;
   }
-
-  .institution-overview .institution-overview-proposals .proposal-card-header {
-    flex-wrap: wrap;
-    gap: 4px 8px;
-  }
 }
 
 @media (max-width: 640px) {
   .institution-overview .institution-overview-proposals .proposal-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.proposal-detail-page .proposal-detail-heading {
+  margin-bottom: 16px;
+}
+
+.proposal-detail-page .proposal-detail-heading-row,
+.proposal-detail-page .proposal-detail-tally-heading,
+.proposal-detail-page .proposal-transfer-card-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.proposal-detail-page .proposal-detail-heading-row h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 12px;
+  margin: 0;
+  font-size: 23px;
+}
+
+.proposal-detail-page .proposal-detail-number {
+  color: var(--text-secondary);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+
+.proposal-detail-page .proposal-detail-heading .proposal-institution-name {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+}
+
+.proposal-detail-page .proposal-detail-status {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.proposal-detail-page .proposal-detail-status[data-status="0"] { color: #67d7ee; }
+.proposal-detail-page .proposal-detail-status:is([data-status="1"], [data-status="3"]) { color: #86efac; }
+.proposal-detail-page .proposal-detail-status:is([data-status="2"], [data-status="4"]) { color: #fca5a5; }
+
+.proposal-detail-page .proposal-detail-tally-heading > span {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.proposal-detail-page .proposal-transfer-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.proposal-detail-page .proposal-transfer-card-heading {
+  flex-wrap: wrap;
+}
+
+.proposal-detail-page .proposal-transfer-card-heading h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.proposal-detail-page .proposal-transfer-amount {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px 8px;
+  margin: 0 0 0 auto;
+}
+
+.proposal-detail-page .proposal-transfer-amount strong {
+  font-size: 23px;
+  font-variant-numeric: tabular-nums;
+}
+
+.proposal-detail-page .proposal-transfer-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  grid-template-areas:
+    "source arrow destination"
+    "remark . proposer";
+  gap: 12px;
+  margin-top: 12px;
+  text-align: left;
+}
+
+.proposal-detail-page .proposal-transfer-field {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.proposal-detail-page .proposal-transfer-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.proposal-detail-page .proposal-transfer-source { grid-area: source; }
+.proposal-detail-page .proposal-transfer-destination { grid-area: destination; }
+.proposal-detail-page .proposal-transfer-remark { grid-area: remark; white-space: pre-wrap; }
+.proposal-detail-page .proposal-transfer-proposer { grid-area: proposer; }
+
+.proposal-detail-page .proposal-transfer-arrow {
+  grid-area: arrow;
+  place-self: center;
+  color: #67d7ee;
+  font-size: 19px;
+}
+
+.proposal-detail-page .proposal-detail-admin-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(268px, calc((100% - 36px) / 4))), 1fr));
+  gap: 12px;
+}
+
+.proposal-detail-page .institution-assignment-compact-vote {
+  align-content: start;
+  gap: 5px;
+  padding: 10px 12px;
+}
+
+.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-top {
+  justify-content: flex-start;
+  gap: 7px;
+}
+
+.proposal-detail-page .institution-assignment-compact-vote .admin-card-index,
+.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-top-action {
+  flex-shrink: 0;
+}
+
+.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-role {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-account {
+  gap: 4px;
+}
+
+.proposal-detail-page .institution-assignment-name-term {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 5fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px;
+  min-height: 20px;
+}
+
+.proposal-detail-page .institution-assignment-compact-name {
+  width: max-content;
+  max-width: calc(100% + 4px);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.proposal-detail-page .institution-assignment-compact-term {
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .proposal-detail-page .proposal-transfer-route {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "source" "arrow" "destination" "remark" "proposer";
+  }
+
+  .proposal-detail-page .proposal-transfer-arrow {
+    transform: rotate(90deg);
   }
 }

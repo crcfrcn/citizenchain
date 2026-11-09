@@ -5,13 +5,14 @@ use noderesolutionissue::summary::format_issuance_summary;
 use nodedestroy::summary::format_destroy_summary;
 
 use crate::query::resolve_proposal_action;
-use crate::types::FeeRateProposalDetail;
+use crate::types::{FeeRateProposalDetail, ProposalAction, ProposalCardContent};
 
 use crate::types::ProposalDisplayMeta;
 use crate::types::ProposalMeta;
 
 pub(crate) struct ProposalDisplayInfo {
     pub(crate) summary: String,
+    pub(crate) card: Option<ProposalCardContent>,
     pub(crate) status: u8,
     pub(crate) status_label: String,
 }
@@ -67,7 +68,7 @@ pub(crate) fn resolve_cid_full_name_by_subjects(subject_cid_numbers: &[String]) 
     })
 }
 
-/// 列表卡片展示信息:一次解析,按动作变体生成 summary + votebase status。
+/// 一次解析业务动作，同时生成既有摘要和机构简介卡片字段。
 ///
 /// 与 [`fetch_proposal_full`] 共用 [`resolve_proposal_action`],保证两条路径对同一提案看到一致内容。
 pub(crate) fn fetch_proposal_display(
@@ -75,6 +76,7 @@ pub(crate) fn fetch_proposal_display(
     meta: &ProposalMeta,
 ) -> Result<ProposalDisplayInfo, String> {
     let action = resolve_proposal_action(proposal_id, meta)?;
+    let card = proposal_card_content(&action);
     let (summary, status, status_label_s) = match action {
         crate::types::ProposalAction::Business(action) => (
             crate::business::format_summary(&action, |actor_cid_number| {
@@ -112,9 +114,69 @@ pub(crate) fn fetch_proposal_display(
     };
     Ok(ProposalDisplayInfo {
         summary,
+        card,
         status,
         status_label: status_label_s,
     })
+}
+
+fn proposal_card_content(action: &ProposalAction) -> Option<ProposalCardContent> {
+    use crate::business::ProposalAction::TransferModule;
+    use nodemultisig::types::ProposalAction as TransferAction;
+
+    let (action_label, amount, remark) = match action {
+        ProposalAction::Business(action) => match action.as_ref() {
+            TransferModule(transfer) => match transfer.as_ref() {
+                TransferAction::Transfer(detail) => {
+                    ("转账", Some(&detail.amount_fen), Some(&detail.remark))
+                }
+                TransferAction::SafetyFund(detail) => (
+                    "安全基金转账",
+                    Some(&detail.amount_fen),
+                    Some(&detail.remark),
+                ),
+                TransferAction::Sweep(detail) => ("手续费划转", Some(&detail.amount_fen), None),
+            },
+        },
+        ProposalAction::RuntimeUpgrade(_) => ("协议升级", None, None),
+        ProposalAction::ResolutionIssuance(detail) => {
+            ("决议发行", Some(&detail.total_amount_fen), None)
+        }
+        ProposalAction::ResolutionDestroy(detail) => ("决议销毁", Some(&detail.amount_fen), None),
+        ProposalAction::FeeRate(_) => ("费率设置", None, None),
+        ProposalAction::Unknown => return None,
+    };
+
+    Some(ProposalCardContent {
+        action_label,
+        amount_fen: amount.cloned(),
+        remark: remark.cloned(),
+    })
+}
+
+#[cfg(test)]
+#[test]
+fn transfer_card_preserves_the_complete_remark() {
+    use nodemultisig::types::{ProposalAction as TransferAction, TransferProposalDetail};
+
+    let remark = "这是备注中的机构名称，由提案人填写。\n".repeat(4);
+    let action =
+        ProposalAction::Business(Box::new(crate::business::ProposalAction::TransferModule(
+            Box::new(TransferAction::Transfer(Box::new(TransferProposalDetail {
+                proposal_id: 0,
+                actor_cid_number: Some("FIXTURE-CID".into()),
+                funding_account_id: String::new(),
+                beneficiary_account_id: String::new(),
+                amount_fen: "100000".into(),
+                remark: remark.clone(),
+                proposer_account_id: String::new(),
+            }))),
+        )));
+    let card = proposal_card_content(&action).unwrap();
+    assert_eq!(
+        serde_json::to_value(card).unwrap(),
+        serde_json::json!({"actionLabel": "转账", "amountFen": "100000", "remark": remark})
+    );
 }
 
 pub(crate) fn format_fee_rate_summary(d: &FeeRateProposalDetail) -> String {

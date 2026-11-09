@@ -120,6 +120,7 @@ pub(crate) fn fetch_proposal_page(start_id: u64, count: u32) -> Result<ProposalP
                     Ok(v) => v,
                     Err(_) => ProposalDisplayInfo {
                         summary: "(详情查询失败)".to_string(),
+                        card: None,
                         status: meta.status,
                         status_label: status_label(meta.status).to_string(),
                     },
@@ -139,6 +140,7 @@ pub(crate) fn fetch_proposal_page(start_id: u64, count: u32) -> Result<ProposalP
                     status_label: display.status_label,
                     cid_full_name,
                     summary: display.summary,
+                    card: display.card,
                 });
             }
             Ok(None) => {} // 提案不存在,跳过
@@ -349,6 +351,7 @@ pub(crate) fn fetch_institution_proposal_page(
                     Ok(v) => v,
                     Err(_) => ProposalDisplayInfo {
                         summary: "(详情查询失败)".to_string(),
+                        card: None,
                         status: meta.status,
                         status_label: status_label(meta.status).to_string(),
                     },
@@ -366,6 +369,7 @@ pub(crate) fn fetch_institution_proposal_page(
                     status_label: display.status_label,
                     cid_full_name,
                     summary: display.summary,
+                    card: display.card,
                 });
             }
             Ok(None) => {} // 提案不存在,跳过
