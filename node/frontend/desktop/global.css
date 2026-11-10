@@ -836,6 +836,10 @@ select option:checked {
   padding-top: 0;
 }
 
+.mining-records-section {
+  margin-top: 8px;
+}
+
 .mining-income-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(145px, 1fr));
@@ -864,6 +868,8 @@ select option:checked {
 }
 
 .network-node-grid {
+  position: relative;
+  top: -6px;
   display: grid;
   grid-template-columns: repeat(6, minmax(110px, 1fr));
   gap: 12px;
@@ -874,7 +880,6 @@ select option:checked {
 .network-node-item {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 8px;
 }
 
@@ -924,7 +929,7 @@ select option:checked {
 .mining-table {
   width: 100%;
   border-collapse: collapse;
-  text-align: left;
+  text-align: center;
 }
 
 .mining-table th,
@@ -941,9 +946,25 @@ select option:checked {
   font-weight: 600;
 }
 
+.mining-table :is(th, td):nth-child(2) {
+  padding-inline: 24px;
+}
+
+.mining-table :is(th, td):nth-child(4) {
+  padding-inline: 20px;
+}
+
+.mining-table :is(th, td):nth-child(5) {
+  padding-inline-start: calc(8px + 4em);
+}
+
 .empty-cell {
   text-align: left;
   color: var(--text-muted);
+}
+
+.mining-table .empty-cell {
+  text-align: center;
 }
 
 /* 文档在各自的阅读区滚动，外框与其他 tab 保持同样的留白。 */
