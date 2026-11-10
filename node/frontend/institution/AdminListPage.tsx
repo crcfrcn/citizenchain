@@ -3,7 +3,7 @@ import { CitizenSignatureModal } from "../desktop/signing";
 import { adminsChangeApi as api } from "./admins";
 import { InstitutionAssignmentCard } from "./InstitutionAssignmentCard";
 import type { ActivateRequestResult, ActivatedAdmin, InstitutionAdminsRef, InstitutionDetail } from "./administrators";
-// 管理员列表页：两列网格展示所有管理员，每个管理员一个卡片。
+// 管理员列表页：每个管理员一个卡片。
 // 从机构详情页点击"管理员列表"入口卡片进入。
 import { useEffect, useState, useCallback } from 'react';
 import './styles.css';
@@ -124,7 +124,7 @@ export function AdminListPage({ cidNumber, accountRef, onBack }: Props) {
       {detail.admins.length === 0 ? (
         <p className="no-data">暂无数据（需节点运行后查询链上数据）</p>
       ) : (
-        <div className="admin-grid">
+        <div className="institution-admin-list-grid">
           {detail.admins.map((admin, i) => {
             const accountId = admin.accountId;
             const isActivated = activatedAdmins.some(

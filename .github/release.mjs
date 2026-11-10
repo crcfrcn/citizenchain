@@ -16,6 +16,12 @@ async function artifactBytes(path) {
   return {size: info.size, sha256: hash.digest('hex')};
 }
 
+function releaseFiles(declared, version) {
+  const packageFiles = declared.files || [declared.artifact.replace('{version}', version)];
+  const desktop = declared.desktopInstaller?.replace('{version}', version);
+  return {desktop, names: desktop ? [...packageFiles, desktop] : packageFiles};
+}
+
 // 发布作业在写入 GitHub 前校验本轮下载的实际产物。
 export async function publish({context, github, core}) {
   const platform = process.env.PLATFORM;
@@ -23,7 +29,7 @@ export async function publish({context, github, core}) {
   const declared = product.platforms[platform];
   const tag = product.title + '·' + declared.name + '·v' + version;
   const assets = JSON.parse(process.env.SOURCE_ASSETS);
-  const names = declared.files || [declared.artifact.replace('{version}', version)];
+  const {names, desktop} = releaseFiles(declared, version);
   const source = join(process.env.RUNNER_TEMP, 'artifact');
 
   if (context.sha !== process.env.CITIZENCHAIN_SOURCE_SHA || context.ref !== 'refs/heads/main') {
@@ -40,7 +46,8 @@ export async function publish({context, github, core}) {
   const proof = {
     schema: 1, repository: product.repository, product_id: product.id, platform,
     workflow: '.github/workflows/' + declared.workflow, run_id: context.runId,
-    run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT), source_sha: context.sha, version, tag, assets,
+    run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT), source_sha: context.sha, version, tag,
+    assets: assets.filter(asset => asset.name !== desktop),
   };
   if (platform === 'wasm') {
     const runtime = JSON.parse(process.env.RUNTIME_BUILD);
@@ -50,6 +57,16 @@ export async function publish({context, github, core}) {
     proof.runtime = runtime;
   }
 
+  // 旧版更新器和服务器只接收一个 .deb；桌面入口使用同一次构建的独立正式记录。
+  const records = desktop ? [proof, {
+    ...proof, tag: product.title + '·' + declared.name + '·安装器·v' + version,
+    assets: assets.filter(asset => asset.name === desktop),
+  }] : [proof];
+  for (const record of records) await publishRelease({context, github, core, source, proof: record});
+}
+
+async function publishRelease({context, github, core, source, proof}) {
+  const {tag, assets} = proof;
   const notes = join(process.env.RUNNER_TEMP, 'release-notes.txt');
   writeFileSync(notes, '<!-- automation:' + JSON.stringify(proof) + ' -->\n');
   execFileSync('gh', ['release', 'create', tag, ...assets.map(asset => join(source, asset.name) + '#' + asset.label),
@@ -134,12 +151,13 @@ export async function wasmVersion({context,github,core}) {
 
 export async function recordAssets({context,core}) {
   const p=process.env.PLATFORM,version=process.env.CITIZENCHAIN_RELEASE_VERSION,declared=product.platforms[p];
-  const names=declared.files||[declared.artifact.replace('{version}',version)];
+  const {names,desktop}=releaseFiles(declared,version);
   const tag=product.title+'·'+declared.name+'·v'+version,directory=process.env.GITHUB_WORKSPACE+'/target/build/'+p+'/artifact';
   if(JSON.stringify(readdirSync(directory).sort())!==JSON.stringify([...names].sort()))throw Error('完整产物集合不符');
   const assets=[];
   for(const name of names){
-    const label=tag+(p==='wasm'?name.slice('runtime'.length):declared.extension);
+    const label=name===desktop?product.title+'·'+declared.name+'·安装器·v'+version+'.run'
+      :tag+(p==='wasm'?name.slice('runtime'.length):declared.extension);
     assets.push({name,label,...await artifactBytes(join(directory,name))});
   }
   core.setOutput('assets',JSON.stringify(assets));

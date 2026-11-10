@@ -30,6 +30,16 @@ function termText(assignment: InstitutionRoleAssignmentInfo): string {
   return `${start || '—'} ~ ${end || '—'}`;
 }
 
+function assignmentSummary(
+  assignments: InstitutionRoleAssignmentInfo[],
+  format: (assignment: InstitutionRoleAssignmentInfo) => string,
+): string {
+  const values = assignments.map(format);
+  return new Set(values).size > 1
+    ? assignments.map((assignment, i) => `${assignment.roleName} ${values[i]}`).join('；')
+    : values[0] ?? '—';
+}
+
 function AssignmentField({ label, value }: { label: string; value: string }) {
   return (
     <div className="institution-assignment-field">
@@ -53,20 +63,15 @@ export function InstitutionAssignmentCard({
   const personName = `${admin.familyName}${admin.givenName}`;
   const balanceText = balanceFen != null ? formatBalance(balanceFen) : '';
   const assignments = admin.assignments;
-  const terms = compactVote ? [...new Set(assignments.map(termText))] : [];
-  const compactTerm = terms.length > 1
-    ? assignments.map((assignment) => `${assignment.roleName} ${termText(assignment)}`).join('；')
-    : terms[0] ?? '—';
+  const term = assignmentSummary(assignments, termText);
 
   return (
     <div className={`metric-card institution-assignment-card ${compactVote ? 'institution-assignment-compact-vote' : ''} ${className ?? ''}`}>
       <div className="institution-assignment-top">
         {index != null ? <span className="admin-card-index">{index}</span> : null}
-        {compactVote && (
-          <span className="institution-assignment-role">
-            {assignments.map((assignment) => assignment.roleName).join('、') || '暂无岗位'}
-          </span>
-        )}
+        <span className="institution-assignment-role">
+          {assignments.map((assignment) => assignment.roleName).join('、') || '暂无岗位'}
+        </span>
         <div className="institution-assignment-top-action">{topAction}</div>
       </div>
 
@@ -74,34 +79,27 @@ export function InstitutionAssignmentCard({
         <div className="institution-assignment-account">
           <div className="institution-assignment-name-term">
             <AssignmentField label="管理员姓名" value={personName.trim() || '未填写'} />
-            <span className="institution-assignment-compact-term">任期：{compactTerm.replace(/ ~ /g, '–')}</span>
+            <span className="institution-assignment-compact-term">任期：{term.replace(/ ~ /g, '–')}</span>
           </div>
           <AssignmentField label="账户余额" value={balanceText} />
           <AssignmentField label="管理员账户" value={accountText} />
         </div>
       ) : (
-        <>
-          <div className="institution-assignment-account">
+        <div className="institution-assignment-account">
+          <div className="institution-assignment-list-row">
             <AssignmentField label="管理员姓名" value={personName} />
-            <AssignmentField label="管理员账户" value={accountText} />
+            <AssignmentField label="任期" value={term} />
+          </div>
+          <div className="institution-assignment-list-row">
             <AssignmentField label="账户余额" value={balanceText} />
+            <AssignmentField label="来源" value={assignmentSummary(assignments, (assignment) =>
+              assignment.assignmentSourceRef
+                ? `${assignment.assignmentSourceLabel}（依据：${assignment.assignmentSourceRef}）`
+                : assignment.assignmentSourceLabel
+            )} />
           </div>
-
-          <div className="institution-assignment-list">
-            {assignments.length === 0 ? (
-              <div className="institution-assignment-item">暂无岗位</div>
-            ) : assignments.map((assignment) => (
-              <div className="institution-assignment-item" key={assignment.roleCode}>
-                <div className="institution-assignment-role">{assignment.roleName}</div>
-                <AssignmentField label="任期" value={termText(assignment)} />
-                <AssignmentField label="来源" value={assignment.assignmentSourceLabel} />
-                {assignment.assignmentSourceRef && (
-                  <AssignmentField label="来源依据" value={assignment.assignmentSourceRef} />
-                )}
-              </div>
-            ))}
-          </div>
-        </>
+          <AssignmentField label="管理员账户" value={accountText} />
+        </div>
       )}
     </div>
   );

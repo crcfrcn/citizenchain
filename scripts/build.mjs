@@ -1,6 +1,6 @@
 import {createSecureContext} from 'node:tls';
 import {execFileSync, spawnSync} from 'node:child_process';
-import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
+import {appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep, delimiter} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {product} from './config.mjs';
@@ -293,6 +293,76 @@ async function signResources(files, work, env) {
     if (existsSync(keychain)) await security(['delete-keychain', keychain]);
   }
 }
+
+const installerSources = join(root, 'node/desktop/installer');
+
+async function stageMacInstaller(resources, run) {
+  const helper = join(resources, 'installer/安装公民链.app');
+  const contents = join(helper, 'Contents');
+  mkdirSync(join(contents, 'MacOS'), {recursive: true});
+  mkdirSync(join(contents, 'Resources'));
+  copyFileSync(join(root, 'icons/icon.icns'), join(contents, 'Resources/icon.icns'));
+  writeFileSync(join(contents, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>macOS.citizenappchain.installer</string>
+<key>CFBundleExecutable</key><string>citizenchain-install</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleName</key><string>安装公民链</string>
+<key>CFBundleDisplayName</key><string>安装公民链</string>
+<key>CFBundleIconFile</key><string>icon.icns</string>
+</dict></plist>`);
+  for (const locale of ['en', 'zh-Hans']) {
+    const folder = join(resources, locale + '.lproj');
+    mkdirSync(folder);
+    copyFileSync(join(installerSources, 'InfoPlist.strings'), join(folder, 'InfoPlist.strings'));
+  }
+  await run('/usr/bin/xcrun', ['swiftc', '-O', '-target', 'arm64-apple-macos11.0',
+    join(installerSources, 'macos.swift'), '-o', join(contents, 'MacOS/citizenchain-install')]);
+  return helper;
+}
+
+async function stageLinuxInstaller(resources, run) {
+  const directory = join(resources, 'installer');
+  mkdirSync(directory);
+  const flags = (await run('pkg-config', ['--cflags', '--libs', 'gtk+-3.0'], {capture: true})).stdout.trim().split(/\s+/u);
+  await run('cc', ['-O2', '-Wall', '-Wextra', join(installerSources, 'linux.c'),
+    '-o', join(directory, 'citizenchain-install'), ...flags]);
+  copyFileSync(join(root, 'icons/128x128.png'), join(directory, 'icon.png'));
+  return directory;
+}
+
+async function macInstallerImage(app, work, run, signing) {
+  const contents = join(work, 'disk-image');
+  const installer = join(work, 'citizenchain.dmg');
+  mkdirSync(contents);
+  await run('/usr/bin/ditto', [app, join(contents, basename(app))]);
+  // 旧更新器只识别根目录唯一的 .app。Finder 入口指向主 App 内已签名的安装器。
+  symlinkSync(basename(app) + '/Contents/Resources/installer/安装公民链.app', join(contents, '安装公民链'));
+  copyFileSync(join(root, 'icons/icon.icns'), join(contents, '.VolumeIcon.icns'));
+  await run('/usr/bin/xcrun', ['SetFile', '-a', 'C', contents]);
+  await run('/usr/bin/hdiutil', ['create', '-srcfolder', contents, '-fs', 'HFS+', '-format', 'UDZO', '-volname', '公民链', installer]);
+  await signResources([installer], work, signing);
+  return installer;
+}
+
+async function linuxInstallerFile(directory, deb, work, output, run) {
+  copyFileSync(deb, join(directory, 'citizenchain.deb'));
+  const archive = join(work, 'installer-payload.tar');
+  await run('tar', ['-cf', archive, '-C', directory, 'citizenchain-install', 'citizenchain.deb', 'icon.png']);
+  const loader = `#!/bin/sh
+set -eu
+umask 077
+work=$(mktemp -d "\${TMPDIR:-/tmp}/citizenchain-installer.XXXXXXXX")
+trap 'rm -rf "$work"' EXIT
+tail -n +__PAYLOAD__ "$0" | tar -xf - -C "$work"
+"$work/citizenchain-install" --package "$work/citizenchain.deb"
+exit
+`;
+  writeFileSync(output, loader.replace('__PAYLOAD__', String(loader.split('\n').length)), {mode: 0o755});
+  appendFileSync(output, readFileSync(archive));
+}
+
 export async function buildPlatform(platform,{work=join(root,'target/build',platform),local=false,consume}={}) {
   if (platform === 'wasm') fail('Runtime请使用 scripts/runtime.mjs build');
   const declared = product.platforms[platform];
@@ -324,6 +394,11 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
   await runBuildProcess(env.NODE, [npmCLI(env.NODE), 'run', 'build'], env, join(root, 'node/frontend'));
   const config = {version, build: {beforeBuildCommand: null, frontendDist: env.CITIZENCHAIN_FRONTEND_DIST},
     bundle: {resources: {[resources + sep]: '', [join(root, 'icons') + sep]: 'icons/', [join(root, 'onchina/platform/codes/china.sqlite')]: 'china.sqlite'}}};
+  if (platform === 'windows') {
+    config.productName = product.title;
+    config.mainBinaryName = 'citizenchain';
+  }
+  const linuxInstaller = platform.startsWith('linux-') ? await stageLinuxInstaller(resources, run) : undefined;
   const formalMac = platform === 'macos' && !local;
   if (formalMac) {
     if (!process.env.APPLE_PROFILE_BASE64 || !process.env.APPLE_SIGNING_IDENTITY || !process.env.APPLE_ID || !process.env.APPLE_PASSWORD || !process.env.APPLE_TEAM_ID) fail('缺少 macOS 正式签名、公证输入');
@@ -337,9 +412,11 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
   const signing = {...env, ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith('APPLE_')))};
   if (platform === 'macos') {
     const binaries = await macLibraries(resources, join(env.CARGO_TARGET_DIR, 'release/citizenchain'), env);
-    targets = appleSigning(binaries, resources);
-    if (local) await signLocalResources(binaries, env);
-    else await signResources(binaries, work, signing);
+    const helper = await stageMacInstaller(resources, run);
+    const signable = [...binaries, helper];
+    targets = appleSigning(signable, resources);
+    if (local) await signLocalResources(signable, env);
+    else await signResources(signable, work, signing);
   }
   if (platform.startsWith('linux-')) for (const file of walk(join(resources, 'postgres/linux'))) {
     if (readFileSync(file).subarray(0, 4).equals(Buffer.from([127, 69, 76, 70]))) await run('patchelf', ['--set-rpath', '$ORIGIN:$ORIGIN/..:$ORIGIN/../lib', file], {capture: true});
@@ -354,7 +431,7 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
     // 正式DMG封装只清理本轮可再生增量文件。
     rmSync(join(env.CARGO_TARGET_DIR, 'release/incremental'), {recursive: true, force: true});
   }
-  const bundles = local ? 'app' : formalMac ? 'app,dmg' : declared.bundle;
+  const bundles = platform === 'macos' ? 'app' : declared.bundle;
   const bundleArgs = [tauri, 'bundle', '--config', JSON.stringify(config), '--bundles', bundles, '--ci'];
   if (formalMac) bundleArgs.push('--verbose');
   await runBuildProcess(env.NODE, bundleArgs, formalMac ? signing : env, join(root, 'node'));
@@ -363,7 +440,8 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
     await consume({schema: 1, product_id: product.id, platform, work, artifact: app, tools: {}, signing: targets});
     return;
   }
-  const installer = oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle', declared.bundle), declared.extension);
+  const installer = formalMac ? await macInstallerImage(app, work, run, signing)
+    : oneBundle(join(env.CARGO_TARGET_DIR, 'release/bundle', declared.bundle), declared.extension);
   if (formalMac) {
     await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
     const identity = (await run('/usr/bin/codesign', ['-dv', '--verbose=4', app], {capture: true})).stderr;
@@ -382,6 +460,10 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
   const info = lstatSync(installer);
   if (!info.isFile() || info.size === 0) fail('正式产物不是非空普通文件');
   copyFileSync(installer, join(artifact, declared.artifact.replace('{version}', version)));
+  if (linuxInstaller) {
+    await linuxInstallerFile(linuxInstaller, installer, work,
+      join(artifact, declared.desktopInstaller.replace('{version}', version)), run);
+  }
   process.stdout.write('完整编译产物：' + artifact + '\n');
 }
 // 本机编译复用同一编译实现，并向安装器交付本轮产物。

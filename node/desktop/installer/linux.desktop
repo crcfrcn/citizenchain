@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=公民链
+Comment=公民链
+Exec=citizenchain
+Icon=citizenchain
+StartupWMClass=citizenchain
+Terminal=false
+Type=Application

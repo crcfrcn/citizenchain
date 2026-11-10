@@ -57,7 +57,7 @@ export function ClearingBankAdminListPage({
       {admins.length === 0 ? (
         <p className="no-data">机构尚未配置管理员</p>
       ) : (
-        <div className="admin-grid">
+        <div className="institution-admin-list-grid">
           {admins.map((profile, idx) => (
             <InstitutionAssignmentCard
               key={profile.accountId}

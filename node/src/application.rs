@@ -113,6 +113,17 @@ pub fn run_desktop() {
             nodeinstitution::commands::fetch_clearing_bank_institution_proposals
         ])
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            {
+                let app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    if let Ok(mut terminate) = signal(SignalKind::terminate()) {
+                        terminate.recv().await;
+                        app.exit(0);
+                    }
+                });
+            }
             cleanup_on_startup(app.handle());
             // 先生成本机证书，再让同步守护或节点线程访问 RPC；失败显示在首页。
             let tls_error = nodedesktop::tls::prepare_desktop_rpc_tls().err();

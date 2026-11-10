@@ -12,4 +12,5 @@ pub mod rpc;
 pub mod state;
 pub mod sync;
 pub mod task;
+#[path = "../../desktop/installer/update.rs"]
 pub mod update;

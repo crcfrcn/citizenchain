@@ -171,46 +171,68 @@ fn download_redirects_only_follow_github_https_assets() {
 }
 
 #[test]
-fn installation_handoff_waits_for_exit_and_keeps_paths_as_data() {
-    use crate::update::{installation_script, powershell_quote, shell_quote};
+fn installation_handoff_uses_platform_installers_and_keeps_paths_as_data() {
+    use crate::update::{installer_command, powershell_quote};
     use std::path::Path;
-    assert_eq!(shell_quote("a'b"), "'a'\"'\"'b'");
     assert_eq!(powershell_quote("a'b"), "'a''b'");
     let root = Path::new("/tmp/up date'case");
-    for (os, executable) in [
+    let package = root.join("package");
+    let resources = root.join("resources");
+    for (os, executable, program) in [
         (
             "macos",
             "/Applications/CitizenChain.app/Contents/MacOS/citizenchain",
+            "installer/安装公民链.app/Contents/MacOS/citizenchain-install",
         ),
-        ("linux", "/usr/bin/citizenchain"),
-        ("windows", "C:\\Program Files\\citizenchain.exe"),
+        (
+            "linux",
+            "/usr/bin/citizenchain",
+            "installer/citizenchain-install",
+        ),
     ] {
-        let script =
-            installation_script(os, root, &root.join("package"), Path::new(executable), 4242)
-                .unwrap();
-        assert!(script.contains("4242"));
-        assert!(script.contains("install-error.txt"));
-        assert!(!script.contains("kill -9") && !script.contains("ExecutionPolicy"));
-        if os != "windows" && cfg!(unix) {
-            let mut child = std::process::Command::new("/bin/sh")
-                .arg("-n")
-                .stdin(std::process::Stdio::piped())
-                .spawn()
-                .unwrap();
-            use std::io::Write;
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(script.as_bytes())
-                .unwrap();
-            assert!(child.wait().unwrap().success());
+        let command =
+            installer_command(os, &resources, root, &package, Path::new(executable), 4242).unwrap();
+        assert_eq!(command.get_program(), resources.join(program));
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect::<Vec<_>>();
+        let expected = [
+            "--package",
+            package.to_str().unwrap(),
+            "--state",
+            root.to_str().unwrap(),
+            "--pid",
+            "4242",
+        ];
+        assert_eq!(&args[args.len() - expected.len()..], &expected);
+        if os == "macos" {
+            assert_eq!(
+                &args[..2],
+                &["--destination", "/Applications/CitizenChain.app"]
+            );
         }
     }
-    assert!(installation_script(
-        "macos",
+    let windows = installer_command(
+        "windows",
+        &resources,
         root,
-        Path::new("package"),
+        &package,
+        Path::new("C:/Program Files/citizenchain/citizenchain.exe"),
+        4242,
+    )
+    .unwrap();
+    assert_eq!(windows.get_program(), "powershell.exe");
+    let script = windows.get_args().last().unwrap().to_str().unwrap();
+    assert!(script.contains("WaitForExit(45000)") && script.contains("-Id 4242"));
+    assert!(script.contains("install-error.txt") && script.contains("up date''case"));
+    assert!(!script.contains("Start-Process -FilePath $exe"));
+    assert!(!script.contains("/S") && !script.contains("ExecutionPolicy"));
+    assert!(installer_command(
+        "macos",
+        &resources,
+        root,
+        &package,
         Path::new("/tmp/dev-node"),
         1
     )

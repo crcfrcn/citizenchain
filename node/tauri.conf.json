@@ -62,11 +62,17 @@
       "infoPlist": "Info.plist",
       "minimumSystemVersion": "10.15"
     },
+    "linux": {
+      "deb": {
+        "desktopTemplate": "desktop/installer/linux.desktop"
+      }
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "offlineInstaller"
       },
       "nsis": {
+        "template": "desktop/installer/windows.nsi",
         "installerIcon": "../icons/icon.ico",
         "installMode": "perMachine",
         "languages": [

@@ -44,17 +44,46 @@
   margin-left: 0;
 }
 
-.institution-assignment-account,
-.institution-assignment-list {
+.institution-assignment-account {
   display: grid;
   gap: 7px;
 }
 
-.institution-assignment-item {
+.institution-admin-list-grid {
   display: grid;
+  grid-template-columns: repeat(3, minmax(300px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.institution-admin-list-grid .institution-assignment-card {
+  align-content: start;
   gap: 6px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 10px 12px;
+}
+
+.institution-admin-list-grid .institution-assignment-top {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.institution-admin-list-grid .institution-assignment-role {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.institution-admin-list-grid .institution-assignment-top-action {
+  flex-shrink: 0;
+}
+
+.institution-admin-list-grid .institution-assignment-account {
+  gap: 3px;
+}
+
+.institution-assignment-list-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .institution-assignment-role {

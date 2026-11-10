@@ -548,160 +548,71 @@ async fn download_package(
     result
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
 fn powershell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-// 更新进程只接受后端固定的完整包和当前安装路径，等待原PID完全退出后才修改程序。
-fn installation_script(
+// 更新入口负责等待当前应用正常退出，实际安装由随包平台安装器负责。
+fn installer_command(
     os: &str,
+    resources: &Path,
     directory: &Path,
     package: &Path,
     executable: &Path,
     pid: u32,
-) -> Result<String, String> {
-    let text = |p: &Path| {
-        p.to_str()
-            .map(str::to_owned)
-            .ok_or("更新路径不是有效文本".to_owned())
-    };
-    let directory = text(directory)?;
-    let package = text(package)?;
-    let executable = text(executable)?;
+) -> Result<std::process::Command, String> {
     if os == "windows" {
-        let q = powershell_quote;
-        return Ok(format!(
+        let quote = |path: &Path| {
+            path.to_str()
+                .map(powershell_quote)
+                .ok_or("更新路径不是有效文本")
+        };
+        let script = format!(
             r#"$ErrorActionPreference='Stop'
 $root={root}; $package={package}; $exe={exe}
 Set-Content -LiteralPath (Join-Path $root 'started') -Value 'ready'
-$oldExited=$false
 try {{
   $old=Get-Process -Id {pid} -ErrorAction SilentlyContinue
-  if($old -and !$old.WaitForExit(300000)) {{ throw '旧应用未完全退出，未执行安装' }}
-  $oldExited=$true
-  $installer=Start-Process -FilePath $package -ArgumentList ('/S /D=' + (Split-Path -Parent $exe)) -Verb RunAs -PassThru -Wait
+  if($old -and !$old.WaitForExit(45000)) {{ throw '公民链未退出，安装已停止。' }}
+  $installer=Start-Process -FilePath $package -ArgumentList ('/UPDATE /D=' + (Split-Path -Parent $exe)) -Verb RunAs -PassThru -Wait
   if($installer.ExitCode -ne 0) {{ throw "安装失败，退出码 $($installer.ExitCode)" }}
-  Start-Process -FilePath $exe
   Remove-Item -LiteralPath $package,(Join-Path $root 'ready.json'),(Join-Path $root 'started') -ErrorAction SilentlyContinue
 }} catch {{
   Set-Content -LiteralPath (Join-Path $root 'install-error.txt') -Value $_.Exception.Message -Encoding UTF8
-  if($oldExited) {{ Start-Process -FilePath $exe }}
 }}
 "#,
-            root = q(&directory),
-            package = q(&package),
-            exe = q(&executable)
-        ));
+            root = quote(directory)?,
+            package = quote(package)?,
+            exe = quote(executable)?,
+        );
+        let mut command = std::process::Command::new("powershell.exe");
+        command.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script]);
+        return Ok(command);
     }
-    let q = shell_quote;
-    let mut script = format!(
-        r#"#!/bin/sh
-root={root}
-package={package}
-exe={exe}
-exec >> "$root/install.log" 2>&1
-printf ready > "$root/started"
-count=0
-while kill -0 {pid} 2>/dev/null; do
-  count=$((count + 1))
-  if [ "$count" -ge 300 ]; then printf '旧应用未完全退出，未执行安装' > "$root/install-error.txt"; exit 1; fi
-  sleep 1
-done
-"#,
-        root = q(&directory),
-        package = q(&package),
-        exe = q(&executable)
-    );
-    match os {
+
+    let mut command = match os {
         "macos" => {
-            let destination = Path::new(&executable)
+            let destination = executable
                 .ancestors()
-                .find(|p| p.extension().is_some_and(|e| e == "app"))
+                .find(|path| path.extension().is_some_and(|ext| ext == "app"))
                 .ok_or("当前程序不在已安装的App中，不能自动替换")?;
-            let destination = text(destination)?;
-            // 保留现有应用实际名称及位置；失败恢复旧应用，不触碰链数据或设置。
-            script.push_str(&format!(
-                r#"destination={destination}
-mount="$root/mount"
-stage="$destination.update-{pid}"
-backup="$destination.previous-{pid}"
-fail() {{ printf '%s' "$1" > "$root/install-error.txt"; /usr/bin/open "$destination"; exit 1; }}
-mkdir -p "$mount" || fail '无法准备安装目录'
-/usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$package" || fail '安装包挂载失败'
-trap '/usr/bin/hdiutil detach "$mount" >/dev/null 2>&1' EXIT
-set -- "$mount"/*.app
-[ "$#" -eq 1 ] && [ -d "$1" ] || fail '安装包中没有唯一应用'
-source_app="$1"
-"#,
-                destination = q(&destination)
-            ));
-            // 路径可能包含引号，替换脚本通过单独参数读取，不把路径拼进管理员命令。
-            let replace = r#"#!/bin/sh
-mode=$1; source_app=$2; stage=$3; destination=$4; backup=$5
-case "$mode" in
-install)
-  [ ! -e "$stage" ] && [ ! -e "$backup" ] || exit 1
-  /usr/bin/ditto "$source_app" "$stage" || { rm -rf "$stage"; exit 1; }
-  mv "$destination" "$backup" || { rm -rf "$stage"; exit 1; }
-  if ! mv "$stage" "$destination"; then mv "$backup" "$destination"; rm -rf "$stage"; exit 1; fi
-  ;;
-rollback)
-  mv "$destination" "$stage" && mv "$backup" "$destination" && rm -rf "$stage"
-  ;;
-cleanup) rm -rf "$backup" ;;
-*) exit 1 ;;
-esac
-"#;
-            script.push_str(&format!(
-                r#"cat > "$root/replace.sh" <<'CITIZENCHAIN_REPLACE'
-{replace}CITIZENCHAIN_REPLACE
-"#
-            ));
-            script.push_str(r#"replace_app() {
-  if [ -w "$(dirname "$destination")" ]; then
-    /bin/sh "$root/replace.sh" "$1" "$source_app" "$stage" "$destination" "$backup"
-  else
-    # 使用系统管理员授权，不绕过权限；路径由AppleScript逐项转义。
-    /usr/bin/osascript - "$root/replace.sh" "$1" "$source_app" "$stage" "$destination" "$backup" <<'CITIZENCHAIN_ADMIN'
-on run argv
-  set cmd to "/bin/sh"
-  repeat with arg in argv
-    set cmd to cmd & " " & quoted form of arg
-  end repeat
-  do shell script cmd with administrator privileges
-end run
-CITIZENCHAIN_ADMIN
-  fi
-}
-replace_app install || fail '安装新版失败，已保留旧应用'
-if ! /usr/bin/open "$destination"; then
-  replace_app rollback
-  fail '新版启动失败，已恢复旧应用'
-fi
-replace_app cleanup
-/usr/bin/hdiutil detach "$mount" >/dev/null 2>&1
-trap - EXIT
-rmdir "$mount" 2>/dev/null
-rm -f "$package" "$root/ready.json" "$root/started" "$root/replace.sh" "$root/install.sh" "$root/install.log"
-"#);
-        }
-        "linux" => {
-            script.push_str(
-                r#"if /usr/bin/pkexec /usr/bin/dpkg --install "$package"; then
-  rm -f "$package" "$root/ready.json" "$root/started" "$root/install.sh" "$root/install.log"
-else
-  printf '安装被取消或安装失败，请重试' > "$root/install-error.txt"
-fi
-"$exe" >/dev/null 2>&1 &
-"#,
+            let mut command = std::process::Command::new(
+                resources.join("installer/安装公民链.app/Contents/MacOS/citizenchain-install"),
             );
+            command.arg("--destination").arg(destination);
+            command
         }
+        "linux" => std::process::Command::new(resources.join("installer/citizenchain-install")),
         _ => return Err("当前平台没有自动安装实现".into()),
-    }
-    Ok(script)
+    };
+    command
+        .arg("--package")
+        .arg(package)
+        .arg("--state")
+        .arg(directory)
+        .arg("--pid")
+        .arg(pid.to_string());
+    Ok(command)
 }
 
 /// 第二次明确点击才交接安装。现有Exit回调负责停止节点及释放数据库锁。
@@ -730,8 +641,9 @@ pub async fn install_desktop_update(app: AppHandle) -> Result<(), String> {
         if std::env::consts::OS == "linux" && !Path::new("/usr/bin/pkexec").is_file() {
             return Err("系统缺少安装授权入口pkexec，未退出当前程序".into());
         }
-        let script = installation_script(
+        let mut command = installer_command(
             std::env::consts::OS,
+            &app.path().resource_dir().map_err(|e| e.to_string())?,
             &directory,
             &path,
             &std::env::current_exe().map_err(|e| e.to_string())?,
@@ -740,16 +652,6 @@ pub async fn install_desktop_update(app: AppHandle) -> Result<(), String> {
         let started = directory.join("started");
         let _ = std::fs::remove_file(&started);
         let _ = std::fs::remove_file(directory.join("install-error.txt"));
-        let mut command;
-        if cfg!(target_os = "windows") {
-            command = std::process::Command::new("powershell.exe");
-            command.args(["-NoProfile", "-Command", &script]);
-        } else {
-            let helper = directory.join("install.sh");
-            std::fs::write(&helper, script).map_err(|e| e.to_string())?;
-            command = std::process::Command::new("/bin/sh");
-            command.arg(helper);
-        }
         let mut child = command
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
