@@ -66,18 +66,20 @@ it.each([
 });
 
 it.each([[0, '0'], [null, '未取得链上版本']] as const)(
-  '设置页在 Runtime 版本下一行显示交易签名版本 %s',
+  '设置页显示节点程序、公民协议和交易签名版本 %s',
   async (transactionVersion, expected) => {
     mocks.invoke.mockImplementation(async (command: string) => command === 'get_chain_status'
-      ? { nodeVersion: '1.0.0', specVersion: 7, transactionVersion }
+      ? { nodeVersion: '1.0.3', specVersion: 7, transactionVersion }
       : null);
     render(<SettingsSection desktopUpdateInfo={{ status: 'unavailable', currentVersion: '1.0.0',
       latestVersion: null, error: null }} onUpdateDesktop={vi.fn()}/>);
     const label = await screen.findByText('交易签名版本');
     const row = label.closest('.settings-version-row');
     expect(row?.querySelector('.settings-version-value')?.textContent).toBe(expected);
-    expect(row?.previousElementSibling?.textContent).toContain('Runtime 版本');
-    expect(row?.previousElementSibling?.textContent).toContain('spec 7');
+    expect(row?.previousElementSibling?.textContent).toContain('公民协议版本');
+    expect(row?.previousElementSibling?.textContent).toContain('Runtime 7');
+    const nodeVersionRow = screen.getByText('节点程序版本').closest('.settings-version-row');
+    expect(nodeVersionRow?.querySelector('.settings-version-value')?.textContent).toBe('v1.0.3');
   },
 );
 

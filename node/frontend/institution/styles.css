@@ -363,7 +363,7 @@
   max-height: calc(100vh - 32px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 24px;
+  padding: 14px 24px 24px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-card);
@@ -372,8 +372,10 @@
 }
 
 .institution-vote-help-dialog h2 {
-  margin: 0 0 20px;
-  font-size: 22px;
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 18px;
   text-align: center;
 }
 

@@ -191,13 +191,9 @@ body {
   box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.2);
 }
 
-.settings-reward-account-section {
-  margin-top: 12px;
-  padding-top: 0;
-  border-top: none;
-}
-
-.settings-node-mode-section {
+.settings-reward-account-section,
+.settings-node-mode-section,
+.settings-nodekey-section {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
@@ -505,7 +501,6 @@ body {
 }
 
 .settings-version-section {
-  margin-top: 16px;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -556,12 +551,6 @@ body {
 
 .settings-update-button:hover:not(:disabled) {
   background: #f59e0b;
-}
-
-.settings-nodekey-section {
-  margin-top: 12px;
-  padding-top: 0;
-  border-top: none;
 }
 
 .settings-credential-row {
@@ -937,7 +926,7 @@ select option:checked {
 
 .metric-help-dialog {
   width: fit-content;
-  max-width: min(540px, calc(100% - 32px));
+  max-width: min(450px, calc(100% - 32px));
   max-height: calc(100% - 32px);
   margin: auto;
   padding: 0;
@@ -955,12 +944,14 @@ select option:checked {
 }
 
 .metric-help-content {
-  padding: 24px;
+  padding: 14px 24px 24px;
 }
 
 .metric-help-content h2 {
-  margin: 0 0 16px;
-  font-size: 22px;
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 18px;
   text-align: center;
 }
 

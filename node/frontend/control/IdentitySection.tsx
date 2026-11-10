@@ -16,7 +16,7 @@ export function IdentitySection({ identity, minerAddress }: Props) {
           <dd className="identity-detail-value">{identity.role ?? '全节点'}</dd>
         </div>
         <div className="identity-detail-row">
-          <dt className="identity-detail-key">本机矿工：</dt>
+          <dt className="identity-detail-key">矿工账户：</dt>
           <dd className="identity-detail-value identity-detail-code">{minerAddress || '-'}</dd>
         </div>
         <div className="identity-detail-row">
