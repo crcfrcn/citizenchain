@@ -1,4 +1,5 @@
 import { formatAmount } from "../client/format";
+import { MetricHelp } from "../desktop/MetricHelp";
 import type { TotalIssuance, TotalStake } from "./types";
 
 
@@ -13,7 +14,14 @@ export function IssuanceSection({ issuance, stake }: Props) {
       <h2>发行</h2>
       <div className="issuance-stack-grid">
         <div className="metric-card">
-          <div className="metric-label">全链发行总额 <span className="metric-hint">（含永久质押金额）</span></div>
+          <div className="metric-label metric-label-with-help">
+            <span>全链发行总额</span>
+            <MetricHelp title="全链发行总额说明" items={[
+              '显示截至最新已最终性确认区块的链上现有公民币的发行总量。',
+              '总额包含 43 个省储行的永久质押金额。新增发行会增加总额，销毁会减少总额。',
+              '新增发行统一由公民协议「即公民链的Runtime」的发行模组执行。',
+            ]} />
+          </div>
           <div className="metric-value">
             {issuance.totalIssuance ? (
               <>
@@ -26,7 +34,14 @@ export function IssuanceSection({ issuance, stake }: Props) {
           </div>
         </div>
         <div className="metric-card">
-          <div className="metric-label">永久质押金额 <span className="metric-hint">（成立43个省储行的创立发行总额，永久质押于各省储行质押地址）</span></div>
+          <div className="metric-label metric-label-with-help">
+            <span>永久质押金额</span>
+            <MetricHelp title="永久质押金额说明" items={[
+              '显示 43 个创世成立的省储行永久质押账户中的余额合计。',
+              '这笔资金在公民链创世时发行，分别存入各省储行的永久质押地址，不可转出。',
+              '各省储行的永久质押地址可接收公民币，并由公民协议和节点守卫同时限制转出。',
+            ]} />
+          </div>
           <div className="metric-value">
             {stake.totalStake ? (
               <>
