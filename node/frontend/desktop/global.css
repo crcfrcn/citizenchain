@@ -482,7 +482,7 @@ body {
 }
 
 .node-mode-option {
-  min-height: 92px;
+  min-height: 80px;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
@@ -536,6 +536,12 @@ body {
   background: var(--bg-card);
 }
 
+.settings-version-section > p {
+  margin: 6px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .settings-version-row {
   display: flex;
   justify-content: space-between;
@@ -587,7 +593,7 @@ body {
   grid-template-columns: 150px minmax(0, 600px) var(--scan-icon-size) minmax(0, 1fr) 190px 90px;
   align-items: center;
   gap: 10px;
-  min-height: 84px;
+  min-height: 68px;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1659,7 +1665,7 @@ select option:checked {
 .institution-card {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px;
+  padding: 8px 12px;
   background: var(--bg-card);
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -3004,18 +3010,44 @@ select option:checked {
   min-height: 0;
 }
 
-/* 首页收紧分组前的留白，分组间统一 14px；金额卡片保持自然高度。 */
+/* 首页仅在分组之间分配剩余高度，组内子项紧凑排列，金额卡片保持自然高度。 */
+.home-dual-panel > main.app {
+  display: flex;
+  flex-direction: column;
+}
+
 .home-dual-panel > main.app > .content {
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0;
+}
+
+.home-dual-panel > main.app .home-node-toolbar {
+  flex: none;
 }
 
 .home-dual-panel > main.app .home-summary-section {
+  flex: none;
   margin-top: 0;
   padding-top: 0;
 }
 
-.home-dual-panel > main.app .home-summary-section > p:last-child {
-  margin-bottom: 0;
+.home-dual-panel > main.app .home-node-toolbar + .home-summary-section {
+  margin-top: 2px;
+}
+
+.home-dual-panel > main.app .home-summary-section + .home-summary-section {
+  margin-top: auto;
+  padding-top: 20px;
+}
+
+.home-dual-panel > main.app .home-summary-section > p {
+  margin: 0;
+}
+
+.home-dual-panel > main.app .home-summary-section > p + p {
+  margin-top: 6px;
 }
 
 @media (max-width: 900px) {
@@ -3040,7 +3072,7 @@ select option:checked {
 
 .identity-details {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   margin: 0;
 }
 
@@ -3072,6 +3104,7 @@ select option:checked {
 }
 
 .identity-detail-code {
+  font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   overflow-wrap: anywhere;
   word-break: break-all;
