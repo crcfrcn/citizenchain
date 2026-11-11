@@ -22,10 +22,10 @@
     --doc-soft-accent: #f8e9df;
     --doc-shadow: 0 18px 42px rgba(83, 53, 24, 0.12);
     --doc-radius: 8px;
-    --doc-toc-width: 318px;
-    --doc-grid-gap: 24px;
+    --doc-toc-width: 300px;
+    --doc-grid-gap: 20px;
     --doc-cover-height: 111px;
-    --doc-title-offset: 171px;
+    --doc-title-offset: 160px;
   }
 
   body {
@@ -41,10 +41,10 @@
   }
 
   .page {
-    width: min(1320px, calc(100% - 60px));
-    max-width: 1320px;
+    width: min(2660px, calc(100% - 32px));
+    max-width: 2660px;
     margin: 0 auto;
-    padding: 30px 0 26px;
+    padding: 16px 0;
     background: transparent;
     min-height: 100vh;
     display: grid;
@@ -109,6 +109,8 @@
 
   .country-text {
     min-width: 0;
+    display: grid;
+    width: max-content;
   }
 
   .country-cn,
@@ -116,19 +118,22 @@
     display: block;
     font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
     line-height: 1.25;
+    white-space: nowrap;
+    text-align: justify;
+    text-align-last: justify;
   }
 
   .country-cn {
     color: #3a1d17;
     font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 800;
   }
 
   .country-en {
     margin-top: 1px;
     color: var(--doc-subtle);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 650;
   }
 

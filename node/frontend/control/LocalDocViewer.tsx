@@ -437,8 +437,8 @@ export function LocalDocViewer({ doc }: Props) {
 
         <div className="doc-main">
           <header className="hero">
-            <p className="eyebrow">{eyebrow}</p>
             <h1>{displayTitle}</h1>
+            <p className="eyebrow">{eyebrow}</p>
           </header>
           <main ref={scrollRef} className="paper">
             <article

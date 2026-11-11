@@ -1116,6 +1116,12 @@ select option:checked {
 
 .local-doc-shell .hero {
   flex: none;
+  height: 111px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   margin: 0;
   width: 100%;
   border: 1px solid #c5d9ec;
@@ -1124,7 +1130,7 @@ select option:checked {
     linear-gradient(120deg, rgba(15, 111, 194, 0.09), rgba(15, 118, 110, 0.08)),
     var(--doc-paper);
   box-shadow: var(--doc-shadow);
-  padding: 24px 28px;
+  padding: 10px 28px;
   position: relative;
   z-index: 40;
   overflow: hidden;
@@ -1143,19 +1149,20 @@ select option:checked {
 }
 
 .local-doc-shell .eyebrow {
-  margin: 0 0 8px;
-  color: var(--doc-accent-2);
-  font-size: 12px;
-  letter-spacing: 0.14em;
+  margin: 2px 0 0;
+  color: var(--doc-subtle);
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .local-doc-shell .hero h1 {
   margin: 0;
   font-family: var(--doc-font);
-  font-weight: 400;
-  font-size: clamp(30px, 4.4vw, 44px);
+  font-weight: 800;
+  font-size: 30px;
   color: #14324c;
   line-height: 1.2;
 }
