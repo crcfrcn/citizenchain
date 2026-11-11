@@ -182,7 +182,7 @@ export function CreateMultisigTransferPage({
 
 
           <div className="wallet-form-field">
-            <label htmlFor="transfer-recipient">收款地址（SS58 或以太坊）</label>
+            <label htmlFor="transfer-recipient">收款地址</label>
             <div className="address-input-row">
               <input id="transfer-recipient"
                 type="text" value={beneficiary}

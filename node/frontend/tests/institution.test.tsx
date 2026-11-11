@@ -185,7 +185,7 @@ it.each(transferCases)('$button 在原机构详情上方弹出，使用 $address
       expect(destination.value).toBe(accountIdToSs58(mainAccountId));
       expect(signingPanel.getByText(/至少保留 1\.11 元.*80%/)).toBeTruthy();
     } else {
-      fireEvent.change(signingPanel.getByLabelText('收款地址（SS58 或以太坊）'), { target: { value: recipient } });
+      fireEvent.change(signingPanel.getByLabelText('收款地址'), { target: { value: recipient } });
     }
     fireEvent.click(signingPanel.getByRole('button', { name: '签名' }));
     const scanner = await signingPanel.findByRole('button', { name: '扫描签名响应' });

@@ -7,6 +7,8 @@
 <style>
   html {
     scroll-behavior: smooth;
+    height: 100%;
+    overflow: hidden;
   }
 
   /* 样式采用正式文书版阅读界面；正文中英文结构不变。 */
@@ -24,13 +26,14 @@
     --doc-radius: 8px;
     --doc-toc-width: 300px;
     --doc-grid-gap: 20px;
-    --doc-cover-height: 111px;
+    --doc-cover-height: 80px;
     --doc-title-offset: 160px;
   }
 
   body {
     margin: 0;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
     background: linear-gradient(180deg, var(--doc-bg), var(--doc-bg-2));
     color: var(--doc-ink);
     font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -46,18 +49,19 @@
     margin: 0 auto;
     padding: 16px 0;
     background: transparent;
-    min-height: 100vh;
+    height: 100vh;
+    min-height: 0;
     display: grid;
     grid-template-columns: var(--doc-toc-width) minmax(0, 1fr);
+    grid-template-rows: var(--doc-cover-height) minmax(0, 1fr);
     gap: var(--doc-grid-gap);
-    align-items: start;
+    align-items: stretch;
   }
 
   .cover {
     grid-column: 1 / -1;
     grid-row: 1;
-    position: sticky;
-    top: 8px;
+    position: relative;
     z-index: 40;
     margin: 0;
     height: var(--doc-cover-height);
@@ -200,16 +204,14 @@
   .toc {
     grid-column: 1;
     grid-row: 2;
-    position: sticky;
-    top: calc(16px + var(--doc-cover-height) + var(--doc-grid-gap));
+    position: relative;
     margin: 0;
     padding: 0;
     border: 1px solid #dacbb7;
     border-radius: var(--doc-radius);
     background: var(--doc-paper);
     box-shadow: var(--doc-shadow);
-    /* 扣除封面、分组间距及上下各 16px 留白，随窗口高度填满目录栏。 */
-    height: calc(100vh - var(--doc-cover-height) - var(--doc-grid-gap) - 32px);
+    /* 与正文共用剩余高度，目录展开只滚动本卡片。 */
     min-height: 0;
     overflow: auto;
   }
@@ -354,6 +356,9 @@
     grid-column: 2;
     grid-row: 2;
     min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    scroll-behavior: smooth;
     padding: clamp(20px, 4vw, 42px);
     border: 1px solid #dacbb7;
     border-radius: var(--doc-radius);
@@ -366,7 +371,7 @@
   }
 
   .block {
-    scroll-margin-top: calc(var(--doc-cover-height) + 36px);
+    scroll-margin-top: 18px;
   }
 
   .chapter-title,
@@ -473,6 +478,10 @@
     z-index: 50;
     width: 42px;
     height: 42px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    line-height: 1;
     border: 0;
     border-radius: 999px;
     background: var(--doc-accent);
@@ -492,9 +501,10 @@
     transform: translateY(0);
   }
 
-  @media (max-width: 1180px) {
+  @media (max-width: 800px) {
     .page {
       grid-template-columns: 1fr;
+      grid-template-rows: auto 180px minmax(0, 1fr);
       width: min(100% - 24px, 860px);
     }
 
@@ -507,16 +517,22 @@
 
     .cover {
       position: static;
-      height: auto;
-      min-height: var(--doc-cover-height);
-      grid-template-columns: 1fr;
+      height: var(--doc-cover-height);
+      min-height: 0;
+      padding: 8px 12px;
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       text-align: center;
     }
 
     .country-mark {
-      justify-self: center;
-      justify-content: center;
+      justify-self: start;
     }
+
+    .country-emblem { width: 32px; height: 32px; background-size: 91px auto; }
+    .country-cn { font-size: 14px; }
+    .country-en { font-size: 9px; }
+    .doc-title-cn { font-size: 24px; }
 
     .title-mark {
       transform: none;
@@ -544,12 +560,16 @@
   }
 
   @media print {
+    html,
     body {
+      height: auto;
+      overflow: visible;
       background: #fff;
     }
 
     .page {
       display: block;
+      height: auto;
       width: auto;
       margin: 0;
       padding: 0;
@@ -558,6 +578,7 @@
     .cover,
     .toc,
     .content {
+      overflow: visible;
       box-shadow: none;
       border-radius: 0;
     }
@@ -607,12 +628,14 @@
 <!--CONSTITUTION_CONTENT-->
     </section>
   </main>
+  <button class="to-top" type="button" aria-label="回到顶部" title="回到顶部">↑</button>
   <script>
     // 静态 HTML 只负责目录折叠、高亮和回到顶部，不改变正文中英文显示结构。
     (() => {
       const tocList = document.querySelector('.toc-list');
       const toTop = document.querySelector('.to-top');
-      if (!tocList) return;
+      const content = document.querySelector('.content');
+      if (!tocList || !content) return;
 
       const originalLinks = Array.from(tocList.children).filter((node) =>
         node.classList?.contains('toc-item'),
@@ -739,19 +762,19 @@
             if (entry.isIntersecting) setActive(entry.target.id, false);
           });
         },
-        { root: null, rootMargin: '-38% 0px -52% 0px', threshold: 0.1 },
+        { root: content, rootMargin: '-38% 0px -52% 0px', threshold: 0.1 },
       );
 
       targets.forEach(({ target }) => observer.observe(target));
 
       const handleScroll = () => {
         if (!toTop) return;
-        toTop.classList.toggle('visible', window.scrollY > 260);
+        toTop.classList.toggle('visible', content.scrollTop > 260);
       };
 
-      window.addEventListener('scroll', handleScroll, { passive: true });
+      content.addEventListener('scroll', handleScroll, { passive: true });
       handleScroll();
-      toTop?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+      toTop?.addEventListener('click', () => content.scrollTo({ top: 0, behavior: 'smooth' }));
     })();
   </script>
 </body>

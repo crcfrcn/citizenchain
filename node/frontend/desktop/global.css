@@ -1066,13 +1066,20 @@ select option:checked {
   text-align: center;
 }
 
-/* 文档在各自的阅读区滚动，外框与其他 tab 保持同样的留白。 */
+/* 文档背景占用原外框区域；目录和正文在各自卡片内滚动。 */
 .app:has(.other-tab-section),
 .app:has(.other-tab-section) > .content,
 .other-tab-section {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
+}
+
+.app:has(.other-tab-section) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
 }
 
 .other-tab-section {
@@ -1116,7 +1123,7 @@ select option:checked {
 
 .local-doc-shell .hero {
   flex: none;
-  height: 111px;
+  height: 80px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1560,6 +1567,10 @@ select option:checked {
 }
 
 .local-doc-shell .to-top {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  line-height: 1;
   position: fixed;
   right: 14px;
   bottom: 14px;
