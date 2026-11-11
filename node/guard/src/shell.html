@@ -385,6 +385,11 @@
     font-weight: 700;
   }
 
+  /* 首章直接使用正文卡片的顶部内边距，后续章节保留分章间距。 */
+  .content > .chapter-block:first-child > .chapter-title {
+    margin-top: 0;
+  }
+
   .section-title {
     margin: 1.5em 0 0.7em;
     padding-left: 10px;
