@@ -42,7 +42,7 @@ test('正文 HTML 属性使用依赖 html 的稳定引用', () => {
   assert.equal(htmlAttribute.initializer.expression?.getText(sourceFile), 'htmlPayload');
 });
 
-test('目录移除和主标题居中处理保持在目录状态更新之前', () => {
+test('目录和重复封面移除保持在目录状态更新之前', () => {
   const effect = descendants(sourceFile)
     .filter(ts.isCallExpression)
     .find((node) => node.expression.getText(sourceFile) === 'useEffect' && node.getText(sourceFile).includes('stripInlineToc'));
@@ -50,7 +50,7 @@ test('目录移除和主标题居中处理保持在目录状态更新之前', ()
   assert.ok(effect);
   const effectText = effect.getText(sourceFile);
   const stripIndex = effectText.indexOf('stripInlineToc(article)');
-  const titleIndex = effectText.indexOf('applyDocSpecificClasses(article)');
+  const titleIndex = effectText.indexOf('stripWhitepaperCover(article)');
   const stateIndex = effectText.indexOf('setTocItems(roots)');
 
   assert.ok(stripIndex >= 0);

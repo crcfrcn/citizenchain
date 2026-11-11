@@ -123,11 +123,19 @@ function getHeadingMainText(heading: Element) {
   return (clone.textContent ?? '').trim();
 }
 
-function applyDocSpecificClasses(rootEl: HTMLElement) {
+function stripWhitepaperCover(rootEl: HTMLElement) {
   rootEl.querySelectorAll('h1').forEach((heading) => {
     const normalized = normalizeDocHeading(getHeadingMainText(heading));
-    if (normalized.includes('白皮书')) {
-      heading.classList.add('paper-main-title');
+    if (/^(?:公民链|公民区块链)白皮书$/.test(normalized)) {
+      heading.remove();
+    }
+  });
+  rootEl.querySelectorAll('.whitepaper-title-en').forEach((subtitle) => {
+    const parent = subtitle.parentElement;
+    if (parent?.tagName === 'P' && parent.textContent?.trim() === subtitle.textContent?.trim()) {
+      parent.remove();
+    } else {
+      subtitle.remove();
     }
   });
 }
@@ -326,26 +334,26 @@ type Props = {
 };
 
 export function LocalDocViewer({ doc }: Props) {
-  const shellRef = useRef<HTMLElement | null>(null);
+  const scrollRef = useRef<HTMLElement | null>(null);
   const articleRef = useRef<HTMLElement | null>(null);
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
   const [activeId, setActiveId] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [showToTop, setShowToTop] = useState(false);
   const html = useMemo(() => renderMarkdown(doc.markdown), [doc.markdown]);
-  // 正文目录移除和标题类由副作用直接写入 DOM；保持属性对象引用稳定，避免状态更新时 React 重写原始 HTML。
+  // 目录和重复封面仅在显示层移除；保持属性引用稳定，避免目录状态更新时重写原始 HTML。
   const htmlPayload = useMemo(() => ({ __html: html }), [html]);
   const flatToc = useMemo(() => flattenToc(tocItems), [tocItems]);
 
   useEffect(() => {
     const article = articleRef.current;
-    const shell = shellRef.current;
+    const shell = scrollRef.current;
     if (!article || !shell) return undefined;
 
     upgradeTableCodeBlocks(article);
     stripInlineToc(article);
     stripHorizontalRules(article);
-    applyDocSpecificClasses(article);
+    stripWhitepaperCover(article);
 
     const { roots, flat } = buildTocFromDom(article, doc);
     setTocItems(roots);
@@ -379,7 +387,7 @@ export function LocalDocViewer({ doc }: Props) {
     };
   }, [doc, html]);
 
-  const displayTitle = '公民区块链白皮书';
+  const displayTitle = '《公民链白皮书》';
   const eyebrow = 'CitizenChain Whitepaper';
 
   const jumpToHeading = (id: string) => {
@@ -402,12 +410,7 @@ export function LocalDocViewer({ doc }: Props) {
   };
 
   return (
-    <section ref={shellRef} className={`local-doc-shell doc-${doc.key}`}>
-      <header className="hero">
-        <p className="eyebrow">{eyebrow}</p>
-        <h1>{displayTitle}</h1>
-      </header>
-
+    <section className={`local-doc-shell doc-${doc.key}`}>
       <div className="layout">
         <aside className="toc" aria-label={`${displayTitle}目录`}>
           <h2>
@@ -432,14 +435,20 @@ export function LocalDocViewer({ doc }: Props) {
           </nav>
         </aside>
 
-        <main className="paper">
-          <article
-            ref={articleRef}
-            id="content"
-            className="markdown-body"
-            dangerouslySetInnerHTML={htmlPayload}
-          />
-        </main>
+        <div className="doc-main">
+          <header className="hero">
+            <p className="eyebrow">{eyebrow}</p>
+            <h1>{displayTitle}</h1>
+          </header>
+          <main ref={scrollRef} className="paper">
+            <article
+              ref={articleRef}
+              id="content"
+              className="markdown-body"
+              dangerouslySetInnerHTML={htmlPayload}
+            />
+          </main>
+        </div>
       </div>
 
       <button
@@ -447,7 +456,7 @@ export function LocalDocViewer({ doc }: Props) {
         type="button"
         aria-label="回到顶部"
         onClick={() => {
-          shellRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+          scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       >
         ↑

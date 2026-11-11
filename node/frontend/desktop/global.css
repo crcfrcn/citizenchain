@@ -1068,6 +1068,7 @@ select option:checked {
 
 /* 文档在各自的阅读区滚动，外框与其他 tab 保持同样的留白。 */
 .app:has(.other-tab-section),
+.app:has(.other-tab-section) > .content,
 .other-tab-section {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
@@ -1093,11 +1094,12 @@ select option:checked {
   --doc-shadow: 0 16px 40px rgba(11, 44, 76, 0.12);
   --doc-radius: 16px;
   --doc-toc-width: 300px;
-  --doc-sticky-header-offset: 164px;
   --doc-font: "Noto Sans SC", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   display: block;
   width: 100%;
-  overflow: auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   border-radius: 10px;
   font-family: var(--doc-font);
   color: var(--doc-ink);
@@ -1113,8 +1115,9 @@ select option:checked {
 }
 
 .local-doc-shell .hero {
-  margin: 28px auto 20px;
-  width: min(2660px, calc(100% - 32px));
+  flex: none;
+  margin: 0;
+  width: 100%;
   border: 1px solid #c5d9ec;
   border-radius: var(--doc-radius);
   background:
@@ -1122,8 +1125,7 @@ select option:checked {
     var(--doc-paper);
   box-shadow: var(--doc-shadow);
   padding: 24px 28px;
-  position: sticky;
-  top: 8px;
+  position: relative;
   z-index: 40;
   overflow: hidden;
 }
@@ -1159,23 +1161,31 @@ select option:checked {
 }
 
 .local-doc-shell .layout {
-  margin: 0 auto 26px;
+  margin: 16px auto;
   width: min(2660px, calc(100% - 32px));
+  height: calc(100% - 32px);
+  min-height: 0;
   display: grid;
   grid-template-columns: var(--doc-toc-width) minmax(0, 1fr);
   gap: 20px;
-  align-items: start;
+  align-items: stretch;
+}
+
+.local-doc-shell .doc-main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  min-height: 0;
 }
 
 .local-doc-shell .toc {
-  position: sticky;
-  top: var(--doc-sticky-header-offset);
+  min-height: 0;
   border-radius: var(--doc-radius);
   border: 1px solid #cedae8;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(6px);
   box-shadow: var(--doc-shadow);
-  max-height: calc(100vh - var(--doc-sticky-header-offset) - 12px);
   overflow: auto;
 }
 
@@ -1316,11 +1326,14 @@ select option:checked {
 }
 
 .local-doc-shell .paper {
+  flex: 1;
+  min-width: 0;
   border-radius: var(--doc-radius);
   border: 1px solid #cedae8;
   background: var(--doc-paper);
   box-shadow: var(--doc-shadow);
-  min-height: 65vh;
+  min-height: 0;
+  overflow: auto;
 }
 
 .local-doc-shell .markdown-body {
@@ -1329,6 +1342,10 @@ select option:checked {
   line-height: 1.82;
   color: #223141;
   animation: local-doc-fade-in 260ms ease-out;
+}
+
+.local-doc-shell .markdown-body > :first-child {
+  margin-top: 0;
 }
 
 .local-doc-shell .markdown-body h1,
@@ -1347,10 +1364,6 @@ select option:checked {
   font-size: clamp(30px, 4vw, 40px);
   border-bottom: 2px solid #d6e2ee;
   padding-bottom: 0.28em;
-}
-
-.local-doc-shell .markdown-body h1.paper-main-title {
-  text-align: center;
 }
 
 .local-doc-shell.doc-whitepaper .whitepaper-title-en,
@@ -1567,6 +1580,8 @@ select option:checked {
 .runtime-constitution-shell {
   display: block;
   width: 100%;
+  height: 100%;
+  min-height: 0;
   border-radius: 10px;
   overflow: hidden;
   background: #f4f8fb;
@@ -1608,14 +1623,15 @@ select option:checked {
   }
 }
 
-@media (max-width: 1060px) {
+@media (max-width: 800px) {
   .local-doc-shell .layout {
     grid-template-columns: 1fr;
+    grid-template-rows: 180px minmax(0, 1fr);
+    gap: 12px;
   }
 
   .local-doc-shell .toc {
-    position: static;
-    max-height: 320px;
+    height: 100%;
   }
 }
 
