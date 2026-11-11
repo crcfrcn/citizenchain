@@ -3,7 +3,7 @@ import { homeNodeApi as api } from "./api";
 import { ChainSection } from "./ChainSection";
 import { IdentitySection } from "./IdentitySection";
 import { IssuanceSection } from "./IssuanceSection";
-import type { ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake } from "./types";
+import type { ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake, TotalFrozen } from "./types";
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const PARTIAL_REFRESH_ERROR_PREFIX = '部分数据刷新失败：';
@@ -15,6 +15,7 @@ const EMPTY_CHAIN: ChainStatus = {
 const EMPTY_IDENTITY: NodeIdentity = { peerId: null, role: null, genesisHash: null };
 const EMPTY_ISSUANCE: TotalIssuance = { totalIssuance: null };
 const EMPTY_STAKE: TotalStake = { totalStake: null };
+const EMPTY_FROZEN: TotalFrozen = { totalFrozen: null };
 
 // 节点打开软件时自动启动；首页按钮仅提供手动停止和再次启动。
 export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (ready: boolean) => void }) {
@@ -24,6 +25,7 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
   const [minerAddress, setMinerAddress] = useState<string | null>(null);
   const [issuance, setIssuance] = useState<TotalIssuance>(EMPTY_ISSUANCE);
   const [stake, setStake] = useState<TotalStake>(EMPTY_STAKE);
+  const [frozen, setFrozen] = useState<TotalFrozen>(EMPTY_FROZEN);
   const [error, setError] = useState<string | null>(null);
   const [nodeAction, setNodeAction] = useState<'starting' | 'stopping' | null>(null);
   const [pendingNodeAction, setPendingNodeAction] = useState<'start' | 'stop' | null>(null);
@@ -40,12 +42,13 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
   }, [nodeReady, onNodeReadyChange]);
 
   const loadHome = useCallback(async (silent: boolean) => {
-    const [s, c, i, t, k] = await Promise.allSettled([
+    const [s, c, i, t, k, f] = await Promise.allSettled([
       api.getNodeStatus(),
       api.getChainStatus(),
       api.getNodeIdentity(),
       api.getTotalIssuance(),
       api.getTotalStake(),
+      api.getTotalFrozen(),
     ]);
     let successCount = 0;
     const failures: string[] = [];
@@ -67,6 +70,7 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
       setIdentity(EMPTY_IDENTITY);
       setIssuance(EMPTY_ISSUANCE);
       setStake(EMPTY_STAKE);
+      setFrozen(EMPTY_FROZEN);
       if (!silent) {
         setError(null);
         return;
@@ -82,6 +86,9 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
     applyResult(i, setIdentity);
     applyResult(t, setIssuance);
     applyResult(k, setStake);
+    // 冻结总额必须完整取得；查询失败时清空旧金额，避免展示已经过期的合计。
+    if (f.status === 'rejected') setFrozen(EMPTY_FROZEN);
+    applyResult(f, setFrozen);
 
     if (successCount === 0) {
       throw new Error(failures[0] ?? '首页数据加载失败');
@@ -110,6 +117,7 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
     setIdentity(EMPTY_IDENTITY);
     setIssuance(EMPTY_ISSUANCE);
     setStake(EMPTY_STAKE);
+    setFrozen(EMPTY_FROZEN);
   }, []);
 
   const runLoadHome = useCallback(async (silent: boolean) => {
@@ -235,7 +243,7 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
       </div>
       <ChainSection chain={chain} nodeRunning={status.running} />
       <IdentitySection identity={identity} minerAddress={minerAddress} />
-      <IssuanceSection issuance={issuance} stake={stake} />
+      <IssuanceSection issuance={issuance} stake={stake} frozen={frozen} />
       {status.lastError ? <pre className="error">{status.lastError}</pre> : null}
       {error ? <pre className="error">{error}</pre> : null}
       {pendingNodeAction ? (

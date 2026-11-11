@@ -383,7 +383,7 @@
   margin-top: 16px;
 }
 
-.institution-vote-help-intro {
+.institution-vote-help-dialog ol.institution-vote-help-intro {
   margin: 0 0 12px;
   color: var(--text-secondary);
   font-size: 14px;

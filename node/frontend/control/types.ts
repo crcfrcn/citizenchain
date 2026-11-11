@@ -119,6 +119,10 @@ export type TotalStake = {
   totalStake: string | null;
 };
 
+export type TotalFrozen = {
+  totalFrozen: string | null;
+};
+
 // 其他 tab 内容类型，对齐后端 src/other/other_tabs。
 
 export type LocalDoc = {

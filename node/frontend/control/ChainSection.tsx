@@ -1,3 +1,4 @@
+import { MetricHelp } from "../desktop/MetricHelp";
 import type { ChainStatus } from "./types";
 
 
@@ -24,7 +25,18 @@ export function ChainSection({ chain, nodeRunning }: Props) {
 
   return (
     <section className="section home-summary-section">
-      <h2>区块</h2>
+      <h2 className="metric-label-with-help">
+        <span>区块</span>
+        <span className="metric-label">
+          <MetricHelp title="公民链说明" items={[
+            '公民链采用PoW工作量证明共识出块+GRANDPA最终性验证区块。',
+            '公民链采用动态难度的PoW工作量证明共识，出块时间设计为预计6分钟。',
+            '公民链采用安全优先的链上交易+效率优先的链下交易双层交易模式设计。',
+            '链上由PoW+GRANDPA混合共识保证安全，链下由注册局注册的清算行节点保证效率。',
+            '公民链由公民协议、节点程序和链上中国三大部分组成，公民协议即Runtime运行时。',
+          ]} />
+        </span>
+      </h2>
       <p>当前高度: {chain.blockHeight ?? '-'}</p>
       <p>最终高度: {chain.finalizedHeight ?? '-'}</p>
     </section>

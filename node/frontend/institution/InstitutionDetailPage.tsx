@@ -64,7 +64,9 @@ function VotingHelpDialog({ onClose }: { onClose: () => void }) {
         }}
       >
         <h2 id="institution-vote-help-title">投票说明</h2>
-        <p className="institution-vote-help-intro">0.公民链投票引擎由内部投票、联合投票、立法投票和选举投票共4个模块组成。</p>
+        <ol className="institution-vote-help-intro" start={0}>
+          <li>公民链投票引擎由内部投票、联合投票、立法投票和选举投票共4个模块组成。</li>
+        </ol>
         <section>
           <h3>一、内部投票</h3>
           <ol>

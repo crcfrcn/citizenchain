@@ -16,7 +16,9 @@ workspace = true
 [dependencies]
 blake2b_simd = "1"
 bs58 = "=0.5.1"
+codec = { workspace = true, default-features = true }
 ed25519-dalek = "=2.2.0"
+entitybase = { path = "../../runtime/entity/entitybase", default-features = true }
 hex = "=0.4.3"
 identity = { path = "../../runtime/misc/identity", default-features = true }
 libc = "0.2"

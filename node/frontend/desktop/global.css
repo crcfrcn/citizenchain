@@ -996,6 +996,25 @@ select option:checked {
   margin-top: 4px;
 }
 
+.metric-help-content table {
+  width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font: inherit;
+}
+
+.metric-help-content th,
+.metric-help-content td {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.metric-help-content th {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .table-wrap {
   overflow-x: auto;
 }

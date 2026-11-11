@@ -44,6 +44,7 @@ pub fn run_desktop() {
             nodecontrol::identity::get_node_identity,
             nodecontrol::rpc::get_total_issuance,
             nodecontrol::rpc::get_total_stake,
+            nodecontrol::rpc::get_total_frozen,
             nodemining::dashboard::get_mining_dashboard,
             nodemining::network::get_network_overview,
             nodecontrol::documents::get_other_tabs_content,

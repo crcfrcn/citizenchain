@@ -1,9 +1,9 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 type Props = {
   title: string;
-  items: readonly string[];
+  items: readonly ReactNode[];
 };
 
 export function MetricHelp({ title, items }: Props) {
@@ -45,7 +45,7 @@ export function MetricHelp({ title, items }: Props) {
           <div className="metric-help-content">
             <h2 id={titleId}>{title}</h2>
             <ol>
-              {items.map((item) => <li key={item}>{item}</li>)}
+              {items.map((item, index) => <li key={index}>{item}</li>)}
             </ol>
           </div>
         </dialog>,

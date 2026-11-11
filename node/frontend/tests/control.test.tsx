@@ -14,8 +14,111 @@ import {shouldShowDesktopUpdateDot} from '../control/updateIndicator';
 it.each(['checking','unavailable','error'] as const)('状态%s不显示新版标记', status => { expect(shouldShowDesktopUpdateDot({status})).toBe(false); });
 it('已发现新版持续显示标记', () => { expect(shouldShowDesktopUpdateDot({status:'available'})).toBe(true); });
 
-import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {IssuanceSection} from '../control/IssuanceSection';
+import {HomeNodeSection} from '../control/HomeNodeSection';
 import {OtherTabsSection} from '../control/OtherTabsSection';
+
+it('冻结总额通过独立 IPC 查询，保留完整精度的金额字符串', async () => {
+  const receipt = { totalFrozen: '3,402,823,669,209,384,634,633,746,074,317,682,114.55' };
+  mocks.invoke.mockResolvedValueOnce(receipt);
+  await expect(homeNodeApi.getTotalFrozen()).resolves.toBe(receipt);
+  expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith('get_total_frozen');
+});
+
+it.each([
+  [null, '-'], ['0.00', '0.00元（公民币）'], ['1,234.56', '1,234.56元（公民币）'],
+])('冻结金额 %s 显示在永久质押卡片下方', (amount, expected) => {
+  const view = render(<IssuanceSection issuance={{totalIssuance:'10.00'}} stake={{totalStake:'5.00'}}
+    frozen={{totalFrozen:amount}}/>);
+  const cards = [...view.container.querySelectorAll('.metric-card')];
+  expect(cards.map(card => card.querySelector('.metric-label > span')?.textContent))
+    .toEqual(['全链发行总额', '永久质押金额', '临时冻结金额']);
+  expect(cards[2].querySelector('.metric-value')?.textContent).toBe(expected);
+  expect(within(cards[2] as HTMLElement).getByRole('button', {name:'全链冻结金额说明'}).textContent).toBe('说明');
+});
+
+it('冻结金额说明显示三条原文及达标表格，保留原说明并可点击外部关闭', () => {
+  const prototype = HTMLDialogElement.prototype;
+  const show = Object.getOwnPropertyDescriptor(prototype, 'showModal');
+  const close = Object.getOwnPropertyDescriptor(prototype, 'close');
+  Object.defineProperties(prototype, {
+    showModal: {configurable:true, value(this:HTMLDialogElement) {this.open=true;}},
+    close: {configurable:true, value(this:HTMLDialogElement) {this.open=false;}},
+  });
+  const view = render(<IssuanceSection issuance={{totalIssuance:'10.00'}} stake={{totalStake:'5.00'}}
+    frozen={{totalFrozen:'0.00'}}/>);
+  try {
+    fireEvent.click(screen.getByRole('button', {name:'全链冻结金额说明'}));
+    const dialog = screen.getByRole('dialog', {name:'全链冻结金额说明'});
+    const items = within(dialog).getAllByRole('listitem');
+    expect(items).toHaveLength(3);
+    expect(items[0].textContent).toBe('所有市注册局的「主账户」达标前只进不出，达标前冻结市注册局主账户。');
+    expect(items[1].textContent).toContain('市注册局达标规则如下：');
+    expect(items[2].textContent).toBe('市注册局的注册公民人数达标后，主账户冻结资金自动解冻。');
+    const table = within(dialog).getByRole('table', {name:'市注册局达标规则'});
+    expect(within(table).getAllByRole('columnheader').map(cell=>cell.textContent))
+      .toEqual(['全国达标顺序','该市注册局累计注册公民数']);
+    expect(within(table).getAllByRole('cell').map(cell=>cell.textContent))
+      .toEqual(['第 1～100 个','≥ 1,001 人','第 101～1,000 个','≥ 10,001 人','第 1,001 个起','≥ 100,001 人']);
+    fireEvent.click(table);
+    expect(screen.getByRole('dialog', {name:'全链冻结金额说明'})).toBe(dialog);
+    fireEvent.click(dialog);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', {name:'全链发行总额说明'}));
+    expect(screen.getByRole('dialog', {name:'全链发行总额说明'})).toBeTruthy();
+    expect(screen.getByText('新增发行统一由公民协议「即公民链的Runtime」的发行模组执行。')).toBeTruthy();
+  } finally {
+    view.unmount();
+    if (show) Object.defineProperty(prototype, 'showModal', show);
+    else Reflect.deleteProperty(prototype, 'showModal');
+    if (close) Object.defineProperty(prototype, 'close', close);
+    else Reflect.deleteProperty(prototype, 'close');
+  }
+});
+
+it('首页定时更新冻结金额，失败或节点停止时清空，重新运行后恢复查询', async () => {
+  vi.useFakeTimers();
+  let running = true;
+  let failFrozen = false;
+  let amount = '75.25';
+  mocks.invoke.mockImplementation(async (command: string) => {
+    switch (command) {
+      case 'get_node_status': return {running,state:running?'running':'stopped',pid:running?1:null,lastError:null};
+      case 'get_chain_status': return {blockHeight:10,finalizedHeight:9,syncing:false,specVersion:1,transactionVersion:1,nodeVersion:'1.0.3'};
+      case 'get_node_identity': return {peerId:null,role:null,genesisHash:null};
+      case 'get_total_issuance': return {totalIssuance:'100.00'};
+      case 'get_total_stake': return {totalStake:'20.00'};
+      case 'get_total_frozen':
+        if (failFrozen) throw new Error('查询失败');
+        return {totalFrozen:amount};
+      default: return null;
+    }
+  });
+  let view: ReturnType<typeof render> | undefined;
+  const frozenValue = () => screen.getByText('临时冻结金额').closest('.metric-card')?.querySelector('.metric-value')?.textContent;
+  try {
+    await act(async () => {view = render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);});
+    expect(frozenValue()).toBe('75.25元（公民币）');
+    failFrozen = true;
+    await act(async () => {await vi.advanceTimersByTimeAsync(3000);});
+    expect(frozenValue()).toBe('-');
+    failFrozen = false;
+    amount = '0.00';
+    await act(async () => {await vi.advanceTimersByTimeAsync(3000);});
+    expect(frozenValue()).toBe('0.00元（公民币）');
+    running = false;
+    await act(async () => {await vi.advanceTimersByTimeAsync(3000);});
+    expect(frozenValue()).toBe('-');
+    running = true;
+    amount = '12.34';
+    await act(async () => {await vi.advanceTimersByTimeAsync(3000);});
+    expect(frozenValue()).toBe('12.34元（公民币）');
+  } finally {
+    view?.unmount();
+    vi.useRealTimers();
+  }
+});
 vi.mock('../control/LocalDocViewer',()=>({LocalDocViewer:({doc}:{doc:{markdown:string}})=><article>{doc.markdown}</article>}));
 vi.mock('../guard/RuntimeConstitutionViewer',()=>({RuntimeConstitutionViewer:()=>null}));
 it('白皮书请求中可切换、失败可重试、成功后重新进入复用正文', async()=>{

@@ -1,10 +1,13 @@
 use crate::identity::current_status;
+use codec::{Decode, Encode};
+use entitybase::RegisteredInstitution;
 use nodedesktop::constants::EXPECTED_SS58_PREFIX;
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE;
 use primitives::cid::china::china_ch::CHINA_CH;
 use serde::Serialize;
 use serde_json::Value;
-use std::sync::OnceLock;
+use std::collections::BTreeMap;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::AppHandle;
@@ -343,6 +346,206 @@ pub async fn get_total_stake(app: AppHandle) -> Result<TotalStake, String> {
     crate::task::join_blocking_task(
         "get_total_stake",
         tauri::async_runtime::spawn_blocking(move || get_total_stake_sync(app)),
+    )
+    .await
+}
+
+// ── 临时冻结金额：尚未达标的市注册局主账户 free 余额合计 ──
+
+const FROZEN_QUERY_PAGE_SIZE: usize = 256;
+static TOTAL_FROZEN_CACHE: Mutex<Option<(String, u128)>> = Mutex::new(None);
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TotalFrozen {
+    pub total_frozen: Option<String>,
+}
+
+fn decode_frozen_storage<T: Decode>(hex: &str, label: &str) -> Result<T, String> {
+    let bytes = hex_to_bytes(hex).ok_or_else(|| format!("{label} 十六进制无效"))?;
+    let mut input = bytes.as_slice();
+    let value = T::decode(&mut input).map_err(|error| format!("{label} 解码失败: {error}"))?;
+    if !input.is_empty() {
+        return Err(format!("{label} 存在多余字节"));
+    }
+    Ok(value)
+}
+
+/// 同一 finalized 快照批量读完整结果；缺项、重复项或错误快照均不能当作零余额。
+fn frozen_storage_batch(
+    keys: &[String],
+    hash: &str,
+    rpc: &impl Fn(&str, Value) -> Result<Value, String>,
+) -> Result<BTreeMap<String, Option<String>>, String> {
+    if keys.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let result = rpc("state_queryStorageAt", serde_json::json!([keys, hash]))?;
+    let sets = result.as_array().ok_or("冻结金额批量查询结果无效")?;
+    if sets.len() != 1 || sets[0].get("block").and_then(Value::as_str) != Some(hash) {
+        return Err("冻结金额批量查询区块不一致".into());
+    }
+    let changes = sets[0]
+        .get("changes")
+        .and_then(Value::as_array)
+        .ok_or("冻结金额批量查询缺少账户数据")?;
+    let mut values = BTreeMap::new();
+    for change in changes {
+        let pair = change
+            .as_array()
+            .filter(|pair| pair.len() == 2)
+            .ok_or("冻结金额批量查询条目无效")?;
+        let key = pair[0].as_str().ok_or("冻结金额批量查询键无效")?;
+        if !keys.iter().any(|expected| expected == key) {
+            return Err("冻结金额批量查询包含未请求的数据".into());
+        }
+        let value = match &pair[1] {
+            Value::Null => None,
+            Value::String(value) => Some(value.clone()),
+            _ => return Err("冻结金额批量查询值无效".into()),
+        };
+        if values.insert(key.to_string(), value).is_some() {
+            return Err("冻结金额批量查询数据重复".into());
+        }
+    }
+    if values.len() != keys.len() {
+        return Err("冻结金额批量查询数据不完整".into());
+    }
+    Ok(values)
+}
+
+/// 与 RuntimeInstitutionAsset 一致：按账户反查中的 CREG + 主账户识别，rank=None 才计入。
+/// 遍历链上实际登记表，覆盖创世和后续新增市注册局，不以固定城市名单推算。
+fn total_frozen_at(
+    hash: &str,
+    rpc: &impl Fn(&str, Value) -> Result<Value, String>,
+) -> Result<u128, String> {
+    let prefix = nodeclient::query::value_key("PublicManage", "AccountRegisteredCid");
+    let mut start: Option<String> = None;
+    let mut total = 0u128;
+    loop {
+        let result = rpc(
+            "state_getKeysPaged",
+            serde_json::json!([prefix, FROZEN_QUERY_PAGE_SIZE, start, hash,]),
+        )?;
+        let page = result.as_array().ok_or("冻结金额账户分页结果无效")?;
+        if page.len() > FROZEN_QUERY_PAGE_SIZE {
+            return Err("冻结金额账户分页超出请求数量".into());
+        }
+        let mut keys = Vec::with_capacity(page.len());
+        let mut previous = start.as_deref();
+        for value in page {
+            let key = value.as_str().ok_or("冻结金额账户存储键无效")?;
+            // Blake2_128Concat<AccountId32> = 32 字节前缀 + 16 字节哈希 + 32 字节账户。
+            let bytes = hex_to_bytes(key)
+                .filter(|bytes| bytes.len() == 80)
+                .ok_or("冻结金额账户存储键长度无效")?;
+            if !key.starts_with(&prefix)
+                || previous.is_some_and(|last| key <= last)
+                || nodeclient::query::map_key("PublicManage", "AccountRegisteredCid", &bytes[48..])
+                    != key
+            {
+                return Err("冻结金额账户分页顺序或存储键无效".into());
+            }
+            previous = Some(key);
+            keys.push(key.to_string());
+        }
+        if keys.is_empty() {
+            break;
+        }
+        let accounts = frozen_storage_batch(&keys, hash, rpc)?;
+        let mut cities = Vec::new();
+        for key in &keys {
+            let raw = accounts[key].as_deref().ok_or("冻结金额账户登记缺失")?;
+            let account: RegisteredInstitution<Vec<u8>, Vec<u8>> =
+                decode_frozen_storage(raw, "公权机构账户登记")?;
+            if account.account_name != primitives::account_derive::RESERVED_NAME_MAIN {
+                continue;
+            }
+            let cid = primitives::cid::number::parse_cid_number_parts_bytes(&account.cid_number)
+                .map_err(|_| "冻结金额账户 CID 无效")?;
+            if cid.institution != *b"CREG" {
+                continue;
+            }
+            let account_bytes = hex_to_bytes(key).ok_or("冻结金额账户存储键无效")?;
+            let balance_key = nodeclient::query::map_key("System", "Account", &account_bytes[48..]);
+            let progress_key = nodeclient::query::map_key(
+                "CitizenIdentity",
+                "CityRegistryProgress",
+                &account.cid_number.encode(),
+            );
+            cities.push((balance_key, progress_key));
+        }
+        let mut progress_keys: Vec<_> = cities.iter().map(|(_, key)| key.clone()).collect();
+        progress_keys.sort();
+        progress_keys.dedup();
+        let progress = frozen_storage_batch(&progress_keys, hash, rpc)?;
+        let mut frozen_keys = Vec::new();
+        for (balance_key, progress_key) in cities {
+            // CityRegistryProgress 是 ValueQuery，缺失记录等同默认 registered=0、rank=None。
+            // SCALE 字段沿用链上顺序 (u64, Option<u32>)，不在 Node 重算达标阈值。
+            let (_, rank): (u64, Option<u32>) = match progress[&progress_key].as_deref() {
+                Some(raw) => decode_frozen_storage(raw, "市注册局达标记录")?,
+                None => (0, None),
+            };
+            if rank.is_none() {
+                frozen_keys.push(balance_key);
+            }
+        }
+        let balances = frozen_storage_batch(&frozen_keys, hash, rpc)?;
+        for balance in balances.values() {
+            let amount = match balance {
+                None => 0, // 未充值的 System.Account 不存在，实际余额为零。
+                Some(raw) => extract_free_balance(raw).ok_or("市注册局主账户余额解码失败")?,
+            };
+            total = total.checked_add(amount).ok_or("冻结金额合计溢出")?;
+        }
+        start = keys.last().cloned();
+        if keys.len() < FROZEN_QUERY_PAGE_SIZE {
+            break;
+        }
+    }
+    Ok(total)
+}
+
+/// 只缓存完整成功的 finalized 统计；锁同时合并首页并发请求，避免重复扫描全链账户。
+fn cached_total_frozen(
+    cache: &Mutex<Option<(String, u128)>>,
+    hash: &str,
+    load: impl FnOnce() -> Result<u128, String>,
+) -> Result<u128, String> {
+    let mut cached = cache.lock().map_err(|_| "冻结金额缓存锁异常")?;
+    if let Some((previous_hash, total)) = cached.as_ref() {
+        if previous_hash == hash {
+            return Ok(*total);
+        }
+    }
+    let total = load()?;
+    *cached = Some((hash.to_string(), total));
+    Ok(total)
+}
+
+fn get_total_frozen_sync(app: AppHandle) -> Result<TotalFrozen, String> {
+    if !current_status(&app)?.running {
+        *TOTAL_FROZEN_CACHE
+            .lock()
+            .map_err(|_| "冻结金额缓存锁异常")? = None;
+        return Ok(TotalFrozen { total_frozen: None });
+    }
+    let hash = nodeclient::query::fetch_finalized_head()?;
+    let total = cached_total_frozen(&TOTAL_FROZEN_CACHE, &hash, || {
+        total_frozen_at(&hash, &rpc_post)
+    })?;
+    Ok(TotalFrozen {
+        total_frozen: Some(format_fen_to_yuan(total)),
+    })
+}
+
+#[tauri::command]
+pub async fn get_total_frozen(app: AppHandle) -> Result<TotalFrozen, String> {
+    crate::task::join_blocking_task(
+        "get_total_frozen",
+        tauri::async_runtime::spawn_blocking(move || get_total_frozen_sync(app)),
     )
     .await
 }

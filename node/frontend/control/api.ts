@@ -1,6 +1,6 @@
 import { Channel } from '@tauri-apps/api/core';
 import { invoke } from "../client/tauri";
-import type { BootnodeKey, BootnodeOption, DesktopInstaller, DesktopUpdateProgress, GrandpaKey, OnChinaModuleId, NodeMode, NodeModeState, OnChinaPlatformState, RewardAccount, ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake, OtherTabsPayload, WhitepaperDocument } from "./types";
+import type { BootnodeKey, BootnodeOption, DesktopInstaller, DesktopUpdateProgress, GrandpaKey, OnChinaModuleId, NodeMode, NodeModeState, OnChinaPlatformState, RewardAccount, ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake, TotalFrozen, OtherTabsPayload, WhitepaperDocument } from "./types";
 import type { RuntimeConstitutionDocument } from "../guard/types";
 
 
@@ -51,6 +51,7 @@ export const homeNodeApi = {
   getLocalMinerSs58Address: () => invoke<string | null>('get_local_miner_ss58_address'),
   getTotalIssuance: () => invoke<TotalIssuance>('get_total_issuance'),
   getTotalStake: () => invoke<TotalStake>('get_total_stake'),
+  getTotalFrozen: () => invoke<TotalFrozen>('get_total_frozen'),
 };
 
 
