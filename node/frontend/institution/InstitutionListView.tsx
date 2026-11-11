@@ -55,7 +55,7 @@ export function InstitutionListView({ onSelect, orgTypeFilter }: Props) {
   }
 
   return (
-    <div className="governance-section">
+    <div className="governance-section institution-list-view">
       {data.warning && <div className="warning">{data.warning}</div>}
       <div className="institution-grid">
         {items.map((item) => (

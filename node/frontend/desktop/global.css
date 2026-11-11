@@ -1662,6 +1662,34 @@ select option:checked {
   gap: 8px;
 }
 
+/* 两个省级机构列表填满面板，四周沿用面板的 24px 内边距。 */
+.app:has(> .content > .institution-list-view),
+.app:has(> .content > .institution-list-view) > .content,
+.institution-list-view {
+  display: flex;
+  flex-direction: column;
+}
+
+.app:has(> .content > .institution-list-view) > .content,
+.institution-list-view,
+.institution-list-view > .institution-grid {
+  flex: 1;
+}
+
+.institution-list-view {
+  padding: 0;
+}
+
+.institution-list-view > .institution-grid {
+  grid-auto-rows: minmax(min-content, 1fr);
+}
+
+.institution-list-view .institution-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
 .institution-card {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -3034,7 +3062,7 @@ select option:checked {
 }
 
 .home-dual-panel > main.app .home-node-toolbar + .home-summary-section {
-  margin-top: 2px;
+  margin-top: 0;
 }
 
 .home-dual-panel > main.app .home-summary-section + .home-summary-section {
@@ -3080,7 +3108,7 @@ select option:checked {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: baseline;
-  column-gap: 10px;
+  column-gap: 4px;
   min-width: 0;
 }
 
@@ -3104,7 +3132,6 @@ select option:checked {
 }
 
 .identity-detail-code {
-  font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   overflow-wrap: anywhere;
   word-break: break-all;
