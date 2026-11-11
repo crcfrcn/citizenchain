@@ -3004,6 +3004,20 @@ select option:checked {
   min-height: 0;
 }
 
+/* 首页收紧分组前的留白，分组间统一 14px；金额卡片保持自然高度。 */
+.home-dual-panel > main.app > .content {
+  gap: 14px;
+}
+
+.home-dual-panel > main.app .home-summary-section {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.home-dual-panel > main.app .home-summary-section > p:last-child {
+  margin-bottom: 0;
+}
+
 @media (max-width: 900px) {
   .home-dual-panel {
     grid-template-columns: 1fr;
