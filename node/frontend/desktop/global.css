@@ -1089,6 +1089,7 @@ select option:checked {
 }
 
 .local-doc-shell {
+  position: relative;
   --doc-bg: #f4f8fb;
   --doc-bg-2: #e9eef4;
   --doc-paper: #fffef9;
@@ -1571,7 +1572,7 @@ select option:checked {
   place-items: center;
   padding: 0;
   line-height: 1;
-  position: fixed;
+  position: absolute;
   right: 14px;
   bottom: 14px;
   border: 0;
