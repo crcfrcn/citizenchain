@@ -355,13 +355,29 @@ body {
   cursor: pointer;
 }
 
-.onchina-module:enabled:hover {
+.onchina-module:has(.onchina-module-open:enabled):hover {
   border-color: var(--primary);
 }
 
-.onchina-module:disabled {
+.onchina-module-open {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border-radius: inherit;
+  background: transparent;
+}
+
+.onchina-module-open:disabled {
   opacity: 1;
   cursor: not-allowed;
+}
+
+.onchina-module-icon,
+.onchina-module-copy,
+.onchina-module-arrow {
+  pointer-events: none;
 }
 
 .onchina-module-icon {
@@ -385,8 +401,21 @@ body {
 }
 
 .onchina-module-copy {
+  position: relative;
   display: grid;
   gap: 5px;
+}
+
+.onchina-module-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.onchina-module-title .metric-help-button {
+  position: relative;
+  pointer-events: auto;
+  color: #60a5fa;
 }
 
 .onchina-module-copy strong {
@@ -406,7 +435,7 @@ body {
   color: var(--primary);
 }
 
-.onchina-module:disabled .onchina-module-arrow {
+.onchina-module:has(.onchina-module-open:disabled) .onchina-module-arrow {
   color: #71869c;
 }
 

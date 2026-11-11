@@ -42,8 +42,6 @@ jobs:
       # Cargo官方构建依赖覆盖：macOS宏动态库保留符号，避免strip破坏LINKEDIT对齐。
       CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP: 'none'
       npm_config_cache: "${{ github.workspace }}/target/cache/macos/npm"
-    outputs:
-      assets: "${{ steps.assets.outputs.assets }}"
     steps:
     - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       with: {ref: "${{ github.sha }}", persist-credentials: false}
@@ -85,14 +83,10 @@ jobs:
         APPLE_PASSWORD: "${{ secrets.APPLE_PASSWORD }}"
     - name: 验收链上中国实际模块产物
       run: node --input-type=module -e "import {testModules} from './.github/release.mjs'; await testModules()"
-    - name: 记录实际产物原始字节
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-      id: assets
-      with:
-        retries: 0
-        script: |
-          const {recordAssets}=await import(require('node:url').pathToFileURL(process.env.GITHUB_WORKSPACE+'/.github/release.mjs').href);
-          await recordAssets({context,core});
+    - name: 验收唯一签名安装包
+      run: |
+        test "$(ls -A target/build/macos/artifact)" = '公民链.app'
+        codesign --verify --deep --strict 'target/build/macos/artifact/公民链.app'
     - name: 保存本平台官方增量缓存
       if: success() || failure()
       continue-on-error: true
@@ -101,9 +95,6 @@ jobs:
       with:
         path: *cachePaths
         key: *cacheKey
-    - name: 上传完整Artifact
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-      with: {name: "公民链·macOS·v${{ needs.prepare.outputs.version }}", path: "target/build/macos/artifact", if-no-files-found: error}
     - name: 清理本轮编译现场
       if: always()
       run: node --input-type=module -e "import {rmSync,existsSync} from 'node:fs'; import {resolve} from 'node:path'; const work=resolve('target/build/macos'); if(work!==resolve(process.env.CITIZENCHAIN_WORK_DIR))throw Error('现场不符'); if(existsSync(resolve(work,'.retain-runtime-work')))throw Error('Runtime工具退出未确认，保留现场'); rmSync(work,{recursive:true,force:true});"
@@ -111,25 +102,11 @@ jobs:
     name: 公民链·macOS·v${{ needs.prepare.outputs.version }}
     needs: [prepare, build]
     runs-on: ubuntu-24.04
-    permissions: {contents: write, actions: read}
-    env:
-      PLATFORM: macos
-      CITIZENCHAIN_RELEASE_VERSION: "${{ needs.prepare.outputs.version }}"
-      CITIZENCHAIN_SOURCE_SHA: "${{ github.sha }}"
-      GH_TOKEN: "${{ github.token }}"
-      SOURCE_ASSETS: "${{ needs.build.outputs.assets }}"
     steps:
-    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      with: {ref: "${{ github.sha }}", persist-credentials: false}
-    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-      with: {name: "公民链·macOS·v${{ needs.prepare.outputs.version }}", path: "${{ runner.temp }}/artifact"}
-    - name: 创建并回读正式Tag与Release
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-      with:
-        retries: 0
-        script: |
-          const {publish}=await import(require('node:url').pathToFileURL(process.env.GITHUB_WORKSPACE+'/.github/release.mjs').href);
-          await publish({context,github,core});
+    - name: 检查正式附件交付能力
+      run: |
+        echo '::error::GitHub Release 附件只接收普通文件，无法直接交付已验签的公民链.app 目录。'
+        exit 1
   # 必须保留最近成功1条、失败1条；修复验收后禁止改动。
   cleanup:
     name: 公民链·macOS·v${{ needs.prepare.outputs.version }}

@@ -1,6 +1,6 @@
 # CitizenChain 节点交付与塔塔自动化
 
-公民链本机编译由塔塔安装器调用 `node scripts/build.mjs compile macos`，编译器复用本机已有的 gh 登录核对对应平台的正式 Release 和成功 Run，并交付本轮 App。签名安装归控制台。节点编译命令为 `node scripts/build.mjs <平台>`，平台为 macos、windows、linux-arm、linux-amd；WASM唯一正式编译命令为 `node scripts/runtime.mjs build`。仅在本仓 GitHub main 的准确 Workflow、源码 SHA 与对应原生 Runner 执行。源码位置从实际检出解析，不写死开发者路径。
+公民链本机交付命令为 `node scripts/build.mjs package macos`。它用现有本机 Developer ID 和描述文件签名并验证唯一的 `公民链.app`，再把包本体交付到桌面。塔塔安装器调用的 `node scripts/build.mjs compile macos` 仍交付其现有编译回执。GitHub 的节点编译命令为 `node scripts/build.mjs <平台>`，平台为 macos、windows、linux-arm、linux-amd。WASM 的正式编译命令为 `node scripts/runtime.mjs build`。本机和 GitHub 共用节点编译、资源装配及 macOS 安装包组装实现。
 
 ## 文件职责
 
@@ -10,9 +10,9 @@
 
 ## 五个平台的完整产物
 
-五份既有 `.github/workflows/macos.yml`、`windows.yml`、`linuxarm.yml`、`linuxamd.yml`、`wasm.yml` 各自核对候选和准确源码、准备官方工具、执行所属真实测试、编译并上传完整 Artifact。四端分别交付 DMG、NSIS EXE、ARM64 DEB、AMD64 DEB，包含节点、OnChina宿主、模块及前端、PostgreSQL和必要运行库；WASM精确交付 runtime.wasm、runtime.compact.wasm、runtime.compact.compressed.wasm。
+四个桌面构建的产物目录各只有一个安装包，分别是 macOS 的 `公民链.app`、Windows 的 `公民链.exe` 和两个 Linux 架构各自的 `公民链.deb`。包内包含节点、链上中国宿主、模块、前端和 PostgreSQL 运行资源。Windows 和 Linux 发布时沿用既有版本化附件名，传输同一份包。macOS 在构建机验证签名。GitHub Release 附件只接受普通文件，发布作业遇到应用包目录时明确报出限制。WASM 交付 runtime.wasm、runtime.compact.wasm 和 runtime.compact.compressed.wasm。
 
-编译工具版本以公开声明为准，缺件或错误版本直接失败。Unix PostgreSQL使用官方源码与既定OpenSSL配方；实际从随包路径运行initdb，运行库使用官方平台工具处理。macOS先执行Tauri官方build --no-bundle，再由签名分段和官方bundle生成正式包，核对App签名身份、团队、时间戳、公证和DMG。Linux实际解包检查架构、宿主、模块、前端和PostgreSQL。Windows动态OpenSSL依赖及各进程使用Runner现有Visual Studio官方可再分发CRT进行应用本地部署，不能只因Runner已装VC运行库就把缺件安装包当作完整。签名材料仅交付编译入口的签名分段，不进入测试、编译器环境或缓存。节点默认编译测试不生成、下载或交付测试WASM。两项依赖真实WASM的Ethereum三节点/MetaMask整链验收只由默认关闭的runtime-tests feature登记；Runtime专项流程使用自身本轮WASM显式执行，原断言保持。正式节点打包仍不内置WASM。SDK的SKIP_WASM_BUILD只在嵌入文件缺失时生成None；缓存恢复若带回旧Some引用而未带回wbuild文件，测试前用官方cargo clean --release清理本轮runtime、revive-dev-runtime、substrate-test-runtime、frame-storage-access-test-runtime输出后再按原命令测试，不补造或下载WASM。
+编译工具版本以公开声明为准，缺件或错误版本直接失败。Unix PostgreSQL使用官方源码与既定OpenSSL配方，实际从随包路径运行initdb，运行库使用官方平台工具处理。macOS先执行Tauri官方build --no-bundle，再用官方bundle生成应用并装入自包含安装包，核对内外签名。GitHub 构建另外检查内置应用的时间戳与公证。Linux实际解包检查架构、宿主、模块、前端和PostgreSQL。Windows动态OpenSSL依赖及各进程使用Runner现有Visual Studio官方可再分发CRT进行应用本地部署，不能只因Runner已装VC运行库就把缺件安装包当作完整。签名材料仅交付编译入口的签名分段，不进入测试、编译器环境或缓存。节点默认编译测试不生成、下载或交付测试WASM。两项依赖真实WASM的Ethereum三节点/MetaMask整链验收只由默认关闭的runtime-tests feature登记；Runtime专项流程使用自身本轮WASM显式执行，原断言保持。正式节点打包仍不内置WASM。SDK的SKIP_WASM_BUILD只在嵌入文件缺失时生成None；缓存恢复若带回旧Some引用而未带回wbuild文件，测试前用官方cargo clean --release清理本轮runtime、revive-dev-runtime、substrate-test-runtime、frame-storage-access-test-runtime输出后再按原命令测试，不补造或下载WASM。
 
 本轮输出位于 `target/build/<平台>/artifact`。每个平台的 GitHub 工作现场彼此独立；Runner管理工具进程及取消，工作流在上传产物后清理该轮编译现场。官方 actions/cache 恢复和保存本平台Cargo中间物、npm下载缓存及macOS准确版本PostgreSQL资源/源码缓存，按平台、系统、架构及原锁隔离，限时且continue-on-error；不缓存安装包、附件、任务状态或机密。缓存失败不能掩盖真实测试、编译或完整产物失败。
 
@@ -20,7 +20,7 @@
 
 ## 配置、编译与GitHub任务职责
 
-scripts/config.mjs只声明产品、平台、工具、原锁、静态产物模板及必要配置读取；不导入编译文件，不计算交付版本，不构造GitHub请求，不筛选Run或删除历史。四端artifact模板中的{version}由实际消费者代入，WASM三件文件名保持原声明。
+scripts/config.mjs 只声明产品、平台、工具、原锁、固定交付名和必要配置读取。Windows 和 Linux 的 Release 传输名称仍由消费者代入版本，WASM 文件名沿用既有声明。
 
 scripts/build.mjs负责Node编译、资源装配、签名和打包；scripts/runtime.mjs build负责WASM编译、临时版本输入及实际产物检查。编译脚本不管理GitHub Job、Release、Run或本地任务库，也不承载脚本测试。工作流直接调用原Cargo业务测试：原生四端使用--workspace --exclude sc-consensus-grandpa --all-targets且不启用runtime-tests；WASM保持-p runtime --all-targets，并在Runtime本轮产物验真后执行node --lib --features runtime-tests的Ethereum专项与sc-consensus-grandpa --lib完整验收。版本0金标及原业务断言保持；直接执行时交付原Node路径、平台以及macOS符号保留、Windows OpenSSL搜索环境。准确Git检出检查直接归Workflow编译步骤。QR协议位于crates/protocol独立Cargo工作区，根工作区显式排除它；必须另行执行cargo test --manifest-path crates/protocol/Cargo.toml --locked，根工作区全部目标通过不代表该协议守卫已经通过。
 
@@ -2648,7 +2648,9 @@ OnChina真实HTTPS/父管道测试夹具通过std::env::current_exe与Command直
 
 macOS和两Linux工作流在PostgreSQL原make install完成后，以系统cp -RL把Runner临时pg-dist复制为pg-runtime普通文件树，CITIZENCHAIN_PG_DIST只交付该物理副本。原安装原件、PostgreSQL/Node锁定版本和依赖保持；坏链接复制失败仍立即终止。此步骤避免Node25.2.1递归cpSync的dereference回归把绝对库链接带入资源包，macOS的四种dylib别名与Linux多级库别名均由既有回归验证物理副本、资源复制内容及坏链接失败；既有build.mjs的链接拒绝、完整产物验收和Linux失败诊断均保留，不新增仓库辅助文件。
 
-macOS使用Tauri官方`--bundles app,dmg`一次打包，保留App供原有codesign身份、团队、时间戳与stapler校验，DMG仍通过hdiutil验证。只请求dmg时Tauri会清除中间App，不能再对已清除的App做完整产物核对；显式请求app不会重复编译节点。正式封装前，全部Rust编译及资源准备结束后，只移除本轮Cargo目标目录的release/incremental，保留编译库、最终二进制与资源，为DMG临时映像释放空间。macOS封装使用官方verbose日志保留脚本实际stdout/stderr，真实错误仍立即失败，不重试、不替换封装工具或绕过签名公证。最终artifact及正式Release仍只交付唯一DMG，App随本轮现场清理，不新增交付类型或放宽原检查。
+macOS 使用 Tauri 的 `--bundles app` 生成内置应用，复用同一个 Swift 安装入口组装唯一交付物 `公民链.app`。正式构建核对内置应用的签名身份、团队、时间戳和公证，再检查外层安装包的深度签名。
+
+构建时从 `node/Entitlements.plist` 将公民链的签名团队写入 macOS 安装器。已签名的内置应用作为未压缩数据随安装器主程序交付。用户双击后，安装器将数据写入私有临时目录，再用该团队和公民链的应用标识校验内置应用及待替换的旧版。
 
 ### 原生构建精简与能力边界
 
@@ -2662,7 +2664,7 @@ OnChina按真实Cargo入口用一次cargo build和重复--bin选项编译所选�
 
 上述精简不修改Runtime、build.mjs、Node锁定版本、PostgreSQL与系统工具链依赖，不放宽原业务断言、证书及主机名检查。锁文件由Cargo维护，只删除无引用项，不升级保留的版本或来源；真实原生编译和测试由产品GitHub工作流验收。
 
-本机入口为scripts/build.mjs compile macos，使用本产品既有官方依赖版本、原锁及同一完整资源编译实现，输出当前源码App并持有现场至调用方关闭stdin。签名、安装和安装回读唯一归塔塔控制台app/source/Installer.swift；GitHub原准确来源校验与正式DMG签名公证入口保留。
+本机的 `scripts/build.mjs compile macos` 供塔塔安装器消费当前源码的应用本体和签名回执，现场保留至调用方关闭 stdin。公民链的 `scripts/build.mjs package macos` 复用同一编译过程，在本机签名后交付桌面的 `公民链.app`。
 
 compile macos作为公开CLI保留；模块公开实际宿主编译及资源装配接口，任务派发与观察由配置声明交付给通用调用方。
 
@@ -2805,11 +2807,11 @@ PostgreSQL复用除完整版本和资源外，还通过其pg_config确认bin、p
 
 ### 设置页正式版下载与安装更新
 
-三平台安装窗口标题栏统一显示「公民链安装程序」。窗口中间显示「公民链」，右侧显示目标安装包的版本。右上角叉号请求取消；已开始写入时，等待写入步骤结束再关闭。安装成功自动打开公民链，失败或取消时自动关闭窗口。
+双击 macOS 或 Windows 的「公民链」安装包时直接打开安装进度窗口。窗口标题栏显示「公民链安装程序」，窗口中间显示「公民链」及目标版本。右上角叉号请求取消，已开始写入时等待当前步骤结束再关窗。安装成功自动打开公民链，失败或取消时自动关窗。Linux 首次安装由系统的 DEB 包管理器处理，应用内更新使用公民链的进度窗口。
 
 节点程序版本行由产品后端从GitHub仓库crcfrcn/citizenchain的Release列表选择当前平台最新成功正式版，按published_at排序，排除草稿、预发布和WASM，不使用Actions Artifact。沿用Release中的自动化记录确认本平台成功Run及原完整安装包。用户首次点击安装更新仅下载，后台按实际已收/总字节通过Tauri Channel交付进度，进度条在按钮左侧，按钮显示下载中且不可重复点击。完整下载并落盘后显示100%和安装更新；再次点击才执行安装。
 
-下载及安装状态归node/desktop/installer/update.rs，前端不提交任意URL、文件路径或命令。下载只跟随GitHub HTTPS资产跳转；部分文件不交付安装，失败可重试，已下载完整包可在重开应用后恢复并离线安装。App.tsx持有显示状态，切换设置Tab不取消下载。安装由独立进程等待旧PID完全退出，沿用application.rs的Exit清理释放节点数据库锁，保留链数据、密钥及设置。macOS DMG内的安装入口与应用内更新共用macos.swift，Windows沿用同一NSIS EXE，Linux桌面安装入口与应用内更新共用linux.c并安装DEB；管理员权限由系统正常申请，取消或失败保留错误和可重试包，不绕过授权。此为用户批准的产品内自更新，不改变控制台塔塔安装器的本机源码编译流程。
+下载及安装状态归 node/desktop/installer/update.rs。前端不提交任意 URL、文件路径或命令，后端仅跟随 GitHub HTTPS 附件跳转。完整包可在重开应用后恢复。安装进程等待旧 PID 退出，沿用 application.rs 的退出清理释放节点数据库锁，保留链数据、密钥和设置。macos.swift 为新的自包含安装包提供双击入口，并为已经发布的 macOS 更新附件保留安装入口。Windows 应用内更新使用同一个 NSIS EXE，Linux 应用内更新由 linux.c 安装同一个 DEB。系统按需请求管理员授权。
 
 ### 各平台节点产品版本唯一传递
 

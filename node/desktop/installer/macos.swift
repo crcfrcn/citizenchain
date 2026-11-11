@@ -1,38 +1,41 @@
 import AppKit
 import Darwin
-import Security
+import MachO
+import os
 
 private let identifier = "macOS.citizenappchain"
 private let files = FileManager.default
+private let log = Logger(subsystem: "macOS.citizenappchain", category: "installer")
+
+private func installerData(_ section: String) -> Data? {
+    guard let image = _dyld_get_image_header(0) else { return nil }
+    var size: UInt = 0
+    let bytes = image.withMemoryRebound(to: mach_header_64.self, capacity: 1) {
+        getsectiondata($0, "__DATA_CONST", section, &size)
+    }
+    guard let bytes, size > 0, let count = Int(exactly: size) else { return nil }
+    return Data(bytesNoCopy: UnsafeMutableRawPointer(bytes), count: count, deallocator: .none)
+}
 
 private struct InstallError: LocalizedError {
     let errorDescription: String?
     init(_ description: String) { errorDescription = description }
 }
 
-private func run(_ executable: String, _ arguments: [String], output: Bool = false) throws -> Data {
+private func run(_ executable: String, _ arguments: [String]) throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = arguments
-    let pipe = Pipe()
-    process.standardOutput = output ? pipe : FileHandle.nullDevice
-    process.standardError = FileHandle.nullDevice
+    let diagnostics = Pipe()
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = diagnostics
     try process.run()
-    let data = output ? pipe.fileHandleForReading.readDataToEndOfFile() : Data()
+    let error = diagnostics.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
-    guard process.terminationStatus == 0 else { throw InstallError("系统操作失败或已取消。") }
-    return data
-}
-
-private func signingTeam() throws -> String {
-    var code: SecStaticCode?
-    var info: CFDictionary?
-    guard SecStaticCodeCreateWithPath(Bundle.main.bundleURL as CFURL, [], &code) == errSecSuccess, let code,
-          SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
-          let team = (info as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String,
-          team.count == 10, team.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) })
-    else { throw InstallError("无法确认安装器的签名身份。") }
-    return team
+    guard process.terminationStatus == 0 else {
+        log.error("\(executable, privacy: .public) 退出码 \(process.terminationStatus, privacy: .public)：\(String(decoding: error.prefix(4096), as: UTF8.self), privacy: .private)")
+        throw InstallError("系统操作失败或已取消。")
+    }
 }
 
 private func replaceApp(from source: URL, to destination: URL, requirement: String) throws {
@@ -50,16 +53,11 @@ private func replaceApp(from source: URL, to destination: URL, requirement: Stri
     /usr/bin/ditto "$source" "$work/citizenchain.app"
     /usr/bin/codesign --verify --deep --strict -R "$requirement" "$work/citizenchain.app"
     if [ -e "$destination" ]; then /bin/mv "$destination" "$work/previous.app"; fi
-    if ! /bin/mv "$work/citizenchain.app" "$destination"; then
-      if [ -e "$work/previous.app" ]; then
-        /bin/mv "$work/previous.app" "$destination" || trap - EXIT
-      fi
-      exit 1
-    fi
+    /bin/mv "$work/citizenchain.app" "$destination"
     """
     let args = [source.path, destination.path, requirement]
     if files.isWritableFile(atPath: destination.deletingLastPathComponent().path) {
-        _ = try run("/bin/sh", ["-c", script, "citizenchain-install"] + args)
+        try run("/bin/sh", ["-c", script, "citizenchain-install"] + args)
     } else {
         let authorization = """
         on run argv
@@ -70,7 +68,7 @@ private func replaceApp(from source: URL, to destination: URL, requirement: Stri
           do shell script commandText with administrator privileges
         end run
         """
-        _ = try run("/usr/bin/osascript", ["-e", authorization, "--", script] + args)
+        try run("/usr/bin/osascript", ["-e", authorization, "--", script] + args)
     }
 }
 
@@ -88,9 +86,23 @@ final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private enum Phase { case installing, cancelled, finished }
     private var phase = Phase.installing
 
-    private var embeddedApp: URL {
-        Bundle.main.bundleURL.resolvingSymlinksInPath()
+    private var installerBundle: URL {
+        URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    private var embeddedApp: URL {
+        let installer = installerBundle
+        let packaged = installer.appendingPathComponent("Contents/Helpers/citizenchain.app", isDirectory: true)
+        let parent = installer.deletingLastPathComponent()
+        // 随公民链内置的入口在 Contents/Resources/installer 下。
+        let resources = parent.deletingLastPathComponent()
+        let contents = resources.deletingLastPathComponent()
+        if parent.lastPathComponent == "installer", resources.lastPathComponent == "Resources",
+           contents.lastPathComponent == "Contents" {
+            return contents.deletingLastPathComponent()
+        }
+        return packaged
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -98,7 +110,8 @@ final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if args.count.isMultiple(of: 2) {
             for i in stride(from: 0, to: args.count, by: 2) { arguments[args[i]] = args[i + 1] }
         }
-        let icon = NSImageView(image: NSApp.applicationIconImage)
+        let image = installerData("__cc_icon").flatMap { NSImage(data: $0) }
+        let icon = NSImageView(image: image ?? NSApp.applicationIconImage)
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.widthAnchor.constraint(equalToConstant: 56).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 56).isActive = true
@@ -106,8 +119,8 @@ final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate {
         title.font = .boldSystemFont(ofSize: 22)
         version.font = .systemFont(ofSize: 12)
         version.textColor = .secondaryLabelColor
-        if arguments["--package"] == nil, let number = appVersion(embeddedApp) {
-            version.stringValue = "v\(number)"
+        if arguments["--package"] == nil {
+            version.stringValue = "v\(InstallerSigning.version)"
         }
         progress.minValue = 0
         progress.maxValue = 100
@@ -186,7 +199,8 @@ final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func appVersion(_ source: URL) -> String? {
-        Bundle(url: source)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let info = source.appendingPathComponent("Contents/Info.plist")
+        return NSDictionary(contentsOf: info)?["CFBundleShortVersionString"] as? String
     }
 
     private func show(_ value: Int, _ message: String) {
@@ -213,8 +227,9 @@ final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard target.isFileURL, target.pathExtension == "app" else {
                 throw InstallError("安装位置无效。")
             }
-            let team = try signingTeam()
-            let requirement = "anchor apple generic and identifier \"\(identifier)\" and certificate leaf[subject.OU] = \"\(team)\""
+            // 构建时从公民链签名声明写入固定团队，校验内置应用及待替换的旧版本。
+            // codesign 的 -R 用等号区分内联规则和规则文件路径。
+            let requirement = "=anchor apple generic and identifier \"\(identifier)\" and certificate leaf[subject.OU] = \"\(InstallerSigning.team)\""
             if let state {
                 try "ready".write(to: state.appendingPathComponent("started"), atomically: true, encoding: .utf8)
             }
@@ -226,21 +241,30 @@ final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if let package {
                 let mount = scratch.appendingPathComponent("mount")
                 try files.createDirectory(at: mount, withIntermediateDirectories: false)
-                _ = try run("/usr/bin/hdiutil", ["attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mount.path, package.path])
-                defer { _ = try? run("/usr/bin/hdiutil", ["detach", mount.path]) }
+                try run("/usr/bin/hdiutil", ["attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mount.path, package.path])
+                defer { try? run("/usr/bin/hdiutil", ["detach", mount.path]) }
                 let apps = try files.contentsOfDirectory(at: mount, includingPropertiesForKeys: nil)
                     .filter { $0.pathExtension == "app" && Bundle(url: $0)?.bundleIdentifier == identifier }
                 guard apps.count == 1 else { throw InstallError("安装包中缺少唯一的公民链应用。") }
                 source = apps[0]
                 try installApp(source: source, target: target, requirement: requirement)
             } else {
-                source = embeddedApp
+                // 从已运行的签名可执行文件读取内置应用，桌面启动时不依赖读取包目录。
+                source = scratch.appendingPathComponent("citizenchain.app", isDirectory: true)
+                if let payload = installerData("__cc_payload") {
+                    let archive = scratch.appendingPathComponent("payload.tar")
+                    try payload.write(to: archive, options: .withoutOverwriting)
+                    try run("/usr/bin/tar", ["-xpf", archive.path, "-C", scratch.path])
+                    try files.removeItem(at: archive)
+                } else {
+                    try run("/usr/bin/ditto", [embeddedApp.path, source.path])
+                }
                 try installApp(source: source, target: target, requirement: requirement)
             }
             guard finishInstallation() else { throw InstallCancelled() }
             show(90, "正在打开公民链")
             DispatchQueue.main.async { self.cancelButton.isEnabled = false }
-            _ = try run("/usr/bin/open", [target.path])
+            try run("/usr/bin/open", [target.path])
             if let state {
                 for name in ["ready.json", "started", "install-error.txt"] {
                     try? files.removeItem(at: state.appendingPathComponent(name))
@@ -256,6 +280,10 @@ final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } catch {
             let cancelled = !finishInstallation() || error is InstallCancelled
             let message = cancelled ? "已取消安装" : error.localizedDescription
+            if !cancelled {
+                let failure = error as NSError
+                log.error("安装失败：\(failure.domain, privacy: .public) \(failure.code, privacy: .public) \(message, privacy: .private)")
+            }
             if let state {
                 try? message.write(to: state.appendingPathComponent("install-error.txt"), atomically: true, encoding: .utf8)
             }
@@ -268,7 +296,7 @@ final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func installApp(source: URL, target: URL, requirement: String) throws {
-        _ = try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", requirement, source.path])
+        try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", requirement, source.path])
         if let number = appVersion(source) {
             DispatchQueue.main.async { self.version.stringValue = "v\(number)" }
         }
@@ -290,8 +318,13 @@ final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 }
 
-let app = NSApplication.shared
-let installer = Installer()
-app.setActivationPolicy(.regular)
-app.delegate = installer
-app.run()
+@main
+enum CitizenChainInstaller {
+    static func main() {
+        let app = NSApplication.shared
+        let installer = Installer()
+        app.setActivationPolicy(.regular)
+        app.delegate = installer
+        withExtendedLifetime(installer) { app.run() }
+    }
+}

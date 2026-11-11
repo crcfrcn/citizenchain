@@ -64,6 +64,7 @@ function VotingHelpDialog({ onClose }: { onClose: () => void }) {
         }}
       >
         <h2 id="institution-vote-help-title">投票说明</h2>
+        <p className="institution-vote-help-intro">0.公民链投票引擎由内部投票、联合投票、立法投票和选举投票共4个模块组成。</p>
         <section>
           <h3>一、内部投票</h3>
           <ol>
@@ -76,7 +77,8 @@ function VotingHelpDialog({ onClose }: { onClose: () => void }) {
         <section>
           <h3>二、联合投票</h3>
           <ol>
-            <li>投票引擎的联合投票模块组织全体治理机构投票，各机构在同一联合提案内形成机构结果。</li>
+            <li>投票引擎的联合投票模块由内部投票阶段和联合公投阶段组成。</li>
+            <li>联合投票模块仅适用于全体治理机构，各治理机构在同一联合投票提案内形成结果。</li>
             <li>治理机构包括 1 个国家储委会、43 个省储委会和 43 个省储行。</li>
             <li>国家储委会的票权为 19 票，每个省储委会和省储行各 1 票，共 105 票。</li>
             <li>所有机构内部投票均通过，累计 105 票赞成，联合投票立即通过。</li>

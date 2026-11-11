@@ -41,10 +41,10 @@ export function describeConfiguration(){
 // 平台、工具及产物模板只声明数据；编译和GitHub任务由各自入口实现。
 export const product=Object.freeze({id:'citizenchain',title:'公民链',repository:'crcfrcn/citizenchain',entry:'scripts/build.mjs',
   platforms:Object.freeze({
-    macos:{name:'macOS',workflow:'macos.yml',host:'darwin',arch:'arm64',target:'aarch64-apple-darwin',bundle:'dmg',extension:'.dmg',artifact:'citizenchain-macOS-v{version}.dmg'},
-    windows:{name:'Windows',workflow:'windows.yml',host:'win32',arch:'x64',target:'x86_64-pc-windows-msvc',bundle:'nsis',extension:'.exe',artifact:'citizenchain-Windows-v{version}.exe'},
-    'linux-arm':{name:'LinuxARM',workflow:'linuxarm.yml',host:'linux',arch:'arm64',target:'aarch64-unknown-linux-gnu',bundle:'deb',extension:'.deb',artifact:'citizenchain-LinuxARM-v{version}.deb',desktopInstaller:'citizenchain-LinuxARM-Installer-v{version}.run'},
-    'linux-amd':{name:'LinuxAMD',workflow:'linuxamd.yml',host:'linux',arch:'x64',target:'x86_64-unknown-linux-gnu',bundle:'deb',extension:'.deb',artifact:'citizenchain-LinuxAMD-v{version}.deb',desktopInstaller:'citizenchain-LinuxAMD-Installer-v{version}.run'},
+    macos:{name:'macOS',workflow:'macos.yml',host:'darwin',arch:'arm64',target:'aarch64-apple-darwin',bundle:'app',extension:'.app',output:'公民链.app'},
+    windows:{name:'Windows',workflow:'windows.yml',host:'win32',arch:'x64',target:'x86_64-pc-windows-msvc',bundle:'nsis',extension:'.exe',output:'公民链.exe',artifact:'citizenchain-Windows-v{version}.exe'},
+    'linux-arm':{name:'LinuxARM',workflow:'linuxarm.yml',host:'linux',arch:'arm64',target:'aarch64-unknown-linux-gnu',bundle:'deb',extension:'.deb',output:'公民链.deb',artifact:'citizenchain-LinuxARM-v{version}.deb'},
+    'linux-amd':{name:'LinuxAMD',workflow:'linuxamd.yml',host:'linux',arch:'x64',target:'x86_64-unknown-linux-gnu',bundle:'deb',extension:'.deb',output:'公民链.deb',artifact:'citizenchain-LinuxAMD-v{version}.deb'},
     wasm:{name:'WASM',entry:'scripts/runtime.mjs',workflow:'wasm.yml',host:'linux',arch:'x64',target:'wasm32v1-none',files:['runtime.wasm','runtime.compact.wasm','runtime.compact.compressed.wasm']},
   }),
   tools:Object.freeze({node:'25.2.1',rust:'1.97.1',protoc:'35.0',postgres:'17.11',xcode:'27.0'}),

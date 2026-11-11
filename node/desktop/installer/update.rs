@@ -90,10 +90,16 @@ fn installer_asset_url(
     }
     let asset = &assets[0];
     let item = &proofs[0];
-    let digest = format!(
-        "sha256:{}",
-        item["sha256"].as_str().ok_or("安装包摘要无效")?
-    );
+    let hash = item["sha256"]
+        .as_str()
+        .filter(|value| {
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+        .ok_or("安装包摘要无效")?;
+    let digest = format!("sha256:{hash}");
     let expected = installer_url(tag, &filename)?;
     let actual = asset["browser_download_url"]
         .as_str()
@@ -105,6 +111,7 @@ fn installer_asset_url(
         || asset["label"] != label
         || item["label"] != label
         || asset["state"] != "uploaded"
+        || item["size"].as_u64().is_none_or(|size| size == 0)
         || asset["size"] != item["size"]
         || asset["digest"] != digest
         || actual != expected

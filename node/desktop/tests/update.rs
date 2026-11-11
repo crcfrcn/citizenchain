@@ -91,6 +91,17 @@ fn installer_asset_requires_one_complete_platform_package() {
     wrong = release.clone();
     wrong["assets"][0]["digest"] = format!("sha256:{}", "b".repeat(64)).into();
     assert!(installer_asset_url(&wrong, &proof, "LinuxARM", "1.0.1", tag).is_err());
+
+    let mut invalid_asset = release.clone();
+    let mut invalid_proof = proof.clone();
+    invalid_asset["assets"][0]["digest"] = "sha256:abcd".into();
+    invalid_proof["assets"][0]["sha256"] = "abcd".into();
+    assert!(installer_asset_url(&invalid_asset, &invalid_proof, "LinuxARM", "1.0.1", tag).is_err());
+    invalid_asset = release.clone();
+    invalid_proof = proof.clone();
+    invalid_asset["assets"][0]["size"] = 0.into();
+    invalid_proof["assets"][0]["size"] = 0.into();
+    assert!(installer_asset_url(&invalid_asset, &invalid_proof, "LinuxARM", "1.0.1", tag).is_err());
 }
 
 #[test]

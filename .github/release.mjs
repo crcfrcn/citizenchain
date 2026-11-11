@@ -1,6 +1,6 @@
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {appendFileSync, createReadStream, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync} from 'node:fs';
+import {appendFileSync, createReadStream, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {product} from '../scripts/config.mjs';
 import {nodeTools, npmCLI, runBuildProcess} from '../scripts/build.mjs';
@@ -17,9 +17,9 @@ async function artifactBytes(path) {
 }
 
 function releaseFiles(declared, version) {
-  const packageFiles = declared.files || [declared.artifact.replace('{version}', version)];
-  const desktop = declared.desktopInstaller?.replace('{version}', version);
-  return {desktop, names: desktop ? [...packageFiles, desktop] : packageFiles};
+  if (declared.files) return declared.files.map(name => ({output: name, name}));
+  if (!declared.artifact) throw Error('GitHub Release 只接收普通文件，不能上传 macOS 应用包目录');
+  return [{output: declared.output, name: declared.artifact.replace('{version}', version)}];
 }
 
 // 发布作业在写入 GitHub 前校验本轮下载的实际产物。
@@ -28,8 +28,9 @@ export async function publish({context, github, core}) {
   const version = process.env.CITIZENCHAIN_RELEASE_VERSION;
   const declared = product.platforms[platform];
   const tag = product.title + '·' + declared.name + '·v' + version;
+  const files = releaseFiles(declared, version);
   const assets = JSON.parse(process.env.SOURCE_ASSETS);
-  const {names, desktop} = releaseFiles(declared, version);
+  const names = files.map(file => file.name);
   const source = join(process.env.RUNNER_TEMP, 'artifact');
 
   if (context.sha !== process.env.CITIZENCHAIN_SOURCE_SHA || context.ref !== 'refs/heads/main') {
@@ -38,16 +39,18 @@ export async function publish({context, github, core}) {
   if (JSON.stringify(assets.map(asset => asset.name).sort()) !== JSON.stringify([...names].sort())) {
     throw Error('正式产物集合不完整');
   }
-  for (const asset of assets) {
-    const {size, sha256} = await artifactBytes(join(source, asset.name));
+  for (const {name, output} of files) {
+    const asset = assets.find(item => item.name === name);
+    const {size, sha256} = await artifactBytes(join(source, output));
     if (size !== asset.size || sha256 !== asset.sha256) throw Error('正式产物字节不符');
+    if (output !== name) renameSync(join(source, output), join(source, name));
   }
 
   const proof = {
     schema: 1, repository: product.repository, product_id: product.id, platform,
     workflow: '.github/workflows/' + declared.workflow, run_id: context.runId,
     run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT), source_sha: context.sha, version, tag,
-    assets: assets.filter(asset => asset.name !== desktop),
+    assets,
   };
   if (platform === 'wasm') {
     const runtime = JSON.parse(process.env.RUNTIME_BUILD);
@@ -57,12 +60,7 @@ export async function publish({context, github, core}) {
     proof.runtime = runtime;
   }
 
-  // 旧版更新器和服务器只接收一个 .deb；桌面入口使用同一次构建的独立正式记录。
-  const records = desktop ? [proof, {
-    ...proof, tag: product.title + '·' + declared.name + '·安装器·v' + version,
-    assets: assets.filter(asset => asset.name === desktop),
-  }] : [proof];
-  for (const record of records) await publishRelease({context, github, core, source, proof: record});
+  await publishRelease({context, github, core, source, proof});
 }
 
 async function publishRelease({context, github, core, source, proof}) {
@@ -151,14 +149,13 @@ export async function wasmVersion({context,github,core}) {
 
 export async function recordAssets({context,core}) {
   const p=process.env.PLATFORM,version=process.env.CITIZENCHAIN_RELEASE_VERSION,declared=product.platforms[p];
-  const {names,desktop}=releaseFiles(declared,version);
+  const files=releaseFiles(declared,version);
   const tag=product.title+'·'+declared.name+'·v'+version,directory=process.env.GITHUB_WORKSPACE+'/target/build/'+p+'/artifact';
-  if(JSON.stringify(readdirSync(directory).sort())!==JSON.stringify([...names].sort()))throw Error('完整产物集合不符');
+  if(JSON.stringify(readdirSync(directory).sort())!==JSON.stringify(files.map(file=>file.output).sort()))throw Error('完整产物集合不符');
   const assets=[];
-  for(const name of names){
-    const label=name===desktop?product.title+'·'+declared.name+'·安装器·v'+version+'.run'
-      :tag+(p==='wasm'?name.slice('runtime'.length):declared.extension);
-    assets.push({name,label,...await artifactBytes(join(directory,name))});
+  for(const {name,output} of files){
+    const label=tag+(p==='wasm'?name.slice('runtime'.length):declared.extension);
+    assets.push({name,label,...await artifactBytes(join(directory,output))});
   }
   core.setOutput('assets',JSON.stringify(assets));
   if(p!=='wasm')return;

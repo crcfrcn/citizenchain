@@ -1,4 +1,5 @@
 import { adminsChangeApi } from "../institution/admins";
+import { MetricHelp } from "../desktop/MetricHelp";
 import { homeNodeApi, settingsApi } from "./api";
 import { RewardAccountSection } from "./RewardAccountSection";
 import { NodeModeSection } from "./NodeModeSection";
@@ -10,6 +11,14 @@ type SettingsSectionProps = {
   desktopUpdateInfo: DesktopUpdateInfo;
   onUpdateDesktop: () => Promise<void>;
 };
+
+const PROTOCOL_HELP = [
+  '公民协议是公民链的统一运行时协议，即链上Runtime WASM，是公民链的运行核心。',
+  '公民协议的版本升级由国家储委会或任意省储委会管理员发起联合投票提案进行升级。',
+  '协议升级提案通过的则全链热升级为统一运行时协议，提案否决的则运行原版协议。',
+  '公民协议升级后的版本与宪法守卫和节点守卫冲突的，节点可拒绝新版协议并形成硬分叉。',
+  '节点程序的宪法守卫和节点守卫是公民链节点拒绝非法协议的防火墙，新版公民协议必须遵守宪法守卫和节点守卫。',
+];
 
 export function SettingsSection({
   desktopUpdateInfo,
@@ -92,7 +101,10 @@ export function SettingsSection({
           {desktopUpdateInfo.status === 'ready' && <p>下载完成，点击安装更新后将退出当前程序，安装并启动新版。</p>}
           {desktopUpdateInfo.error ? <p role="alert">{desktopUpdateInfo.error}</p> : null}
           <div className="settings-version-row">
-            <span className="settings-version-label">公民协议版本</span>
+            <div className="settings-version-label metric-label-with-help">
+              <span>公民协议版本</span>
+              <MetricHelp title="公民协议说明" items={PROTOCOL_HELP} />
+            </div>
             <span className="settings-version-value">
               {chainStatus.specVersion != null ? `Runtime ${chainStatus.specVersion}` : '节点未运行'}
             </span>
