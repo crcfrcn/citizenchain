@@ -81,7 +81,7 @@ export function TransactionPanel({ nodeReady }: { nodeReady: boolean }) {
   return (
     <div className="transaction-panel">
       <div className="transaction-panel-header">
-        <h2>交易</h2>
+        <h2>链上交易</h2>
         <button className="wallet-manage-btn" onClick={() => setShowWalletModal(true)}>
           钱包管理
         </button>

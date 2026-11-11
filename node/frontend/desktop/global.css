@@ -3137,6 +3137,10 @@ select option:checked {
   word-break: break-all;
 }
 
+.identity-detail-node-address {
+  white-space: nowrap;
+}
+
 /* ── 交易面板 ── */
 
 .transaction-panel {

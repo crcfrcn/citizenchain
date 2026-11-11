@@ -12,21 +12,21 @@ export function IdentitySection({ identity, minerAddress }: Props) {
       <h2>身份</h2>
       <dl className="identity-details">
         <div className="identity-detail-row">
-          <dt className="identity-detail-key">节点角色：</dt>
+          <dt className="identity-detail-key">节点角色:</dt>
           <dd className="identity-detail-value">{identity.role ?? '全节点'}</dd>
         </div>
         <div className="identity-detail-row">
-          <dt className="identity-detail-key">矿工账户：</dt>
+          <dt className="identity-detail-key">矿工账户:</dt>
           <dd className="identity-detail-value identity-detail-code">{minerAddress || '-'}</dd>
         </div>
         <div className="identity-detail-row">
-          <dt className="identity-detail-key">节点地址：</dt>
-          <dd className="identity-detail-value identity-detail-code">
+          <dt className="identity-detail-key">节点地址:</dt>
+          <dd className="identity-detail-value identity-detail-code identity-detail-node-address">
             {identity.peerId ? `/p2p/${identity.peerId}` : '-'}
           </dd>
         </div>
         <div className="identity-detail-row">
-          <dt className="identity-detail-key">创世哈希：</dt>
+          <dt className="identity-detail-key">创世哈希:</dt>
           <dd className="identity-detail-value identity-detail-code">
             {identity.genesisHash ?? '-'}
           </dd>
