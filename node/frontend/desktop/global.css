@@ -1182,14 +1182,14 @@ select option:checked {
   min-height: 0;
   display: grid;
   grid-template-columns: var(--doc-toc-width) minmax(0, 1fr);
-  gap: 20px;
+  gap: 16px;
   align-items: stretch;
 }
 
 .local-doc-shell .doc-main {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   min-width: 0;
   min-height: 0;
 }
@@ -1640,7 +1640,7 @@ select option:checked {
   .local-doc-shell .layout {
     grid-template-columns: 1fr;
     grid-template-rows: 180px minmax(0, 1fr);
-    gap: 12px;
+    gap: 16px;
   }
 
   .local-doc-shell .toc {

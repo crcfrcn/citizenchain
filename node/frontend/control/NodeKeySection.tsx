@@ -1,7 +1,7 @@
 import { sanitizeError } from "../client/tauri";
 import { settingsApi as api } from "./api";
 import type { BootnodeKey } from "./types";
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type Props = {
   nodeKey: BootnodeKey;
@@ -10,7 +10,9 @@ type Props = {
 };
 
 type KeyAction = 'bootnode' | 'grandpa' | 'onchina';
-type HostKeyStatus = { configured: boolean } | { error: string };
+type HostKeyStatus = { configured: boolean; error?: string };
+// 仅保留公开的配置状态，切换 tab 时先显示上次结果；不缓存任何密钥材料。
+let lastHostKeyConfigured = false;
 const HOST_KEY_PLACEHOLDER = '请输入链上中国主机HTTPS密钥';
 
 export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
@@ -18,7 +20,8 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
   const [grandpaInput, setGrandpaInput] = useState('');
   const [hostKeyInput, setHostKeyInput] = useState('');
   const [grandpaConfigured, setGrandpaConfigured] = useState(false);
-  const [hostKeyStatus, setHostKeyStatus] = useState<HostKeyStatus | null>(null);
+  const [hostKeyStatus, setHostKeyStatus] = useState<HostKeyStatus>(() => ({ configured: lastHostKeyConfigured }));
+  const hostKeyUploaded = useRef(false);
   const [unlockPassword, setUnlockPassword] = useState('');
   const [pendingAction, setPendingAction] = useState<KeyAction | null>(null);
   const [saving, setSaving] = useState(false);
@@ -30,9 +33,14 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
       if (!cancelled) setGrandpaConfigured(Boolean(key.cidShortName));
     }).catch(() => undefined);
     void api.getOnChinaHostKeyStatus().then((configured) => {
-      if (!cancelled) setHostKeyStatus((current) => current ?? { configured });
+      if (!cancelled && !hostKeyUploaded.current) {
+        lastHostKeyConfigured = configured;
+        setHostKeyStatus({ configured });
+      }
     }).catch((error) => {
-      if (!cancelled) setHostKeyStatus((current) => current ?? { error: sanitizeError(error) });
+      if (!cancelled && !hostKeyUploaded.current) {
+        setHostKeyStatus((current) => ({ ...current, error: sanitizeError(error) }));
+      }
     });
     return () => { cancelled = true; };
   }, []);
@@ -79,6 +87,8 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
         }
         case 'onchina': {
           await api.setOnChinaHostKey(hostKeyInput.trim(), password);
+          hostKeyUploaded.current = true;
+          lastHostKeyConfigured = true;
           setHostKeyStatus({ configured: true });
           setHostKeyInput('');
           break;
@@ -139,9 +149,7 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
         <div className="settings-credential-label">
           <h2>链上中国主机</h2>
           <span className="settings-credential-state">
-            {hostKeyStatus && 'configured' in hostKeyStatus
-              ? hostKeyStatus.configured ? '已设置' : '未设置'
-              : '—'}
+            {hostKeyStatus.configured ? '已设置' : '未设置'}
           </span>
         </div>
         <input
@@ -170,7 +178,7 @@ export function NodeKeySection({ nodeKey, onUpdated, onApplied }: Props) {
           {saving && pendingAction === 'onchina' ? '上传中...' : '上传私钥'}
         </button>
       </div>
-      {hostKeyStatus && 'error' in hostKeyStatus && <p className="section-inline-error">{hostKeyStatus.error}</p>}
+      {hostKeyStatus.error && <p className="section-inline-error">{hostKeyStatus.error}</p>}
       {!pendingAction && error && <p className="section-inline-error">{error}</p>}
 
       {pendingAction && (

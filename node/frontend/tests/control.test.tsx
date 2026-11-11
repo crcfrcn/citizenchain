@@ -144,6 +144,7 @@ it('白皮书请求中可切换、失败可重试、成功后重新进入复用�
 
 
 import {SettingsSection} from '../control/SettingsSection';
+import {NodeKeySection} from '../control/NodeKeySection';
 vi.mock('../control/NodeModeSection',()=>({NodeModeSection:()=>null}));
 import {OnChinaPlatformSection} from '../control/OnChinaPlatformSection';
 vi.mock('../control/RewardAccountSection',()=>({RewardAccountSection:()=>null}));
@@ -229,6 +230,46 @@ it('链上中国主机在设备密码验证后提交完整多行 PEM 并更新�
   await hostRow.findByText('已设置');
   expect(mocks.invoke).toHaveBeenCalledWith('set_onchina_host_key', { key: pem, unlockPassword: 'fixture-password' });
   expect(field.value).toBe('');
+});
+
+it('主机状态在重新进入及查询失败时保留上次结果，后续查询仍可刷新', async () => {
+  const props = { nodeKey: {nodeKey: null, peerId: null, cidShortName: null}, onUpdated: vi.fn(), onApplied: vi.fn() };
+  const hostRow = () => within(screen.getByRole('heading', {name: '链上中国主机'}).closest<HTMLElement>('.settings-credential-row')!);
+  mocks.invoke.mockImplementation(async (command: string) => command === 'get_onchina_host_key_status' ? true : {cidShortName: null});
+  const first = render(<NodeKeySection {...props}/>);
+  await hostRow().findByText('已设置');
+  first.unmount();
+  let rejectStatus!: (error: Error) => void;
+  mocks.invoke.mockImplementation((command: string) => command === 'get_onchina_host_key_status'
+    ? new Promise<boolean>((_, reject) => {rejectStatus = reject;}) : Promise.resolve({cidShortName: null}));
+  const second = render(<NodeKeySection {...props}/>);
+  expect(hostRow().getByText('已设置')).toBeTruthy();
+  expect(hostRow().queryByText('—')).toBeNull();
+  await act(async () => rejectStatus(new Error('fixture status unavailable')));
+  expect(hostRow().getByText('已设置')).toBeTruthy();
+  expect(screen.getByText(/fixture status unavailable/)).toBeTruthy();
+  second.unmount();
+  mocks.invoke.mockImplementation(async (command: string) => command === 'get_onchina_host_key_status' ? false : {cidShortName: null});
+  const third = render(<NodeKeySection {...props}/>);
+  await hostRow().findByText('未设置');
+  third.unmount();
+});
+
+it('主机密钥上传成功后不会被较早发出的状态查询覆盖', async () => {
+  let resolveStatus!: (configured: boolean) => void;
+  mocks.invoke.mockImplementation((command: string) => command === 'get_onchina_host_key_status'
+    ? new Promise<boolean>((resolve) => {resolveStatus = resolve;}) : Promise.resolve({cidShortName: null}));
+  const view = render(<NodeKeySection nodeKey={{nodeKey: null, peerId: null, cidShortName: null}} onUpdated={vi.fn()} onApplied={vi.fn()}/>);
+  const row = within(screen.getByRole('heading', {name: '链上中国主机'}).closest<HTMLElement>('.settings-credential-row')!);
+  fireEvent.change(row.getByPlaceholderText('请输入链上中国主机HTTPS密钥'), {target: {value: 'fixture-private-key'}});
+  fireEvent.click(row.getByRole('button', {name: '上传链上中国主机私钥'}));
+  fireEvent.change(screen.getByPlaceholderText('请输入设备开机密码'), {target: {value: 'fixture-password'}});
+  fireEvent.click(screen.getByRole('button', {name: '确认'}));
+  await waitFor(() => expect(screen.queryByText('设备密码验证')).toBeNull());
+  expect(row.getByText('已设置')).toBeTruthy();
+  await act(async () => resolveStatus(false));
+  expect(row.getByText('已设置')).toBeTruthy();
+  view.unmount();
 });
 it.each(['downloading','ready','installing'] as const)('状态%s保留设置新版标记',status=>{
   expect(shouldShowDesktopUpdateDot({status})).toBe(true);
