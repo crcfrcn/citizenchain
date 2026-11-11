@@ -201,14 +201,16 @@
     grid-column: 1;
     grid-row: 2;
     position: sticky;
-    top: calc(var(--doc-cover-height) + 28px);
+    top: calc(16px + var(--doc-cover-height) + var(--doc-grid-gap));
     margin: 0;
     padding: 0;
     border: 1px solid #dacbb7;
     border-radius: var(--doc-radius);
     background: var(--doc-paper);
     box-shadow: var(--doc-shadow);
-    max-height: calc(100vh - var(--doc-cover-height) - 80px);
+    /* 扣除封面、分组间距及上下各 16px 留白，随窗口高度填满目录栏。 */
+    height: calc(100vh - var(--doc-cover-height) - var(--doc-grid-gap) - 32px);
+    min-height: 0;
     overflow: auto;
   }
 
@@ -361,7 +363,6 @@
     font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
     font-size: 16px;
     line-height: 1.82;
-    animation: local-doc-fade-in 260ms ease-out;
   }
 
   .block {
@@ -491,17 +492,6 @@
     transform: translateY(0);
   }
 
-  @keyframes local-doc-fade-in {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
   @media (max-width: 1180px) {
     .page {
       grid-template-columns: 1fr;
@@ -544,6 +534,7 @@
 
     .toc {
       position: static;
+      height: auto;
       max-height: 320px;
     }
 

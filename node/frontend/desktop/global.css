@@ -1348,7 +1348,6 @@ select option:checked {
   font-size: 16px;
   line-height: 1.82;
   color: #223141;
-  animation: local-doc-fade-in 260ms ease-out;
 }
 
 .local-doc-shell .markdown-body > :first-child {
@@ -1623,17 +1622,6 @@ select option:checked {
 
 .runtime-constitution-hash {
   display: none;
-}
-
-@keyframes local-doc-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 @media (max-width: 800px) {
@@ -3067,7 +3055,7 @@ select option:checked {
   min-height: 0;
 }
 
-/* 首页仅在分组之间分配剩余高度，组内子项紧凑排列，金额卡片保持自然高度。 */
+/* 首页分组采用固定间距，组内子项紧凑排列，金额卡片保持自然高度。 */
 .home-dual-panel > main.app {
   display: flex;
   flex-direction: column;
@@ -3095,7 +3083,7 @@ select option:checked {
 }
 
 .home-dual-panel > main.app .home-summary-section + .home-summary-section {
-  margin-top: auto;
+  margin-top: 0;
   padding-top: 20px;
 }
 
