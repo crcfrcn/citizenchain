@@ -3,7 +3,6 @@ use nodedesktop::rpc::RPC_REQUEST_TIMEOUT;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
-use std::time::Duration;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase", tag = "contentType")]
@@ -40,52 +39,29 @@ pub struct WhitepaperDocument {
     pub markdown: String,
 }
 
-const WHITEPAPER_CONTENT_URL: &str = "https://www.crcfrcn.com/whitepaper/content.json";
-
-const WHITEPAPER_CONTENT_LIMIT: usize = 1_048_576;
-
-fn decode_whitepaper_document(bytes: &[u8]) -> Result<WhitepaperDocument, String> {
-    if bytes.len() > WHITEPAPER_CONTENT_LIMIT {
-        return Err("官网白皮书正文超限".to_string());
-    }
-    let document: WhitepaperDocument =
-        serde_json::from_slice(bytes).map_err(|_| "官网白皮书正文格式无效".to_string())?;
-    if document.markdown.trim().is_empty() {
-        return Err("官网白皮书正文为空".to_string());
-    }
-    Ok(document)
-}
-
-// 节点仅在打开白皮书时读取官网静态正文；HTTPS证书和主机名由系统TLS校验。
+// 唯一正文和配图随节点编译内置，路径相对本文件定位到公民链根目录。
+// 返回格式保持不变，前端继续使用原有渲染器、目录及会话缓存。
 #[tauri::command]
 pub async fn get_whitepaper_document() -> Result<WhitepaperDocument, String> {
-    let client = reqwest::Client::builder()
-        .https_only(true)
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|_| "官网白皮书连接初始化失败".to_string())?;
-    let mut response = client
-        .get(WHITEPAPER_CONTENT_URL)
-        .send()
-        .await
-        .map_err(|_| "官网白皮书读取失败".to_string())?;
-    if response.status() != reqwest::StatusCode::OK {
-        return Err("官网白皮书读取失败".to_string());
+    let mut markdown = include_str!("../../../CitizenChainWhitepaper.md").to_string();
+    for (name, svg) in [
+        (
+            "whitepaper-node-diagram.svg",
+            include_str!("../../../icons/whitepaper-node-diagram.svg"),
+        ),
+        (
+            "whitepaper-reserve-architecture.svg",
+            include_str!("../../../icons/whitepaper-reserve-architecture.svg"),
+        ),
+    ] {
+        // 将原 SVG 字节编码为 data URL，安装后无须访问源码目录或官网。
+        let encoded: String = svg.bytes().map(|byte| format!("%{byte:02X}")).collect();
+        markdown = markdown.replace(
+            &format!("./icons/{name}"),
+            &format!("data:image/svg+xml,{encoded}"),
+        );
     }
-    let mut bytes = Vec::new();
-    // 异步分块读取，不阻塞桌面事件处理，且在累积前执行正文大小限制。
-    while let Some(part) = response
-        .chunk()
-        .await
-        .map_err(|_| "官网白皮书正文读取失败".to_string())?
-    {
-        if part.len() > WHITEPAPER_CONTENT_LIMIT - bytes.len() {
-            return Err("官网白皮书正文超限".to_string());
-        }
-        bytes.extend_from_slice(&part);
-    }
-    decode_whitepaper_document(&bytes)
+    Ok(WhitepaperDocument { markdown })
 }
 
 #[tauri::command]

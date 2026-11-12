@@ -2526,7 +2526,7 @@ ADR-020 中 OpenMLS、本机加密存储、消息幂等和 WebRTC 端到端传�
 Runtime按所属技术文档的包/src/tests结构组织；上游/派生源码保留原结构。自有 `crates/signing/src/lib.rs` 由 Cargo `[lib] path` 显式登记；`blockchain-harness/src/harness.rs`、`qr-protocol/src/export_registry.rs` 由原名称的 `[[bin]]` 登记。Node 二维码生成目标为 `node/frontend/client/qrBodies.g.ts`；P2P 坏块测试位于 `node/src/tests/p2p.rs`，仍由 service 原测试模块引入。移除空的 postgres `.gitkeep`，不清理实际数据库。
 
 ### 完整链根与白皮书来源
-节点、Runtime、OnChina和scanner保持同一完整CitizenChain仓。节点run/clean-run/prepare-toolchain不再使用旧聚合父根。白皮书唯一正文真源仍由官网`src/whitepaper.md`持有；官网构建把正文和两张图片生成静态`/whitepaper/content.json`。节点打开白皮书时固定GET`https://www.crcfrcn.com/whitepaper/content.json`，由已有`LocalDocViewer`继续渲染原有目录和正文布局。节点构建、Release和编辑器不再克隆官网仓库或生成本地白皮书模块。官网内容可独立更新，节点离线或官网静态接口不可用时显示错误与重试。
+节点、Runtime、OnChina和scanner保持同一完整CitizenChain仓。白皮书唯一正文真源为根目录`CitizenChainWhitepaper.md`，两张配图为`icons/whitepaper-node-diagram.svg`和`icons/whitepaper-reserve-architecture.svg`。节点在编译时内置正文并将原始SVG编码为data URL，白皮书tab继续使用既有`LocalDocViewer`、目录和交互，离线可读。官网本机构建读取相邻公民链仓库；GitHub构建检出公民链main，以`CITIZENCHAIN_WHITEPAPER_ROOT`指定输入，并仅在本轮target内快照三件源文件。官网不再保存独立正文或配图副本，页面及静态`/whitepaper/content.json`均从同一真源生成。
 ## 组织重构验收边界修正
 
 公民链版本验真产品参数统一citizenchain；节点平台读取node/tauri.conf.json软件版本，wasm平台使用spec-version；WASM回执展示标题使用完整公民链，平台版本与验真边界不变。
@@ -2537,7 +2537,7 @@ Runtime按所属技术文档的包/src/tests结构组织；上游/派生源码�
 
 公开仓门禁保留 Apache、MIT、Unlicense 三种准确官方行注释引用；字符串、额外路径及其它网址继续拒绝。Runtime 未修改。
 
-公民链门禁准确辨认既有 rustls API、GRANDPA 数据库键、官方 protoc 35.0 来源、QR 守卫测试名和 WASM 旧标签拒绝夹具；未知版本继续拒绝。白皮书正文仅由官网静态接口交付，节点构建不生成白皮书文件；其它代码及网络安全检查完整执行。
+公民链门禁准确辨认既有 rustls API、GRANDPA 数据库键、官方 protoc 35.0 来源、QR 守卫测试名和 WASM 旧标签拒绝夹具；未知版本继续拒绝。白皮书正文与配图由公民链根目录真源编译内置，官网构建共用该真源；其它代码及网络安全检查完整执行。
 
 八个原准确字面量以原顺序通过 Node stdin 批量去除，减少长生成正文的 Bash 复制成本；新增超过 320 KiB 重复标识的真实门禁性能回归，未知版本和网络安全检查不变。
 
@@ -2566,7 +2566,7 @@ Node开发页和HMR仅允许HTTPS/WSS；开发及预览必须提供完整匹配�
 
 Runtime、node/grandpa与node/libp2p保持原件。其它源码最深三级，第三层只有文件，每个目录至少两个真实直接子项；Rust公开包名、逻辑模块与业务接口保持，只以编译器文件定位调整物理结构。共享库归crates/harness、signing、protocol、scanner；QR金标直接归protocol/tests。节点按所属包src和frontend组织；OnChina按自身技术文档中的成对前后端工程及包根功能目录组织，目录使用完整单词；导入、Cargo本地路径及npm锁定本地来源同步。
 
-根icons是本产品唯一持久静态视觉资源目录。Logo与公民币母版字节保持，重复PNG仅留一份，ICO/ICNS格式保留；六处扫码按钮共用原SVG几何并保持currentColor和尺寸，宪法背景从唯一PNG编码进离线HTML。官网白皮书图片由官网静态正文接口内嵌，节点不再复制图片或正文进入安装包。
+根icons是本产品唯一持久静态视觉资源目录。Logo与公民币母版字节保持，重复PNG仅留一份，ICO/ICNS格式保留；六处扫码按钮共用原SVG几何并保持currentColor和尺寸，宪法背景从唯一PNG编码进离线HTML。白皮书配图也归根icons目录，节点编译时内嵌到正文，官网构建从同一配图生成打包资源。
 
 scripts保留build.mjs与config.mjs；GitHub自动化归.github/workflows，门禁归.github/tatagate，文档、图标、维护和Runtime数据工具各归所属功能目录。内嵌测试位于对应正式实现之后，仅直接node --test时注册；导入无执行副作用。原Job阶段、独立产品平台流程身份、候选校验、缓存隔离与失败条件保持；同一平台同一流程共享其本文件实现，阶段号仍由既有Workflow固定。
 
@@ -2791,7 +2791,7 @@ macOS装配从官方原件复制外部动态库时，保留本轮内存中的原
 
 安装包URL按GitHub正式下载路径拼接，先移除基址末尾空段，再追加Tag和文件名；保留Release资产身份、大小、摘要及地址严格匹配。
 
-白皮书命令异步读取官网正文，分块累积前限制1MiB；前端在本次程序会话中保留成功正文并共享进行中的请求，失败不缓存，重试仍读取官网。切换页面不重复获取已经成功的正文，首次立即显示加载状态。钱包持久化仍仅接受name、signMode、accountId及既有列表根结构；本轮仅对已授权本机文件一次性移除废弃字段，无兼容读取或自动迁移入口。
+白皮书命令保持原异步调用及返回格式，直接返回编译内置的根目录正文和配图，不再发起官网请求；前端在本次程序会话中保留成功正文并共享进行中的请求，失败不缓存，保留既有重试交互。切换页面不重复获取已经成功的正文，首次立即显示加载状态。钱包持久化仍仅接受name、signMode、accountId及既有列表根结构；本轮仅对已授权本机文件一次性移除废弃字段，无兼容读取或自动迁移入口。
 
 本机macOS装配完成动态库路径改写后，对随包Mach-O资源临时签名。正式发布仍使用原正式签名，本机交付由塔塔安装器在最终签名后验证整包。两条路径均在交付前以C locale实际执行独占临时initdb并检查PG_VERSION及postgresql.conf；本机不得提前返回而跳过初始化验收。最终App身份签名与安装继续归塔塔安装器。
 

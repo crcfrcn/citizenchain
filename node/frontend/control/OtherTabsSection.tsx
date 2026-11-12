@@ -68,7 +68,7 @@ export function OtherTabsSection({ activeKey }: Props) {
     };
   }, [activeKey]);
 
-  // 白皮书正文来自官网；目录和正文仍使用节点原有本地渲染器。
+  // 白皮书正文随节点内置；目录和正文继续使用原有本地渲染器。
   if (activeKey === 'whitepaper') {
     return (
       <section className="section other-tab-section" key="whitepaper">

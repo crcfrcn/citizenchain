@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { LocalDocViewer } from '../control/LocalDocViewer';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', class {
@@ -28,6 +30,35 @@ const markdown = `# **《公民链白皮书》**<br><span class="whitepaper-titl
 
 这里是实际章节，不能因标题包含白皮书而删除。
 `;
+
+it('迁移后的真实白皮书保留配图、目录展开和5.2协议基础库跳转', () => {
+  const root = resolve(process.cwd(), '../..');
+  let source = readFileSync(resolve(root, 'CitizenChainWhitepaper.md'), 'utf8');
+  const originals: string[] = [];
+  for (const name of ['whitepaper-node-diagram.svg', 'whitepaper-reserve-architecture.svg']) {
+    const svg = readFileSync(resolve(root, 'icons', name), 'utf8');
+    originals.push(svg);
+    // 与后端返回的百分号编码 data URL 一致，确认既有净化器保留两张原图。
+    const encoded = [...Buffer.from(svg)].map(byte => '%' + byte.toString(16).padStart(2, '0').toUpperCase()).join('');
+    source = source.replace('./icons/' + name, 'data:image/svg+xml,' + encoded);
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+  const scroll = vi.fn();
+  Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scroll });
+  const view = render(<LocalDocViewer doc={{key:'whitepaper',markdown:source}}/>);
+  try {
+    const article = view.container.querySelector('article')!;
+    expect([...article.querySelectorAll('img')].map(img => decodeURIComponent(img.src.split(',')[1]))).toEqual(originals);
+    const toc = within(view.container.querySelector('aside')!);
+    fireEvent.click(toc.getByRole('button', { name: /5\.公民协议/ }));
+    fireEvent.click(toc.getByRole('link', { name: /5\.2\.协议基础库/ }));
+    expect(scroll).toHaveBeenCalled();
+    expect(article.querySelector('[id="52协议基础库"]')?.textContent).toContain('5.2. primitives');
+  } finally {
+    if (descriptor) Object.defineProperty(Element.prototype, 'scrollIntoView', descriptor);
+    else delete (Element.prototype as unknown as {scrollIntoView?: unknown}).scrollIntoView;
+  }
+});
 
 it('白皮书只在顶部显示封面，正文从总则开始并保留实际章节', () => {
   const doc = { key: 'whitepaper' as const, markdown };
