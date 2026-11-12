@@ -455,6 +455,24 @@ body:has(.institution-transfer-dialog[open]) {
   outline: none;
 }
 
+.institution-proposal-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+}
+
+.institution-proposal-title h2 {
+  grid-column: 2;
+}
+
+.institution-proposal-title .metric-help-button {
+  grid-column: 3;
+  justify-self: start;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
 .institution-transfer-panel > header p {
   margin: 0;
 }

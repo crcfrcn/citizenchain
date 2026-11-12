@@ -1,5 +1,6 @@
 import {beforeEach, expect, it, vi} from 'vitest';
 import {adminsChangeApi} from '../institution/admins';
+import {TransferProposalDialog} from '../multisig/TransferProposalDialog';
 const mocks=vi.hoisted(()=>({invoke:vi.fn(),listen:vi.fn()}));
 vi.mock('../client/tauri',()=>({invoke:mocks.invoke,sanitizeError:String}));
 vi.mock('@tauri-apps/api/event',()=>({listen:mocks.listen}));
@@ -151,6 +152,77 @@ const transferCases = [
       { addressKind: '以太坊', recipient: ethereumReceiver },
     ];
   return addresses.map((address) => ({ ...testCase, ...address }));
+});
+
+it.each([
+  ['发起转账提案', '转账提案说明', '转账本金由主账户支付，金额手续费由本机构费用账户支付。'],
+  ['手续费划转提案', '手续费划转提案说明', '单次划转本金不得超过可用余额的80%；可用余额按账户余额扣除链上最低保留余额计算。'],
+  ['安全基金转账提案', '安全基金转账提案说明', '转账本金由安全基金账户支付，金额手续费由国家储委会费用账户支付。'],
+  ['两和基金转账提案', '两和基金转账提案说明', '转账本金由两和基金账户支付，金额手续费由国家储委会费用账户支付。'],
+  ['验证密钥', '验证密钥说明', '正常更换由有权限的委员发起，同时验证旧、新密钥的签名证明，无须内部投票。'],
+  ['协议升级', '协议升级提案说明', '用于更新全链公民协议，即公民链Runtime运行时协议。'],
+  ['决议发行提案', '决议发行提案说明', '收款账户须与链上允许的省储委会账户集合一致，各项分配金额合计必须等于发行总额。'],
+  ['决议销毁提案', '决议销毁提案说明', '销毁金额从指定的本机构账户中扣除并减少全链发行总量，销毁后不可恢复。'],
+])('%s 共用标题右侧说明，关闭说明保留原表单且不发起签名', (title, helpTitle, content) => {
+  const restoreDialog = installDialogMock();
+  const cancel = vi.fn();
+  const sign = vi.fn();
+  const view = render(
+    <TransferProposalDialog title={title} institutionName="测试机构" step="form"
+      generating={false} signDisabled={false} onCancel={cancel} onSign={sign} onComplete={vi.fn()}>
+      <input aria-label="保留输入" defaultValue="尚未提交的内容" />
+    </TransferProposalDialog>,
+  );
+  try {
+    const parent = screen.getByRole('dialog', {name:title});
+    const trigger = within(parent).getByRole('button', {name:helpTitle});
+    expect(trigger.textContent).toBe('说明');
+    expect(trigger.closest('.institution-proposal-title')?.querySelector('h2')?.textContent).toBe(title);
+    fireEvent.click(trigger);
+    const help = screen.getByRole('dialog', {name:helpTitle});
+    expect(within(help).getByRole('heading', {name:helpTitle})).toBeTruthy();
+    expect(within(help).getByText(content)).toBeTruthy();
+    expect(within(help).getAllByRole('listitem').length).toBeGreaterThanOrEqual(4);
+    expect(help.parentElement).toBe(document.body);
+    fireEvent.click(help.querySelector('.metric-help-content')!);
+    expect(screen.getByRole('dialog', {name:helpTitle})).toBe(help);
+    fireEvent.click(help);
+    expect(screen.queryByRole('dialog', {name:helpTitle})).toBeNull();
+    expect(screen.getByRole('dialog', {name:title})).toBe(parent);
+    expect((within(parent).getByLabelText('保留输入') as HTMLInputElement).value).toBe('尚未提交的内容');
+    fireEvent.click(trigger);
+    fireEvent(screen.getByRole('dialog', {name:helpTitle}), new Event('cancel', {cancelable:true}));
+    expect(screen.queryByRole('dialog', {name:helpTitle})).toBeNull();
+    expect(screen.getByRole('dialog', {name:title})).toBe(parent);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(sign).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  } finally {
+    view.unmount();
+    restoreDialog();
+  }
+});
+
+it('协议升级提案说明逐字采用确认文案', () => {
+  const restoreDialog = installDialogMock();
+  const view = render(<TransferProposalDialog title="协议升级" institutionName="测试机构" step="form"
+    generating={false} signDisabled={false} onCancel={vi.fn()} onSign={vi.fn()} onComplete={vi.fn()}>
+    <p>表单</p>
+  </TransferProposalDialog>);
+  try {
+    fireEvent.click(screen.getByRole('button', {name:'协议升级提案说明'}));
+    const help = screen.getByRole('dialog', {name:'协议升级提案说明'});
+    expect(within(help).getAllByRole('listitem').map(item => item.textContent)).toEqual([
+      '用于更新全链公民协议，即公民链Runtime运行时协议。',
+      '由具有相应权限的国家储委会或省储委会管理员发起，提交升级理由、Runtime WASM文件等参数。',
+      '提案进入全体治理机构的联合投票，符合转入条件时进入联合公投。',
+      '投票通过后由链上执行升级，配套参数按链上规定生效；执行是否成功以链上结果为准。',
+      '新版公民协议须遵守节点程序的宪法守卫和节点守卫，否则节点将拒绝新版公民协议。',
+    ]);
+  } finally {
+    view.unmount();
+    restoreDialog();
+  }
 });
 
 it.each(transferCases)('$button 在原机构详情上方弹出，使用 $addressKind 收款地址签名和提交', async ({ button, title, orgType, source, call, recipient }) => {
