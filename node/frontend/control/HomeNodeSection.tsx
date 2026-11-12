@@ -17,9 +17,14 @@ const EMPTY_ISSUANCE: TotalIssuance = { totalIssuance: null };
 const EMPTY_STAKE: TotalStake = { totalStake: null };
 const EMPTY_FROZEN: TotalFrozen = { totalFrozen: null };
 
+// 仅在当前软件会话保留最后一次有效回执，切换 tab 不伪造节点停止。
+let lastNodeStatus: NodeStatus | null = null;
+// 页面重建及启停动作使旧请求失效，避免迟到回执覆盖当前状态。
+let nodeStatusRevision = 0;
+
 // 节点打开软件时自动启动；首页按钮仅提供手动停止和再次启动。
 export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (ready: boolean) => void }) {
-  const [status, setStatus] = useState<NodeStatus>({ running: false, state: 'stopped', pid: null, lastError: null });
+  const [status, setStatus] = useState<NodeStatus | null>(() => lastNodeStatus);
   const [chain, setChain] = useState<ChainStatus>(EMPTY_CHAIN);
   const [identity, setIdentity] = useState<NodeIdentity>(EMPTY_IDENTITY);
   const [minerAddress, setMinerAddress] = useState<string | null>(null);
@@ -30,26 +35,61 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
   const [nodeAction, setNodeAction] = useState<'starting' | 'stopping' | null>(null);
   const [pendingNodeAction, setPendingNodeAction] = useState<'start' | 'stop' | null>(null);
   const refreshInFlightRef = useRef(false);
+  const mountedRef = useRef(false);
+  const currentStatusRef = useRef(status);
+  const statusRequestRef = useRef<Promise<NodeStatus | null> | null>(null);
+  const nodeRunning = status?.running ?? false;
   const lifecycleBusy = nodeAction !== null
-    || status.state === 'starting'
-    || status.state === 'initializing'
-    || status.state === 'stopping'
-    || status.state === 'restarting';
+    || status?.state === 'starting'
+    || status?.state === 'initializing'
+    || status?.state === 'stopping'
+    || status?.state === 'restarting';
 
-  const nodeReady = status.running && !lifecycleBusy;
+  const nodeReady = nodeRunning && !lifecycleBusy;
   useEffect(() => {
     onNodeReadyChange(nodeReady);
   }, [nodeReady, onNodeReadyChange]);
 
+  const clearHomeData = useCallback(() => {
+    setChain(EMPTY_CHAIN);
+    setIdentity(EMPTY_IDENTITY);
+    setIssuance(EMPTY_ISSUANCE);
+    setStake(EMPTY_STAKE);
+    setFrozen(EMPTY_FROZEN);
+  }, []);
+
+  const applyNodeStatus = useCallback((nextStatus: NodeStatus) => {
+    lastNodeStatus = nextStatus;
+    currentStatusRef.current = nextStatus;
+    setStatus(nextStatus);
+    if (!nextStatus.running) clearHomeData();
+  }, [clearHomeData]);
+
+  const refreshNodeStatus = useCallback(() => {
+    if (statusRequestRef.current) return statusRequestRef.current;
+    const revision = nodeStatusRevision;
+    const request = api.getNodeStatus().then((nextStatus) => {
+      if (!mountedRef.current || revision !== nodeStatusRevision) return null;
+      applyNodeStatus(nextStatus);
+      return nextStatus;
+    }).finally(() => {
+      if (statusRequestRef.current === request) statusRequestRef.current = null;
+    });
+    statusRequestRef.current = request;
+    return request;
+  }, [applyNodeStatus]);
+
   const loadHome = useCallback(async (silent: boolean) => {
+    const revision = nodeStatusRevision;
     const [s, c, i, t, k, f] = await Promise.allSettled([
-      api.getNodeStatus(),
+      refreshNodeStatus(),
       api.getChainStatus(),
       api.getNodeIdentity(),
       api.getTotalIssuance(),
       api.getTotalStake(),
       api.getTotalFrozen(),
     ]);
+    if (!mountedRef.current || revision !== nodeStatusRevision) return;
     let successCount = 0;
     const failures: string[] = [];
     const applyResult = <T,>(
@@ -64,13 +104,14 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
       failures.push(sanitizeError(result.reason));
     };
 
-    applyResult(s, setStatus);
-    if (s.status === 'fulfilled' && !s.value.running) {
-      setChain(EMPTY_CHAIN);
-      setIdentity(EMPTY_IDENTITY);
-      setIssuance(EMPTY_ISSUANCE);
-      setStake(EMPTY_STAKE);
-      setFrozen(EMPTY_FROZEN);
+    // 节点回执已独立应用；其他数据不能把随后已停止的节点重新填成旧数据。
+    applyResult(s, () => undefined);
+    if (currentStatusRef.current && !currentStatusRef.current.running) {
+      clearHomeData();
+      if (s.status === 'rejected') {
+        if (!silent) setError(`${PARTIAL_REFRESH_ERROR_PREFIX}${sanitizeError(s.reason)}`);
+        return;
+      }
       if (!silent) {
         setError(null);
         return;
@@ -109,16 +150,7 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
       if (!prev) return null;
       return prev.startsWith(PARTIAL_REFRESH_ERROR_PREFIX) ? null : prev;
     });
-  }, []);
-
-  const resetHomeDataForStoppedNode = useCallback((nextStatus: NodeStatus) => {
-    setStatus(nextStatus);
-    setChain(EMPTY_CHAIN);
-    setIdentity(EMPTY_IDENTITY);
-    setIssuance(EMPTY_ISSUANCE);
-    setStake(EMPTY_STAKE);
-    setFrozen(EMPTY_FROZEN);
-  }, []);
+  }, [clearHomeData, refreshNodeStatus]);
 
   const runLoadHome = useCallback(async (silent: boolean) => {
     if (refreshInFlightRef.current) return;
@@ -131,8 +163,16 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
   }, [loadHome]);
 
   useEffect(() => {
-    void runLoadHome(false).catch((e) => setError(sanitizeError(e)));
-  }, [runLoadHome]);
+    mountedRef.current = true;
+    nodeStatusRevision += 1;
+    statusRequestRef.current = null;
+    // 独立发起，其他首页数据慢或尚未结束时也不阻塞真实状态。
+    void refreshNodeStatus().catch(() => undefined);
+    void runLoadHome(false).catch((e) => {
+      if (mountedRef.current) setError(sanitizeError(e));
+    });
+    return () => { mountedRef.current = false; };
+  }, [refreshNodeStatus, runLoadHome]);
 
   useEffect(() => {
     // 首次启动可能尚未生成地址，节点运行状态变化后重新读取本机账户。
@@ -147,22 +187,23 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
     return () => {
       cancelled = true;
     };
-  }, [status.running]);
+  }, [nodeRunning]);
 
   useEffect(() => {
     const timer = globalThis.setInterval(() => {
+      void refreshNodeStatus().catch(() => undefined);
       if (refreshInFlightRef.current) {
         return;
       }
       void runLoadHome(true).catch(() => undefined);
     }, 3000);
     return () => globalThis.clearInterval(timer);
-  }, [runLoadHome]);
+  }, [refreshNodeStatus, runLoadHome]);
 
   const requestNodeToggle = useCallback(() => {
-    if (lifecycleBusy) return;
+    if (status === null || lifecycleBusy) return;
     setPendingNodeAction(status.running ? 'stop' : 'start');
-  }, [lifecycleBusy, status.running]);
+  }, [lifecycleBusy, status]);
 
   const closeNodeConfirm = useCallback(() => {
     if (lifecycleBusy) return;
@@ -175,52 +216,51 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
     setPendingNodeAction(null);
     setNodeAction(action === 'stop' ? 'stopping' : 'starting');
     setError(null);
+    let revision = ++nodeStatusRevision;
+    statusRequestRef.current = null;
     try {
       const nextStatus = action === 'stop' ? await api.stopNode() : await api.startNode();
-      if (!nextStatus.running) {
-        resetHomeDataForStoppedNode(nextStatus);
-        return;
-      }
-      setStatus(nextStatus);
-      await runLoadHome(false);
+      if (!mountedRef.current || revision !== nodeStatusRevision) return;
+      revision = ++nodeStatusRevision;
+      statusRequestRef.current = null;
+      applyNodeStatus(nextStatus);
+      setNodeAction(null);
+      if (nextStatus.running) await runLoadHome(false);
     } catch (e) {
+      if (!mountedRef.current || revision !== nodeStatusRevision) return;
+      revision = ++nodeStatusRevision;
+      statusRequestRef.current = null;
       setError(sanitizeError(e));
+      await refreshNodeStatus().catch(() => undefined);
+      if (!mountedRef.current || revision !== nodeStatusRevision) return;
+      setNodeAction(null);
       await runLoadHome(true).catch(() => undefined);
     } finally {
-      setNodeAction(null);
+      if (mountedRef.current && revision === nodeStatusRevision) setNodeAction(null);
     }
-  }, [lifecycleBusy, pendingNodeAction, resetHomeDataForStoppedNode, runLoadHome]);
+  }, [applyNodeStatus, lifecycleBusy, pendingNodeAction, refreshNodeStatus, runLoadHome]);
 
   const nodeActionLabel = nodeAction === 'starting'
     ? '启动中...'
     : nodeAction === 'stopping'
       ? '关闭中...'
-      : status.state === 'starting' || status.state === 'initializing' || status.state === 'restarting'
+      : status?.state === 'starting' || status?.state === 'initializing' || status?.state === 'restarting'
         ? '启动中...'
-        : status.state === 'stopping'
+        : status?.state === 'stopping'
           ? '关闭中...'
-          : status.running
+          : nodeRunning
             ? '关闭节点'
             : '启动节点';
-  const statusLabel = status.running
-    ? '运行中'
-    : status.state === 'initializing'
-      ? '初始化中'
-      : status.state === 'starting' || status.state === 'restarting'
-        ? '启动中'
-        : status.state === 'stopping'
-          ? '关闭中'
-          : status.state === 'lock_held'
-            ? '数据库锁未释放'
-            : status.state === 'failed'
-              ? '启动失败'
-              : status.state === 'exited'
-                ? '异常退出'
-                : '已停止';
+  const statusLabel = nodeAction === 'stopping' || status?.state === 'stopping'
+    ? '关闭中'
+    : nodeAction === 'starting' || status?.state === 'initializing'
+      || status?.state === 'starting' || status?.state === 'restarting'
+      ? '启动中'
+      : nodeRunning ? '运行中' : status === null ? null : '已停止';
   const confirmTitle = pendingNodeAction === 'stop' ? '确认关闭节点？' : '确认启动节点？';
   const confirmBody = pendingNodeAction === 'stop'
     ? '节点将停止运行，软件保持打开。'
-    : status.state === 'lock_held'
+    : status?.state === 'lock_held'
       ? '数据库锁可能仍被当前进程占用，若启动失败请完全退出软件后重新打开。'
       : '将启动本机节点。';
   const confirmButtonLabel = pendingNodeAction === 'stop' ? '确认关闭' : '确认启动';
@@ -228,23 +268,23 @@ export function HomeNodeSection({ onNodeReadyChange }: { onNodeReadyChange: (rea
   return (
     <>
       <div className="home-node-toolbar">
-        <div className="status-line">
-          <span className={`status-dot ${status.running ? 'running' : 'stopped'}`} aria-hidden="true" />
+        <div className="status-line" style={{ visibility: statusLabel === null ? 'hidden' : undefined }}>
+          <span className={`status-dot ${nodeRunning ? 'running' : 'stopped'}`} aria-hidden="true" />
           <span>状态：{statusLabel}</span>
         </div>
         <button
           type="button"
-          className={`node-lifecycle-button ${status.running ? 'stop' : 'start'}`}
+          className={`node-lifecycle-button ${nodeRunning ? 'stop' : 'start'}`}
           onClick={requestNodeToggle}
-          disabled={lifecycleBusy}
+          disabled={status === null || lifecycleBusy}
           title={nodeActionLabel}
           aria-label={nodeActionLabel}
         />
       </div>
-      <ChainSection chain={chain} nodeRunning={status.running} />
+      <ChainSection chain={chain} nodeRunning={nodeRunning} />
       <IdentitySection identity={identity} minerAddress={minerAddress} />
       <IssuanceSection issuance={issuance} stake={stake} frozen={frozen} />
-      {status.lastError ? <pre className="error">{status.lastError}</pre> : null}
+      {status?.lastError ? <pre className="error">{status.lastError}</pre> : null}
       {error ? <pre className="error">{error}</pre> : null}
       {pendingNodeAction ? (
         <div className="node-lifecycle-confirm-mask" onClick={closeNodeConfirm}>

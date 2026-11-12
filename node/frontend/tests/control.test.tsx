@@ -18,6 +18,30 @@ import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/
 import {IssuanceSection} from '../control/IssuanceSection';
 import {HomeNodeSection} from '../control/HomeNodeSection';
 import {OtherTabsSection} from '../control/OtherTabsSection';
+import type {NodeStatus} from '../control/types';
+
+const runningNode: NodeStatus = {running:true,state:'running',pid:1,lastError:null};
+const stoppedNode: NodeStatus = {running:false,state:'stopped',pid:null,lastError:null};
+const homeReceipts: Record<string, unknown> = {
+  get_chain_status: {blockHeight:10,finalizedHeight:9,syncing:false,specVersion:1,transactionVersion:1,nodeVersion:'1.0.3'},
+  get_node_identity: {peerId:null,role:null,genesisHash:null},
+  get_total_issuance: {totalIssuance:'100.00'},
+  get_total_stake: {totalStake:'20.00'},
+  get_total_frozen: {totalFrozen:'75.25'},
+  get_local_miner_ss58_address: null,
+};
+function deferred<T>() {
+  let resolve!: (value:T) => void;
+  let reject!: (error:Error) => void;
+  const promise = new Promise<T>((yes,no) => {resolve=yes;reject=no;});
+  return {promise,resolve,reject};
+}
+function mockHome(status: () => Promise<NodeStatus>, overrides: Record<string, () => Promise<unknown>> = {}) {
+  mocks.invoke.mockImplementation((command: string) => {
+    if (command === 'get_node_status') return status();
+    return overrides[command]?.() ?? Promise.resolve(homeReceipts[command] ?? null);
+  });
+}
 
 it('冻结总额通过独立 IPC 查询，保留完整精度的金额字符串', async () => {
   const receipt = { totalFrozen: '3,402,823,669,209,384,634,633,746,074,317,682,114.55' };
@@ -75,6 +99,165 @@ it('冻结金额说明显示三条原文及达标表格，保留原说明并可�
     if (close) Object.defineProperty(prototype, 'close', close);
     else Reflect.deleteProperty(prototype, 'close');
   }
+});
+
+it('首页首次不显示假状态，节点回执和后续状态刷新不等待慢数据', async () => {
+  vi.useFakeTimers();
+  const initial = deferred<NodeStatus>();
+  const frozen = deferred<{totalFrozen:string}>();
+  let reads = 0;
+  const ready = vi.fn();
+  mockHome(() => ++reads === 1 ? initial.promise : Promise.resolve(stoppedNode), {
+    get_total_frozen: () => frozen.promise,
+  });
+  const view = render(<HomeNodeSection onNodeReadyChange={ready}/>);
+  try {
+    expect(screen.queryByText(/^状态：(已停止|启动中|运行中|关闭中)$/)).toBeNull();
+    expect(screen.queryByText(/查询中|加载中/)).toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>('button',{name:'启动节点'}).disabled).toBe(true);
+    await act(async () => initial.resolve(runningNode));
+    expect(screen.getByText('状态：运行中')).toBeTruthy();
+    expect(ready).toHaveBeenLastCalledWith(true);
+    await act(async () => {await vi.advanceTimersByTimeAsync(3000);});
+    expect(screen.getByText('状态：已停止')).toBeTruthy();
+    expect(ready).toHaveBeenLastCalledWith(false);
+    await act(async () => frozen.resolve({totalFrozen:'75.25'}));
+    expect(screen.getByText('临时冻结金额').closest('.metric-card')?.querySelector('.metric-value')?.textContent).toBe('-');
+  } finally {
+    view.unmount();
+    vi.useRealTimers();
+  }
+});
+
+it('运行中切回首页立即保留状态，读取失败也不闪现已停止，真实停止仍能更新', async () => {
+  mockHome(() => Promise.resolve(runningNode));
+  let view!: ReturnType<typeof render>;
+  await act(async () => {view=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);});
+  expect(screen.getByText('状态：运行中')).toBeTruthy();
+  view.unmount();
+  const pending = deferred<NodeStatus>();
+  mockHome(() => pending.promise);
+  view=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);
+  expect(screen.getByText('状态：运行中')).toBeTruthy();
+  expect(screen.queryByText('状态：已停止')).toBeNull();
+  await act(async () => pending.reject(new Error('fixture status unavailable')));
+  expect(screen.getByText('状态：运行中')).toBeTruthy();
+  expect(screen.getByText(/fixture status unavailable/)).toBeTruthy();
+  view.unmount();
+  mockHome(() => Promise.resolve(stoppedNode));
+  await act(async () => {view=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);});
+  expect(screen.getByText('状态：已停止')).toBeTruthy();
+  view.unmount();
+  mockHome(() => Promise.reject(new Error('fixture stopped status unavailable')));
+  await act(async () => {view=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);});
+  expect(screen.getByText('状态：已停止')).toBeTruthy();
+  expect(screen.getByText(/fixture stopped status unavailable/)).toBeTruthy();
+  view.unmount();
+});
+
+it('离开页面后的旧回执不能覆盖重新进入时确认的运行状态', async () => {
+  const old = deferred<NodeStatus>();
+  mockHome(() => old.promise);
+  const first=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);
+  first.unmount();
+  mockHome(() => Promise.resolve(runningNode));
+  let second!: ReturnType<typeof render>;
+  await act(async () => {second=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);});
+  expect(screen.getByText('状态：运行中')).toBeTruthy();
+  await act(async () => old.resolve(stoppedNode));
+  expect(screen.getByText('状态：运行中')).toBeTruthy();
+  second.unmount();
+  mockHome(() => new Promise(() => {}));
+  const third=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);
+  expect(screen.getByText('状态：运行中')).toBeTruthy();
+  third.unmount();
+});
+
+it('启停保持原确认流程，迟到查询不覆盖启停回执，慢数据不延长启动状态', async () => {
+  vi.useFakeTimers();
+  const old = deferred<NodeStatus>();
+  const stop = deferred<NodeStatus>();
+  const start = deferred<NodeStatus>();
+  const frozen = deferred<{totalFrozen:string}>();
+  let backend = runningNode;
+  let reads = 0;
+  let slow = false;
+  mockHome(() => ++reads === 2 ? old.promise : Promise.resolve(backend), {
+    stop_node: () => stop.promise,
+    start_node: () => start.promise,
+    get_total_frozen: () => slow ? frozen.promise : Promise.resolve(homeReceipts.get_total_frozen),
+  });
+  let view!: ReturnType<typeof render>;
+  try {
+    await act(async () => {view=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);});
+    await act(async () => {await vi.advanceTimersByTimeAsync(3000);});
+    fireEvent.click(screen.getByRole('button',{name:'关闭节点'}));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(mocks.invoke.mock.calls.some(([name]) => name==='stop_node')).toBe(false);
+    fireEvent.click(screen.getByRole('button',{name:'确认关闭'}));
+    expect(screen.getByText('状态：关闭中')).toBeTruthy();
+    backend=stoppedNode;
+    await act(async () => stop.resolve(backend));
+    expect(screen.getByText('状态：已停止')).toBeTruthy();
+    await act(async () => old.resolve(runningNode));
+    expect(screen.getByText('状态：已停止')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button',{name:'启动节点'}));
+    fireEvent.click(screen.getByRole('button',{name:'确认启动'}));
+    expect(screen.getByText('状态：启动中')).toBeTruthy();
+    backend=runningNode;
+    slow=true;
+    await act(async () => start.resolve(backend));
+    expect(screen.getByText('状态：运行中')).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>('button',{name:'关闭节点'}).disabled).toBe(false);
+    await act(async () => frozen.resolve({totalFrozen:'75.25'}));
+    expect(mocks.invoke.mock.calls.filter(([name]) => name==='stop_node')).toHaveLength(1);
+    expect(mocks.invoke.mock.calls.filter(([name]) => name==='start_node')).toHaveLength(1);
+  } finally {
+    view?.unmount();
+    vi.useRealTimers();
+  }
+});
+
+it('上次启动的慢刷新结束后，不会提前取消随后关闭中的状态', async () => {
+  const start=deferred<NodeStatus>();
+  const stop=deferred<NodeStatus>();
+  const frozen=deferred<{totalFrozen:string}>();
+  let backend=stoppedNode;
+  let slow=false;
+  mockHome(() => Promise.resolve(backend), {
+    start_node: () => start.promise,
+    stop_node: () => stop.promise,
+    get_total_frozen: () => slow ? frozen.promise : Promise.resolve(homeReceipts.get_total_frozen),
+  });
+  let view!: ReturnType<typeof render>;
+  await act(async () => {view=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);});
+  fireEvent.click(screen.getByRole('button',{name:'启动节点'}));
+  fireEvent.click(screen.getByRole('button',{name:'确认启动'}));
+  backend=runningNode;
+  slow=true;
+  await act(async () => start.resolve(backend));
+  expect(screen.getByText('状态：运行中')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'关闭节点'}));
+  fireEvent.click(screen.getByRole('button',{name:'确认关闭'}));
+  await act(async () => frozen.resolve({totalFrozen:'75.25'}));
+  expect(screen.getByText('状态：关闭中')).toBeTruthy();
+  expect(screen.getByRole<HTMLButtonElement>('button',{name:'关闭中...'}).disabled).toBe(true);
+  backend=stoppedNode;
+  await act(async () => stop.resolve(backend));
+  expect(screen.getByText('状态：已停止')).toBeTruthy();
+  view.unmount();
+});
+
+it.each([
+  ['stopped',false,'已停止'], ['running',true,'运行中'],
+  ['starting',false,'启动中'], ['initializing',false,'启动中'], ['restarting',false,'启动中'],
+  ['stopping',false,'关闭中'], ['failed',false,'已停止'], ['exited',false,'已停止'], ['lock_held',false,'已停止'],
+] as const)('首页状态%s仅显示约定四种文案：%s/%s', async (state,running,label) => {
+  mockHome(() => Promise.resolve({running,state,pid:running?1:null,lastError:null}));
+  let view!: ReturnType<typeof render>;
+  await act(async () => {view=render(<HomeNodeSection onNodeReadyChange={vi.fn()}/>);});
+  expect(view.container.querySelector('.status-line')?.textContent).toBe(`状态：${label}`);
+  view.unmount();
 });
 
 it('首页定时更新冻结金额，失败或节点停止时清空，重新运行后恢复查询', async () => {

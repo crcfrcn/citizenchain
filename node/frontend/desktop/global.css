@@ -1175,29 +1175,6 @@ select option:checked {
   line-height: 1.2;
 }
 
-/* 白皮书同级中英文等大；封面保持 80px，正文层级沿用 26/20/18/16px。 */
-.local-doc-shell.doc-whitepaper .hero {
-  padding: 6px 28px;
-}
-
-.local-doc-shell.doc-whitepaper .hero h1,
-.local-doc-shell.doc-whitepaper .eyebrow {
-  font-size: 26px;
-  line-height: 1.2;
-  letter-spacing: 0;
-}
-
-.local-doc-shell.doc-whitepaper .toc-link,
-.local-doc-shell.doc-whitepaper .toc-link.level-2,
-.local-doc-shell.doc-whitepaper .toc-link.level-3 {
-  font-size: 16px;
-}
-
-.local-doc-shell.doc-whitepaper .toc-title-en,
-.local-doc-shell.doc-whitepaper .toc-text-en {
-  font-size: inherit;
-}
-
 .local-doc-shell .layout {
   margin: 16px auto;
   width: min(2660px, calc(100% - 32px));
@@ -1415,7 +1392,7 @@ select option:checked {
 .local-doc-shell.doc-whitepaper .whitepaper-title-en {
   margin: 4px 0 0;
   text-align: center;
-  font-size: inherit;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1.35;
 }
