@@ -1,5 +1,6 @@
 import type { LocalDoc } from "./types";
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 
@@ -62,7 +63,9 @@ function parseMarkdownTable(rawText: string) {
     })
     .join('')}</tbody>`;
 
-  return `<table class="rendered-table">${thead}${tbody}</table>`;
+  const isTermsTable = headers.length === 3
+    && headers[0] === '中文术语' && headers[1] === '英文/系统名称' && headers[2] === '说明';
+  return `<table class="rendered-table${isTermsTable ? ' whitepaper-terms' : ''}">${thead}${tbody}</table>`;
 }
 
 function upgradeTableCodeBlocks(rootEl: HTMLElement) {
@@ -409,6 +412,20 @@ export function LocalDocViewer({ doc }: Props) {
     });
   };
 
+  const toTopButton = (
+    <button
+      className={`to-top${doc.key === 'whitepaper' ? ' whitepaper-to-top' : ''}${showToTop ? ' visible' : ''}`}
+      type="button"
+      aria-label="回到顶部"
+      title="回到顶部"
+      onClick={() => {
+        scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      }}
+    >
+      ↑
+    </button>
+  );
+
   return (
     <section className={`local-doc-shell doc-${doc.key}`}>
       <div className="layout">
@@ -451,16 +468,7 @@ export function LocalDocViewer({ doc }: Props) {
         </div>
       </div>
 
-      <button
-        className={`to-top${showToTop ? ' visible' : ''}`}
-        type="button"
-        aria-label="回到顶部"
-        onClick={() => {
-          scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-      >
-        ↑
-      </button>
+      {doc.key === 'whitepaper' ? createPortal(toTopButton, document.body) : toTopButton}
 
       <span className="doc-anchor-sentinel" data-count={flatToc.length} />
     </section>

@@ -1175,6 +1175,29 @@ select option:checked {
   line-height: 1.2;
 }
 
+/* 白皮书同级中英文等大；封面保持 80px，正文层级沿用 26/20/18/16px。 */
+.local-doc-shell.doc-whitepaper .hero {
+  padding: 6px 28px;
+}
+
+.local-doc-shell.doc-whitepaper .hero h1,
+.local-doc-shell.doc-whitepaper .eyebrow {
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.local-doc-shell.doc-whitepaper .toc-link,
+.local-doc-shell.doc-whitepaper .toc-link.level-2,
+.local-doc-shell.doc-whitepaper .toc-link.level-3 {
+  font-size: 16px;
+}
+
+.local-doc-shell.doc-whitepaper .toc-title-en,
+.local-doc-shell.doc-whitepaper .toc-text-en {
+  font-size: inherit;
+}
+
 .local-doc-shell .layout {
   margin: 16px auto;
   width: min(2660px, calc(100% - 32px));
@@ -1392,7 +1415,7 @@ select option:checked {
 .local-doc-shell.doc-whitepaper .whitepaper-title-en {
   margin: 4px 0 0;
   text-align: center;
-  font-size: 18px;
+  font-size: inherit;
   font-weight: 700;
   line-height: 1.35;
 }
@@ -1472,6 +1495,10 @@ select option:checked {
   padding: 0;
 }
 
+.local-doc-shell.doc-whitepaper .markdown-body code {
+  font-size: 16px;
+}
+
 .local-doc-shell .table-code-block {
   margin: 0.9em 0;
   padding: 14px;
@@ -1535,6 +1562,11 @@ select option:checked {
   font-weight: 700;
 }
 
+.local-doc-shell.doc-whitepaper .whitepaper-terms :is(th, td):nth-child(-n + 2) {
+  width: 1%;
+  white-space: nowrap;
+}
+
 .local-doc-shell .markdown-body blockquote {
   margin: 1em 0;
   padding: 8px 14px;
@@ -1567,7 +1599,8 @@ select option:checked {
   color: #214766;
 }
 
-.local-doc-shell .to-top {
+.local-doc-shell .to-top,
+.whitepaper-to-top {
   display: grid;
   place-items: center;
   padding: 0;
@@ -1591,10 +1624,20 @@ select option:checked {
   z-index: 30;
 }
 
-.local-doc-shell .to-top.visible {
+.local-doc-shell .to-top.visible,
+.whitepaper-to-top.visible {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+}
+
+/* 宪法按钮距 iframe 右/下边各14px，iframe 距窗口边各16px。
+   白皮书挂到 body，避开文档容器裁切，并使用同一窗口位置和按钮默认字体。 */
+.whitepaper-to-top {
+  position: fixed;
+  right: 30px;
+  bottom: 30px;
+  z-index: 50;
 }
 
 .doc-anchor-sentinel {
