@@ -978,6 +978,12 @@ select option:checked {
   background: rgba(15, 23, 42, 0.72);
 }
 
+/* 首页四个说明：原 450px 加三个正文汉字（3 × 14px），窄窗口仍保留两侧留白。 */
+.home-metric-help-dialog {
+  width: 492px;
+  max-width: calc(100% - 32px);
+}
+
 .metric-help-content {
   padding: 14px 24px 24px;
 }
@@ -1182,14 +1188,14 @@ select option:checked {
   min-height: 0;
   display: grid;
   grid-template-columns: var(--doc-toc-width) minmax(0, 1fr);
-  gap: 16px;
+  gap: 10px;
   align-items: stretch;
 }
 
 .local-doc-shell .doc-main {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   min-width: 0;
   min-height: 0;
 }
@@ -1660,7 +1666,7 @@ select option:checked {
   .local-doc-shell .layout {
     grid-template-columns: 1fr;
     grid-template-rows: 180px minmax(0, 1fr);
-    gap: 16px;
+    gap: 10px;
   }
 
   .local-doc-shell .toc {
@@ -3100,6 +3106,17 @@ select option:checked {
   gap: 0;
 }
 
+.home-dual-panel > aside.app,
+.home-dual-panel > aside.app > .content {
+  display: flex;
+  flex-direction: column;
+}
+
+.home-dual-panel > aside.app > .content {
+  flex: 1;
+  gap: 0;
+}
+
 .home-dual-panel > main.app .home-node-toolbar {
   flex: none;
 }
@@ -3193,7 +3210,31 @@ select option:checked {
 /* ── 交易面板 ── */
 
 .transaction-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   padding: 0;
+}
+
+.transaction-panel > .transfer-form {
+  flex-shrink: 0;
+}
+
+.transfer-principle-note {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 4px;
+  color: #718097;
+  font-size: 13px;
+  line-height: 24px;
+  text-align: center;
+}
+
+.transfer-principle-note p {
+  margin: 0;
+  text-wrap: balance;
 }
 
 .transaction-panel-header {
@@ -3205,6 +3246,16 @@ select option:checked {
 
 .transaction-panel-header h2 {
   margin: 0;
+}
+
+.transaction-panel-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.transaction-panel-heading .metric-help-button {
+  font-size: 12px;
 }
 
 .wallet-icon-btn {
@@ -3409,9 +3460,12 @@ select option:checked {
 }
 
 .transfer-form-currency {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  display: block;
+  width: var(--scan-icon-size);
+  height: var(--scan-icon-size);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  object-fit: cover;
   flex-shrink: 0;
 }
 
@@ -3511,22 +3565,30 @@ select option:checked {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
-  width: 680px;
+  width: 700px;
   max-width: calc(100vw - 32px);
   max-height: 85vh;
   display: flex;
   flex-direction: column;
 }
 
-.wallet-manager-modal h3 {
-  margin: 0 0 16px;
+.wallet-manager-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.wallet-manager-header h3 {
+  margin: 0;
   color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  text-align: center;
+  transform: translateY(-8px);
 }
 
 .wallet-manager-close {
+  justify-self: end;
   font-size: 20px;
   color: var(--text-muted);
   cursor: pointer;
@@ -3565,6 +3627,22 @@ select option:checked {
 
 .wallet-radio {
   flex-shrink: 0;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.wallet-radio.hot {
+  background: #ef4444;
+}
+
+.wallet-radio.cold {
+  background: #60a5fa;
 }
 
 .wallet-row-name {
@@ -3615,10 +3693,23 @@ select option:checked {
 
 /* 添加区（上方） */
 .wallet-add-section-top {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  /* 700px弹窗扣除边框、内边距、32px扫码按钮及两个8px间隔，输入框为200px和410px。 */
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr) var(--scan-icon-size);
   gap: 8px;
+  align-items: center;
   flex-shrink: 0;
+}
+
+.wallet-add-section-top .wallet-add-input {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 600px) {
+  .wallet-add-section-top {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) var(--scan-icon-size);
+  }
 }
 
 .wallet-add-section-top h4 {
@@ -3693,18 +3784,18 @@ select option:checked {
   cursor: not-allowed;
 }
 
-.wallet-add-btn-half {
+.wallet-manager-add {
   background: var(--primary);
   color: #fff;
   border: none;
-  padding: 8px 0;
+  padding: 6px 16px;
   border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
-  width: 50%;
+  justify-self: start;
 }
 
-.wallet-add-btn-half:disabled {
+.wallet-manager-add:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

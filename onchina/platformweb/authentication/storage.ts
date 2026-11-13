@@ -4,7 +4,7 @@
 
 import type { AdminAuth } from './types';
 
-// 登录态只保留当前严格形状（institution_code + admin_level + scope_town_name）；
+// 登录态只保留当前严格形状（完整会话上下文及setupRequired）；
 // 解析失败的历史形状一律丢弃，避免读出空字段或形成兼容分支。
 const AUTH_STORAGE_KEY = 'onchina_admin_auth';
 
@@ -16,6 +16,7 @@ export function readStoredAuth(): AdminAuth | null {
     if (
       typeof parsed === 'object' &&
       parsed &&
+      typeof parsed.setupRequired === 'boolean' &&
       'accessToken' in parsed &&
       typeof parsed.accessToken === 'string' &&
       typeof parsed.accountId === 'string' &&

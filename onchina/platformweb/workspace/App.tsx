@@ -6,7 +6,7 @@
 //
 // 机构 UI 按原职责放在所属模块 frontend,不得继续把机构差异塞回 App.tsx。
 import { initializeModules } from "./modules";
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { QrcodeOutlined } from '@ant-design/icons';
 import { Button, Card, Layout, Typography } from 'antd';
 import { AuthProvider } from "../authentication/Context";
@@ -14,7 +14,6 @@ import { useAuth } from "../authentication/useAuth";
 import { writeStoredAuth, clearStoredAuth } from "../authentication/storage";
 import type { AdminAuth } from "../authentication/types";
 import { adminLogout, checkAdminAuth } from "../authentication/api";
-import { getPasskeyStatus } from "../authentication/passkeyClient";
 import type { CidMetaResult } from "../codes/api";
 import { LoginView } from "../authentication/LoginView";
 import { WorkspaceRouter } from "./WorkspaceRouter";
@@ -30,12 +29,13 @@ function resolveHeaderAdminIdentity(auth: AdminAuth | null): { cidShortName: str
 }
 
 function AppInner() {
-  const { auth, setAuth, capabilities } = useAuth();
+  const { auth, setAuth, capabilities, passkeyState } = useAuth();
+  const authRef = useRef(auth);
+  authRef.current = auth;
   const requestedModule = new URLSearchParams(window.location.search).get('module');
   const [bootstrapping, setBootstrapping] = useState(true);
   const [cidMeta, setCidMeta] = useState<CidMetaResult | null>(null);
-  // 当前管理员是否已注册 passkey(null=未知);工作台据此决定注册局默认落点。
-  const [passkeyRegistered, setPasskeyRegistered] = useState<boolean | null>(null);
+  const passkeyRegistered = passkeyState.status === 'ready' ? passkeyState.registered : null;
 
   useEffect(() => {
     setCidMeta(null);
@@ -52,8 +52,11 @@ function AppInner() {
       }
       try {
         const checked = await checkAdminAuth(auth);
+        // 启动核验期间退出或换会话，迟到结果不得恢复旧登录态。
+        if (cancelled || authRef.current !== auth) return;
         const refreshedAuth: AdminAuth = {
           ...auth,
+          setupRequired: checked.setupRequired,
           accountId: checked.accountId,
           institutionCidNumber: checked.institutionCidNumber,
           institutionCode: checked.institutionCode,
@@ -70,7 +73,7 @@ function AppInner() {
         setAuth(refreshedAuth);
         writeStoredAuth(refreshedAuth);
       } catch {
-        if (!cancelled) {
+        if (!cancelled && authRef.current === auth) {
           clearStoredAuth();
           setAuth(null);
         }
@@ -84,26 +87,6 @@ function AppInner() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!auth) {
-      setPasskeyRegistered(null);
-      return;
-    }
-    let cancelled = false;
-    setPasskeyRegistered(null);
-    getPasskeyStatus(auth)
-      // 出错保守视为已注册,避免误锁定工作台入口。
-      .then((registered) => {
-        if (!cancelled) setPasskeyRegistered(registered);
-      })
-      .catch(() => {
-        if (!cancelled) setPasskeyRegistered(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [auth?.accountId, auth?.institutionCode]);
-
   const headerAdminIdentity = resolveHeaderAdminIdentity(auth);
 
   const onLogout = () => {
@@ -112,7 +95,6 @@ function AppInner() {
     setAuth(null);
     clearStoredAuth();
     setCidMeta(null);
-    setPasskeyRegistered(null);
     notice.success('已退出登录');
   };
 

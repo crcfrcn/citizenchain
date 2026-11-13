@@ -20,6 +20,7 @@ import {
   queryAdminQrLoginResult,
 } from './api';
 import { notice } from '../controls/notice';
+import { ApiError } from '../workspace/http';
 
 function createSessionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -47,6 +48,7 @@ export function LoginView() {
 
   const finishLogin = useCallback((accessToken: string, admin: AdminIdentifyResult) => {
     const nextAuth: AdminAuth = {
+      setupRequired: admin.setupRequired,
       accessToken: accessToken,
       accountId: admin.accountId,
       institutionCidNumber: admin.institutionCidNumber,
@@ -171,7 +173,10 @@ export function LoginView() {
   useEffect(() => {
     if (auth || !pendingQrLogin) return;
     let cancelled = false;
+    let polling = false;
     const timer = window.setInterval(async () => {
+      if (cancelled || polling) return;
+      polling = true;
       try {
         const status = await queryAdminQrLoginResult(
           pendingQrLogin.challengeId,
@@ -180,6 +185,7 @@ export function LoginView() {
         if (cancelled) return;
         if (status.status === 'PENDING') return;
         if (status.status === 'EXPIRED') {
+          window.clearInterval(timer);
           notice.warning('二维码已过期，请重新扫描管理员账户码');
           setPendingQrLogin(null);
           setDisplayName('');
@@ -188,8 +194,16 @@ export function LoginView() {
         if (status.status === 'SUCCESS' && status.accessToken && status.admin) {
           finishLogin(status.accessToken, status.admin);
         }
-      } catch {
-        // keep polling
+      } catch (error) {
+        if (cancelled) return;
+        if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 429) {
+          window.clearInterval(timer);
+          setPendingQrLogin(null);
+          notice.error(error, '登录状态查询失败，请重新扫描管理员账户码');
+        }
+        // 网络暂时失败或限流时沿用轮询；参数及鉴权拒绝不能无限重试。
+      } finally {
+        polling = false;
       }
     }, 1200);
     return () => {

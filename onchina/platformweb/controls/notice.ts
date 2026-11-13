@@ -88,6 +88,8 @@ function extractMessage(input: unknown, fallback: string): string {
 
 function apiErrorText(error: ApiError, fallback: string): string {
   if (error.status === 401) return '登录已过期，请重新登录';
+  // 参数提取器的非业务错误没有 code，不能把英文解析原文作为用户提示。
+  if (error.status === 400 && error.code === undefined) return '请求参数错误，请重试或联系管理员';
   // 403 既可能是通用权限不足,也可能是精确的跨省/跨市业务原因。
   // 后端已返回中文业务原因时优先展示,避免统一映射盖住真实问题。
   if (error.status === 403 && error.message && !isGenericForbiddenText(error.message)) {
@@ -115,6 +117,7 @@ function domExceptionText(error: DOMException, fallback: string): string {
 
 function translateErrorCode(code: string): string | null {
   const map: Record<string, string> = {
+    ONCHINA_PASSKEY_SETUP_REQUIRED: '请先完成 Passkey 密钥设置',
     ONCHINA_ACCOUNT_ID_EXISTS_AS_FEDERAL_REGISTRY_ADMIN: '该账户已是联邦注册局管理员，不能作为新账户使用',
     ONCHINA_ACCOUNT_ID_EXISTS_AS_CITY_REGISTRY_ADMIN: '该账户已是市注册局管理员，不能作为新账户使用',
     ONCHINA_ADMIN_REPLACEMENT_NOT_ONCHAIN: '新账户还不是链上有效管理员，不能完成更换',

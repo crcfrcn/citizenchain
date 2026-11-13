@@ -179,9 +179,6 @@ pub async fn upload_legal_representative_photo(
     if let Err(resp) = crate::authorization::rules::ensure_registry_admin(&ctx) {
         return resp;
     }
-    if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
-        return resp;
-    }
     if let Err(resp) =
         crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id)
     {
@@ -270,23 +267,13 @@ pub(crate) async fn update_institution(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let grant_payload = serde_json::json!({
-        "target": cid_number.clone(),
-        "cidNumber": cid_number.clone(),
-        "cidFullName": input.cid_full_name.clone(),
-        "parentCidNumber": input.parent_cid_number.clone(),
-        "familyName": input.family_name.clone(),
-        "givenName": input.given_name.clone(),
-        "representativeCid": input.representative_cid.clone(),
-        "photoPath": input.photo_path.clone(),
-    });
     if let Err(resp) = require_admin_security_grant(
         &state,
         &headers,
         &ctx,
         AdminActionType::InstitutionUpdate,
         cid_number.as_str(),
-        Some(&grant_payload),
+        None,
     ) {
         return resp;
     }

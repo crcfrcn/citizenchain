@@ -38,10 +38,85 @@ pub(crate) struct AdminSession {
     pub(crate) institution_code: String,
     /// 会话签发时命中的链上机构候选。每次鉴权必须与节点当前绑定严格一致。
     pub(crate) candidate_id: String,
+    /// 登录时已核验的上下文；业务读取只消费此快照，不重新读链鉴权。
+    pub(crate) institution_cid_number: String,
+    pub(crate) admin_level: Option<String>,
+    pub(crate) family_name: String,
+    pub(crate) given_name: String,
+    pub(crate) scope_province_name: Option<String>,
+    pub(crate) scope_city_name: Option<String>,
+    pub(crate) scope_town_name: Option<String>,
+    pub(crate) cid_short_name: Option<String>,
+    pub(crate) capabilities: crate::modules::capability::CapabilitySet,
+    pub(crate) workspace: crate::workspace::InstitutionWorkspace,
+    /// 首次密钥设置未完成时，只允许初始化通路；不保存凭证副本。
+    pub(crate) setup_required: bool,
     #[serde(with = "chrono::serde::ts_milliseconds")]
     pub(crate) expires_at: DateTime<Utc>,
     #[serde(with = "chrono::serde::ts_milliseconds")]
     pub(crate) last_active_at: DateTime<Utc>,
+}
+
+impl AdminSession {
+    pub(crate) fn new(
+        token: String,
+        candidate_id: String,
+        now: DateTime<Utc>,
+        admin: AdminIdentifyOutput,
+    ) -> Self {
+        Self {
+            token,
+            candidate_id,
+            expires_at: now + chrono::Duration::hours(8),
+            last_active_at: now,
+            account_id: admin.account_id,
+            institution_code: admin.institution_code,
+            institution_cid_number: admin.institution_cid_number,
+            admin_level: admin.admin_level,
+            family_name: admin.family_name,
+            given_name: admin.given_name,
+            scope_province_name: admin.scope_province_name,
+            scope_city_name: admin.scope_city_name,
+            scope_town_name: admin.scope_town_name,
+            cid_short_name: admin.cid_short_name,
+            capabilities: admin.capabilities,
+            workspace: admin.workspace,
+            setup_required: admin.setup_required,
+        }
+    }
+
+    pub(crate) fn context(&self) -> AdminAuthContext {
+        AdminAuthContext {
+            account_id: self.account_id.clone(),
+            institution_code: self.institution_code.clone(),
+            institution_cid_number: self.institution_cid_number.clone(),
+            admin_level: self.admin_level.clone(),
+            family_name: self.family_name.clone(),
+            given_name: self.given_name.clone(),
+            scope_province_name: self.scope_province_name.clone(),
+            scope_city_name: self.scope_city_name.clone(),
+            scope_town_name: self.scope_town_name.clone(),
+            cid_short_name: self.cid_short_name.clone(),
+        }
+    }
+
+    pub(crate) fn identify(&self) -> AdminIdentifyOutput {
+        AdminIdentifyOutput {
+            account_id: self.account_id.clone(),
+            institution_code: self.institution_code.clone(),
+            institution_cid_number: self.institution_cid_number.clone(),
+            admin_level: self.admin_level.clone(),
+            family_name: self.family_name.clone(),
+            given_name: self.given_name.clone(),
+            scope_province_name: self.scope_province_name.clone(),
+            scope_city_name: self.scope_city_name.clone(),
+            scope_town_name: self.scope_town_name.clone(),
+            cid_short_name: self.cid_short_name.clone(),
+            capabilities: self.capabilities,
+            workspace: self.workspace.clone(),
+            setup_required: self.setup_required,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +198,7 @@ pub struct AdminAuthContext {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AdminAuthOutput {
+    pub(crate) setup_required: bool,
     pub(crate) ok: bool,
     pub(crate) account_id: String,
     pub(crate) institution_cid_number: String,
@@ -140,9 +216,10 @@ pub(crate) struct AdminAuthOutput {
     pub(crate) cid_short_name: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AdminIdentifyOutput {
+    pub(crate) setup_required: bool,
     pub(crate) account_id: String,
     /// 扫码登录成功后由节点激活绑定派生，禁止浏览器自报。
     pub(crate) institution_cid_number: String,

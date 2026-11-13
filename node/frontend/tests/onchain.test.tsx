@@ -214,8 +214,8 @@ describe('钱包余额查询状态', () => {
     const view = render(<TransactionPanel nodeReady />);
     await waitFor(() => expect(oldRequests).toBe(1));
     fireEvent.click(screen.getByRole('button', { name: '钱包管理' }));
-    await screen.findByText('另一钱包 · Cold');
-    fireEvent.click(screen.getByText('另一钱包 · Cold'));
+    await screen.findByText('另一钱包');
+    fireEvent.click(screen.getByText('另一钱包'));
     await waitFor(() => expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('200.00 元'));
     await act(async () => oldRequest.resolve('999999'));
     expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('200.00 元');

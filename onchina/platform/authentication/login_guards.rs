@@ -1,6 +1,6 @@
 //! 登录会话鉴权守卫。
 //!
-//! 会话与管理员身份只读取结构化表。
+//! 普通读取只检查已签发会话，不重新核验链上管理员资格。
 //! 业务模块通过 `require_admin_any` 获取认证上下文;
 //! 写操作的冷钱包扫码签名(PasskeyColdSign 档)由 admins::actions 的安全 grant 单独校验。
 
@@ -15,174 +15,101 @@ use crate::authentication::repo;
 use crate::*;
 
 use super::model::AdminAuthContext;
-use super::signature::admin_person_names;
 
-pub(super) fn admin_auth(
+/// 会话恢复只读本地会话及绑定；资格与地域已在登录阶段验证。
+pub(crate) fn admin_session(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<AdminAuthContext, axum::response::Response> {
-    let Some(token) = bearer_token(headers) else {
-        return Err(api_error(
-            StatusCode::UNAUTHORIZED,
-            1002,
-            "admin auth required",
-        ));
-    };
-
+) -> Result<super::model::AdminSession, axum::response::Response> {
+    let token = bearer_token(headers)
+        .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, 1002, "admin auth required"))?;
     let now = Utc::now();
     let idle_timeout_minutes = std::env::var("ONCHINA_ADMIN_IDLE_TIMEOUT_MINUTES")
         .ok()
-        .and_then(|v| v.parse::<i64>().ok())
-        .filter(|v| *v > 0)
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0)
         .unwrap_or(10);
-
-    // 清理动作节流到 60 秒一次,避免高频鉴权请求都执行批量删除。
     static LAST_CLEANUP: AtomicI64 = AtomicI64::new(0);
-    let now_ts = now.timestamp();
     let last = LAST_CLEANUP.load(Ordering::Relaxed);
-    let should_cleanup = now_ts - last > 60
+    let cleanup = now.timestamp() - last > 60
         && LAST_CLEANUP
-            .compare_exchange(last, now_ts, Ordering::Relaxed, Ordering::Relaxed)
+            .compare_exchange(last, now.timestamp(), Ordering::Relaxed, Ordering::Relaxed)
             .is_ok();
-
     let result = state.db.with_client(move |conn| {
-        if should_cleanup {
+        if cleanup {
             repo::cleanup_admin_sessions_conn(conn, now, idle_timeout_minutes)?;
         }
-        let Some(mut session) = repo::get_admin_session_conn(conn, token.as_str())? else {
+        let Some(mut session) = repo::get_admin_session_conn(conn, &token)? else {
             return Err("http:unauthorized:invalid access token".to_string());
         };
-
-        let idle_expired = crate::chain_runtime::is_subordinate_registry(&session.institution_code)
-            && now > session.last_active_at + Duration::minutes(idle_timeout_minutes);
-        if now > session.expires_at || idle_expired {
-            conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token])
-                .map_err(|e| format!("delete expired admin session failed: {e}"))?;
+        let expired = now > session.expires_at
+            || (crate::chain_runtime::is_subordinate_registry(&session.institution_code)
+                && now > session.last_active_at + Duration::minutes(idle_timeout_minutes));
+        if expired {
+            conn.execute(
+                "DELETE FROM session WHERE token_hash=$1",
+                &[&repo::admin_session_token_hash(&token)],
+            )
+            .map_err(|error| error.to_string())?;
             return Err("http:unauthorized:access token expired".to_string());
         }
-
-        let Some(binding) = repo::get_active_node_binding_conn(conn)? else {
-            conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token])
-                .map_err(|e| format!("delete unbound admin session failed: {e}"))?;
-            return Err("http:unauthorized:invalid access token".to_string());
-        };
-        // 会话必须锁定到签发时的链上机构候选；解绑、重绑或机构切换后对应会话立即失效。
-        if session.candidate_id != binding.candidate_id
-            || session.institution_code != binding.institution_code
-        {
-            conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token])
-                .map_err(|e| format!("delete binding-mismatched admin session failed: {e}"))?;
-            return Err("http:unauthorized:invalid access token".to_string());
-        }
-
-        let admin = repo::get_admin_by_account_id_conn(conn, &session.account_id)?
-            .ok_or_else(|| "http:forbidden:admin not found".to_string())?;
-        if admin.institution_code != session.institution_code
-            || admin.institution_cid_number.as_deref()
-                != Some(binding.institution_cid_number.as_str())
-        {
-            conn.execute("DELETE FROM session WHERE token_hash = $1", &[&token])
-                .map_err(|e| format!("delete institution-mismatched admin session failed: {e}"))?;
+        let binding = repo::get_active_node_binding_conn(conn)?;
+        if !binding.as_ref().is_some_and(|binding| {
+            session.candidate_id == binding.candidate_id
+                && session.institution_code == binding.institution_code
+                && session.institution_cid_number == binding.institution_cid_number
+        }) {
+            conn.execute(
+                "DELETE FROM session WHERE token_hash=$1",
+                &[&repo::admin_session_token_hash(&token)],
+            )
+            .map_err(|error| error.to_string())?;
             return Err("http:unauthorized:invalid access token".to_string());
         }
         session.last_active_at = now;
         repo::touch_admin_session_conn(conn, &session)?;
-        let institution_code = admin.institution_code.clone();
-        let is_frg = crate::chain_runtime::is_tier1_registry(&institution_code);
-        let admin_level = crate::chain_runtime::admin_level_label_for(&institution_code);
-
-        // 省/市/镇作用域:与登录签发(onchain_gate)共用 derive_admin_scope_conn 单一来源,口径一致。
-        let (scope_province_name, scope_city_name, scope_town_name) =
-            repo::derive_admin_scope_conn(conn, &admin.account_id, &admin.institution_code)?;
-
-        // 全国级机构(NATIONAL,联邦注册局除外)无省维度;其余(含 FRG)必须有省作用域。
-        let national_no_province = !is_frg && admin_level.as_deref() == Some("NATIONAL");
-        if !is_frg
-            && !national_no_province
-            && scope_province_name
-                .as_deref()
-                .map(str::trim)
-                .unwrap_or("")
-                .is_empty()
-        {
-            return Err("http:forbidden:admin province scope missing".to_string());
-        }
-
-        let (family_name, given_name) = admin_person_names(&admin);
-        let cid_short_name = repo::resolve_home_cid_short_name_conn(
-            conn,
-            &admin.institution_code,
-            scope_province_name.as_deref(),
-            scope_city_name.as_deref(),
-        )?;
-        Ok(AdminAuthContext {
-            account_id: admin.account_id,
-            institution_cid_number: binding.institution_cid_number,
-            institution_code,
-            admin_level,
-            family_name,
-            given_name,
-            scope_province_name,
-            scope_city_name,
-            scope_town_name,
-            cid_short_name,
-        })
+        Ok(session)
     });
-
-    match result {
-        Ok(mut ctx) => {
-            if crate::chain_runtime::is_tier1_registry(&ctx.institution_code) {
-                ctx.scope_province_name = Some(
-                    crate::chain_runtime::current_frg_province_name_blocking(
-                        &ctx.institution_cid_number,
-                        &ctx.account_id,
-                    )
-                    .map_err(|_| {
-                        api_error(StatusCode::FORBIDDEN, 2002, "admin province scope missing")
-                    })?,
-                );
-                ctx.scope_city_name = None;
-                ctx.scope_town_name = None;
-            }
-            Ok(ctx)
+    result.map_err(|error| match error.as_str() {
+        "http:unauthorized:invalid access token" => {
+            api_error(StatusCode::UNAUTHORIZED, 1002, "invalid access token")
         }
-        Err(err) if err == "http:unauthorized:invalid access token" => Err(api_error(
-            StatusCode::UNAUTHORIZED,
-            1002,
-            "invalid access token",
-        )),
-        Err(err) if err == "http:unauthorized:access token expired" => Err(api_error(
-            StatusCode::UNAUTHORIZED,
-            1002,
-            "access token expired",
-        )),
-        Err(err) if err == "http:forbidden:admin not found" => {
-            Err(api_error(StatusCode::FORBIDDEN, 2002, "admin not found"))
+        "http:unauthorized:access token expired" => {
+            api_error(StatusCode::UNAUTHORIZED, 1002, "access token expired")
         }
-        Err(err) if err == "http:forbidden:admin province scope missing" => Err(api_error(
-            StatusCode::FORBIDDEN,
-            2002,
-            "admin province scope missing",
-        )),
-        Err(err) => {
-            let message = format!("admin auth failed: {err}");
-            Err(api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                5001,
-                message.as_str(),
-            ))
-        }
-    }
+        _ => api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            5001,
+            &format!("admin session failed: {error}"),
+        ),
+    })
 }
 
+/// 设置初始化、会话检查等入口使用有效会话，不要求已有凭证。
+pub fn require_admin_session(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<AdminAuthContext, axum::response::Response> {
+    admin_session(state, headers).map(|session| session.context())
+}
+
+/// 所有业务读取和写入都先完成强制设置；此处不读链、不消费Passkey。
 pub fn require_admin_any(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<AdminAuthContext, axum::response::Response> {
-    admin_auth(state, headers)
+    let session = admin_session(state, headers)?;
+    if session.setup_required {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            2003,
+            "passkey setup required",
+        ));
+    }
+    Ok(session.context())
 }
 
-pub(super) fn bearer_token(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn bearer_token(headers: &HeaderMap) -> Option<String> {
     let auth = headers.get("authorization")?.to_str().ok()?.trim();
     let token = auth.strip_prefix("Bearer ")?;
     if token.trim().is_empty() {

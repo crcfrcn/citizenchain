@@ -253,22 +253,13 @@ pub(crate) async fn upload_document(
     if !super::valid_file_size(file_data.len()) {
         return api_error(StatusCode::BAD_REQUEST, 1001, "文件大小不能超过 10MB");
     }
-    let grant_payload = serde_json::json!({
-        "target": cid_number.clone(),
-        "fileName": file_name.clone(),
-        "docType": doc_type.clone(),
-        "fileSize": file_data.len(),
-    });
-    if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
-        return resp;
-    }
     if let Err(resp) = require_admin_security_grant(
         &state,
         &headers,
         &ctx,
         AdminActionType::InstitutionUploadDocument,
         cid_number.as_str(),
-        Some(&grant_payload),
+        None,
     ) {
         return resp;
     }
@@ -460,21 +451,13 @@ pub(crate) async fn delete_document(
             );
         }
     };
-    let grant_payload = serde_json::json!({
-        "target": cid_number.clone(),
-        "docId": doc_id,
-        "fileName": doc.file_name.clone(),
-    });
-    if let Err(resp) = crate::authentication::actions::require_current_admin(&state, &ctx).await {
-        return resp;
-    }
     if let Err(resp) = require_admin_security_grant(
         &state,
         &headers,
         &ctx,
         AdminActionType::InstitutionDeleteDocument,
         cid_number.as_str(),
-        Some(&grant_payload),
+        None,
     ) {
         return resp;
     }

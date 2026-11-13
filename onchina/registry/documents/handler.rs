@@ -342,9 +342,6 @@ pub(crate) async fn upload_citizen_document(
     }
 
     // 公民资料属于本地写，必须先消费一次性 Passkey 再创建文件或元数据。
-    if let Err(resp) = onchina::authentication::actions::require_current_admin(&state, &ctx).await {
-        return resp;
-    }
     if let Err(resp) = onchina::authentication::passkey::require_passkey_assertion(
         &state,
         &headers,
@@ -508,9 +505,6 @@ pub(crate) async fn delete_citizen_document(
     }) else {
         return api_error(StatusCode::NOT_FOUND, 1004, "公民资料不存在");
     };
-    if let Err(resp) = onchina::authentication::actions::require_current_admin(&state, &ctx).await {
-        return resp;
-    }
     if let Err(resp) = onchina::authentication::passkey::require_passkey_assertion(
         &state,
         &headers,

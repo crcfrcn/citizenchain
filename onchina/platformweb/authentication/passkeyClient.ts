@@ -113,6 +113,8 @@ function passkeyBrowserError(error: unknown, fallback: string): Error {
 /** 注册一个新的 passkey 到当前管理员账户。 */
 export async function registerPasskey(auth: AdminAuth): Promise<void> {
   ensurePasskeyAvailable();
+  // 首次强制初始化不能要求尚不存在的旧密钥；已有凭证变更验证一次现有Passkey。
+  const assertion = auth.setupRequired ? null : await assertPasskey(auth);
   const begin = await adminRequest<PasskeyBeginResponse<ServerCreationOptions>>(
     "/api/admin/auth/passkey/register/begin",
     auth,
@@ -158,7 +160,7 @@ export async function registerPasskey(auth: AdminAuth): Promise<void> {
   };
   await adminRequest("/api/admin/auth/passkey/register/finish", auth, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(assertion ? { [PASSKEY_ASSERTION_HEADER]: assertion } : {}) },
     body: JSON.stringify(body),
   });
 }
@@ -227,6 +229,7 @@ export async function getPasskeyStatus(auth: AdminAuth): Promise<boolean> {
     auth,
     { method: "GET" },
   );
+  if (typeof result.registered !== 'boolean') throw new Error('密钥状态响应格式错误');
   return result.registered;
 }
 

@@ -3,10 +3,6 @@ import { passkeySubmitHeaders } from '@gmb/onchina-platform/authentication/secur
 // 本文件只负责封装共用 HTTP、查重、证件照、详情和参与主体共享接口。
 
 import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';
-import {
-  securityGrantSubmitHeaders,
-  type AdminSecurityGrantOutput,
-} from '@gmb/onchina-platform/authentication/security';
 import { adminRequest } from '@gmb/onchina-platform/http';
 import type {
   CreateInstitutionInput,
@@ -128,31 +124,13 @@ export async function searchParentInstitutions(
   );
 }
 
-export function buildInstitutionUpdateSecurityPayload(
-  cidNumber: string,
-  input: UpdateInstitutionInput,
-) {
-  return {
-    target: cidNumber,
-    cidNumber: cidNumber,
-    cidFullName: input.cidFullName ?? null,
-    parentCidNumber: input.parentCidNumber ?? null,
-    familyName: input.familyName ?? null,
-    givenName: input.givenName ?? null,
-    representativeCid: input.representativeCid ?? null,
-    photoPath: input.photoPath ?? null,
-  };
-}
-
-// 更新机构属 PASSKEY_COLD_SIGN 操作:
-// 授权 payload 只绑定后端实际校验字段;正式提交必须同时携带冷签 grant 与 Passkey assertion。
+// 本地机构资料保存只消费一次Passkey，不创建冷签grant。
 export async function updateInstitution(
   auth: AdminAuth,
   cidNumber: string,
   input: UpdateInstitutionInput,
-  securityGrant: AdminSecurityGrantOutput,
 ): Promise<Institution> {
-  const headers = await securityGrantSubmitHeaders(auth, securityGrant, {
+  const headers = await passkeySubmitHeaders(auth, {
     'content-type': 'application/json',
   });
   return adminRequest<Institution>(

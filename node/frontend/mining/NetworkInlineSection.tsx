@@ -54,7 +54,7 @@ export function NetworkInlineSection() {
   }, [loadNetwork]);
 
   const nodes = [
-    { name: '在线节点', value: network.onlineNodes },
+    { name: '全部节点', value: network.onlineNodes },
     { name: '国家储委会', value: network.nrcNodes },
     { name: '省储委会', value: network.prcNodes },
     { name: '省储行', value: network.prbNodes },

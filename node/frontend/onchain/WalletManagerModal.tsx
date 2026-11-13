@@ -19,9 +19,9 @@ type Props = {
 function signModeLabel(signMode: SignMode): string {
   switch (signMode) {
     case 'hot':
-      return 'Hot';
+      return '热钱包';
     case 'cold':
-      return 'Cold';
+      return '冷钱包';
     default:
       throw new Error(`不支持的 signMode: ${String(signMode)}`);
   }
@@ -110,10 +110,17 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
   return (
     <div className="wallet-manager-modal-mask" onClick={onClose}>
       <div className="wallet-manager-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>
-          钱包管理
-          <span className="wallet-manager-close" onClick={onClose}>&times;</span>
-        </h3>
+        <header className="wallet-manager-header">
+          <button
+            className="wallet-manager-add"
+            disabled={adding || !name.trim() || !address.trim()}
+            onClick={handleAdd}
+          >
+            {adding ? '添加中...' : '添加'}
+          </button>
+          <h3>钱包管理</h3>
+          <button type="button" className="wallet-manager-close" onClick={onClose} aria-label="关闭钱包管理">&times;</button>
+        </header>
 
         {error && <div className="error">{error}</div>}
 
@@ -126,32 +133,23 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
             onChange={(e) => setName(e.target.value)}
             className="wallet-add-input"
           />
-          <div className="address-input-row">
-            <input
-              type="text"
-              placeholder={ADDRESS_INPUT_PLACEHOLDER}
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              className="wallet-add-input"
-            />
-            <button type="button" className="scan-icon-btn" onClick={() => setShowScan(true)} title="扫码填入">
-              <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url("${scanIcon}")`,WebkitMaskImage:`url("${scanIcon}")`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
-            </button>
-          </div>
-          {showScan && (
-            <AddressScanModal
-              onResult={(result) => { setAddress(result.ss58Address); setShowScan(false); }}
-              onClose={() => setShowScan(false)}
-            />
-          )}
-          <button
-            className="wallet-add-btn-half"
-            disabled={adding || !name.trim() || !address.trim()}
-            onClick={handleAdd}
-          >
-            {adding ? '添加中...' : '添加冷钱包'}
+          <input
+            type="text"
+            placeholder={ADDRESS_INPUT_PLACEHOLDER}
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            className="wallet-add-input"
+          />
+          <button type="button" className="scan-icon-btn" onClick={() => setShowScan(true)} title="扫码填入">
+            <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url("${scanIcon}")`,WebkitMaskImage:`url("${scanIcon}")`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
           </button>
         </div>
+        {showScan && (
+          <AddressScanModal
+            onResult={(result) => { setAddress(result.ss58Address); setShowScan(false); }}
+            onClose={() => setShowScan(false)}
+          />
+        )}
 
         {/* 分割线 */}
         <hr className="wallet-divider" />
@@ -173,9 +171,11 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
                   type="radio"
                   checked={w.accountId === activeAccountId}
                   readOnly
-                  className="wallet-radio"
+                  className={`wallet-radio ${w.signMode}`}
+                  title={signModeLabel(w.signMode)}
+                  aria-label={`${w.name}（${signModeLabel(w.signMode)}）`}
                 />
-                <span className="wallet-row-name">{w.name} · {signModeLabel(w.signMode)}</span>
+                <span className="wallet-row-name">{w.name}</span>
                 <span className="wallet-row-address">{accountIdToSs58(w.accountId)}</span>
                 <span className="wallet-row-balance" title={bal?.status === 'error' ? bal.message : undefined}>
                   {bal?.status === 'ready' ? `${fenToYuan(bal.balance)} 元`

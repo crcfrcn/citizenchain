@@ -1,4 +1,4 @@
-//! 管理员安全动作:会话 + QR_V1 冷钱包扫码签名(PasskeyColdSign 档)。
+//! 管理员安全动作：本地写只消费一次Passkey，链上操作另验证真实冷签。
 //!
 //! 管理员治理动作、业务安全授权和短期挑战全部使用结构化表;
 //! PasskeyColdSign 档 commit 校验冷钱包签名且 signer 须 ∈ 本机构链上 Active 集合。
@@ -187,14 +187,6 @@ async fn ensure_account_id_on_chain_admin(
         return Err(api_error(StatusCode::FORBIDDEN, 2002, message));
     }
     Ok(())
-}
-
-/// 本地敏感写也复核当前链上成员，不能利用后台会话清退间隔继续写入。
-pub async fn require_current_admin(
-    state: &AppState,
-    ctx: &AdminAuthContext,
-) -> Result<(), axum::response::Response> {
-    ensure_signer_on_chain_admin(&state.db, &ctx.institution_cid_number, &ctx.account_id).await
 }
 
 /// 校验扫码签名 signer ∈ 本机构链上 Active 管理员集合(冷签 step-up,与登录同源)。
@@ -443,7 +435,7 @@ pub(crate) async fn commit_admin_action(
             "admin action auth type mismatch",
         );
     }
-    // 本地解绑只校验 Passkey；冷签动作继续验证原钱包签名，不增加第二次冷签。
+    // 本地目录维护和解绑只校验Passkey；三级动作验证钱包签名。
     if challenge.auth_type == AdminOperationAuth::PasskeyColdSign {
         let account_id = match input.account_id.as_deref() {
             Some(v) => v,
@@ -481,13 +473,6 @@ pub(crate) async fn commit_admin_action(
             &ctx.account_id,
         ) {
             return resp;
-        }
-        if challenge.auth_type == AdminOperationAuth::Passkey {
-            if let Err(resp) =
-                ensure_signer_on_chain_admin(&state.db, &actor_cid_number, &ctx.account_id).await
-            {
-                return resp;
-            }
         }
     }
     let result = state.db.with_client({
@@ -613,16 +598,16 @@ pub(crate) fn consume_admin_security_grant(
     axum::response::Response,
 > {
     ensure_action_role_allowed(ctx, &action_type)?;
-    // PasskeyColdSign 档:先消费 passkey 断言(fail-closed,绝不降档),再消费冷签 grant。
-    let passkey =
-        crate::authentication::passkey::require_passkey_assertion(state, headers, &ctx.account_id)?;
-    if action_type.auth_type() == AdminOperationAuth::Passkey {
+    if action_type.auth_type() != AdminOperationAuth::PasskeyColdSign {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
             1001,
             "security grant is not available for passkey action",
         ));
     }
+    // 三级操作才消费冷签grant；本地写不得进入此分支。
+    let passkey =
+        crate::authentication::passkey::require_passkey_assertion(state, headers, &ctx.account_id)?;
     let actor_cid_number = actor_cid_number_for_context(&state.db, ctx)?;
     let grant_id = headers
         .get(ADMIN_SECURITY_GRANT_HEADER)

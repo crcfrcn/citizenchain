@@ -853,7 +853,7 @@ pub(crate) async fn internal_workspace(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Response {
-    let ctx = match crate::require_admin_any(&state, &headers) {
+    let ctx = match crate::authentication::login::require_admin_session(&state, &headers) {
         Ok(ctx) => ctx,
         Err(response) => return response,
     };

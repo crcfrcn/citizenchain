@@ -76,7 +76,7 @@ fn ordinary_institution_cannot_prepare_registry_business() {
 }
 
 #[test]
-fn passkey_prepare_is_limited_to_node_unbind() {
+fn passkey_prepare_is_limited_to_local_governance() {
     assert!(AdminActionType::NodeBindingUnbind.can_prepare());
     assert!(!AdminActionType::InstitutionUploadDocument.can_prepare());
     assert!(!AdminActionType::InstitutionDeleteDocument.can_prepare());
@@ -169,10 +169,10 @@ fn expected_tier(action: &AdminActionType) -> AdminOperationAuth {
         A::NodeBindingUnbind => Passkey,
         A::CitizenOnchainPush => Passkey,
         // 链上写:产生链上交易/凭证、改 Active 集合或高危治理。
-        A::CreateCityRegistry => PasskeyColdSign,
-        A::DeleteCityRegistry => PasskeyColdSign,
+        A::CreateCityRegistry => Passkey,
+        A::DeleteCityRegistry => Passkey,
         A::InstitutionCreate => PasskeyColdSign,
-        A::InstitutionUpdate => PasskeyColdSign,
+        A::InstitutionUpdate => Passkey,
         A::InstitutionCreateAccount => PasskeyColdSign,
         A::InstitutionDeleteAccount => PasskeyColdSign,
         A::ProposeEnactLaw => PasskeyColdSign,
@@ -295,9 +295,9 @@ fn tier_membership_counts_are_pinned() {
         .iter()
         .filter(|a| a.auth_type() == AdminOperationAuth::PasskeyColdSign)
         .count();
-    assert_eq!(passkey, 4, "本地写(Passkey)档动作数变化,必须显式确认");
+    assert_eq!(passkey, 7, "本地写(Passkey)档动作数变化,必须显式确认");
     assert_eq!(
-        cold_sign, 16,
+        cold_sign, 13,
         "链上写(PasskeyColdSign)档动作数变化,必须显式确认"
     );
     assert_eq!(passkey + cold_sign, ALL_ACTIONS.len());

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { Alert, Card } from 'antd';
 import { type AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import { type CapabilitySet } from '@gmb/onchina-platform/authentication/Context';
 import { type CidMetaResult } from '@gmb/onchina-platform/codes/api';
@@ -66,7 +67,7 @@ function registryAdminListView(institutionCode: string | null | undefined): Acti
   return null;
 }
 
-function firstBusinessView(capabilities: CapabilitySet): ActiveView {
+function firstBusinessView(capabilities: CapabilitySet): ActiveView | null {
   if (capabilities.canViewCitizens) return 'citizens';
   if (capabilities.canViewInstitutions) return 'gov';
   if (capabilities.canViewPrivate) return 'private-sole';
@@ -75,7 +76,7 @@ function firstBusinessView(capabilities: CapabilitySet): ActiveView {
   if (capabilities.canViewFederalRegistry) return 'federal-registry';
   if (capabilities.canViewLegislation) return 'legislation';
   if (capabilities.canViewOwnAdmins) return 'own-admins';
-  return 'citizens';
+  return null;
 }
 
 export function RegistryWorkspace({
@@ -85,28 +86,10 @@ export function RegistryWorkspace({
   cidMeta,
   setCidMeta,
 }: RegistryWorkspaceProps) {
-  const [activeView, setActiveView] = useState<ActiveView>('citizens');
+  const [selection, setSelection] = useState<{
+    accountId: string; institutionCidNumber: string; view: ActiveView;
+  } | null>(null);
   const [viewResetToken, setViewResetToken] = useState(0);
-  const [hasInitializedView, setHasInitializedView] = useState(false);
-
-  useEffect(() => {
-    setHasInitializedView(false);
-    setActiveView('citizens');
-    setViewResetToken((v) => v + 1);
-  }, [auth.accountId, auth.institutionCode]);
-
-  useEffect(() => {
-    if (!auth.institutionCode) return;
-    if (passkeyRegistered === null) return;
-    if (hasInitializedView) return;
-    setHasInitializedView(true);
-    const adminListTab = registryAdminListView(auth.institutionCode);
-    if (!passkeyRegistered) {
-      setActiveView(adminListTab ?? firstBusinessView(capabilities));
-      return;
-    }
-    setActiveView(firstBusinessView(capabilities));
-  }, [auth.institutionCode, capabilities, passkeyRegistered, hasInitializedView]);
 
   const loadCidMetaForInstitutions = async () => {
     if (cidMeta) return;
@@ -119,58 +102,59 @@ export function RegistryWorkspace({
   };
 
   const switchView = async (view: ActiveView, options?: { loadCidMeta?: boolean }) => {
-    setActiveView(view);
+    setSelection({ accountId: auth.accountId, institutionCidNumber: auth.institutionCidNumber, view });
     setViewResetToken((v) => v + 1);
     if (options?.loadCidMeta) await loadCidMetaForInstitutions();
   };
 
-  const routedPrivateType = privateTypeForView(activeView);
   const passkeyLockedRegistryView = passkeyRegistered === false ? registryAdminListView(auth.institutionCode) : null;
+  const tabs = ([
+    { key: 'citizens' as const, title: '公民', visible: capabilities.canViewCitizens, onClick: () => switchView('citizens') },
+    { key: 'private-sole' as const, title: '个体经营', visible: capabilities.canViewPrivate, onClick: () => switchView('private-sole', { loadCidMeta: true }) },
+    { key: 'private-partnership' as const, title: '合伙企业', visible: capabilities.canViewPrivate, onClick: () => switchView('private-partnership', { loadCidMeta: true }) },
+    { key: 'private-company' as const, title: '股权公司', visible: capabilities.canViewPrivate, onClick: () => switchView('private-company', { loadCidMeta: true }) },
+    { key: 'private-corporation' as const, title: '股份公司', visible: capabilities.canViewPrivate, onClick: () => switchView('private-corporation', { loadCidMeta: true }) },
+    { key: 'private-welfare' as const, title: '公益组织', visible: capabilities.canViewPrivate, onClick: () => switchView('private-welfare', { loadCidMeta: true }) },
+    { key: 'private-association' as const, title: '注册协会', visible: capabilities.canViewPrivate, onClick: () => switchView('private-association', { loadCidMeta: true }) },
+    {
+      key: 'education' as const,
+      title: '教育机构',
+      visible: capabilities.canViewEducation,
+      onClick: () => switchView('education', { loadCidMeta: true }),
+    },
+    {
+      key: 'gov' as const,
+      title: '公权机构',
+      visible: capabilities.canViewInstitutions,
+      onClick: () => switchView('gov', { loadCidMeta: true }),
+    },
+    { key: 'address' as const, title: '地址库', visible: capabilities.canViewInstitutions, onClick: () => switchView('address') },
+    { key: 'legislation' as const, title: '立法与表决', visible: capabilities.canViewLegislation, onClick: () => switchView('legislation') },
+    { key: 'own-admins' as const, title: '本机构管理员', visible: capabilities.canViewOwnAdmins, onClick: () => switchView('own-admins') },
+    { key: 'city-registry' as const, title: '市注册局', visible: capabilities.canViewCityRegistry, onClick: () => switchView('city-registry') },
+    { key: 'federal-registry' as const, title: '联邦注册局', visible: capabilities.canViewFederalRegistry, onClick: () => switchView('federal-registry') },
+  ] as const).filter((tab) => tab.visible && (!passkeyLockedRegistryView || tab.key === passkeyLockedRegistryView));
+  // 第一帧只选取最终可见页面；保留原两个注册局Tab及未设置密钥时的限制。
+  const defaultView = passkeyLockedRegistryView ?? firstBusinessView(capabilities);
+  const selectedView = selection?.accountId === auth.accountId
+    && selection.institutionCidNumber === auth.institutionCidNumber ? selection.view : null;
+  const activeView = tabs.some(tab => tab.key === selectedView) ? selectedView
+    : tabs.find(tab => tab.key === defaultView)?.key ?? tabs[0]?.key ?? null;
+  if (passkeyRegistered === null) return <Card bordered={false} loading />;
+  if (!activeView) return <Alert type="info" showIcon message="当前身份没有可访问的工作台入口" />;
+  const routedPrivateType = privateTypeForView(activeView);
 
   return (
     <>
       <div
         style={{
-          display: 'flex',
-          gap: 6,
-          marginBottom: 20,
-          padding: '8px 12px',
-          background: 'rgba(255,255,255,0.08)',
-          backdropFilter: 'blur(12px)',
-          borderRadius: 14,
-          border: '1px solid rgba(255,255,255,0.1)',
-          width: 'fit-content',
-          flexWrap: 'wrap',
+          display: 'flex', gap: 6, marginBottom: 20, padding: '8px 12px',
+          background: 'rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)',
+          borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)',
+          width: 'fit-content', flexWrap: 'wrap',
         }}
       >
-        {([
-          { key: 'citizens' as const, title: '公民', visible: capabilities.canViewCitizens, onClick: () => switchView('citizens') },
-          { key: 'private-sole' as const, title: '个体经营', visible: capabilities.canViewPrivate, onClick: () => switchView('private-sole', { loadCidMeta: true }) },
-          { key: 'private-partnership' as const, title: '合伙企业', visible: capabilities.canViewPrivate, onClick: () => switchView('private-partnership', { loadCidMeta: true }) },
-          { key: 'private-company' as const, title: '股权公司', visible: capabilities.canViewPrivate, onClick: () => switchView('private-company', { loadCidMeta: true }) },
-          { key: 'private-corporation' as const, title: '股份公司', visible: capabilities.canViewPrivate, onClick: () => switchView('private-corporation', { loadCidMeta: true }) },
-          { key: 'private-welfare' as const, title: '公益组织', visible: capabilities.canViewPrivate, onClick: () => switchView('private-welfare', { loadCidMeta: true }) },
-          { key: 'private-association' as const, title: '注册协会', visible: capabilities.canViewPrivate, onClick: () => switchView('private-association', { loadCidMeta: true }) },
-          {
-            key: 'education' as const,
-            title: '教育机构',
-            visible: capabilities.canViewEducation,
-            onClick: () => switchView('education', { loadCidMeta: true }),
-          },
-          {
-            key: 'gov' as const,
-            title: '公权机构',
-            visible: capabilities.canViewInstitutions,
-            onClick: () => switchView('gov', { loadCidMeta: true }),
-          },
-          { key: 'address' as const, title: '地址库', visible: capabilities.canViewInstitutions, onClick: () => switchView('address') },
-          { key: 'legislation' as const, title: '立法与表决', visible: capabilities.canViewLegislation, onClick: () => switchView('legislation') },
-          { key: 'own-admins' as const, title: '本机构管理员', visible: capabilities.canViewOwnAdmins, onClick: () => switchView('own-admins') },
-          { key: 'city-registry' as const, title: '市注册局', visible: capabilities.canViewCityRegistry, onClick: () => switchView('city-registry') },
-          { key: 'federal-registry' as const, title: '联邦注册局', visible: capabilities.canViewFederalRegistry, onClick: () => switchView('federal-registry') },
-        ] as const)
-          .filter((tab) => tab.visible && (!passkeyLockedRegistryView || tab.key === passkeyLockedRegistryView))
-          .map((tab) => (
+        {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={tab.onClick}
@@ -218,7 +202,9 @@ export function RegistryWorkspace({
       ) : activeView === 'legislation' && capabilities.canViewLegislation ? (
         <LegislationView key={`legislation-${viewResetToken}`} auth={auth} />
       ) : (
-        <CitizensView />
+        activeView === 'citizens' && capabilities.canViewCitizens
+          ? <CitizensView />
+          : <Alert type="info" showIcon message="当前身份没有可访问的工作台入口" />
       )}
     </>
   );

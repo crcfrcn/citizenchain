@@ -4,6 +4,7 @@ import type { TransferDraft, Wallet, WalletStore, WalletBalanceState } from "./t
 import { WalletManagerModal } from "./WalletManagerModal";
 import { TransferForm } from "./TransferForm";
 import { TransferSigningFlow } from "./TransferSigningFlow";
+import { MetricHelp } from "../desktop/MetricHelp";
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 export function TransactionPanel({ nodeReady }: { nodeReady: boolean }) {
@@ -81,7 +82,16 @@ export function TransactionPanel({ nodeReady }: { nodeReady: boolean }) {
   return (
     <div className="transaction-panel">
       <div className="transaction-panel-header">
-        <h2>链上交易</h2>
+        <div className="transaction-panel-heading">
+          <h2>转账</h2>
+          <MetricHelp title="链上转账说明" items={[
+            '链上转账交易是指将交易发送到完全去中心化的公民区块链网络进行的转账交易。',
+            '链上转账交易支持公民链和以太坊，可在收款地址栏输入公民链账户或以太坊账户。',
+            '转账支持矿工热钱包或冷钱包，可在钱包管理中添加更多冷钱包，冷钱包使用扫码签名。',
+            '签名交易完成后，等待权威节点完成最终性确认，最终性确认后，转账交易将永久固化。',
+            <>权威节点由1个国家储委会节点+43个省储委会节点组成，<strong>达30个节点验证即可形成最终性。</strong></>,
+          ]} />
+        </div>
         <button className="wallet-manage-btn" onClick={() => setShowWalletModal(true)}>
           钱包管理
         </button>
@@ -99,6 +109,12 @@ export function TransactionPanel({ nodeReady }: { nodeReady: boolean }) {
         onSubmit={handleTransferSubmit}
         disabled={signingFlow != null}
       />
+
+      <div className="transfer-principle-note">
+        <p>
+          先有人类后有国家，是公民建立国家，国家是公民的国家，是公民治理国家，而不是国家统治公民。遵守公民宪法，加入公民链网络、使用公民币、做自由公民。
+        </p>
+      </div>
 
       {signingFlow && activeWallet && (
         <TransferSigningFlow

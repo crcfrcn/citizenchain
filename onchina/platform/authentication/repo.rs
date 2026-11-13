@@ -47,17 +47,7 @@ fn binding_from_row(row: &postgres::Row) -> Result<NodeInstitutionBinding, Strin
     })
 }
 
-// Tier1 创世注册局管理员「全走链读」：管理员账户 ID 来自 FRG AdminAccounts，
-// 省维度只来自 InstitutionRoleAssignments；本地不得建立权限缓存。
-
-pub(crate) fn get_admin_by_account_id(
-    db: &Db,
-    account_id: &str,
-) -> Result<Option<AdminUser>, String> {
-    let account_id = account_id.trim().to_string();
-    db.with_client(move |conn| get_admin_by_account_id_conn(conn, account_id.as_str()))
-}
-
+// 登录时从链上验证管理员及省任职；本地管理员行只保留元数据，会话保存本次已验证上下文。
 pub fn get_admin_by_account_id_conn(
     conn: &mut impl postgres::GenericClient,
     account_id: &str,
@@ -84,37 +74,6 @@ type BindingCandidateMetadata = (
     String,
     String,
 );
-
-/// 派生管理员的省/市/镇作用域。登录签发与会话重建共用此唯一入口：
-/// FRG 在连接池外读取当前账户的链上任职；本函数只解析其它机构的行政区元数据。
-/// 其它机构按绑定 CID 的机构行政区投影解析。绑定缺失或机构不一致一律失败关闭。
-pub(crate) fn derive_admin_scope_conn(
-    conn: &mut impl postgres::GenericClient,
-    account_id: &str,
-    institution_code: &str,
-) -> Result<AdminScope, String> {
-    let Some(admin) = get_admin_by_account_id_conn(conn, account_id)? else {
-        return Err("admin not found while deriving authorization scope".to_string());
-    };
-    if admin.institution_code != institution_code {
-        return Err("admin institution does not match requested authorization scope".to_string());
-    }
-    let Some(binding) = get_active_node_binding_conn(conn)? else {
-        return Err("active node binding is required for authorization scope".to_string());
-    };
-    if binding.institution_code != institution_code {
-        return Err("active node binding institution mismatch".to_string());
-    }
-    if crate::chain_runtime::is_tier1_registry(institution_code) {
-        return Ok((None, None, None));
-    }
-    authorization_scope_from_identity_conn(
-        conn,
-        binding.institution_code.as_str(),
-        binding.institution_cid_number.as_str(),
-        None,
-    )
-}
 
 /// 解析当前管理员所属机构的 cid_short_name 单一字段。
 /// 联邦注册局管理员 → institution_code='FRG' 的全局唯一机构(总统府联邦注册局,简称=联邦注册局);
@@ -165,25 +124,6 @@ pub(crate) fn resolve_home_cid_short_name_conn(
         .map_err(|e| format!("query institution short name failed: {e}"))?
     };
     Ok(row.and_then(|r| r.get::<usize, Option<String>>(0)))
-}
-
-pub(crate) fn resolve_home_cid_short_name(
-    db: &Db,
-    institution_code: &str,
-    scope_province_name: Option<&str>,
-    scope_city_name: Option<&str>,
-) -> Result<Option<String>, String> {
-    let institution_code = institution_code.to_string();
-    let province = scope_province_name.map(str::to_string);
-    let city = scope_city_name.map(str::to_string);
-    db.with_client(move |conn| {
-        resolve_home_cid_short_name_conn(
-            conn,
-            institution_code.as_str(),
-            province.as_deref(),
-            city.as_deref(),
-        )
-    })
 }
 
 pub(crate) fn resolve_binding_candidate_metadata_conn(
@@ -749,10 +689,8 @@ pub(crate) fn get_admin_session_conn(
             &[&token_hash],
         )
         .map_err(|e| format!("query session failed: {e}"))?;
-    let mut session = row
-        .map(|row| serde_json::from_value::<AdminSession>(row.get(0)))
-        .transpose()
-        .map_err(|e| format!("decode session failed: {e}"))?;
+    // 缺少完整登录快照的旧会话无效，要求重新登录；不建立旧结构兼容分支。
+    let mut session = row.and_then(|row| serde_json::from_value::<AdminSession>(row.get(0)).ok());
     // 只有本次请求持有原令牌；JSON不保存其副本，后续touch仍按同一输入定位。
     if let Some(session) = session.as_mut() {
         session.token = token.to_string();
@@ -764,7 +702,37 @@ pub(crate) fn touch_admin_session_conn(
     conn: &mut impl postgres::GenericClient,
     session: &AdminSession,
 ) -> Result<(), String> {
-    insert_admin_session_conn(conn, session)
+    // 活动时间不能覆盖并发完成的密钥设置阶段或登录上下文。
+    let token_hash = admin_session_token_hash(&session.token);
+    let active_at = session.last_active_at.timestamp_millis();
+    conn.execute("UPDATE session SET payload_json=jsonb_set(payload_json,'{lastActiveAt}',to_jsonb($2::bigint)) WHERE token_hash=$1", &[&token_hash,&active_at])
+        .map_err(|e| format!("touch session failed: {e}"))?;
+    Ok(())
+}
+
+pub(crate) fn complete_passkey_setup_conn(
+    conn: &mut impl postgres::GenericClient,
+    account_id: &str,
+    candidate_id: &str,
+) -> Result<(), String> {
+    conn.execute("UPDATE session SET payload_json=jsonb_set(payload_json,'{setupRequired}','false'::jsonb) WHERE payload_json->>'accountId'=$1 AND payload_json->>'candidateId'=$2 AND payload_json ? 'setupRequired'", &[&account_id,&candidate_id])
+        .map_err(|e| format!("complete session setup failed: {e}"))?;
+    Ok(())
+}
+
+pub(crate) fn update_session_workspace_conn(
+    conn: &mut impl postgres::GenericClient,
+    token: &str,
+    workspace: &crate::workspace::InstitutionWorkspace,
+) -> Result<(), String> {
+    let token_hash = admin_session_token_hash(token);
+    let workspace = serde_json::to_value(workspace).map_err(|e| e.to_string())?;
+    let count = conn.execute("UPDATE session SET payload_json=jsonb_set(payload_json,'{workspace}',$2) WHERE token_hash=$1", &[&token_hash,&workspace])
+        .map_err(|e| format!("complete login workspace failed: {e}"))?;
+    if count != 1 {
+        return Err("login session is no longer valid".into());
+    }
+    Ok(())
 }
 
 pub(crate) fn cleanup_admin_sessions_conn(

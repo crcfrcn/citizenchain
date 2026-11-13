@@ -7,6 +7,7 @@ import type { CapabilitySet } from '../workspace/modules';
 import type { InstitutionWorkspace } from '../workspace/types';
 
 export type AdminAuthCheck = {
+  setupRequired: boolean;
   ok: boolean;
   accountId: string;
   institutionCidNumber: string;
@@ -23,6 +24,7 @@ export type AdminAuthCheck = {
 };
 
 export type AdminIdentifyResult = {
+  setupRequired: boolean;
   accountId: string;
   institutionCidNumber: string;
   institutionCode: string;
@@ -104,8 +106,8 @@ export async function queryAdminQrLoginResult(
   challengeId: string,
   sessionId: string,
 ): Promise<AdminQrLoginStatus> {
-  const q = `?challenge_id=${encodeURIComponent(challengeId)}&session_id=${encodeURIComponent(sessionId)}`;
-  return request<AdminQrLoginStatus>(`/api/admin/auth/qr/result${q}`, {
+  const params = new URLSearchParams({ challengeId, sessionId });
+  return request<AdminQrLoginStatus>(`/api/admin/auth/qr/result?${params.toString()}`, {
     method: 'GET',
   });
 }

@@ -4,6 +4,106 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';
 import { SECURITY_GRANT_HEADER, PASSKEY_ASSERTION_HEADER, passkeySubmitHeaders, securityGrantSubmitHeaders, commitAdminAction, rustConst } from '@gmb/onchina-platform/testing';
 
+describe('机构本地资料与照片写入', () => {
+  it('保存资料和上传照片只取一次Passkey，不请求冷签prepare或commit', async () => {
+    const { updateInstitution, uploadLegalRepresentativePhoto } = await import('../private/api');
+    const { assertPasskey } = await import('@gmb/onchina-platform/authentication/passkeyClient');
+    const auth = { setupRequired: false, accessToken: 'fixture-session' } as never;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ code: 0, data: {} })));
+    try {
+      for (const run of [() => updateInstitution(auth, 'fixture', { cidFullName: 'fixture' }), () => uploadLegalRepresentativePhoto(auth, new File(['photo'], 'photo.png', { type: 'image/png' }))]) {
+        fetcher.mockClear(); vi.mocked(assertPasskey).mockClear();
+        await run();
+        expect(assertPasskey).toHaveBeenCalledTimes(1);
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        const [path, init] = fetcher.mock.calls[0];
+        expect(String(path)).toMatch(/^\/api\/institutions\//);
+        const headers = new Headers(init?.headers);
+        expect(headers.get(PASSKEY_ASSERTION_HEADER)).toBe('fake-passkey-assertion');
+        expect(headers.has(SECURITY_GRANT_HEADER)).toBe(false);
+      }
+    } finally { fetcher.mockRestore(); vi.mocked(assertPasskey).mockClear(); }
+  });
+});
+
+describe('注册局首帧和既有双Tab', () => {
+  it('未知状态不显示入口；未设置密钥直接进所属入口；已设置仍保留两个Tab', async () => {
+    vi.resetModules();
+    const React = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    vi.doMock('../citizens/CitizensView', () => ({ CitizensView: () => React.createElement('div', { 'data-page': 'citizens' }) }));
+    vi.doMock('../admins/ProvinceDetailView', () => ({ RegistryAdminsView: ({ mode }: { mode: string }) => React.createElement('div', { 'data-page': mode }) }));
+    try {
+      const { RegistryWorkspace } = await import('../controls/Workspace');
+      const { EMPTY_CAPABILITIES } = await import('@gmb/onchina-platform/workspace/modules');
+      const capabilities = { ...EMPTY_CAPABILITIES, canViewCitizens: true, canViewCityRegistry: true, canViewFederalRegistry: true };
+      const props = { auth: { accountId: 'fixture-account', institutionCidNumber: 'fixture-institution', institutionCode: 'FRG' } as never,
+        capabilities, cidMeta: null, setCidMeta: () => {} };
+      const pending = renderToStaticMarkup(React.createElement(RegistryWorkspace, { ...props, passkeyRegistered: null }));
+      expect(pending).not.toContain('data-page');
+      expect(pending).not.toContain('<button');
+      const locked = renderToStaticMarkup(React.createElement(RegistryWorkspace, { ...props, passkeyRegistered: false }));
+      expect(locked).toContain('data-page="federal-registry"');
+      expect(locked).not.toContain('data-page="citizens"');
+      expect(locked).not.toContain('>市注册局</button>');
+      const city = renderToStaticMarkup(React.createElement(RegistryWorkspace, { ...props, auth: { ...props.auth as object, institutionCode: 'CREG' } as never, passkeyRegistered: false }));
+      expect(city).toContain('data-page="city-registry"');
+      const ready = renderToStaticMarkup(React.createElement(RegistryWorkspace, { ...props, passkeyRegistered: true }));
+      expect(ready).toContain('>市注册局</button>');
+      expect(ready).toContain('>联邦注册局</button>');
+      const denied = renderToStaticMarkup(React.createElement(RegistryWorkspace, { ...props, capabilities: EMPTY_CAPABILITIES, passkeyRegistered: true }));
+      expect(denied).toContain('当前身份没有可访问的工作台入口');
+      expect(denied).not.toContain('data-page');
+    } finally {
+      vi.doUnmock('../citizens/CitizensView'); vi.doUnmock('../admins/ProvinceDetailView'); vi.resetModules();
+    }
+  });
+});
+
+describe('机构操作记录读取', () => {
+  const browserTest = process.env.ONCHINA_TEST_DOM ? it : it.skip;
+  browserTest('按targetCid查询，失败显示重试而非零条记录，重试后显示真实记录', async () => {
+    vi.resetModules();
+    const { createRequire } = await import('node:module');
+    const { isAbsolute } = await import('node:path');
+    if (!isAbsolute(process.env.ONCHINA_TEST_DOM!)) throw new Error('DOM测试运行库必须是显式绝对路径');
+    const { JSDOM } = createRequire(import.meta.url)(process.env.ONCHINA_TEST_DOM!);
+    const dom = new JSDOM('<div id="root"></div>', { url: 'https://onchina.example.invalid/' });
+    dom.window.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
+    for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'ShadowRoot', 'SVGElement']) vi.stubGlobal(name, dom.window[name]);
+    vi.stubGlobal('getComputedStyle', (element: Element) => dom.window.getComputedStyle(element));
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.doMock('@gmb/onchina-platform/institutions/institutionLabels', () => ({ useInstitutionCodeLabels: () => ({}) }));
+    const React = await import('react');
+    const { createRoot } = await import('react-dom/client');
+    const root = createRoot(document.getElementById('root')!);
+    const fetcher = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('Failed to deserialize query string', { status: 400 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, data: [{ seq: 1, action: 'CITIZEN_CREATE', actorAccountId: '', detail: {}, createdAt: '2026-01-01T00:00:00Z' }] })));
+    try {
+      const { OperationRecords } = await import('../government/OperationRecords');
+      await React.act(async () => root.render(React.createElement(OperationRecords, { auth: { accessToken: 'fixture-session' } as never, cidNumber: 'fixture & cid' })));
+      expect(document.body.textContent).toContain('请求参数错误');
+      expect(document.body.textContent).not.toContain('操作记录(0)');
+      const retry = [...document.querySelectorAll('button')].find(button => button.textContent?.replace(/\s/g, '') === '重试')!;
+      await React.act(async () => retry.click());
+      expect(document.body.textContent).toContain('操作记录(1)');
+      expect(document.body.textContent).toContain('注册局录入公民');
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      for (const [path, init] of fetcher.mock.calls) {
+        const url = new URL(String(path), 'https://example.invalid');
+        expect([...url.searchParams]).toEqual([['targetCid', 'fixture & cid'], ['limit', '1000']]);
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer fixture-session');
+      }
+    } finally {
+      await React.act(async () => root.unmount());
+      fetcher.mockRestore(); dom.window.close();
+      vi.doUnmock('@gmb/onchina-platform/institutions/institutionLabels');
+      vi.unstubAllGlobals(); vi.resetModules();
+    }
+  });
+});
+
 describe('注册局登记真实请求', () => {
 const auth = { accessToken: 'test-session', accountId: '0x' + '11'.repeat(32) } as never;
 it('注册局登记准备等待一次Passkey，保留请求且失败不重试', async () => {

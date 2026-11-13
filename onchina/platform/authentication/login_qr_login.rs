@@ -18,7 +18,7 @@ use crate::*;
 
 use super::model::*;
 use super::onchain_gate;
-use super::signature::{admin_person_names, extract_domain_from_origin, verify_admin_signature};
+use super::signature::{extract_domain_from_origin, verify_admin_signature};
 use super::LOGIN_SIGN_REQUEST_TTL_SECONDS;
 
 const LOGIN_QR_SYSTEM: &str = "onchina";
@@ -327,104 +327,11 @@ pub(crate) async fn admin_auth_qr_result(
         if result.session_id != query.session_id.trim() {
             return api_error(StatusCode::FORBIDDEN, 1003, "challenge session mismatch");
         }
-        let access_token_for_check = result.access_token.clone();
-        let session_is_current = state.db.with_client(move |conn| {
-            let Some(session) = repo::get_admin_session_conn(conn, &access_token_for_check)? else {
-                return Ok(None);
-            };
-            let Some(binding) = repo::get_active_node_binding_conn(conn)? else {
-                return Ok(None);
-            };
-            if session.candidate_id != binding.candidate_id
-                || session.institution_code != binding.institution_code
-            {
-                return Ok(None);
-            }
-            Ok(Some(binding.institution_cid_number))
-        });
-        let institution_cid_number = match session_is_current {
-            Ok(Some(value)) => value,
-            Ok(None) => {
-                return api_error(
-                    StatusCode::UNAUTHORIZED,
-                    1002,
-                    "login session is no longer valid",
-                );
-            }
-            Err(err) => {
-                let message = format!("validate qr login session failed: {err}");
-                return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
-            }
+        let session_headers = crate::modules::session_headers(&result.access_token);
+        let session = match super::guards::admin_session(&state, &session_headers) {
+            Ok(session) => session,
+            Err(response) => return response,
         };
-        let admin = match repo::get_admin_by_account_id(&state.db, &result.account_id) {
-            Ok(v) => v,
-            Err(err) => {
-                let message = format!("query admin failed: {err}");
-                return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
-            }
-        };
-        let scope_account_id = result.account_id.clone();
-        let institution_code_for_scope = result.institution_code.clone();
-        let (mut province, scope_city_name, scope_town_name) =
-            match state.db.with_client(move |conn| {
-                repo::derive_admin_scope_conn(
-                    conn,
-                    scope_account_id.as_str(),
-                    institution_code_for_scope.as_str(),
-                )
-            }) {
-                Ok(v) => v,
-                Err(err) => {
-                    let message = format!("query admin scope failed: {err}");
-                    return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
-                }
-            };
-        if crate::chain_runtime::is_tier1_registry(&result.institution_code) {
-            province = match crate::chain_runtime::current_frg_province_name(
-                &institution_cid_number,
-                &result.account_id,
-            )
-            .await
-            {
-                Ok(province) => Some(province),
-                Err(_) => {
-                    return api_error(StatusCode::FORBIDDEN, 2002, "admin province scope missing")
-                }
-            };
-        }
-        if crate::chain_runtime::admin_level_label_for(&result.institution_code).as_deref()
-            != Some("NATIONAL")
-            && province.as_deref().map(str::trim).unwrap_or("").is_empty()
-        {
-            return api_error(StatusCode::FORBIDDEN, 2002, "admin province scope missing");
-        }
-        let cid_short_name = repo::resolve_home_cid_short_name(
-            &state.db,
-            &result.institution_code,
-            province.as_deref(),
-            scope_city_name.as_deref(),
-        )
-        .unwrap_or(None);
-        let capabilities =
-            crate::modules::capability::capabilities_for(&state.modules, &result.institution_code);
-        let workspace_modules = state
-            .modules
-            .workspace_modules(
-                &institution_cid_number,
-                &crate::modules::session_headers(&result.access_token),
-            )
-            .await;
-        let workspace = crate::workspace::build_institution_workspace(
-            &state.modules,
-            &result.institution_code,
-            cid_short_name.as_deref(),
-            capabilities,
-            workspace_modules,
-        );
-        let (family_name, given_name) = admin
-            .as_ref()
-            .map(admin_person_names)
-            .unwrap_or_else(|| ("管理".to_string(), "员".to_string()));
         return Json(ApiResponse {
             code: 0,
             message: "ok".to_string(),
@@ -433,22 +340,7 @@ pub(crate) async fn admin_auth_qr_result(
                 message: "login success".to_string(),
                 access_token: Some(result.access_token.clone()),
                 expires_at: Some(result.expires_at.timestamp()),
-                admin: Some(AdminIdentifyOutput {
-                    account_id: result.account_id.clone(),
-                    institution_cid_number,
-                    institution_code: result.institution_code.clone(),
-                    admin_level: crate::chain_runtime::admin_level_label_for(
-                        &result.institution_code,
-                    ),
-                    capabilities,
-                    workspace,
-                    family_name,
-                    given_name,
-                    scope_province_name: province,
-                    scope_city_name,
-                    scope_town_name,
-                    cid_short_name,
-                }),
+                admin: Some(session.identify()),
             },
         })
         .into_response();

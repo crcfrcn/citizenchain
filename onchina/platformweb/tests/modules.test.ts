@@ -143,3 +143,118 @@ describe('模块前端装载与重启边界', () => {
   });
 
 });
+
+// 浏览器生命周期验收由调用方显式交付已安装的 DOM 测试运行库，不下载或新增产品依赖。
+describe('当前会话的密钥状态与工作台首屏', () => {
+  const browserTest = process.env.ONCHINA_TEST_DOM ? it : it.skip;
+  async function browser() {
+    vi.resetModules();
+    const { createRequire } = await import('node:module');
+    const { isAbsolute } = await import('node:path');
+    if (!isAbsolute(process.env.ONCHINA_TEST_DOM!)) throw new Error('DOM测试运行库必须是显式绝对路径');
+    const { JSDOM } = createRequire(import.meta.url)(process.env.ONCHINA_TEST_DOM!);
+    const dom = new JSDOM('<div id="root"></div>', { url: 'https://onchina.example.invalid/' });
+    for (const name of ['window', 'document', 'navigator', 'sessionStorage', 'HTMLElement', 'Element', 'ShadowRoot', 'SVGElement', 'getComputedStyle']) {
+      vi.stubGlobal(name, dom.window[name]);
+    }
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.doMock('../controls/notice', () => ({ notice: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+    const React = await import('react');
+    const { createRoot } = await import('react-dom/client');
+    const root = createRoot(document.getElementById('root')!);
+    const auth = { setupRequired: false, accessToken: 'fixture-session', accountId: 'fixture-account', institutionCidNumber: 'fixture-institution',
+      institutionCode: 'FRG', familyName: '测', givenName: '试', workspace: { workspace_kind: 'registry' } } as import('../authentication/types').AdminAuth;
+    return { React, root, auth, dispose: async () => {
+      await React.act(async () => root.unmount());
+      dom.window.close();
+      vi.doUnmock('../controls/notice');
+      vi.doUnmock('../authentication/LoginView');
+      vi.unstubAllGlobals();
+    } };
+  }
+  const response = (registered: boolean) => new Response(JSON.stringify({ code: 0, data: { registered } }));
+
+  browserTest('登录快照无需密钥请求；换会话丢弃迟到刷新，首次设置同步全部入口', async () => {
+    const context = await browser();
+    const { React, root, auth } = context;
+    const { AuthProvider } = await import('../authentication/Context');
+    const { useAuth } = await import('../authentication/useAuth');
+    const { usePasskeyRegistration } = await import('../authentication/usePasskey');
+    const passkeys = await import('../authentication/passkeyClient');
+    const register = vi.spyOn(passkeys, 'registerPasskey').mockResolvedValue();
+    let snapshot!: ReturnType<typeof useAuth>;
+    let registration!: ReturnType<typeof usePasskeyRegistration>;
+    function Consumer() {
+      snapshot = useAuth(); registration = usePasskeyRegistration();
+      return React.createElement('span', null, snapshot.passkeyState.status);
+    }
+    const pending: ((value: Response) => void)[] = [];
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async path => {
+      expect(path).toBe('/api/admin/auth/passkey/status');
+      return new Promise<Response>(resolve => pending.push(resolve));
+    });
+    sessionStorage.setItem('onchina_admin_auth', JSON.stringify(auth));
+    try {
+      await React.act(async () => root.render(React.createElement(AuthProvider, null, React.createElement(Consumer))));
+      expect(snapshot.passkeyState).toEqual({ status: 'ready', registered: true });
+      expect(fetcher).not.toHaveBeenCalled();
+      let previous!: Promise<void>;
+      await React.act(async () => { previous = snapshot.refreshPasskey(); });
+      await React.act(async () => snapshot.setAuth({ ...auth, accessToken: 'fixture-next-session', institutionCidNumber: 'fixture-next-institution', setupRequired: true }));
+      await React.act(async () => { pending[0](response(true)); await previous; });
+      expect(snapshot.passkeyState).toEqual({ status: 'ready', registered: false });
+      expect(registration.registered).toBe(false);
+      await React.act(async () => {
+        const action = registration.register();
+        await vi.waitFor(() => expect(pending).toHaveLength(2));
+        pending[1](response(true)); await action;
+      });
+      expect(register).toHaveBeenCalledTimes(1);
+      expect(snapshot.auth?.setupRequired).toBe(false);
+      expect(snapshot.passkeyState).toEqual({ status: 'ready', registered: true });
+      expect(registration.registered).toBe(true);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      await React.act(async () => snapshot.logout());
+      expect(snapshot.passkeyState.status).toBe('loading');
+    } finally { register.mockRestore(); fetcher.mockRestore(); await context.dispose(); }
+  });
+
+  browserTest('未设置密钥不能进入业务工作台；设置后刷新失败可恢复且不重复注册', async () => {
+    const context = await browser();
+    const { React, root, auth } = context;
+    const { useAuth } = await import('../authentication/useAuth');
+    const passkeys = await import('../authentication/passkeyClient');
+    const register = vi.spyOn(passkeys, 'registerPasskey').mockResolvedValue();
+    let workspaceRenders = 0;
+    const loader = await import('../workspace/modules');
+    const workspace = vi.spyOn(loader, 'workspaceView').mockReturnValue((() => {
+      workspaceRenders++; return React.createElement('div', null, 'fixture-workspace');
+    }) as never);
+    vi.doMock('../authentication/LoginView', () => ({ LoginView: () => {
+      const { setAuth } = useAuth();
+      return React.createElement('button', { onClick: () => setAuth({ ...auth, setupRequired: true }) }, 'fixture-login');
+    } }));
+    const pending: ((value: Response) => void)[] = [];
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async path => {
+      if (path === '/api/health') return new Response(JSON.stringify({ code: 0, data: { modules: [] } }));
+      expect(path).toBe('/api/admin/auth/passkey/status');
+      return new Promise<Response>(resolve => pending.push(resolve));
+    });
+    const button = (name: string) => [...document.querySelectorAll('button')].find(button => button.textContent?.replace(/\s/g, '') === name)!;
+    try {
+      const { default: App } = await import('../workspace/App');
+      await React.act(async () => root.render(React.createElement(App)));
+      await React.act(async () => button('fixture-login').click());
+      expect(document.body.textContent).toContain('请先设置 Passkey 密钥');
+      expect(pending).toHaveLength(0); expect(workspaceRenders).toBe(0);
+      await React.act(async () => button('设置密钥').click());
+      expect(workspaceRenders).toBe(0);
+      await React.act(async () => pending[0](new Response('unavailable', { status: 503 })));
+      expect(workspaceRenders).toBe(0);
+      await React.act(async () => button('刷新状态').click());
+      await React.act(async () => pending[1](response(true)));
+      expect(document.body.textContent).toContain('fixture-workspace');
+      expect(register).toHaveBeenCalledTimes(1);
+    } finally { register.mockRestore(); fetcher.mockRestore(); workspace.mockRestore(); await context.dispose(); }
+  });
+});

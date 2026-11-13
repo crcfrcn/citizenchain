@@ -99,7 +99,8 @@ export function SettingsSection({
             </span>
           </div>
           {desktopUpdateInfo.status === 'ready' && <p>下载完成，点击安装更新后将退出当前程序，安装并启动新版。</p>}
-          {desktopUpdateInfo.error ? <p role="alert">{desktopUpdateInfo.error}</p> : null}
+          {/* 自动检查更新失败时静默，已取得新版后的下载、安装错误仍保留反馈。 */}
+          {desktopUpdateInfo.error && desktopUpdateInfo.latestVersion ? <p role="alert">{desktopUpdateInfo.error}</p> : null}
           <div className="settings-version-row">
             <div className="settings-version-label metric-label-with-help">
               <span>公民协议版本</span>

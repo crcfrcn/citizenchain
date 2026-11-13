@@ -3,10 +3,9 @@ import { Alert, AutoComplete, Button, Card, Checkbox, Col, Descriptions, Divider
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import { type AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import { LegalRepresentativePhoto } from '@gmb/onchina-platform/institutions/Photo';
-import { type AdminActionType, type AdminSecurityGrantOutput } from '@gmb/onchina-platform/authentication/security';
 import { EDUCATION_TYPE_LABEL, PARTNERSHIP_KIND_LABEL, PRIVATE_TYPE_LABEL } from '@gmb/onchina-platform/institutions/labels';
 import { useInstitutionCodeLabels } from '@gmb/onchina-platform/institutions/institutionLabels';
-import { type InstitutionDetail, type ParentInstitutionRow, buildInstitutionUpdateSecurityPayload, checkCidFullName, searchParentInstitutions, updateInstitution, uploadLegalRepresentativePhoto } from './api';
+import { type InstitutionDetail, type ParentInstitutionRow, checkCidFullName, searchParentInstitutions, updateInstitution, uploadLegalRepresentativePhoto } from './api';
 import { searchLegalRepresentativeCitizens } from '../citizens/api';
 import { AccountList } from '@gmb/onchina-platform/accounts/AccountList';
 import { DocsLibrary } from '@gmb/onchina-platform/documents/Library';
@@ -46,11 +45,6 @@ interface Props {
   canWrite: boolean;
   loading: boolean;
   onReload: () => void;
-  /** 机构信息更新(INSTITUTION_UPDATE)走 PASSKEY_COLD_SIGN;账户增删已移交机构工作台。 */
-  createScanSignGrant: (
-    actionType: AdminActionType,
-    payload: unknown,
-  ) => Promise<AdminSecurityGrantOutput>;
   onBack?: () => void;
   backLabel?: string;
 }
@@ -144,7 +138,6 @@ export const PrivateDetailLayout: React.FC<Props> = ({
   canWrite,
   loading,
   onReload,
-  createScanSignGrant,
   onBack,
   backLabel,
 }) => {
@@ -403,12 +396,12 @@ export const PrivateDetailLayout: React.FC<Props> = ({
     try {
       const photo = await uploadLegalRepresentativePhoto(auth, file);
       form.setFieldsValue({
-        photoPath: photo.filePath,
-        photoName: photo.fileName,
-        photoMime: photo.mimeType,
-        photoSize: photo.fileSize,
+        photoPath: photo.file_path,
+        photoName: photo.file_name,
+        photoMime: photo.mime_type,
+        photoSize: photo.file_size,
       });
-      setPhotoName(photo.fileName);
+      setPhotoName(photo.file_name);
       notice.success('证件照已上传');
     } catch (err) {
       notice.error(err, '证件照上传失败');
@@ -458,13 +451,8 @@ export const PrivateDetailLayout: React.FC<Props> = ({
         photoMime: values.photoMime,
         photoSize: values.photoSize,
       };
-      // 机构详情更新走 PASSKEY_COLD_SIGN。这里先按后端 grant_payload 同形生成冷签授权,
-      // 再由 API 层补 Passkey assertion 与 grant 头,避免授权 hash 与正式请求漂移。
-      const grant = await createScanSignGrant(
-        'INSTITUTION_UPDATE',
-        buildInstitutionUpdateSecurityPayload(inst.cidNumber, input),
-      );
-      await updateInstitution(auth, inst.cidNumber, input, grant);
+      // 本地保存使用会话及一次Passkey；真正链上治理仍走独立链签入口。
+      await updateInstitution(auth, inst.cidNumber, input);
       notice.success('机构信息已保存');
       setEditing(false);
       onReload();

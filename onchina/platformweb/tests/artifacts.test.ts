@@ -91,7 +91,7 @@ import { SECURITY_GRANT_HEADER, PASSKEY_ASSERTION_HEADER, passkeySubmitHeaders, 
       if (!golden) throw new Error('缺少模块工作台金标');
       const capabilities = { ...EMPTY_CAPABILITIES };
       for (const flag of golden.flags) capabilities[flag as keyof typeof capabilities] = true;
-      const auth = { accessToken: 'fixture-session', accountId: 'fixture-account', institutionCidNumber: 'fixture-institution', institutionCode: golden.code,
+      const auth = { setupRequired: false, accessToken: 'fixture-session', accountId: 'fixture-account', institutionCidNumber: 'fixture-institution', institutionCode: golden.code,
         familyName: '测', givenName: '试', capabilities,
         workspace: { workspace_kind: golden.kind, workspace_title: 'fixture', workspace_sections: golden.sections, workspace_modules: [] } };
       stored = JSON.stringify(auth);

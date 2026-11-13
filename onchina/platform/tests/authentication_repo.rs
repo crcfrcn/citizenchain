@@ -3,6 +3,114 @@ use super::*;
 
 #[test]
 #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
+fn ready_session_reads_verified_context_without_admin_lookup_or_chain() {
+    let sandbox = crate::database::IsolatedTestDb::new();
+    let (state, headers, session) = crate::testing::session_fixture(&sandbox.db, false);
+    let ctx = crate::authentication::login::require_admin_any(&state, &headers).unwrap();
+    assert_eq!(ctx.scope_province_name.as_deref(), Some("贵州省"));
+    assert_eq!(ctx.institution_cid_number, session.institution_cid_number);
+    let issued = AdminSession::new(
+        "new-session".into(),
+        session.candidate_id.clone(),
+        session.last_active_at,
+        session.identify(),
+    );
+    assert_eq!(
+        issued.context().scope_province_name,
+        ctx.scope_province_name
+    );
+    assert_eq!(
+        issued.expires_at,
+        issued.last_active_at + Duration::hours(8)
+    );
+    let stored = serde_json::to_value(&issued).unwrap();
+    assert!(!stored.as_object().unwrap().contains_key("token"));
+    assert_eq!(stored["setupRequired"], false);
+    assert!(sandbox
+        .db
+        .with_client(|conn| get_admin_by_account_id_conn(conn, &session.account_id))
+        .unwrap()
+        .is_none());
+    delete_admin_session(&sandbox.db, &session.token).unwrap();
+    assert_eq!(
+        crate::authentication::login::require_admin_any(&state, &headers)
+            .unwrap_err()
+            .status(),
+        axum::http::StatusCode::UNAUTHORIZED
+    );
+}
+
+#[test]
+#[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
+fn setup_gate_and_activity_update_preserve_atomic_completion() {
+    let sandbox = crate::database::IsolatedTestDb::new();
+    let (state, headers, mut old) = crate::testing::session_fixture(&sandbox.db, true);
+    assert!(crate::authentication::login::require_admin_session(&state, &headers).is_ok());
+    assert_eq!(
+        crate::authentication::login::require_admin_any(&state, &headers)
+            .unwrap_err()
+            .status(),
+        axum::http::StatusCode::FORBIDDEN
+    );
+    sandbox
+        .db
+        .with_client(|conn| {
+            {
+                let mut tx = conn.transaction().map_err(|error| error.to_string())?;
+                complete_passkey_setup_conn(&mut tx, &old.account_id, &old.candidate_id)?;
+                // 未提交则设置阶段不能开放。
+            }
+            assert!(
+                get_admin_session_conn(conn, &old.token)?
+                    .unwrap()
+                    .setup_required
+            );
+            complete_passkey_setup_conn(conn, &old.account_id, &old.candidate_id)?;
+            old.last_active_at = Utc::now();
+            touch_admin_session_conn(conn, &old)?;
+            let current = get_admin_session_conn(conn, &old.token)?.unwrap();
+            assert!(!current.setup_required);
+            assert_eq!(current.scope_province_name, old.scope_province_name);
+            Ok(())
+        })
+        .unwrap();
+    assert!(crate::authentication::login::require_admin_any(&state, &headers).is_ok());
+}
+
+#[test]
+#[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
+fn old_or_expired_session_cannot_bypass_setup() {
+    let sandbox = crate::database::IsolatedTestDb::new();
+    let (state, headers, mut session) = crate::testing::session_fixture(&sandbox.db, false);
+    session.expires_at = Utc::now() - Duration::seconds(1);
+    sandbox
+        .db
+        .with_client(|conn| insert_admin_session_conn(conn, &session))
+        .unwrap();
+    assert_eq!(
+        crate::authentication::login::require_admin_any(&state, &headers)
+            .unwrap_err()
+            .status(),
+        axum::http::StatusCode::UNAUTHORIZED
+    );
+    sandbox
+        .db
+        .with_client(|conn| {
+            let mut payload = serde_json::to_value(&session).unwrap();
+            payload.as_object_mut().unwrap().remove("setupRequired");
+            conn.execute(
+                "INSERT INTO session(token_hash,payload_json) VALUES($1,$2)",
+                &[&admin_session_token_hash(&session.token), &payload],
+            )
+            .unwrap();
+            assert!(get_admin_session_conn(conn, &session.token)?.is_none());
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+#[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
 fn concurrent_admin_id_allocation_is_unique_and_overflow_is_explicit() {
     let sandbox = crate::database::IsolatedTestDb::new();
     let handles = (0..8)

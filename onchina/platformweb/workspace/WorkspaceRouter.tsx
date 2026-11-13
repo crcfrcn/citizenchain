@@ -1,6 +1,9 @@
 // 机构工作台路由。工作台类型由后端按准确机构 CID 下发，前端不得自行猜测权限。
 
-import { Alert } from 'antd';
+import { Alert, Button, Card } from 'antd';
+import { useAuth } from '../authentication/useAuth';
+import { usePasskeyRegistration } from '../authentication/usePasskey';
+import { notice } from '../controls/notice';
 import type { AdminAuth } from '../authentication/types';
 import type { CapabilitySet } from '../authentication/Context';
 import type { CidMetaResult } from '../codes/api';
@@ -27,6 +30,8 @@ export function WorkspaceRouter({
   if (!auth.workspace) {
     return <Alert type="error" showIcon message="后端未返回机构工作台，已拒绝加载页面" />;
   }
+  // 未完成首次设置只显示原密钥设置入口，不能先取名册或渲染业务页面。
+  if (auth.setupRequired) return <PasskeySetup />;
   if (requestedModule != null) {
     switch (resolveModuleLanding(auth, requestedModule)) {
       case 'unavailable':
@@ -58,4 +63,15 @@ export function WorkspaceRouter({
     throw new Error('所需模块未装载');
   }
   return <GenericWorkspace auth={authWithWorkspace} />;
+}
+
+function PasskeySetup() {
+  const { auth } = useAuth();
+  const { busy, register, refresh } = usePasskeyRegistration();
+  return <Card variant="borderless" title="请先设置 Passkey 密钥">
+    <p>{auth?.cidShortName || '当前机构'} · {`${auth?.familyName ?? ''}${auth?.givenName ?? ''}` || '管理员'}</p>
+    <p>首次登录必须完成密钥设置，设置成功后进入工作台。</p>
+    <Button type="primary" loading={busy} onClick={() => void register()}>设置密钥</Button>
+    <Button disabled={busy} onClick={() => void refresh().catch(error => notice.error(error, '密钥状态确认失败，请重试'))}>刷新状态</Button>
+  </Card>;
 }

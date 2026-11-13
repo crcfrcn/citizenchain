@@ -748,9 +748,6 @@ pub(crate) async fn admin_update_citizen(
     }
 
     // 本地档案编辑只消费一次 Passkey，早于护照分配和任何业务写入。
-    if let Err(resp) = onchina::authentication::actions::require_current_admin(&state, &ctx).await {
-        return resp;
-    }
     let passkey = match onchina::authentication::passkey::require_passkey_assertion(
         &state,
         &headers,

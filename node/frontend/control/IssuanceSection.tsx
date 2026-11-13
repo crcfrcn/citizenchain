@@ -17,12 +17,13 @@ export function IssuanceSection({ issuance, stake, frozen }: Props) {
         <div className="metric-card">
           <div className="metric-label metric-label-with-help">
             <span>全链发行总额</span>
-            <MetricHelp title="全链发行总额说明" items={[
+            <MetricHelp title="全链发行总额说明" dialogClassName="home-metric-help-dialog" items={[
               '显示截至最新已最终性确认区块的链上现有公民币的发行总量。',
               '总额包含 43 个省储行的永久质押金额。新增发行会增加总额，销毁会减少总额。',
               '新增发行统一由公民协议「即公民链的Runtime」的发行模组执行。',
               '销毁统一由公民协议「即公民链的Runtime」的决议销毁模块执行。',
               '在国家储委会、省储委会、省储行之间通过联合投票决议发行，各机构内部投票决议销毁。',
+              '决议发行必须经联合投票105票全票通过发行，非全票的则进入联合公投，联合公投需超过50%的可投票公民的投票赞成。',
             ]} />
           </div>
           <div className="metric-value">
@@ -39,7 +40,7 @@ export function IssuanceSection({ issuance, stake, frozen }: Props) {
         <div className="metric-card">
           <div className="metric-label metric-label-with-help">
             <span>永久质押金额</span>
-            <MetricHelp title="永久质押金额说明" items={[
+            <MetricHelp title="永久质押金额说明" dialogClassName="home-metric-help-dialog" items={[
               '显示 43 个创世成立的省储行永久质押账户中的余额合计。',
               '这笔资金在公民链创世时发行，分别存入各省储行的永久质押地址，不可转出。',
               '各省储行的永久质押地址可接收公民币，并由公民协议和节点守卫同时限制转出。',
@@ -60,7 +61,7 @@ export function IssuanceSection({ issuance, stake, frozen }: Props) {
         <div className="metric-card">
           <div className="metric-label metric-label-with-help">
             <span>临时冻结金额</span>
-            <MetricHelp title="全链冻结金额说明" items={[
+            <MetricHelp title="全链冻结金额说明" dialogClassName="home-metric-help-dialog" items={[
               '所有市注册局的「主账户」达标前只进不出，达标前冻结市注册局主账户。',
               <>
                 市注册局达标规则如下：

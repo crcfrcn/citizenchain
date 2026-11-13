@@ -7,9 +7,24 @@ import { setOnUnauthorized } from "../workspace/http";
 import { clearStoredAuth, readStoredAuth, writeStoredAuth } from './storage';
 import { notice } from '../controls/notice';
 import { EMPTY_CAPABILITIES, type CapabilitySet } from '../workspace/modules';
+import { getPasskeyStatus } from './passkeyClient';
 
 // CapabilitySet 定义在 workspace/modules.ts;此处 re-export 保持既有引用路径。
 export type { CapabilitySet };
+
+export type PasskeyState =
+  | { status: 'loading' }
+  | { status: 'ready'; registered: boolean }
+  | { status: 'error' };
+
+/** 注册状态只属于当前准确会话；换令牌或机构时消费新登录快照，旧刷新不得覆盖。 */
+function sameSession(left: AdminAuth | null, right: AdminAuth | null): boolean {
+  return left !== null && right !== null
+    && left.accessToken === right.accessToken
+    && left.accountId === right.accountId
+    && left.institutionCidNumber === right.institutionCidNumber
+    && left.institutionCode === right.institutionCode;
+}
 
 /** 登录态 → 能力位:直接取后端会话下发的 capabilities(后端单源),未下发则空能力兜底。 */
 export function resolveRoleCapabilities(auth: AdminAuth | null): CapabilitySet {
@@ -21,6 +36,8 @@ export interface AuthContextValue {
   setAuth: (auth: AdminAuth | null) => void;
   logout: () => void;
   capabilities: CapabilitySet;
+  passkeyState: PasskeyState;
+  refreshPasskey: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -31,6 +48,23 @@ export interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [auth, setAuthState] = useState<AdminAuth | null>(() => readStoredAuth());
+  const authRef = useRef(auth);
+  authRef.current = auth;
+  const passkeyRequest = useRef(0);
+  const refreshPasskey = useCallback(async () => {
+    const current = authRef.current;
+    const requestId = ++passkeyRequest.current;
+    if (!current) return;
+    const registered = await getPasskeyStatus(current);
+    if (requestId === passkeyRequest.current && sameSession(authRef.current, current)) {
+      setAuthState(previous => sameSession(previous, current) && previous
+        ? { ...previous, setupRequired: !registered } : previous);
+    }
+  }, []);
+
+  // 登录/会话检查已返回初始化阶段；读取页面不再额外等待密钥查询。
+  const passkeyState: PasskeyState = auth
+    ? { status: 'ready', registered: !auth.setupRequired } : { status: 'loading' };
 
   // auth 变化时同步 sessionStorage。null 时走 clearStoredAuth。
   useEffect(() => {
@@ -58,13 +92,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       logoutRef.current();
     });
     return () => setOnUnauthorized(null);
-  }, []);
+  }, [auth?.accessToken, auth?.accountId, auth?.institutionCidNumber, auth?.institutionCode]);
+
+  // 换会话或卸载时丢弃尚未结束的状态刷新；不在切页时发起密钥查询。
+  useEffect(() => {
+    return () => { ++passkeyRequest.current; };
+  }, [auth?.accessToken, auth?.accountId, auth?.institutionCidNumber, auth?.institutionCode, refreshPasskey]);
 
   const capabilities = useMemo(() => resolveRoleCapabilities(auth), [auth]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ auth, setAuth, logout, capabilities }),
-    [auth, setAuth, logout, capabilities],
+    () => ({ auth, setAuth, logout, capabilities, passkeyState, refreshPasskey }),
+    [auth, setAuth, logout, capabilities, passkeyState, refreshPasskey],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -22,8 +22,6 @@ import { CID_MODAL_Z_INDEX } from '@gmb/onchina-platform/controls/modalStack';
 import { type AdminActionType, commitAdminAction, formatAdminCreateError, prepareAdminAction } from '@gmb/onchina-platform/authentication/security';
 import { loadCachedCidCities, readCachedCidCities } from '@gmb/onchina-platform/codes/cache';
 import { decodeSs58 } from '@gmb/onchina-platform/codes/ss58';
-import { parseSignedReceiptPayload } from '@gmb/onchina-platform/qr/parseSignedPayload';
-import { CitizenSignatureModal } from '@gmb/onchina-platform/qr/CitizenSignatureModal';
 import { notice } from '@gmb/onchina-platform/controls/notice';
 // 注册局机构详情视图(两个顶级 tab 各一个):
 //   - CityRegistryView(市注册局 tab):联邦注册局管理员 城市表格→点市→该市注册局机构详情页;
@@ -483,14 +481,7 @@ export interface RegistryAdminsViewProps {
   mode: 'city-registry' | 'federal-registry';
 }
 
-type AdminActionModalState = {
-  actionId: string;
-  signRequest: string;
-  payloadHash: string;
-  actionType: AdminActionType;
-  resolve: (value: unknown) => void;
-  reject: (reason?: unknown) => void;
-};
+
 
 const centeredConfirmFooter: ModalProps['footer'] = (_originNode, { OkBtn, CancelBtn }) => (
   <div style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
@@ -592,9 +583,7 @@ export function RegistryAdminsView({ mode }: RegistryAdminsViewProps) {
   const activeCity = selectedCity ?? (isSubordinateRegistry(auth?.institutionCode) ? auth?.scopeCityName ?? null : null);
 
   const [addCityRegistryForm] = Form.useForm<{ cityRegistryAccount: string; familyName: string; givenName: string; cityScopeCityName: string }>();
-  const [adminActionModal, setAdminActionModal] = useState<AdminActionModalState | null>(null);
   const [adminActionLoading, setAdminActionLoading] = useState(false);
-  const [adminActionCommitLoading, setAdminActionCommitLoading] = useState(false);
 
   useEffect(() => {
     adminDetailTabRef.current = adminDetailTab;
@@ -773,52 +762,17 @@ export function RegistryAdminsView({ mode }: RegistryAdminsViewProps) {
     setAdminActionLoading(true);
     try {
       const prepared = await prepareAdminAction(auth, actionType, payload);
-      const signRequest = prepared.signRequest;
-      if (prepared.authType !== 'PASSKEY_COLD_SIGN' || !signRequest) {
-        throw new Error('该治理操作缺少公民钱包签名请求');
+      if (prepared.authType !== 'PASSKEY' || prepared.signRequest) {
+        throw new Error('本地目录操作鉴权类型异常');
       }
-      return await new Promise<T>((resolve, reject) => {
-        setAdminActionModal({
-          actionId: prepared.actionId,
-          signRequest,
-          payloadHash: prepared.payloadHash,
-          actionType: prepared.actionType,
-          resolve: resolve as (value: unknown) => void,
-          reject,
-        });
+      return await commitAdminAction<T>(auth, {
+        actionId: prepared.actionId, payloadHash: prepared.payloadHash, actionType: prepared.actionType,
       });
     } finally {
       setAdminActionLoading(false);
     }
   };
 
-  const handleAdminActionSignedResponse = useCallback(async (raw: string) => {
-    if (!auth || !adminActionModal) return;
-    setAdminActionCommitLoading(true);
-    try {
-      const signed = parseSignedReceiptPayload(raw, adminActionModal.actionId);
-      if (signed.challengeId !== adminActionModal.actionId) {
-        throw new Error('签名响应与当前请求不匹配');
-      }
-      if (!signed.accountId) {
-        throw new Error('签名响应缺少 account_id');
-      }
-      const result = await commitAdminAction(auth, {
-        actionId: adminActionModal.actionId,
-        accountId: signed.accountId,
-        signature: signed.signature,
-        payloadHash: adminActionModal.payloadHash,
-        actionType: adminActionModal.actionType,
-      });
-      adminActionModal.resolve(result);
-      setAdminActionModal(null);
-    } catch (error) {
-      notice.error(error, '签名响应处理失败');
-      adminActionModal.reject(error);
-    } finally {
-      setAdminActionCommitLoading(false);
-    }
-  }, [adminActionModal, auth]);
 
   // ── 事件处理 ──
 
@@ -951,23 +905,6 @@ export function RegistryAdminsView({ mode }: RegistryAdminsViewProps) {
   return (
     <>
       {content}
-      <CitizenSignatureModal
-        title="公民钱包签名确认"
-        open={!!adminActionModal}
-        onCancel={() => {
-          adminActionModal?.reject(new Error('admin action cancelled'));
-          setAdminActionModal(null);
-          setAdminActionCommitLoading(false);
-        }}
-        qrTitle="签名二维码"
-        qrValue={adminActionModal?.signRequest}
-        qrHint="使用当前管理员公民钱包扫码签名"
-        scannerHint="扫描公民钱包生成的签名响应二维码"
-        scannerDisabled={adminActionCommitLoading}
-        scannerLoading={adminActionCommitLoading}
-        onDetected={handleAdminActionSignedResponse}
-        onScannerError={(msg) => notice.error(msg)}
-      />
     </>
   );
 }

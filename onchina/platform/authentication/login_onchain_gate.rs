@@ -378,6 +378,19 @@ async fn issue_session_for_candidate(
     let mut result = state
         .db
         .with_client(move |conn| {
+            // 与首次密钥注册共用绑定锁，使凭证检查与会话签发不可交错丢失就绪阶段。
+            let mut tx = conn.transaction().map_err(|error| error.to_string())?;
+            repo::lock_node_binding_conn(&mut tx)?;
+            let conn = &mut tx;
+            let binding =
+                repo::get_active_node_binding_conn(conn)?.ok_or("node binding changed")?;
+            if binding.candidate_id != candidate_id
+                || binding.institution_code != institution_code
+                || binding.institution_cid_number != institution_cid_number
+            {
+                return Err("node binding changed".into());
+            }
+
             // 已有本地行优先(保留既有省映射 / 既有市行 id);否则按节点身份新建元数据行。
             let existing = repo::get_admin_by_account_id_conn(conn, account_id_for_db.as_str())?;
             let admin = match existing {
@@ -421,17 +434,8 @@ async fn issue_session_for_candidate(
 
             let access_token = Uuid::new_v4().to_string();
             let expires_at = now + Duration::hours(8);
-            repo::insert_admin_session_conn(
-                conn,
-                &AdminSession {
-                    token: access_token.clone(),
-                    account_id: admin.account_id.clone(),
-                    institution_code: institution_code.clone(),
-                    candidate_id: candidate_id.clone(),
-                    expires_at,
-                    last_active_at: now,
-                },
-            )?;
+            let setup_required =
+                !crate::authentication::passkey::has_credential(conn, &admin.account_id)?;
 
             let admin_level = chain_runtime::admin_level_label_for(&institution_code);
             let capabilities =
@@ -443,24 +447,27 @@ async fn issue_session_for_candidate(
                 capabilities,
                 Vec::new(),
             );
-            Ok((
-                access_token,
-                expires_at,
-                AdminIdentifyOutput {
-                    account_id: admin.account_id,
-                    institution_cid_number,
-                    institution_code: institution_code.clone(),
-                    admin_level,
-                    capabilities,
-                    workspace,
-                    family_name: admin.family_name,
-                    given_name: admin.given_name,
-                    scope_province_name,
-                    scope_city_name,
-                    scope_town_name,
-                    cid_short_name,
-                },
-            ))
+            let identify = AdminIdentifyOutput {
+                account_id: admin.account_id,
+                institution_cid_number,
+                institution_code: institution_code.clone(),
+                admin_level,
+                capabilities,
+                workspace,
+                family_name: admin.family_name,
+                given_name: admin.given_name,
+                scope_province_name,
+                scope_city_name,
+                scope_town_name,
+                cid_short_name,
+                setup_required,
+            };
+            repo::insert_admin_session_conn(
+                conn,
+                &AdminSession::new(access_token.clone(), candidate_id, now, identify.clone()),
+            )?;
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok((access_token, expires_at, identify))
         })
         .map_err(GateError::Db)?;
 
@@ -472,6 +479,15 @@ async fn issue_session_for_candidate(
         )
         .await;
     result.2.workspace.workspace_modules = workspace_modules;
+    result.2 = state
+        .db
+        .with_client(|conn| {
+            repo::update_session_workspace_conn(conn, &result.0, &result.2.workspace)?;
+            repo::get_admin_session_conn(conn, &result.0)?
+                .map(|session| session.identify())
+                .ok_or_else(|| "login session is no longer valid".to_string())
+        })
+        .map_err(GateError::Db)?;
 
     Ok(result)
 }

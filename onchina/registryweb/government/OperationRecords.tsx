@@ -1,7 +1,7 @@
 // 机构操作记录共享组件。公权、注册局、教育和私权机构详情页统一复用。
 
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Typography } from 'antd';
+import { Alert, Button, Card, Table, Typography } from 'antd';
 import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import {
   PARTNERSHIP_KIND_LABEL,
@@ -14,6 +14,7 @@ import {
 } from '@gmb/onchina-platform/institutions/institutionLabels';
 import { adminRequest } from '@gmb/onchina-platform/http';
 import { tryEncodeSs58 } from '@gmb/onchina-platform/codes/ss58';
+import { normalizeNoticeText } from '@gmb/onchina-platform/controls/notice';
 
 type AuditLogEntry = {
   seq: number;
@@ -144,20 +145,25 @@ interface Props {
 export const OperationRecords: React.FC<Props> = ({ auth, cidNumber }) => {
   const [rows, setRows] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const institutionLabels = useInstitutionCodeLabels();
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
+    setRows([]);
+    const params = new URLSearchParams({ targetCid: cidNumber, limit: '1000' });
     adminRequest<AuditLogEntry[]>(
-      `/api/admin/audit-logs?target_cid=${encodeURIComponent(cidNumber)}&limit=1000`,
+      `/api/admin/audit-logs?${params.toString()}`,
       auth,
     )
       .then((next) => {
         if (!cancelled) setRows(next);
       })
-      .catch(() => {
-        if (!cancelled) setRows([]);
+      .catch((error) => {
+        if (!cancelled) setError(normalizeNoticeText(error, '操作记录加载失败，请重试'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -165,11 +171,12 @@ export const OperationRecords: React.FC<Props> = ({ auth, cidNumber }) => {
     return () => {
       cancelled = true;
     };
-  }, [auth.accessToken, cidNumber]);
+  }, [auth.accessToken, cidNumber, retry]);
 
   return (
-    <Card type="inner" title={`操作记录(${rows.length})`}>
-      <Table<AuditLogEntry>
+    <Card type="inner" title={loading || error ? '操作记录' : `操作记录(${rows.length})`}>
+      {error ? <Alert type="error" showIcon message={error}
+        action={<Button onClick={() => setRetry(value => value + 1)}>重试</Button>} /> : <Table<AuditLogEntry>
         rowKey="seq"
         loading={loading}
         dataSource={rows}
@@ -205,7 +212,7 @@ export const OperationRecords: React.FC<Props> = ({ auth, cidNumber }) => {
             render: (v: string) => new Date(v).toLocaleString('zh-CN'),
           },
         ]}
-      />
+      />}
     </Card>
   );
 };

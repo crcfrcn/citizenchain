@@ -175,7 +175,7 @@ citizenchain/onchina/
 - 机构注册信息凭证、账户列表 DTO 和 handler：`onchina/platform/institutions/subjects_chain_multisig_info.rs`
 - 投票资格提示查询：`onchina/registry/citizens/chain_vote.rs`
 - 公民链上身份推送：`onchina/registry/citizens/identity.rs`
-  - `POST /api/admin/citizens/{cid_number}/onchain/prepare` 只消费一次 Passkey，建立 180 秒 `citizen_onchain_operations` 操作并生成 `a=2 citizen_identity` 签名请求；请求体必须包含 `account_id` 和 `identity_level`。
+  - `POST /api/admin/citizens/{cid_number}/onchain/prepare` 建立 180 秒 `citizen_onchain_operations` 操作并生成 `a=2 citizen_identity` 签名请求；请求体必须包含 `account_id` 和 `identity_level`。
   - `identity_level=voting` 编码 `VotingIdentityPayload`，完成后生成 `0x0a00 register_voting_identity` 注册局管理员链上签名二维码。
   - `identity_level=candidate` 编码 `CandidateIdentityPayload`，完成后生成 `0x0a01 upgrade_to_candidate_identity` 注册局管理员链上签名二维码；该交易同时写入投票身份和参选身份。
   - `POST /api/admin/citizens/{cid_number}/onchain/complete` 不再二次认证；它按签名响应 `id` 校验管理员、机构、CID、账户、身份级别和完整 payload，原子消费操作后生成管理员最终链签二维码。账户绑定和上链投影只在最终链交易确认后一次性落库。
@@ -228,7 +228,11 @@ macOS安装后的首次命令为：
 
 `INSTITUTION_CREATE` 旧扫码授权链路当前不允许进入 prepare/submit；创建 handler 在鉴权后固定返回 501，不能生成安全 grant、链签会话或旧 call data。第 6 步启用新业务时必须重新登记完整原子载荷和权限主体，不能沿用本段已删除字段集。
 
-`PASSKEY_COLD_SIGN` 正式提交的安全门统一在 `onchina/platform/authentication/actions.rs::require_admin_security_grant`：先消费 `X-Passkey-Assertion`，再消费 `x-cid-security-grant`，任一缺失、过期、归属不匹配或 payload hash 不匹配都 fail-closed，不允许降级为 SESSION 或只验冷签 grant。机构资料上传、资料删除、机构详情更新等链下写操作虽然不直接提交链交易，也必须按各自后端 `grant_payload` 逐字段绑定授权：上传资料为 `target/fileName/docType/fileSize`，删除资料为 `target/docId/fileName`，机构详情更新为 `target/cidNumber/cidFullName/parentCidNumber/familyName/givenName/representativeCid/photoPath`。
+三级权限统一为：登录态读取、登录态+一次Passkey的本地业务写、登录态+一次Passkey+一次管理员冷签的链上操作。机构资料保存、资料上传/删除、照片上传、公民本地档案/材料修改、市注册局本地登记目录增删和节点本地解绑均为Passkey档，不创建或消费冷签grant。本地登记目录不授予链上管理员资格。真实机构管理员/岗位治理、机构账户操作、立法和公民上链继续走链上操作档。
+
+`require_admin_any` 仅恢复本地会话快照并检查首次设置阶段，不重新查管理员行、岗位或链上省任职。`AdminSession` 的唯一JSON保存登录时已验证的机构CID、行政/地域上下文、capabilities/workspace和setupRequired。登录领取结果及/auth/check复用此快照；宿主/模块转发不消费一次性写凭证。旧格式会话直接失效要求重新登录，不建立兼容字段或重建业务库。活动touch只更新lastActiveAt；注销、过期、解绑及原独立后台清退继续统一使会话失效。
+
+首次未设置Passkey的会话只能访问登录元数据、状态、登出和密钥初始化通路，所有业务读取/写入由后端拒绝。首次WebAuthn注册完成时，凭证入库和同绑定会话setupRequired=false在同一事务内提交；并发初始化不能绕过已有凭证断言。已有密钥新增/变更是本地写，finish必须消费一次已有Passkey断言。初始化成功但状态刷新失败时，前端提供刷新状态，不重复创建凭证。
 
 链上写的 passkey 那一半由**类型闸门**强制，不靠 handler 自觉（2026-07-30 创世前审计整改）：
 `auth/passkey::require_passkey_assertion` 成功时返回 `PasskeyProof`，该类型字段私有、
@@ -238,13 +242,13 @@ macOS安装后的首次命令为：
 整改前 8 个冷签会话创建点中有 4 个只有会话态；类型闸门落地时又抓出人工复查漏掉的
 第 5 个（`complete_citizen_onchain_signature`）。
 
-passkey 的消费点统一钉在**创建冷签会话那一步**，不在 prepare 载荷步、也不在 submit 步：
+Passkey统一在创建冷签会话时消费，prepare仅构造待签载荷，submit不重复消费：
 - `POST /api/admin/chain/submit` 只消费钱包冷签那一半，不再要求第二次 passkey——
   「链上写 = passkey 一次 + 钱包一次」是三档契约明文，两次 passkey 属于违约；
   提交侧安全由会话归属校验（`session.account_id == ctx.account_id`）、签名者一致校验和
   链上授权复核共同保证。
-- 公民上链是 prepare → 公民回签 → complete → submit 四步，那唯一一次 passkey 在
-  `complete`（真正创建冷签会话、授权链上写的一刻），prepare 只构造待签载荷属 Session 档。
+- 公民上链是 prepare → 公民回签 → complete → submit 四步，唯一一次Passkey在
+  `complete`验证公民回签并创建管理员冷签会话时消费，prepare不消费断言，submit只消费最终冷签。
 - `POST /api/admin/address/chain-call` 直接返回待冷签 call、不经会话表，拿不到类型约束，
   故在 handler 内显式断言。
 
@@ -394,7 +398,7 @@ OnChina 管理端只承认当前节点 active binding 绑定机构的链上 acti
 
 #### 5. 扫码签名和验签
 
-扫码协议只有 `QR_V1`。OnChina 的登录、Passkey 更新、管理员集合变更、机构登记链写动作和其它需要冷钱包确认的动作，都必须使用统一 QR 组件。
+扫码协议只有 `QR_V1`。OnChina 的登录、管理员集合变更、机构登记链写动作和其它需要冷钱包确认的动作，都必须使用统一 QR 组件。
 
 OnChina 的 `Session / Passkey / PasskeyColdSign` 是网站业务鉴权等级，不是钱包
 账户 `SignMode`。`PasskeyColdSign` 中的冷签和未登录场景的单独冷签都由
@@ -541,8 +545,7 @@ citizenchain/onchina/
 - 新增公民请求只提交 `province_name / city_name / town_code` 和 `birth_*` 字段;不得向后端发送旧的第二套居住字段。
 - 旧机构直接创建流程已关闭：共享创建弹窗当前只保留资料录入布局，按钮固定禁用并说明必须原子提交 LR、初始治理岗位、不可变权限、初始任职和投票规则；前端不得调用旧 API、生成旧签名二维码或提交 `0x1e05/0x1f05`。
 - 第 6 步接入新机构创建业务时，表单必须在同一业务载荷中收集机构资料、至少两个 admins、至少一个初始治理岗位及其权限和任职、初始投票规则；动态岗位码仍由 runtime 生成，前端不得手填或预生成。
-- 所有 `PASSKEY_COLD_SIGN` 正式业务提交必须同时携带冷签 grant 和 Passkey assertion。创建机构、创建/删除账户、公民身份上链等可直接使用 `onchina/platformweb/authentication/security.ts::createColdSignSubmitHeaders`；已由组件先取得 grant 的资料上传/删除、机构详情更新等必须使用 `securityGrantSubmitHeaders`。业务模块禁止手写 `x-cid-security-grant` 或只提交 grant 不提交 Passkey assertion。
-- 机构资料上传、资料删除、机构详情更新的扫码授权 payload 必须与后端 `grant_payload` 逐字段同形；资料上传使用 `target/fileName/docType/fileSize`，资料删除使用 `target/docId/fileName`，机构详情更新使用 `target/cidNumber/cidFullName/parentCidNumber/familyName/givenName/representativeCid/photoPath`。
+- 本地资料写入统一使用passkeySubmitHeaders，不生成扫码授权grant；账户、治理、立法和公民上链等真实链签流程在创建signing时消费一次Passkey，submit只消费本次冷签，不增加第二次Passkey或安全grant冷签。
 - 每个机构必须存在唯一 `LR / 法定代表人` 岗位且允许空缺；前端不得要求用户手填 LR 岗位码，也不得把“管理员”当成统一岗位名。
 - 股份公司等私权机构只有所有最小必填字段及至少两个不重复管理员 `account_id` 均合法时才启用生成按钮。协会 `SFAS` 必须显式选择盈利或非盈利，前端不得固定为非盈利。
 - 公民详情页负责链上身份上链:未满 16 周岁、无选举资格或档案非正常时禁用推送;推送时必须先选择“投票身份”或“参选身份”,再录入公民 `account_id`、生成目标公民签名二维码,验签后展示注册局管理员链上交易二维码。
@@ -583,7 +586,7 @@ passkey 客户端在调用 `navigator.credentials.create/get` 前必须检查 `w
 
 #### 7. 扫码签名
 
-管理员扫码登录、Passkey 更新、机构内部治理、注册局直接登记机构管理员和其它链写动作统一使用 `QR_V1`。
+管理员扫码登录、机构内部治理、注册局直接登记机构管理员和其它链写动作统一使用 `QR_V1`。
 
 - OnChina 页面生成 `sign_request`。
 - CitizenWallet 扫描、只签名一次并显示 `sign_response` 响应二维码。
@@ -609,7 +612,8 @@ CitizenApp 不承担管理员登录 QR 职责。前端文案不得引导用户�
 - 只有登录态 `institution_cid_number` 与 finalized `PlatformCidNumber` 精确一致时才显示平台会员价格模块。调价固定使用 `onchina/private/frontend/Workspace.tsx` prepare、`onchina/platformweb/qr/useChainSign.tsx` 一次签名响应回扫和统一 chain submit，不得自建签名弹窗或提交器。
 - `NRC`、`PRC`、`PRB` 不显示前端工作台入口，登录阶段返回节点桌面端专用错误。
 - `PMUL` 和其它个人主体不显示前端工作台入口，登录阶段返回个人多签不支持错误。
-- 注册局管理员未设置 passkey 时，只显示自己机构的管理员列表入口，用于先完成本机 passkey 设置；设置完成后再显示完整注册局业务入口。
+- 所有管理员未设置Passkey时，登录后必须先完成密钥设置；设置所需身份取登录结果，不先读取业务名册。后端同步限制业务API，设置完成后显示既有授权入口。
+- 首屏按登录或会话检查返回的setupRequired决定：未设置只提供原密钥设置通路，完成后进入业务；已设置直接渲染授权工作台，不额外等待Passkey查询。Context统一消费此服务端阶段，换会话丢弃旧刷新。初始页面从最终可见入口选择，不先挂载公民页。市注册局、联邦注册局两个顶层Tab及原导航保持；只调整本地目录操作的验证档位。
 - 联邦注册局管理员列表的操作列只允许 `FRG` 看到；`CREG` 进入同一入口时必须是只读表格。
 
 #### 9. 验收
@@ -777,8 +781,8 @@ OnChina 高并发目标建立在结构化表、组合索引、省分区和省市
 - 联邦注册局管理员目录从 `PublicAdmins::AdminAccounts` 读取账户集合，并从 `PublicManage::InstitutionRoleAssignments` 的 `PROVINCE_COMMISSIONER_<省码>` 岗位取得 43 省归属；本地不保存第二份省组权限真源。
 - FRG 管理员的 `scope_province_name` 只由其链上省岗位码派生；FRG 机构 CID 的登记地址只作机构展示元数据，禁止覆盖管理员授权省份。
 - 联邦注册局和市注册局不提供“编辑本地管理员姓名”的入口。联邦注册局岗位任职目录完全只读，换届由治理业务写入 entity；下级市注册局本地登记目录新增/删除仍走安全动作，但不能替代链上管理员资格校验。
-- 登录态：用于普通读取和低风险操作。
-- `PASSKEY_COLD_SIGN`：用于管理员安全写操作、Passkey 更新、管理员集合变更、节点解绑和链写入二次确认。
+- 登录态：完成强制密钥设置后用于普通读取；初始化和纯预览不承诺业务写入。
+- Passkey：本地业务写及已有密钥新增/变更。PASSKEY_COLD_SIGN：真实链上管理员集合/岗位治理及其它链上操作，整次业务只验证一次Passkey和一次管理员冷签。
 - 扫码请求：统一使用 `QR_V1 / k=1 sign_request`。
 - 签名响应：统一使用 `QR_V1 / k=2 sign_response`。
 
@@ -1038,6 +1042,8 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 结构初始化以PostgreSQL原生schema注释记录onchina:3格式。仅无业务对象的新命名空间或官方空public空间可事务初始化；已有结构核对格式、27张逻辑表、205列及全部表列命名，随后只读复用。模块connect_existing也先核验，旧结构、额外旧表或损坏列明确失败，不自动修补。schema声明不执行照片清理，业务过期仍由照片原读写入口校验。真实旧库数据处置留待单独批准。
 
 固定协议边界：QR_V1 管理员签名、软件接口版本2健康响应和 CitizenApp 公开目录（含共享分页与法定代表人）保持其所属既有 JSON 格式。管理端自有 HTTP DTO 使用 camelCase；数据库恢复上下文只使用唯一 snake_case 键。测试隔离库在独立线程初始化与清理，避免同步 postgres 在异步测试内嵌套 runtime。
+
+管理端城市查询发送 provinceName；扫码登录结果查询发送 challengeId/sessionId；机构审计查询发送 targetCid。管理员表单与局部校验统一使用 familyName/givenName/accountId 和 adminsText。共享照片上传响应维持 file_path/file_name/mime_type/file_size，前端按同一合同读取。HTTP 参数拒绝即使返回非 JSON 也保留状态与401清退语义；每个准确会话重新登记失效回调，普通与二进制请求的迟到401不得清退后来登录的会话。不推断后端版本或要求重启；轮询遇确定的参数/鉴权拒绝停止，操作记录读取失败明确显示错误与重试，不能伪装为空记录。
 
 链签会话 context 顶层使用 snake_case（origin_institution_cid 等三词内键）；嵌入的 validated 等真实 DTO 仍由其所属 Serde 决定格式。会话创建、授权重核、恢复租约和最终投影均消费同一个键，不做大小写回退。
 

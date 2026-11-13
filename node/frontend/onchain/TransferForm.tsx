@@ -3,6 +3,7 @@ import { AddressScanModal } from "../desktop/scanner";
 import { calculateTransferFeeYuan } from "./fee";
 import type { Wallet } from "./types";
 import scanIcon from "../../../icons/scan.svg?url";
+import citizenCoinLogo from "../../../icons/gmb.png?url";
 import { useState } from 'react';
 
 type Props = {
@@ -153,7 +154,7 @@ export function TransferForm({ activeWallet, nodeReady = true, balance, balanceE
             placeholder="0.00"
             disabled={formDisabled}
           />
-          <span className="transfer-form-currency">GMB</span>
+          <img className="transfer-form-currency" src={citizenCoinLogo} alt="公民币" title="公民币" />
         </div>
       </div>
 

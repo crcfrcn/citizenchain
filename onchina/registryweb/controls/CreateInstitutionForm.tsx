@@ -795,7 +795,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
                   <Col span={5}>
                     <Form.Item
                       label={index === 0 ? '姓' : undefined}
-                      name={[field.name, 'family_name']}
+                      name={[field.name, 'familyName']}
                     >
                       <Input placeholder="默认 管理" />
                     </Form.Item>
@@ -803,7 +803,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
                   <Col span={5}>
                     <Form.Item
                       label={index === 0 ? '名' : undefined}
-                      name={[field.name, 'given_name']}
+                      name={[field.name, 'givenName']}
                     >
                       <Input placeholder="默认 员" />
                     </Form.Item>
@@ -811,7 +811,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
                   <Col span={11}>
                     <Form.Item
                       label={index === 0 ? '管理员账户' : undefined}
-                      name={[field.name, 'account_id']}
+                      name={[field.name, 'accountId']}
                       rules={[
                         { required: true, message: '请输入管理员账户 ID' },
                         {

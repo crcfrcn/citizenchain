@@ -24,7 +24,9 @@ use webauthn_rs::prelude::{
     Url, Webauthn, WebauthnBuilder,
 };
 
-use crate::authentication::login::require_admin_any;
+use crate::authentication::login::{
+    admin_session, bearer_token, require_admin_any, require_admin_session,
+};
 use crate::response::ApiResponse;
 use crate::{api_error, AppState};
 
@@ -122,7 +124,7 @@ pub(crate) async fn register_begin(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let ctx = match require_admin_any(&state, &headers) {
+    let ctx = match require_admin_session(&state, &headers) {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -188,51 +190,99 @@ pub(crate) async fn register_finish(
     headers: HeaderMap,
     Json(input): Json<PasskeyRegisterFinishInput>,
 ) -> impl IntoResponse {
-    let ctx = match require_admin_any(&state, &headers) {
-        Ok(v) => v,
-        Err(resp) => return resp,
+    let ctx = match require_admin_session(&state, &headers) {
+        Ok(ctx) => ctx,
+        Err(response) => return response,
     };
     let webauthn = match build_webauthn() {
-        Ok(v) => v,
-        Err(err) => {
-            tracing::error!(error = %err, "passkey config invalid");
+        Ok(value) => value,
+        Err(error) => {
+            tracing::error!(error = %error, "passkey config invalid");
             return passkey_config_error();
         }
     };
-    let account_id = ctx.account_id.clone();
-    let now = Utc::now();
+    let token = bearer_token(&headers).unwrap_or_default();
+    let assertion = headers
+        .get(PASSKEY_ASSERTION_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     let result = state.db.with_client(move |conn| {
-        let Some(state_json) = store::take_ceremony_conn(
-            conn,
-            input.ceremony_id.as_str(),
-            account_id.as_str(),
-            "REG",
-            now,
-        )?
-        else {
-            return Err("http:forbidden:passkey ceremony invalid or expired".to_string());
-        };
+        let mut tx = conn.transaction().map_err(|error| error.to_string())?;
+        crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
+        let hash = crate::authentication::repo::admin_session_token_hash(&token);
+        if tx
+            .query_opt(
+                "SELECT token_hash FROM session WHERE token_hash=$1 FOR UPDATE",
+                &[&hash],
+            )
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
+            return Err("http:forbidden:login session is no longer valid".into());
+        }
+        // 等待绑定及会话锁后再判断期限，不能使用锁前时间接受过期注册或断言。
+        let now = Utc::now();
+        let session = crate::authentication::repo::get_admin_session_conn(&mut tx, &token)?
+            .ok_or("http:forbidden:login session is no longer valid")?;
+        let binding = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?
+            .ok_or("http:forbidden:node binding missing")?;
+        if session.account_id != ctx.account_id
+            || session.candidate_id != binding.candidate_id
+            || session.institution_code != binding.institution_code
+            || session.institution_cid_number != binding.institution_cid_number
+            || now > session.expires_at
+        {
+            return Err("http:forbidden:login session is no longer valid".into());
+        }
+        let existing = has_credential(&mut tx, &ctx.account_id)?;
+        if existing {
+            // 已有密钥的新增/更新是本地安全写，必须消费已有凭证的一次断言。
+            let assertion = assertion
+                .as_deref()
+                .ok_or("http:forbidden:passkey assertion required")?;
+            if !store::consume_assertion_conn(&mut tx, assertion, &ctx.account_id, now)? {
+                return Err("http:forbidden:passkey assertion invalid or expired".into());
+            }
+        } else if !session.setup_required {
+            return Err("http:forbidden:passkey setup state invalid".into());
+        }
+        let state_json =
+            store::take_ceremony_conn(&mut tx, &input.ceremony_id, &ctx.account_id, "REG", now)?
+                .ok_or("http:forbidden:passkey ceremony invalid or expired")?;
         let reg_state: PasskeyRegistration = serde_json::from_value(state_json)
-            .map_err(|e| format!("decode reg state failed: {e}"))?;
+            .map_err(|error| format!("decode reg state failed: {error}"))?;
         let passkey = webauthn
             .finish_passkey_registration(&input.credential, &reg_state)
-            .map_err(|e| format!("http:bad_request:passkey registration verify failed: {e}"))?;
-        let credential_id = hex::encode(passkey.cred_id().as_ref());
-        store::insert_credential_conn(conn, credential_id.as_str(), account_id.as_str(), &passkey)?;
+            .map_err(|error| {
+                format!("http:bad_request:passkey registration verify failed: {error}")
+            })?;
+        store::insert_credential_conn(
+            &mut tx,
+            &hex::encode(passkey.cred_id().as_ref()),
+            &ctx.account_id,
+            &passkey,
+        )?;
+        crate::authentication::repo::complete_passkey_setup_conn(
+            &mut tx,
+            &ctx.account_id,
+            &session.candidate_id,
+        )?;
+        tx.commit().map_err(|error| error.to_string())?;
         Ok(())
     });
     match result {
         Ok(()) => Json(ApiResponse {
             code: 0,
-            message: "ok".to_string(),
+            message: "ok".into(),
             data: "passkey registered",
         })
         .into_response(),
-        Err(err) => passkey_error(err),
+        Err(error) => passkey_error(error),
     }
 }
 
-/// 开始断言:为登录管理员生成 passkey 断言挑战(无已注册凭证则拒)。
+/// 开始断言：已完成设置的会话取得一次性Passkey挑战。
+
 pub(crate) async fn assert_begin(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -355,26 +405,25 @@ pub(crate) async fn passkey_status(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let ctx = match require_admin_any(&state, &headers) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    let account_id = ctx.account_id.clone();
-    let result = state
-        .db
-        .with_client(move |conn| store::admin_has_credential_conn(conn, account_id.as_str()));
-    match result {
-        Ok(registered) => Json(ApiResponse {
+    match admin_session(&state, &headers) {
+        Ok(session) => Json(ApiResponse {
             code: 0,
-            message: "ok".to_string(),
-            data: PasskeyStatusOutput { registered },
+            message: "ok".into(),
+            data: PasskeyStatusOutput {
+                registered: !session.setup_required,
+            },
         })
         .into_response(),
-        Err(err) => {
-            let message = format!("query passkey status failed: {err}");
-            api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str())
-        }
+        Err(response) => response,
     }
+}
+
+/// 仅登录签发和密钥初始化读取凭证事实；业务读取直接使用会话阶段。
+pub(crate) fn has_credential(
+    conn: &mut impl postgres::GenericClient,
+    account_id: &str,
+) -> Result<bool, String> {
+    store::admin_has_credential_conn(conn, account_id)
 }
 
 /// passkey 断言已成功消费的凭证。

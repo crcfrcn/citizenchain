@@ -15,6 +15,7 @@ pub fn api_error(status: StatusCode, code: u32, message: &str) -> axum::response
 fn onchina_error_code(status: StatusCode, message: &str) -> &'static str {
     // HTTP 状态表达协议层含义,稳定 error_code 表达业务语义;前端不得解析 message。
     match message {
+        "passkey setup required" => "ONCHINA_PASSKEY_SETUP_REQUIRED",
         "missing bearer token" => "ONCHINA_AUTH_MISSING_TOKEN",
         "invalid access token" => "ONCHINA_AUTH_INVALID_ACCESS_TOKEN",
         "access token expired" => "ONCHINA_AUTH_ACCESS_TOKEN_EXPIRED",

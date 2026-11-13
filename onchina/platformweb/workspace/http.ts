@@ -58,6 +58,8 @@ export async function adminRequest<T>(
 }
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // 只允许请求发起时所属的会话处理401，旧请求不能清退后来登录的会话。
+  const unauthorized = onUnauthorized;
   let resp: Response;
   try {
     resp = await fetch(path, init);
@@ -71,23 +73,23 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     body = text ? JSON.parse(text) : null;
   } catch {
-    const snippet = text.slice(0, 120);
-    throw new Error(
-      `服务响应格式错误(${resp.status})：${snippet || 'empty body'}，请确认后端已重启到最新版本`,
-    );
+    // Axum 参数拒绝可返回纯文本；先保留 HTTP 状态，401 仍必须清退会话。
   }
 
   if (resp.status === 401) {
-    if (onUnauthorized && !unauthorizedFired) {
+    if (unauthorized && onUnauthorized === unauthorized && !unauthorizedFired) {
       unauthorizedFired = true;
-      onUnauthorized();
+      unauthorized();
     }
     // 401 只代表管理员登录态失效;必须抛错中断业务流程,不能返回 undefined。
     throw new AuthExpiredError(resp.status, body);
   }
 
   if (!resp.ok || !body || body.code !== 0) {
-    throw new ApiError(resp.status, body, `request failed (${resp.status})`);
+    const fallback = resp.status === 400
+      ? '请求参数错误，请重试或联系管理员'
+      : resp.ok ? '服务响应格式错误，请联系管理员' : `服务请求失败(${resp.status})，请稍后重试`;
+    throw new ApiError(resp.status, body, fallback);
   }
   return body.data as T;
 }
@@ -104,13 +106,14 @@ export async function adminBlobRequest(
   auth: AdminAuth,
   signal?: AbortSignal,
 ): Promise<Blob> {
+  const unauthorized = onUnauthorized;
   const resp = await fetch(path, { headers: adminHeaders(auth), cache: 'no-store', signal });
   if (resp.ok) return resp.blob();
   const body: ErrorBody | null = await resp.json().catch(() => null);
   if (resp.status === 401) {
-    if (onUnauthorized && !unauthorizedFired) {
+    if (unauthorized && onUnauthorized === unauthorized && !unauthorizedFired) {
       unauthorizedFired = true;
-      onUnauthorized();
+      unauthorized();
     }
     throw new AuthExpiredError(resp.status, body);
   }

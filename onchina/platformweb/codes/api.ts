@@ -38,8 +38,8 @@ export async function getCidMeta(auth: AdminAuth): Promise<CidMetaResult> {
 }
 
 export async function listCidCities(auth: AdminAuth, provinceName: string): Promise<CidCityItem[]> {
-  const q = `?province_name=${encodeURIComponent(provinceName)}`;
-  return request<CidCityItem[]>(`/api/admin/cid/china/cities${q}`, {
+  const params = new URLSearchParams({ provinceName });
+  return request<CidCityItem[]>(`/api/admin/cid/china/cities?${params.toString()}`, {
     method: 'GET',
     headers: adminHeaders(auth),
   });

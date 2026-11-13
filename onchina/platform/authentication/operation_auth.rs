@@ -120,19 +120,17 @@ impl AdminActionType {
     pub fn auth_type(&self) -> AdminOperationAuth {
         match self {
             // 本地写(Passkey):只改 onchina 本地库,不产生 extrinsic。
-            Self::InstitutionUploadDocument
+            Self::InstitutionUpdate
+            | Self::CreateCityRegistry
+            | Self::DeleteCityRegistry
+            | Self::InstitutionUploadDocument
             | Self::InstitutionDeleteDocument
             | Self::NodeBindingUnbind
             // 最终管理员链签就是该角色唯一钱包签名,创建阶段只额外一次 passkey。
             | Self::CitizenOnchainPush => AdminOperationAuth::Passkey,
-            // 链上写(PasskeyColdSign):产生链上交易/凭证、改 Active 集合或高危治理。
-            // InstitutionUpdate 改 cid_full_name/法人/所属法人(链上注册凭证签名字段=链上单源),
-            //   归链上写;前端本就走冷签。若存在纯本地展示字段,Phase 2/3 再拆出为本地写(Passkey)。
-            Self::InstitutionUpdate
-            | Self::InstitutionCreate
+            // 链上操作：创建链签会话时一次Passkey，最终真实交易载荷一次冷签。
+            Self::InstitutionCreate
             | Self::InstitutionCreateAccount
-            | Self::CreateCityRegistry
-            | Self::DeleteCityRegistry
             | Self::InstitutionDeleteAccount
             // 立法与表决:全部产生链上交易。
             | Self::ProposeEnactLaw
@@ -159,9 +157,9 @@ impl AdminActionType {
         )
     }
 
-    /// prepare 只允许冷签动作和明确支持的本地解绑，不能泛化放开所有写入。
+    /// 本地目录治理/解绑使用原挑战协议但不冷签；其它本地写直接消费Passkey。
     pub(crate) fn can_prepare(&self) -> bool {
-        self.auth_type() == AdminOperationAuth::PasskeyColdSign || *self == Self::NodeBindingUnbind
+        self.auth_type() == AdminOperationAuth::PasskeyColdSign || self.is_governance()
     }
 
     pub(crate) fn is_governance(&self) -> bool {

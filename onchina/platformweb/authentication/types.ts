@@ -5,6 +5,8 @@ import type { CapabilitySet } from '../workspace/modules';
 import type { InstitutionWorkspace } from '../workspace/types';
 
 export type TokenAdminAuth = {
+  /** 服务端会话阶段；未完成首次密钥设置时不得进入业务工作台。 */
+  setupRequired: boolean;
   accessToken: string;
   accountId: string;
   /** 当前会话绑定的准确机构 CID；由后端根据激活节点绑定派生。 */

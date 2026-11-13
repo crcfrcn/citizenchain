@@ -9,9 +9,6 @@ import { AccountList } from '@gmb/onchina-platform/accounts/AccountList';
 import { notice } from '@gmb/onchina-platform/controls/notice';
 import { PrivateDetailLayout } from '../private/PrivateDetailLayout';
 import { DocsLibrary } from '@gmb/onchina-platform/documents/Library';
-import { type AdminActionType, type AdminSecurityGrantOutput, commitAdminAction, prepareAdminAction } from '@gmb/onchina-platform/authentication/security';
-import { parseSignedReceiptPayload } from '@gmb/onchina-platform/qr/parseSignedPayload';
-import { CitizenSignatureModal } from '@gmb/onchina-platform/qr/CitizenSignatureModal';
 import { institutionDetailCacheKey, readCachedInstitutionDetail, writeCachedInstitutionDetail } from '@gmb/onchina-platform/codes/cache';
 import { InstitutionDetailNavLayout } from '@gmb/onchina-platform/workspace/DetailLayout';
 import { OperationRecords } from './OperationRecords';
@@ -46,14 +43,7 @@ const SUBJECT_STATUS_LABEL: Record<string, string> = {
   REVOKED: '已注销',
 };
 
-type SecurityModalState = {
-  actionId: string;
-  signRequest: string;
-  payloadHash: string;
-  actionType: AdminActionType;
-  resolve: (value: AdminSecurityGrantOutput) => void;
-  reject: (reason?: unknown) => void;
-};
+
 
 type GovernanceFormValues = {
   adminsText?: string;
@@ -216,7 +206,7 @@ function InstitutionGovernancePanel({
     if (!canWrite || !canRegistryRegister) return;
     setSubmitting(true);
     try {
-      const values = await form.validateFields(['admins_text']);
+      const values = await form.validateFields(['adminsText']);
       const admins = parseAdminsText(values.adminsText);
       if (admins.length < 2) throw new Error('注册局直接登记管理员至少需要 2 人');
       const prepared = await prepareRegisterInstitutionAdmins(auth, {
@@ -307,8 +297,6 @@ export const GovDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, onBa
   );
   const [loading, setLoading] = useState(false);
 
-  const [securityCommitLoading, setSecurityCommitLoading] = useState(false);
-  const [securityModal, setSecurityModal] = useState<SecurityModalState | null>(null);
 
   const load = useCallback(() => {
     const cached = readCachedInstitutionDetail(detailCacheKey);
@@ -334,54 +322,6 @@ export const GovDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, onBa
   useEffect(() => {
     load();
   }, [load]);
-
-  const runScanSignGrant = async (
-    actionType: AdminActionType,
-    payload: unknown,
-  ): Promise<AdminSecurityGrantOutput> => {
-    const prepared = await prepareAdminAction(auth, actionType, payload);
-    if (prepared.authType !== 'PASSKEY_COLD_SIGN' || !prepared.signRequest) {
-      throw new Error('该操作缺少公民钱包签名请求');
-    }
-    return new Promise<AdminSecurityGrantOutput>((resolve, reject) => {
-      setSecurityModal({
-        actionId: prepared.actionId,
-        signRequest: prepared.signRequest || '',
-        payloadHash: prepared.payloadHash,
-          actionType: prepared.actionType,
-        resolve,
-        reject,
-      });
-    });
-  };
-
-  const handleSecuritySignedResponse = useCallback(async (raw: string) => {
-    if (!securityModal) return;
-    setSecurityCommitLoading(true);
-    try {
-      const signed = parseSignedReceiptPayload(raw, securityModal.actionId);
-      if (signed.challengeId !== securityModal.actionId) {
-        throw new Error('签名响应与当前请求不匹配');
-      }
-      if (!signed.accountId) {
-        throw new Error('签名响应缺少 account_id');
-      }
-      const grant = await commitAdminAction<AdminSecurityGrantOutput>(auth, {
-        actionId: securityModal.actionId,
-        accountId: signed.accountId,
-        signature: signed.signature,
-        payloadHash: securityModal.payloadHash,
-        actionType: securityModal.actionType,
-      });
-      securityModal.resolve(grant);
-      setSecurityModal(null);
-    } catch (err) {
-      securityModal.reject(err);
-      notice.error(err, '');
-    } finally {
-      setSecurityCommitLoading(false);
-    }
-  }, [auth, securityModal]);
 
   const inst = detail?.institution;
   const accounts = detail?.accounts || [];
@@ -526,30 +466,12 @@ export const GovDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, onBa
               canWrite={canWrite}
               loading={loading}
               onReload={load}
-              createScanSignGrant={runScanSignGrant}
               onBack={onBack}
               backLabel={backLabel}
             />
           ) : renderOfficialDetail()}
         </>
       )}
-      <CitizenSignatureModal
-        title="公民钱包签名确认"
-        open={!!securityModal}
-        onCancel={() => {
-          securityModal?.reject(new Error('已取消签名确认'));
-          setSecurityModal(null);
-          setSecurityCommitLoading(false);
-        }}
-        qrTitle="签名二维码"
-        qrValue={securityModal?.signRequest}
-        qrHint="使用当前注册局管理员公民钱包扫码签名"
-        scannerHint="扫描公民钱包生成的签名响应二维码"
-        scannerDisabled={securityCommitLoading}
-        scannerLoading={securityCommitLoading}
-        onDetected={handleSecuritySignedResponse}
-        onScannerError={(msg) => notice.error(msg)}
-      />
     </div>
   );
 };

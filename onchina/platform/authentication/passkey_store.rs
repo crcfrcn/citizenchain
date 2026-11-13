@@ -4,29 +4,32 @@
 //! 序列化存 JSONB;ceremony 与断言令牌均一次性消费(取出即删),过期由清理扫描回收。
 
 use chrono::{DateTime, Utc};
-use postgres::Client;
+use postgres::GenericClient;
 use webauthn_rs::prelude::Passkey;
 
 pub(super) fn insert_credential_conn(
-    conn: &mut Client,
+    conn: &mut impl GenericClient,
     credential_id: &str,
     account_id: &str,
     passkey: &Passkey,
 ) -> Result<(), String> {
     let payload =
         serde_json::to_value(passkey).map_err(|e| format!("encode passkey failed: {e}"))?;
-    conn.execute(
+    let count = conn.execute(
         "INSERT INTO credential(credential_id, account_id, passkey_data, created_at)
          VALUES ($1, $2, $3, now())
-         ON CONFLICT (credential_id) DO UPDATE SET passkey_data = EXCLUDED.passkey_data",
+         ON CONFLICT (credential_id) DO UPDATE SET passkey_data = EXCLUDED.passkey_data WHERE credential.account_id = EXCLUDED.account_id",
         &[&credential_id, &account_id, &payload],
     )
     .map_err(|e| format!("insert passkey credential failed: {e}"))?;
+    if count != 1 {
+        return Err("http:forbidden:credential belongs to another account".into());
+    }
     Ok(())
 }
 
 pub(super) fn list_credentials_for_admin_conn(
-    conn: &mut Client,
+    conn: &mut impl GenericClient,
     account_id: &str,
 ) -> Result<Vec<Passkey>, String> {
     let rows = conn
@@ -44,7 +47,7 @@ pub(super) fn list_credentials_for_admin_conn(
 }
 
 pub(super) fn update_credential_conn(
-    conn: &mut Client,
+    conn: &mut impl GenericClient,
     credential_id: &str,
     passkey: &Passkey,
 ) -> Result<(), String> {
@@ -59,7 +62,7 @@ pub(super) fn update_credential_conn(
 }
 
 pub(super) fn insert_ceremony_conn(
-    conn: &mut Client,
+    conn: &mut impl GenericClient,
     ceremony_id: &str,
     account_id: &str,
     kind: &str,
@@ -77,7 +80,7 @@ pub(super) fn insert_ceremony_conn(
 
 /// 一次性取出并删除 ceremony 状态(校验 admin / kind / 未过期);取不到返回 None。
 pub(super) fn take_ceremony_conn(
-    conn: &mut Client,
+    conn: &mut impl GenericClient,
     ceremony_id: &str,
     account_id: &str,
     kind: &str,
@@ -96,7 +99,7 @@ pub(super) fn take_ceremony_conn(
 }
 
 pub(super) fn insert_assertion_conn(
-    conn: &mut Client,
+    conn: &mut impl GenericClient,
     assertion_id: &str,
     account_id: &str,
     expires_at: DateTime<Utc>,
@@ -112,7 +115,7 @@ pub(super) fn insert_assertion_conn(
 
 /// 当前 admin 是否已注册任一 passkey 凭证(驱动操作列红点)。
 pub(super) fn admin_has_credential_conn(
-    conn: &mut Client,
+    conn: &mut impl GenericClient,
     account_id: &str,
 ) -> Result<bool, String> {
     let row = conn
@@ -144,7 +147,7 @@ pub(super) fn consume_assertion_conn(
 
 /// 清理过期 ceremony 与断言令牌(begin / assert 时顺带调用)。
 pub(super) fn cleanup_passkey_state_conn(
-    conn: &mut Client,
+    conn: &mut impl GenericClient,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
     conn.execute("DELETE FROM ceremony WHERE expires_at < $1", &[&now])

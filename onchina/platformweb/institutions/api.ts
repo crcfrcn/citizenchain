@@ -167,10 +167,11 @@ export interface InstitutionDocument {
 }
 
 export interface LegalRepresentativePhoto {
-  filePath: string;
-  fileName: string;
-  mimeType: string;
-  fileSize: number;
+  // 与 CitizenApp 共用的照片响应保持既有 snake_case 合同。
+  file_path: string;
+  file_name: string;
+  mime_type: string;
+  file_size: number;
 }
 
 export interface CreateInstitutionAdminInput {

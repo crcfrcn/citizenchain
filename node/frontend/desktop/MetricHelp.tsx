@@ -4,9 +4,10 @@ import { createPortal } from 'react-dom';
 type Props = {
   title: string;
   items: readonly ReactNode[];
+  dialogClassName?: string;
 };
 
-export function MetricHelp({ title, items }: Props) {
+export function MetricHelp({ title, items, dialogClassName }: Props) {
   const [open, setOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -32,7 +33,7 @@ export function MetricHelp({ title, items }: Props) {
       {open && createPortal(
         <dialog
           ref={dialogRef}
-          className="metric-help-dialog"
+          className={`metric-help-dialog${dialogClassName ? ` ${dialogClassName}` : ''}`}
           aria-labelledby={titleId}
           onClick={(event) => {
             if (event.target === event.currentTarget) setOpen(false);

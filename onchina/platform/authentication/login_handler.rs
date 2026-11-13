@@ -14,7 +14,7 @@ use chrono::Utc;
 use crate::authentication::repo;
 use crate::*;
 
-use super::guards::{admin_auth, bearer_token};
+use super::guards::{admin_session, bearer_token};
 use super::model::*;
 use super::onchain_gate;
 
@@ -23,7 +23,19 @@ pub(crate) async fn require_admin_session_middleware(
     request: Request,
     next: middleware::Next,
 ) -> Response {
-    if let Err(resp) = admin_auth(&state, request.headers()) {
+    // 准确列出首次设置通路，不能用业务就绪门把尚未有凭证的管理员锁死。
+    let bootstrap = matches!(
+        (request.method().as_str(), request.uri().path()),
+        ("POST", "/api/admin/auth/passkey/register/begin")
+            | ("POST", "/api/admin/auth/passkey/register/finish")
+            | ("GET" | "HEAD", "/api/admin/auth/passkey/status")
+    );
+    let context = if bootstrap {
+        super::guards::require_admin_session(&state, request.headers())
+    } else {
+        super::guards::require_admin_any(&state, request.headers())
+    };
+    if let Err(resp) = context {
         return resp;
     }
     next.run(request).await
@@ -33,27 +45,18 @@ pub(crate) async fn admin_auth_check(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let ctx = match admin_auth(&state, &headers) {
-        Ok(v) => v,
-        Err(resp) => return resp,
+    let session = match admin_session(&state, &headers) {
+        Ok(session) => session,
+        Err(response) => return response,
     };
-    let capabilities =
-        crate::modules::capability::capabilities_for(&state.modules, &ctx.institution_code);
-    let workspace_modules = state
-        .modules
-        .workspace_modules(&ctx.institution_cid_number, &headers)
-        .await;
-    let workspace = crate::workspace::build_institution_workspace(
-        &state.modules,
-        &ctx.institution_code,
-        ctx.cid_short_name.as_deref(),
-        capabilities,
-        workspace_modules,
-    );
+    let ctx = session.context();
+    let capabilities = session.capabilities;
+    let workspace = session.workspace.clone();
     Json(ApiResponse {
         code: 0,
         message: "ok".to_string(),
         data: AdminAuthOutput {
+            setup_required: session.setup_required,
             ok: true,
             account_id: ctx.account_id,
             institution_cid_number: ctx.institution_cid_number,

@@ -9,7 +9,7 @@ type Props = {
 export function IdentitySection({ identity, minerAddress }: Props) {
   return (
     <section className="section home-summary-section">
-      <h2>身份</h2>
+      <h2>节点</h2>
       <dl className="identity-details">
         <div className="identity-detail-row">
           <dt className="identity-detail-key">节点角色:</dt>

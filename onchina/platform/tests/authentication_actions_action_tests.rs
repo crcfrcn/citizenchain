@@ -36,7 +36,7 @@ fn concurrent_security_grant_consumers_cannot_replay_one_grant() {
     let payload = json!({"target":"subject-a"});
     let grant = AdminSecurityGrant {
         grant_id: "grant-test".into(),
-        action_type: "INSTITUTION_UPDATE".into(),
+        action_type: "INSTITUTION_CREATE_ACCOUNT".into(),
         actor_account_id: actor.clone(),
         actor_institution_code: "CREG".into(),
         actor_cid_number: institution,
@@ -87,7 +87,7 @@ fn concurrent_security_grant_consumers_cannot_replay_one_grant() {
                         state,
                         &headers,
                         ctx,
-                        AdminActionType::InstitutionUpdate,
+                        AdminActionType::InstitutionCreateAccount,
                         "subject-a",
                         Some(payload),
                     )
@@ -152,6 +152,22 @@ async fn unbind_requires_passkey_and_its_binding_sessions_and_challenge_are_atom
                     candidate_id: binding.candidate_id.clone(),
                     expires_at: now + Duration::hours(1),
                     last_active_at: now,
+                    institution_cid_number: institution.clone(),
+                    admin_level: Some("CITY".into()),
+                    family_name: "测".into(),
+                    given_name: "试".into(),
+                    scope_province_name: Some("贵州省".into()),
+                    scope_city_name: Some("绥阳市".into()),
+                    scope_town_name: None,
+                    cid_short_name: None,
+                    capabilities: crate::modules::capability::EMPTY,
+                    workspace: crate::modules::model::InstitutionWorkspace {
+                        workspace_kind: crate::modules::model::WorkspaceKind::Registry,
+                        workspace_title: "fixture".into(),
+                        workspace_sections: vec![],
+                        workspace_modules: vec![],
+                    },
+                    setup_required: false,
                 },
             )?;
             let preview =

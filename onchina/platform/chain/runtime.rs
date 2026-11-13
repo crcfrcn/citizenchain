@@ -1777,53 +1777,6 @@ fn one_frg_province(provinces: &[[u8; 2]]) -> Result<[u8; 2], String> {
     }
 }
 
-/// FRG 范围属于当前账户的有效任职；每次在同一 finalized 视图重核，不读取绑定省份。
-pub(crate) async fn current_frg_province_name(cid: &str, account: &str) -> Result<String, String> {
-    let identity = identity_from_binding_parts(TIER1_REGISTRY_CODE, Some(cid))?;
-    let finalized = FinalizedChainView::connect().await?;
-    let admins = fetch_active_admins_onchain_at(&identity, &finalized)
-        .await?
-        .ok_or("scope:FRG admin set missing")?;
-    let admin = admins
-        .iter()
-        .find(|admin| crate::crypto::pubkey::same_account_id(&admin.account_id, account))
-        .ok_or("scope:FRG account is no longer an active admin")?;
-    let provinces = crate::institutions::admins::chain_roles::fetch_frg_province_codes_for_admin(
-        &finalized,
-        cid.as_bytes(),
-        admin.role_account_id,
-    )
-    .await?;
-    let province = one_frg_province(&provinces)?;
-    chain_province_name_by_code(province)
-        .ok_or_else(|| "scope:FRG assignment has unknown province".into())
-}
-
-/// 既有同步守卫在连接池之外执行有界链读，不跨网络请求持有数据库连接或事务锁。
-pub(crate) fn current_frg_province_name_blocking(
-    cid: &str,
-    account: &str,
-) -> Result<String, String> {
-    let cid = cid.to_string();
-    let account = account.to_string();
-    std::thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| e.to_string())?;
-        runtime.block_on(async {
-            tokio::time::timeout(
-                std::time::Duration::from_secs(20),
-                current_frg_province_name(&cid, &account),
-            )
-            .await
-            .map_err(|_| "scope:FRG chain scope read timed out".to_string())?
-        })
-    })
-    .join()
-    .map_err(|_| "scope:FRG chain scope read worker failed".to_string())?
-}
-
 /// 读取本节点机构的链上管理员人员集合；`account_id` 始终是当前可签名账户。
 ///
 /// 按候选 pallet 顺序探测 `<Pallet>::AdminAccounts[cid_number]`，命中首个集合即返回。
