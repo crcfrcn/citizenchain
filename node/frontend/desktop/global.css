@@ -1124,6 +1124,10 @@ select option:checked {
   scroll-behavior: smooth;
 }
 
+.local-doc-shell.doc-whitepaper {
+  --doc-radius: 8px;
+}
+
 .local-doc-shell * {
   box-sizing: border-box;
 }
@@ -3694,8 +3698,8 @@ select option:checked {
 /* 添加区（上方） */
 .wallet-add-section-top {
   display: grid;
-  /* 700px弹窗扣除边框、内边距、32px扫码按钮及两个8px间隔，输入框为200px和410px。 */
-  grid-template-columns: minmax(0, 200px) minmax(0, 1fr) var(--scan-icon-size);
+  /* 700px弹窗扣除边框、内边距、32px扫码按钮及两个8px间隔，输入框为150px和460px。 */
+  grid-template-columns: minmax(0, 150px) minmax(0, 1fr) var(--scan-icon-size);
   gap: 8px;
   align-items: center;
   flex-shrink: 0;

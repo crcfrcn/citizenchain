@@ -27,6 +27,10 @@ function signModeLabel(signMode: SignMode): string {
   }
 }
 
+function limitWalletName(value: string): string {
+  return Array.from(value).slice(0, 8).join('');
+}
+
 /** 分 → 千分位元 */
 function fenToYuan(fenStr: string): string {
   const fen = BigInt(fenStr);
@@ -128,9 +132,12 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
         <div className="wallet-add-section-top">
           <input
             type="text"
-            placeholder="钱包名称"
+            placeholder="请输入钱包名称"
+            maxLength={8}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => setName((e.nativeEvent as InputEvent).isComposing
+              ? e.target.value : limitWalletName(e.target.value))}
+            onCompositionEnd={(e) => setName(limitWalletName(e.currentTarget.value))}
             className="wallet-add-input"
           />
           <input

@@ -2,6 +2,7 @@ import { calculateTransferFeeYuan } from "../onchain/fee";
 import { TransferForm } from "../onchain/TransferForm";
 import { TransferSigningFlow } from "../onchain/TransferSigningFlow";
 import { TransactionPanel } from "../onchain/TransactionPanel";
+import { WalletManagerModal } from "../onchain/WalletManagerModal";
 import { RewardAccountSection } from "../control/RewardAccountSection";
 import { parseAddressQr } from "../client/parseAddressQr";
 import { accountIdToSs58 } from "../client/ss58";
@@ -90,6 +91,20 @@ beforeEach(() => {
   });
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+it('钱包名称最多8字，中文组合输入在确认后截断且不显示字数提示', () => {
+  render(<WalletManagerModal wallets={[]} activeAccountId={null}
+    onClose={vi.fn()} onUpdate={vi.fn()} onSelect={vi.fn()} />);
+  const input = screen.getByPlaceholderText('请输入钱包名称') as HTMLInputElement;
+  expect(input.maxLength).toBe(8);
+  fireEvent.change(input, {target:{value:'一二三四五六七八九'}});
+  expect(input.value).toBe('一二三四五六七八');
+  fireEvent.input(input, {target:{value:'中文输入法组合测试中'},isComposing:true});
+  expect(input.value).toBe('中文输入法组合测试中');
+  fireEvent.compositionEnd(input);
+  expect(input.value).toBe('中文输入法组合测');
+  expect(screen.queryByText(/最多.*8|8.*字/)).toBeNull();
+});
 
 describe('现有四档金额和费用', () => {
   it.each([destination, '0x6D66a0cB155051055F3FB3Cc73d9230D3Fb4D5B5'])(
