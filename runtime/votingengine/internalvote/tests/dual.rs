@@ -1,7 +1,7 @@
 //! 双层 ID + 反向索引专项测试。
 //!
 //! 覆盖:
-//! - 主键 `proposal_id: u64` 全局纯单调,跨业务跨年都唯一连续 +1
+//! - 主键 `proposal_id: u128` 全局纯单调,跨业务跨年都唯一连续 +1
 //! - 展示号 `ProposalDisplayId[id] = (year, seq_in_year)` 跨年自动重置
 //! - 4 张反向索引在 `register_proposal_data` 时同事务写入
 //! - 清理路径(`FinalCleanup`)同步删除反向索引 + 展示号
@@ -9,7 +9,7 @@
 //! 全新创世:双层 ID 自创世第一块即终态布局,无回填迁移。
 
 use super::*;
-// 这些 storage 在 votebase 主 crate;dual_id 测试通过 super::* 拿到 votebase::pallet 的 re-import。
+// 这些 storage 在 engingcore 主 crate;dual_id 测试通过 super::* 拿到 engingcore::pallet 的 re-import。
 
 /// 走 `_with_data` 路径触发 `register_proposal_data` 与反向索引写入。
 fn create_institution_proposal_with_data_via_engine(
@@ -17,7 +17,7 @@ fn create_institution_proposal_with_data_via_engine(
     institution_code: InstitutionCode,
     actor_cid_number: CidNumber,
     module_tag: &[u8],
-) -> u64 {
+) -> u128 {
     <InternalVote as InternalVoteEngine<AccountId32>>::create_institution_proposal_with_data(
         who,
         institution_code,
@@ -79,7 +79,7 @@ fn year_proposal_counter_no_longer_capped_at_one_million() {
         // 先创建一条让 CurrentProposalYear 进入 2026 分支(否则 stored_year=0 触发重置)
         let _ = create_internal_proposal_via_engine(nrc_admin(0), NRC, nrc_cid());
         // 强制把 YearProposalCounter 设为历史上限值，确认当前代码不会再拒绝。
-        YearProposalCounter::<Test>::put(1_000_000u32);
+        YearProposalCounter::<Test>::put(1_000_000u64);
         // 当前实现仍能成功创建；历史实现会在此处返回 ProposalIdOverflow。
         let id = create_internal_proposal_via_engine(nrc_admin(0), NRC, nrc_cid());
         let display = ProposalDisplayId::<Test>::get(id).unwrap();
@@ -107,7 +107,7 @@ fn reverse_indexes_populated_after_register_proposal_data() {
         let display = ProposalDisplayId::<Test>::get(id).unwrap();
         assert!(ProposalsByYear::<Test>::contains_key(display.year, id));
         // ProposalsByOwner — 用注册时传入的 module_tag
-        let owner = votebase::pallet::ProposalOwner::<Test>::get(id).expect("owner present");
+        let owner = engingcore::pallet::ProposalOwner::<Test>::get(id).expect("owner present");
         assert!(ProposalsByOwner::<Test>::contains_key(owner, id));
     });
 }
@@ -123,17 +123,49 @@ fn final_cleanup_removes_indexes_and_display_id() {
             b"cleanup-tag",
         );
         let display = ProposalDisplayId::<Test>::get(id).unwrap();
-        let owner = votebase::pallet::ProposalOwner::<Test>::get(id).expect("owner present");
+        let owner = engingcore::pallet::ProposalOwner::<Test>::get(id).expect("owner present");
 
         // 走完整 FinalCleanup 路径
         VotingEngine::cleanup_proposal_indexes(id);
-        votebase::pallet::Proposals::<Test>::remove(id);
-        votebase::pallet::ProposalOwner::<Test>::remove(id);
+        engingcore::pallet::Proposals::<Test>::remove(id);
+        engingcore::pallet::ProposalOwner::<Test>::remove(id);
 
         assert!(!ProposalDisplayId::<Test>::contains_key(id));
         assert!(!ProposalsByCode::<Test>::contains_key(NRC, id));
         assert!(!ProposalsByCid::<Test>::contains_key(nrc_cid(), id));
         assert!(!ProposalsByYear::<Test>::contains_key(display.year, id));
         assert!(!ProposalsByOwner::<Test>::contains_key(owner, id));
+    });
+}
+
+
+#[test]
+fn proposal_id_and_annual_sequence_accept_values_beyond_the_old_widths() {
+    new_test_ext().execute_with(|| {
+        NextProposalId::<Test>::put(u128::from(u64::MAX) + 1);
+        CurrentProposalYear::<Test>::put(2026u32);
+        YearProposalCounter::<Test>::put(u64::from(u32::MAX) + 1);
+        let id = engingcore::Pallet::<Test>::allocate_proposal_id().unwrap();
+        assert_eq!(id, u128::from(u64::MAX) + 1);
+        let display = ProposalDisplayId::<Test>::get(id).unwrap();
+        assert_eq!((display.year, display.seq_in_year), (2026u32, u64::from(u32::MAX) + 1));
+        assert_eq!(engingcore::Pallet::<Test>::unix_seconds_to_year(
+            (1970..65536).map(|year| u64::from(engingcore::Pallet::<Test>::days_in_year(year)) * 86400).sum()
+        ).unwrap(), 65536u32);
+    });
+}
+
+#[test]
+fn proposal_counter_overflow_never_wraps_or_consumes_an_id() {
+    new_test_ext().execute_with(|| {
+        NextProposalId::<Test>::put(u128::MAX);
+        assert_noop!(engingcore::Pallet::<Test>::allocate_proposal_id(), engingcore::Error::<Test>::ProposalIdOverflow);
+        assert_eq!(NextProposalId::<Test>::get(), u128::MAX);
+        NextProposalId::<Test>::put(123u128);
+        CurrentProposalYear::<Test>::put(2026u32);
+        YearProposalCounter::<Test>::put(u64::MAX);
+        assert_noop!(engingcore::Pallet::<Test>::allocate_proposal_id(), engingcore::Error::<Test>::YearCounterOverflow);
+        assert_eq!(NextProposalId::<Test>::get(), 123u128);
+        assert!(!ProposalDisplayId::<Test>::contains_key(123u128));
     });
 }

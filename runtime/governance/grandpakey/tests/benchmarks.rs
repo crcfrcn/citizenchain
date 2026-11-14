@@ -20,7 +20,7 @@ fn decode_account<T: pallet::Config>(raw: [u8; 32]) -> T::AccountId {
     T::AccountId::decode(&mut &raw[..]).expect("benchmark account must decode")
 }
 
-fn nrc_cid() -> votebase::types::CidNumber {
+fn nrc_cid() -> engingcore::types::CidNumber {
     CHINA_CB[0]
         .cid_number
         .as_bytes()
@@ -39,7 +39,7 @@ fn seeded_pair(seed: u8) -> SigningKey {
     SigningKey::from_bytes(&seed_bytes)
 }
 
-fn committee_role() -> votebase::types::RoleCode {
+fn committee_role() -> engingcore::types::RoleCode {
     primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
         .to_vec()
         .try_into()
@@ -88,7 +88,7 @@ mod benchmarks {
             new_public_key_signature,
         );
 
-        assert!(votebase::Pallet::<T>::get_proposal_data(0).is_some());
+        assert!(engingcore::Pallet::<T>::get_proposal_data(0).is_some());
     }
 
     #[benchmark]

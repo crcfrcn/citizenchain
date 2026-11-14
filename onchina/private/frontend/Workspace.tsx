@@ -1,3 +1,7 @@
+import { RolesView } from '@gmb/onchina-platform/institutions/RolesView';
+import { AssignmentsView } from '@gmb/onchina-platform/institutions/AssignmentsView';
+import { RepresentativeView } from '@gmb/onchina-platform/institutions/RepresentativeView';
+import { InstitutionDetailNavLayout } from '@gmb/onchina-platform/workspace/DetailLayout';
 import { Empty, Alert, Button, Card, Input, Radio, Space, Spin, Typography } from "antd";
 import type { AdminAuth } from "@gmb/onchina-platform/authentication/types";
 import { OwnInstitutionAdminsView } from "@gmb/onchina-platform/institutions/AdminsView";
@@ -31,12 +35,13 @@ export type PrivateInstitutionWorkspaceProps = {
 function PrivateOperations({ auth }: PrivateInstitutionWorkspaceProps) {
   // 账户管理归本机构在册管理员;平台会员定价仅在后端开放该模块时叠加显示。
   const showPlatformPrice = auth.workspace?.workspace_modules.includes('platform_membership_price');
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <AccountManageSection auth={auth} />
-      {showPlatformPrice ? <PlatformPricePanel auth={auth} /> : null}
-    </div>
-  );
+  return <InstitutionDetailNavLayout items={[
+    {key:'accounts',label:'账户管理',content:<AccountManageSection auth={auth}/>},
+    {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={auth.institutionCidNumber}/>},
+    {key:'assignments',label:'任职管理',content:<AssignmentsView auth={auth} cidNumber={auth.institutionCidNumber}/>},
+    {key:'representative',label:'法定代表人',content:<RepresentativeView auth={auth} cidNumber={auth.institutionCidNumber}/>},
+    ...(showPlatformPrice?[{key:'price',label:'会员定价',content:<PlatformPricePanel auth={auth}/>}]:[]),
+  ]}/>;
 }
 
 function PrivateDisplay({ auth }: PrivateInstitutionWorkspaceProps) {

@@ -10,7 +10,7 @@ type PrcView =
   | { page: 'list' }
   | { page: 'detail'; cidNumber: string }
   | { page: 'admin-list'; cidNumber: string; orgType: number }
-  | { page: 'proposal-detail'; proposalId: number; adminSigners: AdminSignerMatch[]; cidNumber?: string; originCidNumber: string };
+  | { page: 'proposal-detail'; proposalId: string; adminSigners: AdminSignerMatch[]; cidNumber?: string; originCidNumber: string };
 
 export function PrcSection() {
   const [view, setView] = useState<PrcView>({ page: 'list' });

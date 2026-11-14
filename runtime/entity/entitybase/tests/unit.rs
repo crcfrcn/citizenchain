@@ -258,6 +258,116 @@ mod actions {
             RolePermissionOperation::Vote,
         ));
     }
+
+    // 使用已存在的真实市注册局 CID；只增加测试输入，不新增固定岗位或创世权限。
+    const CREG_CID: &[u8] = b"NX013-CREGN-937676656-2026";
+
+    #[test]
+    fn creg_capability_opens_only_listed_direct_registration_actions() {
+        for (module, actions) in [
+            (
+                MODULE_CITIZEN_IDENTITY,
+                &[
+                    ACTION_REGISTER_VOTING_IDENTITY,
+                    ACTION_UPGRADE_CANDIDATE_IDENTITY,
+                    ACTION_UPDATE_VOTING_IDENTITY,
+                    ACTION_UPDATE_CANDIDATE_IDENTITY,
+                    ACTION_REVOKE_IDENTITY,
+                    ACTION_OCCUPY_CID,
+                    ACTION_ADMIN_REBIND_CID_ACCOUNT_ID,
+                    ACTION_REVOKE_CID,
+                ][..],
+            ),
+            (
+                MODULE_ADDRESS_REGISTRY,
+                &[
+                    ACTION_SET_ADDRESS_NAME,
+                    ACTION_REMOVE_ADDRESS_NAME,
+                    ACTION_SET_ADDRESS,
+                    ACTION_REMOVE_ADDRESS,
+                ][..],
+            ),
+            (
+                MODULE_INSTITUTION_REGISTRATION,
+                &[ACTION_REGISTER_INSTITUTION][..],
+            ),
+        ] {
+            for action in actions {
+                assert!(registry_institution_capability_allows(
+                    *b"CREG",
+                    CREG_CID,
+                    module,
+                    *action,
+                    RolePermissionOperation::Propose
+                ));
+                assert!(!registry_institution_capability_allows(
+                    *b"CREG",
+                    CREG_CID,
+                    module,
+                    *action,
+                    RolePermissionOperation::Vote
+                ));
+            }
+        }
+        for (module, action) in [
+            (MODULE_ADDRESS_REGISTRY, ACTION_SET_ADDRESS_CATALOG),
+            (MODULE_CITIZEN_IDENTITY, 5),
+            (MODULE_CITIZEN_IDENTITY, 9),
+            (MODULE_ADDRESS_REGISTRY, 5),
+            (MODULE_INSTITUTION_REGISTRATION, 1),
+            (MODULE_MULTISIG, ACTION_MULTISIG_TRANSFER),
+            (MODULE_RUNTIME_UPGRADE, ACTION_RUNTIME_UPGRADE),
+            (b"unknown".as_slice(), 0),
+        ] {
+            assert!(!registry_institution_capability_allows(
+                *b"CREG",
+                CREG_CID,
+                module,
+                action,
+                RolePermissionOperation::Propose
+            ));
+        }
+    }
+
+    #[test]
+    fn registry_capability_requires_exact_city_registry_identity_and_grants_no_fixed_role() {
+        for cid in [
+            b"invalid".as_slice(),
+            CHINA_CB[0].cid_number.as_bytes(),
+            b"CN000-CREG0-000000001-2026",
+        ] {
+            assert!(!registry_institution_capability_allows(
+                *b"CREG",
+                cid,
+                MODULE_CITIZEN_IDENTITY,
+                ACTION_OCCUPY_CID,
+                RolePermissionOperation::Propose
+            ));
+        }
+        for code in [primitives::cid::code::FRG, FSC, *b"SFGY", *b"CLEG"] {
+            assert!(!registry_institution_capability_allows(
+                code,
+                CREG_CID,
+                MODULE_CITIZEN_IDENTITY,
+                ACTION_OCCUPY_CID,
+                RolePermissionOperation::Propose
+            ));
+        }
+        // 新目录只开放配置资格；原固定岗位权限和对应 SCALE 契约不发生变化。
+        for role in [
+            ROLE_CODE_LEGAL_REPRESENTATIVE,
+            b"R_00000000000000000000000000000000".as_slice(),
+        ] {
+            assert!(fixed_role_permission_specs(*b"CREG", CREG_CID, role).is_empty());
+        }
+        assert!(!fixed_institution_capability_allows(
+            *b"CREG",
+            CREG_CID,
+            MODULE_CITIZEN_IDENTITY,
+            ACTION_OCCUPY_CID,
+            RolePermissionOperation::Propose
+        ));
+    }
 }
 mod roles {
     use codec::Encode;
@@ -396,3 +506,145 @@ mod roles {
         );
     }
 }
+
+
+mod registration {
+    use crate::{
+        InstitutionGovernanceAction, InstitutionLegalRepresentativeChange, InstitutionRoleMutation,
+        RolePermissionOperation,
+    };
+    use codec::{Decode, Encode};
+
+    #[test]
+    fn registration_reuses_action_encoding_and_rejects_legal_representative_or_no_roster_actions() {
+        let action = InstitutionGovernanceAction::<u64>::ReplaceAdmins { admins: vec![] };
+        assert_eq!(action.encode(), vec![0, 0]);
+        assert!(action.clone().into_registration_parts().is_some());
+        let encoded = action.encode();
+        let decoded = InstitutionGovernanceAction::<u64>::decode(&mut encoded.as_slice()).unwrap();
+        assert_eq!(decoded.encode(), encoded);
+        let action = InstitutionGovernanceAction::<u64>::ReplaceAdminsAndMutateRoles {
+            admins: vec![],
+            role_mutations: vec![],
+            assignment_changes: vec![],
+            legal_representative_change: Some(InstitutionLegalRepresentativeChange::Clear),
+        };
+        assert!(action.into_registration_parts().is_none());
+        let action = InstitutionGovernanceAction::<u64>::MutateRolesAndAssignments {
+            role_mutations: vec![],
+            assignment_changes: vec![],
+            legal_representative_change: None,
+        };
+        assert!(action.into_registration_parts().is_none());
+    }
+
+    #[test]
+    fn registration_reference_and_nonce_generate_dynamic_roles_without_fake_proposal_ids() {
+        use crate::institution_role::{
+            generate_dynamic_role_code, generate_registration_role_code,
+        };
+        let role = generate_registration_role_code(b"pub-mgmt", b"CID", 1, &[7; 32]);
+        assert_eq!(role.len(), 34);
+        assert!(role.starts_with(b"R_"));
+        assert_ne!(role, generate_dynamic_role_code(b"pub-mgmt", b"CID", 1, 0));
+        assert_ne!(
+            role,
+            generate_registration_role_code(b"pub-mgmt", b"CID", 2, &[7; 32])
+        );
+        assert_ne!(
+            role,
+            generate_registration_role_code(b"pub-mgmt", b"CID", 1, &[8; 32])
+        );
+        assert_ne!(
+            role,
+            generate_registration_role_code(b"pri-mgmt", b"CID", 1, &[7; 32])
+        );
+        let action = InstitutionGovernanceAction::<u64>::ReplaceAdminsAndMutateRoles {
+            admins: vec![],
+            role_mutations: vec![InstitutionRoleMutation::Create {
+                role_name: b"role".to_vec(),
+                term_required: false,
+                permissions: vec![crate::RolePermissionSpec {
+                    business_action_id: crate::BusinessActionId {
+                        module_tag: b"pub-mgmt".to_vec(),
+                        action_code: 3,
+                    },
+                    operation: RolePermissionOperation::Propose,
+                }],
+                assignments: vec![],
+            }],
+            assignment_changes: vec![],
+            legal_representative_change: None,
+        };
+        assert_eq!(action.registration_work(), (1, 1, 1, 0));
+    }
+}
+
+#[cfg(test)]
+mod p1_storage {
+    use crate::*;
+    use codec::{DecodeAll, Encode};
+    #[test]
+    fn keyed_storage_omits_only_repeated_subject_and_restores_every_field() {
+        let cid = vec![b'C'; 26];
+        let code = vec![b'R'; 34];
+        let role = InstitutionRole {
+            cid_number: cid.clone(),
+            role_code: code.clone(),
+            role_name: "董事".as_bytes().to_vec(),
+            term_required: true,
+            role_status: InstitutionRoleStatus::Inactive,
+        };
+        let stored = StoredInstitutionRole::from(role.clone());
+        assert_eq!(role.encode().len() - stored.encode().len(), 62);
+        assert_eq!(
+            StoredInstitutionRole::<Vec<u8>>::decode_all(&mut &stored.encode()[..])
+                .unwrap()
+                .with_subject(cid.clone(), code.clone()),
+            role
+        );
+        let assignment = InstitutionAdminAssignment {
+            cid_number: cid.clone(),
+            account_id: [9u8; 32],
+            role_code: code.clone(),
+            term_start: 123,
+            term_end: 456,
+            assignment_source: InstitutionAssignmentSource::NominationAppointment,
+            assignment_source_ref: vec![7u8; 128],
+            assignment_status: InstitutionAssignmentStatus::Ended,
+        };
+        let stored = StoredInstitutionAdminAssignment::from(assignment.clone());
+        assert_eq!(assignment.encode().len() - stored.encode().len(), 62);
+        assert_eq!(
+            StoredInstitutionAdminAssignment::<[u8; 32], Vec<u8>>::decode_all(
+                &mut &stored.encode()[..]
+            )
+            .unwrap()
+            .with_subject(cid.clone(), code.clone()),
+            assignment
+        );
+        let permission = RoleBusinessPermission {
+            role_subject: RoleSubject {
+                cid_number: cid.clone(),
+                role_code: code.clone(),
+            },
+            business_action_id: BusinessActionId {
+                module_tag: b"res-iss".to_vec(),
+                action_code: u32::MAX,
+            },
+            operation: RolePermissionOperation::Vote,
+        };
+        let stored = StoredRoleBusinessPermission::from(permission.clone());
+        assert_eq!(permission.encode().len() - stored.encode().len(), 62);
+        assert_eq!(
+            StoredRoleBusinessPermission::<Vec<u8>>::decode_all(&mut &stored.encode()[..])
+                .unwrap()
+                .with_subject(cid, code),
+            permission
+        );
+        let mut invalid = stored.encode();
+        invalid.push(0);
+        assert!(StoredRoleBusinessPermission::<Vec<u8>>::decode_all(&mut &invalid[..]).is_err());
+    }
+}
+

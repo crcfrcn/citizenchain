@@ -5,7 +5,7 @@
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Json,
 };
 use chrono::{Duration, Utc};
@@ -51,79 +51,112 @@ pub(crate) async fn admin_auth_qr_sign_request(
             return api_error(StatusCode::BAD_REQUEST, 1001, &message);
         }
     };
-    let account_id = match onchain_gate::validate_login_identity(&scanned_account_id).await {
-        Ok(value) => value,
-        Err(error) => return onchain_gate::gate_error_response(error),
-    };
+    let (account_id, memberships) =
+        match onchain_gate::validate_login_identity(&scanned_account_id).await {
+            Ok(value) => value,
+            Err(error) => return onchain_gate::gate_error_response(error),
+        };
 
-    let now = Utc::now();
-    let expires_at = now + Duration::seconds(LOGIN_SIGN_REQUEST_TTL_SECONDS);
-    let challenge_id = Uuid::new_v4().to_string();
-    // challenge_text:客户端生成 k=2 登录签名响应时的原文(与 CitizenWallet 端的
-    // buildSignatureMessage(kind=signResponse, ...) 拼接规则保持一致)。
-    // 注意 <principal> 位置由客户端签名时填入 account_id，后端验证时同样
-    // 以 account_id 为 principal 重新拼接。这里保存的 challenge_text 仅作
-    // 回放保护用的唯一 token,实际验证在 admin_auth_qr_complete 中重建。
-    let challenge_text = format!(
-        "{}|{}|{}|{}|{}|",
-        crate::qr::QR_V1,
-        crate::qr::QrKind::SignResponse.code(),
-        challenge_id,
-        LOGIN_QR_SYSTEM,
-        expires_at.timestamp()
-    );
-    // 用户码先确定目标账户，b.u 必须携带该账户的 32 字节公钥；钱包不得任选账户签名。
-    let login_body = match crate::qr::login_request_body(LOGIN_QR_SYSTEM, &account_id) {
-        Ok(value) => value,
-        Err(error) => {
-            let message = format!("build targeted login request failed: {error}");
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, &message);
-        }
-    };
-    let login_qr_payload = serde_json::to_string(&crate::qr::SignRequestEnvelope::new(
-        challenge_id.clone(),
-        now.timestamp(),
-        expires_at.timestamp(),
-        login_body,
-    ))
-    .unwrap_or_default();
-
-    if let Err(err) = repo::insert_login_sign_request(
+    create_login_request(
         &state.db,
-        &LoginSignRequest {
-            challenge_id: challenge_id.clone(),
-            account_id,
-            challenge_text: challenge_text.clone(),
-            challenge_token: String::new(),
-            qr_aud: String::new(),
-            qr_origin: String::new(),
-            origin: origin.clone(),
-            domain: derived_domain.clone(),
-            session_id: session_id.clone(),
-            nonce: String::new(),
-            issued_at: now,
-            expires_at,
-            consumed: false,
-        },
-    ) {
-        let message = format!("insert qr sign request failed: {err}");
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
-    }
+        account_id,
+        &memberships,
+        origin,
+        derived_domain,
+        session_id,
+    )
+}
 
-    Json(ApiResponse {
-        code: 0,
-        message: "ok".to_string(),
-        data: AdminQrSignRequestOutput {
+/// 链查询已完成；绑定匹配、挑战生成和入库共用一个短事务，网络不占用绑定锁。
+pub(crate) fn create_login_request(
+    db: &Db,
+    account_id: String,
+    memberships: &[crate::chain_runtime::ActiveAdminMembership],
+    origin: String,
+    domain: String,
+    session_id: String,
+) -> Response {
+    if memberships.is_empty() {
+        return onchain_gate::gate_error_response(onchain_gate::GateError::NotOnchainAdmin);
+    }
+    let result = db.with_client(move |conn| {
+        let mut tx = conn.transaction().map_err(|error| error.to_string())?;
+        repo::lock_node_binding_conn(&mut tx)?;
+        if let Some(binding) = repo::get_active_node_binding_conn(&mut tx)? {
+            if !memberships
+                .iter()
+                .any(|membership| onchain_gate::binding_matches_membership(&binding, membership))
+            {
+                // 在生成UUID、二维码及写入前拒绝；未提交的事务直接回滚。
+                return Ok(None);
+            }
+        }
+        // 无绑定仅供首次绑定引导；签名回扫后仍须按最新链上状态确认候选。
+        let now = Utc::now();
+        let expires_at = now + Duration::seconds(LOGIN_SIGN_REQUEST_TTL_SECONDS);
+        let challenge_id = Uuid::new_v4().to_string();
+        let challenge_text = format!(
+            "{}|{}|{}|{}|{}|",
+            crate::qr::QR_V1,
+            crate::qr::QrKind::SignResponse.code(),
+            challenge_id,
+            LOGIN_QR_SYSTEM,
+            expires_at.timestamp()
+        );
+        // 账户码锁定签名账户；机构权限不接受二维码自述或前端传入。
+        let login_body = crate::qr::login_request_body(LOGIN_QR_SYSTEM, &account_id)
+            .map_err(|error| format!("build targeted login request failed: {error}"))?;
+        let login_qr_payload = serde_json::to_string(&crate::qr::SignRequestEnvelope::new(
+            challenge_id.clone(),
+            now.timestamp(),
+            expires_at.timestamp(),
+            login_body,
+        ))
+        .map_err(|error| format!("encode login qr request failed: {error}"))?;
+        repo::insert_login_sign_request_conn(
+            &mut tx,
+            &LoginSignRequest {
+                challenge_id: challenge_id.clone(),
+                account_id,
+                challenge_text: challenge_text.clone(),
+                challenge_token: String::new(),
+                qr_aud: String::new(),
+                qr_origin: String::new(),
+                origin: origin.clone(),
+                domain: domain.clone(),
+                session_id: session_id.clone(),
+                nonce: String::new(),
+                issued_at: now,
+                expires_at,
+                consumed: false,
+            },
+        )?;
+        let output = AdminQrSignRequestOutput {
             challenge_id,
             challenge_payload: challenge_text,
             login_qr_payload,
             origin,
-            domain: derived_domain,
+            domain,
             session_id,
             expires_at: expires_at.timestamp(),
-        },
-    })
-    .into_response()
+        };
+        tx.commit().map_err(|error| error.to_string())?;
+        Ok(Some(output))
+    });
+    match result {
+        Ok(Some(data)) => Json(ApiResponse {
+            code: 0,
+            message: "ok".into(),
+            data,
+        })
+        .into_response(),
+        Ok(None) => onchain_gate::gate_error_response(onchain_gate::GateError::NotOnchainAdmin),
+        Err(error) => api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            5001,
+            &format!("insert qr sign request failed: {error}"),
+        ),
+    }
 }
 
 pub(crate) async fn admin_auth_qr_complete(

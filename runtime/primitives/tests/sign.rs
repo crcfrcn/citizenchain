@@ -59,3 +59,30 @@ mod sign {
         .is_none());
     }
 }
+
+#[test]
+fn u32_max_year_cid_fills_existing_signing_slots_without_shifting_fields() {
+    use crate::cid::generator::{generate_cid_number, GenerateCidNumberInput};
+    use crate::sign::*;
+    let cid = generate_cid_number(GenerateCidNumberInput {
+        public_key: "cid-signing-boundary", p1: "0", province_code: "GD",
+        province_name: "广东省", city_code: "001", city_name: "荔湾市",
+        year: u32::MAX, institution: "CGOV",
+    }).unwrap();
+    assert_eq!(cid.len(), 32);
+    let signer = [0x22; 32];
+    let nonce = [0x33; 16];
+    let activate = activate_admin_payload(cid.as_bytes(), b"CGOV", 0, &signer, 123, &nonce).unwrap();
+    assert_eq!(activate.len(), 97);
+    assert_eq!(&activate[4..36], cid.as_bytes());
+    assert_eq!(&activate[36..40], b"CGOV");
+    assert_eq!(&activate[41..73], &signer);
+    assert_eq!(&activate[73..81], &123u64.to_le_bytes());
+    assert_eq!(&activate[81..97], &nonce);
+    let decrypt = decrypt_admin_payload(cid.as_bytes(), &signer, 123, &nonce).unwrap();
+    assert_eq!(decrypt.len(), 92);
+    assert_eq!(&decrypt[4..36], cid.as_bytes());
+    assert_eq!(&decrypt[36..68], &signer);
+    assert_eq!(&decrypt[68..76], &123u64.to_le_bytes());
+    assert_eq!(&decrypt[76..92], &nonce);
+}

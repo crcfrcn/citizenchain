@@ -5,7 +5,8 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub struct TransferProposalDetail {
     /// 提案主键 ID。
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
     /// 发起机构唯一 CID；个人多签转账为空。
     pub actor_cid_number: Option<String>,
     /// 实际转出资金的机构账户或个人多签账户。
@@ -25,7 +26,8 @@ pub struct TransferProposalDetail {
 #[serde(rename_all = "camelCase")]
 pub struct SafetyFundProposalDetail {
     /// 提案主键 ID。
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
     /// 国家储委会唯一 CID。
     pub actor_cid_number: String,
     /// 实际转出的安全基金账户。
@@ -43,7 +45,8 @@ pub struct SafetyFundProposalDetail {
 #[serde(rename_all = "camelCase")]
 pub struct SweepProposalDetail {
     /// 提案主键 ID。
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
     /// 发起机构唯一 CID。
     pub actor_cid_number: String,
     /// 实际转出的机构费用账户。

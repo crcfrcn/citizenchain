@@ -35,15 +35,15 @@ fn joint_proposers_can_propose_runtime_upgrade() {
         ));
 
         assert!(
-            votebase::Pallet::<Test>::get_proposal_data(100).is_some(),
+            engingcore::Pallet::<Test>::get_proposal_data(100).is_some(),
             "NRC proposer_account_id should create proposal data"
         );
         assert!(
-            votebase::Pallet::<Test>::get_proposal_data(101).is_some(),
+            engingcore::Pallet::<Test>::get_proposal_data(101).is_some(),
             "PRC proposer_account_id should create proposal data"
         );
         for proposal_id in [100, 101] {
-            let plan = votebase::ProposalVotePlans::<Test>::get(proposal_id)
+            let plan = engingcore::ProposalVotePlans::<Test>::get(proposal_id)
                 .expect("runtime upgrade must bind vote plan");
             assert_eq!(
                 plan.business_action_id.action_code,
@@ -84,18 +84,18 @@ fn administrator_without_committee_role_cannot_propose_runtime_upgrade() {
 }
 
 #[test]
-fn proposal_data_stored_in_votebase() {
+fn proposal_data_stored_in_engingcore() {
     new_test_ext().execute_with(|| {
         propose_ok();
         // proposal_id comes from NEXT_JOINT_ID which starts at 100
         assert!(
-            votebase::Pallet::<Test>::get_proposal_data(100).is_some(),
+            engingcore::Pallet::<Test>::get_proposal_data(100).is_some(),
             "proposal data should be stored in voting engine"
         );
         let proposal = decode_proposal(100);
         assert_eq!(proposal.proposer_account_id, nrc_admin());
         assert!(
-            votebase::Pallet::<Test>::get_proposal_object(100).is_some(),
+            engingcore::Pallet::<Test>::get_proposal_object(100).is_some(),
             "runtime wasm should be stored in proposal object layer"
         );
     });
@@ -105,11 +105,11 @@ fn proposal_data_stored_in_votebase() {
 fn rejected_joint_vote_marks_proposal_rejected() {
     new_test_ext().execute_with(|| {
         propose_ok();
-        insert_engine_proposal_with_status(100, votebase::STATUS_REJECTED);
+        insert_engine_proposal_with_status(100, engingcore::STATUS_REJECTED);
         // proposal_id == joint_vote_id == 100
         let outcome = call_joint_callback(100, false).expect("callback should succeed");
-        assert_eq!(outcome, votebase::ProposalExecutionOutcome::Executed);
-        assert!(votebase::Pallet::<Test>::get_proposal_data(100).is_some());
+        assert_eq!(outcome, engingcore::ProposalExecutionOutcome::Executed);
+        assert!(engingcore::Pallet::<Test>::get_proposal_data(100).is_some());
     });
 }
 
@@ -125,7 +125,7 @@ fn approved_joint_vote_executes_runtime_upgrade() {
             <Test as frame_system::Config>::Hashing::hash(&code_ok())
         );
         assert!(
-            votebase::Pallet::<Test>::get_proposal_object(100).is_some(),
+            engingcore::Pallet::<Test>::get_proposal_object(100).is_some(),
             "approved proposal should still keep object data for unified cleanup"
         );
         let code_executed = RUNTIME_CODE_EXECUTED.with(|v| *v.borrow());
@@ -139,8 +139,8 @@ fn approved_referendum_executes_runtime_upgrade() {
         propose_ok();
         insert_engine_proposal_with_stage_and_status(
             100,
-            votebase::STAGE_REFERENDUM,
-            votebase::STATUS_PASSED,
+            engingcore::STAGE_REFERENDUM,
+            engingcore::STATUS_PASSED,
         );
         assert_ok!(call_joint_callback(100, true));
         assert!(
@@ -199,8 +199,8 @@ fn approved_joint_vote_execution_failure_emits_event() {
             "runtime code executor should fail in this test"
         );
         // 投票引擎侧应为 STATUS_EXECUTION_FAILED
-        let engine_proposal = votebase::pallet::Proposals::<Test>::get(100).unwrap();
-        assert_eq!(engine_proposal.status, votebase::STATUS_EXECUTION_FAILED);
+        let engine_proposal = engingcore::pallet::Proposals::<Test>::get(100).unwrap();
+        assert_eq!(engine_proposal.status, engingcore::STATUS_EXECUTION_FAILED);
     });
 }
 
@@ -208,12 +208,12 @@ fn approved_joint_vote_execution_failure_emits_event() {
 fn rejected_joint_vote_retains_object_for_unified_cleanup() {
     new_test_ext().execute_with(|| {
         propose_ok();
-        insert_engine_proposal_with_status(100, votebase::STATUS_REJECTED);
+        insert_engine_proposal_with_status(100, engingcore::STATUS_REJECTED);
         assert_ok!(call_joint_callback(100, false));
 
-        assert!(votebase::Pallet::<Test>::get_proposal_data(100).is_some());
+        assert!(engingcore::Pallet::<Test>::get_proposal_data(100).is_some());
         assert!(
-            votebase::Pallet::<Test>::get_proposal_object(100).is_some(),
+            engingcore::Pallet::<Test>::get_proposal_object(100).is_some(),
             "rejected proposal object should stay until unified cleanup"
         );
     });
@@ -236,10 +236,10 @@ fn approved_success_marks_engine_status_executed() {
         assert_ok!(call_joint_callback(100, true));
 
         // 执行成功时在回调作用域内静默写入 EXECUTED，最终事件由投票引擎外层发出。
-        let engine_proposal = votebase::pallet::Proposals::<Test>::get(100).unwrap();
+        let engine_proposal = engingcore::pallet::Proposals::<Test>::get(100).unwrap();
         assert_eq!(
             engine_proposal.status,
-            votebase::STATUS_EXECUTED,
+            engingcore::STATUS_EXECUTED,
             "success path should mark engine status executed"
         );
     });

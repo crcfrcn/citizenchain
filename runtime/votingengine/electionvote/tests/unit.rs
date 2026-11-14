@@ -35,7 +35,7 @@ fn popular_election_uses_population_snapshot_and_generates_result() {
             candidates[1].clone()
         ));
 
-        let proposal = votebase::pallet::Proposals::<Test>::get(proposal_id).unwrap();
+        let proposal = engingcore::pallet::Proposals::<Test>::get(proposal_id).unwrap();
         assert_eq!(proposal.status, STATUS_PASSED);
         assert_eq!(
             VotingEngine::population_eligible_total_of(proposal_id),
@@ -70,7 +70,7 @@ fn mutual_election_uses_role_assignment_snapshot() {
         assert_eq!(meta.actor_cid_number, institution_cid_number());
         assert_eq!(meta.role_code, elected_role_code());
         assert_eq!(
-            votebase::pallet::Proposals::<Test>::get(proposal_id)
+            engingcore::pallet::Proposals::<Test>::get(proposal_id)
                 .unwrap()
                 .status,
             STATUS_PASSED
@@ -100,7 +100,7 @@ fn creation_rejects_vote_plan_without_mutual_voter_role() {
 #[test]
 fn popular_creation_rejects_invalid_candidate_subject_and_bad_shape() {
     new_test_ext().execute_with(|| {
-        let invalid_subject = votebase::CitizenSubject {
+        let invalid_subject = engingcore::CitizenSubject {
             cid_number: candidate(12).cid_number,
             // 249 有普通公民/投票身份，但没有竞选身份，不能进入候选人快照。
             account_id: account(249),
@@ -152,11 +152,11 @@ fn popular_creation_rejects_population_data_that_is_not_ready() {
                 PopulationScope::Country,
                 vec![candidate(11), candidate(12)]
             ),
-            votebase::Error::<Test>::PopulationDataNotReady
+            engingcore::Error::<Test>::PopulationDataNotReady
         );
-        assert_eq!(votebase::Proposals::<Test>::iter().count(), 0);
+        assert_eq!(engingcore::Proposals::<Test>::iter().count(), 0);
         assert_eq!(
-            votebase::ProposalPopulationSnapshots::<Test>::iter().count(),
+            engingcore::ProposalPopulationSnapshots::<Test>::iter().count(),
             0
         );
     });
@@ -191,7 +191,7 @@ fn cast_rejects_wrong_voter_candidate_stage_and_duplicate_vote() {
                 TARGET_ROLE.to_vec().try_into().expect("role fits"),
                 candidates[0].clone()
             ),
-            votebase::Error::<Test>::InvalidProposalStage
+            engingcore::Error::<Test>::InvalidProposalStage
         );
         assert_ok!(ElectionVote::cast_popular_vote(
             RuntimeOrigin::signed(voters[0].clone()),
@@ -204,7 +204,7 @@ fn cast_rejects_wrong_voter_candidate_stage_and_duplicate_vote() {
                 proposal_id,
                 candidates[0].clone()
             ),
-            votebase::Error::<Test>::AlreadyVoted
+            engingcore::Error::<Test>::AlreadyVoted
         );
     });
 }
@@ -233,7 +233,7 @@ fn same_citizen_cid_cannot_vote_twice_after_account_id_replacement() {
                 proposal_id,
                 candidate(11),
             ),
-            votebase::Error::<Test>::AlreadyVoted
+            engingcore::Error::<Test>::AlreadyVoted
         );
     });
 }
@@ -241,7 +241,7 @@ fn same_citizen_cid_cannot_vote_twice_after_account_id_replacement() {
 #[test]
 fn candidate_snapshot_rejects_duplicate_permanent_cid() {
     new_test_ext().execute_with(|| {
-        let duplicate_cid_subject = votebase::CitizenSubject {
+        let duplicate_cid_subject = engingcore::CitizenSubject {
             cid_number: candidate(11).cid_number,
             account_id: account(12),
         };
@@ -306,10 +306,10 @@ fn same_admin_can_vote_once_for_each_frozen_institution_role() {
 fn timeout_is_rejected_before_expiry_then_finalizes_no_vote_election() {
     new_test_ext().execute_with(|| {
         let proposal_id = create_popular(vec![candidate(11), candidate(12)]);
-        let proposal = votebase::pallet::Proposals::<Test>::get(proposal_id).unwrap();
+        let proposal = engingcore::pallet::Proposals::<Test>::get(proposal_id).unwrap();
         assert_noop!(
             ElectionVote::finalize_election_popular_timeout(&proposal, proposal_id),
-            votebase::Error::<Test>::VoteNotExpired
+            engingcore::Error::<Test>::VoteNotExpired
         );
         System::set_block_number(proposal.end + 1);
         assert_ok!(VotingEngine::finalize_proposal(
@@ -317,7 +317,7 @@ fn timeout_is_rejected_before_expiry_then_finalizes_no_vote_election() {
             proposal_id
         ));
         assert_eq!(
-            votebase::pallet::Proposals::<Test>::get(proposal_id)
+            engingcore::pallet::Proposals::<Test>::get(proposal_id)
                 .unwrap()
                 .status,
             STATUS_REJECTED
@@ -339,20 +339,20 @@ fn election_cleanup_removes_all_track_storage() {
 
         assert!(
             <ElectionVote as ProposalTrackHandler<u64, AccountId32>>::cleanup_chunk(
-                votebase::PROPOSAL_KIND_ELECTION,
+                engingcore::PROPOSAL_KIND_ELECTION,
                 proposal_id,
                 1,
             )
             .is_some()
         );
         let _ = <ElectionVote as ProposalTrackHandler<u64, AccountId32>>::cleanup_chunk(
-            votebase::PROPOSAL_KIND_ELECTION,
+            engingcore::PROPOSAL_KIND_ELECTION,
             proposal_id,
             8,
         );
         assert_eq!(
             <ElectionVote as ProposalTrackHandler<u64, AccountId32>>::cleanup_terminal(
-                votebase::PROPOSAL_KIND_ELECTION,
+                engingcore::PROPOSAL_KIND_ELECTION,
                 proposal_id,
             ),
             Some(())

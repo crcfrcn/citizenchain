@@ -1,35 +1,71 @@
 // Tauri IPC 参数由既有前端签名协议逐字段传入，合并参数会改变命令契约。
 #![allow(clippy::too_many_arguments)]
 use crate::types::ProposeUpgradeRequestResult;
-use codec::Decode;
+use codec::{Decode, DecodeAll};
 use nodeclient::signing::VoteSubmitResult;
-use serde_json::Value;
 use sp_crypto_hashing::twox_128;
 use tauri::AppHandle;
 
-#[tauri::command]
-pub fn get_pow_difficulty_params() -> Result<difficulty::PowDifficultyParams, String> {
+fn pow_storage_key(name: &[u8]) -> String {
     let key = [
         twox_128(b"PowDifficulty").as_slice(),
-        twox_128(b"ActiveParams").as_slice(),
+        twox_128(name).as_slice(),
     ]
     .concat();
-    let value = nodeclient::signing::rpc_post(
-        "state_getStorage",
-        Value::Array(vec![Value::String(format!("0x{}", hex::encode(key)))]),
-    )?;
-    let raw_hex = value
-        .as_str()
+    format!("0x{}", hex::encode(key))
+}
+
+fn decode_pow_storage<T: Decode>(raw: &str, name: &str) -> Result<T, String> {
+    let bytes = hex::decode(raw.trim_start_matches("0x"))
+        .map_err(|e| format!("{name} 十六进制解码失败: {e}"))?;
+    T::decode_all(&mut bytes.as_slice()).map_err(|_| format!("{name} SCALE 编码非规范或无效"))
+}
+
+/// 两项状态固定在同一个 finalized 哈希，不混读不同区块或把未知状态当作无待生效参数。
+pub(crate) fn read_pow_snapshot_at<F>(
+    finalized_hash: &str,
+    mut read: F,
+) -> Result<
+    (
+        difficulty::PowDifficultyParams,
+        Option<difficulty::PendingPowDifficultyParams>,
+    ),
+    String,
+>
+where
+    F: FnMut(&str, &str) -> Result<Option<String>, String>,
+{
+    let raw = read(&pow_storage_key(b"ActiveParams"), finalized_hash)?
         .ok_or("链上缺少 PowDifficulty::ActiveParams")?;
-    let raw = hex::decode(raw_hex.trim_start_matches("0x"))
-        .map_err(|e| format!("PoW 参数十六进制解码失败: {e}"))?;
-    let mut input = raw.as_slice();
-    let params = difficulty::PowDifficultyParams::decode(&mut input)
-        .map_err(|_| "PoW 参数 SCALE 解码失败".to_string())?;
-    if !input.is_empty() || params.validate().is_err() {
-        return Err("PoW 参数非规范或无效".to_string());
-    }
-    Ok(params)
+    let active: difficulty::PowDifficultyParams = decode_pow_storage(&raw, "PoW 生效参数")?;
+    active.validate().map_err(str::to_string)?;
+    let pending = read(&pow_storage_key(b"PendingParams"), finalized_hash)?
+        .map(|raw| decode_pow_storage(&raw, "PoW 待生效参数"))
+        .transpose()?;
+    Ok((active, pending))
+}
+
+fn fetch_pow_snapshot() -> Result<
+    (
+        difficulty::PowDifficultyParams,
+        Option<difficulty::PendingPowDifficultyParams>,
+    ),
+    String,
+> {
+    let hash = nodeclient::query::fetch_finalized_head()?;
+    read_pow_snapshot_at(&hash, nodeclient::query::fetch_storage_at)
+}
+
+fn preflight_pow_params(params: difficulty::PowDifficultyParams) -> Result<(), String> {
+    let (active, pending) = fetch_pow_snapshot()?;
+    crate::call::validate_pow_params(params, active, pending.is_some())
+}
+
+#[tauri::command]
+pub async fn get_pow_difficulty_params() -> Result<difficulty::PowDifficultyParams, String> {
+    tauri::async_runtime::spawn_blocking(|| fetch_pow_snapshot().map(|(active, _)| active))
+        .await
+        .map_err(|e| format!("读取 PoW 参数任务失败: {e}"))?
 }
 
 /// 构建运行期协议升级提案签名请求 QR JSON（需要节点运行）。
@@ -47,11 +83,13 @@ pub async fn build_propose_upgrade_request(
         return Err("节点未运行，无法构建签名请求".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
+        let reason = crate::call::normalize_reason(&reason)?;
+        preflight_pow_params(pow_params)?;
         let sign_result = crate::signing::build_propose_runtime_upgrade_sign_request(
             &signer_public_key,
             &actor_cid_number,
-            &wasm_path,
-            &reason,
+            wasm_path.trim(),
+            reason,
             pow_params,
         )?;
         Ok(ProposeUpgradeRequestResult {
@@ -86,10 +124,12 @@ pub async fn submit_propose_upgrade(
         return Err("节点未运行，无法提交提案".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
+        let reason = crate::call::normalize_reason(&reason)?;
+        preflight_pow_params(pow_params)?;
         let call_data = crate::call::propose_runtime_upgrade_from_file(
             &actor_cid_number,
-            &wasm_path,
-            &reason,
+            wasm_path.trim(),
+            reason,
             pow_params,
         )?;
         nodeclient::signing::verify_and_submit(

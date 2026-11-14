@@ -27,20 +27,22 @@ where
 
 /// 提案展示号（双层 ID）：`ProposalDisplayId[id]` 反查值。
 ///
-/// 主键 `proposal_id` 是全局单调 u64;展示号通过本结构持有
+/// 主键 `proposal_id` 是全局单调 u128;展示号通过本结构持有
 /// `(year, seq_in_year)`,渲染层把它拼成 "2026000123" 风格。
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposalDisplayMeta {
-    pub year: u16,
-    pub seq_in_year: u32,
+    pub year: u32,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub seq_in_year: u64,
 }
 
 /// 提案元数据（从 VotingEngine::Proposals 解码）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposalMeta {
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
     /// 0=内部投票, 1=联合投票。
     pub kind: u8,
     /// 0=内部投票, 1=联合投票内部投票阶段, 2=联合公投阶段。
@@ -114,7 +116,8 @@ pub struct VoterRoleSubject {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeeRateProposalDetail {
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
     /// 发起机构唯一 CID。
     pub actor_cid_number: String,
     /// 承担该费率业务的机构账户。
@@ -135,7 +138,8 @@ pub struct ProposalCardContent {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposalListItem {
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
     pub display_id: String,
     pub kind: u8,
     pub kind_label: String,
@@ -184,7 +188,8 @@ pub(crate) enum ProposalAction {
 #[serde(rename_all = "camelCase")]
 pub struct UserVoteStatus {
     /// 提案 ID。
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
     /// 提案 kind（0=内部, 1=联合）。
     pub kind: u8,
     /// 提案当前阶段。

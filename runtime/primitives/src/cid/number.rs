@@ -1,5 +1,5 @@
 //! CID 号格式校验。
-//! 格式:`R5(5)-核心段(5)-N9(9)-D4(4)`。
+//! 格式:`R5(5)-核心段(5)-N9(9)-年份(4～10)`；已有 CID 字节不重写。
 //! 核心段:3 字符码走`码+盈利位+mod36`;4 字符码走`码+M1`。
 
 use alloc::{
@@ -20,7 +20,7 @@ pub const CID_NUMBER_SEGMENT_R5_LEN: usize = 5;
 /// 核心段长度。
 pub const CID_NUMBER_SEGMENT_K3P1C1_LEN: usize = 5;
 pub const CID_NUMBER_SEGMENT_N9_LEN: usize = 9;
-pub const CID_NUMBER_SEGMENT_D4_LEN: usize = 4;
+pub const CID_NUMBER_SEGMENT_YEAR_MAX_LEN: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CidNumberParts {
@@ -34,7 +34,8 @@ pub struct CidNumberParts {
     /// 校验位。
     pub checksum: char,
     pub n9: String,
-    pub d4: String,
+    /// UTC 年份；仅为解析结果，链上 CID 仍保存原字符串。
+    pub year: u32,
 }
 
 /// 校验和累加器。
@@ -138,10 +139,15 @@ pub fn parse_cid_number_parts(raw: &str) -> Result<CidNumberParts, &'static str>
     {
         return Err("cid_number n9 segment invalid");
     }
-    if segments[3].len() != CID_NUMBER_SEGMENT_D4_LEN
+    if !(4..=CID_NUMBER_SEGMENT_YEAR_MAX_LEN).contains(&segments[3].len())
         || !segments[3].chars().all(|c| c.is_ascii_digit())
     {
-        return Err("cid_number date segment invalid");
+        return Err("cid_number year segment invalid");
+    }
+    let year = segments[3].parse::<u32>().map_err(|_| "cid_number year exceeds u32")?;
+    // 四位旧年份（含前导零）原样兼容；新年份只接受唯一规范写法。
+    if format!("{year:04}") != segments[3] {
+        return Err("cid_number year is not canonical");
     }
 
     let seg2 = segments[1];
@@ -217,6 +223,6 @@ pub fn parse_cid_number_parts(raw: &str) -> Result<CidNumberParts, &'static str>
         profit,
         checksum,
         n9: segments[2].to_string(),
-        d4: segments[3].to_string(),
+        year,
     })
 }

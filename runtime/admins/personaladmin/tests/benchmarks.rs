@@ -49,7 +49,7 @@ mod benchmarks {
             &owner,
             AdminAccount {
                 cid_number: Default::default(),
-                institution_code: votebase::types::PMUL,
+                institution_code: engingcore::types::PMUL,
                 kind: AdminAccountKind::PersonalMultisig,
                 admins: old.clone(),
                 creator_account_id: caller.clone(),
@@ -59,16 +59,16 @@ mod benchmarks {
             },
         );
         internalvote::ActivePersonalThresholds::<T>::insert(&owner, threshold);
-        let before = votebase::Pallet::<T>::next_proposal_id();
+        let before = engingcore::Pallet::<T>::next_proposal_id();
         #[extrinsic_call]
         _(
             RawOrigin::Signed(caller),
-            votebase::types::PMUL,
+            engingcore::types::PMUL,
             owner.clone(),
             next,
             threshold,
         );
-        assert_eq!(votebase::Pallet::<T>::next_proposal_id(), before + 1);
+        assert_eq!(engingcore::Pallet::<T>::next_proposal_id(), before + 1);
         assert_eq!(AdminAccounts::<T>::get(&owner).unwrap().admins, old);
         assert_eq!(
             internalvote::ActivePersonalThresholds::<T>::get(&owner),

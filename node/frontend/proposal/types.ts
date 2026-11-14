@@ -8,7 +8,7 @@ import type { MultisigTransferProposalDetails } from "../multisig/types";
 // ── 投票状态 ──
 
 export type UserVoteStatus = {
-  proposalId: number;
+  proposalId: string;
   kind: number;
   stage: number;
   voterRoleCode: string | null;
@@ -22,12 +22,12 @@ export type UserVoteStatus = {
 /// 双层 ID v1:展示号反查值。主键 `proposalId` 与展示号解耦。
 export type ProposalDisplayMeta = {
   year: number;
-  seqInYear: number;
+  seqInYear: string;
 };
 
 
 export type ProposalListItem = {
-  proposalId: number;
+  proposalId: string;
   displayId: string;
   kind: number;
   kindLabel: string;
@@ -59,7 +59,7 @@ export type VoteTally = {
 
 
 export type ProposalMeta = {
-  proposalId: number;
+  proposalId: string;
   kind: number;
   stage: number;
   status: number;

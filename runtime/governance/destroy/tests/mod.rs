@@ -8,8 +8,8 @@ use frame_support::{
 use frame_system as system;
 use primitives::cid::china::{china_cb::CHINA_CB, china_ch::CHINA_CH};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use votebase::InstitutionRoleProvider as _;
-use votebase::{STATUS_PASSED, STATUS_REJECTED};
+use engingcore::InstitutionRoleProvider as _;
+use engingcore::{STATUS_PASSED, STATUS_REJECTED};
 
 type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -38,7 +38,7 @@ mod runtime {
     pub type Balances = pallet_balances;
 
     #[runtime::pallet_index(2)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(99)]
     pub type InternalVote = internalvote;
@@ -73,24 +73,24 @@ impl pallet_balances::Config for Test {
 }
 
 pub struct TestCitizenIdentityReader;
-impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
-    votebase::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<AccountId32> {
+    engingcore::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -120,7 +120,7 @@ impl TestInternalAdminProvider {
     }
 }
 
-impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -147,7 +147,7 @@ fn test_role_code(institution_code: InstitutionCode) -> Option<&'static [u8]> {
     }
 }
 
-fn bounded_test_role(institution_code: InstitutionCode) -> votebase::types::RoleCode {
+fn bounded_test_role(institution_code: InstitutionCode) -> engingcore::types::RoleCode {
     test_role_code(institution_code)
         .unwrap_or(primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER)
         .to_vec()
@@ -155,7 +155,7 @@ fn bounded_test_role(institution_code: InstitutionCode) -> votebase::types::Role
         .expect("test role fits protocol bound")
 }
 
-impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
+impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         Self::active_accounts_for_role(cid_number, role_code).contains(who)
     }
@@ -163,7 +163,7 @@ impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvi
     fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
         let Some(code) = core::str::from_utf8(cid_number)
             .ok()
-            .and_then(votebase::types::institution_code_from_cid_number)
+            .and_then(engingcore::types::institution_code_from_cid_number)
         else {
             return Vec::new();
         };
@@ -182,7 +182,7 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitut
     ) -> bool {
         let Some(code) = core::str::from_utf8(role_subject.cid_number.as_slice())
             .ok()
-            .and_then(votebase::types::institution_code_from_cid_number)
+            .and_then(engingcore::types::institution_code_from_cid_number)
         else {
             return false;
         };
@@ -213,7 +213,7 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitut
     ) -> Vec<entitybase::RoleSubject<Vec<u8>, Vec<u8>>> {
         let Some(code) = core::str::from_utf8(cid_number)
             .ok()
-            .and_then(votebase::types::institution_code_from_cid_number)
+            .and_then(engingcore::types::institution_code_from_cid_number)
         else {
             return Vec::new();
         };
@@ -239,10 +239,10 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -356,7 +356,7 @@ fn test_institution_by_cid(
         .find_map(|institution| {
             (institution.cid_number.as_bytes() == cid_number).then(|| {
                 (
-                    votebase::types::institution_code_from_cid_number(institution.cid_number)
+                    engingcore::types::institution_code_from_cid_number(institution.cid_number)
                         .expect("储委会 CID 必须包含有效机构码"),
                     AccountId32::new(institution.main_account),
                     AccountId32::new(institution.fee_account),
@@ -367,7 +367,7 @@ fn test_institution_by_cid(
             CHINA_CH.iter().find_map(|institution| {
                 (institution.cid_number.as_bytes() == cid_number).then(|| {
                     (
-                        votebase::types::institution_code_from_cid_number(institution.cid_number)
+                        engingcore::types::institution_code_from_cid_number(institution.cid_number)
                             .expect("省储行 CID 必须包含有效机构码"),
                         AccountId32::new(institution.main_account),
                         AccountId32::new(institution.fee_account),
@@ -382,7 +382,7 @@ fn test_institution(addr: &AccountId32) -> Option<(Vec<u8>, InstitutionCode, Vec
         .iter()
         .filter_map(|institution| {
             let institution_code =
-                votebase::types::institution_code_from_cid_number(institution.cid_number)?;
+                engingcore::types::institution_code_from_cid_number(institution.cid_number)?;
             matches!(institution_code, NRC | PRC)
                 .then(|| {
                     (
@@ -402,7 +402,7 @@ fn test_institution(addr: &AccountId32) -> Option<(Vec<u8>, InstitutionCode, Vec
         .or_else(|| {
             CHINA_CH.iter().find_map(|institution| {
                 let institution_code =
-                    votebase::types::institution_code_from_cid_number(institution.cid_number)?;
+                    engingcore::types::institution_code_from_cid_number(institution.cid_number)?;
                 (institution_code == PRB && AccountId32::new(institution.main_account) == *addr)
                     .then(|| {
                         (
@@ -476,21 +476,21 @@ fn institution_account_id(institution: &AccountId32) -> AccountId32 {
 }
 
 /// 获取最近一次 create_internal_proposal 分配的 proposal_id。
-fn last_proposal_id() -> u64 {
-    votebase::Pallet::<Test>::next_proposal_id().saturating_sub(1)
+fn last_proposal_id() -> u128 {
+    engingcore::Pallet::<Test>::next_proposal_id().saturating_sub(1)
 }
 
 /// 测试辅助:走投票引擎公开 `internal_vote` extrinsic 投票(统一入口)。
-fn cast_vote(who: AccountId32, proposal_id: u64, approve: bool) -> DispatchResult {
+fn cast_vote(who: AccountId32, proposal_id: u128, approve: bool) -> DispatchResult {
     let proposal =
-        VotingEngine::proposals(proposal_id).ok_or(votebase::Error::<Test>::ProposalNotFound)?;
+        VotingEngine::proposals(proposal_id).ok_or(engingcore::Error::<Test>::ProposalNotFound)?;
     let actor_cid_number = proposal
         .actor_cid_number
-        .ok_or(votebase::Error::<Test>::InvalidInstitution)?;
+        .ok_or(engingcore::Error::<Test>::InvalidInstitution)?;
     let institution_code = core::str::from_utf8(actor_cid_number.as_slice())
         .ok()
-        .and_then(votebase::types::institution_code_from_cid_number)
-        .ok_or(votebase::Error::<Test>::InvalidInstitution)?;
+        .and_then(engingcore::types::institution_code_from_cid_number)
+        .ok_or(engingcore::Error::<Test>::InvalidInstitution)?;
     let ticket_claim =
         internalvote::InternalVoteTicketClaim::InstitutionRole(bounded_test_role(institution_code));
     let result = frame_support::storage::with_transaction(
@@ -508,7 +508,7 @@ fn cast_vote(who: AccountId32, proposal_id: u64, approve: bool) -> DispatchResul
     );
     if result.is_ok()
         && VotingEngine::proposals(proposal_id)
-            .map(|proposal| proposal.status != votebase::STATUS_VOTING)
+            .map(|proposal| proposal.status != engingcore::STATUS_VOTING)
             .unwrap_or(false)
     {
         <VotingEngine as Hooks<u64>>::on_initialize(System::block_number());

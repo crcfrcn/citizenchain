@@ -7,7 +7,7 @@
 //!
 //! 与机构多签 (`publicentity/privateentity`) 完全独立的 storage / event / error / extrinsic 命名空间;
 //! 共用基础设施仅限于 `primitives::core_const` 派生函数、
-//! `primitives::multisig` 校验抽象、`votebase::InternalVoteEngine` 和
+//! `primitives::multisig` 校验抽象、`engingcore::InternalVoteEngine` 和
 //! `adminbase` 管理员生命周期 trait。个人多签管理员真源属于 `personaladmin`。
 
 /// 模块标识前缀(8 字节,与机构生命周期模块 tag 长度对齐)。
@@ -48,7 +48,7 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::*;
 use sp_std::prelude::*;
-use votebase::{
+use engingcore::{
     InternalVoteEngine, InternalVoteResultCallback, ProposalExecutionOutcome,
     PROPOSAL_KIND_INTERNAL, STAGE_INTERNAL, STATUS_EXECUTION_FAILED, STATUS_PASSED,
     STATUS_REJECTED, STATUS_VOTING,
@@ -64,14 +64,14 @@ pub mod pallet {
     const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config {
+    pub trait Config: frame_system::Config + engingcore::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
 
         /// 内部投票引擎
-        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: engingcore::InternalVoteEngine<Self::AccountId>;
 
         type AccountValidator: primitives::multisig::AccountValidator<Self::AccountId>;
         type ReservedAccountChecker: primitives::multisig::ReservedAccountGuard<Self::AccountId>;
@@ -149,14 +149,14 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn pending_personal_create)]
     pub type PendingPersonalCreate<T: Config> =
-        StorageMap<_, Blake2_128Concat, u64, PersonalCreateActionOf<T>, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, u128, PersonalCreateActionOf<T>, OptionQuery>;
 
     /// 个人多签账户当前进行中的关闭提案 ID(防止并发注销提案)。
     /// 发起 propose_close 时写入,execute_close 成功或执行失败后清除。
     #[pallet::storage]
     #[pallet::getter(fn pending_close_proposal)]
     pub type PendingCloseProposal<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, T::AccountId, u128, OptionQuery>;
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
@@ -182,7 +182,7 @@ pub mod pallet {
         /// 个人多签账户创建提案已发起(pending 状态预写入)。
         /// citizenapp 扫描此事件后引导其他管理员到投票引擎统一入口 `internal_vote` 投票。
         PersonalCreateProposed {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
             proposer_account_id: T::AccountId,
             account_name: AccountNameOf<T>,
@@ -195,7 +195,7 @@ pub mod pallet {
         },
         /// 个人多签账户创建成功(投票通过,入金完成,状态变为 Active)。
         PersonalCreated {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
             creator_account_id: T::AccountId,
             admins_len: u32,
@@ -205,24 +205,24 @@ pub mod pallet {
         },
         /// 创建提案投票通过但执行失败。
         CreateExecutionFailed {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
         },
         /// 创建提案最终被拒绝(投票引擎返回 STATUS_REJECTED 后清理 Pending)。
         PersonalCreateRejected {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
         },
         /// 关闭个人多签账户提案已发起。
         PersonalCloseProposed {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
             proposer_account_id: T::AccountId,
             beneficiary_account_id: T::AccountId,
         },
         /// 个人多签账户注销成功(投票通过,余额转出,PersonalAccounts 删除)。
         PersonalClosed {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
             beneficiary_account_id: T::AccountId,
             admins_len: u32,
@@ -232,7 +232,7 @@ pub mod pallet {
         },
         /// 关闭提案投票通过但执行失败。
         CloseExecutionFailed {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
         },
     }
@@ -313,7 +313,7 @@ pub mod pallet {
             crate::close::do_propose_close::<T>(who, account_id, beneficiary_account_id)
         }
 
-        // call_index(2) 已永久废弃：拒绝和执行失败清理由 votebase 终态回调完成。
+        // call_index(2) 已永久废弃：拒绝和执行失败清理由 engingcore 终态回调完成。
     }
 
     impl<T: Config> Pallet<T> {
@@ -415,17 +415,17 @@ pub mod pallet {
         }
 
         pub(crate) fn ensure_lifecycle_proposal(
-            proposal_id: u64,
+            proposal_id: u128,
             module_tag: &[u8],
             account_id: T::AccountId,
             expected_status: u8,
             require_callback_scope: bool,
         ) -> DispatchResult {
             ensure!(
-                votebase::Pallet::<T>::is_proposal_owner(proposal_id, module_tag),
+                engingcore::Pallet::<T>::is_proposal_owner(proposal_id, module_tag),
                 Error::<T>::ProposalActionNotFound
             );
-            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
+            let proposal = engingcore::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             ensure!(
                 proposal.kind == PROPOSAL_KIND_INTERNAL,
@@ -441,7 +441,7 @@ pub mod pallet {
                 Error::<T>::ProposalActionNotFound
             );
             ensure!(
-                proposal.internal_code == Some(votebase::types::PMUL),
+                proposal.internal_code == Some(engingcore::types::PMUL),
                 Error::<T>::ProposalActionNotFound
             );
             ensure!(
@@ -450,7 +450,7 @@ pub mod pallet {
             );
             if require_callback_scope {
                 ensure!(
-                    votebase::Pallet::<T>::is_callback_execution_scope(proposal_id),
+                    engingcore::Pallet::<T>::is_callback_execution_scope(proposal_id),
                     Error::<T>::ProposalActionNotFound
                 );
             }
@@ -458,14 +458,14 @@ pub mod pallet {
         }
 
         pub fn active_admin_account_exists(
-            institution_code: votebase::types::InstitutionCode,
+            institution_code: engingcore::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> bool {
             T::PersonalAdminQuery::active_admin_account_exists(institution_code, account_id)
         }
 
         pub fn is_active_account_admin(
-            institution_code: votebase::types::InstitutionCode,
+            institution_code: engingcore::types::InstitutionCode,
             account_id: T::AccountId,
             who: &T::AccountId,
         ) -> bool {
@@ -473,28 +473,28 @@ pub mod pallet {
         }
 
         pub fn active_account_admins(
-            institution_code: votebase::types::InstitutionCode,
+            institution_code: engingcore::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> Option<Vec<T::AccountId>> {
             T::PersonalAdminQuery::active_account_admins(institution_code, account_id)
         }
 
         pub fn active_account_admins_len(
-            institution_code: votebase::types::InstitutionCode,
+            institution_code: engingcore::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> Option<u32> {
             T::PersonalAdminQuery::active_account_admins_len(institution_code, account_id)
         }
 
         pub fn pending_account_exists_for_snapshot(
-            institution_code: votebase::types::InstitutionCode,
+            institution_code: engingcore::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> bool {
             T::PersonalAdminQuery::pending_account_exists_for_snapshot(institution_code, account_id)
         }
 
         pub fn is_pending_account_admin_for_snapshot(
-            institution_code: votebase::types::InstitutionCode,
+            institution_code: engingcore::types::InstitutionCode,
             account_id: T::AccountId,
             who: &T::AccountId,
         ) -> bool {
@@ -506,14 +506,14 @@ pub mod pallet {
         }
 
         pub fn pending_account_admins_for_snapshot(
-            institution_code: votebase::types::InstitutionCode,
+            institution_code: engingcore::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> Option<Vec<T::AccountId>> {
             T::PersonalAdminQuery::pending_account_admins_for_snapshot(institution_code, account_id)
         }
 
         pub fn pending_account_admins_len_for_snapshot(
-            institution_code: votebase::types::InstitutionCode,
+            institution_code: engingcore::types::InstitutionCode,
             account_id: T::AccountId,
         ) -> Option<u32> {
             T::PersonalAdminQuery::pending_account_admins_len_for_snapshot(
@@ -523,7 +523,7 @@ pub mod pallet {
         }
 
         pub(crate) fn create_pending_admin_account_for_proposal(
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
             kind: AdminAccountKind,
             admins: &AdminsOf<T>,
@@ -541,7 +541,7 @@ pub mod pallet {
                 crate::MODULE_TAG,
                 account_id,
                 Vec::new(),
-                votebase::types::PMUL,
+                engingcore::types::PMUL,
                 kind,
                 admins.iter().cloned().collect(),
                 creator_account_id.clone(),
@@ -549,7 +549,7 @@ pub mod pallet {
         }
 
         pub(crate) fn activate_admin_account(
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
         ) -> DispatchResult {
             Self::ensure_lifecycle_proposal(
@@ -567,10 +567,10 @@ pub mod pallet {
         }
 
         pub(crate) fn remove_pending_admin_account(
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
         ) -> DispatchResult {
-            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
+            let proposal = engingcore::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             ensure!(
                 matches!(proposal.status, STATUS_REJECTED | STATUS_EXECUTION_FAILED),
@@ -591,7 +591,7 @@ pub mod pallet {
         }
 
         pub(crate) fn close_admin_account(
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
         ) -> DispatchResult {
             Self::ensure_lifecycle_proposal(
@@ -623,7 +623,7 @@ pub mod pallet {
 // ──── 投票终态回调:个人多签创建/关闭提案的执行落地 ────
 //
 // 投票统一由投票引擎承担,提案通过(或否决)经
-// `votebase::InternalVoteResultCallback` tuple 广播回来。
+// `engingcore::InternalVoteResultCallback` tuple 广播回来。
 // 本 Executor 按 `MODULE_TAG + ACTION_*` 前缀认领本模块提案,
 // approved=true 分派 execute_create / execute_close;approved=false 清理 Pending 存储。
 // ──── PersonalMultisigQuery 实现:对 multisig-transfer / runtime config 暴露查询 ────
@@ -637,7 +637,7 @@ impl<T: pallet::Config> traits::PersonalMultisigQuery<T::AccountId> for pallet::
             return None;
         }
         let account_id = addr.clone();
-        let institution_code = votebase::types::PMUL;
+        let institution_code = engingcore::types::PMUL;
         let admins =
             pallet::Pallet::<T>::active_account_admins(institution_code, account_id.clone())?;
         let admins_len =
@@ -663,14 +663,14 @@ pub struct InternalVoteExecutor<T>(core::marker::PhantomData<T>);
 
 impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
     fn on_internal_vote_finalized(
-        proposal_id: u64,
+        proposal_id: u128,
         approved: bool,
     ) -> Result<ProposalExecutionOutcome, sp_runtime::DispatchError> {
         use frame_support::storage::{with_transaction, TransactionOutcome};
-        if !votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG) {
+        if !engingcore::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG) {
             return Ok(ProposalExecutionOutcome::Ignored);
         }
-        let raw = votebase::Pallet::<T>::get_proposal_data(proposal_id)
+        let raw = engingcore::Pallet::<T>::get_proposal_data(proposal_id)
             .ok_or(pallet::Error::<T>::ProposalActionNotFound)?;
 
         ensure!(
@@ -754,8 +754,8 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
             .max(<T as crate::pallet::Config>::WeightInfo::terminal_callback_ignored())
     }
 
-    fn on_execution_failed_terminal(proposal_id: u64) -> DispatchResult {
-        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
+    fn on_execution_failed_terminal(proposal_id: u128) -> DispatchResult {
+        let raw = match engingcore::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw) if raw.starts_with(crate::MODULE_TAG) => raw,
             _ => return Ok(()),
         };

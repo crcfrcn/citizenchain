@@ -8,11 +8,11 @@
       "pallet_index": 21,
       "call_index": 1,
       "fields": {
-        "proposal_id": 99,
+        "proposal_id": "99",
         "approve": true
       },
-      "expected_call_data_hex": "0x1501630000000000000001",
-      "expected_byte_length": 11
+      "expected_call_data_hex": "0x15018d0101",
+      "expected_byte_length": 5
     },
     {
       "name": "propose_issuance",

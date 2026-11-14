@@ -5,7 +5,7 @@ use nodeclient::codec::decode_cid_number;
 const TAG_RESOLUTION_DESTROY: &[u8] = b"res-dst";
 
 pub fn decode_resolution_destroy_action(
-    proposal_id: u64,
+    proposal_id: u128,
     data: &[u8],
 ) -> Option<ResolutionDestroyDetail> {
     // SCALE 布局：MODULE_TAG + actor_cid_number + institution_account_id + amount。

@@ -205,3 +205,284 @@ fn private_institution_cid_yields_province_and_city() {
 fn person_cid_scope_is_rejected() {
     assert!(cid_scope_codes(b"CN001-CTZN-000000001-2026").is_err());
 }
+
+fn login_membership(cid: &str) -> crate::chain_runtime::ActiveAdminMembership {
+    crate::chain_runtime::ActiveAdminMembership {
+        institution_code: *b"FRG\0",
+        cid_number: cid.into(),
+        frg_province_code: Some(*b"GZ"),
+    }
+}
+
+fn login_binding(member: &crate::chain_runtime::ActiveAdminMembership) -> NodeInstitutionBinding {
+    NodeInstitutionBinding {
+        binding_id: uuid::Uuid::new_v4().to_string(),
+        candidate_id: member.candidate_id(),
+        institution_code: "FRG".into(),
+        institution_cid_number: member.cid_number.clone(),
+        // 本次登录使用另一账户，机构归属不能被误写为只允许首次绑定操作者。
+        bound_account_id: format!("0x{}", "11".repeat(32)),
+        bound_at: Utc::now(),
+        status: "ACTIVE".into(),
+    }
+}
+
+fn create_test_login(
+    db: &crate::Db,
+    memberships: &[crate::chain_runtime::ActiveAdminMembership],
+) -> axum::response::Response {
+    crate::authentication::login::create_login_request(
+        db,
+        format!("0x{}", "22".repeat(32)),
+        memberships,
+        crate::platform_url(),
+        crate::PLATFORM_HOST.into(),
+        "login-test-session".into(),
+    )
+}
+
+fn login_response_body(response: axum::response::Response) -> serde_json::Value {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap(),
+        )
+        .unwrap()
+    })
+}
+
+#[test]
+#[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
+fn login_checks_exact_binding_before_creating_a_challenge() {
+    use axum::http::StatusCode;
+    let sandbox = crate::database::IsolatedTestDb::new();
+    let member = login_membership("ZS001-FRG07-249474503-2026");
+    let binding = login_binding(&member);
+    sandbox
+        .db
+        .with_client(|conn| upsert_active_node_binding_conn(conn, &binding))
+        .unwrap();
+    let foreign = login_membership("ZS001-FRG07-249474504-2026");
+    let wrong_code = crate::chain_runtime::ActiveAdminMembership {
+        institution_code: *b"CREG",
+        ..member.clone()
+    };
+    let other_province = crate::chain_runtime::ActiveAdminMembership {
+        frg_province_code: Some(*b"GD"),
+        ..member.clone()
+    };
+    for (memberships, expected) in [
+        (vec![], StatusCode::FORBIDDEN),
+        (vec![foreign.clone()], StatusCode::FORBIDDEN),
+        (vec![wrong_code], StatusCode::FORBIDDEN),
+        (vec![member.clone()], StatusCode::OK),
+        (vec![foreign, member.clone()], StatusCode::OK),
+        // FRG的省任职限定登录后作用域，不改变同一机构CID的节点归属。
+        (vec![other_province], StatusCode::OK),
+    ] {
+        sandbox
+            .db
+            .with_client(|conn| {
+                conn.execute("DELETE FROM login", &[]).unwrap();
+                Ok(())
+            })
+            .unwrap();
+        let response = create_test_login(&sandbox.db, &memberships);
+        assert_eq!(response.status(), expected);
+        let body = login_response_body(response);
+        let count: i64 = sandbox
+            .db
+            .with_client(|conn| {
+                Ok(conn
+                    .query_one("SELECT COUNT(*) FROM login", &[])
+                    .unwrap()
+                    .get(0))
+            })
+            .unwrap();
+        if expected == StatusCode::FORBIDDEN {
+            assert_eq!(count, 0);
+            assert_eq!(body["errorCode"], "ONCHINA_LOGIN_ADMIN_NOT_ONCHAIN");
+            assert!(body.get("data").is_none());
+        } else {
+            assert_eq!(count, 1);
+            assert!(body["data"]["loginQrPayload"].is_string());
+            let challenge = sandbox
+                .db
+                .with_client(|conn| {
+                    get_login_sign_request_conn(conn, body["data"]["challengeId"].as_str().unwrap())
+                })
+                .unwrap()
+                .unwrap();
+            assert_eq!(challenge.account_id, format!("0x{}", "22".repeat(32)));
+            assert_eq!(
+                challenge.expires_at.timestamp_millis() - challenge.issued_at.timestamp_millis(),
+                90_000
+            );
+            assert!(!challenge.consumed);
+        }
+    }
+    for mut broken in [
+        NodeInstitutionBinding {
+            institution_code: "CREG".into(),
+            ..binding.clone()
+        },
+        NodeInstitutionBinding {
+            institution_cid_number: "another-institution".into(),
+            ..binding.clone()
+        },
+        NodeInstitutionBinding {
+            candidate_id: "another-candidate".into(),
+            ..binding
+        },
+    ] {
+        broken.binding_id = uuid::Uuid::new_v4().to_string();
+        sandbox
+            .db
+            .with_client(|conn| {
+                conn.execute("DELETE FROM login", &[]).unwrap();
+                upsert_active_node_binding_conn(conn, &broken)
+            })
+            .unwrap();
+        assert_eq!(
+            create_test_login(&sandbox.db, &[member.clone()]).status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            sandbox
+                .db
+                .with_client(|conn| Ok(conn
+                    .query_one("SELECT COUNT(*) FROM login", &[])
+                    .unwrap()
+                    .get::<_, i64>(0)))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+#[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
+fn first_binding_login_remains_available_and_failed_storage_returns_no_qr() {
+    use axum::http::StatusCode;
+    let sandbox = crate::database::IsolatedTestDb::new();
+    let member = login_membership("ZS001-FRG07-249474503-2026");
+    assert_eq!(
+        create_test_login(&sandbox.db, &[]).status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        create_test_login(&sandbox.db, &[member.clone()]).status(),
+        StatusCode::OK
+    );
+    assert!(sandbox
+        .db
+        .with_client(get_active_node_binding_conn)
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        sandbox
+            .db
+            .with_client(|conn| Ok(conn
+                .query_one("SELECT COUNT(*) FROM session", &[])
+                .unwrap()
+                .get::<_, i64>(0)))
+            .unwrap(),
+        0
+    );
+    sandbox.db.with_client(|conn| {
+        conn.batch_execute("DELETE FROM login; ALTER TABLE login ADD CONSTRAINT reject_login_test CHECK(false)").unwrap();
+        Ok(())
+    }).unwrap();
+    let response = create_test_login(&sandbox.db, &[member]);
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(login_response_body(response).get("data").is_none());
+    assert_eq!(
+        sandbox
+            .db
+            .with_client(|conn| Ok(conn
+                .query_one("SELECT COUNT(*) FROM login", &[])
+                .unwrap()
+                .get::<_, i64>(0)))
+            .unwrap(),
+        0
+    );
+    sandbox
+        .db
+        .with_client(|conn| {
+            conn.batch_execute(
+                "ALTER TABLE login DROP CONSTRAINT reject_login_test; DROP TABLE binding",
+            )
+            .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let response = create_test_login(
+        &sandbox.db,
+        &[login_membership("ZS001-FRG07-249474503-2026")],
+    );
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(login_response_body(response).get("data").is_none());
+}
+
+#[test]
+#[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
+fn login_waits_for_binding_lock_and_rejects_a_concurrent_rebind() {
+    use axum::http::StatusCode;
+    let sandbox = crate::database::IsolatedTestDb::new();
+    let member = login_membership("ZS001-FRG07-249474503-2026");
+    sandbox
+        .db
+        .with_client(|conn| upsert_active_node_binding_conn(conn, &login_binding(&member)))
+        .unwrap();
+    sandbox
+        .db
+        .with_client(|conn| {
+            let mut tx = conn.transaction().unwrap();
+            lock_node_binding_conn(&mut tx)?;
+            let barrier = std::sync::Barrier::new(2);
+            std::thread::scope(|scope| {
+                let (sender, receiver) = std::sync::mpsc::channel();
+                let barrier_ref = &barrier;
+                let db = sandbox.db.clone();
+                let worker = scope.spawn(move || {
+                    barrier_ref.wait();
+                    sender
+                        .send(create_test_login(&db, &[member]).status())
+                        .unwrap();
+                });
+                barrier.wait();
+                // 持有锁时不得提前生成或返回挑战；随后切换到该账户不属于的机构。
+                assert!(matches!(
+                    receiver.recv_timeout(std::time::Duration::from_millis(150)),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                ));
+                let changed = login_membership("ZS001-FRG07-249474504-2026");
+                upsert_active_node_binding_conn(&mut tx, &login_binding(&changed))?;
+                tx.commit().unwrap();
+                assert_eq!(
+                    receiver
+                        .recv_timeout(std::time::Duration::from_secs(5))
+                        .unwrap(),
+                    StatusCode::FORBIDDEN
+                );
+                worker.join().unwrap();
+                Ok(())
+            })
+        })
+        .unwrap();
+    assert_eq!(
+        sandbox
+            .db
+            .with_client(|conn| Ok(conn
+                .query_one("SELECT COUNT(*) FROM login", &[])
+                .unwrap()
+                .get::<_, i64>(0)))
+            .unwrap(),
+        0
+    );
+}

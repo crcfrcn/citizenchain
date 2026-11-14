@@ -97,8 +97,18 @@ fn resolve_ethereum_recipient(
     metadata: Vec<u8>,
     mapped: Result<serde_json::Value, String>,
 ) -> Result<[u8; 32], String> {
+    resolve_ethereum_recipient_with_progress(address, metadata, mapped, serde_json::Value::Null)
+}
+
+fn resolve_ethereum_recipient_with_progress(
+    address: &str,
+    metadata: Vec<u8>,
+    mapped: Result<serde_json::Value, String>,
+    progress: serde_json::Value,
+) -> Result<[u8; 32], String> {
     use crate::signing::resolve_recipient_account_id_with_rpc;
     use serde_json::json;
+    let expected_calls = if matches!(&mapped, Ok(serde_json::Value::Null)) { 4 } else { 3 };
     let head = format!("0x{}", "12".repeat(32));
     let mut key = sp_crypto_hashing::twox_128(b"Revive").to_vec();
     key.extend(sp_crypto_hashing::twox_128(b"OriginalAccount"));
@@ -126,13 +136,28 @@ fn resolve_ethereum_recipient(
                 );
                 mapped.clone()
             }
+            4 => {
+                assert_eq!((method, params), ("state_getStorage", json!([
+                    format!("0x{}", hex::encode(b":citizenchain:evm-account-mapping:progress:v1")), head
+                ])));
+                Ok(progress.clone())
+            }
             _ => panic!("收款解析不应提交交易或另读 best 状态"),
         }
     });
     if result.is_ok() {
-        assert_eq!(calls, 3);
+        assert_eq!(calls, expected_calls);
     }
     result
+}
+
+#[test]
+fn recipient_never_falls_back_to_a_different_account_during_backfill() {
+    let address = "0xde709f2102306220921060314715629080e2fb77";
+    let error = resolve_ethereum_recipient_with_progress(
+        address, recipient_metadata(), Ok(serde_json::Value::Null), serde_json::json!("0x00"),
+    ).unwrap_err();
+    assert!(error.contains("正在更新"));
 }
 
 #[test]

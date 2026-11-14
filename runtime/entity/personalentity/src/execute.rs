@@ -24,13 +24,13 @@ use crate::pallet::{
 };
 use crate::types::{PersonalCloseAction, PersonalCreateAction, PersonalStatus};
 use crate::BalanceOf;
-use votebase::InternalVoteEngine;
+use engingcore::InternalVoteEngine;
 
 /// 执行创建：unreserve + 划转 + 扣手续费 + 激活 PersonalAccounts。
 ///
 /// 资金模型:提案创建时已 reserve(amount + fee),此处先 unreserve 再划转入金 + 扣手续费。
 pub(crate) fn execute_create_with_finalizer<T: Config>(
-    proposal_id: u64,
+    proposal_id: u128,
     action: &PersonalCreateAction<T::AccountId, BalanceOf<T>>,
 ) -> DispatchResult {
     // 资金释放前先证明通过的是当前个人多签账户的创建提案，不能只信任
@@ -39,7 +39,7 @@ pub(crate) fn execute_create_with_finalizer<T: Config>(
         proposal_id,
         crate::MODULE_TAG,
         action.account_id.clone(),
-        votebase::STATUS_PASSED,
+        engingcore::STATUS_PASSED,
         true,
     )?;
     let fee = action.fee;
@@ -67,7 +67,7 @@ pub(crate) fn execute_create_with_finalizer<T: Config>(
             account_id.status = PersonalStatus::Active;
         }
     });
-    let institution_code = votebase::types::PMUL;
+    let institution_code = engingcore::types::PMUL;
     let admins_len = Pallet::<T>::active_account_admins_len(institution_code, account_id.clone())
         .ok_or(Error::<T>::PersonalNotFound)?;
     let threshold = <T as Config>::InternalVoteEngine::configured_personal_threshold(
@@ -92,14 +92,14 @@ pub(crate) fn execute_create_with_finalizer<T: Config>(
 
 /// 执行关闭：转出余额 + 删除 PersonalAccounts + 关闭 admin account_id。
 pub(crate) fn execute_close_with_finalizer<T: Config>(
-    proposal_id: u64,
+    proposal_id: u128,
     action: &PersonalCloseAction<T::AccountId>,
 ) -> DispatchResult {
     Pallet::<T>::ensure_lifecycle_proposal(
         proposal_id,
         crate::MODULE_TAG,
         action.account_id.clone(),
-        votebase::STATUS_PASSED,
+        engingcore::STATUS_PASSED,
         true,
     )?;
     ensure!(
@@ -114,7 +114,7 @@ pub(crate) fn execute_close_with_finalizer<T: Config>(
         Error::<T>::ProtectedSource
     );
     let account_id = action.account_id.clone();
-    let institution_code = votebase::types::PMUL;
+    let institution_code = engingcore::types::PMUL;
     let admins_len = Pallet::<T>::active_account_admins_len(institution_code, account_id.clone())
         .ok_or(Error::<T>::PersonalNotFound)?;
     let threshold =
@@ -172,7 +172,7 @@ pub(crate) fn execute_close_with_finalizer<T: Config>(
 ///
 /// `emit_event = true` 时(否决路径)发 `PersonalCreateRejected`,终态失败路径不发。
 pub(crate) fn cleanup_pending_create<T: Config>(
-    proposal_id: u64,
+    proposal_id: u128,
     action: &PersonalCreateAction<T::AccountId, BalanceOf<T>>,
     emit_event: bool,
 ) -> Result<bool, sp_runtime::DispatchError> {

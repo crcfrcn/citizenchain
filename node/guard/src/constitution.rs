@@ -620,7 +620,7 @@ where
 
 /// 修宪版本(生效/待生效,`version > 创世`)必须挂一份**通过口径**的永久护宪终审凭据
 /// `ConstitutionGuardVoteProof[version]`(第21条 node 背书:一切修宪须经护宪大法官 4/7 终审,含一般章)。
-/// 凭据是 legislation **永久存储**(不受 votebase 90 天清理影响),故可对任意修宪版本随时校验。
+/// 凭据是 legislation **永久存储**(不受 engingcore 90 天清理影响),故可对任意修宪版本随时校验。
 /// 口径复用 `primitives::constitution::guard_review_passed`(与链端结算共用单源)。
 ///
 /// 信任上限：当前值只是 runtime 写入的赞成票计数，不含节点可独立验签的成员签名集合。
@@ -680,7 +680,7 @@ fn check_core_chapter_tier(
 
 /// 核心章有改动的版本必须挂一份**通过口径**的强制公投凭据 `ConstitutionAmendmentProof[version]`
 /// (第十九条 node 背书的公投凭据层:不止记录 `vote_type=Special`,还须有过公投口径的计票)。
-/// 凭据是 legislation **永久存储**(不受 votebase 90 天清理影响),故可对生效/待生效版本随时校验,
+/// 凭据是 legislation **永久存储**(不受 engingcore 90 天清理影响),故可对生效/待生效版本随时校验,
 /// 无转移块检测。口径复用 `primitives::constitution::referendum_passed`(与链端结算共用单源)。
 /// 当前三元组不携带公民签名或人口快照证明，节点只背书记录与阈值口径的一致性，不宣称独立验票。
 fn check_core_referendum_proof<F>(read_raw: &F, version: u32) -> Result<(), GuardError>

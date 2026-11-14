@@ -1,5 +1,8 @@
+import { RolesView } from '@gmb/onchina-platform/institutions/RolesView';
+import { AssignmentsView } from '@gmb/onchina-platform/institutions/AssignmentsView';
+import { RepresentativeView } from '@gmb/onchina-platform/institutions/RepresentativeView';
 import React, { useEffect, useState } from 'react';
-import { Alert, AutoComplete, Button, Card, Checkbox, Col, Descriptions, Divider, Form, Input, Row, Select, Space, Spin, Tag, Typography, Upload } from 'antd';
+import { Alert, AutoComplete, Button, Card, Col, Descriptions, Form, Input, Row, Select, Space, Spin, Tag, Typography, Upload } from 'antd';
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import { type AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import { LegalRepresentativePhoto } from '@gmb/onchina-platform/institutions/Photo';
@@ -12,8 +15,7 @@ import { DocsLibrary } from '@gmb/onchina-platform/documents/Library';
 import { notice } from '@gmb/onchina-platform/controls/notice';
 import { InstitutionDetailNavLayout } from '@gmb/onchina-platform/workspace/DetailLayout';
 import { OperationRecords } from '../government/OperationRecords';
-import { submitChainSign, useChainSign } from '@gmb/onchina-platform/qr/useChainSign';
-import { type InstitutionGovernanceAdminInput, type InstitutionGovernanceAssignmentChangeInput, type InstitutionGovernanceRoleMutationInput, prepareInstitutionGovernance } from '@gmb/onchina-platform/institutions/governance';
+import { InstitutionAdministratorsPanel } from '../admins/AddCityRegistryAdminModal';
 // 私权机构详情页布局 — 共享详情壳承载标题、左侧 tab 和右侧业务内容。
 //
 // 机构信息 tab:
@@ -62,76 +64,6 @@ interface InfoFormValues {
   photoSize?: number;
 }
 
-interface GovernanceFormValues {
-  adminsText?: string;
-  proposerRoleCode: string;
-  roleCode?: string;
-  roleName?: string;
-  roleMutation?: 'CREATE' | 'RENAME' | 'DELETE';
-  termRequired?: boolean;
-  rolePermissionsText?: string;
-  roleInitialAssignmentsText?: string;
-  assignmentsText?: string;
-  representativeCid?: string;
-  clearLegalRepresentative?: boolean;
-}
-
-function parseGovernanceAdmins(text?: string): InstitutionGovernanceAdminInput[] {
-  return (text ?? '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [familyName, givenName, accountId] = line.split(/[,，]/).map((part) => part.trim());
-      if (!familyName || !givenName || !accountId) throw new Error('管理员集合每行格式必须是：姓,名,账户');
-      return { accountId, familyName: familyName, givenName: givenName };
-    });
-}
-
-function parseRolePermissions(text?: string) {
-  return (text ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
-    const [moduleTag, actionCodeRaw, operation] = line.split(/[,，]/).map((part) => part.trim());
-    const actionCode = Number(actionCodeRaw);
-    if (!moduleTag || !Number.isInteger(actionCode) || actionCode < 0 || !['PROPOSE', 'VOTE'].includes(operation)) {
-      throw new Error('岗位权限每行格式必须是：模块标签,动作码,PROPOSE或VOTE');
-    }
-    return { moduleTag: moduleTag, actionCode: actionCode, operation: operation as 'PROPOSE' | 'VOTE' };
-  });
-}
-
-function parseInitialAssignments(text?: string) {
-  return (text ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
-    const [account, termStartRaw = '0', termEndRaw = '0'] = line.split(/[,，]/).map((part) => part.trim());
-    const termStart = Number(termStartRaw || 0);
-    const termEnd = Number(termEndRaw || 0);
-    if (!account || !Number.isInteger(termStart) || !Number.isInteger(termEnd) || termStart < 0 || termEnd < 0) {
-      throw new Error('初始任职每行格式必须是：管理员账户,任期开始,任期结束');
-    }
-    return { accountId: account, termStart: termStart, termEnd: termEnd };
-  });
-}
-
-function parseGovernanceAssignments(text?: string): InstitutionGovernanceAssignmentChangeInput[] {
-  const byRole = new Map<string, InstitutionGovernanceAssignmentChangeInput>();
-  for (const raw of (text ?? '').split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    const [roleCode, account, termStartRaw = '0', termEndRaw = '0'] = line
-      .split(/[,，]/)
-      .map((part) => part.trim());
-    if (!roleCode || !account) throw new Error('任职每行格式必须是：岗位码,管理员账户,任期开始,任期结束');
-    const termStart = Number(termStartRaw || 0);
-    const termEnd = Number(termEndRaw || 0);
-    if (!Number.isInteger(termStart) || !Number.isInteger(termEnd) || termStart < 0 || termEnd < 0) {
-      throw new Error('任期必须是非负整数日序');
-    }
-    const row = byRole.get(roleCode) ?? { roleCode: roleCode, assignments: [] };
-    row.assignments.push({ accountId: account, termStart: termStart, termEnd: termEnd });
-    byRole.set(roleCode, row);
-  }
-  return Array.from(byRole.values());
-}
-
 export const PrivateDetailLayout: React.FC<Props> = ({
   auth,
   detail,
@@ -144,11 +76,6 @@ export const PrivateDetailLayout: React.FC<Props> = ({
   const inst = detail.institution;
   const institutionLabels = useInstitutionCodeLabels();
   const accounts = detail.accounts;
-  const [governanceForm] = Form.useForm<GovernanceFormValues>();
-  const [governanceSubmitting, setGovernanceSubmitting] = useState(false);
-  const { signChain: signGovernanceChain, chainSignModal: governanceChainSignModal } =
-    useChainSign('机构治理链交易签名');
-
   // ── 右板块:编辑/只读切换 ──
   const [editing, setEditing] = useState(false);
   const [form] = Form.useForm<InfoFormValues>();
@@ -259,18 +186,13 @@ export const PrivateDetailLayout: React.FC<Props> = ({
     });
     setPhotoName(inst.photoName ?? '');
     setLegalRepOptions([]);
-    governanceForm.setFieldsValue({
-      roleMutation: 'CREATE',
-      termRequired: false,
-      rolePermissionsText: 'pri-mgmt,3,PROPOSE\npri-mgmt,3,VOTE',
-    });
+
   }, [
     inst.cidNumber,
     inst.cidFullName,
     inst.parentCidNumber,
     inst.legalRepresentative,
     inst.photoPath,
-    governanceForm,
   ]);
 
   const onClickEdit = () => {
@@ -820,113 +742,7 @@ export const PrivateDetailLayout: React.FC<Props> = ({
       </Card>
   );
 
-  const submitGovernance = async () => {
-    if (!canWrite) return;
-    setGovernanceSubmitting(true);
-    try {
-      const values = await governanceForm.validateFields();
-      const proposerRoleCode = values.proposerRoleCode.trim();
-      if (!proposerRoleCode) throw new Error('必须填写提案发起岗位码');
-      const admins = parseGovernanceAdmins(values.adminsText);
-      const roleMutations: InstitutionGovernanceRoleMutationInput[] = [];
-      const mutation = values.roleMutation;
-      const roleCode = values.roleCode?.trim() ?? '';
-      const roleName = values.roleName?.trim() ?? '';
-      if (mutation === 'CREATE' && roleName) {
-        roleMutations.push({ mutation, roleName: roleName, termRequired: Boolean(values.termRequired), permissions: parseRolePermissions(values.rolePermissionsText), assignments: parseInitialAssignments(values.roleInitialAssignmentsText) });
-      } else if (mutation === 'RENAME' && (roleCode || roleName)) {
-        if (!roleCode || !roleName) throw new Error('岗位改名必须同时填写岗位码和新名称');
-        roleMutations.push({ mutation, roleCode: roleCode, roleName: roleName });
-      } else if (mutation === 'DELETE' && roleCode) {
-        roleMutations.push({ mutation, roleCode: roleCode });
-      }
-      const representativeCid = values.representativeCid?.trim() || undefined;
-      const clearLegalRepresentative = Boolean(values.clearLegalRepresentative);
-      if (representativeCid && clearLegalRepresentative) {
-        throw new Error('任命/更换法定代表人和解除法定代表人不能同时提交');
-      }
-      const prepared = await prepareInstitutionGovernance(auth, {
-        cidNumber: inst.cidNumber,
-        proposerRoleCode: proposerRoleCode,
-        admins: admins.length ? admins : undefined,
-        roleMutations: roleMutations.length ? roleMutations : undefined,
-        assignmentChanges: parseGovernanceAssignments(values.assignmentsText),
-        representativeCid: representativeCid,
-        clearLegalRepresentative: clearLegalRepresentative || undefined,
-      });
-      const signed = await signGovernanceChain(prepared.requestId, prepared.signRequest);
-      const output = await submitChainSign(
-        auth,
-        prepared.requestId,
-        signed.accountId,
-        signed.signature,
-      );
-      notice.success(`链交易已提交：${output.txHash}`);
-      onReload();
-    } catch (err) {
-      notice.error(err, '');
-    } finally {
-      setGovernanceSubmitting(false);
-    }
-  };
-
-  const governanceSection = (
-    <Card title="机构治理">
-      <Form form={governanceForm} layout="vertical" disabled={!canWrite || governanceSubmitting}>
-        <Form.Item
-          label="提案发起岗位码"
-          name="proposerRoleCode"
-          rules={[{ required: true, message: '请输入当前任职且拥有提案权限的岗位码' }]}
-        >
-          <Input placeholder="例如 GENESIS_PRODUCT_MANAGER；动态岗位填写链上岗位码" maxLength={64} />
-        </Form.Item>
-        <Form.Item label="管理员集合" name="adminsText">
-          <Input.TextArea rows={4} placeholder={'张,三,w5...\n李,四,w5...'} />
-        </Form.Item>
-        <Divider orientation="left">岗位</Divider>
-        <Row gutter={12}>
-          <Col xs={24} md={6}>
-            <Form.Item label="岗位操作" name="roleMutation">
-              <Select options={[{ label: '创建', value: 'CREATE' }, { label: '改名', value: 'RENAME' }, { label: '删除', value: 'DELETE' }]} />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={6}>
-            <Form.Item label="岗位码（改名/删除）" name="roleCode">
-              <Input placeholder="创建时留空，由 runtime 生成" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={8}>
-            <Form.Item label="岗位名称" name="roleName">
-              <Input placeholder="例如：财务负责人" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={4}>
-            <Form.Item name="termRequired" valuePropName="checked" label="任期">
-              <Checkbox>要求任期</Checkbox>
-            </Form.Item>
-          </Col>
-        </Row>
-        <Form.Item label="创建岗位权限" name="rolePermissionsText">
-          <Input.TextArea rows={3} placeholder={'pri-mgmt,3,PROPOSE\npri-mgmt,3,VOTE'} />
-        </Form.Item>
-        <Form.Item label="创建岗位初始任职" name="roleInitialAssignmentsText">
-          <Input.TextArea rows={3} placeholder={'w5...,0,0'} />
-        </Form.Item>
-        <Form.Item label="岗位任职" name="assignmentsText">
-          <Input.TextArea rows={4} placeholder={'RABCD,w5...,0,0'} />
-        </Form.Item>
-        <Form.Item label="法定代表人公民 CID" name="representativeCid">
-          <Input placeholder="只填公民 CID；姓名和账户 ID由后端读取公民档案" />
-        </Form.Item>
-        <Form.Item name="clearLegalRepresentative" valuePropName="checked">
-          <Checkbox>解除法定代表人并清空链上完整法定代表人结构</Checkbox>
-        </Form.Item>
-        <Button type="primary" loading={governanceSubmitting} disabled={!canWrite} onClick={submitGovernance}>
-          发起本机构治理
-        </Button>
-      </Form>
-    </Card>
-  );
+  const governanceSection = <InstitutionAdministratorsPanel auth={auth} cidNumber={inst.cidNumber} canWrite={canWrite} onSubmitted={onReload} />;
 
   return (
     <>
@@ -944,6 +760,9 @@ export const PrivateDetailLayout: React.FC<Props> = ({
           ...(canWrite
             ? [{ key: 'governance', label: '机构治理', content: governanceSection }]
             : []),
+          {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={inst.cidNumber} canWrite={canWrite}/>},
+          {key:'assignments',label:'任职管理',content:<AssignmentsView auth={auth} cidNumber={inst.cidNumber} canWrite={canWrite}/>},
+          {key:'representative',label:'法定代表人',content:<RepresentativeView auth={auth} cidNumber={inst.cidNumber} canWrite={canWrite}/>},
           { key: 'accounts', label: '账户列表', badge: accounts.length, content: accountListSection },
           {
             key: 'documents',
@@ -963,7 +782,6 @@ export const PrivateDetailLayout: React.FC<Props> = ({
           },
         ]}
       />
-      {governanceChainSignModal}
     </>
   );
 };

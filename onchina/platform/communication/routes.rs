@@ -93,6 +93,12 @@ fn platform_routes() -> Vec<modules::model::ModuleRoute> {
         ),
         modules::model::ModuleRoute::new(
             "admin",
+            "/api/institutions/{cid_number}/governance",
+            &["GET"],
+            get(institutions::admins::get_governance_state),
+        ),
+        modules::model::ModuleRoute::new(
+            "admin",
             "/api/admin/institution/governance/prepare",
             &["POST"],
             post(institutions::admins::prepare_institution_governance),

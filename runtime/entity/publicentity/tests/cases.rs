@@ -138,8 +138,9 @@ fn dynamic_role_lifecycle_persists_permissions_and_never_reuses_code() {
         };
 
         let cid = create_cgov("dynamic-role-lifecycle");
+        let initial_nonce = pallet::InstitutionRoleNonce::<Test>::get(&cid);
         let first_code =
-            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid.as_slice(), 0, 42);
+            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid.as_slice(), initial_nonce, 42);
         let action = entitybase::BusinessActionId {
             module_tag: b"pub-mgmt".to_vec(),
             action_code: 3,
@@ -166,14 +167,14 @@ fn dynamic_role_lifecycle_persists_permissions_and_never_reuses_code() {
 
         let bounded_code: crate::institution::role::RoleCodeOf =
             first_code.clone().try_into().expect("code fits");
-        assert_eq!(pallet::InstitutionRoleNonce::<Test>::get(&cid), 1);
+        assert_eq!(pallet::InstitutionRoleNonce::<Test>::get(&cid), initial_nonce + 1);
         assert!(pallet::UsedRoleCodes::<Test>::get(&cid, &bounded_code));
         assert!(pallet::InstitutionRoles::<Test>::contains_key(
             &cid,
             &bounded_code
         ));
         assert_eq!(
-            pallet::InstitutionRolePermissions::<Test>::get(&cid, &bounded_code).len(),
+            pallet::Pallet::<Test>::institution_role_permissions(&cid, &bounded_code).len(),
             2
         );
         let subject = RoleSubject {
@@ -212,7 +213,7 @@ fn dynamic_role_lifecycle_persists_permissions_and_never_reuses_code() {
             }
         ));
         assert_eq!(
-            pallet::InstitutionRoles::<Test>::get(&cid, &bounded_code)
+            pallet::Pallet::<Test>::institution_role_of(&cid, &bounded_code)
                 .expect("role exists")
                 .role_name
                 .as_slice(),
@@ -236,10 +237,11 @@ fn dynamic_role_lifecycle_persists_permissions_and_never_reuses_code() {
             &cid,
             &bounded_code
         ));
-        assert!(pallet::InstitutionRolePermissions::<Test>::get(&cid, &bounded_code).is_empty());
-        assert!(pallet::InstitutionRoleAssignments::<Test>::get(&cid, &bounded_code).is_empty());
+        assert!(pallet::Pallet::<Test>::institution_role_permissions(&cid, &bounded_code).is_empty());
+        assert!(pallet::Pallet::<Test>::institution_role_assignments(&cid, &bounded_code).is_empty());
         assert!(pallet::UsedRoleCodes::<Test>::get(&cid, &bounded_code));
 
+        let second_nonce = pallet::InstitutionRoleNonce::<Test>::get(&cid);
         assert_ok!(PublicManage::apply_institution_governance_result(
             entitybase::InstitutionGovernanceResult {
                 institution_code: code_bytes("CGOV"),
@@ -257,7 +259,7 @@ fn dynamic_role_lifecycle_persists_permissions_and_never_reuses_code() {
             }
         ));
         let second_code =
-            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid.as_slice(), 1, 42);
+            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid.as_slice(), second_nonce, 42);
         assert_ne!(first_code, second_code);
         assert!(pallet::UsedRoleCodes::<Test>::get(
             &cid,
@@ -322,7 +324,7 @@ fn operation_phase_authorizes_by_cid_and_survives_wallet_rebind() {
 
         // 建动态岗位，给 admin(0)（有 CID）与 admin(1)（无 CID）任职。
         let role_code =
-            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid.as_slice(), 0, 42);
+            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid.as_slice(), pallet::InstitutionRoleNonce::<Test>::get(&cid), 42);
         assert_ok!(PublicManage::apply_institution_governance_result(
             entitybase::InstitutionGovernanceResult {
                 institution_code,
@@ -405,7 +407,7 @@ fn assignment_authorization_respects_inclusive_term_window() {
 
         let cid = create_cgov("dynamic-role-term");
         let role_code =
-            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid.as_slice(), 0, 77);
+            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid.as_slice(), pallet::InstitutionRoleNonce::<Test>::get(&cid), 77);
         assert_ok!(PublicManage::apply_institution_governance_result(
             entitybase::InstitutionGovernanceResult {
                 institution_code: code_bytes("CGOV"),
@@ -543,6 +545,8 @@ fn add_account_proposal_then_vote_inserts_account() {
 
         // 通过后账户落库、反向索引写入、Pending 清除。
         let added = account_of(&cid, new_name);
+        assert!(sp_io::storage::exists(&codec::Encode::encode(&(b"evm-receive-registration", &added))),
+            "zero-balance business registration must invoke the receive-alias hook");
         assert_eq!(
             pallet::AccountRegisteredCid::<Test>::get(&added)
                 .expect("new reverse index")
@@ -604,7 +608,7 @@ fn duplicate_add_proposal_is_rejected_while_pending() {
 }
 
 #[test]
-fn rejected_add_is_cleaned_only_by_votebase_callback() {
+fn rejected_add_is_cleaned_only_by_engingcore_callback() {
     new_test_ext().execute_with(|| {
         let cid = create_cgov("add-rejected");
         grant_close_role(&cid);
@@ -621,11 +625,11 @@ fn rejected_add_is_cleaned_only_by_votebase_callback() {
         );
 
         assert_eq!(
-            <crate::InternalVoteExecutor<Test> as votebase::InternalVoteResultCallback>::on_internal_vote_finalized(
+            <crate::InternalVoteExecutor<Test> as engingcore::InternalVoteResultCallback>::on_internal_vote_finalized(
                 proposal_id,
                 false,
             ),
-            Ok(votebase::ProposalExecutionOutcome::Executed)
+            Ok(engingcore::ProposalExecutionOutcome::Executed)
         );
         // 否决由投票引擎回调清 Pending,账户不落库。
         assert!(!pallet::InstitutionPendingAdd::<Test>::contains_key(&cid));
@@ -738,7 +742,7 @@ fn approved_close_removes_only_custom_account() {
 }
 
 #[test]
-fn rejected_close_is_cleaned_only_by_votebase_callback() {
+fn rejected_close_is_cleaned_only_by_engingcore_callback() {
     new_test_ext().execute_with(|| {
         let cid = create_cgov_with_custom("close-rejected");
         let custom = account_of(&cid, CUSTOM_ACCOUNT_NAME);
@@ -756,11 +760,11 @@ fn rejected_close_is_cleaned_only_by_votebase_callback() {
         );
 
         assert_eq!(
-            <crate::InternalVoteExecutor<Test> as votebase::InternalVoteResultCallback>::on_internal_vote_finalized(
+            <crate::InternalVoteExecutor<Test> as engingcore::InternalVoteResultCallback>::on_internal_vote_finalized(
                 proposal_id,
                 false,
             ),
-            Ok(votebase::ProposalExecutionOutcome::Executed)
+            Ok(engingcore::ProposalExecutionOutcome::Executed)
         );
         assert!(!pallet::InstitutionPendingClose::<Test>::contains_key(
             &custom
@@ -792,6 +796,482 @@ fn duplicate_close_proposal_is_rejected_while_pending() {
                 beneficiary_account_id(),
             ),
             Error::<Test>::CloseAlreadyPending
+        );
+    });
+}
+
+
+
+// 登记沿用统一机构模型。夹具在原测试文件内建立，不新增固定岗位/测试资产。
+fn fresh_registration_target(tag: &str) -> pallet::CidNumberOf<Test> {
+    let cid = create_cgov(tag);
+    pallet::InstitutionGovernanceThresholds::<Test>::remove(&cid);
+    let roles = pallet::Pallet::<Test>::roles_for(&cid)
+        .map(|(code, _)| code)
+        .collect::<Vec<_>>();
+    for code in roles {
+        if code.as_slice() != b"LR" {
+            pallet::InstitutionRoles::<Test>::remove(&cid, &code);
+        }
+        pallet::InstitutionRolePermissions::<Test>::remove(&cid, &code);
+        pallet::InstitutionRoleAssignments::<Test>::remove(&cid, &code);
+    }
+    publicadmin::AdminAccounts::<Test>::remove(&cid);
+    pallet::InstitutionRoleNonce::<Test>::remove(&cid);
+    cid
+}
+
+fn registration_people(count: u8) -> Vec<adminbase::Admin<AccountId32>> {
+    (1..=count)
+        .map(|index| adminbase::Admin {
+            account_id: admin(index),
+            cid_number: Default::default(),
+            family_name: b"F".to_vec().try_into().unwrap(),
+            given_name: b"G".to_vec().try_into().unwrap(),
+        })
+        .collect()
+}
+
+fn registration_target(
+    account: AccountId32,
+) -> entitybase::InstitutionAssignmentTarget<AccountId32> {
+    entitybase::InstitutionAssignmentTarget {
+        account_id: account,
+        term_start: 0,
+        term_end: 0,
+        assignment_source: entitybase::InstitutionAssignmentSource::Registry,
+        assignment_source_ref: Vec::new(),
+        assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+    }
+}
+
+fn retained_registration_target(
+    cid: &pallet::CidNumberOf<Test>,
+    role: &crate::RoleCodeOf,
+    account: AccountId32,
+) -> entitybase::InstitutionAssignmentTarget<AccountId32> {
+    let stored = pallet::Pallet::<Test>::institution_role_assignments(cid, role)
+        .into_iter()
+        .find(|row| row.account_id == account)
+        .unwrap();
+    entitybase::InstitutionAssignmentTarget {
+        account_id: stored.account_id,
+        term_start: stored.term_start,
+        term_end: stored.term_end,
+        assignment_source: stored.assignment_source,
+        assignment_source_ref: stored.assignment_source_ref.to_vec(),
+        assignment_status: stored.assignment_status,
+    }
+}
+
+fn initial_registration_action() -> crate::pallet::InstitutionGovernanceActionOf<Test> {
+    let permission = |action_code, operation| entitybase::RolePermissionSpec {
+        business_action_id: entitybase::BusinessActionId {
+            module_tag: crate::MODULE_TAG.to_vec(),
+            action_code,
+        },
+        operation,
+    };
+    entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+        admins: registration_people(3),
+        role_mutations: vec![
+            entitybase::InstitutionRoleMutation::Create {
+                role_name: "治理岗位".as_bytes().to_vec(),
+                term_required: false,
+                permissions: vec![
+                    permission(3, RolePermissionOperation::Propose),
+                    permission(3, RolePermissionOperation::Vote),
+                ],
+                assignments: vec![registration_target(admin(1)), registration_target(admin(2))],
+            },
+            entitybase::InstitutionRoleMutation::Create {
+                role_name: "业务岗位".as_bytes().to_vec(),
+                term_required: false,
+                permissions: vec![permission(2, RolePermissionOperation::Propose)],
+                assignments: (1..=3)
+                    .map(|index| registration_target(admin(index)))
+                    .collect(),
+            },
+        ],
+        assignment_changes: Vec::new(),
+        legal_representative_change: None,
+    }
+}
+
+fn send_registration(
+    cid: &pallet::CidNumberOf<Test>,
+    action: crate::pallet::InstitutionGovernanceActionOf<Test>,
+    expected: [u8; 32],
+    threshold: Option<u32>,
+) -> sp_runtime::DispatchResult {
+    PublicManage::register_institution_admins(
+        RuntimeOrigin::signed(creator_account_id()),
+        cid.clone(),
+        action,
+        b"REGISTRY-CID".to_vec(),
+        b"REGISTRY-ROLE".to_vec(),
+        expected,
+        threshold,
+    )
+}
+
+#[test]
+fn registration_initializes_then_assigns_new_member_without_replacing_existing_members() {
+    new_test_ext().execute_with(|| {
+        let cid = fresh_registration_target("register-initialize");
+        let expected = PublicManage::registration_state_hash(&cid).unwrap();
+        let action = initial_registration_action();
+        let reference = sp_io::hashing::blake2_256(
+            &(
+                crate::MODULE_TAG,
+                entitybase::InstitutionAssignmentSource::Registry,
+                &creator_account_id(),
+                &cid,
+                &action,
+                b"REGISTRY-CID".to_vec(),
+                b"REGISTRY-ROLE".to_vec(),
+                expected,
+                Some(2u32),
+            )
+                .encode(),
+        );
+        assert_ok!(send_registration(&cid, action.clone(), expected, Some(2)));
+        assert_eq!(
+            pallet::InstitutionGovernanceThresholds::<Test>::get(&cid),
+            Some(2)
+        );
+        assert_eq!(pallet::InstitutionRoleNonce::<Test>::get(&cid), 3);
+        assert_eq!(
+            publicadmin::AdminAccounts::<Test>::get(&cid)
+                .unwrap()
+                .admins
+                .len(),
+            3
+        );
+        let business = pallet::Pallet::<Test>::roles_for(&cid)
+            .find(|(_, role)| role.role_name.as_slice() == "业务岗位".as_bytes())
+            .unwrap()
+            .0;
+        for (code, _) in pallet::Pallet::<Test>::roles_for(&cid) {
+            if code.as_slice() == b"LR" {
+                continue;
+            }
+            for assignment in pallet::Pallet::<Test>::institution_role_assignments(&cid, &code) {
+                assert_eq!(
+                    assignment.assignment_source,
+                    entitybase::InstitutionAssignmentSource::Registry
+                );
+                assert_eq!(assignment.assignment_source_ref.as_slice(), reference);
+            }
+        }
+        assert_noop!(
+            send_registration(&cid, action.clone(), expected, Some(2)),
+            Error::<Test>::StaleRegistrationState
+        );
+        // 模拟已有合法治理任职；追加时不能改写其来源或任期。
+        pallet::InstitutionRoleAssignments::<Test>::mutate(&cid, &business, |rows| {
+            rows[0].assignment_source =
+                entitybase::InstitutionAssignmentSource::InstitutionGovernance;
+            rows[0].assignment_source_ref =
+                b"original-governance-result".to_vec().try_into().unwrap();
+        });
+        let previous_assignments = pallet::Pallet::<Test>::institution_role_assignments(&cid, &business);
+        let current = PublicManage::registration_state_hash(&cid).unwrap();
+        assert_noop!(
+            send_registration(&cid, action, current, Some(2)),
+            Error::<Test>::AlreadyInitialized
+        );
+        let add = entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+            admins: registration_people(4),
+            role_mutations: Vec::new(),
+            assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
+                role_code: business.to_vec(),
+                assignments: (1..=3)
+                    .map(|index| retained_registration_target(&cid, &business, admin(index)))
+                    .chain(core::iter::once(registration_target(admin(4))))
+                    .collect(),
+            }],
+            legal_representative_change: None,
+        };
+        let mut forged = add.clone();
+        if let entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+            ref mut assignment_changes,
+            ..
+        } = forged
+        {
+            assignment_changes[0].assignments[0].term_end = 1;
+        }
+        assert_noop!(
+            send_registration(&cid, forged, current, None),
+            Error::<Test>::InvalidAssignmentSource
+        );
+        assert_ok!(send_registration(&cid, add, current, None));
+        assert_eq!(
+            publicadmin::AdminAccounts::<Test>::get(&cid)
+                .unwrap()
+                .admins
+                .len(),
+            4
+        );
+        assert_eq!(
+            pallet::Pallet::<Test>::institution_role_assignments(&cid, &business).len(),
+            4
+        );
+        let updated_assignments = pallet::Pallet::<Test>::institution_role_assignments(&cid, &business);
+        assert!(
+            previous_assignments
+                .iter()
+                .all(|old| updated_assignments.iter().any(|row| row == old)),
+            "追加保留存量任职来源和任期"
+        );
+
+        assert_eq!(
+            pallet::InstitutionGovernanceThresholds::<Test>::get(&cid),
+            Some(2)
+        );
+        // 同一份准备快照的第二个写入不得覆盖刚新增的成员。
+        assert_noop!(
+            send_registration(
+                &cid,
+                entitybase::InstitutionGovernanceAction::ReplaceAdmins {
+                    admins: registration_people(3)
+                },
+                current,
+                None
+            ),
+            Error::<Test>::StaleRegistrationState
+        );
+        let current = PublicManage::registration_state_hash(&cid).unwrap();
+        // 只删名册、不撤对应任职时拒绝，并且名册回滚。
+        assert_noop!(
+            send_registration(
+                &cid,
+                entitybase::InstitutionGovernanceAction::ReplaceAdmins {
+                    admins: registration_people(3)
+                },
+                current,
+                None
+            ),
+            Error::<Test>::InvalidAssignmentResultAdmins
+        );
+        let remove = entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+            admins: registration_people(3),
+            role_mutations: Vec::new(),
+            assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
+                role_code: business.to_vec(),
+                assignments: (1..=3)
+                    .map(|index| retained_registration_target(&cid, &business, admin(index)))
+                    .collect(),
+            }],
+            legal_representative_change: None,
+        };
+        assert_ok!(send_registration(&cid, remove, current, None));
+        let before_profile = PublicManage::registration_state_hash(&cid).unwrap();
+        let mut people = registration_people(3);
+        people[0].given_name = b"Updated".to_vec().try_into().unwrap();
+        assert_ok!(send_registration(
+            &cid,
+            entitybase::InstitutionGovernanceAction::ReplaceAdmins { admins: people },
+            before_profile,
+            None
+        ));
+        assert_ne!(
+            PublicManage::registration_state_hash(&cid).unwrap(),
+            before_profile,
+            "资料变更也推进现有nonce，旧快照必须失效"
+        );
+        assert_noop!(
+            send_registration(
+                &cid,
+                entitybase::InstitutionGovernanceAction::ReplaceAdmins {
+                    admins: registration_people(3)
+                },
+                before_profile,
+                None
+            ),
+            Error::<Test>::StaleRegistrationState
+        );
+        let fresh = PublicManage::registration_state_hash(&cid).unwrap();
+        assert_noop!(
+            send_registration(&cid, initial_registration_action(), fresh, None),
+            Error::<Test>::RegistrationRoleChangeDenied
+        );
+        let protected = entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+            admins: registration_people(3),
+            role_mutations: Vec::new(),
+            assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
+                role_code: b"LR".to_vec(),
+                assignments: vec![registration_target(admin(1))],
+            }],
+            legal_representative_change: None,
+        };
+        assert_noop!(
+            send_registration(&cid, protected, fresh, None),
+            Error::<Test>::RegistrationRoleChangeDenied
+        );
+    });
+}
+
+#[test]
+fn registration_late_failure_rolls_back_roster_roles_nonce_threshold_and_can_retry() {
+    new_test_ext().execute_with(|| {
+        let cid = fresh_registration_target("register-rollback");
+        let expected = PublicManage::registration_state_hash(&cid).unwrap();
+        let action = initial_registration_action();
+        let used_before = pallet::UsedRoleCodes::<Test>::iter_prefix(&cid).collect::<Vec<_>>();
+        assert_noop!(
+            send_registration(&cid, action.clone(), expected, Some(1)),
+            Error::<Test>::InvalidThreshold
+        );
+        assert_eq!(
+            PublicManage::registration_state_hash(&cid).unwrap(),
+            expected
+        );
+        assert!(!publicadmin::AdminAccounts::<Test>::contains_key(&cid));
+        assert_eq!(
+            pallet::UsedRoleCodes::<Test>::iter_prefix(&cid).collect::<Vec<_>>(),
+            used_before
+        );
+        let mut foreign = action.clone();
+        if let entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+            ref mut role_mutations,
+            ..
+        } = foreign
+        {
+            if let entitybase::InstitutionRoleMutation::Create {
+                ref mut assignments,
+                ..
+            } = role_mutations[0]
+            {
+                assignments.push(registration_target(admin(99)));
+            }
+        }
+        assert_noop!(
+            send_registration(&cid, foreign, expected, Some(2)),
+            Error::<Test>::InvalidAssignmentResultAdmins
+        );
+        assert_ok!(send_registration(&cid, action, expected, Some(2)));
+    });
+}
+
+#[test]
+fn registration_rejects_unauthorized_source_and_missing_initialization() {
+    new_test_ext().execute_with(|| {
+        let cid = fresh_registration_target("register-auth");
+        let expected = PublicManage::registration_state_hash(&cid).unwrap();
+        assert_noop!(
+            PublicManage::register_institution_admins(
+                RuntimeOrigin::signed(admin(99)),
+                cid.clone(),
+                initial_registration_action(),
+                b"REGISTRY-CID".to_vec(),
+                b"REGISTRY-ROLE".to_vec(),
+                expected,
+                Some(2)
+            ),
+            Error::<Test>::RegistryAuthorityDenied
+        );
+        assert_noop!(
+            send_registration(
+                &cid,
+                entitybase::InstitutionGovernanceAction::ReplaceAdmins {
+                    admins: registration_people(3)
+                },
+                expected,
+                None
+            ),
+            Error::<Test>::MissingInitialConfiguration
+        );
+        let mut action = initial_registration_action();
+        if let entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+            ref mut role_mutations,
+            ..
+        } = action
+        {
+            if let entitybase::InstitutionRoleMutation::Create {
+                ref mut assignments,
+                ..
+            } = role_mutations[0]
+            {
+                assignments[0].assignment_source =
+                    entitybase::InstitutionAssignmentSource::InstitutionGovernance;
+            }
+        }
+        assert_noop!(
+            send_registration(&cid, action, expected, Some(2)),
+            Error::<Test>::InvalidAssignmentSource
+        );
+    });
+}
+
+#[test]
+fn registration_call_nine_scale_fixture_covers_action_snapshot_and_initial_threshold() {
+    use codec::{Decode, Encode};
+    let cid = generated_cid("register-codec", "CGOV");
+    let action = initial_registration_action();
+    let call = crate::Call::<Test>::register_institution_admins {
+        cid_number: cid.clone(),
+        action: action.clone(),
+        actor_cid_number: b"REGISTRY-CID".to_vec(),
+        actor_role_code: b"REGISTRY-ROLE".to_vec(),
+        expected_state_hash: [7; 32],
+        initial_threshold: Some(2),
+    };
+    let expected = (
+        9u8,
+        cid.clone(),
+        action,
+        b"REGISTRY-CID".to_vec(),
+        b"REGISTRY-ROLE".to_vec(),
+        [7u8; 32],
+        Some(2u32),
+    )
+        .encode();
+    assert_eq!(call.encode(), expected);
+    let decoded = crate::Call::<Test>::decode(&mut expected.as_slice()).unwrap();
+    assert_eq!(decoded.encode(), expected);
+    let old = (
+        9u8,
+        cid,
+        registration_people(3),
+        b"REGISTRY-CID".to_vec(),
+        b"REGISTRY-ROLE".to_vec(),
+    )
+        .encode();
+    assert!(crate::Call::<Test>::decode(&mut old.as_slice()).is_err());
+}
+
+#[test]
+fn registration_keeps_public_operation_identity_requirements() {
+    new_test_ext().execute_with(|| {
+        let cid = fresh_registration_target("register-operation-fields");
+        let expected = PublicManage::registration_state_hash(&cid).unwrap();
+        set_operation_phase(true);
+        assert_noop!(
+            send_registration(&cid, initial_registration_action(), expected, Some(2)),
+            publicadmin::Error::<Test>::IncompleteAdminFields
+        );
+        set_operation_phase(false);
+        assert_eq!(
+            PublicManage::registration_state_hash(&cid).unwrap(),
+            expected
+        );
+    });
+}
+
+#[test]
+fn registration_nonce_exhaustion_rolls_back_admin_lifecycle_write() {
+    new_test_ext().execute_with(|| {
+        let cid = fresh_registration_target("register-overflow");
+        pallet::InstitutionRoleNonce::<Test>::insert(&cid, u64::MAX);
+        let expected = PublicManage::registration_state_hash(&cid).unwrap();
+        assert_noop!(
+            send_registration(&cid, initial_registration_action(), expected, Some(2)),
+            Error::<Test>::RoleNonceOverflow
+        );
+        assert_eq!(
+            PublicManage::registration_state_hash(&cid).unwrap(),
+            expected
         );
     });
 }

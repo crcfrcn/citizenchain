@@ -2,7 +2,7 @@
 
 
 export type RuntimeUpgradeDetail = {
-  proposalId: number;
+  proposalId: string;
   proposerAccountId: string;
   reason: string;
   codeHashHex: string;

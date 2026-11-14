@@ -14,10 +14,10 @@ use crate::types::ElectionWinner;
 
 /// 纯函数：从候选人顺序快照和票数中选出席位。
 pub(crate) fn select_winners<AccountId: Clone + PartialEq>(
-    candidates: &[(votebase::CitizenSubject<AccountId>, u32)],
+    candidates: &[(engingcore::CitizenSubject<AccountId>, u32)],
     seat_count: u16,
 ) -> Result<Vec<ElectionWinner<AccountId>>, ()> {
-    let mut remaining: Vec<(votebase::CitizenSubject<AccountId>, u32)> = candidates.to_vec();
+    let mut remaining: Vec<(engingcore::CitizenSubject<AccountId>, u32)> = candidates.to_vec();
     let mut winners: Vec<ElectionWinner<AccountId>> = Vec::new();
 
     let mut seat_index = 0u16;
@@ -55,13 +55,13 @@ pub(crate) fn select_winners<AccountId: Clone + PartialEq>(
 }
 
 impl<T: Config> Pallet<T> {
-    pub(crate) fn finalize_election_result(proposal_id: u64) -> DispatchResult {
+    pub(crate) fn finalize_election_result(proposal_id: u128) -> DispatchResult {
         let meta = crate::pallet::ElectionMetaStore::<T>::get(proposal_id)
             .ok_or(Error::<T>::ElectionMetaMissing)?;
         let candidates =
             ElectionCandidates::<T>::get(proposal_id).ok_or(Error::<T>::EmptyCandidateSnapshot)?;
 
-        let candidate_votes: Vec<(votebase::CitizenSubject<T::AccountId>, u32)> = candidates
+        let candidate_votes: Vec<(engingcore::CitizenSubject<T::AccountId>, u32)> = candidates
             .iter()
             .cloned()
             .map(|candidate_subject| {
@@ -77,9 +77,9 @@ impl<T: Config> Pallet<T> {
                 Self::deposit_event(crate::pallet::Event::<T>::ElectionRejectedByTieOrNoVotes {
                     proposal_id,
                 });
-                return votebase::Pallet::<T>::set_status_and_emit(
+                return engingcore::Pallet::<T>::set_status_and_emit(
                     proposal_id,
-                    votebase::STATUS_REJECTED,
+                    engingcore::STATUS_REJECTED,
                 );
             }
         };
@@ -89,6 +89,6 @@ impl<T: Config> Pallet<T> {
             .map_err(|_| Error::<T>::TooManyCandidates)?;
         ElectionResults::<T>::insert(proposal_id, bounded);
         Self::deposit_event(crate::pallet::Event::<T>::ElectionResultReady { proposal_id });
-        votebase::Pallet::<T>::set_status_and_emit(proposal_id, votebase::STATUS_PASSED)
+        engingcore::Pallet::<T>::set_status_and_emit(proposal_id, engingcore::STATUS_PASSED)
     }
 }

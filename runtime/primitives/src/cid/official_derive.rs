@@ -16,7 +16,7 @@ use crate::cid::official_template::{
 use crate::cid::seed::official_institution_account_seed;
 
 /// 创世直铸年份(固定,确定性):与 china_*.rs 常量号年份一致。
-pub const GENESIS_INSTITUTION_YEAR: &str = "2026";
+pub const GENESIS_INSTITUTION_YEAR: u32 = 2026;
 
 /// 用模板 + 行政区确定性派生一个机构号(与 onchina official_institution_cid 同源)。
 fn derive_template_cid(

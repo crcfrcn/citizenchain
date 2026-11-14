@@ -37,13 +37,34 @@ pub fn generate_dynamic_role_code(
     module_tag: &[u8],
     cid_number: &[u8],
     nonce: u64,
-    proposal_id: u64,
+    proposal_id: u128,
 ) -> Vec<u8> {
     let hash = BlakeTwo256::hash_of(&(module_tag, cid_number, nonce, proposal_id));
+    dynamic_role_code_from_hash(hash.as_ref())
+}
+
+/// 登记岗位使用真实登记载荷引用，不伪造投票 proposal_id；原治理生成字节保持不变。
+pub fn generate_registration_role_code(
+    module_tag: &[u8],
+    cid_number: &[u8],
+    nonce: u64,
+    registration_ref: &[u8],
+) -> Vec<u8> {
+    let hash = BlakeTwo256::hash_of(&(
+        module_tag,
+        cid_number,
+        nonce,
+        InstitutionAssignmentSource::Registry,
+        registration_ref,
+    ));
+    dynamic_role_code_from_hash(hash.as_ref())
+}
+
+fn dynamic_role_code_from_hash(hash: &[u8]) -> Vec<u8> {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut role_code = Vec::with_capacity(34);
     role_code.extend_from_slice(b"R_");
-    for byte in &hash.as_ref()[..16] {
+    for byte in &hash[..16] {
         role_code.push(HEX[(byte >> 4) as usize]);
         role_code.push(HEX[(byte & 0x0f) as usize]);
     }
@@ -336,3 +357,116 @@ impl<AccountId> InstitutionRoleQuery<AccountId> for () {
         Vec::new()
     }
 }
+
+/// 岗位存储值；完整主体由 (CID, role_code) 键确定，不重复编码。
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
+)]
+pub struct StoredInstitutionRole<RoleName> {
+    pub role_name: RoleName,
+    pub term_required: bool,
+    pub role_status: InstitutionRoleStatus,
+}
+impl<Cid, Code, Name> From<InstitutionRole<Cid, Code, Name>> for StoredInstitutionRole<Name> {
+    fn from(value: InstitutionRole<Cid, Code, Name>) -> Self {
+        Self {
+            role_name: value.role_name,
+            term_required: value.term_required,
+            role_status: value.role_status,
+        }
+    }
+}
+impl<Name> StoredInstitutionRole<Name> {
+    pub fn with_subject<Cid, Code>(
+        self,
+        cid_number: Cid,
+        role_code: Code,
+    ) -> InstitutionRole<Cid, Code, Name> {
+        InstitutionRole {
+            cid_number,
+            role_code,
+            role_name: self.role_name,
+            term_required: self.term_required,
+            role_status: self.role_status,
+        }
+    }
+}
+/// 任职存储值；人员和任期/来源完整保留，主体由键恢复。
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
+)]
+pub struct StoredInstitutionAdminAssignment<AccountId, SourceRef> {
+    pub account_id: AccountId,
+    pub term_start: u32,
+    pub term_end: u32,
+    pub assignment_source: InstitutionAssignmentSource,
+    pub assignment_source_ref: SourceRef,
+    pub assignment_status: InstitutionAssignmentStatus,
+}
+impl<Cid, Account, Code, Ref> From<InstitutionAdminAssignment<Cid, Account, Code, Ref>>
+    for StoredInstitutionAdminAssignment<Account, Ref>
+{
+    fn from(value: InstitutionAdminAssignment<Cid, Account, Code, Ref>) -> Self {
+        Self {
+            account_id: value.account_id,
+            term_start: value.term_start,
+            term_end: value.term_end,
+            assignment_source: value.assignment_source,
+            assignment_source_ref: value.assignment_source_ref,
+            assignment_status: value.assignment_status,
+        }
+    }
+}
+impl<Account, Ref> StoredInstitutionAdminAssignment<Account, Ref> {
+    pub fn with_subject<Cid, Code>(
+        self,
+        cid_number: Cid,
+        role_code: Code,
+    ) -> InstitutionAdminAssignment<Cid, Account, Code, Ref> {
+        InstitutionAdminAssignment {
+            cid_number,
+            account_id: self.account_id,
+            role_code,
+            term_start: self.term_start,
+            term_end: self.term_end,
+            assignment_source: self.assignment_source,
+            assignment_source_ref: self.assignment_source_ref,
+            assignment_status: self.assignment_status,
+        }
+    }
+}
+/// 权限存储值；完整岗位主体只在键中保存，动作及操作不变。
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
+)]
+pub struct StoredRoleBusinessPermission<ModuleTag> {
+    pub business_action_id: BusinessActionId<ModuleTag>,
+    pub operation: RolePermissionOperation,
+}
+impl<Cid, Code, Tag> From<RoleBusinessPermission<Cid, Code, Tag>>
+    for StoredRoleBusinessPermission<Tag>
+{
+    fn from(value: RoleBusinessPermission<Cid, Code, Tag>) -> Self {
+        Self {
+            business_action_id: value.business_action_id,
+            operation: value.operation,
+        }
+    }
+}
+impl<Tag> StoredRoleBusinessPermission<Tag> {
+    pub fn with_subject<Cid, Code>(
+        self,
+        cid_number: Cid,
+        role_code: Code,
+    ) -> RoleBusinessPermission<Cid, Code, Tag> {
+        RoleBusinessPermission {
+            role_subject: RoleSubject {
+                cid_number,
+                role_code,
+            },
+            business_action_id: self.business_action_id,
+            operation: self.operation,
+        }
+    }
+}
+

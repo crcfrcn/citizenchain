@@ -111,7 +111,7 @@ it('注册局登记准备等待一次Passkey，保留请求且失败不重试', 
     const { prepareInstitutionGovernance } = await import('@gmb/onchina-platform/institutions/governance');
     const { prepareRegisterInstitutionAdmins } = await import('../admins/cityRegistryAdminsApi');
     const governance = { cidNumber: 'fixture-institution', proposerRoleCode: 'REPRESENTATIVE' };
-    const registration = { cidNumber: 'fixture-institution', actorRoleCode: 'REGISTRY-ROLE', admins: [{ accountId: 'fixture-account', familyName: '测', givenName: '试' }] };
+    const registration = { expectedStateHash: '0x' + 'ab'.repeat(32), cidNumber: 'fixture-institution', actorRoleCode: 'REGISTRY-ROLE', admins: [{ accountId: 'fixture-account', familyName: '测', givenName: '试' }] };
     const operations = [{ path: '/api/admin/institution/admins/register/prepare', payload: registration, run: () => prepareRegisterInstitutionAdmins(auth, registration) }];
     const assertion = vi.mocked(assertPasskey);
     const fetcher = vi.spyOn(globalThis, 'fetch');
@@ -164,7 +164,7 @@ describe('登记管理员原有请求参数衔接', () => {
     const { prepareRegisterInstitutionAdmins } = await import('../admins/cityRegistryAdminsApi');
     const { assertPasskey } = await import('@gmb/onchina-platform/authentication/passkeyClient');
     const auth = { accessToken: 'test-session' } as never;
-    const input = { cidNumber: 'target-fixture-cid', admins: [{ accountId: 'fixture-account', familyName: '测', givenName: '试' }], actorRoleCode: 'REGISTRY-ROLE' };
+    const input = { expectedStateHash: '0x' + 'ab'.repeat(32), cidNumber: 'target-fixture-cid', admins: [{ accountId: 'fixture-account', familyName: '测', givenName: '试' }], actorRoleCode: 'REGISTRY-ROLE' };
     const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
     try {
       vi.mocked(assertPasskey).mockClear();
@@ -178,5 +178,301 @@ describe('登记管理员原有请求参数衔接', () => {
       expect(new Headers(init?.headers).get(PASSKEY_ASSERTION_HEADER)).toBe('fake-passkey-assertion');
       expect(JSON.parse(String(init?.body))).toEqual(input);
     } finally { fetcher.mockRestore(); }
+  });
+});
+
+// 原注册局双Tab与管理员列表断言在上方保留；本轮只验证机构详情拆页挂载。
+describe('机构详情非管理员治理入口', () => {
+  it('公权和私权详情各有三个独立页面，原管理员联合表单仍可进入', async () => {
+    vi.resetModules();
+    const React = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const detail = { institution: { cidNumber: 'fixture-institution', institutionCode: 'SFGY', category: 'PUBLIC_INSTITUTION', status: 'ACTIVE', cidFullName: '测试机构', createdAt: '2026-01-01T00:00:00Z' }, accounts: [] };
+    vi.doMock('@gmb/onchina-platform/codes/cache', () => ({ institutionDetailCacheKey: () => 'fixture-key', readCachedInstitutionDetail: () => detail, writeCachedInstitutionDetail: vi.fn() }));
+    vi.doMock('@gmb/onchina-platform/institutions/institutionLabels', () => ({ useInstitutionCodeLabels: () => ({}) }));
+    vi.doMock('@gmb/onchina-platform/qr/useChainSign', () => ({ useChainSign: () => ({ signChain: vi.fn(), chainSignModal: null }), submitChainSign: vi.fn() }));
+    try {
+      const { GovDetailPage } = await import('../government/GovDetailPage');
+      const { PrivateDetailLayout } = await import('../private/PrivateDetailLayout');
+      const auth = { accessToken: 'fixture-session', accountId: 'fixture-account', institutionCidNumber: detail.institution.cidNumber, institutionCode: 'SFGY' } as never;
+      const official = renderToStaticMarkup(React.createElement(GovDetailPage, { auth, cidNumber: detail.institution.cidNumber, canWrite: true, adminListSection: React.createElement('span', null, '原管理员名单'), initialActiveKey: 'governance' }));
+      const privatePage = renderToStaticMarkup(React.createElement(PrivateDetailLayout, { auth, detail: { ...detail, institution: { ...detail.institution, category: 'PRIVATE_INSTITUTION' } } as never, canWrite: true, loading: false, onReload: () => {} }));
+      for (const html of [official, privatePage]) {
+        for (const label of ['岗位管理', '任职管理', '法定代表人', '机构治理', '账户列表']) expect(html).toContain(label);
+        expect(html).not.toContain('岗位操作');
+        expect(html).not.toContain('岗位权限集合');
+        expect(html).not.toContain('提案发起岗位码');
+        expect(html).not.toContain('岗位码（改名/删除）');
+      }
+      expect(official).toContain('管理员列表');
+      expect(official).toContain('管理员集合');
+      expect(official).toContain('注册局直接登记管理员');
+      const readOnly = renderToStaticMarkup(React.createElement(GovDetailPage, { auth, cidNumber: detail.institution.cidNumber, canWrite: false }));
+      for (const label of ['岗位管理', '任职管理', '法定代表人']) expect(readOnly).toContain(label);
+      expect(readOnly).not.toContain('>机构治理<');
+    } finally {
+      vi.doUnmock('@gmb/onchina-platform/codes/cache');
+      vi.doUnmock('@gmb/onchina-platform/institutions/institutionLabels');
+      vi.doUnmock('@gmb/onchina-platform/qr/useChainSign');
+      vi.resetModules();
+    }
+  });
+});
+
+
+// 第4步使用原真实HTTP包装器、Passkey和提交入口；无需新建JSON夹具或DOM配置。
+import type { GovernanceState, InstitutionRegistrationInput } from '@gmb/onchina-platform/institutions/governance';
+const regAccount = (n: number) => '0x' + n.toString(16).padStart(2, '0').repeat(32);
+const regCid = 'NX013-CREGN-937676656-2026';
+function registrationState(): GovernanceState {
+  const target = (n: number) => ({ accountId: regAccount(n), termStart: 0, termEnd: 0, active: true, effective: true, sourceLabel: '机构内部治理', sourceRef: '0xff0080' });
+  return { cidNumber: regCid, blockHash: '0x' + '10'.repeat(32), blockNumber: 10, currentDay: 20000, moduleTag: 'pub-mgmt', legalRoleCode: 'LR', representative: null,
+    registrationStateHash: '0x' + 'ab'.repeat(32), governanceThreshold: 2, registrationRoles: [{ roleCode: 'R_REGISTRAR', roleName: '登记办理岗' }],
+    members: [1, 2, 3].map(n => ({ accountId: regAccount(n), signerId: n === 1 ? regAccount(9) : regAccount(n), cidNumber: 'citizen-' + n, familyName: '原', givenName: String(n) })),
+    roles: [
+      { roleCode: 'LR', roleName: '法定代表人', active: true, fixed: true, assignmentLocked: true, termRequired: false, minAssignments: 0, maxAssignments: 1, permissions: [], assignments: [] },
+      { roleCode: 'R_GOV', roleName: '机构治理岗', active: true, fixed: false, assignmentLocked: false, termRequired: false, minAssignments: 0, maxAssignments: null,
+        permissions: ['PROPOSE', 'VOTE'].map(operation => ({ moduleTag: 'pub-mgmt', actionCode: 3, operation: operation as 'PROPOSE' | 'VOTE' })), assignments: [target(1), target(2)] },
+      { roleCode: 'R_BUSINESS', roleName: '公民身份办理岗', active: true, fixed: false, assignmentLocked: false, termRequired: false, minAssignments: 0, maxAssignments: null,
+        permissions: [{ moduleTag: 'cit-id', actionCode: 0, operation: 'PROPOSE' }], assignments: [target(3)] },
+    ] };
+}
+const regAdded = { accountId: regAccount(4), familyName: '新', givenName: '四' };
+const regAssignments = [{ roleCode: 'R_BUSINESS', assignments: [{ accountId: regAccount(4), termStart: 0, termEnd: 0 }] }];
+function registrationAfter(before: GovernanceState): GovernanceState {
+  const state = structuredClone(before); state.blockNumber++; state.registrationStateHash = '0x' + 'cd'.repeat(32);
+  state.members.push({ ...regAdded, cidNumber: 'new-citizen', signerId: regAccount(4) });
+  state.roles[2].assignments.push({ ...regAssignments[0].assignments[0], active: true, effective: true, sourceLabel: '注册局', sourceRef: '0x' + '12'.repeat(32) });
+  return state;
+}
+
+describe('统一链上名册登记构造', () => {
+  it('追加保留完整名册锚点和任职，显式初始配置按岗位票据而不是钱包计数', async () => {
+    const { buildInstitutionRegistration } = await import('@gmb/onchina-platform/institutions/governance');
+    const before = registrationState(), original = structuredClone(before);
+    const input = buildInstitutionRegistration(before, { addedAdmins: [regAdded], assignments: regAssignments });
+    expect(input.cidNumber).toBe(regCid); expect(input.expectedStateHash).toBe(before.registrationStateHash);
+    expect(input.admins.slice(0, 3)).toEqual([1, 2, 3].map(n => ({ accountId: regAccount(n) })));
+    expect(input.assignmentChanges).toEqual([{ roleCode: 'R_BUSINESS', assignments: [3, 4].map(n => ({ accountId: regAccount(n), termStart: 0, termEnd: 0 })) }]);
+    expect(input).not.toHaveProperty('initialThreshold'); expect(input).not.toHaveProperty('roleMutations');
+    expect(before).toEqual(original);
+    const first = { ...before, members: [], roles: [before.roles[0]], governanceThreshold: null };
+    const initialRoles = ['自行设置甲岗', '自行设置乙岗'].map((roleName, index) => ({ mutation: 'CREATE' as const, roleName,
+      permissions: [{ moduleTag: 'pub-mgmt', actionCode: 3, operation: 'VOTE' as const },
+        ...(index === 0 ? [{ moduleTag: 'pub-mgmt', actionCode: 3, operation: 'PROPOSE' as const }] : [{ moduleTag: 'cit-id', actionCode: 0, operation: 'PROPOSE' as const }])],
+      assignments: [{ accountId: regAccount(4), termStart: 0, termEnd: 0 }] }));
+    const initial = buildInstitutionRegistration(first, { addedAdmins: [regAdded], initialRoles, initialThreshold: 2 });
+    expect(initial.admins).toHaveLength(1); expect(initial.initialThreshold).toBe(2);
+    expect(initial.roleMutations?.map(r => r.roleName)).toEqual(['自行设置甲岗', '自行设置乙岗']);
+    expect(initial.roleMutations?.every(r => !('roleCode' in r))).toBe(true);
+    expect(() => buildInstitutionRegistration(first, { addedAdmins: [regAdded], initialRoles: initialRoles.slice(0, 1), initialThreshold: 2 })).toThrow('至少两席');
+  });
+  it('删除同时处理相关任职；守住剩余阈值、受保护岗位和名册边界', async () => {
+    const { buildInstitutionRegistration } = await import('@gmb/onchina-platform/institutions/governance');
+    const before = registrationState();
+    const removed = buildInstitutionRegistration(before, { removeAccountId: regAccount(3) });
+    expect(removed.admins.map(m => m.accountId)).toEqual([regAccount(1), regAccount(2)]);
+    expect(removed.assignmentChanges).toEqual([{ roleCode: 'R_BUSINESS', assignments: [] }]);
+    expect(() => buildInstitutionRegistration(before, { removeAccountId: regAccount(2) })).toThrow('阈值');
+    const protectedState = structuredClone(before); protectedState.roles[2].assignmentLocked = true;
+    expect(() => buildInstitutionRegistration(protectedState, { removeAccountId: regAccount(3) })).toThrow('受保护');
+    expect(() => buildInstitutionRegistration(before, { removeAccountId: regAccount(99) })).toThrow('不在');
+    expect(() => buildInstitutionRegistration(before, { addedAdmins: [{ ...regAdded, accountId: regAccount(9) }], assignments: regAssignments })).toThrow('已在名册');
+    const ended = structuredClone(before); ended.roles[2].assignments[0].active = false;
+    expect(() => buildInstitutionRegistration(ended, { addedAdmins: [regAdded], assignments: regAssignments })).toThrow('已结束');
+  });
+  it('岗位唯一自动确定，多岗位必须选择有效候选；失效选择不自动换岗', async () => {
+    const { registrationActorRole, buildInstitutionRegistration } = await import('@gmb/onchina-platform/institutions/governance');
+    const state = registrationState();
+    expect(registrationActorRole(state)).toBe('R_REGISTRAR');
+    const multiple = { ...state, registrationRoles: [...state.registrationRoles!, { roleCode: 'R_REVIEWER', roleName: '登记复核岗' }] };
+    expect(() => registrationActorRole(multiple)).toThrow('名称');
+    expect(registrationActorRole(multiple, 'R_REVIEWER')).toBe('R_REVIEWER');
+    expect(() => registrationActorRole(state, 'R_REVIEWER')).toThrow('有效');
+    expect(() => buildInstitutionRegistration({ ...state, registrationStateHash: undefined }, { addedAdmins: [regAdded] })).toThrow('未就绪');
+    expect(() => buildInstitutionRegistration(state, { addedAdmins: [regAdded], assignments: regAssignments, initialThreshold: 2 })).toThrow('不得重置');
+  });
+  it('链上结果必须包含完整目标名册、任职和明确的初始化配置', async () => {
+    const { buildInstitutionRegistration, institutionRegistrationMatches } = await import('@gmb/onchina-platform/institutions/governance');
+    const before = registrationState(), after = registrationAfter(before);
+    const input = buildInstitutionRegistration(before, { addedAdmins: [regAdded], assignments: regAssignments });
+    expect(institutionRegistrationMatches(after, input)).toBe(true);
+    expect(institutionRegistrationMatches(before, input)).toBe(false);
+    expect(institutionRegistrationMatches({ ...after, cidNumber: 'other-target' }, input)).toBe(false);
+    const wrongTerm = structuredClone(after); wrongTerm.roles[2].assignments[1].termEnd = 1;
+    expect(institutionRegistrationMatches(wrongTerm, input)).toBe(false);
+    const missing = structuredClone(after); missing.members.shift();
+    expect(institutionRegistrationMatches(missing, input)).toBe(false);
+  });
+});
+
+describe('登记冷签提交与原会话恢复', () => {
+  const auth = { accessToken: 'registration-session', accountId: regAccount(8), institutionCidNumber: 'ZS001-FRG07-249474503-2026' } as never;
+  it('真实请求只取一次Passkey和钱包签名；响应丢失后原会话恢复，不重签不重建', async () => {
+    vi.resetModules();
+    const { runInstitutionRegistration } = await import('../admins/cityRegistryAdminsApi');
+    const { buildInstitutionRegistration } = await import('@gmb/onchina-platform/institutions/governance');
+    const { assertPasskey } = await import('@gmb/onchina-platform/authentication/passkeyClient');
+    const before = registrationState(), after = registrationAfter(before);
+    const input = buildInstitutionRegistration(before, { addedAdmins: [regAdded], assignments: regAssignments });
+    let receipt: import('../admins/cityRegistryAdminsApi').PendingInstitutionRegistration | null = null;
+    const signature = '0x' + '55'.repeat(64), requestId = 'institution-governance-11111111-1111-1111-1111-111111111111';
+    const sign = vi.fn(async () => ({ accountId: regAccount(8), signature }));
+    let submissions = 0;
+    const bodies: unknown[] = [];
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (path, init) => {
+      if (String(path).endsWith('/governance')) return new Response(JSON.stringify({ code: 0, data: submissions ? after : before }));
+      if (String(path).endsWith('/prepare')) { bodies.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ code: 0, data: { requestId, cidNumber: regCid, signRequest: 'fixture-qr', expiresAt: Math.floor(Date.now() / 1000) + 60 } })); }
+      if (String(path).endsWith('/submit')) { submissions++; bodies.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ code: 2004, message: submissions === 1 ? '已提交，结果待确认' : '冷签会话不存在' }), { status: submissions === 1 ? 502 : 404 }); }
+      throw new Error('unexpected request');
+    });
+    try {
+      vi.mocked(assertPasskey).mockClear();
+      const run = () => runInstitutionRegistration({ auth, cidNumber: regCid, input: receipt ? null : input, pending: receipt, sign, remember: r => { receipt = r; }, check: () => {} });
+      await expect(run()).rejects.toThrow('待确认');
+      expect(receipt).not.toBeNull();
+      expect(sign).toHaveBeenCalledTimes(1); expect(assertPasskey).toHaveBeenCalledTimes(1);
+      const result = await run();
+      expect(result.recovered).toBe(true); expect(receipt).toBeNull();
+      expect(sign).toHaveBeenCalledTimes(1); expect(assertPasskey).toHaveBeenCalledTimes(1);
+      expect(bodies).toEqual([input, { requestId, accountId: regAccount(8), signature }, { requestId, accountId: regAccount(8), signature }]);
+    } finally { fetcher.mockRestore(); vi.resetModules(); }
+  });
+  it('指纹冲突在认证前拒绝，身份切换后的签名不发送提交', async () => {
+    vi.resetModules();
+    const { runInstitutionRegistration } = await import('../admins/cityRegistryAdminsApi');
+    const { buildInstitutionRegistration } = await import('@gmb/onchina-platform/institutions/governance');
+    const { assertPasskey } = await import('@gmb/onchina-platform/authentication/passkeyClient');
+    const before = registrationState(), input = buildInstitutionRegistration(before, { addedAdmins: [regAdded], assignments: regAssignments });
+    let stale = true, changed = false;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async path => new Response(JSON.stringify({ code: 0, data: String(path).endsWith('/prepare')
+      ? { requestId: 'institution-governance-context', cidNumber: regCid, expiresAt: Math.floor(Date.now() / 1000) + 60, signRequest: 'qr' }
+      : stale ? { ...before, registrationStateHash: '0x' + 'ff'.repeat(32) } : before })));
+    const sign = vi.fn(async () => { changed = true; return { accountId: regAccount(8), signature: '0x' + '55'.repeat(64) }; });
+    const remember = vi.fn();
+    try {
+      vi.mocked(assertPasskey).mockClear();
+      const run = () => runInstitutionRegistration({ auth, cidNumber: regCid, input, pending: null, sign, remember, check: () => { if (changed) throw new Error('页面目标已变化'); } });
+      await expect(run()).rejects.toThrow('状态已变化');
+      expect(assertPasskey).not.toHaveBeenCalled(); expect(sign).not.toHaveBeenCalled();
+      stale = false; fetcher.mockClear();
+      await expect(run()).rejects.toThrow('页面目标已变化');
+      expect(remember).not.toHaveBeenCalled();
+      expect(fetcher.mock.calls.every(([path]) => !String(path).endsWith('/submit'))).toBe(true);
+    } finally { fetcher.mockRestore(); vi.resetModules(); }
+  });
+  it('提交成功仍回读真实名册；保留已签名目标，不以空元数据或HTTP成功代替链上结果', async () => {
+    vi.resetModules();
+    const { runInstitutionRegistration } = await import('../admins/cityRegistryAdminsApi');
+    const { buildInstitutionRegistration } = await import('@gmb/onchina-platform/institutions/governance');
+    const before = registrationState(), after = registrationAfter(before), input = buildInstitutionRegistration(before, { addedAdmins: [regAdded], assignments: regAssignments });
+    const signature = '0x' + '55'.repeat(64);
+    const pending = { requestId: 'institution-governance-success', cidNumber: regCid, accountId: regAccount(8), signature, expected: input, reviewedBlockNumber: before.blockNumber };
+    const sign = vi.fn(), remember = vi.fn();
+    let correct = false, missingTarget = false;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async path => new Response(JSON.stringify({ code: 0, data: String(path).endsWith('/submit')
+      ? { cidNumber: missingTarget ? '' : regCid, purpose: 'INSTITUTION_REGISTER_ADMINS', txHash: '0x' + '44'.repeat(32), blockNumber: 11 } : correct ? after : before })));
+    try {
+      const run = () => runInstitutionRegistration({ auth, cidNumber: regCid, input: null, pending, sign, remember, check: () => {} });
+      await expect(run()).rejects.toThrow('尚未核对'); expect(remember).not.toHaveBeenCalled();
+      correct = true; missingTarget = true; await expect(run()).rejects.toThrow('尚未确认'); expect(remember).not.toHaveBeenCalled();
+      missingTarget = false; expect((await run()).state.members).toHaveLength(4); expect(remember).toHaveBeenCalledWith(null);
+      expect(sign).not.toHaveBeenCalled();
+    } finally { fetcher.mockRestore(); vi.resetModules(); }
+  });
+  it('缺少审阅指纹的旧调用在Passkey前失败；名单错误不会伪装为空列表', async () => {
+    vi.resetModules();
+    const { prepareRegisterInstitutionAdmins, listCityRegistryAdmins } = await import('../admins/cityRegistryAdminsApi');
+    const { assertPasskey } = await import('@gmb/onchina-platform/authentication/passkeyClient');
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 0, data: { cidNumber: 'other-target', rows: [] } })));
+    try {
+      vi.mocked(assertPasskey).mockClear();
+      await expect(prepareRegisterInstitutionAdmins(auth, { cidNumber: regCid, admins: [] } as never)).rejects.toThrow('核对');
+      expect(assertPasskey).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled();
+      await expect(listCityRegistryAdmins(auth, regCid)).rejects.toThrow('目标不匹配');
+      expect(String(fetcher.mock.calls[0][0])).toContain(encodeURIComponent(regCid));
+    } finally { fetcher.mockRestore(); vi.resetModules(); }
+  });
+});
+
+
+describe('登记恢复记录与最终拒绝', () => {
+  it('原签名恢复记录按管理员、办理机构和页面目标隔离', async () => {
+    vi.resetModules();
+    const { saveRegistrationReceipt, readRegistrationReceipt } = await import('../admins/cityRegistryAdminsApi');
+    const { buildInstitutionRegistration } = await import('@gmb/onchina-platform/institutions/governance');
+    const storage = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) });
+    const auth = { accountId: regAccount(8), institutionCidNumber: 'ZS001-FRG07-249474503-2026' } as never;
+    const receipt = { requestId: 'institution-governance-stored', cidNumber: regCid, accountId: regAccount(8), signature: '0x' + '55'.repeat(64), reviewedBlockNumber: 10,
+      expected: buildInstitutionRegistration(registrationState(), { addedAdmins: [regAdded], assignments: regAssignments }) };
+    try {
+      saveRegistrationReceipt(auth, regCid, receipt);
+      expect(readRegistrationReceipt(auth, regCid)).toEqual(receipt);
+      expect(readRegistrationReceipt({ ...auth as object, accountId: regAccount(7) } as never, regCid)).toBeNull();
+      expect(readRegistrationReceipt(auth, 'different-target')).toBeNull();
+      saveRegistrationReceipt(auth, regCid, null); expect(readRegistrationReceipt(auth, regCid)).toBeNull();
+    } finally { vi.unstubAllGlobals(); vi.resetModules(); }
+  });
+  it('链端明确拒绝后清理原签名；结果不确定或回读不符时保持恢复记录', async () => {
+    vi.resetModules();
+    const { runInstitutionRegistration } = await import('../admins/cityRegistryAdminsApi');
+    const { buildInstitutionRegistration } = await import('@gmb/onchina-platform/institutions/governance');
+    const before = registrationState();
+    const pending = { requestId: 'institution-governance-rejected', cidNumber: regCid, accountId: regAccount(8), signature: '0x' + '55'.repeat(64), reviewedBlockNumber: 10,
+      expected: buildInstitutionRegistration(before, { addedAdmins: [regAdded], assignments: regAssignments }) };
+    const remember = vi.fn(), sign = vi.fn();
+    const auth = { accessToken: 'fixture-session', accountId: regAccount(8) } as never;
+    let rejected = false;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async path => String(path).endsWith('/submit')
+      ? new Response(JSON.stringify({ code: 2004, message: rejected ? '链端拒绝' : '会话已消费' }), { status: rejected ? 422 : 409 })
+      : new Response(JSON.stringify({ code: 0, data: before })));
+    try {
+      const run = () => runInstitutionRegistration({ auth, cidNumber: regCid, input: null, pending, sign, remember, check: () => {} });
+      await expect(run()).rejects.toThrow('已消费'); expect(remember).not.toHaveBeenCalled();
+      rejected = true; await expect(run()).rejects.toThrow('链端拒绝'); expect(remember).toHaveBeenCalledWith(null);
+      expect(sign).not.toHaveBeenCalled();
+    } finally { fetcher.mockRestore(); vi.resetModules(); }
+  });
+});
+
+
+describe('第5步通用页面与原投票语义', () => {
+  it('公权私权详情共用中文岗位表单，旧岗位码与文本任职入口消失', async () => {
+    const { buildInstitutionAdminGovernance } = await import('@gmb/onchina-platform/institutions/governance');
+    const state = registrationState();
+    const auth = { accountId: regAccount(9), institutionCidNumber: state.cidNumber } as never;
+    const input = buildInstitutionAdminGovernance(auth, state, { addedAdmins: [regAdded], assignments: regAssignments });
+    expect(input.actorRoleCode).toBe('R_GOV');
+    expect(input.admins[0]).toEqual({ accountId: regAccount(1), cidNumber: 'citizen-1', familyName: '原', givenName: '1' });
+    expect(() => buildInstitutionAdminGovernance({ ...auth as object, institutionCidNumber: 'other' } as never, state, { addedAdmins: [regAdded] })).toThrow('本机构');
+    expect(() => buildInstitutionAdminGovernance(auth, { ...state, moduleTag: 'pri-mgmt' }, { addedAdmins: [regAdded] })).toThrow('无损保留');
+  });
+  it('治理使用原call 8接口，不把提案上链误认作名册已生效', async () => {
+    vi.resetModules();
+    const { runInstitutionRegistration } = await import('../admins/cityRegistryAdminsApi');
+    const { buildInstitutionAdminGovernance } = await import('@gmb/onchina-platform/institutions/governance');
+    const state = registrationState();
+    const auth = { accessToken: 'self-governance', accountId: regAccount(9), institutionCidNumber: state.cidNumber } as never;
+    const input = buildInstitutionAdminGovernance(auth, state, { addedAdmins: [regAdded], assignments: regAssignments });
+    let submitted = false;
+    const bodies: { path: string; body: unknown }[] = [];
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (path, init) => {
+      if (String(path).endsWith('/governance')) return new Response(JSON.stringify({ code: 0, data: { ...state, blockNumber: submitted ? 11 : 10 } }));
+      bodies.push({ path: String(path), body: JSON.parse(String(init?.body)) });
+      if (String(path).endsWith('/prepare')) return new Response(JSON.stringify({ code: 0, data: { cidNumber: regCid, requestId: 'institution-governance-proposal', signRequest: 'qr', expiresAt: Math.floor(Date.now()/1000)+60 } }));
+      submitted = true;
+      return new Response(JSON.stringify({ code: 0, data: { purpose: 'INSTITUTION_GOVERNANCE', cidNumber: regCid, txHash: '0x' + '77'.repeat(32), blockNumber: 11 } }));
+    });
+    const sign = vi.fn(async () => ({ accountId: regAccount(9), signature: '0x' + '55'.repeat(64) }));
+    try {
+      const result = await runInstitutionRegistration({ auth, cidNumber: regCid, input, pending: null, sign, remember: () => {}, check: () => {}, mode: 'governance' });
+      expect(result.state.members).toHaveLength(3); // 仅提案上链，名单尚未变化。
+      expect(bodies[0].path).toBe('/api/admin/institution/governance/prepare');
+      expect(bodies[0].body).toMatchObject({ cidNumber: regCid, proposerRoleCode: 'R_GOV', admins: input.admins, assignmentChanges: input.assignmentChanges });
+      expect(bodies[0].body).not.toHaveProperty('actorRoleCode');
+      expect(bodies[0].body).not.toHaveProperty('expectedStateHash');
+      expect(sign).toHaveBeenCalledTimes(1);
+    } finally { fetcher.mockRestore(); vi.resetModules(); }
   });
 });

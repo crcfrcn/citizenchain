@@ -78,6 +78,8 @@ fn chain_spec_with_accounts(
     for account in [
         Account::default().substrate_account(),
         Sr25519Keyring::Alice.to_account_id(),
+        // Native receive-only fixture, separate from every miner/fee account.
+        sp_runtime::AccountId32::new([0xa7; 32]),
     ] {
         genesis["balances"]["balances"]
             .as_array_mut()
@@ -2176,6 +2178,31 @@ async fn signed_transactions_receipts_logs_finality_reorg_and_restart_over_real_
         U256::from(primitives::fee_policy::calculate_onchain_fee(0))
             * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO)
     );
+    // Receive through a native account's Ethereum alias, using a real signed
+    // Ethereum transaction. The SS58/AccountId balance must change on all peers.
+    let native_recipient = sp_runtime::AccountId32::new([0xa7; 32]);
+    let native_address = <pallet_revive::AccountId32Mapper<runtime::Runtime> as
+        pallet_revive::AddressMapper<runtime::Runtime>>::to_address(&native_recipient);
+    let native_before = session_native_balance(&partial.client, &native_recipient);
+    let (alias_raw, alias_xt) = transaction(4, Some(native_address), vec![], 500);
+    let alias_hash = rpc(&http, &url, "eth_sendRawTransaction", serde_json::json!([alias_raw])).await;
+    let alias_block = proposal(&partial.client, hash4, vec![alias_xt], 1_782_950_436_000);
+    let alias_block_hash = alias_block.post_hash();
+    importer.import_block(alias_block).await.unwrap();
+    wait_block(&http, &url, 5).await;
+    partial.sync.announce_block(alias_block_hash, None);
+    for node in [&peer, &late] {
+        wait_peer(node, alias_block_hash).await;
+        assert_eq!(session_native_balance(&node.client, &native_recipient), native_before + 500);
+    }
+    assert_eq!(session_native_balance(&partial.client, &native_recipient), native_before + 500);
+    let alias_receipt = rpc(&http, &url, "eth_getTransactionReceipt", serde_json::json!([alias_hash])).await;
+    assert_eq!(alias_receipt["status"], "0x1");
+    assert_eq!(alias_receipt["to"], serde_json::json!(native_address));
+    assert_eq!(paid_fees(&partial.client, alias_block_hash), vec![(
+        Account::default().substrate_account(), primitives::fee_policy::calculate_onchain_fee(500),
+    )]);
+
     for (peer, peer_server) in [(peer, peer_server), (late, late_server)] {
         peer_server.abort();
         let _ = peer_server.await;
@@ -2252,8 +2279,13 @@ async fn signed_transactions_receipts_logs_finality_reorg_and_restart_over_real_
             serde_json::json!([signer, "latest"])
         )
         .await,
-        "0x4"
+        "0x5"
     );
+    assert_eq!(
+        rpc(&http, &url, "eth_getTransactionReceipt", serde_json::json!([alias_hash])).await["status"],
+        "0x1",
+    );
+    assert_eq!(session_native_balance(&restarted.client, &native_recipient), native_before + 500);
     restarted_server.abort();
     let _ = restarted_server.await;
     let backend = Arc::downgrade(&restarted.backend);

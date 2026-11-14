@@ -526,7 +526,7 @@ fn seed_offchain_minimum_fee_probe(
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution: "SFGQ",
         },
     )
@@ -751,7 +751,7 @@ fn citizen_probe_cid(tag: &str) -> Result<identity::CidNumberBound, String> {
             province_name: "中枢省",
             city_code: "001",
             city_name: "基准市",
-            year: "2027",
+            year: 2027,
             institution: "CTZN",
         },
     )
@@ -1614,7 +1614,7 @@ where
         ),
         (
             RuntimeCall::InternalVote(internalvote::pallet::Call::cast {
-                proposal_id: u64::MAX,
+                proposal_id: u128::MAX,
                 ticket_claim: internalvote::InternalVoteTicketClaim::Personal,
                 approve: true,
             }),

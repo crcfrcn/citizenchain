@@ -12,7 +12,7 @@ use noderesolutionissue::decode::decode_resolution_issuance_action;
 
 use nodedestroy::decode::decode_resolution_destroy_action;
 
-use nodeclient::codec::decode_u64_vec;
+use nodeclient::codec::decode_u128_vec;
 
 use nodeclient::codec::read_compact_u32;
 
@@ -53,28 +53,34 @@ const TAG_PRIVATE_MANAGE: &[u8] = b"pri-mgmt";
 // ──── 公开查询函数 ────
 
 /// 查询 NextProposalId（VotingEngine 全局递增 ID）。
-pub(crate) fn fetch_next_proposal_id() -> Result<u64, String> {
+pub(crate) fn fetch_next_proposal_id() -> Result<u128, String> {
     let key = nodeclient::query::value_key("VotingEngine", "NextProposalId");
     // (ADR-017):业务读取统一经 chain_query 钉 finalized,禁止 best。
     match nodeclient::query::fetch_finalized_storage(&key)? {
         None => Ok(0),
         Some(hex_data) => {
             let data = decode_hex_storage(&hex_data)?;
-            if data.len() < 8 {
-                return Ok(0);
-            }
-            Ok(u64::from_le_bytes(
-                data[..8]
-                    .try_into()
-                    .map_err(|_| "SCALE 数据长度不足".to_string())?,
-            ))
+            decode_next_proposal_id(&data)
         }
     }
 }
 
+/// 已存在的计数器必须恰好为 u128；坏数据不能冒充未分配过的零值。
+fn decode_next_proposal_id(data: &[u8]) -> Result<u128, String> {
+    let encoded = <[u8; 16]>::try_from(data)
+        .map_err(|_| "NextProposalId 长度无效，必须为16字节".to_string())?;
+    Ok(u128::from_le_bytes(encoded))
+}
+
+/// 倒序分页包含零号，checked_sub 同时处理接近零和 u128 上限的边界。
+fn proposal_page_ids(start_id: u128, count: u32) -> (impl Iterator<Item = u128>, bool) {
+    let has_more = count > 0 && start_id.checked_sub(u128::from(count)).is_some();
+    ((0..count).map_while(move |offset| start_id.checked_sub(u128::from(offset))), has_more)
+}
+
 /// 检查提案是否为机构管理提案（创建/关闭机构多签账户），这类提案不在治理列表中显示。
 /// 机构管理已拆公权/私权两 pallet,命中 `pub-mgmt` 或 `pri-mgmt` 任一前缀即认定。
-fn is_institution_manage_proposal(proposal_id: u64) -> bool {
+fn is_institution_manage_proposal(proposal_id: u128) -> bool {
     let Ok(Some(raw)) = fetch_proposal_data_raw(proposal_id) else {
         return false;
     };
@@ -97,25 +103,19 @@ fn is_institution_manage_proposal(proposal_id: u64) -> bool {
 /// 自动过滤多签管理提案(创建/关闭多签账户),这些在多签账户详情页单独展示。
 ///
 /// 双层 ID：主键从 0 起单调累加，所以下界用 0（不再按年份切）。
-pub(crate) fn fetch_proposal_page(start_id: u64, count: u32) -> Result<ProposalPageResult, String> {
+pub(crate) fn fetch_proposal_page(start_id: u128, count: u32) -> Result<ProposalPageResult, String> {
     let mut items = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
 
-    let min_id = start_id.saturating_sub(count as u64);
-    let mut id = start_id;
-
-    while id > min_id {
+    let (ids, has_more) = proposal_page_ids(start_id, count);
+    for id in ids {
         match fetch_proposal_meta(id) {
             Ok(Some(meta)) => {
                 // 多签管理提案(创建/关闭多签账户)不在治理列表中显示。
                 if is_institution_manage_proposal(id) {
-                    if id == 0 {
-                        break;
-                    }
-                    id -= 1;
                     continue;
                 }
-                // 协议升级摘要只保存展示字段，真实状态统一读取 votebase。
+                // 协议升级摘要只保存展示字段，真实状态统一读取 engingcore。
                 let display = match fetch_proposal_display(id, &meta) {
                     Ok(v) => v,
                     Err(_) => ProposalDisplayInfo {
@@ -148,14 +148,7 @@ pub(crate) fn fetch_proposal_page(start_id: u64, count: u32) -> Result<ProposalP
                 warnings.push(format!("查询提案 {id} 失败: {e}"));
             }
         }
-        if id == 0 {
-            break;
-        }
-        id -= 1;
     }
-
-    // 双层 ID：主键单调，下界为 0。
-    let has_more = min_id > 0;
 
     Ok(ProposalPageResult {
         items,
@@ -172,7 +165,7 @@ pub(crate) fn fetch_proposal_page(start_id: u64, count: u32) -> Result<ProposalP
 ///
 /// 业务动作统一走 [`resolve_proposal_action`] 解析,再按变体填入对应 `*_detail` 字段;
 /// 投票计数按 kind/stage 独立查询(保留原有条件)。
-pub(crate) fn fetch_proposal_full(proposal_id: u64) -> Result<ProposalFullInfo, String> {
+pub(crate) fn fetch_proposal_full(proposal_id: u128) -> Result<ProposalFullInfo, String> {
     let meta =
         fetch_proposal_meta(proposal_id)?.ok_or_else(|| format!("提案 {proposal_id} 不存在"))?;
 
@@ -223,7 +216,7 @@ pub(crate) fn fetch_proposal_full(proposal_id: u64) -> Result<ProposalFullInfo, 
     })
 }
 
-fn fetch_voter_role_subjects(proposal_id: u64) -> Result<Vec<VoterRoleSubject>, String> {
+fn fetch_voter_role_subjects(proposal_id: u128) -> Result<Vec<VoterRoleSubject>, String> {
     let key = nodeclient::query::map_key(
         "VotingEngine",
         "ProposalVotePlans",
@@ -237,7 +230,7 @@ fn fetch_voter_role_subjects(proposal_id: u64) -> Result<Vec<VoterRoleSubject>, 
     let bytes = hex::decode(hex_value.trim_start_matches("0x"))
         .map_err(|error| format!("ProposalVotePlans hex 解码失败: {error}"))?;
     let mut input = &bytes[..];
-    let plan = votebase::types::VotePlanOf::<sp_runtime::AccountId32>::decode(&mut input)
+    let plan = engingcore::types::VotePlanOf::<sp_runtime::AccountId32>::decode(&mut input)
         .map_err(|error| format!("ProposalVotePlans SCALE 解码失败: {error}"))?;
     if !input.is_empty() {
         return Err("ProposalVotePlans SCALE 存在尾随字节".into());
@@ -316,7 +309,7 @@ fn split_action_into_details(
 /// 每页最多返回 count 条，has_more 表示是否还有更早的提案。
 pub(crate) fn fetch_institution_proposal_page(
     cid_number: &str,
-    start_id: u64,
+    start_id: u128,
     count: u32,
 ) -> Result<ProposalPageResult, String> {
     let mut items = Vec::new();
@@ -332,7 +325,7 @@ pub(crate) fn fetch_institution_proposal_page(
         .iter()
         .position(|id| *id <= start_id)
         .unwrap_or(ids.len());
-    let take_ids: Vec<u64> = ids
+    let take_ids: Vec<u128> = ids
         .iter()
         .skip(from_idx)
         .take(count as usize)
@@ -393,7 +386,7 @@ pub(crate) fn fetch_institution_proposal_page(
 }
 
 /// 查询机构的活跃提案 ID 列表。
-pub(crate) fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u64>, String> {
+pub(crate) fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u128>, String> {
     let subject_key = proposal_subject_institution_cid_key(cid_number)?;
     let key = nodeclient::query::map_key("VotingEngine", "ActiveProposalsBySubject", &subject_key);
     // (ADR-017):活跃提案索引按 finalized 口径读取,避免 best 漂移漏列。
@@ -401,14 +394,14 @@ pub(crate) fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u64>, St
         None => Ok(Vec::new()),
         Some(hex_data) => {
             let data = decode_hex_storage(&hex_data)?;
-            decode_u64_vec(&data)
+            decode_u128_vec(&data)
         }
     }
 }
 
 // ──── 内部查询 ────
 
-pub(crate) fn fetch_proposal_meta(proposal_id: u64) -> Result<Option<ProposalMeta>, String> {
+pub(crate) fn fetch_proposal_meta(proposal_id: u128) -> Result<Option<ProposalMeta>, String> {
     let key = nodeclient::query::map_key("VotingEngine", "Proposals", &proposal_id.to_le_bytes());
     // (ADR-017):提案元数据(含 status)按 finalized 口径读取,禁止 best。
     match nodeclient::query::fetch_finalized_storage(&key)? {
@@ -420,7 +413,7 @@ pub(crate) fn fetch_proposal_meta(proposal_id: u64) -> Result<Option<ProposalMet
     }
 }
 
-fn fetch_proposal_data_raw(proposal_id: u64) -> Result<Option<Vec<u8>>, String> {
+fn fetch_proposal_data_raw(proposal_id: u128) -> Result<Option<Vec<u8>>, String> {
     let key =
         nodeclient::query::map_key("VotingEngine", "ProposalData", &proposal_id.to_le_bytes());
     // 提案动作里包含金额字段,详情和摘要按 finalized 口径展示。
@@ -443,7 +436,7 @@ fn fetch_proposal_data_raw(proposal_id: u64) -> Result<Option<Vec<u8>>, String> 
 /// 常见提案(业务模块/升级/销毁/发行)1 次 RPC 即可命中;少量业务 detail
 /// 存在独立 pallet 存储,会多查 1~2 次,但这几类提案频率极低。
 pub(crate) fn resolve_proposal_action(
-    proposal_id: u64,
+    proposal_id: u128,
     meta: &ProposalMeta,
 ) -> Result<ProposalAction, String> {
     // ── Step 1:尝试从 VotingEngine::ProposalData 解码 ──
@@ -492,7 +485,7 @@ pub(crate) fn resolve_proposal_action(
     Ok(crate::types::ProposalAction::Unknown)
 }
 
-fn decode_proposal_meta(proposal_id: u64, data: &[u8]) -> Option<ProposalMeta> {
+fn decode_proposal_meta(proposal_id: u128, data: &[u8]) -> Option<ProposalMeta> {
     if data.len() < 3 {
         return None;
     }
@@ -583,10 +576,10 @@ fn proposal_subject_institution_cid_key(cid_number: &str) -> Result<Vec<u8>, Str
     Ok(out)
 }
 
-/// 查询 `VotingEngine::ProposalDisplayId[id]` → `ProposalDisplayMeta { year:u16, seq_in_year:u32 }`。
-/// 6 字节 SCALE:u16 LE + u32 LE。
+/// 查询 `VotingEngine::ProposalDisplayId[id]` → `ProposalDisplayMeta { year:u32, seq_in_year:u64 }`。
+/// 12 字节 SCALE:u32 LE + u64 LE。
 pub(crate) fn fetch_proposal_display_id(
-    proposal_id: u64,
+    proposal_id: u128,
 ) -> Result<Option<ProposalDisplayMeta>, String> {
     let key = nodeclient::query::map_key(
         "VotingEngine",
@@ -600,17 +593,17 @@ pub(crate) fn fetch_proposal_display_id(
     };
     let raw = hex::decode(hex_value.trim_start_matches("0x"))
         .map_err(|e| format!("解析 ProposalDisplayId hex 失败: {e}"))?;
-    if raw.len() < 6 {
+    if raw.len() != 12 {
         return Ok(None);
     }
-    let year = u16::from_le_bytes([raw[0], raw[1]]);
-    let seq_in_year = u32::from_le_bytes([raw[2], raw[3], raw[4], raw[5]]);
+    let year = u32::from_le_bytes(raw[..4].try_into().map_err(|_| "展示年份长度错误")?);
+    let seq_in_year = u64::from_le_bytes(raw[4..12].try_into().map_err(|_| "年内序号长度错误")?);
     Ok(Some(ProposalDisplayMeta { year, seq_in_year }))
 }
 
-/// 通用反向索引迭代器:列举 `StorageDoubleMap<_, Twox64Concat, K1, Twox64Concat, u64, ()>`
-/// 在指定 K1 下的所有 proposal_id。每条 key 末 8 字节 = u64 LE = proposal_id。
-fn fetch_proposal_ids_by_index(storage_name: &str, key1: &[u8]) -> Result<Vec<u64>, String> {
+/// 通用反向索引迭代器:列举 `StorageDoubleMap<_, Twox64Concat, K1, Twox64Concat, u128, ()>`
+/// 在指定 K1 下的所有 proposal_id。每条 key 末 16 字节 = u128 LE = proposal_id。
+fn fetch_proposal_ids_by_index(storage_name: &str, key1: &[u8]) -> Result<Vec<u128>, String> {
     let prefix = nodeclient::query::twox64_concat_prefix("VotingEngine", storage_name, key1);
     // (ADR-017):反向索引列举按 finalized 口径,best 漂移会列出半新半旧 key 集。
     let keys = nodeclient::query::fetch_finalized_keys_paged(&prefix, 1000, None)?;
@@ -620,12 +613,12 @@ fn fetch_proposal_ids_by_index(storage_name: &str, key1: &[u8]) -> Result<Vec<u6
             Ok(b) => b,
             Err(_) => continue,
         };
-        if bytes.len() < 8 {
+        if bytes.len() < 16 {
             continue;
         }
-        let mut tail = [0u8; 8];
-        tail.copy_from_slice(&bytes[bytes.len() - 8..]);
-        ids.push(u64::from_le_bytes(tail));
+        let mut tail = [0u8; 16];
+        tail.copy_from_slice(&bytes[bytes.len() - 16..]);
+        ids.push(u128::from_le_bytes(tail));
     }
     Ok(ids)
 }
@@ -636,20 +629,20 @@ fn fetch_proposal_ids_by_index(storage_name: &str, key1: &[u8]) -> Result<Vec<u6
 /// `institution_code` 入参是 4 字符机构码字符串(如 "NRC"/"CGOV")。
 pub(crate) fn fetch_proposals_by_institution_code(
     institution_code: &str,
-) -> Result<Vec<u64>, String> {
+) -> Result<Vec<u128>, String> {
     let code = primitives::cid::code::code_bytes(institution_code.trim());
     fetch_proposal_ids_by_index("ProposalsByCode", &code)
 }
 
 /// 反向索引:`ProposalsByCid[cid_number]` → 本机构主体所有关联 proposal_id。
-pub(crate) fn fetch_proposals_by_cid(cid_number: &str) -> Result<Vec<u64>, String> {
+pub(crate) fn fetch_proposals_by_cid(cid_number: &str) -> Result<Vec<u128>, String> {
     let cid_key = cid_number_key(cid_number)?;
     fetch_proposal_ids_by_index("ProposalsByCid", &cid_key)
 }
 
 /// 反向索引:`ProposalsByOwner[module_tag]` → 该业务模块所有 proposal_id。
 /// `module_tag` 入参为 BoundedVec<u8> 的 SCALE 编码体(Compact<len> + bytes)。
-pub(crate) fn fetch_proposals_by_owner(module_tag_scale: &[u8]) -> Result<Vec<u64>, String> {
+pub(crate) fn fetch_proposals_by_owner(module_tag_scale: &[u8]) -> Result<Vec<u128>, String> {
     fetch_proposal_ids_by_index("ProposalsByOwner", module_tag_scale)
 }
 

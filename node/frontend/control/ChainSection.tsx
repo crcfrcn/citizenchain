@@ -28,7 +28,7 @@ export function ChainSection({ chain, nodeRunning }: Props) {
       <h2 className="metric-label-with-help">
         <span>区块</span>
         <span className="metric-label">
-          <MetricHelp title="公民链说明" dialogClassName="home-metric-help-dialog" items={[
+          <MetricHelp title="公民链说明" dialogClassName="home-metric-help-dialog chain-help-dialog" items={[
             '公民链采用PoW工作量证明共识出块+GRANDPA最终性验证区块。',
             '公民链采用动态难度的PoW工作量证明共识，出块时间设计为预计6分钟。',
             '公民链采用安全优先的链上交易+效率优先的链下交易双层交易模式设计。',
@@ -39,8 +39,8 @@ export function ChainSection({ chain, nodeRunning }: Props) {
           ]} />
         </span>
       </h2>
-      <p>当前高度: {chain.blockHeight ?? '-'}</p>
-      <p>最终高度: {chain.finalizedHeight ?? '-'}</p>
+      <p className="home-chain-detail-row"><span>当前高度:</span><span>{chain.blockHeight ?? '-'}</span></p>
+      <p className="home-chain-detail-row"><span>最终高度:</span><span>{chain.finalizedHeight ?? '-'}</span></p>
     </section>
   );
 }

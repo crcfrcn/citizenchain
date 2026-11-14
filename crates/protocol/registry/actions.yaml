@@ -684,6 +684,10 @@
   required_fields:
     - cid_number
     - admins
+    - governance_action
+    - governance_detail
+    - expected_state_hash
+    - initial_threshold
     - actor_cid_number
     - actor_role_code
     - fee_payer_description
@@ -769,6 +773,10 @@
   required_fields:
     - cid_number
     - admins
+    - governance_action
+    - governance_detail
+    - expected_state_hash
+    - initial_threshold
     - actor_cid_number
     - actor_role_code
     - fee_payer_description

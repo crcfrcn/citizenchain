@@ -6,7 +6,7 @@
 //! 机构岗位选民与个人多签管理员投票一律通过 `InternalVote::cast`(20.0)。
 //! 本文件只保留 `propose_transfer` benchmark;手动重试统一走
 //! `VotingEngine::retry_passed_proposal`,投票与重试 weight 全部归入
-//! votebase pallet 自身的 benchmark,业务端无需重复覆盖。
+//! engingcore pallet 自身的 benchmark,业务端无需重复覆盖。
 
 #![cfg(feature = "runtime-benchmarks")]
 
@@ -31,7 +31,7 @@ fn prc_fee_account<T: Config>() -> T::AccountId {
     decode_account::<T>(CHINA_CB[1].fee_account)
 }
 
-fn prc_actor_cid() -> votebase::types::CidNumber {
+fn prc_actor_cid() -> engingcore::types::CidNumber {
     CHINA_CB[1]
         .cid_number
         .as_bytes()
@@ -48,8 +48,8 @@ fn beneficiary_account_id<T: Config>() -> T::AccountId {
     decode_account::<T>([99u8; 32])
 }
 
-fn last_proposal_id<T: Config>() -> u64 {
-    votebase::Pallet::<T>::next_proposal_id().saturating_sub(1)
+fn last_proposal_id<T: Config>() -> u128 {
+    engingcore::Pallet::<T>::next_proposal_id().saturating_sub(1)
 }
 
 #[benchmarks]
@@ -87,19 +87,19 @@ mod benchmarks {
         );
 
         let pid = last_proposal_id::<T>();
-        assert!(votebase::Pallet::<T>::get_proposal_data(pid).is_some());
+        assert!(engingcore::Pallet::<T>::get_proposal_data(pid).is_some());
     }
 
     // execute_transfer / execute_safety_fund_transfer / execute_sweep_to_main
     // benchmark 已废弃: 三个 wrapper extrinsic 已统一到
-    // VotingEngine::retry_passed_proposal,benchmark 由 votebase 自身覆盖。
+    // VotingEngine::retry_passed_proposal,benchmark 由 engingcore 自身覆盖。
     #[benchmark]
     fn propose_safety_fund_transfer() {
         use frame_support::traits::Get;
         let nrc = &primitives::cid::china::china_cb::CHINA_CB[0];
         let caller = decode_account::<T>(nrc.admins[0]);
-        let cid: votebase::CidNumber = nrc.cid_number.as_bytes().to_vec().try_into().unwrap();
-        let role: votebase::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+        let cid: engingcore::CidNumber = nrc.cid_number.as_bytes().to_vec().try_into().unwrap();
+        let role: engingcore::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
             .to_vec()
             .try_into()
             .unwrap();
@@ -139,7 +139,7 @@ mod benchmarks {
         let caller = decode_account::<T>(entry.admins[0]);
         let cid = entry.cid_number.as_bytes().to_vec().try_into().unwrap();
         let fee = decode_account::<T>(entry.fee_account);
-        let role: votebase::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+        let role: engingcore::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
             .to_vec()
             .try_into()
             .unwrap();
@@ -164,8 +164,8 @@ mod benchmarks {
         use frame_support::traits::Get;
         let nrc = &primitives::cid::china::china_cb::CHINA_CB[0];
         let caller = decode_account::<T>(nrc.admins[0]);
-        let cid: votebase::CidNumber = nrc.cid_number.as_bytes().to_vec().try_into().unwrap();
-        let role: votebase::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+        let cid: engingcore::CidNumber = nrc.cid_number.as_bytes().to_vec().try_into().unwrap();
+        let role: engingcore::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
             .to_vec()
             .try_into()
             .unwrap();
@@ -182,7 +182,7 @@ mod benchmarks {
         let remark = sp_runtime::sp_std::vec![b'r';T::MaxRemarkLen::get() as usize]
             .try_into()
             .unwrap();
-        let id = votebase::Pallet::<T>::next_proposal_id();
+        let id = engingcore::Pallet::<T>::next_proposal_id();
         Pallet::<T>::propose_safety_fund_transfer(
             RawOrigin::Signed(caller).into(),
             cid,
@@ -195,7 +195,7 @@ mod benchmarks {
         .unwrap();
         #[block]
         {
-            <crate::InternalVoteExecutor<T> as votebase::InternalVoteResultCallback>::on_execution_failed_terminal(id).unwrap();
+            <crate::InternalVoteExecutor<T> as engingcore::InternalVoteResultCallback>::on_execution_failed_terminal(id).unwrap();
         }
         assert!(!crate::SafetyFundProposalActions::<T>::contains_key(id));
         assert!(!crate::SweepProposalActions::<T>::contains_key(id));

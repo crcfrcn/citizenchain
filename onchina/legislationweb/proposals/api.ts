@@ -43,7 +43,7 @@ export async function getLaw(auth: AdminAuth, lawId: number): Promise<LawView> {
 /** GET 提案进度只读投影。 */
 export async function getProposalState(
   auth: AdminAuth,
-  proposalId: number,
+  proposalId: string,
 ): Promise<LegProposalState> {
   return adminRequest<LegProposalState>(`/api/legislation/proposals/${proposalId}`, auth);
 }
@@ -63,7 +63,7 @@ export async function proposeLegislation(
 /** POST 当前代表机构表决，先完成一次Passkey，再返回原统一链签名准备结果。 */
 export async function castRepresentativeVote(
   auth: AdminAuth,
-  proposalId: number,
+  proposalId: string,
   voterRoleCode: string,
   approve: boolean,
 ): Promise<ChainSignPrepare> {

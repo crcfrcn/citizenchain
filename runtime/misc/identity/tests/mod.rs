@@ -162,7 +162,18 @@ impl BenchmarkHelper<u64, pallet::SignatureOf<Test>> for TestBenchmarkHelper {
     }
 }
 
+pub struct RecordAccountRegistration;
+impl frame_support::traits::OnNewAccount<u64> for RecordAccountRegistration {
+    fn on_new_account(account: &u64) {
+        sp_io::storage::set(&codec::Encode::encode(&(b"evm-receive-registration", account)), &[1]);
+    }
+}
+impl frame_support::traits::Get<frame_support::weights::Weight> for RecordAccountRegistration {
+    fn get() -> frame_support::weights::Weight { frame_support::weights::Weight::zero() }
+}
+
 impl Config for Test {
+    type OnAccountRegistered = RecordAccountRegistration;
     type RuntimeEvent = RuntimeEvent;
     type MaxCitizenSignatureLength = MaxCitizenSignatureLength;
     type CitizenIdentityAuthority = TestCitizenIdentityAuthority;
@@ -228,7 +239,7 @@ fn citizen_cid_number(tag: &str) -> alloc::vec::Vec<u8> {
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution: "CTZN",
         },
     )
@@ -282,7 +293,7 @@ fn public_cid_number(tag: &str) -> alloc::vec::Vec<u8> {
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution: "CGOV",
         },
     )

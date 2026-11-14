@@ -13,7 +13,7 @@ interface Props {
 }
 
 export function ProposalProgressView({ auth }: Props) {
-  const [proposalId, setProposalId] = useState<number | null>(null);
+  const [proposalId, setProposalId] = useState<string | null>(null);
   const [state, setState] = useState<LegProposalState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,8 +39,9 @@ export function ProposalProgressView({ auth }: Props) {
     <div>
       <Space wrap>
         <span>提案 ID:</span>
-        <InputNumber
-          min={0}
+        <InputNumber<string>
+          stringMode
+          min="0"
           value={proposalId ?? undefined}
           onChange={(v) => setProposalId(v ?? null)}
         />

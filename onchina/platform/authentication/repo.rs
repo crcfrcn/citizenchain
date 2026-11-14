@@ -605,17 +605,17 @@ pub(crate) fn cleanup_login_state_conn(
     Ok(())
 }
 
-pub(crate) fn insert_login_sign_request(
-    db: &Db,
+/// 调用方在同一绑定锁事务中完成机构匹配后保存挑战，不另开连接或提交事务。
+pub(crate) fn insert_login_sign_request_conn(
+    conn: &mut impl postgres::GenericClient,
     challenge: &LoginSignRequest,
 ) -> Result<(), String> {
-    let challenge = challenge.clone();
-    db.with_client(move |conn| {
-        cleanup_login_state_conn(conn,Utc::now())?;
-        let payload=serde_json::to_value(&challenge).map_err(|e| format!("encode login request failed: {e}"))?;
-        conn.execute("INSERT INTO login(payload_json) VALUES($1) ON CONFLICT ((payload_json->>'challengeId')) DO UPDATE SET payload_json=EXCLUDED.payload_json", &[&payload]).map_err(|e| format!("store login request failed: {e}"))?;
-        Ok(())
-    })
+    cleanup_login_state_conn(conn, Utc::now())?;
+    let payload =
+        serde_json::to_value(challenge).map_err(|e| format!("encode login request failed: {e}"))?;
+    conn.execute("INSERT INTO login(payload_json) VALUES($1) ON CONFLICT ((payload_json->>'challengeId')) DO UPDATE SET payload_json=EXCLUDED.payload_json", &[&payload])
+        .map_err(|e| format!("store login request failed: {e}"))?;
+    Ok(())
 }
 
 pub(crate) fn get_login_sign_request_conn(

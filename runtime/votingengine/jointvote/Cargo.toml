@@ -19,7 +19,7 @@ sp-std = { workspace = true }
 sp-io = { workspace = true }
 
 primitives = { path = "../../primitives", default-features = false }
-votebase = { path = "../votebase", default-features = false }
+engingcore = { path = "../engingcore", default-features = false }
 
 [features]
 default = ["std"]
@@ -33,14 +33,14 @@ std = [
     "sp-std/std",
     "sp-io/std",
     "primitives/std",
-    "votebase/std",
+    "engingcore/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
-    "votebase/runtime-benchmarks",
+    "engingcore/runtime-benchmarks",
 ]
-try-runtime = ["votebase/try-runtime"]
+try-runtime = ["engingcore/try-runtime"]
 

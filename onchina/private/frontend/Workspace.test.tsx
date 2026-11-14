@@ -86,6 +86,11 @@ describe('私权本机构工作台', () => {
   it('会员价格只按后端准确实例清单出现，基础管理员视图保留', () => {
     const normal = renderToStaticMarkup(<PrivateInstitutionWorkspace auth={auth('private')} />);
     expect(normal).toContain('本机构管理员'); expect(normal).not.toContain('ant-spin');
-    expect(renderToStaticMarkup(<PrivateInstitutionWorkspace auth={auth('private', ['platform_membership_price'])} />)).toContain('ant-spin');
+    const pricing = renderToStaticMarkup(<PrivateInstitutionWorkspace auth={auth('private', ['platform_membership_price'])} />);
+    expect(normal).not.toContain('会员定价');
+    expect(pricing).toContain('会员定价');
+    // 拆页后首屏仅挂载账户页，定价读取不能抢先发生。
+    expect(pricing).not.toContain('ant-spin');
+    for (const label of ['岗位管理', '任职管理', '法定代表人']) expect(normal).toContain(label);
   });
 });

@@ -24,3 +24,6 @@ pub(crate) mod occupy;
 /// OnChina 自持的护照号与护照有效期生成逻辑。
 #[path = "passport.rs"]
 pub(crate) mod passport_no;
+
+/// 公民详情业务的自动岗位解析与签名前复查。
+pub(crate) mod authorization;

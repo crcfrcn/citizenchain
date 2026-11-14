@@ -22,7 +22,7 @@ use adminbase::{
     CitizenIdentityBindingQuery, InstitutionAdminLifecycle, InstitutionAdminQuery,
     InstitutionAdmins,
 };
-use votebase::types::InstitutionCode;
+use engingcore::types::InstitutionCode;
 
 pub use pallet::*;
 
@@ -33,7 +33,7 @@ const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 pub mod pallet {
     use super::*;
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config {
+    pub trait Config: frame_system::Config + engingcore::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 

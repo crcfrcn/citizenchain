@@ -52,7 +52,7 @@ mod benchmarks {
         let owner = Pallet::<T>::derive_personal_account(&caller, name.as_slice())?;
         let _ = T::Currency::make_free_balance_be(&caller, 1_000_000_000u128.saturated_into());
         let amount = <T as Config>::MinCreateAmount::get();
-        let id = votebase::Pallet::<T>::next_proposal_id();
+        let id = engingcore::Pallet::<T>::next_proposal_id();
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), name, admins, n / 2 + 1, amount);
         assert!(PendingPersonalCreate::<T>::contains_key(id));
@@ -87,7 +87,7 @@ mod benchmarks {
             &owner,
             AdminAccount {
                 cid_number: Default::default(),
-                institution_code: votebase::types::PMUL,
+                institution_code: engingcore::types::PMUL,
                 kind: AdminAccountKind::PersonalMultisig,
                 admins: records,
                 creator_account_id: caller.clone(),
@@ -107,12 +107,12 @@ mod benchmarks {
     #[benchmark]
     fn terminal_callback_ignored() {
         use frame_support::traits::Get;
-        let mut data = sp_runtime::sp_std::vec![0u8;<T as votebase::Config>::MaxProposalDataLen::get() as usize];
+        let mut data = sp_runtime::sp_std::vec![0u8;<T as engingcore::Config>::MaxProposalDataLen::get() as usize];
         data[..5].copy_from_slice(b"other");
-        votebase::Pallet::<T>::benchmark_proposal(0, b"other", data);
+        engingcore::Pallet::<T>::benchmark_proposal(0, b"other", data);
         #[block]
         {
-            <crate::InternalVoteExecutor<T> as votebase::InternalVoteResultCallback>::on_execution_failed_terminal(0).expect("其它业务数据必须被忽略");
+            <crate::InternalVoteExecutor<T> as engingcore::InternalVoteResultCallback>::on_execution_failed_terminal(0).expect("其它业务数据必须被忽略");
         }
     }
 
@@ -140,7 +140,7 @@ mod benchmarks {
                 .try_into()
                 .unwrap();
         let account = Pallet::<T>::derive_personal_account(&caller, name.as_slice()).unwrap();
-        let id = votebase::Pallet::<T>::next_proposal_id();
+        let id = engingcore::Pallet::<T>::next_proposal_id();
         let threshold = admins.len() as u32 / 2 + 1;
         Pallet::<T>::propose_create(
             RawOrigin::Signed(caller).into(),
@@ -150,10 +150,10 @@ mod benchmarks {
             <T as Config>::MinCreateAmount::get(),
         )
         .unwrap();
-        votebase::Pallet::<T>::benchmark_terminal(id);
+        engingcore::Pallet::<T>::benchmark_terminal(id);
         #[block]
         {
-            <crate::InternalVoteExecutor<T> as votebase::InternalVoteResultCallback>::on_execution_failed_terminal(id).unwrap();
+            <crate::InternalVoteExecutor<T> as engingcore::InternalVoteResultCallback>::on_execution_failed_terminal(id).unwrap();
         }
         assert!(!PersonalAccounts::<T>::contains_key(account));
     }

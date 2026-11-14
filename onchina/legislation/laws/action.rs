@@ -86,7 +86,7 @@ pub(crate) async fn prepare_propose_law_sign(
 /// 准备代表机构表决签名会话。
 pub(crate) async fn prepare_representative_vote_sign(
     state: &AppState,
-    proposal_id: u64,
+    proposal_id: u128,
     voter_role_code: &str,
     approve: bool,
     account_id: &str,
@@ -102,7 +102,7 @@ pub(crate) async fn prepare_representative_vote_sign(
             institution_cid_number,
             chain: build_representative_vote_call(proposal_id, voter_role_code, approve),
             operation_context: json!({
-                "proposal_id": proposal_id,
+                "proposal_id": proposal_id.to_string(),
                 "voter_role_code": voter_role_code,
                 "approve": approve,
             }),

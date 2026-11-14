@@ -62,7 +62,7 @@ fn destroy_fee_shortage_never_falls_back_to_admin() {
         assert_eq!(Balances::free_balance(&fee_account), 1);
         assert_eq!(Balances::free_balance(&admin), 10_000);
         assert_eq!(
-            votebase::Pallet::<Test>::proposals(pid)
+            engingcore::Pallet::<Test>::proposals(pid)
                 .expect("proposal should exist")
                 .status,
             STATUS_PASSED
@@ -119,11 +119,11 @@ fn prb_destroy_executes_when_yes_votes_reach_threshold() {
 #[test]
 fn destroy_business_rejects_other_internal_vote_institutions() {
     new_test_ext().execute_with(|| {
-        let njd_code = votebase::types::NJD;
+        let njd_code = engingcore::types::NJD;
         let njd = primitives::cid::china::china_sf::CHINA_SF
             .iter()
             .find(|node| {
-                votebase::types::institution_code_from_cid_number(node.cid_number) == Some(njd_code)
+                engingcore::types::institution_code_from_cid_number(node.cid_number) == Some(njd_code)
             })
             .map(|node| {
                 (
@@ -174,7 +174,7 @@ fn non_admin_cannot_propose_or_vote() {
 
         assert_noop!(
             cast_vote(prc_admin(0), pid, true),
-            votebase::pallet::Error::<Test>::NoPermission
+            engingcore::pallet::Error::<Test>::NoPermission
         );
     });
 }
@@ -211,7 +211,7 @@ fn zero_amount_and_insufficient_balance_are_rejected() {
         // 发起人已自动赞成，最后一张补票触发自动执行失败路径。
         assert_ok!(cast_vote(nrc_admin(12), pid, true));
         assert_eq!(
-            votebase::Pallet::<Test>::proposals(pid)
+            engingcore::Pallet::<Test>::proposals(pid)
                 .expect("proposal should exist")
                 .status,
             STATUS_PASSED
@@ -220,19 +220,19 @@ fn zero_amount_and_insufficient_balance_are_rejected() {
             Balances::free_balance(institution_account_id(&institution)),
             1_000
         );
-        assert!(votebase::Pallet::<Test>::get_proposal_data(pid).is_some());
+        assert!(engingcore::Pallet::<Test>::get_proposal_data(pid).is_some());
         assert_ok!(VotingEngine::retry_passed_proposal(
             RuntimeOrigin::signed(nrc_admin(0)),
             pid
         ));
         assert_eq!(
-            votebase::Pallet::<Test>::proposal_execution_retry_state(pid)
+            engingcore::Pallet::<Test>::proposal_execution_retry_state(pid)
                 .expect("retry state should exist")
                 .manual_attempts,
             1
         );
         assert_eq!(
-            votebase::Pallet::<Test>::proposals(pid)
+            engingcore::Pallet::<Test>::proposals(pid)
                 .expect("proposal should exist")
                 .status,
             STATUS_PASSED
@@ -267,7 +267,7 @@ fn existential_deposit_is_preserved() {
         ));
         assert_eq!(Balances::free_balance(&account), 1_000);
         assert_eq!(
-            votebase::Pallet::<Test>::proposal_execution_retry_state(pid)
+            engingcore::Pallet::<Test>::proposal_execution_retry_state(pid)
                 .expect("retry state should exist")
                 .manual_attempts,
             1
@@ -288,16 +288,16 @@ fn rejected_proposal_does_not_block_new_proposal() {
         ));
         let pid1 = last_proposal_id();
 
-        let end = votebase::Pallet::<Test>::proposals(pid1)
+        let end = engingcore::Pallet::<Test>::proposals(pid1)
             .expect("proposal should exist")
             .end;
         System::set_block_number(end + 1);
-        assert_ok!(votebase::Pallet::<Test>::finalize_proposal(
+        assert_ok!(engingcore::Pallet::<Test>::finalize_proposal(
             RuntimeOrigin::signed(nrc_admin(0)),
             pid1
         ));
         assert_eq!(
-            votebase::Pallet::<Test>::proposals(pid1)
+            engingcore::Pallet::<Test>::proposals(pid1)
                 .expect("proposal should exist")
                 .status,
             STATUS_REJECTED
@@ -312,7 +312,7 @@ fn rejected_proposal_does_not_block_new_proposal() {
         ));
         let pid2 = last_proposal_id();
         // 提案 2 应该已创建
-        assert!(votebase::Pallet::<Test>::get_proposal_data(pid2).is_some());
+        assert!(engingcore::Pallet::<Test>::get_proposal_data(pid2).is_some());
     });
 }
 
@@ -337,13 +337,13 @@ fn execute_destroy_succeeds_after_failed_auto_execution() {
 
         // 自动执行失败后状态保留为 PASSED，补充余额后可手动重试。
         assert_eq!(
-            votebase::Pallet::<Test>::proposals(pid)
+            engingcore::Pallet::<Test>::proposals(pid)
                 .expect("proposal should exist")
                 .status,
             STATUS_PASSED
         );
         assert_eq!(Balances::free_balance(&account), 1_000);
-        assert!(votebase::Pallet::<Test>::get_proposal_data(pid).is_some());
+        assert!(engingcore::Pallet::<Test>::get_proposal_data(pid).is_some());
 
         // 补充余额后手动重试执行
         let _ = Balances::deposit_creating(&account, 200);
@@ -380,12 +380,12 @@ fn executed_proposal_does_not_block_new_proposal() {
             50
         ));
         let pid2 = last_proposal_id();
-        assert!(votebase::Pallet::<Test>::get_proposal_data(pid2).is_some());
+        assert!(engingcore::Pallet::<Test>::get_proposal_data(pid2).is_some());
     });
 }
 
 #[test]
-fn duplicate_vote_is_rejected_by_votebase() {
+fn duplicate_vote_is_rejected_by_engingcore() {
     new_test_ext().execute_with(|| {
         let institution = nrc_pallet_id();
         assert_ok!(ResolutionDestroy::propose_destroy(
@@ -399,7 +399,7 @@ fn duplicate_vote_is_rejected_by_votebase() {
         assert_ok!(cast_vote(nrc_admin(1), pid, true));
         assert_noop!(
             cast_vote(nrc_admin(1), pid, true),
-            votebase::pallet::Error::<Test>::AlreadyVoted
+            engingcore::pallet::Error::<Test>::AlreadyVoted
         );
     });
 }
@@ -425,7 +425,7 @@ fn execute_destroy_requires_role_voter_snapshot() {
         let _ = Balances::deposit_creating(&account, 200);
         assert_noop!(
             VotingEngine::retry_passed_proposal(RuntimeOrigin::signed(outsider), pid),
-            votebase::pallet::Error::<Test>::NoPermission
+            engingcore::pallet::Error::<Test>::NoPermission
         );
         assert_ok!(VotingEngine::retry_passed_proposal(
             RuntimeOrigin::signed(nrc_admin(0)),

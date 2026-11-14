@@ -214,6 +214,16 @@
   margin-top: 17px;
 }
 
+.institution-overview-account-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.institution-overview-account-heading .metric-help-button {
+  font-size: 13px;
+}
+
 .institution-overview h3 {
   margin: 0;
   color: var(--text-primary);
@@ -525,6 +535,13 @@ body:has(.institution-transfer-dialog[open]) {
 .institution-transfer-body .wallet-form-field textarea {
   min-height: 120px;
   resize: vertical;
+}
+
+.institution-transfer-body .wallet-form-field .institution-transfer-remark {
+  height: calc(var(--scan-icon-size) * 2);
+  min-height: calc(var(--scan-icon-size) * 2);
+  max-height: calc(var(--scan-icon-size) * 2);
+  resize: none;
 }
 
 .institution-transfer-body .metric-card code {

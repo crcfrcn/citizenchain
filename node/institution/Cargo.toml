@@ -35,6 +35,6 @@ tokio = { workspace = true, default-features = true, features = ["time"] }
 
 [dev-dependencies]
 frame-support = { workspace = true, default-features = true }
-votebase = { path = "../../runtime/votingengine/votebase", default-features = true }
+engingcore = { path = "../../runtime/votingengine/engingcore", default-features = true }
 
 [features]

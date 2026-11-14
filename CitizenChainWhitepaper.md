@@ -52,18 +52,19 @@
   [5.1. 创世模块](#51创世模块)
   [5.2. 协议基础库](#52协议基础库)
   [5.3. 投票引擎](#53投票引擎)
-  [5.3.1. 内部投票](#531内部投票)
-  [5.3.2. 联合投票](#532联合投票)
-  [5.3.3. 立法投票](#533立法投票)
-  [5.3.4. 选举投票](#534选举投票)
+  [5.3.1. 引擎核心](#531引擎核心)
+  [5.3.2. 内部投票](#532内部投票)
+  [5.3.3. 联合投票](#533联合投票)
+  [5.3.4. 立法投票](#534立法投票)
+  [5.3.5. 选举投票](#535选举投票)
   [5.4. 治理模组](#54治理模组)
   [5.5. 管理员模组](#55管理员模组)
   [5.5.1. 个人多签管理员](#551个人多签管理员)
   [5.5.2. 私权机构管理员](#552私权机构管理员)
   [5.5.3. 公权机构管理员](#553公权机构管理员)
   [5.6. 公权业务模组](#56公权业务模组)
-  [5.6.1. 立法院模块](#561立法院模块)
-  [5.6.2. 公民选举模块](#562公民选举模块)
+  [5.6.1. 立法院](#561立法院)
+  [5.6.2. 公民选举](#562公民选举)
   [5.7. 实体模组](#57实体模组)
   [5.7.1. 个人多签](#571个人多签)
   [5.7.2. 私权机构](#572私权机构)
@@ -71,10 +72,10 @@
   [5.8. 发行模组](#58发行模组)
   [5.9. 交易模组](#59交易模组)
   [5.10. 其他模组](#510其他模组)
-  [5.10.1. 链上公民身份](#5101链上公民身份)
-  [5.10.2. 工作量难度模块](#5102工作量难度模块)
-  [5.10.3. 地址变更上链](#5103地址变更上链)
-  [5.10.4. 广场内容与会员订阅](#5104广场内容与会员订阅)
+  [5.10.1. 公民身份](#5101公民身份)
+  [5.10.2. 工作量难度](#5102工作量难度)
+  [5.10.3. 地址变更](#5103地址变更)
+  [5.10.4. 广场与订阅](#5104广场与订阅)
   </details>
 
 - <details>
@@ -139,7 +140,7 @@
 | 链上中国平台             | OnChina                                       | 公民链节点内置的机构业务平台，包含注册局、立法院、司法院和私权机构四个模块 |
 | 注册局                  | Registry                                      | 链上中国平台中的注册业务角色，包含联邦注册局和市注册局，用于注册公民、公权机构、私权机构和机构管理员 |
 | 身份识别码               | CID                                           | 注册局签发的统一身份号码，是公民身份、自然人和机构的身份编号字段 |
-| 清算行                  | clearing bank                                 | 链下清算行的简称，业务尚未开放 |
+| 清算行                  | clearing bank                                 | 链下清算行的简称，清算行是把现有的传统银行纳入公民链，让传统银行成为全节点实现链下交易清算。 |
 | 投票资格                | voting eligibility                            | 公民是否可参与投票的资格状态，由注册局根据公民护照状态判定 |
 | 投票范围                | voting scope                                  | 公民按居住地参与投票的地域范围                       |
 | 参选范围                | candidacy scope                               | 公民按出生地参与被选举或出生地类选举的地域范围        |
@@ -202,7 +203,7 @@
 |  节点  |  国家储委会权威节点  |   初始省储委会权威节点  |  初始省储行权益节点  |     全节点     |          轻节点       |
 |:-----:|:--------------:|:------------------:|:-----------------:|:-------------:|:--------------------:|
 |  数量  |       1个      |        43个        |        43个        |      无限     |      公民/访客：无限    |
-|  功能  | 国家级治理与最终性 |  省级治理与最终性投票   | 永久质押与省储行治理  | PoW出块、链数据保存、本地服务、可选链上中国；清算行业务待开放 | 钱包、公民身份确认、投票、通信 |
+|  功能  | 国家级治理与最终性 |  省级治理与最终性投票   | 永久质押与省储行治理  | PoW出块、链数据保存、本地服务、可选链上中国、清算行业务 | 钱包、公民身份确认、投票、通信 |
 ```
 
 <span class="whitepaper-en">Node overview:</span>
@@ -211,7 +212,7 @@
 | Node | National Reserve Committee Authority Node | Initial Provincial Reserve Committee Authority Nodes | Initial Provincial Reserve Bank Stake Nodes | Full Nodes | Light Nodes |
 |:----:|:-----------------------------------------:|:----------------------------------------------------:|:------------------------------------------:|:----------:|:-----------:|
 | Quantity | 1 | 43 | 43 | Unlimited | Citizens / visitors: unlimited |
-| Function | National governance and finality | Provincial governance and finality voting | Permanent staking and provincial reserve bank governance | PoW block production, chain-data storage, local services, optional OnChina; clearing services not yet available | Wallet, citizen identity, voting, communication |
+| Function | National governance and finality | Provincial governance and finality voting | Permanent staking and provincial reserve bank governance | PoW block production, chain-data storage, local services, optional OnChina, and clearing services | Wallet, citizen identity, voting, communication |
 ```
 
 <img src="./icons/whitepaper-node-diagram.svg" alt="节点图" width="1000">
@@ -234,7 +235,7 @@
 
 * 初始43个省，每省1个省储行权益节点，初始权益节点不能增删改，每个节点拥有9个管理员，分别对应省储行的9个董事会成员；<br><span class="whitepaper-en">There are initially 43 provinces, each with one Provincial Reserve Bank stake node. These initial stake nodes cannot be added, deleted, or modified. Each node has nine administrators, corresponding respectively to the nine board members of the Provincial Reserve Bank.</span>
 * 每个省储行拥有1票投票权和2个多签名治理账户（主账户+费用账户），采用N=9，T≥6签名，签名通过则生效，反之则否决；<br><span class="whitepaper-en">Each Provincial Reserve Bank has one vote and two multisignature governance accounts: a main account and a fee account. It uses N=9 and threshold T>=6 signatures. If the signatures pass, the decision takes effect; otherwise, it is rejected.</span>
-* 省储行费用账户是省储行自身的机构费用账户；链下清算设计由符合资格的已注册清算行全节点承担，当前清算业务尚未对外开放；<br><span class="whitepaper-en">The Provincial Reserve Bank fee account is its own institutional fee account. Off-chain clearing is designed for eligible registered clearing-bank full nodes; these clearing services are not yet publicly available.</span>
+* 省储行费用账户是省储行自身的机构费用账户；链下清算由符合资格的已注册清算行全节点承担；<br><span class="whitepaper-en">The Provincial Reserve Bank fee account is its own institutional fee account. Eligible registered clearing-bank full nodes perform off-chain clearing.</span>
 * 每个省储行拥有1个永久质押账户，永久质押账户只能接收数字公民币，用于永久质押省储行创立发行的数字公民币；<br><span class="whitepaper-en">Each Provincial Reserve Bank has one permanent staking account. The staking account may only receive digital GMB and is used to permanently stake the digital GMB issued at the founding of the Provincial Reserve Bank.</span>
 * 省储行拥有发起“销毁数字公民币、更换省储行多签管理员”等内部治理提案权，并在联合投票中拥有省储行票权，承担数据归档和节点引导。<br><span class="whitepaper-en">A Provincial Reserve Bank has the authority to initiate internal-governance proposals including destroying digital GMB and replacing Provincial Reserve Bank multisig administrators. It also holds Provincial Reserve Bank voting power in joint votes and undertakes data archiving and node bootstrapping.</span>
 
@@ -242,8 +243,8 @@
 
 * 全节点是链同步、交易验证和新块铸块节点，按归档或普通模式保存链数据；链上中国平台和节能能力是可按需打开或关闭的本地节点能力；新区块特指除创世区块以外的所有区块，采用PoW共识机制获得铸块权；<br><span class="whitepaper-en">Full nodes are chain-synchronization, transaction-validation, and new-block minting nodes. They store chain data in archive or regular mode; the OnChina platform and energy-saving capability are local node capabilities that can be enabled or disabled as needed. New blocks refer to all blocks other than the genesis block. Full nodes obtain block-minting rights through the PoW consensus mechanism.</span>
 * 全节点数量不限，部署运行citizenchain（中文：公民链）的即全节点，任何组织、任何人均可下载安装节点软件成为全节点，全节点只分为归档全节点和普通全节点两种模式，默认启动为归档全节点模式；<br><span class="whitepaper-en">The number of full nodes is unlimited. Any deployment that runs citizenchain (Chinese: 公民链) is a full node. Any organization or individual may download and install the node software to become a full node. Full nodes have only two modes: archive full node and regular full node. The default startup mode is archive full node.</span>
-* 清算行不是新的机构类型，而是全节点的预留链下清算角色。资格限定为私法人股份公司（SFGF），以及父级为该类股份公司的非法人分支机构（UNIN）；按设计还须完成链上机构登记和清算行节点声明。当前清算业务入口尚未开放。<br><span class="whitepaper-en">A clearing bank is a planned off-chain clearing role of a full node, rather than a new institution type. Eligibility is limited to private joint-stock companies (SFGF) and their unincorporated branches (UNIN). The design also requires on-chain institution registration and a clearing-bank node declaration. Clearing business entry points are not yet available.</span>
-* 按预留设计，清算行节点须绑定机构身份、节点 PeerId 和可访问的 RPC 端点；用户存款由独立清算账户承载，费用账户接收清算手续费，主账户与用户存款资金池分开。该设计不代表当前已开放开户或清算业务。<br><span class="whitepaper-en">Under the planned design, a clearing-bank node binds its institutional identity, PeerId, and reachable RPC endpoint. A separate clearing account holds user deposits, the fee account receives clearing fees, and the main account is separate from the user-deposit pool. This design does not mean that account opening or clearing services are currently available.</span>
+* 清算行不是新的机构类型，而是全节点的链下清算角色。资格限定为私法人股份公司（SFGF），以及父级为该类股份公司的非法人分支机构（UNIN）；还须完成链上机构登记和清算行节点声明。<br><span class="whitepaper-en">A clearing bank is an off-chain clearing role of a full node, rather than a new institution type. Eligibility is limited to private joint-stock companies (SFGF) and their unincorporated branches (UNIN). On-chain institution registration and a clearing-bank node declaration are also required.</span>
+* 清算行节点须绑定机构身份、节点 PeerId 和可访问的 RPC 端点；用户存款由独立清算账户承载，费用账户接收清算手续费，主账户与用户存款资金池分开。<br><span class="whitepaper-en">A clearing-bank node binds its institutional identity, PeerId, and reachable RPC endpoint. A separate clearing account holds user deposits, the fee account receives clearing fees, and the main account is separate from the user-deposit pool.</span>
 * 清算网络是连接去中心化金融与传统金融的纽带，把符合资格并有能力部署全节点的银行、第三方支付机构和企业纳入公民链，为用户提供快速的去中心化金融服务。<br><span class="whitepaper-en">The clearing network links decentralized finance with traditional finance. It brings eligible banks, third-party payment providers, and enterprises capable of deploying full nodes into CitizenChain, providing users with fast decentralized financial services.</span>
 * 权威节点、权益节点和清算行节点必须是归档全节点，其他任意节点可自行选择归档全节点或普通全节点；归档全节点保存完整区块链数据，适合治理机构、清算行和需要完整历史数据的组织；普通全节点适用于大部分用户，使用剪裁后的链数据，同时保留挖矿和出块能力，以节约磁盘空间。链上中国平台和节能能力属于本机节点能力，可在节点桌面端按需打开或关闭。<br><span class="whitepaper-en">Authority nodes, stake nodes, and clearing-bank nodes must be archive full nodes. Any other node may choose archive full node or regular full node. Archive full nodes store complete blockchain data and are suitable for governance institutions, clearing banks, and organizations that need complete historical data. Regular full nodes are suitable for most users: they use pruned chain data while retaining mining and block-production capability, thereby saving disk space. The OnChina platform and energy-saving capability are local node capabilities that can be enabled or disabled from the desktop console as needed.</span>
 
@@ -426,38 +427,45 @@ crcfrcn/
 ## 5.3.投票引擎<br><span class="whitepaper-heading-en">5.3. votingengine</span>
 
 * 投票引擎是链上投票流程的统一归属，负责提案状态、投票快照、计票、防重放、结果确认、执行回调和失败处理；业务模块只提交业务数据、声明提案 owner，并接收投票引擎回调，不自行实现投票流程。<br><span class="whitepaper-en">The voting engine is the unified owner of on-chain voting flows. It manages proposal state, voting snapshots, tallying, replay protection, result confirmation, execution callbacks, and failure handling. Business modules submit business data, declare proposal ownership, and receive voting-engine callbacks; they do not implement voting flows themselves.</span>
-* 投票引擎按用途分为内部投票、联合投票、立法投票和选举投票四类，使机构自治、治理决议、法律制定和公职选举各走各的规则，同时共享同一套链上状态机。<br><span class="whitepaper-en">The voting engine is divided by purpose into internal voting, joint voting, legislative voting, and election voting, so institutional self-governance, governance resolutions, lawmaking, and public-office elections each follow their own rules while sharing one on-chain state machine.</span>
+* 投票引擎由引擎核心、内部投票、联合投票、立法投票和选举投票五个模块组成；四类投票按各自规则处理机构自治、治理决议、法律制定和公职选举，共享引擎核心的链上基础设施。<br><span class="whitepaper-en">The voting engine consists of five modules: engingcore, internalvote, jointvote, legislationvote, and electionvote. The four voting types follow their respective rules for institutional self-governance, governance resolutions, lawmaking, and public-office elections, while sharing the engine core’s on-chain infrastructure.</span>
 
-### 5.3.1.内部投票<br><span class="whitepaper-heading-en">5.3.1. internalvote</span>
+### 5.3.1.引擎核心<br><span class="whitepaper-heading-en">5.3.1. engingcore</span>
+
+* 引擎核心是四类投票共用的链上基础模块，统一管理提案编号、数据、状态、投票计划和资格快照，并提供防重复投票与提案互斥机制。<br><span class="whitepaper-en">The engine core is the shared on-chain foundation for the four voting types. It manages proposal identifiers, data, state, voting plans, and eligibility snapshots, and provides duplicate-vote prevention and proposal mutual exclusion.</span>
+* 引擎核心统一调度提案超时、通过后的业务执行、失败重试和终态清理；具体表决规则由内部投票、联合投票、立法投票和选举投票模块分别实现。<br><span class="whitepaper-en">The engine core coordinates proposal timeouts, business execution after approval, failure retries, and terminal cleanup. The internalvote, jointvote, legislationvote, and electionvote modules implement their respective voting rules.</span>
+* 业务模块负责业务权限和执行动作，通过统一接口接入投票引擎；投票通过与业务执行成功分别记录，避免将通过误认为已执行。<br><span class="whitepaper-en">Business modules enforce business permissions and perform execution through unified voting-engine interfaces. Vote approval and successful business execution are recorded separately, so approval is not mistaken for completed execution.</span>
+
+### 5.3.2.内部投票<br><span class="whitepaper-heading-en">5.3.2. internalvote</span>
 
 * 内部投票用于机构和多签账户的内部治理，例如管理员更换、账户关闭、机构内部资金划转和其他仅影响本主体的事项。<br><span class="whitepaper-en">Internal voting is used for the internal governance of institutions and multisig accounts, including administrator changes, account closure, internal fund transfers, and other matters affecting only the subject itself.</span>
 * 机构内部投票由业务模块按准确的机构 CID、岗位码和业务动作校验发起权限，并由投票引擎冻结 `VotePlan` 指定岗位的有效任职账户；每个 `CID + 岗位码 + 钱包` 形成独立票据，阈值读取机构在 entity 中保存的治理阈值。个人多签继续使用独立管理员快照和个人阈值，两类主体不得互相回落。<br><span class="whitepaper-en">For institutional internal voting, the business module verifies proposal authority against the exact institution CID, role code, and business action, while the voting engine freezes the active assignments of the roles specified by the VotePlan. Each CID, role code, and wallet combination forms an independent ticket, and the threshold comes from the institution's governance threshold stored by the entity module. Personal multisig voting continues to use its separate administrator snapshot and personal threshold, with no fallback between the two subject types.</span>
 * 内部投票不处理业务本身的生命周期写入；通过后由投票引擎回调对应 owner 模块执行，失败重试、取消和终态清理仍归投票引擎。<br><span class="whitepaper-en">Internal voting does not write the business lifecycle itself. After approval, the voting engine calls back the corresponding owner module for execution, while retries, cancellation, and terminal cleanup remain inside the voting engine.</span>
 
-### 5.3.2.联合投票<br><span class="whitepaper-heading-en">5.3.2. jointvote</span>
+### 5.3.3.联合投票<br><span class="whitepaper-heading-en">5.3.3. jointvote</span>
 
 * 联合投票用于国家储委会、省储委会、省储行之间的共同治理事项，独立于选举投票，不得把联合公投阶段混写为公职选举。<br><span class="whitepaper-en">Joint voting is used for common-governance matters among the National Reserve Committee, Provincial Reserve Committees, and Provincial Reserve Banks. It is separate from election voting, and its referendum stage must not be treated as a public-office election.</span>
 * 机构联合投票阶段由国家储委会19票、43个省储委会43票、43个省储行43票组成，共105票；全部机构内部投票通过、累计105票赞成时直接通过，任一机构内部投票否决，或30天期满仍未全票通过，则进入联合投票模块内部的联合公投阶段。<br><span class="whitepaper-en">The institutional joint voting stage consists of 19 National Reserve Committee votes, 43 Provincial Reserve Committee votes, and 43 Provincial Reserve Bank votes, totaling 105. It passes directly when every institution approves internally, producing all 105 approval votes. Rejection by any institution, or failure to reach unanimity within the 30-day stage, advances the proposal to the joint referendum stage.</span>
 * 联合公投由提案人口快照中的有资格选民参与；赞成票严格超过该快照全体有资格选民的50%即通过，反对票达到50%即否决；联合公投阶段30天期满仍未达到通过条件的则否决。上述30天均按公民协议的区块期限换算。<br><span class="whitepaper-en">A joint referendum is open to eligible voters in the proposal population snapshot. It passes when approval votes strictly exceed 50% of all eligible voters in that snapshot, and is rejected when opposition votes reach 50%. If the 30-day referendum stage expires without meeting the approval threshold, it is rejected. Both 30-day stages use the Runtime’s block-based duration conversion.</span>
 
-### 5.3.3.立法投票<br><span class="whitepaper-heading-en">5.3.3. legislationvote</span>
+<img src="./icons/whitepaper-reserve-architecture.svg" alt="储委会体系架构图" width="1000">
+
+### 5.3.4.立法投票<br><span class="whitepaper-heading-en">5.3.4. legislationvote</span>
 
 * 立法投票用于公民宪法和各级法律的制定、修改、废止流程，按公民宪法规定的主体、表决类型、阈值和阶段推进。<br><span class="whitepaper-en">Legislative voting is used for enacting, amending, and repealing the Citizen Constitution and laws at each level. It follows the subjects, vote types, thresholds, and stages defined by the Citizen Constitution.</span>
 * 两院顺序、行政签署、强制公投、教育类表决和重大表决等立法规则由立法投票模块统一承载；立法院模块只保存法律数据、版本和状态，不自行计票。<br><span class="whitepaper-en">Legislative rules such as bicameral ordering, executive signing, mandatory referendum, education-related votes, and major votes are carried uniformly by the legislationvote module. The legislation module stores only law data, versions, and status, and does not tally votes itself.</span>
 * 立法投票通过后回调立法院模块写入新的法律版本；公民宪法不可修改条款由链端硬性保护。<br><span class="whitepaper-en">After legislative voting passes, it calls back the legislation module to write the new law version. Immutable clauses of the Citizen Constitution are protected by hard on-chain guards.</span>
 
-### 5.3.4.选举投票<br><span class="whitepaper-heading-en">5.3.4. electionvote</span>
+### 5.3.5.选举投票<br><span class="whitepaper-heading-en">5.3.5. electionvote</span>
 
 * 选举投票面向公职人员产生机制，支持公民普选和公权机构岗位互选两类场景；普选由投票引擎读取 identity 的人口数据生成提案快照，互选只冻结 `VotePlan` 指定 `RoleSubject` 的有效任职账户。<br><span class="whitepaper-en">Election voting serves the mechanism for selecting public officials and supports both general citizen elections and mutual elections among institutional roles. For a general election, the voting engine reads population data from identity and creates the proposal snapshot; for a mutual election, it freezes only the active assignment accounts of the RoleSubjects specified by the VotePlan.</span>
 * 投票资格和人口范围由 `identity` 与投票引擎快照共同确认；选举投票引擎只读取链上授权主体和规范化人口数据，不接收链下身份凭证。<br><span class="whitepaper-en">Eligibility and population scope are confirmed jointly by `identity` and voting-engine snapshots. The electionvote engine reads only authorized on-chain subjects and normalized population data; it does not accept off-chain identity credentials.</span>
 * 选举投票引擎只负责候选冻结、票据、计票和不可变结果快照，不解释具体候选资格、目标岗位、席位、任期或结果写回规则；这些规则必须由每一种独立的公权选举业务模块定义。<br><span class="whitepaper-en">The electionvote engine is responsible only for candidate freezing, vote tickets, tallying, and immutable result snapshots. It does not interpret candidate eligibility, target roles, seats, terms, or result write-back rules; each independent public-election business module must define those rules.</span>
 
-<img src="./icons/whitepaper-reserve-architecture.svg" alt="储委会体系架构图" width="1000">
-
 * 投票模块边界：<br><span class="whitepaper-en">Voting module boundaries:</span>
 ```
 | 模块 | 适用事项 | 规则重点 | 业务模块边界 |
 |:---:|:-------:|:--------:|:-----------:|
+| 引擎核心 | 四类投票共用基础设施 | 提案、快照、状态、超时、执行调度与清理 | 业务模块通过统一接口和回调接入 |
 | 内部投票 | 机构和个人多签内部治理 | 机构岗位票据 + 机构阈值；个人管理员快照 + 个人阈值 | 不自建投票流程，只接收执行回调 |
 | 联合投票 | 国家储委会、省储委会、省储行共同治理 | 105 票机构联合投票 + 联合公投 | 不传人口快照或计票材料 |
 | 立法投票 | 法律制定、修改、废止 | 宪法表决类型、两院顺序、行政签署、公投 | 立法院只保存法律数据和版本 |
@@ -468,20 +476,12 @@ crcfrcn/
 ```
 | Module | Applicable Matters | Rule Focus | Business-Module Boundary |
 |:------:|:------------------:|:----------:|:------------------------:|
+| engingcore | Shared infrastructure for the four voting types | Proposals, snapshots, state, timeouts, execution scheduling, and cleanup | Business modules connect through unified interfaces and callbacks |
 | internalvote | Internal governance of institutions and personal multisig accounts | Institutional role tickets plus institution threshold; personal administrator snapshot plus personal threshold | Does not build its own voting flow; receives execution callbacks only |
 | jointvote | Joint governance of NRC, PRCs, and PRBs | 105-vote institutional stage plus joint referendum | Does not pass population snapshots or tally materials |
 | legislationvote | Enacting, amending, and repealing laws | Constitutional vote types, bicameral order, executive signing, and referendum | The legislation module stores law data and versions only |
 | electionvote | General and mutual elections for public office | Citizen-identity snapshots or institution-member snapshots | Must not mix with joint referendum and must not accept off-chain credentials |
 ```
-
-* 提案状态机：<br><span class="whitepaper-en">Proposal state machine:</span>
-```
-VOTING → PASSED → EXECUTED
-       │        └─ EXECUTION_FAILED
-       └─ REJECTED
-```
-
-<span class="whitepaper-en">VOTING means voting is in progress. PASSED means the vote has passed and the proposal is authorized for execution or retry. REJECTED, EXECUTED, and EXECUTION_FAILED are terminal states.</span>
 
 ## 5.4.治理模组<br><span class="whitepaper-heading-en">5.4. governance</span>
 
@@ -501,7 +501,7 @@ VOTING → PASSED → EXECUTED
 * 省储行可提案销毁所持有治理账户内的公民币，由任意省储行董事/管理员提案，本提案为内部投票提案。<br><span class="whitepaper-en">A Provincial Reserve Bank may propose destruction of GMB held in its governance accounts. The proposal may be initiated by any Provincial Reserve Bank director or administrator and is an internal voting proposal.</span>
 * 决议销毁只能销毁提案主体自身控制账户中的公民币，投票通过后由投票引擎 callback 调用 destroy 执行余额扣减和总供应量扣减；执行失败的已通过提案由投票引擎统一重试或转入执行失败终态。<br><span class="whitepaper-en">Resolution destruction may destroy only GMB in accounts controlled by the proposing subject itself. After approval, the voting-engine callback invokes destroy to reduce the balance and total supply. Passed proposals that fail execution are retried uniformly by the voting engine or moved to the execution-failed terminal state.</span>
 
-### 5.4.3.GRANDPA 密钥更换<br><span class="whitepaper-heading-en">5.4.3. grandpakey</span>
+### 5.4.3.验证密钥更换<br><span class="whitepaper-heading-en">5.4.3. grandpakey</span>
 
 * 国家储委会、各省储委会分别管理自身 GRANDPA 投票公钥，正常更换与紧急恢复采用不同授权流程。<br><span class="whitepaper-en">The National Reserve Committee and each Provincial Reserve Committee manage their own GRANDPA voting public keys, with separate authorization flows for routine rotation and emergency recovery.</span>
 * GRANDPA 验证密钥正常更换由目标国家储委会或省储委会的单个委员岗位授权，旧、新私钥共同签名后延迟生效，不需要投票；旧私钥丢失时才由目标机构自己的委员内部投票紧急恢复，不是联合投票。节点在 finalized 状态确认新 authority 生效且旧 authority 移除后，才自动删除旧私钥。<br><span class="whitepaper-en">A routine GRANDPA authority-key rotation is authorized by one committee member of the target National or Provincial Reserve Committee, is co-signed by the old and new private keys, and activates after a delay without a vote. Only loss of the old key triggers emergency recovery by the target institution's own internal committee vote, never a joint vote. The node deletes the old private key only after finalized state confirms that the new authority is active and the old authority has been removed.</span>
@@ -531,15 +531,15 @@ VOTING → PASSED → EXECUTED
 
 * 公权业务模组承载立法、选举等公权业务的业务壳和数据状态；凡涉及表决、计票、快照、通过或否决判定的流程，统一交由投票引擎处理。<br><span class="whitepaper-en">Public-business modules carry business shells and data state for public-authority affairs such as legislation and elections. Any flow involving voting, tallying, snapshots, or pass/reject judgment is handled uniformly by the voting engine.</span>
 
-### 5.6.1.立法院模块<br><span class="whitepaper-heading-en">5.6.1. legislation</span>
+### 5.6.1.立法院<br><span class="whitepaper-heading-en">5.6.1. legislation</span>
 
 * 立法院模块把公民宪法和各级法律作为链上结构化法律保存，维护 law、law_version、状态和提案入口；展示端从链上结构化法律重建可读文本。<br><span class="whitepaper-en">The legislation module stores the Citizen Constitution and laws at each level as structured on-chain laws, maintaining laws, law versions, status, and proposal entry points. Display clients reconstruct readable text from structured on-chain laws.</span>
 * 立法院模块不复刻立法投票规则；修法、废止、新法制定等提案进入立法投票模块，由投票引擎完成阶段推进和结果确认。<br><span class="whitepaper-en">The legislation module does not replicate legislative voting rules. Proposals to amend, repeal, or enact laws enter the legislationvote module, where the voting engine handles stage progression and result confirmation.</span>
 * 公民宪法不可修改条款在链端强制保护，任何立法入口都不能绕开该保护写入非法版本。<br><span class="whitepaper-en">Immutable clauses of the Citizen Constitution are protected by hard on-chain guards, and no legislative entry point may bypass that protection to write an invalid version.</span>
 
-### 5.6.2.公民选举模块<br><span class="whitepaper-heading-en">5.6.2. election</span>
+### 5.6.2.公民选举<br><span class="whitepaper-heading-en">5.6.2. election</span>
 
-* election 是已注册到 Runtime 的公民选举业务占位模块，目前不提供交易入口、业务存储或事件。现有 electionvote 承担选举投票流程，不能据此认定具体公权选举业务已经开放。<br><span class="whitepaper-en">election is a public-election business placeholder registered in the Runtime. It currently provides no transaction entry points, business storage, or events. The existing electionvote module handles election-voting flows; this does not mean that concrete public-authority election business is already available.</span>
+* election 是公民选举业务模块，负责组织具体公权岗位的选举业务，并调用 electionvote 完成选举投票流程。<br><span class="whitepaper-en">election is the public-election business module. It organizes elections for specific public-authority roles and invokes electionvote to handle the election-voting process.</span>
 * 具体公权选举业务须分别定义候选资格、目标岗位、选民范围、席位、任期和结果写回规则，再调用 electionvote。投票、选民快照、计票和不可变结果仍由投票引擎处理，不提供绕过具体选举规则直接创建真实选举或写回任职的通用入口。<br><span class="whitepaper-en">Each concrete public-authority election must define candidate eligibility, the target role, electorate scope, seats, terms, and result write-back rules before invoking electionvote. Voting, electorate snapshots, tallying, and immutable results remain with the voting engine. No generic entry point may bypass the concrete election rules to create a real election or write an appointment result.</span>
 
 ## 5.7.实体模组<br><span class="whitepaper-heading-en">5.7. entity</span>
@@ -594,7 +594,7 @@ VOTING → PASSED → EXECUTED
 
 ### 5.8.5.链上发行<br><span class="whitepaper-heading-en">5.8.5. onchainissue</span>
 
-* onchainissue 是原生用户代币治理模块，设计用于多签主体发起资产发行及后续治理。当前模块尚未完成完整业务与执行流程，Runtime 拒绝其全部外部调用，用户代币治理功能尚未对外开放。<br><span class="whitepaper-en">onchainissue is the native user-token governance module, designed for multisig subjects to propose asset issuance and subsequent governance. Its complete business and execution flows are not yet implemented. The Runtime rejects all of its external calls, so native user-token governance is not yet publicly available.</span>
+* onchainissue 是原生用户代币治理模块，用于多签主体发起资产发行及后续治理。<br><span class="whitepaper-en">onchainissue is the native user-token governance module for multisig subjects to propose asset issuance and subsequent governance.</span>
 
 ## 5.9.交易模组<br><span class="whitepaper-heading-en">5.9. transaction</span>
 
@@ -604,45 +604,43 @@ VOTING → PASSED → EXECUTED
 * 只有管理员或公民实际投出一票时由签名者支付固定1元投票费；机构操作由 actor CID 的唯一费用账户支付最低0.1元链上交易费，管理员只负责签名；tip 固定为0且禁止使用，免费调用不收取任何费用，未归类或付款关系不成立的调用直接拒绝；<br><span class="whitepaper-en">Only an administrator or citizen who actually casts a ballot pays the fixed 1-yuan voting fee as the signer. An institution operation is charged the minimum 0.1-yuan on-chain fee to the unique fee account of the actor CID, while the administrator only signs. The tip is fixed at zero and disabled, free calls charge nothing, and any unclassified call or call with an invalid payer relationship is rejected.</span>
 * 链上交易费按80%:10%:10%分配：80%给当前区块作者绑定的奖励钱包，10%给国家储委会费用账户，10%给安全基金账户；<br><span class="whitepaper-en">On-chain transaction fees are distributed at 80%:10%:10%: 80% to the reward wallet bound by the current block author, 10% to the National Reserve Committee fee account, and 10% to the safety fund account.</span>
 * 当区块作者缺失、奖励钱包未绑定、国家储委会费用账户缺失或安全基金账户无法入账时，对应手续费份额销毁并留下链上事件，不会错误打入未知账户；<br><span class="whitepaper-en">If the block author is missing, the reward wallet is unbound, the National Reserve Committee fee account is missing, or the safety fund account cannot receive funds, the corresponding fee share is destroyed with an on-chain event and is not misdirected to an unknown account.</span>
-* 按链下清算模块的预留设计，批次上链时，清算本金和清算手续费由 offchain 模块按清算规则执行，链上手续费适配层不对清算本金重复收取0.1%的链上金额交易费。<br><span class="whitepaper-en">Under the reserved off-chain clearing design, when a batch is submitted on-chain, the clearing principal and clearing fee are executed by the offchain module under off-chain clearing rules. The on-chain fee adapter does not duplicate the 0.1% on-chain amount fee on the clearing principal.</span>
+* 批次上链时，清算本金和清算手续费由 offchain 模块按清算规则执行，链上手续费适配层不对清算本金重复收取0.1%的链上金额交易费。<br><span class="whitepaper-en">When a batch is submitted on-chain, the clearing principal and clearing fee are executed by the offchain module under off-chain clearing rules. The on-chain fee adapter does not duplicate the 0.1% on-chain amount fee on the clearing principal.</span>
 
 ### 5.9.2.链下交易<br><span class="whitepaper-heading-en">5.9.2. offchain</span>
 
-* offchain 模块已包含部分业务实现，但当前 Runtime 整体拒绝其开户、充值、提现、换行、批次结算、费率及节点登记等外部调用，链下清算尚未对外开放。以下为模块的预留业务规则，须完成业务、授权、费用及执行验证并经公民协议升级后才能启用。<br><span class="whitepaper-en">The offchain module contains partial business implementations, but the Runtime currently rejects all external calls for account opening, deposits, withdrawals, bank switching, batch settlement, fee rates, and node registration. Off-chain clearing is not yet publicly available. The rules below describe the reserved design; activation requires completion and validation of its business, authorization, fee, and execution rules, followed by a Runtime upgrade.</span>
-
-* 按预留设计，链下交易由注册清算行全节点执行；用户绑定清算行建立存款账本关系，充值资金进入该机构的独立清算账户，提现资金从清算账户转回用户账户；<br><span class="whitepaper-en">Under the reserved design, registered clearing-bank full nodes execute off-chain transactions. Binding a bank establishes the user’s deposit-ledger relationship. Deposits enter the institution’s separate clearing account, and withdrawals return funds from that clearing account to the user.</span>
+* 链下交易由注册清算行全节点执行；用户绑定清算行建立存款账本关系，充值资金进入该机构的独立清算账户，提现资金从清算账户转回用户账户；<br><span class="whitepaper-en">Registered clearing-bank full nodes execute off-chain transactions. Binding a bank establishes the user’s deposit-ledger relationship. Deposits enter the institution’s separate clearing account, and withdrawals return funds from that clearing account to the user.</span>
 * 用户切换清算行前须先清空原清算行存款余额；链上按机构CID记录用户当前绑定清算行、用户存款余额和清算行总存款，并以清算账户余额核对用户存款准备金，主账户不作为用户存款资金池；<br><span class="whitepaper-en">Before switching banks, the user must clear the deposit balance at the previous bank. On-chain records keyed by institution CID track the user’s bound bank, individual deposits, and total bank deposits. The clearing-account balance is checked against user-deposit reserves; the main account is not the user-deposit pool.</span>
 * 扫码支付时，付款方用公民轻节点签署 PaymentIntent，PaymentIntent 包含付款方、付款方清算行、收款方、收款方清算行、金额、手续费、nonce 和过期区块；<br><span class="whitepaper-en">For QR-code payment, the payer signs a PaymentIntent with the citizen light node. The PaymentIntent contains the payer, payer clearing bank, recipient, recipient clearing bank, amount, fee, nonce, and expiration block.</span>
 * 公民把签名 PaymentIntent 发送给收款方清算行，收款方清算行攒批后提交 `submit_offchain_batch`；链上校验付款方签名、双方绑定清算行、批次序号、nonce、防重放、余额、费率和清算行管理员签名；<br><span class="whitepaper-en">CitizenApp sends the signed PaymentIntent to the recipient-side clearing bank, which batches payments and submits `submit_offchain_batch`. On-chain validation checks the payer signature, both users' bound clearing banks, batch sequence, nonce, anti-replay rules, balances, fee rate, and clearing-bank administrator signature.</span>
 * 同行支付由同一清算行内部轧差，本金在存款账本内转移，手续费从清算账户转入本行费用账户；跨行支付由收款方清算行主导 settlement，本金从付款方清算账户转入收款方清算账户，手续费从付款方清算账户转入收款方费用账户；<br><span class="whitepaper-en">Same-bank payments move principal within the bank’s deposit ledger, while fees move from its clearing account to its fee account. For cross-bank payments, the recipient-side bank leads settlement: principal moves from the payer-side clearing account to the recipient-side clearing account, and fees move from the payer-side clearing account to the recipient-side fee account.</span>
 * 链下交易手续费由付款用户承担，费率范围为0.01%至0.1%，单笔最低0.01元；手续费归实际执行 settlement 的收款方清算行，不进入链上80%:10%:10%分账。<br><span class="whitepaper-en">The payer bears the off-chain transaction fee. The fee-rate range is 0.01% to 0.1%, with a minimum of 0.01 yuan per transaction. The fee belongs to the recipient-side clearing bank that actually executes settlement and does not enter the on-chain 80%:10%:10% fee split.</span>
 
-### 5.9.3.多签名链上交易<br><span class="whitepaper-heading-en">5.9.3. multisig</span>
+### 5.9.3.链上多签交易<br><span class="whitepaper-heading-en">5.9.3. multisig</span>
 
-* 多签名链上交易是机构多签账户、个人多签账户共用的转账交易子模块，只处理多签账户授权后的链上转账，不处理链下清算流程；<br><span class="whitepaper-en">Multisignature on-chain transaction is the transfer submodule shared by institutional multisig accounts and personal multisig accounts. It handles on-chain transfers after multisig-account authorization and does not process off-chain clearing flows.</span>
-* 多签名链上转账按链上金额交易规则收取手续费，并进入全节点、国家储委会费用账户和安全基金账户的80%:10%:10%分账。<br><span class="whitepaper-en">Multisignature on-chain transfers are charged under the on-chain amount-transaction fee rule and enter the 80%:10%:10% split among full nodes, the National Reserve Committee fee account, and the safety fund account.</span>
+* 链上多签交易是机构多签账户、个人多签账户共用的转账交易子模块，只处理多签账户授权后的链上转账，不处理链下清算流程；<br><span class="whitepaper-en">Multisignature on-chain transaction is the transfer submodule shared by institutional multisig accounts and personal multisig accounts. It handles on-chain transfers after multisig-account authorization and does not process off-chain clearing flows.</span>
+* 链上多签转账按链上金额交易规则收取手续费，并进入全节点、国家储委会费用账户和安全基金账户的80%:10%:10%分账。<br><span class="whitepaper-en">Multisignature on-chain transfers are charged under the on-chain amount-transaction fee rule and enter the 80%:10%:10% split among full nodes, the National Reserve Committee fee account, and the safety fund account.</span>
 
 * 支持以太坊地址的转账入口统一解析收款账户，并在签名和提交时使用同一账户结果。机构普通转账、两和基金及安全基金转账遵循各自链上授权；费用账户划转仍只能转入本机构主账户。<br><span class="whitepaper-en">Transfer entry points that accept Ethereum addresses resolve the recipient consistently for both signing and submission. Ordinary institutional transfers and Reconciliation Fund and Safety Fund transfers retain their respective on-chain authorization rules. Fee-account sweeps remain restricted to the same institution’s main account.</span>
 
 ## 5.10.其他模组<br><span class="whitepaper-heading-en">5.10. misc</span>
 
-### 5.10.1.链上公民身份<br><span class="whitepaper-heading-en">5.10.1. identity</span>
+### 5.10.1.公民身份<br><span class="whitepaper-heading-en">5.10.1. identity</span>
 
 * 登记投票身份；<br><span class="whitepaper-en">Register voting identities.</span>
 * 升级参选身份；<br><span class="whitepaper-en">Upgrade candidate identities.</span>
 * 维护链上人口统计和人口快照。<br><span class="whitepaper-en">Maintain on-chain population counts and population snapshots.</span>
 * 链上公民身份模块只保存投票和参选所需的最小字段，不内嵌投票流程；具体投票创建、资格快照、计票、通过或否决判定均归属投票引擎。<br><span class="whitepaper-en">The on-chain identity module stores only the minimum fields required for voting and candidacy and shall not embed voting flows. Proposal creation, eligibility snapshots, tallying, and pass-or-reject determination all belong to the voting engine.</span>
 
-### 5.10.2.工作量难度模块<br><span class="whitepaper-heading-en">5.10.2. difficulty</span>
+### 5.10.2.工作量难度<br><span class="whitepaper-heading-en">5.10.2. difficulty</span>
 
 * 动态调整pow工作量证明难度。<br><span class="whitepaper-en">Dynamically adjust Proof-of-Work difficulty.</span>
 
-### 5.10.3.地址变更上链<br><span class="whitepaper-heading-en">5.10.3. address</span>
+### 5.10.3.地址变更<br><span class="whitepaper-heading-en">5.10.3. address</span>
 
 * address 负责行政区地址变更的链上记录，维护地址目录版本及哈希、地址名称和单条地址的版本及哈希，并产生新增、修改和删除事件。完整地址库由链上中国的本地地址库维护，节点按链上事件同步变更。<br><span class="whitepaper-en">address records administrative-address changes on chain. It maintains the catalog version and hash, versions and hashes for address names and individual addresses, and events for additions, modifications, and deletions. OnChina maintains the full local address catalog, and nodes synchronize changes from on-chain events.</span>
 * 地址更新须由有权注册局以机构CID、岗位码和签名账户发起；涉及具体地址的操作同时校验省、市授权范围。平台录入不能代替链上权限校验，地址版本和哈希用于核对同步结果。<br><span class="whitepaper-en">Address updates must be initiated by an authorized Registry using its institution CID, role code, and signing account. Operations on specific addresses also verify provincial and city authorization scope. Platform data entry does not replace on-chain authorization checks; address versions and hashes support synchronization verification.</span>
 
-### 5.10.4.广场内容与会员订阅<br><span class="whitepaper-heading-en">5.10.4. square</span>
+### 5.10.4.广场与订阅<br><span class="whitepaper-heading-en">5.10.4. square</span>
 
 * square 负责广场公文、文章和视频的链上发布索引，记录发布者CID、内容哈希和存储回执等发布凭据。文章正文和媒体文件保存在链下内容存储中，链上索引用于核验发布事实和内容对应关系。<br><span class="whitepaper-en">square provides on-chain publication indexes for public documents, articles, and videos, recording publication evidence such as the publisher CID, content hash, and storage receipt. Article bodies and media files remain in off-chain content storage; the on-chain index verifies publication and its association with the content.</span>
 * square 同时维护平台和创作者会员订阅方案，提供用户签名订阅、换档和取消，并按已确认的链上共识时间及UTC公历周期处理到期续费。订阅状态形成持续扣款授权，签名取消后停止续扣；平台会员价格调整经有权机构岗位发起内部投票执行，具体规则由 Runtime 校验。<br><span class="whitepaper-en">square also maintains platform and creator membership plans, with user-signed subscription, plan changes, and cancellation. Due renewals follow confirmed on-chain consensus time and UTC calendar periods. Subscription state records continuing debit authorization, and signed cancellation stops renewals. Authorized institutional roles propose platform membership price changes through internal voting, with the concrete rules enforced by the Runtime.</span>
@@ -680,16 +678,16 @@ VOTING → PASSED → EXECUTED
 
 ## 6.5.链下清算行<br><span class="whitepaper-heading-en">6.5. OffChain Clearing Banks</span>
 
-* 链下清算行是全节点的预留清算角色，设计要求符合资格的私法人股份公司及其非法人分支机构完成链上注册和节点声明；当前 offchain 外部调用被 Runtime 整体拒绝，清算业务尚未开放。<br><span class="whitepaper-en">OffChain Clearing Banks are a planned clearing role of full nodes. The design requires eligible private joint-stock companies or their unincorporated branches to complete on-chain registration and node declaration. The Runtime currently rejects all external offchain calls, and clearing services are not yet available.</span>
-* 预留业务包括绑定、充值、提现、切换和扫码支付清算；扫码支付由公民端签署支付意图，收款方清算行批量提交链上结算，用户存款及结算本金均由独立清算账户承载。<br><span class="whitepaper-en">The planned services include binding, deposits, withdrawals, switching, and QR-payment clearing. CitizenApp signs payment intents, and the recipient-side clearing bank submits settlement batches. Separate clearing accounts hold user deposits and settlement principal.</span>
-* 按预留规则，链下清算校验清算账户余额、用户绑定关系、批次签名、nonce、防重放和清算行管理员签名；清算手续费进入实际执行 settlement 的收款方清算行费用账户。<br><span class="whitepaper-en">The reserved rules validate clearing-account balances, user-bank bindings, batch signatures, nonces, replay protection, and clearing-bank administrator signatures. Clearing fees enter the fee account of the recipient-side clearing bank that performs settlement.</span>
+* 链下清算行是全节点的链下清算角色，符合资格的私法人股份公司及其非法人分支机构须完成链上注册和节点声明。<br><span class="whitepaper-en">OffChain Clearing Banks are full nodes that perform off-chain clearing. Eligible private joint-stock companies or their unincorporated branches must complete on-chain registration and node declaration.</span>
+* 业务包括绑定、充值、提现、切换和扫码支付清算；扫码支付由公民端签署支付意图，收款方清算行批量提交链上结算，用户存款及结算本金均由独立清算账户承载。<br><span class="whitepaper-en">The services include binding, deposits, withdrawals, switching, and QR-payment clearing. CitizenApp signs payment intents, and the recipient-side clearing bank submits settlement batches. Separate clearing accounts hold user deposits and settlement principal.</span>
+* 链下清算校验清算账户余额、用户绑定关系、批次签名、nonce、防重放和清算行管理员签名；清算手续费进入实际执行 settlement 的收款方清算行费用账户。<br><span class="whitepaper-en">The clearing rules validate clearing-account balances, user-bank bindings, batch signatures, nonces, replay protection, and clearing-bank administrator signatures. Clearing fees enter the fee account of the recipient-side clearing bank that performs settlement.</span>
 
 ****
 # 7.链上中国<br><span class="whitepaper-heading-en">7. OnChina</span>
 
 ## 7.1.简介<br><span class="whitepaper-heading-en">7.1. Overview</span>
 
-* 链上中国（OnChina）是公民链节点内置的机构业务平台，由注册局、立法院、司法院和私权机构四个模块组成。在节点桌面端的「链上中国」页面启动平台后，点击模块进入系统默认浏览器，通过钱包扫码登录，按机构身份和岗位权限进入对应工作台。<br><span class="whitepaper-en">OnChina is an institutional business platform embedded in the CitizenChain node. It consists of four modules: registry, legislation, judicial, and private. After starting the platform from the desktop’s OnChina tab, users open a module in the system’s default browser, sign in by scanning with their wallet, and access the corresponding workspace according to their institution and role permissions.</span>
+* 链上中国（OnChina）是公民链节点内置的机构业务平台，目前已接入注册局、立法院、司法院和私权机构四个模块，未来可按业务需要接入更多模块，统一使用平台登录与权限管理。在节点桌面端的「链上中国」页面启动平台后，点击模块进入系统默认浏览器，通过钱包扫码登录，按机构身份和岗位权限进入对应工作台。<br><span class="whitepaper-en">OnChina is an institutional business platform embedded in the CitizenChain node. It currently integrates four modules: registry, legislation, judicial, and private. More modules can be integrated as business needs evolve, sharing the platform’s login and permission management. After starting the platform from the desktop’s OnChina tab, users open a module in the system’s default browser, sign in by scanning with their wallet, and access the corresponding workspace according to their institution and role permissions.</span>
 
 ## 7.2.平台框架<br><span class="whitepaper-heading-en">7.2. Platform Framework</span>
 
@@ -710,7 +708,6 @@ VOTING → PASSED → EXECUTED
 ## 7.5.司法院<br><span class="whitepaper-heading-en">7.5. judicial</span>
 
 * 司法院模块为司法院管理员提供本机构工作台，展示机构资料、管理员及账户信息，并按岗位权限组织司法业务入口。<br><span class="whitepaper-en">The judicial module provides an institutional workspace for its administrators, displaying institutional information, administrators, and accounts, with judicial business entries organized by role permissions.</span>
-* 当前以机构信息展示和账户管理为基础；护宪终审等业务按照实际实现和授权状态开放，不将尚未开放的入口视为已具备的司法功能。<br><span class="whitepaper-en">The current workspace provides institutional information and account management. Functions such as final constitutional review become available according to their implementation and authorization status; unavailable entries do not represent implemented judicial functions.</span>
 
 ## 7.6.私权机构<br><span class="whitepaper-heading-en">7.6. private</span>
 
@@ -720,11 +717,11 @@ VOTING → PASSED → EXECUTED
 ****
 # 8.公民<br><span class="whitepaper-heading-en">8. CitizenApp</span>
 
-## 8.1.公民移动端<br><span class="whitepaper-heading-en">8.1. CitizenApp Mobile Clients</span>
+## 8.1.公民移动端<br><span class="whitepaper-heading-en">8.1. CitizenApp</span>
 
-* 公民（CitizenApp）是公民链轻节点软件，iOS、Android端；公民承担热钱包、链上状态查询、交易提交、公民身份确认、投票交互、治理交互和去中心化通信入口职责，清算支付入口按 offchain 模块的启用状态开放。<br><span class="whitepaper-en">CitizenApp is CitizenChain light-node software for iOS and Android. It serves as the entry point for the hot wallet, on-chain state queries, transaction submission, citizen identity confirmation, voting interaction, governance interaction, and decentralized communication. Clearing-payment interfaces depend on activation of the offchain module.</span>
+* 公民（CitizenApp）是公民链轻节点软件，iOS、Android端；公民承担热钱包、链上状态查询、交易提交、公民身份确认、投票交互、治理交互、去中心化通信和清算支付入口职责。<br><span class="whitepaper-en">CitizenApp is CitizenChain light-node software for iOS and Android. It serves as the entry point for the hot wallet, on-chain state queries, transaction submission, citizen identity confirmation, voting interaction, governance interaction, decentralized communication, and clearing payments.</span>
 * CitizenApp 的产品边界只包含 iOS、Android 移动端和移动端所需的本地实现；Cloudflare Worker、数据库、对象存储、队列和服务端发布流程不属于 CitizenApp 产品目录。<br><span class="whitepaper-en">The CitizenApp product boundary contains only the iOS and Android mobile clients and their required local implementation. Cloudflare Workers, databases, object storage, queues, and server deployment workflows are not part of the CitizenApp product directory.</span>
-* 公民端预留清算行绑定、充值、提现和扫码支付入口；当前 offchain 调用尚未由 Runtime 开放。按设计，扫码支付由公民端签署 PaymentIntent 并发送给收款方清算行，启用条件和资金路径见5.9.2。<br><span class="whitepaper-en">CitizenApp reserves interfaces for bank binding, deposits, withdrawals, and QR payments; the Runtime does not currently enable external offchain calls. Under the design, CitizenApp signs a PaymentIntent and sends it to the recipient-side clearing bank. Activation requirements and fund flows are described in Section 5.9.2.</span>
+* 公民端提供清算行绑定、充值、提现和扫码支付入口；扫码支付由公民端签署 PaymentIntent 并发送给收款方清算行，资金路径见5.9.2。<br><span class="whitepaper-en">CitizenApp provides interfaces for bank binding, deposits, withdrawals, and QR payments. It signs a PaymentIntent for a QR payment and sends it to the recipient-side clearing bank. Fund flows are described in Section 5.9.2.</span>
 * 公民的热钱包负责联网广播、余额查询、清算行绑定、扫码支付和投票交互；任何涉及资产、公民身份确认、投票或治理的敏感动作，均必须经过账户签名授权。钱包私钥不得交给注册局、Cloudflare 边缘服务、清算行、网站前端或任何链下服务。<br><span class="whitepaper-en">The CitizenApp hot wallet is responsible for networked broadcasting, balance queries, clearing-bank binding, QR-code payment, and voting interaction. Any sensitive action involving assets, citizen identity confirmation, voting, or governance must be authorized by an account signature. Wallet private keys must never be handed to registries, Cloudflare edge services, clearing banks, web frontends, or any off-chain service.</span>
 * 公民提供隐私优先的即时通信能力；永久 `cid_number` 是聊天、会话、设备池和投递的唯一身份键，CID 当前 finalized 绑定的 `account_id` 只负责签名鉴权与付款。消息使用 OpenMLS 端到端加密，消息、会话和联系人本地记录保存在用户设备的系统保护私有目录；通讯录另有经设备认证的R2备份，备份记录包括联系人公民号、用户备注和R2对象更新时间，不保存账户地址、聊天正文或钱包私钥；不超过 100MB 的附件通过 WebRTC DataChannel 设备直连，超过 100MB 的薪火会员附件才允许以客户端加密密文进入 R2 瞬时中转，并在领取确认或 24 小时后删除。Cloudflare 不取得聊天和附件的解密密钥或正文，聊天链路提供瞬时密文信封/信令转发、无内容推送、一次性 KeyPackage 和上述限时附件密文中转；通讯录CID及备注则作为可读元数据单独存储在R2，按属主认证限制访问。<br><span class="whitepaper-en">CitizenApp provides privacy-first instant messaging. The permanent `cid_number` is the sole identity key for chats, conversations, device pools, and delivery; the CID's currently finalized `account_id` is used only for signature authorization and payment. Messages use OpenMLS end-to-end encryption, and local message, conversation, and contact records are stored in system-protected private directories on user devices. A separate device-authenticated R2 contact backup contains contact CIDs, user remarks, and R2 object update times, but no account addresses, chat bodies, or wallet private keys. Attachments up to 100 MB travel directly between devices over WebRTC DataChannel; only Spark-plan attachments above 100 MB may enter R2 as client-encrypted transient relay ciphertext and are deleted after acknowledgment or 24 hours. Cloudflare does not obtain chat or attachment decryption keys or plaintext. The chat path provides transient ciphertext-envelope and signaling relay, content-free notifications, one-time KeyPackages, and the time-limited encrypted attachment relay described above. Contact CIDs and remarks are stored separately in R2 as readable metadata, with access restricted by owner authentication.</span>
 * 钱包账户与MLS身份职责分离。每个CID的本机设备仅复用同一持久MLS身份；首次登记由当前finalized绑定账户对该MLS公钥签署0x1C授权，普通会话与请求认证复用同一MLS身份的受限应用证明。聊天和附件使用MLS加密。通讯录备份以设备MLS身份认证，本地私有记录保存在系统保护目录。新设备须由有效MLS成员通过KeyPackage、Welcome和Commit加入；MLS历史状态全部丢失时，钱包签名不能恢复旧密文。接收设备不可达时，发送端保留本地待发送记录并按现有唤醒与重试规则处理。<br><span class="whitepaper-en">Wallet accounts and MLS identities have separate responsibilities. Each local device for a CID reuses one persistent MLS identity. Initial registration is authorized by the currently finalized wallet account signing that MLS public key under 0x1C; ordinary session and request authentication reuse the same MLS identity for bounded application proofs. Chats and attachments use MLS encryption. Contact backups authenticate with the device MLS identity, and private local records remain in system-protected directories. A new device joins through an authorized MLS member using KeyPackage, Welcome, and Commit. If all historical MLS state is lost, a wallet signature cannot recover old ciphertext. When a recipient is unavailable, the sender retains local pending records and follows the existing wake-up and retry rules.</span>
@@ -734,7 +731,7 @@ VOTING → PASSED → EXECUTED
 
 * 公民服务端（CitizenServe）是与 CitizenApp 移动端完全分离的 Cloudflare 云服务产品，独立保存于 `citizenserve` 产品目录，负责瞬时密文信封与信令转发、无内容推送、受限附件中转、公开媒体、会员投影、链事件投影和其他明确登记的链下能力。<br><span class="whitepaper-en">CitizenServe is a Cloudflare cloud-service product fully separated from the CitizenApp mobile clients. It is maintained in the independent `citizenserve` product directory and provides transient ciphertext-envelope and signaling relay, content-free notifications, restricted attachment relay, public media, membership projections, chain-event projections, and other explicitly registered off-chain capabilities.</span>
 * CitizenServe 转发聊天密文。经设备认证的通讯录备份在R2以属主CID和联系人CID定位对象，保存用户备注，并以R2对象更新时间返回 updated_at；不保存账户地址。钱包私钥、签名和链上授权仍由移动端及链上协议各自处理。CitizenApp 是服务调用方，CitizenServe 是独立服务提供方，两者通过公开且受测试的接口契约协作。<br><span class="whitepaper-en">CitizenServe relays encrypted chat. Device-authenticated contact backups identify R2 objects by owner CID and contact CID, store the user remark, and return the R2 object update time as updated_at; they do not store account addresses. Wallet key custody, signing, and on-chain authorization remain with their respective clients and protocols. CitizenApp is a service client and CitizenServe is an independent service provider; they cooperate through public, tested interface contracts.</span>
-* CitizenServe 的 Cloudflare 端分别执行独立 CI、Release 和 Publish 动作；三个动作的任务记录、正式产物和清理范围按产品、端、动作独立计算，不得与 CitizenApp 或 CitizenWeb 合并。<br><span class="whitepaper-en">CitizenServe's Cloudflare target runs independent CI, Release, and Publish actions. Their task records, formal artifacts, and cleanup scopes are calculated independently by product, target, and action and must not be merged with CitizenApp or CitizenWeb.</span>
+* 公民服务端通过注册门禁（logingate）核验链上身份、账户绑定、设备、会话及请求签名，防止冒用和重复请求；通过会员门禁（membergate）按会员资格、有效期及资源额度控制业务访问，未通过核验的受保护请求不予放行。<br><span class="whitepaper-en">CitizenServe uses logingate to verify on-chain identities, account bindings, devices, sessions, and request signatures, preventing impersonation and replay. It uses membergate to control service access according to membership eligibility, validity, and resource quotas. Protected requests are denied when verification fails.</span>
 
 ****
 # 9.公民钱包<br><span class="whitepaper-heading-en">9. CitizenWallet</span>

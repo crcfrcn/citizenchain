@@ -360,13 +360,17 @@ ADR-039 已冻结机构岗位权限目标模型。任务卡第 2 步已落地共
 - 定义 `InstitutionCidQuery`，供 `publicentity` 和 `privateentity` 互查 CID 是否已登记，防止同一 CID 在多个生命周期模块重复写入。
 - 定义 `CidInstitutionVerifier`，统一 CID 机构登记、注销凭证验签接口。
 - 定义 `InstitutionGovernanceAction` 与 `InstitutionGovernanceProposal`，统一表达本机构内部治理中的 `admins` 完整替换、`InstitutionRoleMutation::{Create,Rename,Delete}`、任职变更和法定代表人结构整体设置或清空；创建岗位不接收 `role_code`，必须原子携带不可变权限和初始任职。
-- 定义 `InstitutionGovernanceResult`，作为创世、注册局、投票/选举引擎和本机构内部治理写入 entity 岗位、任职、法定代表人的唯一结果协议。
+- 定义 `InstitutionGovernanceResult`，承载投票/选举及本机构治理的真实结果；登记call 9复用同一岗位/权限/任职变更结构和实体应用核心，使用Registry来源，不伪造投票结果。创世继续使用原专用初始化入口。
 - 已定义 `RoleSubject { cid_number, role_code }`，作为机构业务授权和机构岗位投票资格的唯一主体。
 - 已定义 `BusinessActionId { module_tag, action_code: u32 }`、`RoleBusinessPermission { role_subject, business_action_id, operation }` 和 `AuthorizationSubject` 强类型；个人多签使用 discriminant `1` 的独立 `PersonalMultisig(AccountId)` 变体。
 - `RolePermissionOperation` 的 SCALE discriminant 固定为 `Propose = 0`、`Vote = 1`；`AuthorizationSubject` 固定为 `Institution = 0`、`PersonalMultisig = 1`。
 - 跨端 SCALE 金标唯一文件为受保护测试资产 `citizenchain/runtime/primitives/tests/fixtures/role_permission.json`；Node 使用本 crate 共享类型逐字节解码，OnChina、CitizenApp、CitizenWallet 对同一金标严格解码并拒绝尾随字段。
 - 定义 `InstitutionCapabilityPolicy` 与 `InstitutionRoleAuthorizationQuery`，供业务模块校验“CID 顶层能力 + 岗位权限 + 有效任职”；本 crate 只定义 trait，不保存权限 storage、不选择投票引擎。
 - `business_action.rs` 是稳定 `module_tag/action_code` 与受保护创世岗位固定权限唯一目录；协议升级与决议发行采用同一联合权限矩阵：NRC/PRC 委员岗位拥有 `Propose + Vote`，PRB 正式 `DIRECTOR / 董事` 只有 `Vote`。该目录不选择投票引擎，也不表示尚未迁移的业务已经按岗位执法。
+- CREG 顶层登记业务能力由同文件 `registry_institution_capability_allows` 单源声明，不属于固定创世岗位目录，也不创建岗位、权限或任职。仅允许 `Propose`：`cit-id` 的 0/1/2/3/4/6/7/8、`addr-reg` 的 1/2/3/4、`ins-reg` 的 0；全国地址目录版本 `addr-reg/0`、未列出的动作与 `Vote` 均不在新增范围。
+- Runtime 先确认完整 CID 唯一存在于公权 entity，才接入上述目录；私权命名空间、重复 CID、未登记机构均不得借 CREG 类型取得能力。实际业务继续同时校验在册管理员、准确岗位主体、具体权限、有效任职和原有辖区；实名身份与地址限本市，匿名 CID 保持原有全国注册局规则，CREG 不得登记其它 CREG。
+- 2026-11-14 分步实施第1步只补齐上述顶层能力及 OnChina 候选查询的一致性，不改变管理员登记 call 9、首次岗位初始化或任何 SCALE 编码。复用现有 `role_permission.json` 金标，新增测试夹具在原测试文件内定义；后续步骤另行确认。
+- 第1步验收：`cargo test -p entitybase --lib --locked --offline` 15项通过；`cargo test -p runtime --lib --locked --offline` 85项通过、0失败、2项原有性能用例按既有固定环境要求忽略。新增断言覆盖唯一公权实体、无管理员/权限/有效任职拒绝、实名和地址跨辖区拒绝、全国目录版本拒绝及匿名CID原规则。`cargo check -p entitybase -p runtime -p onchina --locked --offline` 和差异格式检查通过；编译仍有既有未使用项/依赖兼容性提示，不扩大本步文件修改范围。
 - 机构内 `role_code` 与 `role_name` 分别唯一；同名多人属于一个岗位的多个任职席位。一个管理员可以担任多个不同岗位，但同一岗位内不得重复占席。
 - 每个机构唯一的 `LR / 法定代表人` 岗位永久存在，任职只能为 0 或 1 人；法定代表人结构与 LR 任职必须原子一致。岗位不保存阈值，阈值属于机构或业务绑定的投票计划。
 - 复用 `primitives::multisig` 的账户校验、保留地址、保护地址 trait。
@@ -412,7 +416,7 @@ pending 处理。
 - 创建 call：`propose_create`
 - 关闭 call：`propose_close`
 - call index 2 永久留洞，不复用。否决、超时和执行失败后的 pending/预留款清理由
-  votebase 终态回调自动完成，不存在人工清理交易。
+  engingcore 终态回调自动完成，不存在人工清理交易。
 
 ### privateentity 技术说明
 
@@ -449,7 +453,7 @@ pending 处理。
 - `propose_close_private_institution`（call 1）：严格使用 `actor_cid_number + proposer_role_code + institution_account + origin`；只有拥有 `pri-mgmt/2 + Propose` 的有效岗位任职人可发起，投票主体来自拥有对应 `Vote` 权限的岗位，并校验账户属于该 CID 且为自定义账户。
 - `apply_institution_governance_result` 是内部回调。call 0、call 4 与 call 5 永久留洞，不复用、
   不兼容；关闭提案否决、超时或执行失败后的 `InstitutionPendingClose` 只由
-  votebase 终态回调清除，不存在人工清理交易。
+  engingcore 终态回调清除，不存在人工清理交易。
 
 #### 费用与 ED
 
@@ -461,7 +465,7 @@ pending 处理。
 
 - 只接受私权法人和非法人机构码；跨 namespace CID 重复校验通过 `entitybase::InstitutionCidQuery`。
 - ADR-039 目标外层 origin 必须属于 admins，并对目标 `RoleSubject` 有有效任职和业务权限；注册局凭证只作背书，不构成第二授权。
-- 本模块不实现投票或转账；投票归 votebase，机构账户转账归 `multisig`。
+- 本模块不实现投票或转账；投票归 engingcore，机构账户转账归 `multisig`。
 - 本模块作为 entity 不决定具体业务使用哪个投票引擎；该决定必须静态写在对应业务模块。
 - pallet index：`31`；`MODULE_TAG = b"pri-mgmt"`。
 - 不兼容旧 storage、旧 call payload、旧解码或旧创世数据。
@@ -501,7 +505,7 @@ pending 处理。
 - `propose_close_public_institution`（call 1）：账户型交易，严格使用 `actor_cid_number + proposer_role_code + institution_account + origin`；只有拥有 `pub-mgmt/2 + Propose` 的有效岗位任职人可发起，投票主体来自拥有对应 `Vote` 权限的岗位，只允许关闭该 CID 下自定义账户。
 - `apply_institution_governance_result` 是内部回调，不是 extrinsic。
 - call 0、call 4 与 call 5 永久留洞，不复用、不兼容；关闭提案否决、超时或执行失败后的
-  `InstitutionPendingClose` 只由 votebase 终态回调清除，不存在人工清理交易。
+  `InstitutionPendingClose` 只由 engingcore 终态回调清除，不存在人工清理交易。
 
 #### 费用与 ED
 
@@ -513,9 +517,9 @@ pending 处理。
 
 - 只接受公权机构码；跨公私权 CID 重复校验通过 `entitybase::InstitutionCidQuery`。
 - 创世机构本体、协议账户、岗位和初始任职由 `runtime/genesis/src/institution.rs` 写入相同真源并校验完整账户集合。
-- 本模块不实现投票或转账；投票统一归 votebase，机构账户转账归 `multisig`。
+- 本模块不实现投票或转账；投票统一归 engingcore，机构账户转账归 `multisig`。
 - 本模块作为 entity 只提供岗位、权限、任职和机构生命周期真源；具体业务模块决定动作权限、静态选择投票引擎并执行通过后的业务。
-- 关闭执行器必须处于 votebase callback scope，并重新校验提案 owner、CID、账户归属、已绑定 `RoleSubject` 授权、协议账户不可关闭与受益人。
+- 关闭执行器必须处于 engingcore callback scope，并重新校验提案 owner、CID、账户归属、已绑定 `RoleSubject` 授权、协议账户不可关闭与受益人。
 
 #### ABI
 
@@ -883,8 +887,8 @@ Runtime 测试至少覆盖：
 - 发起机构销毁提案（内部投票提案）。
 - 在提案通过后执行销毁（自动尝试 + 手动重试）。
 
-该模块不实现投票计票逻辑，投票由 `votebase` 承担。
-提案数据、元数据、活跃提案限额均由 `votebase` 统一管控。
+该模块不实现投票计票逻辑，投票由 `engingcore` 承担。
+提案数据、元数据、活跃提案限额均由 `engingcore` 统一管控。
 
 代码位置：
 - `<本仓根>/runtime/governance/destroy/src/lib.rs`
@@ -904,7 +908,7 @@ Runtime 测试至少覆盖：
   - `PRB_ADMIN_COUNT = 9`
 
 投票引擎依赖：
-- `<本仓根>/runtime/votingengine/votebase/src/lib.rs`
+- `<本仓根>/runtime/votingengine/engingcore/src/lib.rs`
 - 使用 trait：
   - `InternalVoteEngine::create_internal_proposal_with_data`
   - `InternalVoteResultCallback`
@@ -937,7 +941,7 @@ pub struct DestroyAction<AccountId, Balance> {
 - `MODULE_TAG = b"res-dst"`：存入 ProposalData 的前缀，用于区分不同业务模块，防止跨模块误解码。
 
 ##### 本模块存储
-无。提案数据、元数据、活跃提案列表均已移至 `votebase` 统一管控（lib.rs:103 注释说明）。
+无。提案数据、元数据、活跃提案列表均已移至 `engingcore` 统一管控（lib.rs:103 注释说明）。
 
 ##### 机构与执行账户
 - `actor_cid_number` 是提案主体的唯一机构主键；业务授权主体还必须包含独立 `proposer_role_code`。
@@ -972,7 +976,7 @@ pub struct DestroyAction<AccountId, Balance> {
 
 - `VotingEngine::retry_passed_proposal(proposal_id)`(pallet 9.4)
 
-签名账户必须属于提案创建时 VotePlan 任一完整岗位主体的 `VoterSnapshot`，权限和重试次数由 `votebase` 统一校验；仅当提案已 `STATUS_PASSED` 且存在 retry state 时可重试执行。用于“提案已通过但自动执行失败（如余额不足）”后的后续重试。
+签名账户必须属于提案创建时 VotePlan 任一完整岗位主体的 `VoterSnapshot`，权限和重试次数由 `engingcore` 统一校验；仅当提案已 `STATUS_PASSED` 且存在 retry state 时可重试执行。用于“提案已通过但自动执行失败（如余额不足）”后的后续重试。
 
 ---
 
@@ -1076,7 +1080,7 @@ cargo test --offline --manifest-path citizenchain/runtime/governance/destroy/Car
 ##### 0.1 模块职责
 `upgrade` 负责把"Runtime wasm 升级"包装成一个受治理约束的链上流程，核心要求是：
 - 仅允许 NRC 和 43 个 PRC 的 `COMMITTEE_MEMBER / 委员` 岗位有效任职账户发起升级提案，仅属于 admins 不构成授权。
-- 升级提案必须先经过 `votebase` 的联合投票。
+- 升级提案必须先经过 `engingcore` 的联合投票。
 - 联合阶段由 `VotePlan` 固定绑定 NRC + 43 PRC 委员岗位和 43 PRB `DIRECTOR / 董事` 岗位；有效任职账户用个人钱包直接上链投票，链上按机构阈值形成机构结果。PRB 董事只有投票权，没有提案权。
 - 联合投票通过后才允许执行 `set_code`。
 - 开发期直升通道只允许国家储委会管理员使用，并且必须受 `DeveloperUpgradeEnabled` 开关约束。
@@ -1085,8 +1089,8 @@ cargo test --offline --manifest-path citizenchain/runtime/governance/destroy/Car
 ##### 0.2 提案创建需求
 - 提案必须携带非空升级理由 `reason`。
 - 提案必须携带非空 wasm `code`。
-- 创建提案时同步在 `votebase` 创建联合投票，使用投票引擎统一分配的 `proposal_id`（本模块不维护独立 ID）。
-- 本模块不接收、不生成、不校验人口快照、联合签名、投票资格和计票数据；这些都属于 `votebase`。
+- 创建提案时同步在 `engingcore` 创建联合投票，使用投票引擎统一分配的 `proposal_id`（本模块不维护独立 ID）。
+- 本模块不接收、不生成、不校验人口快照、联合签名、投票资格和计票数据；这些都属于 `engingcore`。
 
 ##### 0.3 联合投票回调需求
 - 联合投票拒绝时，投票引擎状态保持 `STATUS_REJECTED`。
@@ -1097,7 +1101,7 @@ cargo test --offline --manifest-path citizenchain/runtime/governance/destroy/Car
 
 ##### 0.4 执行失败处理
 - 若联合投票已通过但 `set_code` 执行失败，投票引擎状态进入 `STATUS_EXECUTION_FAILED`。
-- runtime wasm 不再内嵌在摘要结构里，而是统一存入 `votebase::ProposalObject`。
+- runtime wasm 不再内嵌在摘要结构里，而是统一存入 `engingcore::ProposalObject`。
 - 执行成功、拒绝、执行失败后，wasm 对象继续保留到投票引擎 90 天延迟清理统一删除，不由业务模块手工删除。
 
 ##### 0.5 可审计与运维需求
@@ -1111,10 +1115,10 @@ cargo test --offline --manifest-path citizenchain/runtime/governance/destroy/Car
 #### 1. 模块定位
 `upgrade` 是"协议升级治理编排模块"，负责：
 - 接收 NRC/PRC 委员岗位有效任职账户提交的 wasm 升级提案；
-- 调用 `votebase` 创建联合投票；
+- 调用 `engingcore` 创建联合投票；
 - 在联合投票回调后执行 `set_code`；
-- 摘要数据存储在 `votebase` 的 `ProposalData`；
-- 原始 wasm 对象存储在 `votebase` 的 `ProposalObject`；
+- 摘要数据存储在 `engingcore` 的 `ProposalData`；
+- 原始 wasm 对象存储在 `engingcore` 的 `ProposalObject`；
 - 本模块零本地存储。
 
 代码位置：
@@ -1159,16 +1163,16 @@ Runtime 配置位置：
 - `finalize_joint_vote` 手工 extrinsic 已删除，call index `1` 保持空缺。
 - 正常生产路径只能由投票引擎通过 `JointVoteResultCallback` 自动回调本模块，避免 Root 手工回放形成第二条执行入口。
 
-##### 3.1 Proposal（摘要，序列化存入 votebase ProposalData）
+##### 3.1 Proposal（摘要，序列化存入 engingcore ProposalData）
 - `proposer: AccountId`：提案发起人（NRC 或 PRC 委员岗位的有效任职账户）
 - `reason: BoundedVec<u8, MaxReasonLen>`：升级理由
 - `code_hash: Hash`：升级 code 哈希，便于事件与链下审计对齐
 
 说明：
 - `Proposal` 只保存业务展示所需摘要，不保存投票状态。
-- 协议升级真实状态只能读取 `votebase::Proposals.status`。
+- 协议升级真实状态只能读取 `engingcore::Proposals.status`。
 
-##### 3.2 对象层数据（统一存入 votebase ProposalObject）
+##### 3.2 对象层数据（统一存入 engingcore ProposalObject）
 - `kind = 1`：表示 runtime wasm 对象
 - `object_len`：wasm 字节长度
 - `object_hash`：对象哈希
@@ -1178,7 +1182,7 @@ Runtime 配置位置：
 - `MODULE_TAG = b"rt-upg"`：存入 ProposalData 的前缀，用于区分不同业务模块，防止跨模块误解码。
 
 #### 4. 存储模型
-本模块只保留一项本地审计，其余提案数据、投票数据、元数据均存储在 `votebase`：
+本模块只保留一项本地审计，其余提案数据、投票数据、元数据均存储在 `engingcore`：
 - `LastRuntimeUpgradeAudit`：最近一次成功执行的 runtime 升级审计，记录执行路径、code hash、
   旧/新 PoW 参数 hash、执行高度和参数激活高度，供 NodeGuard 验证 `:code` 与 PoW 参数原子绑定。
 - `ProposalData`：存放 `MODULE_TAG + Proposal<T>` 摘要的 SCALE 编码
@@ -1242,7 +1246,7 @@ Runtime 配置位置：
 
 ##### 5.4 投票引擎状态协同
 
-当前实现与 `votebase` 的协作关系如下：
+当前实现与 `engingcore` 的协作关系如下：
 
 - 联合投票通过时，投票引擎先按通用路径把提案写成 `STATUS_PASSED`，再在同一事务中执行本模块回调
 - 联合投票拒绝时，投票引擎保持 `STATUS_REJECTED`
@@ -1300,7 +1304,7 @@ Runtime 层的 `RuntimeJointVoteResultCallback` 负责路由：先尝试 `resolu
 - 联合投票通过且执行成功时写入 `STATUS_EXECUTED`
 - 联合投票拒绝时保持 `STATUS_REJECTED`
 - 联合投票通过但执行失败时写入 `STATUS_EXECUTION_FAILED`
-- 查询层文档已明确：展示真实升级结果时以 votebase 的 `Proposal.status` 为准，业务摘要只用于展示 proposer/reason/code_hash
+- 查询层文档已明确：展示真实升级结果时以 engingcore 的 `Proposal.status` 为准，业务摘要只用于展示 proposer/reason/code_hash
 
 ##### 7.4 已修复风险：benchmark 与实际逻辑不一致
 旧版 benchmark 存在偏差。现已修复：
@@ -1308,15 +1312,15 @@ Runtime 层的 `RuntimeJointVoteResultCallback` 负责路由：先尝试 `resolu
 - `propose_runtime_upgrade` benchmark 已删除人口快照、联合签名、省份和签名管理员公钥参数。
 - benchmark 环境先构建真实创世机构，再写入 NRC/PRC 委员与 PRB 董事岗位、任职和固定权限，不再用 admins 伪装业务授权。
 - 权重已用当前 benchmark runtime WASM、50 steps / 20 repeats 重算：367 reads / 281 writes，参考时间 12.483 s，并真实计入 87 个岗位快照、87 个 CID 有效选民快照与 `ProposalVotePlans`。
-- `finalize_joint_vote` benchmark 与权重项已删除，终结执行成本由 `votebase` 的联合投票终态回调路径覆盖。
+- `finalize_joint_vote` benchmark 与权重项已删除，终结执行成本由 `engingcore` 的联合投票终态回调路径覆盖。
 
 ##### 7.5 已收口入口
-1. `finalize_joint_vote` 手工 Root 入口已删除，只保留 votebase callback。
+1. `finalize_joint_vote` 手工 Root 入口已删除，只保留 engingcore callback。
 
 #### 8. 中文注释覆盖重点
 本模块当前已在以下关键位置补充注释：
 - `RuntimeCodeExecutor` 职责边界
-- `propose_runtime_upgrade` 与 votebase 的职责边界
+- `propose_runtime_upgrade` 与 engingcore 的职责边界
 - 联合投票通过后的执行/失败分叉
 - `ProposalExecutionOutcome::Executed / FatalFailed` 与投票引擎状态的映射原因
 - `on_joint_vote_finalized` 回调入口
@@ -1325,10 +1329,10 @@ Runtime 层的 `RuntimeJointVoteResultCallback` 负责路由：先尝试 `resolu
 已覆盖（当前单测与框架完整性检查共 20 个测试）：
 - NRC 和 PRC 委员岗位有效任职账户可发起提案，普通 staff 即使属于 admins 也被拒绝
 - `VotePlan` 精确绑定 44 个委员主体、43 个董事主体、联合引擎与 runtime WASM 对象哈希
-- 提案摘要与对象数据正确分别存入 votebase
-- 联合投票拒绝时保持 votebase `STATUS_REJECTED`（含 wasm 对象保留到统一清理）
-- 联合投票通过并成功执行进入 votebase `STATUS_EXECUTED`
-- 联合投票通过但执行失败进入 votebase `STATUS_EXECUTION_FAILED`
+- 提案摘要与对象数据正确分别存入 engingcore
+- 联合投票拒绝时保持 engingcore `STATUS_REJECTED`（含 wasm 对象保留到统一清理）
+- 联合投票通过并成功执行进入 engingcore `STATUS_EXECUTED`
+- 联合投票通过但执行失败进入 engingcore `STATUS_EXECUTION_FAILED`
 - 联合投票通过成功时投票引擎状态进入 `STATUS_EXECUTED`
 - `owns_proposal` 能正确识别本模块提案
 - 已终结的提案不可重复终结（`ProposalNotVoting`）
@@ -1358,7 +1362,7 @@ Runtime 集成测试：
 
 #### 用途
 
-MODULE_TAG 是各业务模块在 `votebase` 的 `ProposalData` / `ProposalOwner` 中写入的字节标识。投票引擎本身不解析提案数据内容，但会用 `ProposalOwner` 做 owner 校验，禁止跨模块覆写。各模块在读取时仍需校验前缀或独立存储键，防止误解码。
+MODULE_TAG 是各业务模块在 `engingcore` 的 `ProposalData` / `ProposalOwner` 中写入的字节标识。投票引擎本身不解析提案数据内容，但会用 `ProposalOwner` 做 owner 校验，禁止跨模块覆写。各模块在读取时仍需校验前缀或独立存储键，防止误解码。
 
 #### 适用场景
 
@@ -2274,7 +2278,7 @@ node 端 `calc_offchain_fee` 与链上计算逻辑保持一致。
 
 #### 7.1 治理提案执行与 STATUS_EXECUTED
 
-四类治理动作（rate、verify_key、sweep、relay_submitters）在投票通过后由投票引擎回调本模块执行。执行成功后，本模块调用 `votebase::Pallet::<T>::set_status_and_emit(proposal_id, STATUS_EXECUTED)` 将投票引擎侧的提案状态标记为已执行，防止同一提案被重复执行。
+四类治理动作（rate、verify_key、sweep、relay_submitters）在投票通过后由投票引擎回调本模块执行。执行成功后，本模块调用 `engingcore::Pallet::<T>::set_status_and_emit(proposal_id, STATUS_EXECUTED)` 将投票引擎侧的提案状态标记为已执行，防止同一提案被重复执行。
 
 各动作执行函数：
 - `try_execute_rate`：执行成功后调用 `set_status_and_emit(proposal_id, STATUS_EXECUTED)`
@@ -2504,7 +2508,7 @@ $ cargo check -p offchain-transaction
 - 运行完整单元/集成测试
 
 **Step 2b `set_max_l2_fee_rate` 联合投票**:
-把本步的 `ensure_root(origin)` 入口改为接 `votebase` 联合投票 pallet 的 `JointVoteEngine::execute_if_passed`,让提案通过后再由投票引擎回调本 pallet 的内部执行函数。
+把本步的 `ensure_root(origin)` 入口改为接 `engingcore` 联合投票 pallet 的 `JointVoteEngine::execute_if_passed`,让提案通过后再由投票引擎回调本 pallet 的内部执行函数。
 
 #### 7. 风险与验证后续
 
@@ -2663,7 +2667,7 @@ FeePaid { who: 实际付款账户, fee: 完整手续费 }
 
 #### 定位
 
-`votebase` 是链上中国 runtime 的统一投票引擎。
+`engingcore` 是链上中国 runtime 的统一投票引擎。
 
 全部投票流程只归投票引擎。业务模块只提交提案语义并调用既定投票接口，不得实现、复刻、绕过或内嵌投票流程，不得自行处理人口快照、投票资格、联合签名、状态推进、计票、通过判定或清理状态机。
 
@@ -2692,6 +2696,115 @@ ADR-039 已于 2026-07-19 冻结机构岗位主体目标。任务卡第 5A、5B�
 - 投票引擎不再保存机构 Active/Pending 阈值表，也不通过管理员更换隐式改阈值。个人多签继续使用 `ActivePersonalThresholds[personal_account]`，不受机构阈值重构影响。
 - 固定创世机构的阈值由 genesis 写入 entity，不是岗位阈值。公民链基金会只有一个程伟管理员钱包，但三个固定岗位各一席、机构阈值仍为 2；同一钱包的三项岗位任职已形成三张独立岗位票据，并通过内部投票阈值验收。
 
+#### 第2步：统一机构管理员登记（源码实现，尚未部署）
+
+- 公权/私权继续使用已有 `register_institution_admins` call 9，不增加CREG专用调用或固定岗位。新SCALE顺序统一为 `cid_number + action + actor_cid_number + actor_role_code + expected_state_hash:[u8;32] + initial_threshold:Option<u32>`；`action`复用已有 `InstitutionGovernanceAction`。只接受带管理员名册的ReplaceAdmins及ReplaceAdminsAndMutateRoles，登记不能夹带法定代表人任免；call 8仍只允许本机构治理本机构。
+- 登记前通过原RegistryAuthority校验办理人、actor岗位和目标辖区，再比对授权状态指纹。`registration_state_hash`以所属MODULE_TAG为域，按顺序编码目标CID、机构信息、规范管理员账户集合、按岗位码有序的岗位/权限/任职、现有nonce及阈值。余额不参与；每次成功名册写入同时推进现有InstitutionRoleNonce，包含人员资料变化，使旧快照/重复请求失效；不增加流水表或初始化状态storage。StaleRegistrationState要求刷新并重新审阅签名，不自动覆盖并发变更。
+- 第一次登记以InstitutionGovernanceThresholds缺失判断，必须显式提交动态岗位和初始阈值；默认空LR岗位不能当作已初始化。名册、权限、任职、nonce和阈值在同一个storage transaction提交，任何后续校验失败全部回滚。阈值按具有本机构治理Vote权限的有效岗位席位计数，至少两席且严格过半，并须有有效Propose岗位；不从管理员钱包数量推导。
+- 新增或改任职的Registry来源只接受空的输入assignment_source_ref，由Runtime绑定真实已签名登记载荷（含origin、状态哈希和初始阈值）的引用；存量任职只有人员、任期、状态、来源和引用逐字段与原记录相同时才可保留原来源，追加人员不重写原有任职事实；拒绝伪造来源或来源字段。登记动态岗位使用该引用、MODULE_TAG和现有nonce生成R_码；治理继续使用真实proposal_id及原生成公式，不使用0冒充登记提案。公权/私权共用既有角色校验与原子写入核心，各自入口保持来源边界。
+- 初始化后登记只更新名册和显式任职，不允许重新提交初始阈值或创建/改名/删除岗位；LR及受保护创世岗位的任职只能透传原记录，不能借登记接口改任；岗位定义与权限变化继续通过机构自身治理。未在变更中列出的岗位保持原状，删除人员必须同时处理其现有任职，否则InvalidAssignmentResultAdmins并回滚。
+- 权重覆盖当前快照与登记变更的岗位/权限/任职数量，并按输入编码大小计入额外工作；管理员写入新增nonce读写也计入回调权重。当前权重由原FRAME实测名册成本作保守组合并显式计入新增读写，不冒称整套权重重新跑分。现有benchmark文件扩展n/r初始化夹具，通过FRAME测试模式执行真实dispatch和verify。
+- 本步旧call 9载荷不兼容新格式，已增加拒绝旧编码、公私权字节顺序、原子回滚、状态冲突、来源、阈值和正常追加/删除断言。原角色/权限/任职及call 8编码金标不改。第3步必须同步现有OnChina登记编码和钱包解码；未完成跨端配套前不得部署，也不在本步递增正式链版本或修改创世。
+- 第2步验收：共享类型17项、公权实体25项、私权实体28项全部通过；完整Runtime回归86项通过、0失败、2项原有固定环境性能用例忽略。最终来源保留及受保护任职断言补齐后，实体全套70项再次通过；Runtime复跑85项通过、2项原有性能用例忽略，仅排除此前完整回归已通过且本步未修改的钱包长时费率用例 `wallet_quotes_and_signed_transfers_cover_minimum_rounding_and_percentage_fees`。两份现有benchmark文件各以FRAME测试模式执行最小/测试上限初始化dispatch和verify，共2项基准夹具测试通过；标准编译检查通过。Runtime基准特性检查初次因PATH缺少solc失败，复用本机已安装solc0.8.30/resolc1.0.0的临时工具搜索路径后通过，未安装工具或跳过Revive夹具。正式固定环境性能标定仍属于原第5步，不把测试模式verify冒称为重新生成实测权重。末次标准实体及Runtime整库编译检查再次通过；期间范围外并行改动导致的E0433在另一处工作修正后重跑通过，本步未修改范围外文件。
+
+
+#### 第3步：登记编码与冷签协议对齐（源码实现，尚未部署）
+
+- OnChina现有公私权call 9编码器改为统一typed action及actor、32字节expected_state_hash、Option<u32> initial_threshold，字段顺序与Runtime一致；没有新增调用、CREG固定岗位或storage。共享action枚举及治理call 8布局不变。
+- 读侧同区块读取原始机构记录、Option名册账户锚点、有序岗位/权限/任职、nonce和阈值，经entitybase共享函数生成与Runtime相同的指纹；不使用当前钱包展示投影、余额或中文来源标签生成签名状态。存量二进制来源引用原样保留，新/改任职只传Registry空引用。
+- prepare比对页面已审阅指纹并按登录管理员同区块有效任职、权限和既有辖区确定办理岗位。唯一候选自动确定，多候选选择中文岗位名；未知/失效岗位拒绝。来源及引用由系统从链状态确定，不由输入指定。签名会话的actorCidNumber修正为实际办理注册局CID，保持现有Passkey和统一submit流程。
+- 钱包严格解码登记子集并从签名字节展开岗位权限、初始任职、名册、状态锁及显式首次阈值。对旧编码、来源、阈值/建岗不匹配、LR任免、截断、尾随及公私权动作错配增加断言；一份内联call十六进制金标在真实RuntimeCall解码和钱包解码两侧精确比较，无新夹具文件。
+- 尚未执行链升级或真实链交易；第4步接入现有新增弹窗、链上名册展示与登录办理回归后，再按原计划处理部署验收和固定环境性能标定。
+
+- 第3步验收：`cargo check -p onchina -p onchina-registry --locked --offline`通过；平台162项、注册局52项通过，29项既有PostgreSQL门禁/投影用例按原条件忽略。运行命令为 `cargo test -p onchina -p onchina-registry --locked --offline -- --skip archive_paths_preserve_spaces_quotes_and_owned_configuration_is_idempotent`。该既有归档夹具首次因缺少CITIZENCHAIN_WORK_DIR失败，确认其要求创建目录及配置文件后按本轮禁止新增文件目录的约束排除，未修改或削弱其断言。
+- 协议回归以 `cargo test --manifest-path crates/protocol/Cargo.toml --locked --offline -- --skip working_tree_scan_`执行，38项通过；另3项隔离Git目录夹具同样因未交付工作目录且需新建目录而排除。注册表生成结果与现有Dart文件逐字节一致。真实Runtime的FRG登记CREG、有效任职办理公民业务、跨省拒绝及费用账户用例再次通过。Rust/Dart格式及两仓git diff --check通过。
+- 钱包payload_decoder_test.dart共121项通过：钱包目录没有.dart_tool依赖配置，为不创建配置、脚本或缓存目录，以DartVM的data URI在内存中复用现有依赖配置并加入citizenwallet映射；只将flutter_test导入替换为原Dart Test API及matcher宿主，原测试体和断言不变。核对crypto3.0.7、polkadart_keyring0.7.1、matcher0.12.20、test_api0.7.12与钱包锁文件一致。此结果是解码器纯Dart回归，不冒称Flutter完整宿主、真实扫码签名或线上链交易验收。
+
+
+#### 第4步：当前市注册局详情的登记与登录办理接入（源码实现，尚未部署）
+
+- 仅改批准的12个既有OnChina前后端、测试和文档文件；本步不变更Runtime调用或storage。现有新增/删除使用统一call 9；目标直接来自当前详情页，关闭旧本地目录增删。链上完整名册、原账户锚点和当前签名钱包分别表达，本地目录不再充当名单或人数真源。
+- 首次配置明确动态岗位、业务权限、逐人任职和机构阈值；票据按有效岗位席位计算，同一钱包兼任多岗可形成多席，不生成固定岗位或按钱包人数推导阈值。后续追加不重写原名册/CID/资料/任职来源；删除必须同步处理相关任职并维持有效治理配置。
+- 确认前复查状态指纹，唯一办理岗位自动确定、多岗位中文名称选择。一次Passkey与一次钱包签名后只提交原会话；重复点击在组件层同步拦截。HTTP成功仍须回读finalized目标名册与任职；已消费或清理的会话只有链上目标状态吻合才恢复为成功，网络不确定时不盲目重签。既有登录链上守卫和CREG顶层业务能力/真实任职校验继续沿用。
+- 实际Runtime的统一FRG登记CREG、初始化后办理公民业务、跨省拒绝及费用账户回归再次通过。Rust平台162项、注册局55项通过（28项既有数据库用例忽略、1项归档配置目录夹具按本轮约束排除）；注册局前端22项通过、2项既有DOM用例跳过；平台前端30项通过、11项环境用例跳过，1项目录守卫被范围外既有.DS_Store阻断。Rust编译及当前真实源码的四组TypeScript检查通过，差异/格式检查通过；未把环境缺失或源码回归冒称真实扫码上链验收。
+- 第5步还须收口范围外旧通用表单的手工岗位码/缺少指纹入口，并统一登记prepare上下文的目标键（cidNumber）与submit读取键（cid_number）。当前新流程已按冻结签名目标和finalized状态核对成功，不将空返回字段当作成功凭据。固定环境性能预算和FRAME权重实测标定仍待执行，当前登记权重继续保留第2步记录的保守组合，未伪造跑分或递增正式链版本。
+
+
+
+#### 统一机构管理员第5步：权重补充与实测验收记录（2026-11-14）
+
+第5步未全部验收通过。代码和已列出的专项测试已完成；本轮按事前批准预算各独立执行3次原生转账/创世初始化门禁，六次原测试断言均通过，但转账第3次结束时可执行文件哈希偏离冻结值，程序冻结一致性未满足。本结论不将其他独立任务纳入本步、不接管其修复；本次仅更新两份原有文档，没有新增文件或目录、修改测试/断言/权重、编译、部署、真实链交易或正式版本变更。
+
+统一表单沿用现有公权/私权call 8自治提案、call 9注册局登记；没有CREG专用调用或固定岗位。登记prepare由实际call参数生成 `cid_number` 上下文；自治成功只代表提案已入链，名册等待投票执行。私权旧自治解析清空存量CID的问题在本次范围外，前端拒绝有损提交，登记call 9仍保留原记录；不能将此保护表述为后端已经修复。
+
+以下为此前measurement-only及登记基准记录，不计入本轮正式预算的六次样本。实测环境：Apple M5 Pro，18逻辑CPU、48GiB内存，rustc1.97.1；SDK固定05e0e9e。下列原生测试为unoptimized + debuginfo，WASM为release/wasm32v1-none + substrate_runtime。setup和verify位于派发计时外，均保留真实鉴权及结果断言。每项仅说明本机样本，不代表生产端到端延迟或全面参数回归拟合。
+
+|实测项目|样本/结果（纳秒）|范围与结论|
+|---|---|---|
+|原生直接转账|3批各1000次，批内平均91913、89540、88563；中位89540|余额及总发行量断言通过；不含签名扩展、交易池或共识|
+|全量默认创世build_storage|7037427625、6968729250、6759471916；中位6968729250|完整机构目录数量及Genesis阶段断言通过，纯内存初始化|
+|优化工具+优化WASM运行期登记|release frame-omni-bencher；n=2..128、r=1..2、p=2..4、a=2，steps2/repeat1，全部8次计时15991000..28494000|办理CREG名册1989人、签名者最后、真实CID身份绑定；全部验证开启。全参数上界未完成测量，不能称全覆盖|
+|运行期身份I/O|目标n由2到128，唯一读取31到535；增加504次|每位实名管理员4次额外身份读取；另有约7987次重复读取|
+|身份证明上界元数据|四表max_size=113、81、81、158，共433字节；默认百万项Trie追加9900字节|每人10333字节，沿用FRAME MEL策略而非测得小样本证明大小|
+
+优化工具命令使用同版本SDK独立 `frame-omni-bencher v1 benchmark pallet --runtime <现有runtime.wasm> --genesis-builder none --pallet publicentity --extrinsic registration_operation --extra --steps 2 --repeat 1 --min-duration 0 --low 2,1,2,2 --high 128,2,4,2 --heap-pages 8192 --json`；全量创世在每次setup内，未创建链数据或链规格文件。节点release构建因本机sqlx宏dylib的LINKEDIT加载错误失败，故改用同SDK优化基准工具，未关闭Revive编译或验证。开发版节点+优化WASM另已实测首次及存量登记：n<=128/r<=8/p<=4/a<=128，存量登记公开样本最大42.552ms、私权46.115ms；开发host样本仅作诊断，不冒充优化host结果。
+
+两份正式登记权重保留旧模型为下限，补入上述最慢Operation样本28494000ns对应的28494000000ps附加成本、每人4次读取及10333字节身份证明；办理方/目标方名册均覆盖，首次配置写入按4r补足。参数n是调用侧累计work而非单纯当前名册人数，p/a是累计权限/任职条目；测量原始r*p、r*a需换算，不能直接套作同名线性系数。本轮是基于实测和编码上界的保守补充，不是自动生成的全范围回归模型，也不保证最大逻辑名册可在单笔区块证明预算内提交。
+
+基准夹具在既有文件内覆盖真正空名册首次初始化、存量角色、最长人员名字/共同前缀、真实Operation实名管理员与最大办理方名册；校验完整名册、动态岗位/权限/任职、nonce及阈值，保留原断言。新增测试从Runtime真实身份表元数据计算证明上界，并核对正式权重随人数增长不低估；2026-11-14已实际执行，通过（1通过、0失败），四表最大编码长度之和433字节加默认Trie上界9900字节，共每人10333字节。
+
+本步检查：双方前端四组类型检查通过，注册局24通过2跳过、公共SDK31通过11跳过。Rust标准编译检查（onchina、registry、公权/私权实体）通过；注册局Rust56通过、5忽略。原有环境依赖用例没有改为通过，也没有放宽断言。
+
+2026-11-14两项专项测试的实际执行结果（不替代下述性能预算门禁）：
+
+|现有测试|结果|验证内容|
+|---|---|---|
+|`tests::performance::operation_binding_proof_bounds_come_from_current_runtime_metadata`|1通过、0失败|真实身份表元数据；每人10333字节证明上界；公权/私权正式登记权重的增长断言|
+|`tests::cases::unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee_payer`|1通过、0失败|FRG统一登记CREG；首次动态岗位、权限、任职及阈值初始化；办理公民业务；跨省拒绝；正常区块预算；费用账户|
+
+实际命令（各准确匹配并执行1项测试，不把0项匹配视为通过）：
+
+```sh
+cargo test -p runtime --lib --locked --offline tests::performance::operation_binding_proof_bounds_come_from_current_runtime_metadata -- --exact --nocapture
+cargo test -p runtime --lib --locked --offline tests::cases::unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee_payer -- --exact --nocapture
+```
+
+上述业务/权重专项测试结果保留；它们不替代耗时预算验收。本轮两项性能预算门禁执行结果如下；独立任务的整库运行记录不纳入本步待修复任务。
+
+2026-11-14正式预算验收（本轮全部原始结果）：
+
+用户在运行前明确批准：`CITIZENCHAIN_PERF_TRANSFER_NS=100000`、`CITIZENCHAIN_PERF_GENESIS_NS=10000000000`。两项各独立运行3次，必须全部满足原断言及冻结条件；禁止抬高预算、重跑替换样本或以旧measurement-only数据补作本轮通过。
+
+冻结环境和程序：
+
+- macOS27.0（26A428）、arm64、Apple M5 Pro、18逻辑CPU、51539607552字节内存（48GiB）；`rustc 1.97.1 (8bab26f4f 2026-07-14)`。
+- 直接复用现有程序 `/Users/rhett/citizenchain/target/debug/deps/runtime-62e4f8a62139a5c6`；原生test构建，unoptimized + debuginfo，debug assertions开启。fingerprint特性为 `default,std,substrate-wasm-builder`，RUSTFLAGS为空。没有调用Cargo或重新编译；每次独立进程、串行执行、`--exact --ignored --nocapture --test-threads=1`，各准确执行1项测试。
+- 原冻结A：`2026-11-14T13:10:29-08:00`，程序SHA-256 `6ed770a489a90780dfecd942c878c824fa446701802b3a5dba3493040bdc97c4`。
+- 转账第3次开始前校验A，结束后程序路径的SHA-256已为B：`4feededb3f7125a13837b59e6d59014cb78dc7fbdfaae2b67d40cc019ac43a82`。门禁源码未变，原始测试退出0且耗时断言通过；自动冻结校验判为不满足，立即停止该批，不编译或重跑任何转账样本。
+- 为交付尚未执行的创世3次，单独冻结B：`2026-11-14T13:12:38-08:00`，程序SHA-256 `4feededb3f7125a13837b59e6d59014cb78dc7fbdfaae2b67d40cc019ac43a82`；创世三次前后及结束校验均为B。该组3/3通过，但不能与A组混称同一冻结程序下的完整验收通过。
+- 准备阶段进程监控曾因非UTF8进程名解码失败，当时未启动任何门禁样本；仅修正内存监控脚本后才开始上述正式记录，不修改测试程序。运行期间使用2秒间隔进程观察和每次前后哈希核验；文件哈希变化的实际证据保留，不以进程采样未捕获构建为由忽略它。
+
+冻结时源码与锁文件SHA-256（两组相同）：
+
+|文件|SHA-256|
+|---|---|
+|`runtime/tests/performance.rs`|`cf8ea6057e4114217a139b295c90cc92a4579b143182cc6ae63d2b659248058e`|
+|`runtime/tests/mod.rs`|`35084ac86a3e294f7c0c0804b0b34b9151a9d910ea2d5cce1ca8b13e17ff0b90`|
+|`Cargo.lock`|`8ecfbd0753a441e8d965aea2a8d5ed087eca43fc437ed95e4ed01c486b83ad77`|
+
+|门禁/次数|开始→结束（PST，2026-11-14）|实测纳秒|固定上限纳秒|原测试结果|程序冻结校验|
+|---|---|---:|---:|---|---|
+|转账平均/1|13:10:29→13:10:46|91233|100000|1通过、0失败；退出0|A→A，一致|
+|转账平均/2|13:10:46→13:11:03|92550|100000|1通过、0失败；退出0|A→A，一致|
+|转账平均/3|13:11:03→13:11:21|91444|100000|1通过、0失败；退出0|A→B，不满足冻结要求|
+|创世总耗时/1|13:12:38→13:12:57|7146059667|10000000000|1通过、0失败；退出0|B→B，一致|
+|创世总耗时/2|13:12:57→13:13:16|6968226416|10000000000|1通过、0失败；退出0|B→B，一致|
+|创世总耗时/3|13:13:16→13:13:34|6855828125|10000000000|1通过、0失败；退出0|B→B，一致|
+
+两项原门禁的完整测试名分别为 `tests::performance::native_transfer_dispatch_meets_declared_budget_and_preserves_balances`、`tests::performance::full_genesis_initialization_meets_budget_and_preserves_fixed_catalog`。实际子进程均带上述两个固定环境变量，以现有程序直接运行对应完整测试名及 `--exact --ignored --nocapture --test-threads=1`，每个测试名独立启动3次。转账计时之外的Runtime初始化计入进程总耗时，不混入转账平均派发值；创世只对 `build_storage()` 计时，目录/阶段核验在计时之外。余额、总发行量、49,593机构目录及Genesis阶段等原断言均保留并通过。
+
+验收结论：六次测试进程全部退出0，各1通过、0失败，耗时均在事前批准上限内；5轮满足所冻结程序前后哈希一致，转账第3轮的程序文件哈希校验不一致。**本次程序冻结完整性要求未全部满足，第5步未全部验收通过。** 未替换任何样本、未提高阈值、不接管其他任务。该结论与测试业务/耗时断言通过分别记录，不能互相替代。
+
 #### 公民身份真源
 
 投票资格和参选资格统一通过 `CitizenIdentityReader` 读取 `identity`：
@@ -2704,7 +2817,7 @@ ADR-039 已于 2026-07-19 冻结机构岗位主体目标。任务卡第 5A、5B�
 - `voting_subject_at(who, population_data)`：按人口数据中的 revision 和日期查询永久 CID 身份历史，并返回 CID + 当前签名钱包的完整主体。
 
 `identity` 是人口数据和身份历史唯一真源，但不生成、不编号、不保存提案快照。
-`votebase::create_population_snapshot(proposal_id, scope)` 遇到 `None` 返回
+`engingcore::create_population_snapshot(proposal_id, scope)` 遇到 `None` 返回
 `PopulationDataNotReady`，不写入任何快照；取得完整数据后才写入
 `ProposalPopulationSnapshots[proposal_id]`。投票、分母读取和 90 天清理都只围绕该
 proposal_id 快照进行。
@@ -2723,7 +2836,7 @@ OnChina 本地数据库只能用于注册局录入和界面提示，不能作为
 - `Town(province_code, city_code, town_code)`
 
 联合公投和立法特别案在创建提案的同一存储事务内调用
-`votebase::create_population_snapshot(proposal_id, scope)`；引擎从 `identity`
+`engingcore::create_population_snapshot(proposal_id, scope)`；引擎从 `identity`
 读取人口数据并在自身 storage 形成不可变提案快照。联合公投固定使用
 全国作用域；立法特别案只从 `actor_cid_number` 的合法 CID 和法定机构码推导国家、
 省或市作用域。任一后续写入失败时快照与提案一起回滚，不存在公开准备入口、待消费
@@ -2815,7 +2928,7 @@ legislationvote/
 
 #### 生产代码职责边界
 
-- `votingengine/votebase/src/lib.rs` 只保留 pallet 配置、存储、事件、错误、hooks 和 lifecycle extrinsic。
+- `votingengine/engingcore/src/lib.rs` 只保留 pallet 配置、存储、事件、错误、hooks 和 lifecycle extrinsic。
 - `expiry.rs` 承载到期索引、自动终结、有限退避和 dead-letter。
 - `execution.rs` 承载异步业务执行、重试期限与管理员恢复入口。
 - `lifecycle.rs` 承载状态迁移、终态副作用、回调作用域和统一事件。
@@ -2880,7 +2993,7 @@ legislationvote/
 - `InternalVoteEngine` 的机构创建接口强制接收业务模块构造的 `VotePlan`；创建事务按 plan 中每个 `RoleSubject` 读取有效任职、写入 `VoterSnapshot`，并按 CID 累加 `InstitutionTicketCountSnapshot`。机构路径不再写 `AdminSnapshot`。
 - `internalvote::cast` 的机构调用必须显式声明 `voter_role_code`，以 `InternalVoteTicket::Institution(RoleSubject + account)` 校验和防双投；个人多签使用 `InternalVoteTicket::Personal(account)` 并读取 `AdminSnapshot`。两类主体没有兼容回落。
 - 核心投票引擎不再暴露把机构人员名册写入个人多签快照的入口。机构 `admins` 查询只允许业务模块和 entity 用于确认人员名册归属，不能生成投票资格。
-- votebase Config、runtime 接线和测试 runtime 不再存在机构管理员人数 provider。机构阈值只由 entity 提供，岗位席位数只来自提案冻结的票据快照；不得恢复通过管理员人数推导机构计票的第二路径。
+- engingcore Config、runtime 接线和测试 runtime 不再存在机构管理员人数 provider。机构阈值只由 entity 提供，岗位席位数只来自提案冻结的票据快照；不得恢复通过管理员人数推导机构计票的第二路径。
 - 机构阈值继续来自机构固定阈值或机构动态阈值；岗位只决定选民集合，不新增岗位阈值。创建时若机构阈值无法由本次有效岗位快照达到，整笔提案回滚。
 - 手动重试和取消同样按提案主体分流：机构读取有效岗位选民快照，个人多签读取个人管理员快照。
 - 已接入业务为 public/private 本机构治理与关闭、决议销毁、GRANDPA 密钥紧急恢复、机构普通转账、NRC 安全基金转账、费用账户划转主账户和公民链基金会平台调价。每个业务自己校验 `RoleSubject + BusinessActionId + Propose`、枚举拥有 `Vote` 权限的岗位并固定使用内部投票引擎。GRANDPA 正常更换由目标机构单个委员完成旧、新私钥双签后直接延迟调度，不进入投票引擎。
@@ -2889,7 +3002,7 @@ legislationvote/
 
 #### 验收
 
-- `cargo test -p votebase`
+- `cargo test -p engingcore`
 - `cargo test -p jointvote`
 - `cargo test -p legislationvote`
 - `cargo test -p internalvote`
@@ -2926,11 +3039,11 @@ WASM 的 fresh 临时节点正常启动，block#0 为
 
 2026-07-22 公民主体快照接口最终验收：`voting_subject`、`candidate_subject`、`voting_subject_at` 全部返回完整 `CitizenSubject`；联合公投与立法公投按永久 CID 去重，票据值与事件保存 CID + 当前签名钱包，钱包更换不能形成第二票。候选、Popular 票据、候选计票和结果仍是第 6 步边界。五个投票 crate、runtime 46 项及受影响业务模块测试，全 workspace 测试目标，`no_std`、WASM、benchmark/try-runtime 和 release Node 构建均通过。真实 fresh 节点 block #0 为 `0x69b4a0025356d050004cff3ef176167a6520b59c9086c9ac6b9a45c4b9e9c0e6`，state root 为 `0x0b066c3567ed25c15cfa96b7d249b6235df4746a253144db21c87dfd2ed2333e`，metadata 二进制 220,197 字节，runtime 六项项目版本均为 `0`；节点已停止。
 
-2026-07-22 选举投票模型最终验收：`ElectionMeta` 只保留唯一机构 `actor_cid_number + role_code`；候选快照、普选票据、候选计票和当选结果全部使用完整 `CitizenSubject`。普选按永久 CID 去重，互选继续按机构 CID + 岗位码 + 钱包票据去重，同一管理员可按多个不同岗位各投一票。`electionvote` 17 项、votebase 4 项、runtime 46 项、全 workspace 测试目标、`no_std`、WASM、benchmark/try-runtime 和 release Node 构建通过。真实 fresh 节点 block #0 为 `0x285ca7f4ab0f24771baff6a6fc10141ee281fbbd6ce1a8f9dcd1d7676501a41b`，state root 为 `0x27ecdc5b73ce195df4bdfe6c05fe68ef0b682c58751f5f145868a69a1f4672bd`，metadata 二进制 220,398 字节，runtime 六项项目版本均为 `0`；节点已停止。
+2026-07-22 选举投票模型最终验收：`ElectionMeta` 只保留唯一机构 `actor_cid_number + role_code`；候选快照、普选票据、候选计票和当选结果全部使用完整 `CitizenSubject`。普选按永久 CID 去重，互选继续按机构 CID + 岗位码 + 钱包票据去重，同一管理员可按多个不同岗位各投一票。`electionvote` 17 项、engingcore 4 项、runtime 46 项、全 workspace 测试目标、`no_std`、WASM、benchmark/try-runtime 和 release Node 构建通过。真实 fresh 节点 block #0 为 `0x285ca7f4ab0f24771baff6a6fc10141ee281fbbd6ce1a8f9dcd1d7676501a41b`，state root 为 `0x27ecdc5b73ce195df4bdfe6c05fe68ef0b682c58751f5f145868a69a1f4672bd`，metadata 二进制 220,398 字节，runtime 六项项目版本均为 `0`；节点已停止。
 
 2026-07-22 全端协议验收：QR 唯一注册表已登记 `ElectionVote.cast_popular_vote = 0x1602` 和 `cast_mutual_vote = 0x1603`；CitizenWallet 严格解码提案编号、完整候选 `CitizenSubject`，互选另解码选民岗位码，旧裸钱包载荷和任何截断、尾随载荷均拒签。CitizenApp 不直接创建选举，也不开放不存在的通用选举业务入口；未来只能由具体公权选举业务模块创建并绑定本引擎。第 8 步未修改 runtime，正式重算权重和 fresh Node/真实交易验收属于第 9 步。
 
-2026-07-22 第 9 步正式权重与最终验收：使用当前源码 WASM、临时 fresh spec、FRAME Benchmark CLI 53.0.0、50 steps、20 repeats，重新生成核心 `votebase`、`jointvote`、`legislationvote`、`electionvote` 的生产权重；联合投票超时夹具先由 `identity` 准备人口真源，再由投票引擎生成提案快照。`electionvote` 最后一票继续按候选人数线性计费，范围 `1..=256`。五个相关 crate 与 runtime 测试、benchmark 编译和当前源码 release Node 构建均通过；最终 fresh 节点 block #0 为 `0x4bd7e3f65f5ad4788e6ac8917abce9b0683f0c93d286766a7512854084ff0dd9`，state root 为 `0xd15b1a20d972f0cc5f64aa9a08a09f6793fe51886f9445c6dc953c0f9d438f7b`，六项项目 Runtime 版本均为 `0`，metadata 二进制 220,247 字节；节点已停止。
+2026-07-22 第 9 步正式权重与最终验收：使用当前源码 WASM、临时 fresh spec、FRAME Benchmark CLI 53.0.0、50 steps、20 repeats，重新生成核心 `engingcore`、`jointvote`、`legislationvote`、`electionvote` 的生产权重；联合投票超时夹具先由 `identity` 准备人口真源，再由投票引擎生成提案快照。`electionvote` 最后一票继续按候选人数线性计费，范围 `1..=256`。五个相关 crate 与 runtime 测试、benchmark 编译和当前源码 release Node 构建均通过；最终 fresh 节点 block #0 为 `0x4bd7e3f65f5ad4788e6ac8917abce9b0683f0c93d286766a7512854084ff0dd9`，state root 为 `0xd15b1a20d972f0cc5f64aa9a08a09f6793fe51886f9445c6dc953c0f9d438f7b`，六项项目 Runtime 版本均为 `0`，metadata 二进制 220,247 字节；节点已停止。
 
 ### 公民币订阅与税务架构索引
 
@@ -3242,9 +3355,9 @@ WASM专属回归、临时夹具和断言集中在runtime.mjs，config.mjs保留�
 
 ## 包、分组和源码结构
 
-Runtime为总装配包，src和tests归其自身；genesis和primitives为直接子包。admins、entity、governance、issuance、misc、public、transaction、votingengine仅作目录分组；分组不承载Cargo.toml、src、tests或嵌套workspace。votingengine包含votebase及internalvote、jointvote、electionvote、legislationvote五个包，基础包唯一Cargo/crate/依赖键为votebase，无旧包别名或转发。产品根workspace仍统一管理33个Runtime所属包。
+Runtime为总装配包，src和tests归其自身；genesis和primitives为直接子包。admins、entity、governance、issuance、misc、public、transaction、votingengine仅作目录分组；分组不承载Cargo.toml、src、tests或嵌套workspace。votingengine包含engingcore及internalvote、jointvote、electionvote、legislationvote五个包，基础包唯一Cargo/crate/依赖键为engingcore，无旧包别名或转发。产品根workspace仍统一管理33个Runtime所属包。
 
-每包src与唯一tests平级。src默认平铺真实模块文件；仅primitives的cid/china、votebase的traits、legislationvote的legislation/representative、公权和私权实体的institution保留一层模块目录。genesis的播种和岗位直接归src/institution.rs、src/roles.rs。每个保留目录至少两个真实直接子项，不增加占位文件或包装层。
+每包src与唯一tests平级。src默认平铺真实模块文件；仅primitives的cid/china、engingcore的traits、legislationvote的legislation/representative、公权和私权实体的institution保留一层模块目录。genesis的播种和岗位直接归src/institution.rs、src/roles.rs。每个保留目录至少两个真实直接子项，不增加占位文件或包装层。
 
 primitives的cid和china源码分别归src/cid与src/china，逻辑CID协议及现有机构常量保持单一真源。gen_area_data.py和rederive_accounts.py沿用原维护工具，只同步路径；本次不运行生成或重派生。冻结node/citizenchain.json及内嵌创世WASM/patch、GENESIS_HASH、GENESIS_STATE_ROOT和行政区二进制保持。
 
@@ -3271,7 +3384,7 @@ primitives的cid和china源码分别归src/cid与src/china，逻辑CID协议及�
 | upgrade | `runtime/governance/upgrade/tests` | 无；库内显式挂载 |
 | legislation | `runtime/public/legislation/tests` | 无；库内显式挂载 |
 | election | `runtime/public/election/tests` | 无；库内显式挂载 |
-| votebase | `runtime/votingengine/votebase/tests` | 无；库内显式挂载 |
+| engingcore | `runtime/votingengine/engingcore/tests` | 无；库内显式挂载 |
 | internalvote | `runtime/votingengine/internalvote/tests` | 无；库内显式挂载 |
 | jointvote | `runtime/votingengine/jointvote/tests` | 无；库内显式挂载 |
 | electionvote | `runtime/votingengine/electionvote/tests` | 无；库内显式挂载 |
@@ -3338,3 +3451,50 @@ Runtime真实WASM整链验收由scripts/runtime.mjs build在本轮临时源码�
 
 ### 充值离线签名动作
 独立host协议工具crates/protocol登记topup动作18及完整审阅字段，类型offchain_sign/offchain_auth、QR_V1 sign_request；禁止hash-only。动作/中文字段唯一源仍为registry/actions.yaml与fields.yaml，由原export_registry生成既有消费表。该host登记不进入runtime wasm，不改变Runtime版本、链上调用或节点；SDK通用opaque签名接口不增加业务分支。
+
+### AccountId 的以太坊收款映射
+
+账户身份、余额和权限仍以唯一 AccountId32 为准。SS58 仅在输入与展示边界编码；EVM 收款使用既有 `Revive.OriginalAccount` 反向索引，不建立第二套账户或余额。地址算法沿用固定 SDK 的 AccountId32Mapper：原生账户取 Keccak-256(AccountId32) 后20字节，以太坊派生账户去掉末尾12字节0xEE。
+
+`runtime/src/evm_accounts.rs` 统一处理新账户、业务登记与历史回填。System.OnNewAccount 和公权/私权机构、公民身份账户登记回调调用同一处理器；机构主/费账户及零余额自定义账户在业务登记时就写映射，个人多签激活的既有入金路径触发 System 钩子。创世机构登记同样接入。映射在 System 账户清除或身份换绑后保留，不随 CID 迁到另一个 AccountId，已有反向绑定不得覆写。fallback 先收到转账不获得别名绑定权，不再因其已建户而阻止原账户登记；fallback 的余额、nonce 和权限原样保留，旧资金不自动合并，登记后的 E 收款按映射进入原 AccountId。
+
+BackfillEvmAccounts 在现有 SingleBlockMigrations 后启动，使用同模块的分步处理器按游标扫描 System.Account、公权与私权 AccountRegisteredCid、有效个人多签账户及公民身份绑定；重复账户由幂等登记跳过。实际创世账户规模超过单区块预算，因此每步最多使用区块预算的四分之一，进度只保存来源阶段与最后一个存储键。续跑接入 System.PostInherents，在正常非空区块中先按预算处理并登记 Mandatory 权重，再接受原生业务交易；不修改挖矿门控或空块共识规则。迁移期间调用过滤器和费用路由拒绝 EVM 写交易，SDK 与节点原生收款解析对缺映射且迁移未完成的以太坊输入拒绝 fallback，避免旧账户被解析成另一个账户。没有普通交易就沿用原规则等待后续非空区块；升级实施需保证有原生交易驱动区块，不能依靠被暂停的EVM交易推进回填。完成标记只在全部来源扫描完成后写入，重启/重复升级继续原游标，完成后重复执行无副作用。正式升级前必须通过 try-runtime 对实际链状态检查冲突；冲突禁止覆写。若预检后实际反向绑定又出现冲突，迁移停在原游标并保留未完成状态，原生业务与治理继续，EVM 写交易保持暂停，修复冲突后再续跑，不以 panic 停链。映射新增读写采用显式保守权重，不宣称已重跑硬件 benchmark。
+
+纯本地未上链账户，以及当前状态已回收且没有业务登记记录的历史地址，还没有可核验的收款映射，首次/再次 SS58 入金或链上登记后自动建立。本次不开放任意账户免费登记接口、不修改金额/费率/签名授权。源码开发不会递增 Runtime 版本；正式升级按实际部署版本规则单独执行。
+
+地址金标为 `runtime/tests/evm-account-mapping-v1.json`，与 CitizenSDK 相同向量；回归覆盖派生、已有账户回填、零余额登记、映射冲突、重复迁移、账户回收及真实 Ethereum 交易入账。
+
+本轮本地验证：Runtime库91通过、2项原有性能用例忽略；公权/私权/身份/公民发行155通过；NodeClient28通过；try-runtime与runtime-benchmarks组合编译通过；准确源码快照WASM实际构建通过。正式链升级和生产部署未执行。
+
+Ethereum节点回归5项全部通过；最新准确源码WASM的原生账户别名专项另1项通过。真实HTTPS/WSS、PoW/TLS三节点、费用/nonce/回执、分叉/最终性和同库重启均沿既有断言验证；新增收款账户夹具独立于矿工与费用账户，向其20字节地址转账后，三个节点的原AccountId余额均精确增加500分，数据库重开后回执及原账户余额保持。正式链未升级。
+
+
+#### 最小修复：fallback 预先入金与建户预算
+
+仅在 `runtime/src/evm_accounts.rs` 和 `runtime/src/configs.rs` 修改生产实现。删除“fallback 账户存在即拒绝”的额外判定，保留 OriginalAccount 已绑定另一个 AccountId 的拒绝；先向 fallback 原生转账不再阻断新账户自动映射或历史回填。fallback 原有账面状态保持，不增加旧资金恢复入口或自动搬款。
+
+资源成本仍只定义在 EvmAccountMapping::get()。收费扩展预留三个公共分账收款方，普通转账只追加一个本金收款方，因此两者合计仍为四次映射回调预算。全节点奖励、公民奖励分别追加一次，省储行结算按 CHINA_CH 银行数追加；个人多签与多签异步执行按一个本金收款方和三个内部分账收款方给保守上界，现有多签达标记录读取补偿保留。决议发行按 MaxAllocations 在原回调 proof-size 清零之后追加映射预算，防止新增 proof 被丢弃。广场订阅、换档与每次续费按一个收款方追加预算，其每块处理上限沿既有权重控制。
+
+所有适配保留原 benchmark 表达式，其余方法直接委托原 WeightInfo；不重写生成权重文件，不改收费金额、发行公式、签名/QR 编码或业务权限。异步执行预留覆盖不经过签名收费扩展的后台路径；这些保守预算不作为实际手续费。
+
+本次修复验证：新增 fallback 先入金的新账户与历史回填专项通过；原 F 的完整 System.Account 状态保持，后续 E 收款进入 A。真实反向绑定冲突仍拒绝覆写。新增资源预算断言通过，包含公共分账与普通本金合计4份、多签达标读取保留、决议发行 proof 追加位置以及后台奖励/结算/续费入口。Runtime全量93通过、2项原有性能用例忽略；try-runtime/runtime-benchmarks组合编译通过；当前准确源码WASM构建通过。App复制弹窗与收款解析27项通过，排版清理前后 canonical formatter 输出相同，Dart分析无问题。地址算法金标、签名和QR字节未修改；未执行正式链升级或部署。
+
+本次修复最终回归：Ethereum节点5项通过，覆盖真实三节点转账、费用/nonce/回执、分叉/最终性、原AccountId别名入账及同库重启。当前测试WASM blake2_256 为 `0xf50c91bf86b89c0b1cdc924839e7b8ea950e9fe2b5395b801018fbf742760f45`。两处生产文件与构建快照逐字节核对一致。原生/以太坊地址金标、签名及QR编码未改。
+
+本次仅收敛 App 的 onchain_payment_service_test.dart 纯排版差异，保留21行功能新增；前后 canonical formatter 输出一致。验证摘要保留在本文；确认相关构建/测试进程退出后，清理本次专属 work/evm-account-mapping 与 target/test/evm-account-mapping-source，其他 work 内容与共享编译缓存保留。
+
+本次生产文件 SHA-256：`runtime/src/evm_accounts.rs` 为 `da69789860e085c8564896f5dbc5a8dd123696723c51d2febf4964971c86f508`，`runtime/src/configs.rs` 为 `945cd2b1064d3eaefcd7cb4e4df57bd0eaa9385de7515314cb8dafab56949d61`。
+
+
+2026-11-14 提案编号类型调整：提案编号统一为 proposal_id:u128（全局唯一、永不重置）、year:u32（UTC 公历年）、seq_in_year:u64（跨年从0重置），计数溢出拒绝且整笔回滚。既有调用、事件和所有引用同步扩宽；法律ID、区块号、票数、nonce和清理FIFO序号保持原类型。旧布局转换直接位于 configs.rs 现有 AddPrcFeeSweepPermissions::on_runtime_upgrade 内，独立于权限标记，以 VotingEngine 已有 StorageVersion 0→1保证只执行一次。原地重算ID键及关联索引，保留载荷、投票、状态、余额和清理计划；创世宪法版本仅扩宽内部占位ID，不改变正文和内容哈希。不新增文件、模块、pallet、存储表或迁移标记键。升级前须按实际状态演练；历史区块仍用其原metadata解码。
+
+本次验证：区块107的36条旧提案关联键值直接内嵌在既有runtime/tests/cases.rs，原地转换及失败回滚两项通过；覆盖ID0、19个冻结席位、15张已投票据、13/2计票、四张反向索引、清理计划、余额和创世宪法正文不变。引擎及四轨道184项通过；相关业务模块回归通过。App209项、冷钱包签名目录255项、OnChina69项、SDK metadata相关14项、节点提案10项及组成守卫定向用例通过；Wasm无标准库检查、runtime-benchmarks特性编译、前端类型检查通过。额外全量节点守卫检查中的原有地区遍历慢用例已停止，未计为通过。链上仅作只读核验，未提交升级交易。
+
+
+2026-11-14 CID年份u32：CID年份的生成入参与解析结果统一为u32，范围0～4294967295。哈希输入、校验和及输出统一使用至少四位补零的规范十进制；0000～9999的旧文本不变，10000开始自然增位。CID本体继续使用原字符串，最长为5+5+9+3+10=32字节；CID_NUMBER_MAX_BYTES、既有存储键/值布局和签名槽保持不变，无需迁移或重算已有CID及派生账户。创世年份仍固定2026，冻结创世配置与旧号码金标不替换。拒绝溢出、非数字及02026等歧义前导零。
+
+CID年份u32回归记录：原语库86项、原账户派生金标1项、原签名金标1项通过；15组旧CID（含0000、0001、0999、2026、9999）逐字节一致。8个相关pallet共306项通过、1项原有忽略；Runtime创世23项通过、1项原有忽略，忽略项未计为通过。节点CID生命周期7项、OnChina生成5项、SDK签名6项、冷钱包签名目录258项、App头像订阅10项通过。Wasm无标准库检查、runtime-benchmarks特性检查和相关Dart静态检查通过。边界夹具内嵌现有测试文件；原JSON/metadata/账户和签名金标文件保持不变。本次未新增文件、模块或存储表，未提交链上升级交易。
+
+2026-11-14 五项定点修复边界：本轮仅修复链外提案输入、CID发号适配、节点分页、旧Isar回归夹具和失效辅助/注释；不修改Runtime、CID原语、账户派生、签名布局及既有链上迁移段，不执行链上交易。原语库86项、账户派生与签名金标各1项再次通过。
+
+本轮基线核对：提案数据转换段逐字节一致，CID原语、派生账户规则及签名定义不变。共享工作区同一configs.rs中权限迁移另有3处存储访问适配改动，来源于其他进行中的岗位实现；本轮未写入、覆盖或回退configs.rs，不把整个文件宣称为与基线一致。

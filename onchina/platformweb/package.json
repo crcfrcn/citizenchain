@@ -71,6 +71,10 @@
     "./institutions/institutionLabels": "./institutions/institutionLabels.ts",
     "./institutions/labels": "./institutions/labels.ts",
     "./workspace/WorkspaceShell": "./workspace/WorkspaceShell.tsx",
-    "./index.html": "./workspace/index.html"
+    "./index.html": "./workspace/index.html",
+    "./institutions/RolesView": "./institutions/RolesView.tsx",
+    "./institutions/AssignmentsView": "./institutions/AssignmentsView.tsx",
+    "./institutions/RepresentativeView": "./institutions/RepresentativeView.tsx",
+    "./institutions/GovernanceReview": "./institutions/GovernanceReview.tsx"
   }
 }

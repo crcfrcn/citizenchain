@@ -8,7 +8,7 @@
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use sp_runtime::traits::SaturatedConversion;
-use votebase::{CitizenIdentityReader, InternalAdminProvider};
+use engingcore::{CitizenIdentityReader, InternalAdminProvider};
 
 use crate::{
     pallet::{
@@ -19,16 +19,16 @@ use crate::{
     Call, RepresentativeRoute, RepresentativeVoteRule, VoteProcedure,
 };
 
-fn insert_proposal<T: Config>(stage: u8) -> u64 {
-    let proposal_id = 0u64;
+fn insert_proposal<T: Config>(stage: u8) -> u128 {
+    let proposal_id = 0u128;
     let now = 1u32.saturated_into();
     frame_system::Pallet::<T>::set_block_number(now);
-    votebase::pallet::Proposals::<T>::insert(
+    engingcore::pallet::Proposals::<T>::insert(
         proposal_id,
-        votebase::Proposal {
-            kind: votebase::PROPOSAL_KIND_LEGISLATION,
+        engingcore::Proposal {
+            kind: engingcore::PROPOSAL_KIND_LEGISLATION,
             stage,
-            status: votebase::STATUS_VOTING,
+            status: engingcore::STATUS_VOTING,
             internal_code: None,
             actor_cid_number: Some(national_legislature(0)),
             execution_account_id: None,
@@ -40,7 +40,7 @@ fn insert_proposal<T: Config>(stage: u8) -> u64 {
     proposal_id
 }
 
-fn national_legislature(index: usize) -> votebase::CidNumber {
+fn national_legislature(index: usize) -> engingcore::CidNumber {
     primitives::cid::china::china_lf::CHINA_LF[index]
         .cid_number
         .as_bytes()
@@ -49,7 +49,7 @@ fn national_legislature(index: usize) -> votebase::CidNumber {
         .expect("national legislature CID fits runtime bound")
 }
 
-fn national_executive() -> votebase::CidNumber {
+fn national_executive() -> engingcore::CidNumber {
     primitives::cid::china::china_zf::CHINA_ZF[0]
         .cid_number
         .as_bytes()
@@ -59,7 +59,7 @@ fn national_executive() -> votebase::CidNumber {
 }
 
 fn role_subject(
-    cid_number: votebase::CidNumber,
+    cid_number: engingcore::CidNumber,
     role_code: &[u8],
 ) -> crate::types::RepresentativeBody {
     entitybase::RoleSubject {
@@ -77,10 +77,10 @@ mod benchmarks {
 
     #[benchmark]
     fn cast_representative_vote() {
-        let proposal_id = insert_proposal::<T>(votebase::STAGE_LEG_REPRESENTATIVE);
+        let proposal_id = insert_proposal::<T>(engingcore::STAGE_LEG_REPRESENTATIVE);
         let body = national_legislature(1);
         let voter: T::AccountId = account("representative", 0, 0);
-        <T as votebase::Config>::InternalAdminProvider::benchmark_seed_institution_voter(
+        <T as engingcore::Config>::InternalAdminProvider::benchmark_seed_institution_voter(
             body.as_slice(),
             &voter,
         );
@@ -91,9 +91,9 @@ mod benchmarks {
                 .try_into()
                 .expect("benchmark role code fits"),
         };
-        votebase::Pallet::<T>::snapshot_role_voters(
+        engingcore::Pallet::<T>::snapshot_role_voters(
             proposal_id,
-            votebase::AuthorizationSubject::Institution(role_subject.clone()),
+            engingcore::AuthorizationSubject::Institution(role_subject.clone()),
             sp_runtime::sp_std::vec![voter.clone()],
         )
         .expect("representative role snapshot should be created");
@@ -122,7 +122,7 @@ mod benchmarks {
             proposal_id,
             (
                 0,
-                votebase::InstitutionVoteTicket {
+                engingcore::InstitutionVoteTicket {
                     role_subject,
                     voter_account_id: voter,
                 }
@@ -132,14 +132,14 @@ mod benchmarks {
 
     #[benchmark]
     fn cast_referendum_vote() {
-        let proposal_id = insert_proposal::<T>(votebase::STAGE_LEG_REFERENDUM);
+        let proposal_id = insert_proposal::<T>(engingcore::STAGE_LEG_REFERENDUM);
         let voter: T::AccountId = account("citizen", 0, 0);
-        let scope = votebase::PopulationScope::Country;
-        <T as votebase::Config>::CitizenIdentityReader::benchmark_seed_identity(&voter, &scope);
+        let scope = engingcore::PopulationScope::Country;
+        <T as engingcore::Config>::CitizenIdentityReader::benchmark_seed_identity(&voter, &scope);
         let voter_subject =
-            <T as votebase::Config>::CitizenIdentityReader::voting_subject(&voter, &scope)
+            <T as engingcore::Config>::CitizenIdentityReader::voting_subject(&voter, &scope)
                 .expect("benchmark citizen subject should exist");
-        votebase::Pallet::<T>::create_population_snapshot(proposal_id, &scope)
+        engingcore::Pallet::<T>::create_population_snapshot(proposal_id, &scope)
             .expect("benchmark proposal population snapshot should be created");
         LegislationMetas::<T>::insert(
             proposal_id,
@@ -162,7 +162,7 @@ mod benchmarks {
 
     #[benchmark]
     fn executive_sign() {
-        let proposal_id = insert_proposal::<T>(votebase::STAGE_LEG_SIGN);
+        let proposal_id = insert_proposal::<T>(engingcore::STAGE_LEG_SIGN);
         let executive = national_executive();
         LegislationMetas::<T>::insert(
             proposal_id,
@@ -180,12 +180,12 @@ mod benchmarks {
                 .expect("executive approval reaches passed state");
         }
 
-        assert!(votebase::pallet::PendingProposalExecutions::<T>::contains_key(proposal_id));
+        assert!(engingcore::pallet::PendingProposalExecutions::<T>::contains_key(proposal_id));
     }
 
     #[benchmark]
     fn override_sign() {
-        let proposal_id = insert_proposal::<T>(votebase::STAGE_LEG_OVERRIDE);
+        let proposal_id = insert_proposal::<T>(engingcore::STAGE_LEG_OVERRIDE);
         let senate = national_legislature(1);
         let house = national_legislature(2);
         let senate_role = role_subject(senate, b"BENCHMARK_MEMBER");
@@ -234,7 +234,7 @@ mod benchmarks {
 
     #[benchmark]
     fn guard_vote() {
-        let proposal_id = insert_proposal::<T>(votebase::STAGE_LEG_CONSTITUTION_GUARD);
+        let proposal_id = insert_proposal::<T>(engingcore::STAGE_LEG_CONSTITUTION_GUARD);
         let who: T::AccountId = account("constitution-guard", 0, 0);
 
         #[block]
@@ -253,23 +253,23 @@ mod benchmarks {
         for i in 0..=n {
             let mut bytes = sp_runtime::sp_std::vec![b'C';32];
             bytes[..4].copy_from_slice(&i.to_le_bytes());
-            let cid: votebase::CidNumber = bytes.try_into().unwrap();
-            let _ticket = votebase::InstitutionVoteTicket {
-                role_subject: votebase::RoleSubject {
+            let cid: engingcore::CidNumber = bytes.try_into().unwrap();
+            let _ticket = engingcore::InstitutionVoteTicket {
+                role_subject: engingcore::RoleSubject {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
                 voter_account_id: account::<T::AccountId>("cleanup", i, 0),
             };
-            crate::RepresentativeVotesByTicket::<T>::insert(0u64, (0u32, _ticket), true);
+            crate::RepresentativeVotesByTicket::<T>::insert(0u128, (0u32, _ticket), true);
         }
         let result;
         #[block]
         {
-            result = <Pallet<T> as votebase::ProposalTrackHandler<
+            result = <Pallet<T> as engingcore::ProposalTrackHandler<
                 frame_system::pallet_prelude::BlockNumberFor<T>,
                 T::AccountId,
-            >>::cleanup_chunk(votebase::PROPOSAL_KIND_LEGISLATION, 0, n);
+            >>::cleanup_chunk(engingcore::PROPOSAL_KIND_LEGISLATION, 0, n);
         }
         assert_eq!(result.expect("清理类型必须被认领").0, n);
     }
@@ -279,27 +279,27 @@ mod benchmarks {
         for i in 0..=n {
             let mut bytes = sp_runtime::sp_std::vec![b'C';32];
             bytes[..4].copy_from_slice(&i.to_le_bytes());
-            let cid: votebase::CidNumber = bytes.try_into().unwrap();
-            let _ticket = votebase::InstitutionVoteTicket {
-                role_subject: votebase::RoleSubject {
+            let cid: engingcore::CidNumber = bytes.try_into().unwrap();
+            let _ticket = engingcore::InstitutionVoteTicket {
+                role_subject: engingcore::RoleSubject {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
                 voter_account_id: account::<T::AccountId>("cleanup", i, 0),
             };
             crate::LegReferendumVotesByCid::<T>::insert(
-                0u64,
+                0u128,
                 cid,
-                benchmark_value::<votebase::CitizenReferendumTicket<T::AccountId>>(),
+                benchmark_value::<engingcore::CitizenReferendumTicket<T::AccountId>>(),
             );
         }
         let result;
         #[block]
         {
-            result = <Pallet<T> as votebase::ProposalTrackHandler<
+            result = <Pallet<T> as engingcore::ProposalTrackHandler<
                 frame_system::pallet_prelude::BlockNumberFor<T>,
                 T::AccountId,
-            >>::cleanup_chunk(votebase::PROPOSAL_KIND_LEGISLATION, 0, n);
+            >>::cleanup_chunk(engingcore::PROPOSAL_KIND_LEGISLATION, 0, n);
         }
         assert_eq!(result.expect("清理类型必须被认领").0, n);
     }
@@ -307,24 +307,24 @@ mod benchmarks {
     #[benchmark]
     fn cleanup_terminal() {
         crate::RepresentativeMetas::<T>::insert(
-            0u64,
+            0u128,
             benchmark_value::<crate::pallet::RepresentativeMeta>(),
         );
         crate::LegislationMetas::<T>::insert(
-            0u64,
+            0u128,
             benchmark_value::<crate::pallet::LegislationMeta>(),
         );
         for i in 0..crate::MAX_REPRESENTATIVE_BODIES {
             crate::RepresentativeTallies::<T>::insert(
-                0u64,
+                0u128,
                 i,
-                votebase::VoteCountU32 { yes: 1, no: 0 },
+                engingcore::VoteCountU32 { yes: 1, no: 0 },
             );
         }
-        crate::LegReferendumTally::<T>::insert(0u64, votebase::VoteCountU64 { yes: 1, no: 0 });
-        crate::LegOverrideSigns::<T>::insert(0u64,frame_support::BoundedVec::<(T::AccountId,bool),frame_support::traits::ConstU32<3>>::default());
+        crate::LegReferendumTally::<T>::insert(0u128, engingcore::VoteCountU64 { yes: 1, no: 0 });
+        crate::LegOverrideSigns::<T>::insert(0u128,frame_support::BoundedVec::<(T::AccountId,bool),frame_support::traits::ConstU32<3>>::default());
         crate::LegGuardSigns::<T>::insert(
-            0u64,
+            0u128,
             frame_support::BoundedVec::<
                 (T::AccountId, bool),
                 frame_support::traits::ConstU32<{ crate::CONSTITUTION_GUARD_MEMBERS }>,
@@ -332,10 +332,10 @@ mod benchmarks {
         );
         #[block]
         {
-            assert!(<Pallet<T> as votebase::ProposalTrackHandler<
+            assert!(<Pallet<T> as engingcore::ProposalTrackHandler<
                 frame_system::pallet_prelude::BlockNumberFor<T>,
                 T::AccountId,
-            >>::cleanup_terminal(votebase::PROPOSAL_KIND_LEGISLATION, 0)
+            >>::cleanup_terminal(engingcore::PROPOSAL_KIND_LEGISLATION, 0)
             .is_some());
         }
     }

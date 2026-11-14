@@ -21,7 +21,7 @@ use primitives::count_const::{
     VOTING_DURATION_BLOCKS,
 };
 
-use votebase::{
+use engingcore::{
     pallet::{Proposals, ProposalsByExpiry},
     types::{
         fixed_governance_pass_threshold, AuthorizationSubject, CidNumber, InstitutionCode,
@@ -70,21 +70,21 @@ fn ensure_vote_plan<T: Config>(
 ) -> Result<(), DispatchError> {
     ensure!(
         vote_plan.voting_engine == VotingEngineKind::Joint,
-        votebase::Error::<T>::InvalidVotePlan
+        engingcore::Error::<T>::InvalidVotePlan
     );
     ensure!(
         institution_profile(actor_cid_number.as_slice()).is_some(),
-        votebase::Error::<T>::InvalidInstitution
+        engingcore::Error::<T>::InvalidInstitution
     );
     let proposer_role = match &vote_plan.proposer_subject {
         AuthorizationSubject::Institution(role_subject) => role_subject,
         AuthorizationSubject::PersonalMultisig(_) => {
-            return Err(votebase::Error::<T>::InvalidVotePlan.into())
+            return Err(engingcore::Error::<T>::InvalidVotePlan.into())
         }
     };
     ensure!(
         proposer_role.cid_number == *actor_cid_number,
-        votebase::Error::<T>::InvalidVotePlan
+        engingcore::Error::<T>::InvalidVotePlan
     );
     ensure!(
         T::InstitutionRoleProvider::is_active_assignment(
@@ -92,7 +92,7 @@ fn ensure_vote_plan<T: Config>(
             who,
             proposer_role.role_code.as_slice(),
         ),
-        votebase::Error::<T>::NoPermission
+        engingcore::Error::<T>::NoPermission
     );
 
     let expected_cids = joint_subject_cid_numbers::<T>()?;
@@ -103,21 +103,21 @@ fn ensure_vote_plan<T: Config>(
                 AuthorizationSubject::Institution(role_subject)
                     if role_subject.cid_number == *expected_cid
             )),
-            votebase::Error::<T>::InvalidVotePlan
+            engingcore::Error::<T>::InvalidVotePlan
         );
     }
     for subject in vote_plan.voter_subjects.iter() {
         let role_subject = match subject {
             AuthorizationSubject::Institution(role_subject) => role_subject,
             AuthorizationSubject::PersonalMultisig(_) => {
-                return Err(votebase::Error::<T>::InvalidVotePlan.into())
+                return Err(engingcore::Error::<T>::InvalidVotePlan.into())
             }
         };
         ensure!(
             expected_cids
                 .iter()
                 .any(|expected_cid| expected_cid == &role_subject.cid_number),
-            votebase::Error::<T>::InvalidVotePlan
+            engingcore::Error::<T>::InvalidVotePlan
         );
     }
     Ok(())
@@ -131,7 +131,7 @@ fn joint_subject_cid_numbers<T: Config>() -> Result<ProposalSubjectCidNumbers, D
     for entry in CHINA_CH.iter() {
         raw.push(entry.cid_number.as_bytes().to_vec());
     }
-    <votebase::Pallet<T>>::bound_subject_cid_numbers(raw)
+    <engingcore::Pallet<T>>::bound_subject_cid_numbers(raw)
 }
 // 业务方法 — 挂在 super::Pallet<T> 上
 impl<T: Config> Pallet<T> {
@@ -150,7 +150,7 @@ impl<T: Config> Pallet<T> {
         who: T::AccountId,
         actor_cid_number: CidNumber,
         vote_plan: VotePlanOf<T::AccountId>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         ensure_vote_plan::<T>(&actor_cid_number, &who, &vote_plan)?;
         let now = <frame_system::Pallet<T>>::block_number();
         let end = now.saturating_add(Self::joint_stage_duration());
@@ -160,7 +160,7 @@ impl<T: Config> Pallet<T> {
             let proposal = Proposal {
                 kind: PROPOSAL_KIND_JOINT,
                 stage: STAGE_JOINT,
-                status: votebase::STATUS_VOTING,
+                status: engingcore::STATUS_VOTING,
                 internal_code: None,
                 actor_cid_number: Some(actor_cid_number.clone()),
                 execution_account_id: None,
@@ -168,20 +168,20 @@ impl<T: Config> Pallet<T> {
                 start: now,
                 end,
             };
-            let id = match <votebase::Pallet<T>>::allocate_proposal_id() {
+            let id = match <engingcore::Pallet<T>>::allocate_proposal_id() {
                 Ok(id) => id,
                 Err(err) => return TransactionOutcome::Rollback(Err(err)),
             };
 
             if let Err(err) =
-                votebase::limit::try_add_active_proposals::<T>(proposal.subject_keys(), id)
+                engingcore::limit::try_add_active_proposals::<T>(proposal.subject_keys(), id)
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
 
             // 联合提案关联全部固定治理机构,互斥锁按机构 CID 而非账户占用。
             for subject in proposal.subject_keys() {
-                if let Err(err) = <votebase::Pallet<T>>::acquire_internal_proposal_mutex(
+                if let Err(err) = <engingcore::Pallet<T>>::acquire_internal_proposal_mutex(
                     id,
                     subject,
                     InternalProposalMutexKind::Regular,
@@ -196,7 +196,7 @@ impl<T: Config> Pallet<T> {
                     AuthorizationSubject::Institution(role_subject) => role_subject,
                     AuthorizationSubject::PersonalMultisig(_) => {
                         return TransactionOutcome::Rollback(Err(
-                            votebase::Error::<T>::InvalidVotePlan.into(),
+                            engingcore::Error::<T>::InvalidVotePlan.into(),
                         ))
                     }
                 };
@@ -205,18 +205,18 @@ impl<T: Config> Pallet<T> {
                     role_subject.role_code.as_slice(),
                 );
                 if let Err(err) =
-                    <votebase::Pallet<T>>::snapshot_role_voters(id, subject.clone(), voters)
+                    <engingcore::Pallet<T>>::snapshot_role_voters(id, subject.clone(), voters)
                 {
                     return TransactionOutcome::Rollback(Err(err));
                 }
             }
             Proposals::<T>::insert(id, proposal);
-            if let Err(err) = <votebase::Pallet<T>>::bind_vote_plan(id, vote_plan) {
+            if let Err(err) = <engingcore::Pallet<T>>::bind_vote_plan(id, vote_plan) {
                 return TransactionOutcome::Rollback(Err(err));
             }
             // 联合治理协议固定使用全国人口。投票引擎只读取 identity 已维护的
             // 人口数据并在本提案下生成快照；后续失败由外层事务整体回滚。
-            match <votebase::Pallet<T>>::create_population_snapshot(
+            match <engingcore::Pallet<T>>::create_population_snapshot(
                 id,
                 &PopulationScope::Country,
             ) {
@@ -228,10 +228,10 @@ impl<T: Config> Pallet<T> {
                 Ok(_) => {}
                 Err(err) => return TransactionOutcome::Rollback(Err(err)),
             }
-            if let Err(err) = <votebase::Pallet<T>>::schedule_proposal_expiry(id, end) {
+            if let Err(err) = <engingcore::Pallet<T>>::schedule_proposal_expiry(id, end) {
                 return TransactionOutcome::Rollback(Err(err));
             }
-            <votebase::Pallet<T>>::emit_proposal_created(
+            <engingcore::Pallet<T>>::emit_proposal_created(
                 id,
                 PROPOSAL_KIND_JOINT,
                 STAGE_JOINT,
@@ -245,42 +245,42 @@ impl<T: Config> Pallet<T> {
     /// 全部机构票权累加判断是否全票通过(105 票)或推进至联合公投阶段。
     pub fn do_joint_vote(
         who: T::AccountId,
-        proposal_id: u64,
+        proposal_id: u128,
         cid_number: CidNumber,
         voter_role_code: RoleCode,
         approve: bool,
     ) -> DispatchResult {
-        let proposal = <votebase::Pallet<T>>::ensure_open_proposal(proposal_id)?;
+        let proposal = <engingcore::Pallet<T>>::ensure_open_proposal(proposal_id)?;
 
         ensure!(
             proposal.kind == PROPOSAL_KIND_JOINT,
-            votebase::Error::<T>::InvalidProposalKind
+            engingcore::Error::<T>::InvalidProposalKind
         );
         ensure!(
             proposal.stage == STAGE_JOINT,
-            votebase::Error::<T>::InvalidProposalStage
+            engingcore::Error::<T>::InvalidProposalStage
         );
         ensure!(
             !JointVotesByInstitution::<T>::contains_key(proposal_id, cid_number.clone()),
-            votebase::Error::<T>::AlreadyVoted
+            engingcore::Error::<T>::AlreadyVoted
         );
         let (institution_code, _) = institution_profile(cid_number.as_slice())
-            .ok_or(votebase::Error::<T>::InvalidInstitution)?;
+            .ok_or(engingcore::Error::<T>::InvalidInstitution)?;
         let role_subject = RoleSubject {
             cid_number: cid_number.clone(),
             role_code: voter_role_code.clone(),
         };
         let subject = AuthorizationSubject::Institution(role_subject.clone());
         ensure!(
-            <votebase::Pallet<T>>::is_subject_voter_in_snapshot(
+            <engingcore::Pallet<T>>::is_subject_voter_in_snapshot(
                 proposal_id,
                 subject.clone(),
                 &who,
             ),
-            votebase::Error::<T>::NoPermission
+            engingcore::Error::<T>::NoPermission
         );
         // 票据按【规范账户】防重：换绑前后归并为同一张票，杜绝新旧钱包各投一票。
-        let voter_account_id = <votebase::Pallet<T>>::resolve_subject_voter(&subject, &who)
+        let voter_account_id = <engingcore::Pallet<T>>::resolve_subject_voter(&subject, &who)
             .unwrap_or_else(|| who.clone());
         let ticket = InstitutionVoteTicket {
             role_subject,
@@ -288,7 +288,7 @@ impl<T: Config> Pallet<T> {
         };
         ensure!(
             !JointVotesByTicket::<T>::contains_key(proposal_id, &ticket),
-            votebase::Error::<T>::AlreadyVoted
+            engingcore::Error::<T>::AlreadyVoted
         );
 
         JointVotesByTicket::<T>::insert(proposal_id, ticket, approve);
@@ -311,10 +311,10 @@ impl<T: Config> Pallet<T> {
         });
 
         let threshold = fixed_governance_pass_threshold(&institution_code)
-            .ok_or(votebase::Error::<T>::InvalidInstitution)?;
+            .ok_or(engingcore::Error::<T>::InvalidInstitution)?;
         let voters_len =
-            <votebase::Pallet<T>>::institution_ticket_count(proposal_id, cid_number.clone())
-                .ok_or(votebase::Error::<T>::InvalidInstitution)?;
+            <engingcore::Pallet<T>>::institution_ticket_count(proposal_id, cid_number.clone())
+                .ok_or(engingcore::Error::<T>::InvalidInstitution)?;
 
         if tally.yes >= threshold {
             return Self::finalize_joint_institution_vote(proposal_id, cid_number, true);
@@ -329,16 +329,16 @@ impl<T: Config> Pallet<T> {
     }
 
     fn finalize_joint_institution_vote(
-        proposal_id: u64,
+        proposal_id: u128,
         cid_number: CidNumber,
         approved: bool,
     ) -> DispatchResult {
         ensure!(
             !JointVotesByInstitution::<T>::contains_key(proposal_id, cid_number.clone()),
-            votebase::Error::<T>::AlreadyVoted
+            engingcore::Error::<T>::AlreadyVoted
         );
         let weight = institution_info(cid_number.as_slice())
-            .ok_or(votebase::Error::<T>::InvalidInstitution)?;
+            .ok_or(engingcore::Error::<T>::InvalidInstitution)?;
 
         JointVotesByInstitution::<T>::insert(proposal_id, cid_number.clone(), approved);
 
@@ -359,7 +359,7 @@ impl<T: Config> Pallet<T> {
 
         if approved {
             if is_joint_unanimous(tally.yes) {
-                <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
+                <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
                 return Ok(());
             }
             if tally.yes.saturating_add(tally.no) >= JOINT_VOTE_TOTAL {
@@ -373,34 +373,34 @@ impl<T: Config> Pallet<T> {
     /// 联合内部投票阶段超时结算:全票通过 → PASSED,否则进入联合公投阶段。
     pub fn do_finalize_joint_timeout(
         proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
-        proposal_id: u64,
+        proposal_id: u128,
     ) -> DispatchResult {
         ensure!(
             proposal.stage == STAGE_JOINT,
-            votebase::Error::<T>::InvalidProposalStage
+            engingcore::Error::<T>::InvalidProposalStage
         );
         ensure!(
-            proposal.status == votebase::STATUS_VOTING,
-            votebase::Error::<T>::ProposalAlreadyFinalized
+            proposal.status == engingcore::STATUS_VOTING,
+            engingcore::Error::<T>::ProposalAlreadyFinalized
         );
         ensure!(
             <frame_system::Pallet<T>>::block_number() > proposal.end,
-            votebase::Error::<T>::VoteNotExpired
+            engingcore::Error::<T>::VoteNotExpired
         );
 
         let tally = JointTallies::<T>::get(proposal_id);
         if is_joint_unanimous(tally.yes) {
-            return <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED);
+            return <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED);
         }
         Self::advance_joint_to_referendum(proposal_id)
     }
 
-    fn advance_joint_to_referendum(proposal_id: u64) -> DispatchResult {
+    fn advance_joint_to_referendum(proposal_id: u128) -> DispatchResult {
         let now = <frame_system::Pallet<T>>::block_number();
         let referendum_end = now.saturating_add(Self::referendum_stage_duration());
         with_transaction(|| {
             let eligible_total =
-                match <votebase::Pallet<T>>::population_eligible_total_of(proposal_id) {
+                match <engingcore::Pallet<T>>::population_eligible_total_of(proposal_id) {
                     Some(total) => total,
                     None => {
                         return TransactionOutcome::Rollback(Err(
@@ -413,9 +413,9 @@ impl<T: Config> Pallet<T> {
                 |maybe| -> Result<frame_system::pallet_prelude::BlockNumberFor<T>, DispatchError> {
                     let proposal = maybe
                         .as_mut()
-                        .ok_or(votebase::Error::<T>::ProposalNotFound)?;
+                        .ok_or(engingcore::Error::<T>::ProposalNotFound)?;
                     let old_end = proposal.end;
-                    proposal.stage = votebase::STAGE_REFERENDUM;
+                    proposal.stage = engingcore::STAGE_REFERENDUM;
                     proposal.start = now;
                     proposal.end = referendum_end;
                     Ok(old_end)
@@ -431,13 +431,13 @@ impl<T: Config> Pallet<T> {
             });
 
             if let Err(err) =
-                <votebase::Pallet<T>>::schedule_proposal_expiry(proposal_id, referendum_end)
+                <engingcore::Pallet<T>>::schedule_proposal_expiry(proposal_id, referendum_end)
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
-            <votebase::Pallet<T>>::release_internal_proposal_mutexes(proposal_id);
+            <engingcore::Pallet<T>>::release_internal_proposal_mutexes(proposal_id);
 
-            <votebase::Pallet<T>>::emit_proposal_advanced_to_referendum(
+            <engingcore::Pallet<T>>::emit_proposal_advanced_to_referendum(
                 proposal_id,
                 referendum_end,
                 eligible_total,

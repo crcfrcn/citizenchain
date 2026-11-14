@@ -1,6 +1,7 @@
 import {beforeEach, expect, it, vi} from 'vitest';
 import {adminsChangeApi} from '../institution/admins';
 import {TransferProposalDialog} from '../multisig/TransferProposalDialog';
+import {open as pickUpgradeFile} from '@tauri-apps/plugin-dialog';
 const mocks=vi.hoisted(()=>({invoke:vi.fn(),listen:vi.fn()}));
 vi.mock('../client/tauri',()=>({invoke:mocks.invoke,sanitizeError:String}));
 vi.mock('@tauri-apps/api/event',()=>({listen:mocks.listen}));
@@ -31,7 +32,7 @@ const heAccountId = accountId('05');
 it.each([
   {orgType:0, expected:['主账户','费用账户','安全基金账户','两和基金账户']},
   {orgType:1, expected:['主账户','费用账户']},
-  {orgType:2, expected:['主账户','永久质押账户','费用账户']},
+  {orgType:2, expected:['主账户','费用账户','永久质押账户']},
 ])('机构类型 $orgType 使用共用账户表并保留返回规则', async ({orgType, expected}) => {
   const cidNumber = 'TEST-CID';
   mocks.invoke.mockImplementation(async (command: string) => {
@@ -138,6 +139,43 @@ function installDialogMock() {
     else Reflect.deleteProperty(prototype, 'close');
   };
 }
+
+it.each([0, 1, 2])('机构类型 %s 的账户说明逐字匹配，按机构区分专用账户并支持点外部关闭', async (orgType) => {
+  const restoreDialog = installDialogMock();
+  mockTransferInstitution(orgType, true);
+  const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
+  try {
+    const accounts = await screen.findByRole('region', {name:'账户列表'});
+    const trigger = within(accounts).getByRole('button', {name:'机构账户说明'});
+    expect(trigger.textContent).toBe('说明');
+    expect(trigger.previousElementSibling?.textContent).toBe('账户列表');
+    const requestsBeforeHelp = mocks.invoke.mock.calls.length;
+    fireEvent.click(trigger);
+    const help = screen.getByRole('dialog', {name:'机构账户说明'});
+    expect(within(help).getByRole('heading', {name:'机构账户说明'})).toBeTruthy();
+    expect(within(help).getAllByRole('listitem').map(item => item.textContent)).toEqual([
+      '所有机构均有1个主账户和1个费用账户，主账户和费用账户不可注销，所有机构特指链上注册的机构。',
+      '主账户用于该机构持有资金，费用账户用于支付该机构交易产生的手续费等费用，费用账户只能向主账户转账。',
+      '机构可注册更多账户，机构账户由账户名称+机构CID号经哈希运算后产生，故一个机构CID号+不同账户名称可产生无限多的机构账户。',
+      '机构账户发起转账交易的，必须由该机构的管理员发起转账提案，经该机构管理员内部投票通过后执行。',
+      ...(orgType === 0 ? [
+        '国家储委会拥有安全基金专用账户，安全基金用于公民链的技术安全，赔付因公民链技术原因造成的用户资金损失。',
+        '国家储委会拥有两和基金专用账户，两和基金用于历史和解与和平建国，修复因内战、运动、迫害等历史问题造成的民族创伤。',
+      ] : orgType === 2 ? [
+        '省储行拥有永久质押账户，永久质押账户用于永久质押省储行创立发行的公民币，永久质押账户只能收款，不能支出。',
+      ] : []),
+    ]);
+    fireEvent.click(help.querySelector('.metric-help-content')!);
+    expect(screen.getByRole('dialog', {name:'机构账户说明'})).toBe(help);
+    fireEvent.click(help);
+    expect(screen.queryByRole('dialog', {name:'机构账户说明'})).toBeNull();
+    expect(within(accounts).getByRole('table')).toBeTruthy();
+    expect(mocks.invoke.mock.calls.length).toBe(requestsBeforeHelp);
+  } finally {
+    view.unmount();
+    restoreDialog();
+  }
+});
 
 const transferCases = [
   { button: '转账', title: '发起转账提案', orgType: 2, source: mainAccountId, call: 'transfer' },
@@ -323,6 +361,202 @@ it.each([
     expect(screen.queryByRole('dialog', { name: title })).toBeNull();
     expect(screen.getByRole('heading', { name: '提案列表' })).toBe(overview);
     expect(mocks.invoke.mock.calls.filter(([command]) => command === 'get_institution_proposal_page')).toHaveLength(2);
+  } finally {
+    view.unmount();
+    restoreDialog();
+  }
+});
+
+it.each([false, true])('协议升级高级设置默认收起，编辑再收起=%s 时构建和提交保留完整PoW参数', async (editParameters) => {
+  const restoreDialog = installDialogMock();
+  mockTransferInstitution(0, true);
+  const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
+  try {
+    fireEvent.click(await screen.findByRole('button', {name:'协议升级'}));
+    const dialog = screen.getByRole('dialog', {name:'协议升级'});
+    const panel = within(dialog);
+    const advanced = await panel.findByRole('button', {name:'高级设置'});
+    expect(panel.getByText('设置 PoW 参数')).toBeTruthy();
+    expect(panel.queryByText('PoW 参数（与 runtime code 一起进入联合投票）')).toBeNull();
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    expect(panel.queryAllByRole('spinbutton')).toHaveLength(0);
+    const expectedParams = editParameters
+      ? {...powParams, paramsVersion:2, targetBlockTimeMs:2000}
+      : powParams;
+    if (editParameters) {
+      fireEvent.click(advanced);
+      expect(advanced.getAttribute('aria-expanded')).toBe('true');
+      expect(panel.getAllByRole('spinbutton')).toHaveLength(6);
+      fireEvent.change(panel.getByRole('spinbutton', {name:'参数版本'}), {target:{value:'2'}});
+      fireEvent.change(panel.getByRole('spinbutton', {name:'平均目标时间（毫秒）'}), {target:{value:'2000'}});
+      fireEvent.click(advanced);
+      expect(panel.queryAllByRole('spinbutton')).toHaveLength(0);
+      expect(advanced.getAttribute('aria-expanded')).toBe('false');
+      fireEvent.click(advanced);
+      expect(panel.getByRole('spinbutton', {name:'参数版本'})).toHaveProperty('value', '2');
+      expect(panel.getByRole('spinbutton', {name:'平均目标时间（毫秒）'})).toHaveProperty('value', '2000');
+      fireEvent.click(advanced);
+    }
+    expect(mocks.invoke.mock.calls.filter(([command]) => command === 'get_pow_difficulty_params')).toHaveLength(1);
+    fireEvent.change(panel.getByLabelText('升级理由'), {target:{value:'折叠参数回归'}});
+    fireEvent.click(panel.getByRole('button', {name:'选择文件'}));
+    await panel.findByText('fixture-runtime.wasm');
+    fireEvent.click(panel.getByRole('button', {name:'签名'}));
+    fireEvent.click(await panel.findByRole('button', {name:'扫描签名响应'}));
+    await panel.findByRole('button', {name:'完成'});
+    expect(panel.getByText('升级提案交易已提交')).toBeTruthy();
+    expect(panel.getByText('等待链上确认，最终确认后可在提案列表查看。')).toBeTruthy();
+    expect(panel.queryByText('提案已进入联合投票阶段。')).toBeNull();
+    for (const command of ['build_propose_upgrade_request', 'submit_propose_upgrade']) {
+      expect(mocks.invoke).toHaveBeenCalledWith(command, expect.objectContaining({
+        powParams:expectedParams, actorCidNumber:transferCid,
+      }));
+    }
+    expect(panel.queryAllByRole('spinbutton')).toHaveLength(0);
+  } finally {
+    view.unmount();
+    restoreDialog();
+  }
+});
+
+it('协议升级理由和路径的首尾空白在构建与提交时保持相同规范化', async () => {
+  const restoreDialog = installDialogMock();
+  mockTransferInstitution(0, true);
+  vi.mocked(pickUpgradeFile).mockResolvedValueOnce('  /tmp/fixture-runtime.wasm  ');
+  const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
+  try {
+    fireEvent.click(await screen.findByRole('button', {name:'协议升级'}));
+    const panel = within(screen.getByRole('dialog', {name:'协议升级'}));
+    await panel.findByRole('button', {name:'高级设置'});
+    fireEvent.change(panel.getByLabelText('升级理由'), {target:{value:' \n 升级说明 \t'}});
+    fireEvent.click(panel.getByRole('button', {name:'选择文件'}));
+    await panel.findByText('fixture-runtime.wasm');
+    fireEvent.click(panel.getByRole('button', {name:'签名'}));
+    fireEvent.click(await panel.findByRole('button', {name:'扫描签名响应'}));
+    await panel.findByRole('button', {name:'完成'});
+    for (const command of ['build_propose_upgrade_request', 'submit_propose_upgrade']) {
+      expect(mocks.invoke).toHaveBeenCalledWith(command, expect.objectContaining({
+        reason:'升级说明', wasmPath:'/tmp/fixture-runtime.wasm', powParams,
+      }));
+    }
+  } finally {
+    view.unmount();
+    restoreDialog();
+  }
+});
+
+it.each([
+  {reason:'中'.repeat(341) + 'a', bytes:1024, allowed:true},
+  {reason:'中'.repeat(342), bytes:1026, allowed:false},
+])('协议升级理由按UTF8的 $bytes 字节边界在扫码前校验', async ({reason, bytes, allowed}) => {
+  const restoreDialog = installDialogMock();
+  mockTransferInstitution(0, true);
+  const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
+  try {
+    fireEvent.click(await screen.findByRole('button', {name:'协议升级'}));
+    const panel = within(screen.getByRole('dialog', {name:'协议升级'}));
+    await panel.findByRole('button', {name:'高级设置'});
+    fireEvent.change(panel.getByLabelText('升级理由'), {target:{value:reason}});
+    fireEvent.click(panel.getByRole('button', {name:'选择文件'}));
+    await panel.findByText('fixture-runtime.wasm');
+    fireEvent.click(panel.getByRole('button', {name:'签名'}));
+    if (allowed) {
+      await panel.findByRole('button', {name:'扫描签名响应'});
+      expect(mocks.invoke).toHaveBeenCalledWith('build_propose_upgrade_request', expect.objectContaining({reason}));
+    } else {
+      expect((await panel.findByRole('alert')).textContent).toContain(`当前 ${bytes} 字节`);
+      expect(mocks.invoke.mock.calls.some(([command]) => command === 'build_propose_upgrade_request')).toBe(false);
+      expect(panel.queryByRole('button', {name:'扫描签名响应'})).toBeNull();
+    }
+  } finally {
+    view.unmount();
+    restoreDialog();
+  }
+});
+
+it.each(['0', '1.5', '4294967296'])('协议升级在扫码前拒绝无效PoW整数 %s', async (value) => {
+  const restoreDialog = installDialogMock();
+  mockTransferInstitution(0, true);
+  const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
+  try {
+    fireEvent.click(await screen.findByRole('button', {name:'协议升级'}));
+    const panel = within(screen.getByRole('dialog', {name:'协议升级'}));
+    fireEvent.click(await panel.findByRole('button', {name:'高级设置'}));
+    fireEvent.change(panel.getByRole('spinbutton', {name:'参数版本'}), {target:{value}});
+    fireEvent.change(panel.getByLabelText('升级理由'), {target:{value:'参数校验'}});
+    fireEvent.click(panel.getByRole('button', {name:'选择文件'}));
+    await panel.findByText('fixture-runtime.wasm');
+    fireEvent.click(panel.getByRole('button', {name:'签名'}));
+    expect((await panel.findByRole('alert')).textContent).toContain('PoW 参数');
+    expect(mocks.invoke.mock.calls.some(([command]) => command === 'build_propose_upgrade_request')).toBe(false);
+  } finally {
+    view.unmount();
+    restoreDialog();
+  }
+});
+
+it('协议升级读取参数失败后可就地重试，保留理由、文件与管理员', async () => {
+  const restoreDialog = installDialogMock();
+  mockTransferInstitution(0, true);
+  const original = mocks.invoke.getMockImplementation()!;
+  let reads = 0;
+  mocks.invoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'get_pow_difficulty_params' && reads++ === 0) throw new Error('参数暂时读取失败');
+    return original(command, ...args);
+  });
+  const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
+  try {
+    fireEvent.click(await screen.findByRole('button', {name:'协议升级'}));
+    const dialog = screen.getByRole('dialog', {name:'协议升级'});
+    const panel = within(dialog);
+    const retry = await panel.findByRole('button', {name:'重试读取'});
+    fireEvent.change(panel.getByLabelText('升级理由'), {target:{value:'保留的升级理由'}});
+    fireEvent.click(panel.getByRole('button', {name:'选择文件'}));
+    await panel.findByText('fixture-runtime.wasm');
+    expect(panel.getByRole('button', {name:'签名'})).toHaveProperty('disabled', true);
+    fireEvent.click(retry);
+    await panel.findByRole('button', {name:'高级设置'});
+    expect(panel.getByLabelText('升级理由')).toHaveProperty('value', '保留的升级理由');
+    expect(panel.getByText('fixture-runtime.wasm')).toBeTruthy();
+    expect(panel.getByRole('combobox', {name:'发起管理员'})).toHaveProperty('value', signerAccountId);
+    expect(panel.queryByRole('button', {name:'重试读取'})).toBeNull();
+    expect(reads).toBe(2);
+    fireEvent.click(panel.getByRole('button', {name:'签名'}));
+    await panel.findByRole('button', {name:'扫描签名响应'});
+    expect(mocks.invoke).toHaveBeenCalledWith('build_propose_upgrade_request', expect.objectContaining({
+      reason:'保留的升级理由', powParams,
+    }));
+  } finally {
+    view.unmount();
+    restoreDialog();
+  }
+});
+
+it('协议升级的节点预检拒绝在二维码生成前展示，重试保留原输入', async () => {
+  const restoreDialog = installDialogMock();
+  mockTransferInstitution(0, true);
+  const original = mocks.invoke.getMockImplementation()!;
+  mocks.invoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'build_propose_upgrade_request') throw new Error('当前 Runtime 不支持该 PoW 算法版本');
+    return original(command, ...args);
+  });
+  const view = render(<InstitutionDetailPage cidNumber={transferCid} onBack={vi.fn()} />);
+  try {
+    fireEvent.click(await screen.findByRole('button', {name:'协议升级'}));
+    const panel = within(screen.getByRole('dialog', {name:'协议升级'}));
+    fireEvent.click(await panel.findByRole('button', {name:'高级设置'}));
+    fireEvent.change(panel.getByRole('spinbutton', {name:'算法版本'}), {target:{value:'2'}});
+    fireEvent.change(panel.getByLabelText('升级理由'), {target:{value:'保留待修正参数'}});
+    fireEvent.click(panel.getByRole('button', {name:'选择文件'}));
+    await panel.findByText('fixture-runtime.wasm');
+    fireEvent.click(panel.getByRole('button', {name:'签名'}));
+    await panel.findByText(/当前 Runtime 不支持该 PoW 算法版本/);
+    expect(panel.queryByRole('button', {name:'扫描签名响应'})).toBeNull();
+    expect(mocks.invoke.mock.calls.some(([command]) => command === 'submit_propose_upgrade')).toBe(false);
+    fireEvent.click(panel.getByRole('button', {name:'重试'}));
+    expect(panel.getByLabelText('升级理由')).toHaveProperty('value', '保留待修正参数');
+    expect(panel.getByRole('spinbutton', {name:'算法版本'})).toHaveProperty('value', '2');
+    expect(panel.getByText('fixture-runtime.wasm')).toBeTruthy();
   } finally {
     view.unmount();
     restoreDialog();

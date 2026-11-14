@@ -1,6 +1,6 @@
 //! electionvote 存储清理。
 //!
-//! 核心 votebase 只维护清理状态机，具体选票、候选、计票账本
+//! 核心 engingcore 只维护清理状态机，具体选票、候选、计票账本
 //! 住在 electionvote，因此通过 `ElectionCleanupHandler` 派发到这里分块删除。
 
 use crate::pallet::{
@@ -10,8 +10,8 @@ use crate::pallet::{
 use crate::weights::WeightInfo;
 use frame_support::{traits::Get, weights::Weight};
 
-impl<T: crate::pallet::Config> votebase::ElectionCleanupHandler for crate::pallet::Pallet<T> {
-    fn cleanup_election_votes_chunk(proposal_id: u64, limit: u32) -> votebase::CleanupChunkResult {
+impl<T: crate::pallet::Config> engingcore::ElectionCleanupHandler for crate::pallet::Pallet<T> {
+    fn cleanup_election_votes_chunk(proposal_id: u128, limit: u32) -> engingcore::CleanupChunkResult {
         let popular = PopularElectionVotesByCid::<T>::clear_prefix(proposal_id, limit, None);
         if popular.maybe_cursor.is_some() || popular.unique >= limit {
             return (popular.unique, true);
@@ -24,16 +24,16 @@ impl<T: crate::pallet::Config> votebase::ElectionCleanupHandler for crate::palle
         )
     }
 
-    fn cleanup_election_voters_chunk(proposal_id: u64, limit: u32) -> votebase::CleanupChunkResult {
+    fn cleanup_election_voters_chunk(proposal_id: u128, limit: u32) -> engingcore::CleanupChunkResult {
         let _ = (proposal_id, limit);
-        // 互选岗位快照统一由 votebase 核心 VoterSnapshot 清理阶段处理。
+        // 互选岗位快照统一由 engingcore 核心 VoterSnapshot 清理阶段处理。
         (0, false)
     }
 
     fn cleanup_election_tallies_chunk(
-        proposal_id: u64,
+        proposal_id: u128,
         limit: u32,
-    ) -> votebase::CleanupChunkResult {
+    ) -> engingcore::CleanupChunkResult {
         let result = ElectionCandidateTallies::<T>::clear_prefix(proposal_id, limit, None);
         if result.maybe_cursor.is_none() {
             ElectionTallyStore::<T>::remove(proposal_id);
@@ -41,7 +41,7 @@ impl<T: crate::pallet::Config> votebase::ElectionCleanupHandler for crate::palle
         (result.unique, result.maybe_cursor.is_some())
     }
 
-    fn cleanup_election_terminal(proposal_id: u64) {
+    fn cleanup_election_terminal(proposal_id: u128) {
         ElectionMetaStore::<T>::remove(proposal_id);
         ElectionCandidates::<T>::remove(proposal_id);
         ElectionResults::<T>::remove(proposal_id);
@@ -49,47 +49,47 @@ impl<T: crate::pallet::Config> votebase::ElectionCleanupHandler for crate::palle
 }
 
 impl<T: crate::pallet::Config>
-    votebase::ProposalTrackHandler<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>
+    engingcore::ProposalTrackHandler<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>
     for crate::pallet::Pallet<T>
 {
     fn handles(kind: u8) -> bool {
-        kind == votebase::PROPOSAL_KIND_ELECTION
+        kind == engingcore::PROPOSAL_KIND_ELECTION
     }
 
     fn finalize_timeout(
-        proposal: &votebase::Proposal<
+        proposal: &engingcore::Proposal<
             frame_system::pallet_prelude::BlockNumberFor<T>,
             T::AccountId,
         >,
-        proposal_id: u64,
+        proposal_id: u128,
     ) -> Option<frame_support::dispatch::DispatchResult> {
-        use votebase::ElectionProposalFinalizer;
+        use engingcore::ElectionProposalFinalizer;
 
         if !Self::handles(proposal.kind) {
             return None;
         }
         Some(match proposal.stage {
-            votebase::STAGE_ELECTION_POPULAR => {
+            engingcore::STAGE_ELECTION_POPULAR => {
                 Self::finalize_election_popular_timeout(proposal, proposal_id)
             }
-            votebase::STAGE_ELECTION_MUTUAL => {
+            engingcore::STAGE_ELECTION_MUTUAL => {
                 Self::finalize_election_mutual_timeout(proposal, proposal_id)
             }
-            _ => Err(votebase::Error::<T>::InvalidProposalStage.into()),
+            _ => Err(engingcore::Error::<T>::InvalidProposalStage.into()),
         })
     }
 
     fn cleanup_chunk(
         kind: u8,
-        proposal_id: u64,
+        proposal_id: u128,
         limit: u32,
-    ) -> Option<votebase::CleanupChunkResult> {
+    ) -> Option<engingcore::CleanupChunkResult> {
         if !Self::handles(kind) {
             return None;
         }
         let limit = limit.max(1);
         let (votes, votes_more) =
-            <Self as votebase::ElectionCleanupHandler>::cleanup_election_votes_chunk(
+            <Self as engingcore::ElectionCleanupHandler>::cleanup_election_votes_chunk(
                 proposal_id,
                 limit,
             );
@@ -97,7 +97,7 @@ impl<T: crate::pallet::Config>
             return Some((votes, true));
         }
         let (voters, voters_more) =
-            <Self as votebase::ElectionCleanupHandler>::cleanup_election_voters_chunk(
+            <Self as engingcore::ElectionCleanupHandler>::cleanup_election_voters_chunk(
                 proposal_id,
                 limit.saturating_sub(votes),
             );
@@ -106,26 +106,26 @@ impl<T: crate::pallet::Config>
             return Some((removed, true));
         }
         let (tallies, tallies_more) =
-            <Self as votebase::ElectionCleanupHandler>::cleanup_election_tallies_chunk(
+            <Self as engingcore::ElectionCleanupHandler>::cleanup_election_tallies_chunk(
                 proposal_id,
                 limit.saturating_sub(removed),
             );
         Some((removed.saturating_add(tallies), tallies_more))
     }
 
-    fn cleanup_terminal(kind: u8, proposal_id: u64) -> Option<()> {
+    fn cleanup_terminal(kind: u8, proposal_id: u128) -> Option<()> {
         Self::handles(kind).then(|| {
-            <Self as votebase::ElectionCleanupHandler>::cleanup_election_terminal(proposal_id)
+            <Self as engingcore::ElectionCleanupHandler>::cleanup_election_terminal(proposal_id)
         })
     }
 
     fn timeout_weight(stage: u8) -> Option<Weight> {
         let candidates = T::MaxElectionCandidates::get();
         match stage {
-            votebase::STAGE_ELECTION_POPULAR => Some(
+            engingcore::STAGE_ELECTION_POPULAR => Some(
                 <T as crate::pallet::Config>::WeightInfo::cast_popular_vote(candidates),
             ),
-            votebase::STAGE_ELECTION_MUTUAL => Some(
+            engingcore::STAGE_ELECTION_MUTUAL => Some(
                 <T as crate::pallet::Config>::WeightInfo::cast_mutual_vote(candidates),
             ),
             u8::MAX => Some(
@@ -139,7 +139,7 @@ impl<T: crate::pallet::Config>
 
     fn cleanup_chunk_weight(kind: u8, limit: u32) -> Option<Weight> {
         use crate::weights::WeightInfo;
-        matches!(kind, votebase::PROPOSAL_KIND_ELECTION | u8::MAX).then(|| {
+        matches!(kind, engingcore::PROPOSAL_KIND_ELECTION | u8::MAX).then(|| {
             <T as crate::pallet::Config>::WeightInfo::cleanup_popular(limit.max(1))
                 .max(<T as crate::pallet::Config>::WeightInfo::cleanup_mutual(
                     limit.max(1),
@@ -152,7 +152,7 @@ impl<T: crate::pallet::Config>
 
     fn cleanup_terminal_weight(kind: u8) -> Option<Weight> {
         use crate::weights::WeightInfo;
-        matches!(kind, votebase::PROPOSAL_KIND_ELECTION | u8::MAX)
+        matches!(kind, engingcore::PROPOSAL_KIND_ELECTION | u8::MAX)
             .then(<T as crate::pallet::Config>::WeightInfo::cleanup_terminal)
     }
 }

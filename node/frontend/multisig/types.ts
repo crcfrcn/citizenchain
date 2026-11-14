@@ -14,7 +14,7 @@ export type VoteSubmitResult = {
 };
 
 export type TransferProposalDetail = {
-  proposalId: number;
+  proposalId: string;
   actorCidNumber: string | null;
   fundingAccountId: string;
   beneficiaryAccountId: string;
@@ -24,14 +24,14 @@ export type TransferProposalDetail = {
 };
 
 export type SweepProposalDetail = {
-  proposalId: number;
+  proposalId: string;
   actorCidNumber: string;
   institutionAccountId: string;
   amountFen: string;
 };
 
 export type SafetyFundProposalDetail = {
-  proposalId: number;
+  proposalId: string;
   actorCidNumber: string;
   institutionAccountId: string;
   beneficiaryAccountId: string;

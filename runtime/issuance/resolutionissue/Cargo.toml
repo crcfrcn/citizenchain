@@ -18,7 +18,7 @@ pallet-balances = { workspace = true }
 sp-runtime = { workspace = true }
 sp-io = { workspace = true }
 sp-std = { workspace = true }
-votebase = { path = "../../votingengine/votebase", default-features = false }
+engingcore = { path = "../../votingengine/engingcore", default-features = false }
 jointvote = { path = "../../votingengine/jointvote", default-features = false }
 primitives = { path = "../../primitives", default-features = false }
 entitybase = { path = "../../entity/entitybase", default-features = false }
@@ -35,18 +35,18 @@ std = [
     "sp-runtime/std",
     "sp-io/std",
     "sp-std/std",
-    "votebase/std",
+    "engingcore/std",
     "jointvote/std",
     "primitives/std",
     "entitybase/std",
 ]
 runtime-benchmarks = [
-    # 决议发行 benchmark 依赖 votebase 与 balances 的 benchmark 配置，需同步传播。
+    # 决议发行 benchmark 依赖 engingcore 与 balances 的 benchmark 配置，需同步传播。
     "frame-benchmarking/runtime-benchmarks",
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "pallet-balances/runtime-benchmarks",
-    "votebase/runtime-benchmarks",
+    "engingcore/runtime-benchmarks",
     "jointvote/runtime-benchmarks",
 ]
 try-runtime = []

@@ -11,7 +11,7 @@ use primitives::institution_constraints::MemberCompositionSpec;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 #[cfg(test)]
-use votebase::Proposal;
+use engingcore::Proposal;
 
 const INTERNAL_VOTE_PALLET: &[u8] = b"InternalVote";
 
@@ -204,7 +204,10 @@ where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
     let id = crate::guard::national_body_composition::storage_key::threshold_id(key)?;
-    let proposal_key = crate::guard::national_body_composition::storage_key::proposal(id);
+    let proposal_key = if key.len() == 56 {
+        let mut paired = crate::guard::national_body_composition::storage_key::proposal_prefix();
+        paired.extend_from_slice(&key[32..]); paired
+    } else { crate::guard::national_body_composition::storage_key::proposal(id) };
     let Some(raw_proposal) = read(&proposal_key) else {
         // 没有提案就无法归类为固定治理事项；普通投票的清理由 runtime 负责。
         return Ok(());
@@ -247,10 +250,11 @@ where
         .and_then(|code| primitives::cid::code::fixed_governance_pass_threshold(&code))
         .is_some()
     {
-        check_threshold(
-            &crate::guard::national_body_composition::storage_key::threshold(id),
-            read,
-        )?;
+        let threshold_key = if key.len() == 56 {
+            let mut paired = crate::guard::national_body_composition::storage_key::threshold_prefix();
+            paired.extend_from_slice(&key[32..]); paired
+        } else { crate::guard::national_body_composition::storage_key::threshold(id) };
+        check_threshold(&threshold_key, read)?;
     }
     Ok(())
 }
@@ -357,7 +361,7 @@ pub mod storage_key {
         nodedesktop::storage::prefix(pallet, storage)
     }
 
-    fn map_u64(pallet: &[u8], storage: &[u8], id: u64) -> Vec<u8> {
+    fn map_u64(pallet: &[u8], storage: &[u8], id: u128) -> Vec<u8> {
         nodedesktop::storage::blake2_map(pallet, storage, &id.encode())
     }
 
@@ -369,11 +373,11 @@ pub mod storage_key {
         prefix(VOTING_ENGINE_PALLET, b"Proposals")
     }
 
-    pub fn proposal(id: u64) -> Vec<u8> {
+    pub fn proposal(id: u128) -> Vec<u8> {
         map_u64(VOTING_ENGINE_PALLET, b"Proposals", id)
     }
 
-    pub fn threshold(id: u64) -> Vec<u8> {
+    pub fn threshold(id: u128) -> Vec<u8> {
         map_u64(INTERNAL_VOTE_PALLET, b"InternalThresholdSnapshot", id)
     }
 
@@ -394,13 +398,13 @@ pub mod storage_key {
         ]
     }
 
-    fn parse_map_id(key: &[u8], prefix: &[u8]) -> Result<u64, ()> {
+    fn parse_map_id(key: &[u8], prefix: &[u8]) -> Result<u128, ()> {
         let encoded = key.strip_prefix(prefix).ok_or(())?;
-        if encoded.len() != 24 || blake2_128(&encoded[16..]) != encoded[..16] {
+        if !matches!(encoded.len(), 24 | 32) || blake2_128(&encoded[16..]) != encoded[..16] {
             return Err(());
         }
         let mut input = &encoded[16..];
-        let id = u64::decode(&mut input).map_err(|_| ())?;
+        let id = if encoded.len() == 24 { u128::from(u64::decode(&mut input).map_err(|_| ())?) } else { u128::decode(&mut input).map_err(|_| ())? };
         if !input.is_empty() {
             return Err(());
         }
@@ -417,12 +421,12 @@ pub mod storage_key {
             || key.starts_with(&proposal_prefix())
     }
 
-    pub(super) fn threshold_id(key: &[u8]) -> Result<u64, GuardError> {
+    pub(super) fn threshold_id(key: &[u8]) -> Result<u128, GuardError> {
         parse_map_id(key, &threshold_prefix())
             .map_err(|_| crate::guard::national_body_composition::GuardError::ThresholdKeyMalformed)
     }
 
-    pub(super) fn proposal_id(key: &[u8]) -> Result<u64, GuardError> {
+    pub(super) fn proposal_id(key: &[u8]) -> Result<u128, GuardError> {
         parse_map_id(key, &proposal_prefix())
             .map_err(|_| crate::guard::national_body_composition::GuardError::ProposalKeyMalformed)
     }

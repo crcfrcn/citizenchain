@@ -61,7 +61,7 @@ function roleTag(auth: AdminAuth): { text: string; color: string } {
 
 /** 当前代表机构表决；后端再次按机构角色校验。 */
 function RepresentativeVotePanel({ auth }: Props) {
-  const [proposalId, setProposalId] = useState<number | null>(null);
+  const [proposalId, setProposalId] = useState<string | null>(null);
   const [voterRoleCode, setVoterRoleCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const { signChain, chainSignModal } = useChainSign('代表机构表决链交易签名');
@@ -95,8 +95,9 @@ function RepresentativeVotePanel({ auth }: Props) {
     <div>
       <Space wrap>
         <span>提案 ID:</span>
-        <InputNumber
-          min={0}
+        <InputNumber<string>
+          stringMode
+          min="0"
           value={proposalId ?? undefined}
           onChange={(value) => setProposalId(value ?? null)}
         />

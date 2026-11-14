@@ -35,6 +35,7 @@ it('缺少后端工作台时不猜测或创建入口', () => {
 it('工作台保留本机构账户、司法显示和记录并沿用禁用条件', () => {
   const auth = { workspace: { workspace_sections: [{ workspace_section: 'operations', workspace_actions: [{ action: 'sign_legislation', title: '护宪终审', enabled: false }] }] } } as never;
   const html = renderToStaticMarkup(<JudicialWorkspace auth={auth} />);
-  for (const text of ['本机构账户', '司法显示', '暂无记录', '护宪终审']) expect(html).toContain(text);
-  expect(html).toMatch(/<button[^>]*disabled/u);
+  for (const text of ['本机构账户', '司法显示', '暂无记录', '司法业务', '岗位管理', '任职管理', '法定代表人']) expect(html).toContain(text);
+  // 默认账户页不挂载司法业务；动作禁用条件由真实业务组件测试覆盖。
+  expect(html).not.toContain('护宪终审');
 });

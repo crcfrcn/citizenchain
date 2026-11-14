@@ -322,6 +322,15 @@ fn resolve_recipient_account_id_with_rpc(
     )?;
     match mapped {
         Value::Null => {
+            // During backfill, a missing mapping may be an old native account.
+            // Never turn it into a different fallback recipient while native
+            // business transactions continue to advance the migration.
+            let progress = rpc("state_getStorage", serde_json::json!([
+                format!("0x{}", hex::encode(b":citizenchain:evm-account-mapping:progress:v1")), head
+            ]))?;
+            if !progress.is_null() {
+                return Err("以太坊地址映射正在更新，请稍后重试".into());
+            }
             // 与锁定 SDK AccountId32Mapper 的无映射规则一致。
             let mut account = [0xEE; 32];
             account[..20].copy_from_slice(&ethereum);

@@ -11,7 +11,7 @@ use frame_support::{
 };
 use frame_system as system;
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use votebase::types::InstitutionCode;
+use engingcore::types::InstitutionCode;
 
 type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -40,7 +40,7 @@ mod runtime {
     pub type Balances = pallet_balances;
 
     #[runtime::pallet_index(2)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(3)]
     pub type InternalVote = internalvote;
@@ -194,24 +194,24 @@ impl crate::traits::RegistryAuthority<AccountId32> for TestRegistryAuthority {
 }
 
 pub struct TestCitizenIdentityReader;
-impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
-    votebase::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<AccountId32> {
+    engingcore::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -222,7 +222,7 @@ fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId
 
 /// 投票引擎只按机构 CID 查询管理员；机构账户不参与授权寻址。
 pub struct TestInternalAdminProvider;
-impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -244,10 +244,10 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -288,7 +288,7 @@ impl internalvote::Config for Test {
 
 pub struct TestInstitutionRoleProvider;
 
-impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
+impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         <crate::Pallet<Test> as entitybase::InstitutionRoleQuery<AccountId32>>::is_active_assignment(
             cid_number, who, role_code,
@@ -305,7 +305,7 @@ impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvi
 
 pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCodeOf {
     let role_code: crate::RoleCodeOf = b"TEST_CLOSE_ROLE".to_vec().try_into().expect("role fits");
-    pallet::InstitutionRoles::<Test>::insert(
+    pallet::Pallet::<Test>::store_role(
         cid_number,
         &role_code,
         entitybase::InstitutionRole {
@@ -329,7 +329,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
             assignment_status: entitybase::InstitutionAssignmentStatus::Active,
         })
         .collect::<Vec<_>>();
-    pallet::InstitutionRoleAssignments::<Test>::insert(
+    pallet::Pallet::<Test>::store_role_assignments(
         cid_number,
         &role_code,
         crate::institution::role::RoleAssignmentsOf::<Test>::try_from(assignments)
@@ -355,7 +355,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
         operation,
     })
     .collect::<Vec<_>>();
-    pallet::InstitutionRolePermissions::<Test>::insert(
+    pallet::Pallet::<Test>::store_role_permissions(
         cid_number,
         &role_code,
         BoundedVec::try_from(permissions).expect("permissions fit"),
@@ -421,7 +421,19 @@ pub fn bind_cid(cid_number: &[u8], wallet: AccountId32) {
     CID_WALLET.with(|cell| *cell.borrow_mut() = Some((cid_number.to_vec(), wallet)));
 }
 
+/// Observe the production registration callback through real pallet execution.
+pub struct RecordAccountRegistration;
+impl frame_support::traits::OnNewAccount<AccountId32> for RecordAccountRegistration {
+    fn on_new_account(account: &AccountId32) {
+        sp_io::storage::set(&codec::Encode::encode(&(b"evm-receive-registration", account)), &[1]);
+    }
+}
+impl frame_support::traits::Get<frame_support::weights::Weight> for RecordAccountRegistration {
+    fn get() -> frame_support::weights::Weight { frame_support::weights::Weight::zero() }
+}
+
 impl pallet::Config for Test {
+    type OnAccountRegistered = RecordAccountRegistration;
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type InternalVoteEngine = internalvote::Pallet<Test>;
@@ -474,7 +486,7 @@ pub fn generated_cid(tag: &str, institution: &str) -> pallet::CidNumberOf<Test> 
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution,
         },
     )
@@ -627,7 +639,7 @@ pub fn propose_add_custom_account(
     )
 }
 
-pub fn cast_yes_votes(proposal_id: u64) -> sp_runtime::DispatchResult {
+pub fn cast_yes_votes(proposal_id: u128) -> sp_runtime::DispatchResult {
     // 创建提案时发起人 admin(1) 已由引擎自动投赞成票，只需第二名管理员补票。
     <internalvote::Pallet<Test>>::do_internal_vote(
         admin(2),

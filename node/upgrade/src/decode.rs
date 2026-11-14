@@ -7,7 +7,7 @@ use nodeclient::codec::read_compact_u32;
 pub const TAG_RUNTIME_UPGRADE: &[u8] = b"rt-upg";
 
 pub fn decode_runtime_upgrade_action(
-    proposal_id: u64,
+    proposal_id: u128,
     data: &[u8],
 ) -> Option<RuntimeUpgradeDetail> {
     // 跳过 MODULE_TAG("rt-upg":6)

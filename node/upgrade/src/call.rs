@@ -6,12 +6,54 @@ const RUNTIME_UPGRADE_PALLET_INDEX: u8 = 12;
 const PROPOSE_RUNTIME_UPGRADE_CALL_INDEX: u8 = 0;
 
 const MAX_WASM_BYTES: usize = 5 * 1_048_576;
+const MAX_REASON_BYTES: usize = 1024;
 
 const COMMITTEE_ROLE_CODE: &[u8] = b"COMMITTEE_MEMBER";
 
+/// 与页面构建、提交使用相同的规范化；字节上限保持当前链上规则。
+pub(crate) fn normalize_reason(reason: &str) -> Result<&str, String> {
+    let reason = reason.trim();
+    if reason.is_empty() {
+        return Err("升级理由不能为空".to_string());
+    }
+    if reason.len() > MAX_REASON_BYTES {
+        return Err(format!(
+            "升级理由不能超过 {MAX_REASON_BYTES} 字节，当前 {} 字节",
+            reason.len()
+        ));
+    }
+    Ok(reason)
+}
+
+/// 提前提示 difficulty::stage_params 的既有拒绝条件；链上校验仍是最终依据。
+pub(crate) fn validate_pow_params(
+    proposed: difficulty::PowDifficultyParams,
+    active: difficulty::PowDifficultyParams,
+    has_pending: bool,
+) -> Result<(), String> {
+    proposed.validate().map_err(str::to_string)?;
+    if proposed.algorithm_version != primitives::pow_const::POW_ALGORITHM_VERSION {
+        return Err("当前 Runtime 不支持该 PoW 算法版本".to_string());
+    }
+    if has_pending {
+        return Err("已有待生效 PoW 参数，请生效后重新读取参数并生成签名".to_string());
+    }
+    let mut values = proposed;
+    values.params_version = active.params_version;
+    if values == active {
+        if proposed.params_version != active.params_version {
+            return Err("PoW 参数未变时，参数版本必须保持不变".to_string());
+        }
+    } else if proposed.params_version != active.params_version.saturating_add(1) {
+        return Err("修改 PoW 参数时，参数版本必须在链上当前版本基础上精确加一".to_string());
+    }
+    Ok(())
+}
+
 /// 读取并校验 Runtime WASM 文件。
 pub(crate) fn read_wasm(wasm_path: &str) -> Result<(Vec<u8>, f64), String> {
-    let wasm_code = std::fs::read(wasm_path).map_err(|e| format!("读取 WASM 文件失败: {e}"))?;
+    let wasm_code =
+        std::fs::read(wasm_path.trim()).map_err(|e| format!("读取 WASM 文件失败: {e}"))?;
     if wasm_code.is_empty() {
         return Err("WASM 文件为空".to_string());
     }
@@ -34,10 +76,7 @@ pub(crate) fn propose_runtime_upgrade(
     {
         return Err("actor_cid_number 超出链上协议范围".to_string());
     }
-    let reason_bytes = reason.as_bytes();
-    if reason_bytes.is_empty() {
-        return Err("升级理由不能为空".to_string());
-    }
+    let reason_bytes = normalize_reason(reason)?.as_bytes();
 
     let reason_compact = encode_compact_u32(reason_bytes.len() as u32);
     let wasm_compact = encode_compact_u32(wasm_code.len() as u32);

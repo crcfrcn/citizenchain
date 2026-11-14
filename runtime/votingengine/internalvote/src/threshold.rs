@@ -29,31 +29,31 @@ impl<T: Config> Pallet<T> {
     }
 
     pub(crate) fn snapshot_admins_len_or_missing(
-        proposal_id: u64,
+        proposal_id: u128,
         subject: ProposalSubject<T::AccountId>,
     ) -> Result<u32, DispatchError> {
-        <votebase::Pallet<T>>::snapshot_admins_len(proposal_id, subject)
-            .ok_or(votebase::Error::<T>::MissingAdminSnapshot.into())
+        <engingcore::Pallet<T>>::snapshot_admins_len(proposal_id, subject)
+            .ok_or(engingcore::Error::<T>::MissingAdminSnapshot.into())
     }
 }
 
 impl<T: Config> Pallet<T> {
     pub(crate) fn proposal_personal_account(
-        proposal_id: u64,
+        proposal_id: u128,
     ) -> Result<T::AccountId, DispatchError> {
         let proposal =
-            Proposals::<T>::get(proposal_id).ok_or(votebase::Error::<T>::ProposalNotFound)?;
+            Proposals::<T>::get(proposal_id).ok_or(engingcore::Error::<T>::ProposalNotFound)?;
         ensure!(
-            proposal.internal_code == Some(votebase::types::PMUL)
+            proposal.internal_code == Some(engingcore::types::PMUL)
                 && proposal.actor_cid_number.is_none(),
-            votebase::Error::<T>::InvalidInstitution
+            engingcore::Error::<T>::InvalidInstitution
         );
         proposal
             .execution_account_id
-            .ok_or(votebase::Error::<T>::InvalidInstitution.into())
+            .ok_or(engingcore::Error::<T>::InvalidInstitution.into())
     }
 
-    pub(crate) fn apply_executed_threshold_side_effect(proposal_id: u64) -> DispatchResult {
+    pub(crate) fn apply_executed_threshold_side_effect(proposal_id: u128) -> DispatchResult {
         match InternalProposalRoles::<T>::get(proposal_id) {
             Some(InternalProposalRole::PersonalCreate) => {
                 let personal_account_id = Self::proposal_personal_account(proposal_id)?;
@@ -80,7 +80,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub(crate) fn apply_terminal_threshold_cleanup(proposal_id: u64, status: u8) -> DispatchResult {
+    pub(crate) fn apply_terminal_threshold_cleanup(proposal_id: u128, status: u8) -> DispatchResult {
         match (InternalProposalRoles::<T>::get(proposal_id), status) {
             (
                 Some(InternalProposalRole::PersonalCreate),

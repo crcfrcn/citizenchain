@@ -167,6 +167,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `56460075`
 		// Minimum execution time: 4_735_000_000 picoseconds.
 		Weight::from_parts(4_861_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 18662))
 			.saturating_add(Weight::from_parts(0, 56460075))
 			.saturating_add(T::DbWeight::get().reads(625))
 			.saturating_add(T::DbWeight::get().writes(278))
@@ -243,6 +245,8 @@ impl WeightInfo for () {
 		//  Estimated: `56460075`
 		// Minimum execution time: 4_735_000_000 picoseconds.
 		Weight::from_parts(4_861_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 18662))
 			.saturating_add(Weight::from_parts(0, 56460075))
 			.saturating_add(RocksDbWeight::get().reads(625))
 			.saturating_add(RocksDbWeight::get().writes(278))

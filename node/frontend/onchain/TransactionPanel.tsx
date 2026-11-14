@@ -89,7 +89,7 @@ export function TransactionPanel({ nodeReady }: { nodeReady: boolean }) {
             '链上转账交易支持公民链和以太坊，可在收款地址栏输入公民链账户或以太坊账户。',
             '转账支持矿工热钱包或冷钱包，可在钱包管理中添加更多冷钱包，冷钱包使用扫码签名。',
             '签名交易完成后，等待权威节点完成最终性确认，最终性确认后，转账交易将永久固化。',
-            <>权威节点由1个国家储委会节点+43个省储委会节点组成，<strong>达30个节点验证即可形成最终性。</strong></>,
+            '权威节点由1个国家储委会节点+43个省储委会节点组成，达30个节点验证即可形成最终性。',
           ]} />
         </div>
         <button className="wallet-manage-btn" onClick={() => setShowWalletModal(true)}>

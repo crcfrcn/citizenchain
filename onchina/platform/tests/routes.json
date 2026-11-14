@@ -399,6 +399,17 @@
         "citizenapp::public_institution::public_institutions_version"
       ],
       "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/institutions/{cid_number}/governance",
+      "methods": [
+        "get"
+      ],
+      "handlers": [
+        "institutions::admins::get_governance_state"
+      ],
+      "owner": "platform"
     }
   ],
   "adminMiddleware": [

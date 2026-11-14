@@ -14,7 +14,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import '../institution/styles.css';
 
 type Props = {
-  proposalId: number;
+  proposalId: string;
   adminSigners: AdminSignerMatch[];
   cidNumber?: string;
   onBack: () => void;
@@ -45,7 +45,7 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
   const cidNumber = resolvedCidNumber;
 
   const fetchVoteStatuses = useCallback(async (
-    pid: number, admins: InstitutionDetail['admins'], sid: string | undefined,
+    pid: string, admins: InstitutionDetail['admins'], sid: string | undefined,
     voterRoleSubjects: ProposalFullInfo['voterRoleSubjects'],
   ) => {
     const eligibleRoleCodes = new Set(
@@ -349,7 +349,7 @@ function VoteTallyBar({ title, yes, no, threshold }: {
 /// 主键 `proposalId` 与展示号解耦,展示号由 `getProposalDisplay` 反查得到。
 /// `meta=null` 时(链上未写入)fallback 到 `#<id>` 形式。
 export function formatProposalId(
-  id: number,
+  id: string,
   meta?: import('./types').ProposalDisplayMeta | null,
 ): string {
   if (meta == null) return `#${id}`;

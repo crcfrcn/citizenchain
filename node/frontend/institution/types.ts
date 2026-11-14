@@ -50,7 +50,7 @@ export type InstitutionDetail = {
 };
 
 export type InstitutionProposalItem = {
-  proposalId: number;
+  proposalId: string;
   kindLabel: string;
   statusLabel: string;
   summary: string;

@@ -74,7 +74,7 @@ fn validate<'a, T: Config>(
         .collect();
     ensure!(
         current.len() == seats
-            && InstitutionRoleAssignments::<T>::get(cid, role).len() == seats
+            && Pallet::<T>::institution_role_assignments(cid, role).len() == seats
             && target.len() == seats
             && assignment.assignments.len() == seats,
         Error::<T>::FixedRoleSeatsMismatch
@@ -157,10 +157,10 @@ pub(crate) fn vote_plan<T: Config>(
     let owner: ModuleTagOf = MODULE_TAG
         .to_vec()
         .try_into()
-        .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
+        .map_err(|_| engingcore::Error::<T>::InvalidVotePlan)?;
     let subject = AuthorizationSubject::Institution(RoleSubject {
         cid_number: CidNumber::try_from(subject.cid_number)
-            .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
+            .map_err(|_| engingcore::Error::<T>::InvalidVotePlan)?,
         role_code: role.clone(),
     });
     VotePlanOf::<T::AccountId>::try_new(
@@ -174,40 +174,40 @@ pub(crate) fn vote_plan<T: Config>(
         VotingEngineKind::Internal,
         sp_io::hashing::blake2_256(data),
     )
-    .map_err(|_| votebase::Error::<T>::InvalidVotePlan.into())
+    .map_err(|_| engingcore::Error::<T>::InvalidVotePlan.into())
 }
 
 pub(crate) fn execute<T: Config>(
-    proposal_id: u64,
+    proposal_id: u128,
     cid: &CidNumberOf<T>,
     action: &InstitutionGovernanceActionOf<T>,
 ) -> DispatchResult {
     ensure!(
-        votebase::Pallet::<T>::is_callback_execution_scope(proposal_id),
+        engingcore::Pallet::<T>::is_callback_execution_scope(proposal_id),
         Error::<T>::PermissionDenied
     );
-    let plan = votebase::Pallet::<T>::proposal_vote_plan(proposal_id)
-        .ok_or(votebase::Error::<T>::InvalidVotePlan)?;
+    let plan = engingcore::Pallet::<T>::proposal_vote_plan(proposal_id)
+        .ok_or(engingcore::Error::<T>::InvalidVotePlan)?;
     let AuthorizationSubject::Institution(ref subject) = plan.proposer_subject else {
-        return Err(votebase::Error::<T>::InvalidVotePlan.into());
+        return Err(engingcore::Error::<T>::InvalidVotePlan.into());
     };
     ensure!(
         subject.cid_number.as_slice() == cid.as_slice()
             && plan.voter_subjects.as_slice() == core::slice::from_ref(&plan.proposer_subject),
-        votebase::Error::<T>::InvalidVotePlan
+        engingcore::Error::<T>::InvalidVotePlan
     );
     let change = validate::<T>(cid, &subject.role_code, action)?;
-    let snapshot = votebase::VoterSnapshot::<T>::get(proposal_id, &plan.proposer_subject)
-        .ok_or(votebase::Error::<T>::MissingVoterSnapshot)?;
+    let snapshot = engingcore::VoterSnapshot::<T>::get(proposal_id, &plan.proposer_subject)
+        .ok_or(engingcore::Error::<T>::MissingVoterSnapshot)?;
     ensure!(
         snapshot.into_iter().collect::<BTreeSet<_>>() == change.current,
         Error::<T>::InvalidAssignmentResultAdmins
     );
 
-    let mut assignments = InstitutionRoleAssignments::<T>::get(cid, &subject.role_code);
+    let mut assignments = Pallet::<T>::institution_role_assignments(cid, &subject.role_code);
     let removed: BTreeSet<_> = change.current.difference(&change.target).collect();
     // 保留其他岗位的任职完整性，不能移除同时在其他岗位任职的人。
-    for (role, members) in InstitutionRoleAssignments::<T>::iter_prefix(cid) {
+    for (role, members) in Pallet::<T>::assignments_for(cid) {
         if role != subject.role_code {
             ensure!(
                 !members
@@ -246,7 +246,7 @@ pub(crate) fn execute<T: Config>(
         AdminAccountKind::PublicInstitution,
         change.admins.to_vec(),
     )?;
-    InstitutionRoleAssignments::<T>::insert(cid, &subject.role_code, assignments);
+    Pallet::<T>::store_role_assignments(cid, &subject.role_code, assignments);
     Pallet::<T>::deposit_event(Event::<T>::InstitutionGovernanceApplied {
         cid_number: cid.clone(),
         role_mutations: 0,

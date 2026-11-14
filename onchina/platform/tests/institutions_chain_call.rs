@@ -109,55 +109,89 @@ fn governance_payload_matches_runtime_call_field_order() {
 #[test]
 fn register_admins_payload_matches_runtime_call_field_order() {
     use codec::DecodeAll;
-    // 公、私权均用真实RuntimeCall解码，锁住完整字段及末尾岗位码，拒绝截断和尾随字节。
+    // 公私权均解码真实RuntimeCall，含初始化/后续登记；旧格式及任意尾随字节拒绝。
     for (institution_code, pallet) in [(*b"CFIN", 30u8), (*b"SFAS", 31u8)] {
         let admins = vec![
             private_admin([1; 32], "张", "三"),
             private_admin([2; 32], "李", "四"),
         ];
-        let expected_admins = admins
-            .iter()
-            .map(|admin| {
-                (
-                    admin.account_id,
-                    admin.cid_number.clone(),
-                    admin.family_name.clone(),
-                    admin.given_name.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-        let args = RegisterInstitutionAdminsArgs {
-            cid_number: b"LN001-SFAS-0001".to_vec(),
-            admins: if pallet == 30 {
-                InstitutionAdminsPayload::Public(admins)
+        for threshold in [None, Some(2u32)] {
+            let action = if threshold.is_some() {
+                entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+                    admins: admins.clone(),
+                    role_mutations: vec![entitybase::InstitutionRoleMutation::Create {
+                        role_name: "办理岗位".as_bytes().to_vec(),
+                        term_required: false,
+                        permissions: vec![entitybase::RolePermissionSpec {
+                            business_action_id: entitybase::BusinessActionId {
+                                module_tag: b"ins-reg".to_vec(),
+                                action_code: 0,
+                            },
+                            operation: entitybase::RolePermissionOperation::Propose,
+                        }],
+                        assignments: vec![entitybase::InstitutionAssignmentTarget {
+                            account_id: [1; 32],
+                            term_start: 0,
+                            term_end: 0,
+                            assignment_source: entitybase::InstitutionAssignmentSource::Registry,
+                            assignment_source_ref: vec![],
+                            assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+                        }],
+                    }],
+                    assignment_changes: vec![],
+                    legal_representative_change: None,
+                }
             } else {
-                InstitutionAdminsPayload::Private(admins)
-            },
-            institution_code,
-            actor_cid_number: b"LN001-FRG0-0001".to_vec(),
-            actor_role_code: b"REGISTRY-ROLE".to_vec(),
-        };
-        let encoded = encode_register_institution_admins(&args);
-        let mut expected = vec![pallet, 9];
-        expected.extend(
-            (
-                args.cid_number.clone(),
-                expected_admins,
-                args.actor_cid_number.clone(),
-                args.actor_role_code.clone(),
-            )
-                .encode(),
-        );
-        assert_eq!(encoded.call_data, expected);
-        assert_eq!(encoded.action, u16::from(pallet) << 8 | 9);
-        let decoded = runtime::RuntimeCall::decode_all(&mut &encoded.call_data[..]).unwrap();
-        assert_eq!(decoded.encode(), encoded.call_data);
-        let mut incomplete = encoded.call_data.clone();
-        incomplete.truncate(incomplete.len() - args.actor_role_code.encode().len());
-        assert!(runtime::RuntimeCall::decode_all(&mut &incomplete[..]).is_err());
-        let mut trailing = encoded.call_data;
-        trailing.push(0);
-        assert!(runtime::RuntimeCall::decode_all(&mut &trailing[..]).is_err());
+                entitybase::InstitutionGovernanceAction::ReplaceAdmins {
+                    admins: admins.clone(),
+                }
+            };
+            let args = RegisterInstitutionAdminsArgs {
+                cid_number: b"LN001-SFAS1-123456789-2026".to_vec(),
+                action,
+                institution_code,
+                actor_cid_number: b"LN001-FRG00-000000001-2026".to_vec(),
+                actor_role_code: b"REGISTRY-ROLE".to_vec(),
+                expected_state_hash: [0xab; 32],
+                initial_threshold: threshold,
+            };
+            let encoded = encode_register_institution_admins(&args);
+            let mut expected = vec![pallet, 9];
+            expected.extend(
+                (
+                    &args.cid_number,
+                    &args.action,
+                    &args.actor_cid_number,
+                    &args.actor_role_code,
+                    args.expected_state_hash,
+                    args.initial_threshold,
+                )
+                    .encode(),
+            );
+            assert_eq!(encoded.call_data, expected);
+            assert_eq!(encoded.action, u16::from(pallet) << 8 | 9);
+            let decoded = runtime::RuntimeCall::decode_all(&mut &encoded.call_data[..]).unwrap();
+            assert_eq!(decoded.encode(), encoded.call_data);
+            // 每个新增字段的截断/非法Option和旧名册格式都不能误解码。
+            for cut in [1, 2, 32, 33] {
+                let end = encoded.call_data.len() - cut;
+                assert!(runtime::RuntimeCall::decode_all(&mut &encoded.call_data[..end]).is_err());
+            }
+            let mut trailing = encoded.call_data.clone();
+            trailing.push(0);
+            assert!(runtime::RuntimeCall::decode_all(&mut &trailing[..]).is_err());
+            let mut legacy = vec![pallet, 9];
+            legacy.extend(
+                (
+                    &args.cid_number,
+                    &admins,
+                    &args.actor_cid_number,
+                    &args.actor_role_code,
+                )
+                    .encode(),
+            );
+            assert!(runtime::RuntimeCall::decode_all(&mut &legacy[..]).is_err());
+        }
     }
 }
 
@@ -226,4 +260,28 @@ fn private_institution_routes_add_and_close_to_pallet_31() {
     });
     assert_eq!(&close.call_data[..2], &[31, 1]);
     assert_eq!(close.action, 0x1f01);
+}
+
+#[test]
+fn registration_call_golden_is_shared_with_cold_wallet() {
+    use codec::DecodeAll;
+    let args = RegisterInstitutionAdminsArgs {
+        cid_number: b"NX013-CREGN-937676656-2026".to_vec(),
+        action: entitybase::InstitutionGovernanceAction::ReplaceAdmins {
+            admins: vec![private_admin([0x41; 32], "", "")],
+        },
+        institution_code: *b"CREG",
+        actor_cid_number: b"ZS001-FRG07-249474503-2026".to_vec(),
+        actor_role_code: b"RCHAIR".to_vec(),
+        expected_state_hash: [0xab; 32],
+        initial_threshold: None,
+    };
+    let encoded = encode_register_institution_admins(&args).call_data;
+    assert_eq!(hex::encode(&encoded), "1e09684e583031332d435245474e2d3933373637363635362d3230323600044141414141414141414141414141414141414141414141414141414141414141000000685a533030312d46524730372d3234393437343530332d3230323618524348414952abababababababababababababababababababababababababababababababab00");
+    assert_eq!(
+        runtime::RuntimeCall::decode_all(&mut &encoded[..])
+            .unwrap()
+            .encode(),
+        encoded
+    );
 }

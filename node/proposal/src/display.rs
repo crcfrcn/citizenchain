@@ -20,12 +20,12 @@ pub(crate) struct ProposalDisplayInfo {
 // ──── 工具函数 ────
 
 /// 提案展示号格式化（双层 ID）：
-///   主键 `proposal_id` 是单调 u64,与展示号解耦。展示号通过链上
+///   主键 `proposal_id` 是单调 u128,与展示号解耦。展示号通过链上
 ///   `ProposalDisplayId[id] = ProposalDisplayMeta { year, seq_in_year }` 反查。
 ///
 /// 渲染格式:`2026000123`(年份 + 6 位补零序号);seq 突破 6 位时自动扩展。
 /// `display_meta=None` 时(理论不该发生)fallback 到 `#<u64>` 形式避免空字符串。
-pub(crate) fn format_proposal_id(id: u64, display_meta: Option<&ProposalDisplayMeta>) -> String {
+pub(crate) fn format_proposal_id(id: u128, display_meta: Option<&ProposalDisplayMeta>) -> String {
     match display_meta {
         Some(meta) => format!("{}{:06}", meta.year, meta.seq_in_year),
         None => format!("#{id}"),
@@ -72,7 +72,7 @@ pub(crate) fn resolve_cid_full_name_by_subjects(subject_cid_numbers: &[String]) 
 ///
 /// 与 [`fetch_proposal_full`] 共用 [`resolve_proposal_action`],保证两条路径对同一提案看到一致内容。
 pub(crate) fn fetch_proposal_display(
-    proposal_id: u64,
+    proposal_id: u128,
     meta: &ProposalMeta,
 ) -> Result<ProposalDisplayInfo, String> {
     let action = resolve_proposal_action(proposal_id, meta)?;

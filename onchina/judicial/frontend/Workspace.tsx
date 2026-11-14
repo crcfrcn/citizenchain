@@ -1,3 +1,7 @@
+import { RolesView } from '@gmb/onchina-platform/institutions/RolesView';
+import { AssignmentsView } from '@gmb/onchina-platform/institutions/AssignmentsView';
+import { RepresentativeView } from '@gmb/onchina-platform/institutions/RepresentativeView';
+import { InstitutionDetailNavLayout } from '@gmb/onchina-platform/workspace/DetailLayout';
 import type { AdminAuth } from "@gmb/onchina-platform/authentication/types";
 import { AccountManageSection } from "@gmb/onchina-platform/accounts/AccountManageSection";
 import { WorkspaceShell } from "@gmb/onchina-platform/workspace/WorkspaceShell";
@@ -27,10 +31,13 @@ export function JudicialWorkspace({ auth }: JudicialWorkspaceProps) {
       workspace={workspace}
       operations={
         // 账户管理归本机构在册管理员;司法类操作入口叠加显示。
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <AccountManageSection auth={auth} />
-          <JudicialOperations auth={auth} />
-        </div>
+        <InstitutionDetailNavLayout items={[
+          {key:'accounts',label:'账户管理',content:<AccountManageSection auth={auth}/>},
+          {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={auth.institutionCidNumber}/>},
+          {key:'assignments',label:'任职管理',content:<AssignmentsView auth={auth} cidNumber={auth.institutionCidNumber}/>},
+          {key:'representative',label:'法定代表人',content:<RepresentativeView auth={auth} cidNumber={auth.institutionCidNumber}/>},
+          {key:'judicial',label:'司法业务',content:<JudicialOperations auth={auth}/>},
+        ]}/>
       }
       display={<JudicialDisplay auth={auth} />}
       records={<JudicialRecords />}

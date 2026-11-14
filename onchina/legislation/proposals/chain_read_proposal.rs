@@ -9,7 +9,7 @@ use onchina::chain_url;
 use serde::Serialize;
 use subxt::dynamic;
 
-/// votebase `Proposal<BlockNumber, AccountId>` 解码镜像(BlockNumber=u32 / AccountId=[u8;32])。
+/// engingcore `Proposal<BlockNumber, AccountId>` 解码镜像(BlockNumber=u32 / AccountId=[u8;32])。
 #[derive(Debug, Decode)]
 #[allow(dead_code)] // SCALE 解码镜像:未读字段只保序,删字段会破坏 Decode 对齐。
 pub struct OnChainProposal {
@@ -121,7 +121,8 @@ pub struct VoteTally {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegProposalState {
-    pub proposal_id: u64,
+    #[serde(serialize_with = "onchina::response::serialize_decimal")]
+    pub proposal_id: u128,
     /// 提案种类(2 = 立法)。
     pub kind: u8,
     /// 阶段(10 院内 / 11 公投 / 12 签署 / 13 会签 / 14 护宪)。
@@ -148,7 +149,7 @@ pub struct LegProposalState {
 
 /// 链上 Proposal + 分离元数据 + tally → 只读投影 `LegProposalState`。
 pub fn build_leg_proposal_state(
-    proposal_id: u64,
+    proposal_id: u128,
     proposal: &OnChainProposal,
     representative_meta: &OnChainRepresentativeMeta,
     legislation_meta: &OnChainLegislationMeta,
@@ -213,7 +214,7 @@ async fn fetch_value<V: Decode>(
 }
 
 /// 读取法律提案完整投影（两类元数据必存，tally 缺省 0/0）。
-pub async fn fetch_proposal_state(proposal_id: u64) -> Result<Option<LegProposalState>, String> {
+pub async fn fetch_proposal_state(proposal_id: u128) -> Result<Option<LegProposalState>, String> {
     let proposal_key = || vec![dynamic::Value::u128(proposal_id as u128)];
     let Some(proposal) =
         fetch_value::<OnChainProposal>("VotingEngine", "Proposals", proposal_key()).await?

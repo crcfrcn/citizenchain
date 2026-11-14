@@ -39,7 +39,7 @@ fn scoped_law(tier: u8, province: &str, city: &str) -> OnChainLaw {
             province_name: "测试省",
             city_code: city,
             city_name: "测试市",
-            year: "2026",
+            year: 2026,
             institution: if tier == 2 { "PRP" } else { "CLEG" },
         },
     )
@@ -188,7 +188,7 @@ fn law_version_decodes_and_builds_view() {
     golden.extend(chapters.encode());
     golden.extend([9u8; 32].encode());
     golden.extend(VoteType::Major.encode());
-    golden.extend(11u64.encode());
+    golden.extend(11u128.encode());
     golden.extend(500u64.encode());
     golden.extend(1000u64.encode());
 

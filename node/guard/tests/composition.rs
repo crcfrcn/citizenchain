@@ -14,10 +14,10 @@ use entitybase::InstitutionAssignmentSource;
 use primitives::institution_constraints::member_composition_specs;
 use primitives::institution_constraints::MemberCompositionSpec;
 use std::collections::BTreeMap;
-use votebase::types::ProposalSubjectCidNumbers;
-use votebase::types::PROPOSAL_KIND_INTERNAL;
-use votebase::types::STAGE_INTERNAL;
-use votebase::Proposal;
+use engingcore::types::ProposalSubjectCidNumbers;
+use engingcore::types::PROPOSAL_KIND_INTERNAL;
+use engingcore::types::STAGE_INTERNAL;
+use engingcore::Proposal;
 
 fn account(index: u32) -> [u8; 32] {
     let mut account = [0u8; 32];
@@ -366,7 +366,7 @@ fn six_singleton_threshold_snapshots_are_not_frozen_by_node_guard() {
             start: 1u32,
             end: 2u32,
         };
-        let id = index as u64 + 20;
+        let id = index as u128 + 20;
         let threshold_key = crate::guard::national_body_composition::storage_key::threshold(id);
         let state = BTreeMap::from([
             (
@@ -420,4 +420,27 @@ fn fixed_proposal_without_canonical_threshold_is_rejected() {
         check_transition(&delta, |_| None, |key| state.get(key).cloned(), None),
         Err(crate::guard::national_body_composition::GuardError::FixedThresholdMissing(fixed.code))
     );
+}
+
+
+#[test]
+fn proposal_key_width_keeps_old_and_new_threshold_guards_strict() {
+    let fixed = primitives::governance_skeleton::fixed_institutions()[0];
+    let expected = primitives::cid::code::fixed_governance_pass_threshold(&fixed.code).unwrap();
+    for id in [7u64.encode(), u128::MAX.encode()] {
+        let suffix = [sp_crypto_hashing::blake2_128(&id).as_slice(), &id].concat();
+        let proposal_key = [storage_key::proposal_prefix(), suffix.clone()].concat();
+        let threshold_key = [storage_key::threshold_prefix(), suffix].concat();
+        let mut state = BTreeMap::from([
+            (proposal_key.clone(), (0u8, 0u8, 0u8, Some(fixed.code)).encode()),
+            (threshold_key.clone(), (expected - 1).encode()),
+        ]);
+        assert!(check_proposal(&proposal_key, &|key| state.get(key).cloned()).is_err());
+        state.remove(&threshold_key);
+        assert!(check_proposal(&proposal_key, &|key| state.get(key).cloned()).is_err());
+        state.insert(threshold_key, expected.encode());
+        assert_eq!(check_proposal(&proposal_key, &|key| state.get(key).cloned()), Ok(()));
+        let mut tampered = proposal_key; *tampered.last_mut().unwrap() ^= 1;
+        assert!(storage_key::proposal_id(&tampered).is_err());
+    }
 }

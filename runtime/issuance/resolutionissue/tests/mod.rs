@@ -40,7 +40,7 @@ mod runtime {
     pub type Balances = pallet_balances;
 
     #[runtime::pallet_index(2)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(99)]
     pub type InternalVote = internalvote;
@@ -94,12 +94,12 @@ impl frame_support::traits::EnsureOrigin<RuntimeOrigin> for EnsureNrcAdminForTes
 }
 
 thread_local! {
-    static NEXT_JOINT_ID: RefCell<u64> = const { RefCell::new(100) };
+    static NEXT_JOINT_ID: RefCell<u128> = const { RefCell::new(100) };
 }
 
 pub struct TestJointVoteEngine;
 impl TestJointVoteEngine {
-    fn allocate_id() -> u64 {
+    fn allocate_id() -> u128 {
         NEXT_JOINT_ID.with(|id| {
             let mut id = id.borrow_mut();
             let value = *id;
@@ -109,13 +109,13 @@ impl TestJointVoteEngine {
     }
 }
 
-impl votebase::JointVoteEngine<AccountId32> for TestJointVoteEngine {
+impl engingcore::JointVoteEngine<AccountId32> for TestJointVoteEngine {
     fn create_joint_proposal_with_data(
         _who: AccountId32,
         _actor_cid_number: Vec<u8>,
-        vote_plan: votebase::types::VotePlanOf<AccountId32>,
+        vote_plan: engingcore::types::VotePlanOf<AccountId32>,
         data: Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         let hash = <Test as frame_system::Config>::Hashing::hash(data.as_slice());
         if hash.as_ref() != vote_plan.business_object_hash.as_slice() {
             return Err(DispatchError::Other("business object hash mismatch"));
@@ -123,30 +123,30 @@ impl votebase::JointVoteEngine<AccountId32> for TestJointVoteEngine {
         let proposal_id = Self::allocate_id();
         let bounded_data: frame_support::BoundedVec<
             u8,
-            <Test as votebase::Config>::MaxProposalDataLen,
+            <Test as engingcore::Config>::MaxProposalDataLen,
         > = data
             .try_into()
             .map_err(|_| DispatchError::Other("proposal data too large"))?;
-        let owner: frame_support::BoundedVec<u8, <Test as votebase::Config>::MaxModuleTagLen> =
+        let owner: frame_support::BoundedVec<u8, <Test as engingcore::Config>::MaxModuleTagLen> =
             vote_plan
                 .proposal_owner
                 .to_vec()
                 .try_into()
                 .map_err(|_| DispatchError::Other("module tag too large"))?;
-        votebase::ProposalData::<Test>::insert(proposal_id, bounded_data);
-        votebase::ProposalOwner::<Test>::insert(proposal_id, owner);
-        votebase::ProposalVotePlans::<Test>::insert(proposal_id, vote_plan);
+        engingcore::ProposalData::<Test>::insert(proposal_id, bounded_data);
+        engingcore::ProposalOwner::<Test>::insert(proposal_id, owner);
+        engingcore::ProposalVotePlans::<Test>::insert(proposal_id, vote_plan);
         Ok(proposal_id)
     }
 
     fn create_joint_proposal_with_data_and_object(
         who: AccountId32,
         actor_cid_number: Vec<u8>,
-        vote_plan: votebase::types::VotePlanOf<AccountId32>,
+        vote_plan: engingcore::types::VotePlanOf<AccountId32>,
         data: Vec<u8>,
         object_kind: u8,
         object_data: Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         let proposal_id =
             Self::create_joint_proposal_with_data(who, actor_cid_number, vote_plan, data)?;
         let object_len = u32::try_from(object_data.len())
@@ -154,14 +154,14 @@ impl votebase::JointVoteEngine<AccountId32> for TestJointVoteEngine {
         let object_hash = <Test as frame_system::Config>::Hashing::hash(&object_data);
         let bounded_object: frame_support::BoundedVec<
             u8,
-            <Test as votebase::Config>::MaxProposalObjectLen,
+            <Test as engingcore::Config>::MaxProposalObjectLen,
         > = object_data
             .try_into()
             .map_err(|_| DispatchError::Other("proposal object too large"))?;
-        votebase::ProposalObject::<Test>::insert(proposal_id, bounded_object);
-        votebase::ProposalObjectMeta::<Test>::insert(
+        engingcore::ProposalObject::<Test>::insert(proposal_id, bounded_object);
+        engingcore::ProposalObjectMeta::<Test>::insert(
             proposal_id,
-            votebase::ProposalObjectMetadata {
+            engingcore::ProposalObjectMetadata {
                 kind: object_kind,
                 object_len,
                 object_hash,
@@ -172,15 +172,15 @@ impl votebase::JointVoteEngine<AccountId32> for TestJointVoteEngine {
 }
 
 pub struct TestInternalAdminProvider;
-impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
-        institution_code: votebase::types::InstitutionCode,
+        institution_code: engingcore::types::InstitutionCode,
         cid_number: &[u8],
         who: &AccountId32,
     ) -> bool {
         let expected_cid = match institution_code {
-            votebase::types::NRC => primitives::cid::china::china_cb::CHINA_CB[0].cid_number,
-            votebase::types::PRC => primitives::cid::china::china_cb::CHINA_CB[1].cid_number,
+            engingcore::types::NRC => primitives::cid::china::china_cb::CHINA_CB[0].cid_number,
+            engingcore::types::PRC => primitives::cid::china::china_cb::CHINA_CB[1].cid_number,
             _ => return false,
         };
         cid_number == expected_cid.as_bytes() && who == &AccountId32::new([1u8; 32])
@@ -239,13 +239,13 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32>
     }
 }
 
-impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleAuthorization {
+impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleAuthorization {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         role_code == primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
-            && [votebase::types::NRC, votebase::types::PRC]
+            && [engingcore::types::NRC, engingcore::types::PRC]
                 .into_iter()
                 .any(|code| {
-                    <TestInternalAdminProvider as votebase::InternalAdminProvider<
+                    <TestInternalAdminProvider as engingcore::InternalAdminProvider<
                         AccountId32,
                     >>::is_institution_admin(code, cid_number, who)
                 })
@@ -261,24 +261,24 @@ impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleAutho
 }
 
 pub struct TestCitizenIdentityReader;
-impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
-    votebase::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<AccountId32> {
+    engingcore::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -294,10 +294,10 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -365,19 +365,19 @@ fn new_test_ext() -> sp_io::TestExternalities {
     ext
 }
 
-fn insert_engine_proposal(proposal_id: u64) {
-    insert_engine_proposal_with_status(proposal_id, votebase::STATUS_PASSED);
+fn insert_engine_proposal(proposal_id: u128) {
+    insert_engine_proposal_with_status(proposal_id, engingcore::STATUS_PASSED);
 }
 
-fn insert_engine_proposal_with_status(proposal_id: u64, status: u8) {
-    insert_engine_proposal_with_stage_and_status(proposal_id, votebase::STAGE_JOINT, status);
+fn insert_engine_proposal_with_status(proposal_id: u128, status: u8) {
+    insert_engine_proposal_with_stage_and_status(proposal_id, engingcore::STAGE_JOINT, status);
 }
 
-fn insert_engine_proposal_with_stage_and_status(proposal_id: u64, stage: u8, status: u8) {
-    votebase::pallet::Proposals::<Test>::insert(
+fn insert_engine_proposal_with_stage_and_status(proposal_id: u128, stage: u8, status: u8) {
+    engingcore::pallet::Proposals::<Test>::insert(
         proposal_id,
-        votebase::Proposal {
-            kind: votebase::PROPOSAL_KIND_JOINT,
+        engingcore::Proposal {
+            kind: engingcore::PROPOSAL_KIND_JOINT,
             stage,
             status,
             internal_code: None,
@@ -391,39 +391,39 @@ fn insert_engine_proposal_with_stage_and_status(proposal_id: u64, stage: u8, sta
 }
 
 fn overwrite_proposal_data(
-    proposal_id: u64,
+    proposal_id: u128,
     data: crate::proposal::IssuanceProposalData<AccountId32, Balance>,
 ) {
     let mut encoded = Vec::from(crate::MODULE_TAG);
     encoded.extend_from_slice(&codec::Encode::encode(&data));
-    let bounded_data: BoundedVec<u8, <Test as votebase::Config>::MaxProposalDataLen> =
+    let bounded_data: BoundedVec<u8, <Test as engingcore::Config>::MaxProposalDataLen> =
         encoded.try_into().expect("proposal data should fit");
-    let owner: BoundedVec<u8, <Test as votebase::Config>::MaxModuleTagLen> = crate::MODULE_TAG
+    let owner: BoundedVec<u8, <Test as engingcore::Config>::MaxModuleTagLen> = crate::MODULE_TAG
         .to_vec()
         .try_into()
         .expect("module tag should fit");
-    votebase::ProposalData::<Test>::insert(proposal_id, bounded_data);
-    votebase::ProposalOwner::<Test>::insert(proposal_id, owner);
+    engingcore::ProposalData::<Test>::insert(proposal_id, bounded_data);
+    engingcore::ProposalOwner::<Test>::insert(proposal_id, owner);
 }
 
 fn call_joint_callback(
-    proposal_id: u64,
+    proposal_id: u128,
     approved: bool,
-) -> Result<votebase::ProposalExecutionOutcome, DispatchError> {
-    votebase::pallet::CallbackExecutionScopes::<Test>::insert(proposal_id, ());
+) -> Result<engingcore::ProposalExecutionOutcome, DispatchError> {
+    engingcore::pallet::CallbackExecutionScopes::<Test>::insert(proposal_id, ());
     let result = ResolutionIssuance::on_joint_vote_finalized(proposal_id, approved);
-    votebase::pallet::CallbackExecutionScopes::<Test>::remove(proposal_id);
+    engingcore::pallet::CallbackExecutionScopes::<Test>::remove(proposal_id);
     match result {
         Ok(outcome) => {
             if approved {
-                votebase::pallet::Proposals::<Test>::mutate(proposal_id, |maybe| {
+                engingcore::pallet::Proposals::<Test>::mutate(proposal_id, |maybe| {
                     if let Some(proposal) = maybe {
                         proposal.status = match outcome {
-                            votebase::ProposalExecutionOutcome::Executed => {
-                                votebase::STATUS_EXECUTED
+                            engingcore::ProposalExecutionOutcome::Executed => {
+                                engingcore::STATUS_EXECUTED
                             }
-                            votebase::ProposalExecutionOutcome::FatalFailed => {
-                                votebase::STATUS_EXECUTION_FAILED
+                            engingcore::ProposalExecutionOutcome::FatalFailed => {
+                                engingcore::STATUS_EXECUTION_FAILED
                             }
                             _ => proposal.status,
                         };
@@ -440,7 +440,7 @@ fn reason_ok() -> pallet::ReasonOf<Test> {
     b"issuance".to_vec().try_into().expect("reason should fit")
 }
 
-fn actor_cid_number() -> votebase::types::CidNumber {
+fn actor_cid_number() -> engingcore::types::CidNumber {
     primitives::cid::china::china_cb::CHINA_CB[0]
         .cid_number
         .as_bytes()
@@ -449,14 +449,14 @@ fn actor_cid_number() -> votebase::types::CidNumber {
         .expect("NRC CID should fit")
 }
 
-fn committee_role_code() -> votebase::types::RoleCode {
+fn committee_role_code() -> engingcore::types::RoleCode {
     primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
         .to_vec()
         .try_into()
         .expect("committee role code should fit")
 }
 
-fn director_role_code() -> votebase::types::RoleCode {
+fn director_role_code() -> engingcore::types::RoleCode {
     primitives::governance_skeleton::ROLE_CODE_DIRECTOR
         .to_vec()
         .try_into()

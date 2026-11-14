@@ -27,7 +27,7 @@ pub trait AdminAccountLifecycle<AccountId, AdminItem = AccountId> {
     // 个人多签待激活记录必须逐字段绑定提案、主体和创建人，接口形状属于跨 pallet 契约。
     #[allow(clippy::too_many_arguments)]
     fn create_pending_admin_account_for_proposal(
-        proposal_id: u64,
+        proposal_id: u128,
         module_tag: &[u8],
         personal_account_id: AccountId,
         cid_number: Vec<u8>,
@@ -38,19 +38,19 @@ pub trait AdminAccountLifecycle<AccountId, AdminItem = AccountId> {
     ) -> DispatchResult;
 
     fn activate_admin_account_for_proposal(
-        proposal_id: u64,
+        proposal_id: u128,
         module_tag: &[u8],
         personal_account_id: AccountId,
     ) -> DispatchResult;
 
     fn remove_pending_admin_account_for_proposal(
-        proposal_id: u64,
+        proposal_id: u128,
         module_tag: &[u8],
         personal_account_id: AccountId,
     ) -> DispatchResult;
 
     fn close_admin_account_for_proposal(
-        proposal_id: u64,
+        proposal_id: u128,
         module_tag: &[u8],
         personal_account_id: AccountId,
     ) -> DispatchResult;

@@ -137,7 +137,7 @@ mod number {
             province_name: province,
             city_code,
             city_name: city,
-            year: "2026",
+            year: 2026,
             institution,
         })
         .expect("cid should generate")
@@ -175,7 +175,7 @@ mod number {
                 province_name: "",
                 city_code: "",
                 city_name: "",
-                year: "2026",
+                year: 2026,
                 institution,
             })
             .unwrap_or_else(|e| panic!("{institution} cid should generate: {e}"));
@@ -224,7 +224,7 @@ mod number {
                 province_name: "广东省",
                 city_code: "001",
                 city_name: "荔湾市",
-                year: "2026",
+                year: 2026,
                 institution: code::institution_code_text(&institution_code)
                     .expect("institution code text"),
             })
@@ -404,7 +404,7 @@ mod generator {
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution,
         })
         .expect("cid should generate")
@@ -433,7 +433,7 @@ mod generator {
                 province_name: "",
                 city_code: "",
                 city_name: "",
-                year: "2026",
+                year: 2026,
                 institution,
             })
             .unwrap_or_else(|e| panic!("{institution} cid should generate without province: {e}"));
@@ -452,7 +452,7 @@ mod generator {
             province_name: "",
             city_code: "",
             city_name: "",
-            year: "2026",
+            year: 2026,
             institution: "CTZN",
         })
         .expect("citizen golden cid should generate");
@@ -483,9 +483,82 @@ mod generator {
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution: "PMUL",
         });
         assert!(r.is_err());
+    }
+}
+
+#[test]
+fn cid_u32_year_preserves_legacy_numbers_and_derived_accounts() {
+    use crate::cid::generator::{generate_cid_number, GenerateCidNumberInput};
+    use crate::account_derive::AccountKind;
+    // 独立按修改前协议固定的旧号金标，覆盖四位补零、三字符码及四字符码。
+    let legacy = [
+        ("CTZN", 0u32, "CN601-CTZN9-143904391-0000"),
+        ("CTZN", 1u32, "CN506-CTZN5-734108721-0001"),
+        ("CTZN", 999u32, "CN905-CTZN0-799519147-0999"),
+        ("CTZN", 2026u32, "CN951-CTZN1-539598435-2026"),
+        ("CTZN", 9999u32, "CN639-CTZN1-067641634-9999"),
+        ("CGOV", 0u32, "GD001-CGOVS-737162325-0000"),
+        ("CGOV", 1u32, "GD001-CGOVF-272999728-0001"),
+        ("CGOV", 999u32, "GD001-CGOVL-832336522-0999"),
+        ("CGOV", 2026u32, "GD001-CGOVU-314370345-2026"),
+        ("CGOV", 9999u32, "GD001-CGOVR-919419292-9999"),
+        ("NRC", 0u32, "GD001-NRC0A-491666816-0000"),
+        ("NRC", 1u32, "GD001-NRC0B-335194354-0001"),
+        ("NRC", 999u32, "GD001-NRC0L-694131393-0999"),
+        ("NRC", 2026u32, "GD001-NRC01-509638490-2026"),
+        ("NRC", 9999u32, "GD001-NRC04-205167422-9999"),
+    ];
+    for (institution, year, expected) in legacy {
+        let cid = generate_cid_number(GenerateCidNumberInput {
+            public_key: "0x2afba9278e30ccf6a6ceb3a8b6e336b70068f045c666f2e7f4f9cc5f47db8972",
+            p1: "1", province_code: "GD", province_name: "广东省",
+            city_code: "001", city_name: "荔湾市", year, institution,
+        }).unwrap();
+        assert_eq!(cid, expected);
+        assert_eq!(crate::cid::number::parse_cid_number_parts(expected).unwrap().year, year);
+        assert_eq!(
+            AccountKind::InstitutionMain { cid_number: cid.as_bytes() }.derive(crate::core_const::SS58_FORMAT),
+            AccountKind::InstitutionMain { cid_number: expected.as_bytes() }.derive(crate::core_const::SS58_FORMAT),
+        );
+    }
+}
+
+#[test]
+fn cid_u32_year_boundaries_roundtrip_without_expanding_storage() {
+    use crate::cid::{generator::{generate_cid_number, GenerateCidNumberInput}, number::parse_cid_number_parts};
+    for institution in ["CTZN", "NATP", "SMTP", "CGOV", "NRC"] {
+        for year in [0u32, 1, 9999, 10000, 100000, u32::MAX] {
+            let cid = generate_cid_number(GenerateCidNumberInput {
+                public_key: "cid-year-boundary", p1: "1",
+                province_code: "GD", province_name: "广东省", city_code: "001",
+                city_name: "荔湾市", year, institution,
+            }).unwrap();
+            assert_eq!(parse_cid_number_parts(&cid).unwrap().year, year);
+            assert_eq!(cid.rsplit('-').next().unwrap(), format!("{year:04}"));
+            assert_eq!(cid.len(), 22 + format!("{year:04}").len());
+            assert!(cid.len() <= crate::core_const::CID_NUMBER_MAX_BYTES as usize);
+            if year == u32::MAX { assert_eq!(cid.len(), 32); }
+        }
+    }
+}
+
+#[test]
+fn cid_year_rejects_overflow_noncanonical_and_nondigit_text_with_valid_checksums() {
+    use crate::cid::number::{checksum_char_m1, parse_cid_number_parts, validate_cid_number_format};
+    let make = |year: &str| {
+        let payload = format!("GD001CGOV000000001{year}");
+        let check = checksum_char_m1(&payload, false);
+        format!("GD001-CGOV{check}-000000001-{year}")
+    };
+    for year in ["0", "1", "999", "02026", "00002026", "010000", "4294967296", "9999999999", "10000000000", "-1", "+2026", "20A6", "２０２６"] {
+        assert!(parse_cid_number_parts(&make(year)).is_err(), "{year}");
+    }
+    for year in ["0000", "0001", "2026", "9999", "10000", "4294967295"] {
+        let cid = make(year);
+        assert_eq!(validate_cid_number_format(&cid).unwrap(), cid);
     }
 }

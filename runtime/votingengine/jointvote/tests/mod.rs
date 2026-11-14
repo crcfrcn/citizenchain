@@ -1,11 +1,11 @@
 use super::*;
-use votebase::PopulationScope;
+use engingcore::PopulationScope;
 
 use frame_support::{assert_noop, assert_ok, derive_impl, traits::ConstU32, traits::Hooks};
 use frame_system as system;
 use primitives::cid::china::{china_cb::CHINA_CB, china_ch::CHINA_CH};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use votebase::{
+use engingcore::{
     traits::{
         CitizenIdentityReader, InternalAdminProvider, JointVoteEngine, JointVoteResultCallback,
     },
@@ -34,7 +34,7 @@ mod runtime {
     #[runtime::pallet_index(0)]
     pub type System = frame_system;
     #[runtime::pallet_index(1)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
     #[runtime::pallet_index(2)]
     pub type JointVote = super;
 }
@@ -58,19 +58,19 @@ impl CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
         _scope: &PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         referendum_subject(who)
     }
 
     fn candidate_subject(
         who: &AccountId32,
         _scope: &PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         referendum_subject(who)
     }
 
-    fn population_data(scope: &PopulationScope) -> Option<votebase::PopulationData> {
-        Some(votebase::PopulationData {
+    fn population_data(scope: &PopulationScope) -> Option<engingcore::PopulationData> {
+        Some(engingcore::PopulationData {
             scope: scope.clone(),
             eligible_total: referendum_voters().len() as u64,
             eligibility_revision: 7,
@@ -80,8 +80,8 @@ impl CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
 
     fn voting_subject_at(
         who: &AccountId32,
-        population_data: &votebase::PopulationData,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        population_data: &engingcore::PopulationData,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         (population_data.eligibility_revision == 7)
             .then(|| referendum_subject(who))
             .flatten()
@@ -91,15 +91,15 @@ impl CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
 pub struct TestAdminProvider;
 impl TestAdminProvider {
     fn institution_admins(
-        institution_code: votebase::InstitutionCode,
+        institution_code: engingcore::InstitutionCode,
         cid_number: &[u8],
     ) -> Option<Vec<AccountId32>> {
         match institution_code {
-            votebase::NRC | votebase::PRC => CHINA_CB
+            engingcore::NRC | engingcore::PRC => CHINA_CB
                 .iter()
                 .find(|entry| entry.cid_number.as_bytes() == cid_number)
                 .map(|entry| entry.admins.iter().copied().map(AccountId32::new).collect()),
-            votebase::PRB => CHINA_CH
+            engingcore::PRB => CHINA_CH
                 .iter()
                 .find(|entry| entry.cid_number.as_bytes() == cid_number)
                 .map(|entry| entry.admins.iter().copied().map(AccountId32::new).collect()),
@@ -110,7 +110,7 @@ impl TestAdminProvider {
 
 impl InternalAdminProvider<AccountId32> for TestAdminProvider {
     fn is_institution_admin(
-        institution_code: votebase::InstitutionCode,
+        institution_code: engingcore::InstitutionCode,
         cid_number: &[u8],
         who: &AccountId32,
     ) -> bool {
@@ -120,7 +120,7 @@ impl InternalAdminProvider<AccountId32> for TestAdminProvider {
     }
 }
 
-impl votebase::InstitutionRoleProvider<AccountId32> for TestAdminProvider {
+impl engingcore::InstitutionRoleProvider<AccountId32> for TestAdminProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         Self::active_accounts_for_role(cid_number, role_code).contains(who)
     }
@@ -129,12 +129,12 @@ impl votebase::InstitutionRoleProvider<AccountId32> for TestAdminProvider {
         let Ok(cid_text) = core::str::from_utf8(cid_number) else {
             return Vec::new();
         };
-        let Some(code) = votebase::types::institution_code_from_cid_number(cid_text) else {
+        let Some(code) = engingcore::types::institution_code_from_cid_number(cid_text) else {
             return Vec::new();
         };
-        let expected_role = if matches!(code, votebase::NRC | votebase::PRC) {
+        let expected_role = if matches!(code, engingcore::NRC | engingcore::PRC) {
             primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
-        } else if code == votebase::PRB {
+        } else if code == engingcore::PRB {
             primitives::governance_skeleton::ROLE_CODE_DIRECTOR
         } else {
             return Vec::new();
@@ -149,17 +149,17 @@ impl votebase::InstitutionRoleProvider<AccountId32> for TestAdminProvider {
 pub struct TestJointCallback;
 impl JointVoteResultCallback for TestJointCallback {
     fn on_joint_vote_finalized(
-        _vote_proposal_id: u64,
+        _vote_proposal_id: u128,
         _approved: bool,
     ) -> Result<ProposalExecutionOutcome, DispatchError> {
         Ok(ProposalExecutionOutcome::Executed)
     }
 }
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -220,14 +220,14 @@ fn replacement_account_id() -> AccountId32 {
 }
 
 /// 更换绑定账户只更改签名账户；永久公民 CID 不变。
-fn referendum_subject(who: &AccountId32) -> Option<votebase::CitizenSubject<AccountId32>> {
+fn referendum_subject(who: &AccountId32) -> Option<engingcore::CitizenSubject<AccountId32>> {
     let voters = referendum_voters();
     let cid_source = if who == &replacement_account_id() {
         &voters[0]
     } else {
         voters.iter().find(|voter| *voter == who)?
     };
-    Some(votebase::CitizenSubject {
+    Some(engingcore::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(cid_source)
             .to_vec()
             .try_into()
@@ -244,38 +244,38 @@ fn nrc_cid_number() -> Vec<u8> {
     CHINA_CB[0].cid_number.as_bytes().to_vec()
 }
 
-fn all_joint_institutions() -> Vec<(votebase::InstitutionCode, Vec<u8>)> {
+fn all_joint_institutions() -> Vec<(engingcore::InstitutionCode, Vec<u8>)> {
     CHINA_CB
         .iter()
         .enumerate()
         .map(|(index, entry)| {
             let code = if index == 0 {
-                votebase::NRC
+                engingcore::NRC
             } else {
-                votebase::PRC
+                engingcore::PRC
             };
             (code, entry.cid_number.as_bytes().to_vec())
         })
         .chain(
             CHINA_CH
                 .iter()
-                .map(|entry| (votebase::PRB, entry.cid_number.as_bytes().to_vec())),
+                .map(|entry| (engingcore::PRB, entry.cid_number.as_bytes().to_vec())),
         )
         .collect()
 }
 
-fn admins_for(institution_code: votebase::InstitutionCode, cid_number: &[u8]) -> Vec<AccountId32> {
+fn admins_for(institution_code: engingcore::InstitutionCode, cid_number: &[u8]) -> Vec<AccountId32> {
     TestAdminProvider::institution_admins(institution_code, cid_number)
         .expect("joint institution should have admins")
 }
 
-fn create_joint_proposal() -> u64 {
+fn create_joint_proposal() -> u128 {
     let data = b"joint-test".to_vec();
     let hash = <Test as frame_system::Config>::Hashing::hash(data.as_slice());
     let mut business_object_hash = [0u8; 32];
     business_object_hash.copy_from_slice(hash.as_ref());
     let proposer_subject =
-        votebase::types::AuthorizationSubject::Institution(votebase::types::RoleSubject {
+        engingcore::types::AuthorizationSubject::Institution(engingcore::types::RoleSubject {
             cid_number: nrc_cid_number().try_into().expect("bounded NRC CID"),
             role_code: primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                 .to_vec()
@@ -285,12 +285,12 @@ fn create_joint_proposal() -> u64 {
     let voter_subjects = all_joint_institutions()
         .into_iter()
         .map(|(code, cid)| {
-            let role_code = if matches!(code, votebase::NRC | votebase::PRC) {
+            let role_code = if matches!(code, engingcore::NRC | engingcore::PRC) {
                 primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
             } else {
                 primitives::governance_skeleton::ROLE_CODE_DIRECTOR
             };
-            votebase::types::AuthorizationSubject::Institution(votebase::types::RoleSubject {
+            engingcore::types::AuthorizationSubject::Institution(engingcore::types::RoleSubject {
                 cid_number: cid.try_into().expect("bounded joint CID"),
                 role_code: role_code.to_vec().try_into().expect("bounded role code"),
             })
@@ -300,15 +300,15 @@ fn create_joint_proposal() -> u64 {
         .to_vec()
         .try_into()
         .expect("bounded module tag");
-    let vote_plan = votebase::types::VotePlanOf::try_new(
-        votebase::types::BusinessActionId {
+    let vote_plan = engingcore::types::VotePlanOf::try_new(
+        engingcore::types::BusinessActionId {
             module_tag: module_tag.clone(),
             action_code: 0,
         },
         module_tag,
         proposer_subject,
         voter_subjects,
-        votebase::types::VotingEngineKind::Joint,
+        engingcore::types::VotingEngineKind::Joint,
         business_object_hash,
     )
     .expect("valid joint vote plan");
@@ -322,20 +322,20 @@ fn create_joint_proposal() -> u64 {
 }
 
 fn finalize_institution(
-    proposal_id: u64,
-    institution_code: votebase::InstitutionCode,
+    proposal_id: u128,
+    institution_code: engingcore::InstitutionCode,
     cid_number: Vec<u8>,
     approve: bool,
 ) {
     let admins = admins_for(institution_code, &cid_number);
-    let threshold = votebase::types::fixed_governance_pass_threshold(&institution_code)
+    let threshold = engingcore::types::fixed_governance_pass_threshold(&institution_code)
         .expect("fixed institution threshold") as usize;
     let required = if approve {
         threshold
     } else {
         admins.len().saturating_sub(threshold).saturating_add(1)
     };
-    let voter_role_code: votebase::RoleCode = if institution_code == votebase::PRB {
+    let voter_role_code: engingcore::RoleCode = if institution_code == engingcore::PRB {
         primitives::governance_skeleton::ROLE_CODE_DIRECTOR
     } else {
         primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER

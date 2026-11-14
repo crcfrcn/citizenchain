@@ -316,6 +316,17 @@ export async function submitCitizenOccupy(
   });
 }
 
+export type CitizenOperation = 'register_voting_identity' | 'upgrade_candidate_identity' | 'rebind_wallet' | 'revoke_identity';
+export type CitizenOperationRole = { roleCode: string; roleName: string };
+export type CitizenOperationRoles = { roles: CitizenOperationRole[]; finalizedBlockHash: string; finalizedBlockNumber: number };
+
+export async function fetchCitizenOperationRoles(auth: AdminAuth, cidNumber: string, operation: CitizenOperation): Promise<CitizenOperationRoles> {
+  return request<CitizenOperationRoles>(
+    `/api/admin/citizens/${encodeURIComponent(cidNumber)}/operation-roles?operation=${operation}`,
+    { headers: adminHeaders(auth) },
+  );
+}
+
 /**
  * 换绑段1 prepare:直接按链上 finalized 绑定真源发起。
  * 匿名 CID 可由任一在册 CREG/FRG 办理；实名 CID 仅本市 CREG/对应省 FRG，
@@ -324,7 +335,7 @@ export async function submitCitizenOccupy(
 export async function prepareCitizenRebind(
   auth: AdminAuth,
   cidNumber: string,
-  actorRoleCode: string,
+  actorRoleCode: string | undefined,
 ): Promise<PrepareCitizenRebindResult> {
   // 链上写(admin_rebind_cid_account_id)= passkey + 冷签:prepare 段消费一次 passkey 断言(冷签在段3)。
   const assertion = await assertPasskey(auth);
@@ -380,7 +391,7 @@ export async function fetchFinalizedCitizenBinding(
 export async function prepareCitizenRevoke(
   auth: AdminAuth,
   cidNumber: string,
-  actorRoleCode: string,
+  actorRoleCode: string | undefined,
 ): Promise<PrepareCitizenRevokeResult> {
   const assertion = await assertPasskey(auth);
   const headers = { ...jsonAdminHeaders(auth), [PASSKEY_ASSERTION_HEADER]: assertion };
@@ -398,12 +409,11 @@ export async function prepareCitizenOnchainSignature(
   auth: AdminAuth,
   cidNumber: string,
   accountId: string,
-  actorRoleCode: string,
+  actorRoleCode: string | undefined,
   identityLevel: CitizenOnchainIdentityLevel,
 ): Promise<PrepareCitizenOnchainResult> {
-  // 一次业务操作只在创建时消费一次 Passkey；后续回执由短期操作会话关联。
-  const assertion = await assertPasskey(auth);
-  const headers = { ...jsonAdminHeaders(auth), [PASSKEY_ASSERTION_HEADER]: assertion };
+  // 此阶段只准备公民授权，Passkey 留到 complete 创建管理员冷签会话时验证。
+  const headers = jsonAdminHeaders(auth);
   return request<PrepareCitizenOnchainResult>(
     `/api/admin/citizens/${encodeURIComponent(cidNumber)}/onchain/prepare`,
     {
@@ -426,7 +436,8 @@ export async function completeCitizenOnchainSignature(
   identityLevel: CitizenOnchainIdentityLevel,
   signResponse: string,
 ): Promise<CompleteCitizenOnchainResult> {
-  const headers = jsonAdminHeaders(auth);
+  const assertion = await assertPasskey(auth);
+  const headers = { ...jsonAdminHeaders(auth), [PASSKEY_ASSERTION_HEADER]: assertion };
   return request<CompleteCitizenOnchainResult>(
     `/api/admin/citizens/${encodeURIComponent(cidNumber)}/onchain/complete`,
     {

@@ -11,7 +11,7 @@ type PrbView =
   | { page: 'list' }
   | { page: 'detail'; cidNumber: string }
   | { page: 'admin-list'; cidNumber: string; orgType: number }
-  | { page: 'proposal-detail'; proposalId: number; adminSigners: AdminSignerMatch[]; cidNumber?: string; originCidNumber: string };
+  | { page: 'proposal-detail'; proposalId: string; adminSigners: AdminSignerMatch[]; cidNumber?: string; originCidNumber: string };
 
 export function PrbSection() {
   const [view, setView] = useState<PrbView>({ page: 'list' });

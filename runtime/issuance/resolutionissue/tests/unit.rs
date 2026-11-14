@@ -57,7 +57,7 @@ fn authorized_admin_cannot_replace_committee_role_with_another_role() {
 #[test]
 fn authorized_admin_cannot_supply_invalid_actor_cid() {
     new_test_ext().execute_with(|| {
-        let invalid_actor_cid: votebase::types::CidNumber = b"invalid"
+        let invalid_actor_cid: engingcore::types::CidNumber = b"invalid"
             .to_vec()
             .try_into()
             .expect("invalid CID fixture should fit bound");
@@ -108,7 +108,7 @@ fn approved_callback_executes_issuance() {
             4300,
             allocations_ok(4300)
         ));
-        let plan = votebase::ProposalVotePlans::<Test>::get(100)
+        let plan = engingcore::ProposalVotePlans::<Test>::get(100)
             .expect("resolution issuance must bind vote plan");
         assert_eq!(
             plan.business_action_id.action_code,
@@ -141,10 +141,10 @@ fn approved_callback_executes_issuance() {
         insert_engine_proposal(100);
         assert_ok!(call_joint_callback(100, true));
         assert_eq!(
-            votebase::pallet::Proposals::<Test>::get(100)
+            engingcore::pallet::Proposals::<Test>::get(100)
                 .expect("engine proposal should exist")
                 .status,
-            votebase::STATUS_EXECUTED
+            engingcore::STATUS_EXECUTED
         );
         assert_eq!(pallet::VotingProposalCount::<Test>::get(), 0);
         assert!(pallet::Executed::<Test>::get(100).is_some());
@@ -168,8 +168,8 @@ fn approved_referendum_callback_executes_issuance() {
         // 联合投票未直接通过、进入公投后，终态 stage 会保留为 REFERENDUM。
         insert_engine_proposal_with_stage_and_status(
             100,
-            votebase::STAGE_REFERENDUM,
-            votebase::STATUS_PASSED,
+            engingcore::STAGE_REFERENDUM,
+            engingcore::STATUS_PASSED,
         );
         assert_ok!(call_joint_callback(100, true));
         assert_eq!(pallet::TotalIssued::<Test>::get(), 4300);
@@ -189,7 +189,7 @@ fn callback_rejects_non_finalizable_engine_status() {
             allocations_ok(4300)
         ));
 
-        insert_engine_proposal_with_status(100, votebase::STATUS_VOTING);
+        insert_engine_proposal_with_status(100, engingcore::STATUS_VOTING);
         assert_noop!(
             call_joint_callback(100, true),
             pallet::Error::<Test>::ProposalNotFinalizable
@@ -201,7 +201,7 @@ fn callback_rejects_non_finalizable_engine_status() {
 }
 
 #[test]
-fn callback_requires_votebase_scope() {
+fn callback_requires_engingcore_scope() {
     new_test_ext().execute_with(|| {
         assert_ok!(ResolutionIssuance::propose_issuance(
             RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
@@ -241,10 +241,10 @@ fn second_callback_after_executed_is_rejected() {
             pallet::Error::<Test>::ProposalNotFinalizable
         );
         assert_eq!(
-            votebase::pallet::Proposals::<Test>::get(100)
+            engingcore::pallet::Proposals::<Test>::get(100)
                 .expect("engine proposal should exist")
                 .status,
-            votebase::STATUS_EXECUTED
+            engingcore::STATUS_EXECUTED
         );
         assert_eq!(pallet::VotingProposalCount::<Test>::get(), 0);
         assert_eq!(pallet::TotalIssued::<Test>::get(), 4300);
@@ -263,7 +263,7 @@ fn rejected_callback_does_not_issue() {
             allocations_ok(4300)
         ));
 
-        insert_engine_proposal_with_status(100, votebase::STATUS_REJECTED);
+        insert_engine_proposal_with_status(100, engingcore::STATUS_REJECTED);
         assert_ok!(call_joint_callback(100, false));
         assert_eq!(pallet::VotingProposalCount::<Test>::get(), 0);
         assert!(!pallet::Executed::<Test>::contains_key(100));

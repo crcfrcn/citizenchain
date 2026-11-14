@@ -12,7 +12,7 @@ const NRC_CID_NUMBER = 'LN001-NRC0G-944805165-2026';
 type NrcView =
   | { page: 'detail' }
   | { page: 'admin-list' }
-  | { page: 'proposal-detail'; proposalId: number; adminSigners: AdminSignerMatch[]; cidNumber?: string };
+  | { page: 'proposal-detail'; proposalId: string; adminSigners: AdminSignerMatch[]; cidNumber?: string };
 
 export function NrcSection() {
   const [view, setView] = useState<NrcView>({ page: 'detail' });

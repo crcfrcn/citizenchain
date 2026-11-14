@@ -2,20 +2,20 @@
 use super::*;
 use codec::Encode;
 
-/// 活跃提案 ID 列表:`BoundedVec<u64>` 与 `Vec<u64>` 同编码,镜像 decode 一致。
+/// 活跃提案 ID 列表:`BoundedVec<u128>` 与 `Vec<u128>` 同编码,镜像 decode 一致。
 #[test]
-fn active_proposal_ids_decode_from_vec_u64_golden() {
-    let ids: Vec<u64> = vec![7, 12, 99];
+fn active_proposal_ids_decode_from_vec_u128_golden() {
+    let ids: Vec<u128> = vec![7, 12, 99];
     let encoded = ids.encode();
-    let decoded = Vec::<u64>::decode(&mut &encoded[..]).expect("decode Vec<u64>");
+    let decoded = Vec::<u128>::decode(&mut &encoded[..]).expect("decode Vec<u128>");
     assert_eq!(decoded, vec![7, 12, 99]);
 }
 
 /// 空列表(点查缺省)解码为空。
 #[test]
 fn active_proposal_ids_decode_empty() {
-    let encoded = Vec::<u64>::new().encode();
-    let decoded = Vec::<u64>::decode(&mut &encoded[..]).expect("decode empty");
+    let encoded = Vec::<u128>::new().encode();
+    let decoded = Vec::<u128>::decode(&mut &encoded[..]).expect("decode empty");
     assert!(decoded.is_empty());
 }
 

@@ -22,14 +22,15 @@ use onchina::chain_runtime::normalize_account_id;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppVoteEligibilityInput {
     pub(crate) account_id: String,
-    pub(crate) proposal_id: u64,
+    #[serde(serialize_with = "onchina::response::serialize_decimal", deserialize_with = "onchina::response::deserialize_decimal")]
+    pub(crate) proposal_id: u128,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AppVoteEligibilityOutput {
     account_id: String,
-    proposal_id: u64,
+    proposal_id: u128,
     cid_number: String,
     citizen_status: CitizenStatus,
     identity_status: CitizenStatus,
@@ -80,7 +81,7 @@ pub(crate) async fn app_vote_eligibility(
         "app",
         Some(account_id.clone()),
         serde_json::json!({
-            "proposalId": proposal_id,
+            "proposalId": proposal_id.to_string(),
             "cidNumber": record.cid_number,
             "eligible": eligible,
             "actorIp": actor_ip_from_headers(&headers),

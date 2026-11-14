@@ -667,6 +667,10 @@ pub(crate) struct FinalizedChainView {
 
 impl FinalizedChainView {
     pub(crate) async fn connect() -> Result<Self, String> {
+        Self::connect_at(None).await
+    }
+
+    pub(crate) async fn connect_at(block_hash: Option<[u8; 32]>) -> Result<Self, String> {
         let ws_url = super::chain_url::chain_ws_url()?;
         let rpc_client = super::chain_url::rpc_client(ws_url.as_str())
             .await
@@ -675,10 +679,13 @@ impl FinalizedChainView {
         let client = OnlineClient::<PolkadotConfig>::from_rpc_client(rpc_client)
             .await
             .map_err(|e| format!("connect chain client for finalized admin view failed: {e}"))?;
-        let block_hash = rpc
-            .chain_get_finalized_head()
-            .await
-            .map_err(|e| format!("fetch finalized head for admin view failed: {e}"))?;
+        let block_hash = match block_hash {
+            Some(hash) => subxt::utils::H256(hash),
+            None => rpc
+                .chain_get_finalized_head()
+                .await
+                .map_err(|e| format!("fetch finalized head for admin view failed: {e}"))?,
+        };
         let block_number = rpc
             .chain_get_header(Some(block_hash))
             .await

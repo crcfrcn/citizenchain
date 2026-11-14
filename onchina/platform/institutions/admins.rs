@@ -1,6 +1,6 @@
 //! 机构管理员链下私密资料子模块。
 //!
-//! 管理员链上人员记录使用账户、姓、名；授权只比较账户，岗位、任期和来源由 entity 表达。
+//! 管理员链上人员记录使用账户、公民CID、姓、名；授权只比较账户，岗位、任期和来源由 entity 表达。
 //! 本子模块只承接链下私密档案(部门/联系方式/证件照/passkey 绑定)与链投影,
 //! 落库到 `institution_admins` 省级分区表。控制台登录元数据走独立的 `admins` 表,与此无关。
 
@@ -52,7 +52,7 @@ pub struct InstitutionAdminInput {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct InstitutionRolePermissionInput {
+pub struct InstitutionRolePermissionInput {
     pub(crate) module_tag: String,
     pub(crate) action_code: u32,
     pub(crate) operation: String,
@@ -61,7 +61,7 @@ pub(crate) struct InstitutionRolePermissionInput {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct InstitutionRoleMutationInput {
+pub struct InstitutionRoleMutationInput {
     pub(crate) mutation: String,
     #[serde(default)]
     pub(crate) role_code: Option<String>,
@@ -78,7 +78,7 @@ pub(crate) struct InstitutionRoleMutationInput {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct InstitutionAssignmentTargetInput {
+pub struct InstitutionAssignmentTargetInput {
     pub(crate) account_id: String,
     #[serde(default)]
     pub(crate) term_start: u32,
@@ -89,7 +89,7 @@ pub(crate) struct InstitutionAssignmentTargetInput {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct InstitutionAssignmentChangeInput {
+pub struct InstitutionAssignmentChangeInput {
     pub(crate) role_code: String,
     #[serde(default)]
     pub(crate) assignments: Vec<InstitutionAssignmentTargetInput>,
@@ -261,6 +261,88 @@ pub fn parse_admin_inputs(
     })
 }
 
+/// 既有成员缺省字段取原链记录，显式字段仍逐项校验；不从本地资料重建名册锚点。
+pub(crate) fn retained_registration_admin(
+    input: &InstitutionAdminInput,
+    stored: &adminbase::Admin<[u8; 32]>,
+) -> Result<adminbase::Admin<[u8; 32]>, axum::response::Response> {
+    let mut result = stored.clone();
+    if let Some(cid) = &input.cid_number {
+        result.cid_number = cid
+            .trim()
+            .as_bytes()
+            .to_vec()
+            .try_into()
+            .map_err(|_| api_error(StatusCode::BAD_REQUEST, 1001, "公民CID过长"))?;
+    }
+    if let Some(name) = &input.family_name {
+        result.family_name = name
+            .trim()
+            .as_bytes()
+            .to_vec()
+            .try_into()
+            .map_err(|_| api_error(StatusCode::BAD_REQUEST, 1001, "管理员姓过长"))?;
+    }
+    if let Some(name) = &input.given_name {
+        result.given_name = name
+            .trim()
+            .as_bytes()
+            .to_vec()
+            .try_into()
+            .map_err(|_| api_error(StatusCode::BAD_REQUEST, 1001, "管理员名过长"))?;
+    }
+    Ok(result)
+}
+
+pub fn parse_registration_admin_inputs(
+    state: &AppState,
+    inputs: &[InstitutionAdminInput],
+    snapshot: &chain_roles::RegistrationSnapshot,
+) -> Result<InstitutionAdminsPayload, axum::response::Response> {
+    if inputs.is_empty() || inputs.len() > 1989 {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            1001,
+            "管理员人数超出链上范围",
+        ));
+    }
+    let is_public =
+        !primitives::cid::code::is_private_legal_code(&snapshot.institution.institution_code);
+    let previous = snapshot
+        .admins
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(|admin| (admin.account_id, admin))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut admins = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let account = parse_account_id_bytes(input.account_id.trim())
+            .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, 1001, "管理员账户无效"))?;
+        if !seen.insert(account) {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                1001,
+                "管理员账户不能重复",
+            ));
+        }
+        if let Some(stored) = previous.get(&account) {
+            admins.push(retained_registration_admin(input, stored)?);
+        } else {
+            let (InstitutionAdminsPayload::Public(mut parsed)
+            | InstitutionAdminsPayload::Private(mut parsed)) =
+                parse_admin_inputs(state, std::slice::from_ref(input), is_public)?;
+            admins.append(&mut parsed);
+        }
+    }
+    Ok(if is_public {
+        InstitutionAdminsPayload::Public(admins)
+    } else {
+        InstitutionAdminsPayload::Private(admins)
+    })
+}
+
 fn encode_governance_action<AdminRecord: Encode>(
     admins: Option<Vec<AdminRecord>>,
     role_mutations: Vec<entitybase::InstitutionRoleMutation<[u8; 32]>>,
@@ -306,6 +388,8 @@ fn parse_permission_operation(
 
 fn assignment_targets(
     input: &[InstitutionAssignmentTargetInput],
+    registration: Option<&chain_roles::RegistrationSnapshot>,
+    role_code: Option<&[u8]>,
 ) -> Result<Vec<entitybase::InstitutionAssignmentTarget<[u8; 32]>>, axum::response::Response> {
     let mut seen_accounts = std::collections::BTreeSet::new();
     let mut out = Vec::with_capacity(input.len());
@@ -324,12 +408,28 @@ fn assignment_targets(
                 "同一岗位任职账户不能重复",
             ));
         }
+        if let Some(retained) = registration.and_then(|snapshot| {
+            role_code.and_then(|role| {
+                snapshot.retained_assignment(role, account_id, target.term_start, target.term_end)
+            })
+        }) {
+            out.push(retained);
+            continue;
+        }
         out.push(entitybase::InstitutionAssignmentTarget {
             account_id,
             term_start: target.term_start,
             term_end: target.term_end,
-            assignment_source: entitybase::InstitutionAssignmentSource::InstitutionGovernance,
-            assignment_source_ref: b"onchina-governance".to_vec(),
+            assignment_source: if registration.is_some() {
+                entitybase::InstitutionAssignmentSource::Registry
+            } else {
+                entitybase::InstitutionAssignmentSource::InstitutionGovernance
+            },
+            assignment_source_ref: if registration.is_some() {
+                Vec::new()
+            } else {
+                b"onchina-governance".to_vec()
+            },
             assignment_status: entitybase::InstitutionAssignmentStatus::Active,
         });
     }
@@ -338,6 +438,7 @@ fn assignment_targets(
 
 fn role_mutations(
     input: &[InstitutionRoleMutationInput],
+    registration: Option<&chain_roles::RegistrationSnapshot>,
 ) -> Result<Vec<entitybase::InstitutionRoleMutation<[u8; 32]>>, axum::response::Response> {
     let mut out = Vec::with_capacity(input.len());
     for item in input {
@@ -414,7 +515,7 @@ fn role_mutations(
                     role_name: role_name.as_bytes().to_vec(),
                     term_required: item.term_required,
                     permissions,
-                    assignments: assignment_targets(&item.assignments)?,
+                    assignments: assignment_targets(&item.assignments, registration, None)?,
                 });
             }
             "RENAME" => {
@@ -475,6 +576,7 @@ fn role_mutations(
 
 fn assignment_changes(
     input: &[InstitutionAssignmentChangeInput],
+    registration: Option<&chain_roles::RegistrationSnapshot>,
 ) -> Result<Vec<entitybase::InstitutionRoleAssignmentChange<[u8; 32]>>, axum::response::Response> {
     let mut seen_roles = std::collections::BTreeSet::new();
     let mut out = Vec::with_capacity(input.len());
@@ -494,13 +596,53 @@ fn assignment_changes(
                 "任职变更岗位码不能重复",
             ));
         }
-        let assignments = assignment_targets(&item.assignments)?;
+        let assignments =
+            assignment_targets(&item.assignments, registration, Some(role_code.as_bytes()))?;
         out.push(entitybase::InstitutionRoleAssignmentChange {
             role_code: role_code.as_bytes().to_vec(),
             assignments,
         });
     }
     Ok(out)
+}
+
+/// 登记复用治理输入及校验；新任职由Runtime写入真实Registry引用，存量原记录逐字段保留。
+/// 调用者不能提交来源、引用或法定代表人变更，也不能通过登记改名/删除岗位。
+pub fn parse_registration_action(
+    admins: InstitutionAdminsPayload,
+    mutations: &[InstitutionRoleMutationInput],
+    changes: &[InstitutionAssignmentChangeInput],
+    snapshot: &chain_roles::RegistrationSnapshot,
+    initial_threshold: Option<u32>,
+) -> Result<entitybase::InstitutionGovernanceAction<[u8; 32]>, axum::response::Response> {
+    if mutations
+        .iter()
+        .any(|m| !m.mutation.trim().eq_ignore_ascii_case("CREATE"))
+        || (snapshot.threshold.is_some() && (!mutations.is_empty() || initial_threshold.is_some()))
+        || (snapshot.threshold.is_none() && (mutations.is_empty() || initial_threshold.is_none()))
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            1001,
+            "首次登记须提交岗位和阈值；已初始化机构只能登记名册和任职",
+        ));
+    }
+    let role_mutations = role_mutations(mutations, Some(snapshot))?;
+    let assignment_changes = assignment_changes(changes, Some(snapshot))?;
+    let (InstitutionAdminsPayload::Public(admins) | InstitutionAdminsPayload::Private(admins)) =
+        admins;
+    if role_mutations.is_empty() && assignment_changes.is_empty() {
+        Ok(entitybase::InstitutionGovernanceAction::ReplaceAdmins { admins })
+    } else {
+        Ok(
+            entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+                admins,
+                role_mutations,
+                assignment_changes,
+                legal_representative_change: None,
+            },
+        )
+    }
 }
 
 fn legal_representative_change(
@@ -726,11 +868,11 @@ pub(crate) async fn prepare_institution_governance(
     }) else {
         return api_error(StatusCode::NOT_FOUND, 1004, "机构不存在");
     };
-    let role_mutations = match role_mutations(&input.role_mutations) {
+    let role_mutations = match role_mutations(&input.role_mutations, None) {
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let assignment_changes = match assignment_changes(&input.assignment_changes) {
+    let assignment_changes = match assignment_changes(&input.assignment_changes, None) {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -818,4 +960,84 @@ pub(crate) async fn prepare_institution_governance(
         data: output,
     })
     .into_response()
+}
+
+/// 治理数据只使用就绪登录会话和原机构数据范围，不重复调用管理员资格守卫。
+pub(crate) async fn get_governance_state(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(cid_number): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let ctx = match require_admin_any(&state, &headers) {
+        Ok(ctx) => ctx,
+        Err(response) => return response,
+    };
+    let inst = match state.db.get_institution_with_accounts(&cid_number) {
+        Ok(Some((inst, _))) => inst,
+        Ok(None) => return api_error(StatusCode::NOT_FOUND, 1004, "institution not found"),
+        Err(error) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, &error),
+    };
+    if !crate::authorization::rules::get_visible_scope(&ctx).includes_institution(
+        &inst.cid_number,
+        &inst.province_name,
+        &inst.city_name,
+        &inst.town_name,
+    ) {
+        return api_error(StatusCode::FORBIDDEN, 1003, "out of admin scope");
+    }
+    let identity = match crate::chain_runtime::identity_from_binding_parts(
+        &inst.institution_code,
+        Some(&inst.cid_number),
+    ) {
+        Ok(identity) => identity,
+        Err(error) => return api_error(StatusCode::BAD_REQUEST, 1001, &error),
+    };
+    match chain_roles::fetch_governance_state(&identity).await {
+        Ok(mut data) => {
+            if matches!(ctx.institution_code.as_str(), "FRG" | "CREG") {
+                let actor = match crate::chain_runtime::identity_from_binding_parts(
+                    &ctx.institution_code,
+                    Some(&ctx.institution_cid_number),
+                ) {
+                    Ok(actor) => actor,
+                    Err(error) => return api_error(StatusCode::BAD_REQUEST, 1001, &error),
+                };
+                let block = match hex::decode(data.block_hash.trim_start_matches("0x"))
+                    .ok()
+                    .and_then(|v| <[u8; 32]>::try_from(v).ok())
+                {
+                    Some(block) => block,
+                    None => return api_error(StatusCode::BAD_GATEWAY, 5002, "链状态区块无效"),
+                };
+                data.registration_roles = match chain_roles::fetch_registration_roles_at(
+                    &actor,
+                    &ctx.account_id,
+                    &cid_number,
+                    block,
+                )
+                .await
+                {
+                    Ok(roles) => roles,
+                    Err(error) => {
+                        tracing::error!(%error, "read registration roles failed");
+                        return api_error(
+                            StatusCode::BAD_GATEWAY,
+                            5002,
+                            "办理岗位读取失败，请重试",
+                        );
+                    }
+                };
+            }
+            Json(ApiResponse {
+                code: 0,
+                message: "ok".into(),
+                data,
+            })
+            .into_response()
+        }
+        Err(error) => {
+            tracing::error!(%error, "read governance state failed");
+            api_error(StatusCode::BAD_GATEWAY, 5002, "治理链上数据读取失败")
+        }
+    }
 }

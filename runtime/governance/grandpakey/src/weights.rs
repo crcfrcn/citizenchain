@@ -247,6 +247,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `649945`
 		// Minimum execution time: 332_000_000 picoseconds.
 		Weight::from_parts(349_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16646))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(T::DbWeight::get().reads(35))
 			.saturating_add(T::DbWeight::get().writes(26))
@@ -291,6 +293,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `649945`
 		// Minimum execution time: 136_000_000 picoseconds.
 		Weight::from_parts(141_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(T::DbWeight::get().reads(17))
 			.saturating_add(T::DbWeight::get().writes(4))
@@ -388,6 +392,8 @@ impl WeightInfo for () {
 		//  Estimated: `649945`
 		// Minimum execution time: 332_000_000 picoseconds.
 		Weight::from_parts(349_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16646))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(RocksDbWeight::get().reads(35))
 			.saturating_add(RocksDbWeight::get().writes(26))
@@ -432,6 +438,8 @@ impl WeightInfo for () {
 		//  Estimated: `649945`
 		// Minimum execution time: 136_000_000 picoseconds.
 		Weight::from_parts(141_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(RocksDbWeight::get().reads(17))
 			.saturating_add(RocksDbWeight::get().writes(4))

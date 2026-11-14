@@ -2,7 +2,7 @@
 //!
 //! 复用 chain_runtime 读链范式(subxt dynamic + 严格镜像 decode)。
 //! - 活跃提案:点查 `VotingEngine::ActiveProposalsBySubject[InstitutionCid(cid_number)]`
-//!   → `BoundedVec<u64>`(与 `Vec<u64>` 同编码)。
+//!   → `BoundedVec<u128>`(与 `Vec<u128>` 同编码)。
 //! - 逐席投票：按 `proposal_id` 迭代 `RepresentativeVotesByTicket`，再按当前代表机构索引过滤。
 
 use std::collections::HashMap;
@@ -44,7 +44,7 @@ fn decode_representative_ticket_storage_key(
 ///
 /// 值为 `BoundedVec<u64, MaxActiveProposals>`(ValueQuery),点查缺省返回空。
 /// 该列表混合该机构所有种类活跃提案,是否为立法案由上层按 `LegProposalState.kind` 过滤。
-pub(crate) async fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u64>, String> {
+pub(crate) async fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u128>, String> {
     let subject_key = proposal_subject_institution_cid_key(cid_number)?;
     let ws_url = chain_url::chain_ws_url()?;
     let client = chain_url::online_client(ws_url.as_str())
@@ -68,7 +68,7 @@ pub(crate) async fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u6
         return Ok(Vec::new());
     };
     let mut raw = thunk.encoded();
-    Vec::<u64>::decode(&mut raw).map_err(|e| format!("decode ActiveProposalsBySubject failed: {e}"))
+    Vec::<u128>::decode(&mut raw).map_err(|e| format!("decode ActiveProposalsBySubject failed: {e}"))
 }
 
 /// `ProposalSubject::InstitutionCid(CidNumber)` 的 SCALE 键编码。
@@ -88,7 +88,7 @@ fn proposal_subject_institution_cid_key(cid_number: &str) -> Result<Vec<u8>, Str
 /// 一张票的完整身份；同钱包不同岗位、机构、提案或院次绝不相互覆盖。
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct BallotKey {
-    pub(crate) proposal_id: u64,
+    pub(crate) proposal_id: u128,
     pub(crate) body_index: u32,
     pub(crate) institution_cid_number: String,
     pub(crate) role_code: String,
@@ -113,7 +113,7 @@ impl BallotKey {
 ///
 /// 二级键是 `(body_index, InstitutionVoteTicket)`；同一钱包的多个岗位票据独立保留。
 pub(crate) async fn fetch_representative_ballots(
-    proposal_id: u64,
+    proposal_id: u128,
     current_body: u32,
 ) -> Result<HashMap<BallotKey, bool>, String> {
     let ws_url = chain_url::chain_ws_url()?;

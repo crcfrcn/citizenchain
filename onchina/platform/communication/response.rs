@@ -38,3 +38,15 @@ pub(crate) struct ApiError {
 #[path = "health.rs"]
 mod health;
 pub(crate) use health::*;
+
+/// 提案 ID 和年内序号在 JSON 边界使用十进制字符串，避免 JavaScript 丢失精度。
+pub fn serialize_decimal<S: serde::Serializer, T: core::fmt::Display>(value: &T, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.collect_str(value)
+}
+
+/// 十进制字符串解析为目标无符号整数；拒绝越界。
+pub fn deserialize_decimal<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where D: serde::Deserializer<'de>, T: core::str::FromStr, T::Err: core::fmt::Display {
+    let text = <String as serde::Deserialize>::deserialize(deserializer)?;
+    text.parse().map_err(serde::de::Error::custom)
+}

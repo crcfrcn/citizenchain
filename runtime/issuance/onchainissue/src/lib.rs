@@ -74,7 +74,7 @@ pub mod pallet {
     pub type OnchainAssetId = u32;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config {
+    pub trait Config: frame_system::Config + engingcore::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -217,7 +217,7 @@ pub mod pallet {
         /// 用户代币创建成功。
         AssetIssued {
             asset_id: OnchainAssetId,
-            actor_cid_number: votebase::types::CidNumber,
+            actor_cid_number: engingcore::types::CidNumber,
             execution_account_id: T::AccountId,
         },
         /// 用户代币增发。
@@ -330,8 +330,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::issue())]
         pub fn propose_issue(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             execution_account_id: T::AccountId,
             class: crate::types::AssetClass,
             name: BoundedVec<u8, T::MaxAssetNameLen>,
@@ -377,8 +377,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::mint())]
         pub fn propose_mint(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             asset_id: OnchainAssetId,
             to_account_id: T::AccountId,
             amount: BalanceOf<T>,
@@ -401,8 +401,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::burn())]
         pub fn propose_burn(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             asset_id: OnchainAssetId,
             from_account_id: T::AccountId,
             amount: BalanceOf<T>,
@@ -425,8 +425,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::close())]
         pub fn propose_close(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             asset_id: OnchainAssetId,
         ) -> DispatchResult {
             let account_id = ensure_signed(origin)?;
@@ -447,8 +447,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::transfer())]
         pub fn propose_transfer(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             asset_id: OnchainAssetId,
             from_account_id: T::AccountId,
             to_account_id: T::AccountId,
@@ -480,8 +480,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::monitor_freeze())]
         pub fn propose_monitor_freeze(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             asset_id: OnchainAssetId,
             account_id: T::AccountId,
             reason_hash: [u8; 32],
@@ -506,8 +506,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::monitor_unfreeze())]
         pub fn propose_monitor_unfreeze(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             asset_id: OnchainAssetId,
             account_id: T::AccountId,
             reason_hash: [u8; 32],
@@ -530,8 +530,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::monitor_confiscate())]
         pub fn propose_monitor_confiscate(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             asset_id: OnchainAssetId,
             account_id: T::AccountId,
             amount: BalanceOf<T>,
@@ -555,8 +555,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::monitor_force_transfer())]
         pub fn propose_monitor_force_transfer(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             asset_id: OnchainAssetId,
             from_account_id: T::AccountId,
             to_account_id: T::AccountId,
@@ -588,8 +588,8 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::monitor_force_close())]
         pub fn propose_monitor_force_close(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             asset_id: OnchainAssetId,
             reason_hash: [u8; 32],
         ) -> DispatchResult {
@@ -611,7 +611,7 @@ pub mod pallet {
         /// 所有机构调用共用授权入口：CID、岗位码和签名账户必须同时匹配动作权限。
         fn ensure_actor_role(
             account_id: &T::AccountId,
-            actor_cid_number: &votebase::types::CidNumber,
+            actor_cid_number: &engingcore::types::CidNumber,
             actor_role_code: &[u8],
             action_code: u32,
             nrc_only: bool,
@@ -619,10 +619,10 @@ pub mod pallet {
             let actor_text = core::str::from_utf8(actor_cid_number.as_slice())
                 .map_err(|_| Error::<T>::InvalidInstitutionContext)?;
             let institution_code =
-                votebase::types::institution_code_from_cid_number(actor_text)
+                engingcore::types::institution_code_from_cid_number(actor_text)
                     .ok_or(Error::<T>::InvalidInstitutionContext)?;
             ensure!(
-                !nrc_only || institution_code == votebase::types::NRC,
+                !nrc_only || institution_code == engingcore::types::NRC,
                 Error::<T>::InvalidInstitutionContext
             );
             ensure!(

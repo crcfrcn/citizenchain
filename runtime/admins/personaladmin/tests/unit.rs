@@ -23,7 +23,7 @@ fn propose_admin_set_change_updates_personal_admins_and_threshold() {
             next_admins.clone(),
             3,
         ));
-        let proposal_id = votebase::Pallet::<Test>::next_proposal_id().saturating_sub(1);
+        let proposal_id = engingcore::Pallet::<Test>::next_proposal_id().saturating_sub(1);
 
         // 提案创建时发起人 admin(0) 已自动赞成，阈值 2 时只需再补一票。
         assert_ok!(internalvote::Pallet::<Test>::do_internal_vote(

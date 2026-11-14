@@ -37,7 +37,7 @@ pub use traits::{
     AccountValidator, InstitutionCidQuery, InstitutionMultisigQuery, ProtectedSourceChecker,
     RegistryAuthority, ReservedAccountGuard,
 };
-use votebase::{
+use engingcore::{
     types::{
         AuthorizationSubject, BusinessActionId, CidNumber, InstitutionCode, RoleCode, RoleSubject,
         VotePlanOf, VotingEngineKind,
@@ -72,14 +72,18 @@ pub mod pallet {
     const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config {
+    pub trait Config: frame_system::Config + engingcore::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
 
+        /// Register a receive alias even for a declared account with zero balance.
+        type OnAccountRegistered: frame_support::traits::OnNewAccount<Self::AccountId>
+            + Get<Weight>;
+
         /// 内部投票引擎
-        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: engingcore::InternalVoteEngine<Self::AccountId>;
 
         /// 公权机构管理员集合写入口。
         type AdminLifecycle: InstitutionAdminLifecycle<Self::AccountId, Admin<Self::AccountId>>;
@@ -210,44 +214,42 @@ pub mod pallet {
 
     /// 机构岗位目录：同一个 `role_code` 只在本机构 CID 内唯一。
     #[pallet::storage]
-    #[pallet::getter(fn institution_role_of)]
     pub type InstitutionRoles<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         CidNumberOf<T>,
         Blake2_128Concat,
         crate::institution::role::RoleCodeOf,
-        crate::institution::role::InstitutionRoleOf<T>,
+        crate::institution::role::StoredRoleOf<T>,
         OptionQuery,
     >;
 
     /// 机构岗位上的任职集合：岗位负责分组，记录负责绑定管理员账户和任职来源。
     #[pallet::storage]
-    #[pallet::getter(fn institution_role_assignments)]
     pub type InstitutionRoleAssignments<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         CidNumberOf<T>,
         Blake2_128Concat,
         crate::institution::role::RoleCodeOf,
-        crate::institution::role::RoleAssignmentsOf<T>,
+        crate::institution::role::StoredAssignmentsOf<T>,
         ValueQuery,
     >;
 
     /// 机构岗位不可变业务权限；岗位改名不得改写本表。
     #[pallet::storage]
-    #[pallet::getter(fn institution_role_permissions)]
     pub type InstitutionRolePermissions<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         CidNumberOf<T>,
         Blake2_128Concat,
         crate::institution::role::RoleCodeOf,
-        crate::institution::role::RolePermissionsOf<T>,
+        crate::institution::role::StoredPermissionsOf,
         ValueQuery,
     >;
 
     /// 每个机构单调递增的动态岗位码 nonce。
+    /// 名册成功写入也推进此单调nonce，使并发人员资料变更进入登记状态指纹。
     #[pallet::storage]
     #[pallet::getter(fn institution_role_nonce)]
     pub type InstitutionRoleNonce<T: Config> =
@@ -286,7 +288,7 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn institution_pending_close)]
     pub type InstitutionPendingClose<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, T::AccountId, u128, OptionQuery>;
 
     /// 公权机构当前进行中的新增账户提案 ID（防止并发新增提案）。
     /// 与关闭账户的 `InstitutionPendingClose` 对称,但新增账户在落库前无账户地址可作键,
@@ -295,7 +297,7 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn institution_pending_add)]
     pub type InstitutionPendingAdd<T: Config> =
-        StorageMap<_, Blake2_128Concat, CidNumberOf<T>, u64, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, CidNumberOf<T>, u128, OptionQuery>;
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
@@ -320,20 +322,20 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// 机构关闭提案已发起。
         InstitutionCloseProposed {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
             proposer_account_id: T::AccountId,
             beneficiary_account_id: T::AccountId,
         },
         /// 机构关闭投票已提交。
         InstitutionCloseVoteSubmitted {
-            proposal_id: u64,
+            proposal_id: u128,
             who: T::AccountId,
             approve: bool,
         },
         /// 机构关闭成功(投票通过,余额转出)。
         InstitutionClosed {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
             fee_payer: T::AccountId,
             beneficiary_account_id: T::AccountId,
@@ -342,7 +344,7 @@ pub mod pallet {
         },
         /// 机构关闭执行失败。
         InstitutionCloseExecutionFailed {
-            proposal_id: u64,
+            proposal_id: u128,
             account_id: T::AccountId,
         },
         /// 机构注册创建成功：机构、账户和管理员集合均已激活。
@@ -365,11 +367,11 @@ pub mod pallet {
         },
         /// 机构内部治理提案已创建，后续由内部投票引擎计票和回调执行。
         InstitutionGovernanceProposed {
-            proposal_id: u64,
+            proposal_id: u128,
             cid_number: CidNumberOf<T>,
             proposer_account_id: T::AccountId,
         },
-        /// 注册局已直接登记目标机构管理员集合。
+        /// 注册局已原子登记管理员及显式岗位/任职初始化。
         InstitutionAdminsRegistered {
             cid_number: CidNumberOf<T>,
             admins_len: u32,
@@ -384,7 +386,7 @@ pub mod pallet {
         },
         /// 机构新增账户提案已发起,后续由内部投票引擎计票和回调执行。
         InstitutionAccountAddProposed {
-            proposal_id: u64,
+            proposal_id: u128,
             cid_number: CidNumberOf<T>,
             proposer_account_id: T::AccountId,
         },
@@ -397,7 +399,7 @@ pub mod pallet {
         },
         /// 机构新增账户执行失败。
         InstitutionAddAccountExecutionFailed {
-            proposal_id: u64,
+            proposal_id: u128,
             cid_number: CidNumberOf<T>,
         },
     }
@@ -592,6 +594,16 @@ pub mod pallet {
         RoleNonceOverflow,
         /// 有限次碰撞重试后仍无法生成未使用岗位码。
         RoleCodeGenerationExhausted,
+        /// 签名前读取的机构状态已变化，须刷新后重签。
+        StaleRegistrationState,
+        /// 登记不能夹带法定代表人任免或无名册的治理动作。
+        InvalidRegistrationAction,
+        /// 已初始化机构不得由登记接口重置阈值。
+        AlreadyInitialized,
+        /// 首次登记必须明确提交动态岗位及机构阈值。
+        MissingInitialConfiguration,
+        /// 成立后的岗位定义和权限变化须走机构自身治理。
+        RegistrationRoleChangeDenied,
     }
 
     /// 提案操作类型标记：存储在 ProposalData 的第一个字节。
@@ -681,27 +693,30 @@ pub mod pallet {
             )
         }
 
-        /// 注册局直接登记目标公权机构管理员集合。
-        ///
-        /// 本入口不创建目标机构内部投票；权限来自注册局 `actor_cid_number`，
-        /// 最终仍写入同一个 `publicadmin::AdminAccounts[cid]` 真源。
+        /// 注册局原子登记目标机构的名册及显式岗位/任职。
+        /// call索引保持9；新载荷必须包含状态哈希与首次阈值，旧编码不兼容。
+        /// 办理权限仍来自actor岗位，不创建虚假投票或CREG专用管理员模型。
         #[pallet::call_index(9)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::register_institution_admins(admins.len() as u32))]
+        #[pallet::weight(Pallet::<T>::registration_weight(&cid_number, &action))]
         #[allow(clippy::too_many_arguments)]
         pub fn register_institution_admins(
             origin: OriginFor<T>,
             cid_number: CidNumberOf<T>,
-            admins: InstitutionAdminsInputOf<T>,
+            action: InstitutionGovernanceActionOf<T>,
             actor_cid_number: Vec<u8>,
             actor_role_code: Vec<u8>,
+            expected_state_hash: [u8; 32],
+            initial_threshold: Option<u32>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             Self::do_register_institution_admins(
                 who,
                 cid_number,
-                admins,
+                action,
                 actor_cid_number,
                 actor_role_code,
+                expected_state_hash,
+                initial_threshold,
             )
         }
 
@@ -729,7 +744,7 @@ pub mod pallet {
             )
         }
 
-        // call_index(4) 已永久废弃：拒绝和执行失败清理由 votebase 终态回调完成。
+        // call_index(4) 已永久废弃：拒绝和执行失败清理由 engingcore 终态回调完成。
     }
 
     impl<T: Config> Pallet<T> {
@@ -816,13 +831,25 @@ pub mod pallet {
             admins: &InstitutionAdminsInputOf<T>,
         ) -> DispatchResult {
             Self::ensure_lifecycle_institution_code(&institution_code)?;
-            T::AdminLifecycle::set_institution_admins(
-                crate::MODULE_TAG,
-                cid_number.to_vec(),
-                institution_code,
-                AdminAccountKind::PublicInstitution,
-                admins.iter().cloned().collect(),
-            )
+            frame_support::storage::with_transaction(|| {
+                let apply = || -> DispatchResult {
+                    T::AdminLifecycle::set_institution_admins(
+                        crate::MODULE_TAG,
+                        cid_number.to_vec(),
+                        institution_code,
+                        AdminAccountKind::PublicInstitution,
+                        admins.iter().cloned().collect(),
+                    )?;
+                    InstitutionRoleNonce::<T>::try_mutate(cid_number, |nonce| -> DispatchResult {
+                        *nonce = nonce.checked_add(1).ok_or(Error::<T>::RoleNonceOverflow)?;
+                        Ok(())
+                    })
+                };
+                match apply() {
+                    Ok(()) => frame_support::storage::TransactionOutcome::Commit(Ok(())),
+                    Err(error) => frame_support::storage::TransactionOutcome::Rollback(Err(error)),
+                }
+            })
         }
 
         fn governance_action_replaces_admins(action: &InstitutionGovernanceActionOf<T>) -> bool {
@@ -1031,19 +1058,19 @@ pub mod pallet {
             > = crate::MODULE_TAG
                 .to_vec()
                 .try_into()
-                .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
+                .map_err(|_| engingcore::Error::<T>::InvalidVotePlan)?;
             let proposer_cid = CidNumber::try_from(cid_number.to_vec())
-                .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
+                .map_err(|_| engingcore::Error::<T>::InvalidVotePlan)?;
             let proposer_role = RoleCode::try_from(proposer_role_code.to_vec())
-                .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?;
+                .map_err(|_| engingcore::Error::<T>::InvalidVotePlan)?;
             let voter_subjects = voter_roles
                 .into_iter()
                 .map(|role| {
                     Ok(AuthorizationSubject::Institution(RoleSubject {
                         cid_number: CidNumber::try_from(role.cid_number)
-                            .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
+                            .map_err(|_| engingcore::Error::<T>::InvalidVotePlan)?,
                         role_code: RoleCode::try_from(role.role_code)
-                            .map_err(|_| votebase::Error::<T>::InvalidVotePlan)?,
+                            .map_err(|_| engingcore::Error::<T>::InvalidVotePlan)?,
                     }))
                 })
                 .collect::<Result<Vec<_>, sp_runtime::DispatchError>>()?;
@@ -1061,44 +1088,32 @@ pub mod pallet {
                 VotingEngineKind::Internal,
                 sp_io::hashing::blake2_256(business_data),
             )
-            .map_err(|_| votebase::Error::<T>::InvalidVotePlan.into())
+            .map_err(|_| engingcore::Error::<T>::InvalidVotePlan.into())
         }
 
+        #[allow(clippy::too_many_arguments)]
         pub(crate) fn do_register_institution_admins(
             who: T::AccountId,
             cid_number: CidNumberOf<T>,
-            admins: InstitutionAdminsInputOf<T>,
+            action: InstitutionGovernanceActionOf<T>,
             actor_cid_number: Vec<u8>,
             actor_role_code: Vec<u8>,
+            expected_state_hash: [u8; 32],
+            initial_threshold: Option<u32>,
         ) -> DispatchResult {
-            ensure!(!cid_number.is_empty(), Error::<T>::EmptyCidNumber);
-            let info =
-                Institutions::<T>::get(&cid_number).ok_or(Error::<T>::InstitutionNotFound)?;
-            Self::ensure_lifecycle_institution_code(&info.institution_code)?;
-            Self::ensure_admin_config(&admins)?;
-            // 授权唯一真源:extrinsic 签名者 `who` 必须是注册局(actor)机构在册管理员,
-            // 且注册局对目标机构 CID/机构码有登记权(省/市作用域由目标 CID 直接派生)。
-            ensure!(
-                T::RegistryAuthority::can_register_institution_origin(
-                    &who,
-                    actor_cid_number.as_slice(),
-                    actor_role_code.as_slice(),
-                    cid_number.as_slice(),
-                    info.institution_code,
-                ),
-                Error::<T>::RegistryAuthorityDenied
-            );
-            Self::set_institution_admins(&cid_number, info.institution_code, &admins)?;
-            Self::deposit_event(Event::<T>::InstitutionAdminsRegistered {
+            Self::apply_registration(
+                who,
                 cid_number,
-                admins_len: admins.len() as u32,
-                submitter: who,
-            });
-            Ok(())
+                action,
+                actor_cid_number,
+                actor_role_code,
+                expected_state_hash,
+                initial_threshold,
+            )
         }
 
         pub(crate) fn execute_governance_proposal(
-            proposal_id: u64,
+            proposal_id: u128,
             proposal: InstitutionGovernanceProposalOf<T>,
         ) -> DispatchResult {
             let cid_number: CidNumberOf<T> = proposal
@@ -1288,7 +1303,7 @@ impl<T: pallet::Config> traits::InstitutionLegalRepresentativeQuery<T::AccountId
 // ──── 投票终态回调:把已通过的机构账户新增/关闭提案落地到链上 ────
 //
 // 投票统一由投票引擎承担,提案通过(或否决)经
-// [`votebase::InternalVoteResultCallback`] 广播回来。
+// [`engingcore::InternalVoteResultCallback`] 广播回来。
 // 本 Executor(机构侧)按 `MODULE_TAG + ACTION 字节` 认领机构管理提案:
 // - `ACTION_ADD_ACCOUNT` + approved → 分派到 `add::execute_institution_add_account_with_finalizer`;
 // - `ACTION_CLOSE` + approved → 分派到 `close::execute_institution_close_with_finalizer`;
@@ -1298,11 +1313,11 @@ pub struct InternalVoteExecutor<T>(core::marker::PhantomData<T>);
 
 impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
     fn on_internal_vote_finalized(
-        proposal_id: u64,
+        proposal_id: u128,
         approved: bool,
     ) -> Result<ProposalExecutionOutcome, sp_runtime::DispatchError> {
         use frame_support::storage::{with_transaction, TransactionOutcome};
-        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
+        let raw = match engingcore::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw) if raw.starts_with(crate::MODULE_TAG) => raw,
             _ => return Ok(ProposalExecutionOutcome::Ignored),
         };
@@ -1416,6 +1431,9 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
             .max(<T as crate::pallet::Config>::WeightInfo::governance_names())
             .max(<T as crate::pallet::Config>::WeightInfo::add_institution_account())
             .max(<T as crate::pallet::Config>::WeightInfo::propose_close_public_institution())
+            // Execution may declare an entire zero-balance account batch.
+            .saturating_add(<T::OnAccountRegistered as Get<Weight>>::get()
+                .saturating_mul(T::MaxInstitutionAccounts::get() as u64))
     }
 
     fn terminal_weight() -> frame_support::weights::Weight {
@@ -1424,8 +1442,8 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
             .max(<T as crate::pallet::Config>::WeightInfo::terminal_callback_ignored())
     }
 
-    fn on_execution_failed_terminal(proposal_id: u64) -> DispatchResult {
-        let raw = match votebase::Pallet::<T>::get_proposal_data(proposal_id) {
+    fn on_execution_failed_terminal(proposal_id: u128) -> DispatchResult {
+        let raw = match engingcore::Pallet::<T>::get_proposal_data(proposal_id) {
             Some(raw) if raw.starts_with(crate::MODULE_TAG) => raw,
             _ => return Ok(()),
         };
@@ -1462,7 +1480,7 @@ impl<T: Config> Pallet<T> {
             .try_into()
             .map_err(|_| sp_runtime::DispatchError::Other("benchmark CID"))?;
         let entries =
-            InstitutionRoleAssignments::<T>::iter_prefix(&cid).collect::<sp_std::vec::Vec<_>>();
+            Pallet::<T>::assignments_for(&cid).collect::<sp_std::vec::Vec<_>>();
         for (role, mut assignments) in entries {
             for assignment in assignments.iter_mut() {
                 assignment.assignment_source_ref =
@@ -1470,7 +1488,7 @@ impl<T: Config> Pallet<T> {
                         .try_into()
                         .unwrap();
             }
-            InstitutionRoleAssignments::<T>::insert(&cid, role, assignments);
+            Pallet::<T>::store_role_assignments(&cid, role, assignments);
         }
         Ok(())
     }
@@ -1515,7 +1533,7 @@ impl<T: Config> Pallet<T> {
             sp_runtime::DispatchError::Other("benchmark vote capability")
         );
         if !InstitutionRoles::<T>::contains_key(&cid, &role) {
-            InstitutionRoles::<T>::insert(
+            Pallet::<T>::store_role(
                 &cid,
                 &role,
                 entitybase::InstitutionRole {
@@ -1551,8 +1569,8 @@ impl<T: Config> Pallet<T> {
             .collect::<sp_std::vec::Vec<_>>()
             .try_into()
             .unwrap();
-        InstitutionRolePermissions::<T>::insert(&cid, &role, permissions);
-        let info = InstitutionRoles::<T>::get(&cid, &role)
+        Pallet::<T>::store_role_permissions(&cid, &role, permissions);
+        let info = Pallet::<T>::institution_role_of(&cid, &role)
             .ok_or(sp_runtime::DispatchError::Other("benchmark role missing"))?;
         ensure!(
             info.role_status == entitybase::InstitutionRoleStatus::Active,
@@ -1568,7 +1586,7 @@ impl<T: Config> Pallet<T> {
                 sp_runtime::DispatchError::Other("benchmark fixed seats")
             );
         }
-        let day = u32::try_from(<T as votebase::Config>::TimeProvider::now().as_secs() / 86400)
+        let day = u32::try_from(<T as engingcore::Config>::TimeProvider::now().as_secs() / 86400)
             .map_err(|_| sp_runtime::DispatchError::Other("benchmark date"))?;
         let assignments = accounts
             .into_iter()
@@ -1600,7 +1618,7 @@ impl<T: Config> Pallet<T> {
         let assignments: crate::institution::role::RoleAssignmentsOf<T> = assignments
             .try_into()
             .map_err(|_| sp_runtime::DispatchError::Other("benchmark capacity"))?;
-        InstitutionRoleAssignments::<T>::insert(cid, role, assignments);
+        Pallet::<T>::store_role_assignments(cid, role, assignments);
         Ok(())
     }
 }

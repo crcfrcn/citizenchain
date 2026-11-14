@@ -303,3 +303,9 @@
 
 - field_key: recovery_hash
   field_label_zh: 本次申请随机摘要
+
+# 统一机构登记call 9的状态锁及显式初始化配置。
+- field_key: expected_state_hash
+  field_label_zh: 登记前机构状态指纹
+- field_key: initial_threshold
+  field_label_zh: 初始治理阈值

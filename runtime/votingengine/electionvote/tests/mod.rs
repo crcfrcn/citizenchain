@@ -17,7 +17,7 @@ use primitives::cid::{
     code::{institution_code_from_cid_number, InstitutionCode, NLG},
 };
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use votebase::{
+use engingcore::{
     CitizenIdentityReader, ElectionProposalFinalizer, ElectionVoteResultCallback,
     InstitutionRoleProvider, InternalAdminProvider, PopulationScope, ProposalExecutionOutcome,
     ProposalTrackHandler, STATUS_PASSED, STATUS_REJECTED,
@@ -54,7 +54,7 @@ mod runtime {
     pub type System = frame_system;
 
     #[runtime::pallet_index(1)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(2)]
     pub type ElectionVote = super;
@@ -77,7 +77,7 @@ fn organizer_admin() -> AccountId32 {
     account(2)
 }
 
-fn institution_cid_number() -> votebase::types::CidNumber {
+fn institution_cid_number() -> engingcore::types::CidNumber {
     CHINA_LF
         .iter()
         .find(|entry| institution_code_from_cid_number(entry.cid_number) == Some(INSTITUTION_CODE))
@@ -108,29 +108,29 @@ const SECOND_VOTER_ROLE: &[u8] = b"SECOND_MEMBER";
 const ELECTED_ROLE: &[u8] = b"SPEAKER";
 
 impl CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
-    fn citizen_subject(who: &AccountId32) -> Option<votebase::CitizenSubject<AccountId32>> {
+    fn citizen_subject(who: &AccountId32) -> Option<engingcore::CitizenSubject<AccountId32>> {
         (*who != account(251)).then(|| test_citizen_subject(who))
     }
 
     fn voting_subject(
         who: &AccountId32,
         _scope: &PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         (*who != account(250)).then(|| test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
         _scope: &PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         (*who != account(249) && *who != account(251)).then(|| test_citizen_subject(who))
     }
 
-    fn population_data(scope: &PopulationScope) -> Option<votebase::PopulationData> {
+    fn population_data(scope: &PopulationScope) -> Option<engingcore::PopulationData> {
         if !POPULATION_READY.with(|ready| *ready.borrow()) {
             return None;
         }
-        Some(votebase::PopulationData {
+        Some(engingcore::PopulationData {
             scope: scope.clone(),
             eligible_total: POPULATION_COUNT.with(|count| *count.borrow()),
             eligibility_revision: 1,
@@ -140,8 +140,8 @@ impl CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
 
     fn voting_subject_at(
         who: &AccountId32,
-        population_data: &votebase::PopulationData,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        population_data: &engingcore::PopulationData,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         ((0..population_data.eligible_total)
             .map(|offset| account(21u8.saturating_add(offset as u8)))
             .any(|voter| &voter == who)
@@ -150,13 +150,13 @@ impl CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
+fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<AccountId32> {
     let permanent_account = if *who == account(29) {
         account(21)
     } else {
         who.clone()
     };
-    votebase::CitizenSubject {
+    engingcore::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(&permanent_account)
             .to_vec()
             .try_into()
@@ -207,10 +207,10 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -261,15 +261,15 @@ fn new_test_ext() -> sp_io::TestExternalities {
     ext
 }
 
-fn elected_role_code() -> votebase::types::RoleCode {
+fn elected_role_code() -> engingcore::types::RoleCode {
     ELECTED_ROLE.to_vec().try_into().expect("role fits")
 }
 
-fn candidate(id: u8) -> votebase::CitizenSubject<AccountId32> {
+fn candidate(id: u8) -> engingcore::CitizenSubject<AccountId32> {
     test_citizen_subject(&account(id))
 }
 
-fn vote_plan(mutual: bool) -> votebase::types::VotePlanOf<AccountId32> {
+fn vote_plan(mutual: bool) -> engingcore::types::VotePlanOf<AccountId32> {
     let owner: frame_support::BoundedVec<
         u8,
         ConstU32<{ entitybase::BUSINESS_MODULE_TAG_MAX_BYTES }>,
@@ -277,20 +277,20 @@ fn vote_plan(mutual: bool) -> votebase::types::VotePlanOf<AccountId32> {
         .to_vec()
         .try_into()
         .expect("owner fits");
-    let proposer = votebase::AuthorizationSubject::Institution(entitybase::RoleSubject {
+    let proposer = engingcore::AuthorizationSubject::Institution(entitybase::RoleSubject {
         cid_number: institution_cid_number(),
         role_code: ORGANIZER_ROLE.to_vec().try_into().expect("role fits"),
     });
     let voters = mutual
         .then(|| {
-            votebase::AuthorizationSubject::Institution(entitybase::RoleSubject {
+            engingcore::AuthorizationSubject::Institution(entitybase::RoleSubject {
                 cid_number: institution_cid_number(),
                 role_code: TARGET_ROLE.to_vec().try_into().expect("role fits"),
             })
         })
         .into_iter()
         .collect();
-    votebase::types::VotePlanOf::try_new(
+    engingcore::types::VotePlanOf::try_new(
         entitybase::BusinessActionId {
             module_tag: owner.clone(),
             action_code: 0,
@@ -298,16 +298,16 @@ fn vote_plan(mutual: bool) -> votebase::types::VotePlanOf<AccountId32> {
         owner,
         proposer,
         voters,
-        votebase::VotingEngineKind::Election,
+        engingcore::VotingEngineKind::Election,
         [7u8; 32],
     )
     .expect("election plan valid")
 }
 
-fn multi_role_vote_plan() -> votebase::types::VotePlanOf<AccountId32> {
+fn multi_role_vote_plan() -> engingcore::types::VotePlanOf<AccountId32> {
     let mut plan = vote_plan(true);
     plan.voter_subjects
-        .try_push(votebase::AuthorizationSubject::Institution(
+        .try_push(engingcore::AuthorizationSubject::Institution(
             entitybase::RoleSubject {
                 cid_number: institution_cid_number(),
                 role_code: SECOND_VOTER_ROLE.to_vec().try_into().expect("role fits"),
@@ -317,7 +317,7 @@ fn multi_role_vote_plan() -> votebase::types::VotePlanOf<AccountId32> {
     plan
 }
 
-fn create_popular(candidates: Vec<votebase::CitizenSubject<AccountId32>>) -> u64 {
+fn create_popular(candidates: Vec<engingcore::CitizenSubject<AccountId32>>) -> u128 {
     ElectionVote::do_create_popular_election(
         organizer_admin(),
         vote_plan(false),
@@ -332,7 +332,7 @@ fn create_popular(candidates: Vec<votebase::CitizenSubject<AccountId32>>) -> u64
     .expect("popular election should be created")
 }
 
-fn create_mutual() -> u64 {
+fn create_mutual() -> u128 {
     ElectionVote::do_create_mutual_election(
         organizer_admin(),
         vote_plan(true),
@@ -350,8 +350,8 @@ mod tally {
 
     use crate::tally::*;
 
-    fn subject(id: u8) -> votebase::CitizenSubject<u8> {
-        votebase::CitizenSubject {
+    fn subject(id: u8) -> engingcore::CitizenSubject<u8> {
+        engingcore::CitizenSubject {
             cid_number: vec![id].try_into().expect("test CID fits"),
             account_id: id,
         }

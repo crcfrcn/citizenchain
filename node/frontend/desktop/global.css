@@ -978,8 +978,20 @@ select option:checked {
   background: rgba(15, 23, 42, 0.72);
 }
 
-/* 首页四个说明：原 450px 加三个正文汉字（3 × 14px），窄窗口仍保留两侧留白。 */
+/* 首页说明的基础宽度；窄窗口仍保留两侧留白。 */
 .home-metric-help-dialog {
+  width: 492px;
+  max-width: calc(100% - 32px);
+}
+
+/* 公民链第2、3条及永久质押第4条在常规窗口内单行显示。 */
+.chain-help-dialog,
+.stake-help-dialog {
+  width: 540px;
+}
+
+/* 手续费收益第1条的新文案容纳为两行。 */
+.fee-help-dialog {
   width: 492px;
   max-width: calc(100% - 32px);
 }
@@ -3101,6 +3113,7 @@ select option:checked {
 .home-dual-panel > main.app {
   display: flex;
   flex-direction: column;
+  padding: 20px 20px 24px;
 }
 
 .home-dual-panel > main.app > .content {
@@ -3116,6 +3129,10 @@ select option:checked {
   flex-direction: column;
 }
 
+.home-dual-panel > aside.app {
+  padding: 20px 20px 24px;
+}
+
 .home-dual-panel > aside.app > .content {
   flex: 1;
   gap: 0;
@@ -3123,6 +3140,12 @@ select option:checked {
 
 .home-dual-panel > main.app .home-node-toolbar {
   flex: none;
+  top: 0;
+  min-height: 28px;
+}
+
+.home-dual-panel > main.app .home-node-toolbar .status-line {
+  min-height: 28px;
 }
 
 .home-dual-panel > main.app .home-summary-section {
@@ -3146,6 +3169,12 @@ select option:checked {
 
 .home-dual-panel > main.app .home-summary-section > p + p {
   margin-top: 6px;
+}
+
+.home-chain-detail-row {
+  display: flex;
+  align-items: baseline;
+  column-gap: 6px;
 }
 
 @media (max-width: 900px) {
@@ -3178,7 +3207,7 @@ select option:checked {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: baseline;
-  column-gap: 4px;
+  column-gap: 6px;
   min-width: 0;
 }
 

@@ -74,7 +74,8 @@ pub struct InstitutionProposalPage {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstitutionProposalItem {
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
     pub kind_label: String,
     pub status_label: String,
     pub summary: String,

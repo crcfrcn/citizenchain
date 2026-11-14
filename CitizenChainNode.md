@@ -535,7 +535,7 @@ CitizenApp P2P 暂时不可用时，聊天和广场不依赖链节点 RPC，继�
 - `grandpakey`
 - `destroy`
 - `upgrade`
-- `votebase`
+- `engingcore`
 
 ##### 9.2 管理员模块（`runtime/admins/`）
 - 负责公权机构管理员、私权机构管理员和个人多签管理员；固定治理机构初始管理员由链配置写入，运行期治理归公权管理员模块。
@@ -912,7 +912,7 @@ prepare 与 complete 前各需一次 WebAuthn passkey 断言 + 管理员冷钱�
 
 - 选举元数据只保留唯一 `actor_cid_number + role_code`，发起机构就是拟任职机构；`target_cid_number`、`office_code`、`rule_id` 已从 `electionvote` 清零。
 - 候选快照、普选票据、候选计票和当选结果全部保存完整 `CitizenSubject`；普选按永久 CID 去重，互选按机构 CID + 岗位码 + 账户票据去重。
-- `electionvote` 17 项、votebase 4 项、runtime 46 项、全 workspace 测试目标、`no_std`、WASM、benchmark/try-runtime 和 release Node 构建通过。
+- `electionvote` 17 项、engingcore 4 项、runtime 46 项、全 workspace 测试目标、`no_std`、WASM、benchmark/try-runtime 和 release Node 构建通过。
 - `citizenchain-fresh --tmp` 真实节点 block #0 为 `0x285ca7f4ab0f24771baff6a6fc10141ee281fbbd6ce1a8f9dcd1d7676501a41b`，state root 为 `0x27ecdc5b73ce195df4bdfe6c05fe68ef0b682c58751f5f145868a69a1f4672bd`，metadata 二进制 220,398 字节，runtime 六项项目版本均为 `0`；验收节点已停止。
 
 #### 2026-07-22 第 8 步客户端协议验收
@@ -2820,3 +2820,11 @@ macOS、Windows、LinuxARM、LinuxAMD各自独立发行，工作流从本平台�
 注册绑定核验唯一只读RPC为identity_getBinding([cid_number,account_id,expected_genesis])。节点一次读取client.info，核对创世链并固定其finalized_hash为H，使用本链真实存储类型在H读取CidRegistry、AccountIdByCid、CidByAccountId及BindingRevisionByCid；仅有效、未吊销、双向一致且修订号为正时返回block、cid_number、account_id、bind_rev四字段。block是同一个H，不是best块哈希。不存在返回null；错误链、坏编码、缺失映射、无效修订或撤销均拒绝。一次服务端RPC，节点最多四次本地存储读取；不调用其它网络RPC、不改标准state_queryStorageAt、不新增Runtime API、端口、表或缓存。该结果只供服务端保存公开绑定事实，不授予登录或设备权限。
 
 公开配置入口describeConfiguration只返回schema、product_id、configuration三字段；manifest.runtime继续保留既有证书运行期声明。配置读取不交付runtime字段，沿用控制台既定闭集及受保护NRC_PUBLICKEY授权，不变更密钥、节点二进制、交易或Runtime；缺失运行期证书授权不阻塞独立的配置读取和节点软件部署。
+
+
+2026-11-14 提案编号类型调整：提案ID内部使用u128，年份u32，年内序号u64；Tauri/HTTP/JSON中的提案ID及年内序号统一传十进制字符串。分页运算使用BigInt，不经JavaScript number；提案键/调用ID槽为16字节，展示号为12字节。节点组成守卫按完整长度及哈希校验旧8字节、新16字节ID键，并以同一编码配对提案与阈值，覆盖升级前后状态。
+
+
+2026-11-14 CID年份u32：CID生成器调用中的year同步为u32，组成和生命周期守卫继续执行原有职责。生命周期守卫对新年份号码仍核对地域、机构码、盈利属性与原始文本校验和，不增加年份或随机号段的独立政策。既有CID和派生账户无迁移；runtime-benchmarks工厂仅同步年份字面量类型。
+
+2026-11-14 五项定点修复：提案倒序分页包含ID0，最后一页和has_more按checked_sub边界判断；NextProposalId不存在仍为0，存在但不是完整16字节时明确报错。删除Node未使用的十进制反序列化函数，保留序列化及OnChina实际使用的反序列化入口。既有分页/计数器测试覆盖零号、空窗口、u128上限、短值及尾随字节，12项通过。

@@ -4,6 +4,7 @@
 //! 通用冷签会话由平台 transactions/session.rs 持有，最终提交、确认与恢复由
 //! 平台 transactions/handler.rs 执行，再调用本模块的原有身份目标校验及业务投影。
 
+use super::authorization::{resolve_operation_role, CitizenOperation};
 use crate::citizens::admin_entry::CitizenWrites;
 use crate::citizens::chain_identity::IdentityOperations;
 use axum::{
@@ -555,7 +556,8 @@ pub(crate) struct SubmitCitizenOccupyOutput {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenRebindInput {
-    pub(crate) actor_role_code: String,
+    #[serde(default)]
+    pub(crate) actor_role_code: Option<String>,
     pub(crate) cid_number: String,
 }
 
@@ -607,7 +609,8 @@ pub(crate) struct PrepareCitizenRevokeOutput {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenRevokeInput {
-    pub(crate) actor_role_code: String,
+    #[serde(default)]
+    pub(crate) actor_role_code: Option<String>,
 }
 
 // ──── handlers ────
@@ -1004,14 +1007,22 @@ pub(crate) async fn prepare_citizen_rebind(
     if let Err(resp) = ensure_registry_admin(&ctx) {
         return resp;
     }
-    let actor_role_code = match validate_actor_role_code(input.actor_role_code.as_str()) {
-        Ok(value) => value,
-        Err(resp) => return resp,
-    };
     let cid_number = input.cid_number.trim().to_string();
     if cid_number.is_empty() {
         return api_error(StatusCode::BAD_REQUEST, 1001, "cid_number 不能为空");
     }
+    let (actor_role_code, finalized) = match resolve_operation_role(
+        &state,
+        &ctx,
+        &cid_number,
+        CitizenOperation::RebindWallet,
+        input.actor_role_code.as_deref(),
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(resp) => return resp,
+    };
     // 链上写(admin_rebind_cid_account_id extrinsic)硬规则 = passkey + 冷签:强制 passkey 断言(冷签在段3)。
     // 注册局强制换绑不以当前账户签名为权限前提；passkey 是注册局侧操作者身份加固，不可省。
     let rebind_grant_payload = serde_json::json!({
@@ -1033,17 +1044,6 @@ pub(crate) async fn prepare_citizen_rebind(
 
     let issued_at = Utc::now();
     let expires_at = issued_at + Duration::seconds(SESSION_TTL_SECS);
-    let finalized = match read_finalized_cid_binding(cid_number.as_str()).await {
-        Ok(snapshot) => snapshot,
-        Err(err) => {
-            tracing::error!(error = %err, "read finalized rebind state failed");
-            return api_error(
-                StatusCode::BAD_GATEWAY,
-                1004,
-                "换绑链上绑定状态读取失败(链不可用)",
-            );
-        }
-    };
     let (current_account_id, expected_binding_revision) = match finalized.cid_status {
         FinalizedCidStatus::Missing => {
             return api_error(
@@ -1263,16 +1263,25 @@ pub(crate) async fn submit_citizen_rebind(
         );
     }
     // submit 前再次读取同一 finalized 快照；当前账户/revision 任一变化都使挑战失效。
-    let finalized = match read_finalized_cid_binding(cid_number.as_str()).await {
-        Ok(snapshot) => snapshot,
-        Err(err) => {
-            tracing::error!(error = %err, "recheck finalized rebind state failed");
-            return api_error(
-                StatusCode::BAD_GATEWAY,
-                1004,
-                "换绑链上绑定状态复核失败(链不可用)",
-            );
-        }
+    if session
+        .context
+        .get("origin_institution_cid")
+        .and_then(|value| value.as_str())
+        != Some(ctx.institution_cid_number.as_str())
+    {
+        return api_error(StatusCode::FORBIDDEN, 1003, "换绑会话不属于当前机构");
+    }
+    let (_, finalized) = match resolve_operation_role(
+        &state,
+        &ctx,
+        &cid_number,
+        CitizenOperation::RebindWallet,
+        Some(&actor_role_code),
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(resp) => return resp,
     };
     if finalized.genesis_hash != expected_genesis_hash
         || finalized.cid_status != FinalizedCidStatus::Active
@@ -1356,10 +1365,7 @@ pub(crate) async fn submit_citizen_rebind(
         "citizen rebind signatures verified"
     );
 
-    let actor_cid_number = match active_registry_cid_number(&state) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
+    let actor_cid_number = ctx.institution_cid_number.clone();
     let call = encode_admin_rebind_cid_account_id_call(
         &actor_cid_number,
         actor_role_code.as_str(),
@@ -1444,7 +1450,15 @@ pub(crate) async fn prepare_citizen_revoke(
     if let Err(resp) = ensure_registry_admin(&ctx) {
         return resp;
     }
-    let actor_role_code = match validate_actor_role_code(input.actor_role_code.as_str()) {
+    let (actor_role_code, _) = match resolve_operation_role(
+        &state,
+        &ctx,
+        &cid_number,
+        CitizenOperation::RevokeIdentity,
+        input.actor_role_code.as_deref(),
+    )
+    .await
+    {
         Ok(value) => value,
         Err(resp) => return resp,
     };
@@ -1472,10 +1486,7 @@ pub(crate) async fn prepare_citizen_revoke(
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "公民档案查询失败");
         }
     }
-    let actor_cid_number = match active_registry_cid_number(&state) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
+    let actor_cid_number = ctx.institution_cid_number.clone();
     let call = encode_revoke_cid_call(
         &actor_cid_number,
         actor_role_code.as_str(),

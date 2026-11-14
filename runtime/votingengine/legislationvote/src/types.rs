@@ -10,10 +10,10 @@ use scale_info::TypeInfo;
 use sp_runtime::sp_std::vec::Vec;
 use sp_runtime::Debug;
 use sp_runtime::DispatchError;
-use votebase::types::{CidNumber, ProposalSubjectCidNumbers, RoleCode, VotePlanOf};
+use engingcore::types::{CidNumber, ProposalSubjectCidNumbers, RoleCode, VotePlanOf};
 
 /// 单个立法机关表决提案最多串联的代表机构数量。
-pub const MAX_REPRESENTATIVE_BODIES: u32 = votebase::types::MAX_REPRESENTATIVE_BODIES;
+pub const MAX_REPRESENTATIVE_BODIES: u32 = engingcore::types::MAX_REPRESENTATIVE_BODIES;
 
 /// 参加表决的机构引用。
 pub type RepresentativeBody = RoleSubject<CidNumber, RoleCode>;
@@ -138,7 +138,7 @@ pub trait LegislationVoteEngine<AccountId> {
         subject_cid_numbers: ProposalSubjectCidNumbers,
         module_tag: &[u8],
         data: Vec<u8>,
-    ) -> Result<u64, DispatchError>;
+    ) -> Result<u128, DispatchError>;
 
     /// 创建法律提案，代表表决后按法律专属程序继续推进。
     #[allow(clippy::too_many_arguments)]
@@ -152,13 +152,13 @@ pub trait LegislationVoteEngine<AccountId> {
         module_tag: &[u8],
         data: Vec<u8>,
         object_data: Vec<u8>,
-    ) -> Result<u64, DispatchError>;
+    ) -> Result<u128, DispatchError>;
 
     /// 读取特别案公民投票永久凭据。
-    fn referendum_result(proposal_id: u64) -> Option<(u64, u64, u64)>;
+    fn referendum_result(proposal_id: u128) -> Option<(u64, u64, u64)>;
 
     /// 读取修宪护宪终审赞成票数。
-    fn guard_review_result(proposal_id: u64) -> Option<u32>;
+    fn guard_review_result(proposal_id: u128) -> Option<u32>;
 }
 
 impl<AccountId> LegislationVoteEngine<AccountId> for () {
@@ -171,7 +171,7 @@ impl<AccountId> LegislationVoteEngine<AccountId> for () {
         _subject_cid_numbers: ProposalSubjectCidNumbers,
         _module_tag: &[u8],
         _data: Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         Err(DispatchError::Other("LegislationVoteEngineNotConfigured"))
     }
 
@@ -185,15 +185,15 @@ impl<AccountId> LegislationVoteEngine<AccountId> for () {
         _module_tag: &[u8],
         _data: Vec<u8>,
         _object_data: Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         Err(DispatchError::Other("LegislationVoteEngineNotConfigured"))
     }
 
-    fn referendum_result(_proposal_id: u64) -> Option<(u64, u64, u64)> {
+    fn referendum_result(_proposal_id: u128) -> Option<(u64, u64, u64)> {
         None
     }
 
-    fn guard_review_result(_proposal_id: u64) -> Option<u32> {
+    fn guard_review_result(_proposal_id: u128) -> Option<u32> {
         None
     }
 }

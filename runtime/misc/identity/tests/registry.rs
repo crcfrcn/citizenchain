@@ -104,6 +104,7 @@ fn self_occupy_cid_binds_account_and_stays_anonymous() {
         // 占即绑:双向绑定成立。
         assert_eq!(AccountIdByCid::<Test>::get(cid(&cid_bytes)), Some(1));
         assert_eq!(CidByAccountId::<Test>::get(1), Some(cid(&cid_bytes)));
+        assert!(sp_io::storage::exists(&codec::Encode::encode(&(b"evm-receive-registration", &1u64))));
         // 登记记录:SELF registrar + 空居住地 + Active + commitment = blake2_256(account_id)。
         let rec = CidRegistry::<Test>::get(cid(&cid_bytes)).expect("record");
         assert_eq!(
@@ -196,7 +197,7 @@ fn self_occupy_cid_accepts_resident_natp_type() {
                 province_name: "",
                 city_code: "",
                 city_name: "",
-                year: "2026",
+                year: 2026,
                 institution: "NATP",
             },
         )
@@ -224,7 +225,7 @@ fn self_occupy_cid_rejects_smtp_type() {
                 province_name: "",
                 city_code: "",
                 city_name: "",
-                year: "2026",
+                year: 2026,
                 institution: "SMTP",
             },
         )
@@ -495,7 +496,7 @@ fn non_citizen_family_code_is_rejected() {
                 province_name: "广东省",
                 city_code: "001",
                 city_name: "荔湾市",
-                year: "2026",
+                year: 2026,
                 institution: "CGOV",
             },
         )
@@ -559,7 +560,7 @@ fn occupy_cid_accepts_resident_natp_type() {
                 province_name: "",
                 city_code: "",
                 city_name: "",
-                year: "2026",
+                year: 2026,
                 institution: "NATP",
             },
         )

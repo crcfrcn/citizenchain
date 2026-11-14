@@ -186,3 +186,27 @@ fn occupy_and_rebind_actions_are_distinct_registered_codes() {
     assert_eq!(action_occupy(), 10);
     assert_eq!(action_rebind(), 11);
 }
+
+#[tokio::test]
+async fn login_rejects_bad_account_qr_before_chain_or_database_access() {
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    let app = crate::build_routes(crate::AppState {
+        db: crate::Db::empty_for_route_test(),
+        rate_limiter: std::sync::Arc::new(crate::LocalRateLimiter::new()),
+        modules: std::sync::Arc::new(crate::modules::ModuleCatalog::new(None)),
+    });
+    for raw in ["{}", "not-json"] {
+        let response = app.clone().oneshot(Request::builder().method("POST")
+            .uri("/api/admin/auth/qr/sign-request").header("content-type","application/json")
+            .body(Body::from(serde_json::json!({"identityQr":raw,"origin":crate::platform_url(),"sessionId":"qr-test-session"}).to_string())).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap())
+                .unwrap();
+        assert!(body.get("data").is_none());
+    }
+}

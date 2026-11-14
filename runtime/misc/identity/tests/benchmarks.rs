@@ -67,7 +67,7 @@ fn citizen_cid(tag: u32) -> CidNumberBound {
             province_name: "中枢省",
             city_code: "001",
             city_name: "基准市",
-            year: "2027",
+            year: 2027,
             institution: "CTZN",
         },
     )

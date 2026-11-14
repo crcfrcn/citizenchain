@@ -101,7 +101,7 @@ export interface LawView {
   title: string;
   titleEn?: string | null;
   contentHash: string;
-  proposalId: number;
+  proposalId: string;
   publishedAt: number;
   effectiveAt: number;
   houses: HouseRef[];
@@ -134,7 +134,7 @@ export interface VoteTally {
 
 /** 提案进度只读投影(不含计票判定,只搬运链上事实)。 */
 export interface LegProposalState {
-  proposalId: number;
+  proposalId: string;
   kind: number;
   stage: number;
   status: number;

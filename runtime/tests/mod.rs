@@ -20,7 +20,7 @@ use sp_core::{sr25519, Pair};
 #[cfg(not(feature = "runtime-benchmarks"))]
 use sp_runtime::traits::Hash as HashT;
 use sp_runtime::{traits::IdentifyAccount, BuildStorage, MultiSigner};
-use votebase::{CitizenIdentityReader, InternalAdminProvider, JointVoteResultCallback};
+use engingcore::{CitizenIdentityReader, InternalAdminProvider, JointVoteResultCallback};
 
 fn new_test_ext() -> sp_io::TestExternalities {
     let storage = crate::RuntimeGenesisConfig::default()
@@ -55,7 +55,7 @@ fn real_cid_number(tag: &str, institution: &str, p1: &str) -> Vec<u8> {
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution,
         },
     )
@@ -267,7 +267,7 @@ fn setup_frg_citizen_identity_admin(
         primitives::governance_skeleton::province_commissioner_role_code(province_code)
             .try_into()
             .expect("role code fits");
-    publicentity::InstitutionRoles::<Runtime>::insert(
+    publicentity::Pallet::<Runtime>::store_role(
         &cid_number,
         &role_code,
         entitybase::InstitutionRole {
@@ -296,7 +296,7 @@ fn setup_frg_citizen_identity_admin(
         }]
         .try_into()
         .expect("assignment fits");
-    publicentity::InstitutionRoleAssignments::<Runtime>::insert(
+    publicentity::Pallet::<Runtime>::store_role_assignments(
         cid_number.clone(),
         role_code.clone(),
         assignments,
@@ -326,7 +326,7 @@ fn setup_frg_citizen_identity_admin(
         .collect::<Vec<_>>()
         .try_into()
         .expect("fixed permissions fit");
-    publicentity::InstitutionRolePermissions::<Runtime>::insert(
+    publicentity::Pallet::<Runtime>::store_role_permissions(
         cid_number.clone(),
         role_code.clone(),
         permissions,
@@ -356,7 +356,7 @@ fn setup_frg_citizen_identity_admin(
         action_code: entitybase::business_action::ACTION_OCCUPY_CID,
     };
     let stored_permissions =
-        publicentity::InstitutionRolePermissions::<Runtime>::get(&cid_number, &role_code);
+        publicentity::Pallet::<Runtime>::institution_role_permissions(&cid_number, &role_code);
     assert!(
         stored_permissions.iter().any(|permission| {
             permission.role_subject.cid_number.as_slice() == cid_number.as_slice()

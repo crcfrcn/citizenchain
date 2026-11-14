@@ -128,3 +128,33 @@ async fn recovery_lease_and_projection_commit_survive_revocation_failure_and_ret
     let fresh = chain_session_with_context(serde_json::json!({}));
     assert!(!origin_matches_binding(&fresh, &binding));
 }
+
+#[test]
+fn archive_seed_and_nonce_are_passed_to_the_cid_protocol_unchanged() {
+    let input = ValidatedCitizenInput {
+        cid_type: "CTZN".into(), family_name: "张".into(), given_name: "三".into(),
+        citizen_sex: "男".into(), citizen_birth_date: "2000-01-02".into(),
+        province_name: "广东省".into(), city_name: "荔湾市".into(),
+        province_code: "GD".into(), city_code: "001".into(), town_code: "001".into(),
+        birth_province_code: "GD".into(), birth_city_code: "001".into(),
+        birth_town_code: "002".into(), voting_eligible: false,
+    };
+    let seed = cid_seed(&input);
+    assert_eq!(seed, "citizen-local-0x03961f7c25a3950ef62e7716a0e55054a60f330370ac82c65e44c88922913944");
+    assert_eq!(seed.len(), 80);
+    assert!(seed.starts_with("citizen-local-0x"));
+    assert_eq!(seed, local_citizen_cid_seed("张", "三", "男", "2000-01-02", "GD", "001", "001", "GD", "001", "002"));
+    assert!(normalize_account_id(&seed).is_none());
+    for nonce in [0u32, 1, 2, 999] {
+        let cid = generate_citizen_cid_candidate(&input, &seed, nonce).unwrap();
+        let year = primitives::cid::number::parse_cid_number_parts(&cid).unwrap().year;
+        let seeded = if nonce == 0 { seed.clone() } else { format!("{seed}|n{nonce}") };
+        let expected = primitives::cid::generator::generate_cid_number(
+            primitives::cid::generator::GenerateCidNumberInput {
+                public_key: &seeded, p1: "1", province_code: "GD", province_name: "广东省",
+                city_code: "000", city_name: "荔湾市", year, institution: "CTZN",
+            },
+        ).unwrap();
+        assert_eq!(cid, expected, "nonce={nonce}");
+    }
+}

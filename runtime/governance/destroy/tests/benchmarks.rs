@@ -1,6 +1,6 @@
 //! 决议销毁模块 Benchmark 定义。
 //!
-//! 投票统一走 `votebase::internal_vote`,本模块只覆盖"发起提案"和
+//! 投票统一走 `engingcore::internal_vote`,本模块只覆盖"发起提案"和
 //! "任意人重试执行"两条路径。
 
 #![cfg(feature = "runtime-benchmarks")]
@@ -25,7 +25,7 @@ fn prc_admin<T: Config>(index: usize) -> T::AccountId {
     decode_account::<T>(CHINA_CB[1].admins[index])
 }
 
-fn prc_cid_number() -> votebase::CidNumber {
+fn prc_cid_number() -> engingcore::CidNumber {
     CHINA_CB[1]
         .cid_number
         .as_bytes()
@@ -34,8 +34,8 @@ fn prc_cid_number() -> votebase::CidNumber {
         .expect("PRC CID fits runtime bound")
 }
 
-fn last_proposal_id<T: Config>() -> u64 {
-    votebase::Pallet::<T>::next_proposal_id().saturating_sub(1)
+fn last_proposal_id<T: Config>() -> u128 {
+    engingcore::Pallet::<T>::next_proposal_id().saturating_sub(1)
 }
 
 #[benchmarks]
@@ -61,9 +61,9 @@ mod benchmarks {
         );
 
         let proposal_id = last_proposal_id::<T>();
-        assert!(votebase::Pallet::<T>::get_proposal_data(proposal_id).is_some());
+        assert!(engingcore::Pallet::<T>::get_proposal_data(proposal_id).is_some());
     }
 
     // execute_destroy benchmark 已废弃: 该 wrapper extrinsic 已统一到
-    // VotingEngine::retry_passed_proposal,benchmark 由 votebase 自身覆盖。
+    // VotingEngine::retry_passed_proposal,benchmark 由 engingcore 自身覆盖。
 }

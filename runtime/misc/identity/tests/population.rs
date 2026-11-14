@@ -143,7 +143,7 @@ fn natp_resident_cannot_become_voting_citizen() {
                 province_name: "",
                 city_code: "",
                 city_name: "",
-                year: "2026",
+                year: 2026,
                 institution: "NATP",
             },
         )

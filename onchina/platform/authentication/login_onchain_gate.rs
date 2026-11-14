@@ -1,7 +1,7 @@
 //! 登录链上集合鉴权 + 会话签发(QR 登录与挑战登录共用)。
 //!
 //! (去中心化鉴权):
-//! - 验签证明扫码者持有 `account_id` 私钥后,membership 真源切到**链上 Active 管理员集合**。
+//! - 生成挑战前先查链上 Active 管理员关系并匹配本节点绑定；验签后以最新状态复核。
 //! - 平台启动不预设机构;首次登录从 `verified_account_id` 反查候选机构,二次确认后本节点绑定唯一机构。
 //! - 后台 `revoke_stale_admin_sessions_loop` 周期复查,管理员被链上移除后≤TTL 失效。
 
@@ -146,11 +146,15 @@ fn candidates_from_memberships_conn(
         .collect()
 }
 
-fn binding_matches_candidate(
+/// 机构归属只按准确链上身份匹配；首次绑定操作者不限定后续可登录管理员。
+pub(super) fn binding_matches_membership(
     binding: &NodeInstitutionBinding,
-    candidate: &AdminInstitutionCandidate,
+    membership: &chain_runtime::ActiveAdminMembership,
 ) -> bool {
-    binding.candidate_id == candidate.candidate_id
+    binding.candidate_id == membership.candidate_id()
+        && binding.institution_code
+            == chain_runtime::institution_code_label(&membership.institution_code)
+        && binding.institution_cid_number == membership.cid_number
 }
 
 async fn find_allowed_memberships_for_login(
@@ -171,21 +175,20 @@ async fn find_allowed_memberships_for_login(
 
 /// 钱包码给出目标账户后，按当前签名 `account_id` 反查链上 Active 管理员集合。
 ///
-/// 判据 fail-closed：账户格式非法、链不可达、集合为空一律拒绝登录，不存在「读不到就
-/// 放行」。二维码不重复携带管理员 CID；服务端从链上管理员名册读取 CID，并在同一个
+/// 账户格式非法或链不可达立即拒绝；查询结果交给绑定事务检查，空集合不得生成挑战。
+/// 二维码不重复携带管理员 CID；服务端从链上管理员名册读取 CID，并在同一个
 /// finalized 区块通过 `CitizenIdentity` 正反向闭环解析当前绑定 `account_id`。因此换绑后
 /// 只有新账户能登录，名册中的岗位关联旧账户不能继续签名；冻结公权管理员与私权非 LR
 /// 没有 CID 时，严格按 runtime 规则使用名册 `account_id`。
 ///
 /// 完成签名后仍会再次执行完整 gate，以最新链上状态为准签发会话。
-pub(super) async fn validate_login_identity(account_id: &str) -> Result<String, GateError> {
+pub(super) async fn validate_login_identity(
+    account_id: &str,
+) -> Result<(String, Vec<chain_runtime::ActiveAdminMembership>), GateError> {
     let normalized =
         chain_runtime::normalize_account_id(account_id).ok_or(GateError::NotOnchainAdmin)?;
     let memberships = find_allowed_memberships_for_login(normalized.as_str()).await?;
-    if memberships.is_empty() {
-        return Err(GateError::NotOnchainAdmin);
-    }
-    Ok(normalized)
+    Ok((normalized, memberships))
 }
 
 /// 已验签账户经链上集合鉴权后，按节点绑定状态返回会话或待绑定候选。
@@ -201,11 +204,11 @@ pub(super) async fn issue_session_after_onchain_gate(
         return Err(GateError::NotOnchainAdmin);
     }
 
-    let candidates = state
-        .db
-        .with_client(move |conn| candidates_from_memberships_conn(conn, &memberships))
-        .map_err(classify_state_error)?;
     let Some(binding) = repo::active_node_binding(&state.db).map_err(GateError::Db)? else {
+        let candidates = state
+            .db
+            .with_client(|conn| candidates_from_memberships_conn(conn, &memberships))
+            .map_err(classify_state_error)?;
         let binding_challenge_id = Uuid::new_v4().to_string();
         let challenge = NodeBindingChallenge {
             binding_challenge_id: binding_challenge_id.clone(),
@@ -224,13 +227,16 @@ pub(super) async fn issue_session_after_onchain_gate(
             candidates,
         }));
     };
-    let Some(candidate) = candidates
+    let Some(membership) = memberships
         .iter()
-        .find(|candidate| binding_matches_candidate(&binding, candidate))
-        .cloned()
+        .find(|membership| binding_matches_membership(&binding, membership))
     else {
         return Err(GateError::NotOnchainAdmin);
     };
+    let candidate = state
+        .db
+        .with_client(|conn| candidate_from_membership_conn(conn, membership))
+        .map_err(classify_state_error)?;
     let (access_token, expires_at, admin) =
         issue_session_for_candidate(state, normalized.as_str(), &candidate, now).await?;
     Ok(GateOutcome::Session {

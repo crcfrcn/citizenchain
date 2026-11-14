@@ -1,49 +1,43 @@
 import { type AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import { adminHeaders, adminRequest, request } from '@gmb/onchina-platform/http';
-import { type FormInstance } from 'antd';
 import { type CidCityItem } from '@gmb/onchina-platform/codes/api';
-import { passkeySubmitHeaders, type AdminActionType } from '@gmb/onchina-platform/authentication/security';
+import { passkeySubmitHeaders } from '@gmb/onchina-platform/authentication/security';
 import { type InstitutionDetail } from '@gmb/onchina-platform/institutions/api';
-import { type InstitutionGovernanceAdminInput, type PrepareInstitutionChainOutput } from '@gmb/onchina-platform/institutions/governance';
+import { getGovernanceState, governanceProposers, institutionRegistrationMatches, registrationActorRole, prepareInstitutionGovernance, type GovernanceState, type InstitutionRegistrationInput, type PrepareInstitutionChainOutput } from '@gmb/onchina-platform/institutions/governance';
+import { submitChainSign, type ChainSignResult } from '@gmb/onchina-platform/qr/useChainSign';
+import { ApiError } from '@gmb/onchina-platform/http';
 // 市注册局管理员 API。
 // 市注册局管理员列表、创建、删除都归入 admins 管理员功能目录。
 
 export type CityRegistryAdminRow = {
-  id: number;
+  id: string;
+  institutionCidNumber: string;
+  rosterAccountId: string;
+  citizenCidNumber: string;
+  roleName: string;
   accountId: string;
   familyName: string;
   givenName: string;
   balanceFen?: string | null;
   institutionCode: string;
-  builtIn: boolean;
   creatorAccountId: string;
   creatorFamilyName: string;
   creatorGivenName: string;
-  createdAt: string;
+  createdAt: string | null;
   cityName: string;
 };
 
-export async function listCityRegistryAdmins(auth: AdminAuth): Promise<CityRegistryAdminRow[]> {
-  const data = await request<{ total: number; rows: CityRegistryAdminRow[] }>('/api/admin/city-registry-admins', {
-    method: 'GET',
-    headers: adminHeaders(auth),
+/** 当前详情页CID是唯一目标；不做省域全量成员扫描或使用本地目录缓存。 */
+export async function listCityRegistryAdmins(auth: AdminAuth, cidNumber: string): Promise<CityRegistryAdminRow[]> {
+  const data = await request<{ cidNumber: string; total: number; rows: CityRegistryAdminRow[] }>(`/api/admin/city-registry-admins?cidNumber=${encodeURIComponent(cidNumber)}&limit=1989`, {
+    method: 'GET', headers: adminHeaders(auth),
   });
+  if (data.cidNumber !== cidNumber || !Array.isArray(data.rows) || data.rows.some(row => row.institutionCidNumber !== cidNumber)) throw new Error('链上名册目标不匹配');
   return data.rows;
 }
 
-// 联邦注册局管理员视图共享工具函数与类型
+export { MAX_INSTITUTION_ADMINS } from '@gmb/onchina-platform/institutions/governance';
 
-
-
-
-
-
-
-export const MAX_CITY_REGISTRY_ADMINS_PER_CITY = 30;
-
-
-/** 扫码目标类型 */
-export type AccountScanTarget = null | 'city_registry';
 
 /** 所有子视图共享的状态与回调 */
 export interface RegistryAdminsSharedState {
@@ -68,16 +62,11 @@ export interface RegistryAdminsSharedState {
 
   addCityRegistryOpen: boolean;
   setAddCityRegistryOpen: (v: boolean) => void;
-  addCityRegistryLoading: boolean;
-
-  accountScanTarget: AccountScanTarget;
-  setAccountScanTarget: (v: AccountScanTarget) => void;
-
-  addCityRegistryForm: FormInstance<{ cityRegistryAccount: string; familyName: string; givenName: string; cityScopeCityName: string }>;
-
-  onCreateCityRegistry: (values: { cityRegistryAccount: string; familyName: string; givenName: string; cityName?: string; creatorAccountId?: string }) => Promise<void>;
+  deleteCityRegistryAdmin: CityRegistryAdminRow | null;
+  setDeleteCityRegistryAdmin: (row: CityRegistryAdminRow | null) => void;
+  refreshCityRegistryAdmins: () => Promise<CityRegistryAdminRow[]>;
+  cityRegistryAdminsError: string | null;
   onDeleteCityRegistry: (row: CityRegistryAdminRow) => void;
-  runSecuredAction: <T = unknown>(actionType: AdminActionType, payload: unknown) => Promise<T>;
 
   /** 联邦注册局机构详情(全国唯一,scope-bypass 接口加载)。用于「联邦注册局」子 tab 详情页。 */
   federalRegistryDetail: InstitutionDetail | null;
@@ -85,6 +74,8 @@ export interface RegistryAdminsSharedState {
   /** 当前活动市(selectedCity / 市注册局管理员 lockedCityName)对应的市注册局机构 cid_number。 */
   cityRegistryCid: string | null;
   cityRegistryLoading: boolean;
+  cityRegistryError: string | null;
+  reloadCityRegistry: () => void;
 }
 
 export type FederalRegistryAdminRow = {
@@ -108,12 +99,8 @@ export type FederalRegistryAdminRow = {
   updatedAt?: string | null;
 };
 
-export type PrepareRegisterInstitutionAdminsInput = {
-  cidNumber: string;
-  admins: InstitutionGovernanceAdminInput[];
-  /** 当前操作注册局管理员的岗位码，不是目标机构岗位。 */
-  actorRoleCode: string;
-};
+// 所有页面均携带已审阅状态指纹；不再保留缺少指纹的旧类型兼容。
+export type PrepareRegisterInstitutionAdminsInput = InstitutionRegistrationInput;
 
 export async function listFederalRegistryAdmins(auth: AdminAuth): Promise<FederalRegistryAdminRow[]> {
   return request<FederalRegistryAdminRow[]>('/api/admin/federal-registry-admins', {
@@ -126,10 +113,85 @@ export async function listFederalRegistryAdmins(auth: AdminAuth): Promise<Federa
 export async function prepareRegisterInstitutionAdmins(
   auth: AdminAuth,
   input: PrepareRegisterInstitutionAdminsInput,
+  signal?: AbortSignal,
 ): Promise<PrepareInstitutionChainOutput> {
+  if (!/^0x[0-9a-f]{64}$/.test(input.expectedStateHash ?? '')) throw new Error('请使用管理员列表中的链上登记入口，刷新并核对机构状态');
+  const headers = await passkeySubmitHeaders(auth, { 'content-type': 'application/json' });
+  signal?.throwIfAborted();
   return adminRequest<PrepareInstitutionChainOutput>('/api/admin/institution/admins/register/prepare', auth, {
-    method: 'POST',
-    headers: await passkeySubmitHeaders(auth, { 'content-type': 'application/json' }),
+    method: 'POST', headers, signal,
     body: JSON.stringify(input),
   });
+}
+
+/** 只保存已签名会话的恢复所需字段；重试使用同一请求和签名，不重新prepare。 */
+export type InstitutionAdminMode = 'registration' | 'governance';
+export type PendingInstitutionRegistration = { mode?: InstitutionAdminMode; requestId: string; cidNumber: string; accountId: string; signature: string; expected: InstitutionRegistrationInput; reviewedBlockNumber: number };
+function receiptKey(auth: AdminAuth, cid: string, mode: InstitutionAdminMode): string {
+  return `institution-registration:${auth.institutionCidNumber}:${auth.accountId}:${cid}${mode === 'governance' ? ':governance' : ''}`;
+}
+export function readRegistrationReceipt(auth: AdminAuth, cid: string, mode: InstitutionAdminMode = 'registration'): PendingInstitutionRegistration | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(receiptKey(auth, cid, mode)) ?? 'null') as PendingInstitutionRegistration | null;
+    if (!value || (value.mode ?? 'registration') !== mode || value.cidNumber !== cid || value.expected?.cidNumber !== cid || !Array.isArray(value.expected.admins) || !Number.isSafeInteger(value.reviewedBlockNumber) || value.accountId.toLowerCase() !== auth.accountId.toLowerCase() ||
+      !/^institution-governance-[a-zA-Z0-9-]+$/.test(value.requestId) || !/^0x[0-9a-fA-F]{128}$/.test(value.signature)) return null;
+    return value;
+  } catch { return null; }
+}
+export function saveRegistrationReceipt(auth: AdminAuth, cid: string, value: PendingInstitutionRegistration | null, mode: InstitutionAdminMode = 'registration'): void {
+  // 缓存失败不改变链签会话和内存中的原签名；服务端仍保留可恢复的提交记录。
+  try { if (value) sessionStorage.setItem(receiptKey(auth, cid, mode), JSON.stringify(value)); else sessionStorage.removeItem(receiptKey(auth, cid, mode)); } catch { /* 浏览器可禁用存储。 */ }
+}
+
+
+/** 统一机构登记提交和恢复；UI只负责收集明确变更及展示钱包二维码。 */
+export async function runInstitutionRegistration({ auth, cidNumber, input, pending, sign, remember, check, signal, mode = 'registration' }: {
+  auth: AdminAuth; cidNumber: string; input: InstitutionRegistrationInput | null;
+  pending: PendingInstitutionRegistration | null;
+  sign: (requestId: string, request: string) => Promise<ChainSignResult>;
+  remember: (receipt: PendingInstitutionRegistration | null) => void;
+  check: () => void; signal?: AbortSignal; mode?: InstitutionAdminMode;
+}): Promise<{ recovered: boolean; state: GovernanceState }> {
+  check();
+  let receipt = pending;
+  if (!receipt) {
+    if (!input || input.cidNumber !== cidNumber) throw new Error('登记目标与当前页面不一致');
+    const fresh = await getGovernanceState(auth, cidNumber); check();
+    if (fresh.cidNumber !== cidNumber || fresh.registrationStateHash !== input.expectedStateHash) throw new Error('机构状态已变化，请刷新后重新核对签名');
+    registrationActorRole(mode === 'governance' ? { ...fresh, registrationRoles: governanceProposers(auth, fresh).map(role => ({ roleCode: role.roleCode, roleName: role.roleName })) } : fresh, input.actorRoleCode);
+    if (mode === 'governance' && auth.institutionCidNumber !== cidNumber) throw new Error('只能发起本机构治理');
+    const prepared = mode === 'registration' ? await prepareRegisterInstitutionAdmins(auth, input, signal) : await prepareInstitutionGovernance(auth, {
+      cidNumber, proposerRoleCode: input.actorRoleCode!,
+      admins: input.admins.map(member => ({ ...member, familyName: member.familyName ?? '', givenName: member.givenName ?? '' })),
+      assignmentChanges: input.assignmentChanges,
+    }, signal); check();
+    if (prepared.cidNumber !== cidNumber || !Number.isFinite(prepared.expiresAt) || !prepared.requestId || !prepared.signRequest || prepared.expiresAt * 1000 <= Date.now()) throw new Error('签名请求目标不匹配或已过期');
+    const signed = await sign(prepared.requestId, prepared.signRequest); check();
+    if (signed.accountId.toLowerCase() !== auth.accountId.toLowerCase() || !/^0x[0-9a-fA-F]{128}$/.test(signed.signature)) throw new Error('签名钱包或签名格式与当前管理员不一致');
+    receipt = { mode, requestId: prepared.requestId, cidNumber, accountId: signed.accountId, signature: signed.signature,
+      expected: structuredClone(input), reviewedBlockNumber: fresh.blockNumber };
+    remember(receipt);
+  }
+  if ((receipt.mode ?? 'registration') !== mode || receipt.cidNumber !== cidNumber || receipt.expected.cidNumber !== cidNumber || receipt.accountId.toLowerCase() !== auth.accountId.toLowerCase()) throw new Error('原签名会话不属于当前身份或目标');
+  check();
+  let result;
+  try { result = await submitChainSign(auth, receipt.requestId, receipt.accountId, receipt.signature); }
+  catch (error) {
+    check();
+    // 已完成会话可能已消费/清理。只有链上目标结果完全吻合才恢复为成功。
+    if (error instanceof ApiError && [404, 409].includes(error.status)) {
+      const settled = await getGovernanceState(auth, cidNumber); check();
+      if (settled.blockNumber > receipt.reviewedBlockNumber && institutionRegistrationMatches(settled, receipt.expected)) {
+        remember(null); return { recovered: true, state: settled };
+      }
+    }
+    if (error instanceof ApiError && [400, 403, 410, 422].includes(error.status)) remember(null);
+    throw error;
+  }
+  check();
+  // prepare已统一目标键；返回的目标必须与冻结载荷一致，空字段也拒绝。
+  if (result.purpose !== (mode === 'governance' ? 'INSTITUTION_GOVERNANCE' : 'INSTITUTION_REGISTER_ADMINS') || result.cidNumber !== cidNumber || !result.txHash || !Number.isSafeInteger(result.blockNumber) || result.blockNumber! < 0) throw new Error('提交结果尚未确认，请恢复原会话');
+  const settled = await getGovernanceState(auth, cidNumber); check();
+  if (settled.blockNumber < result.blockNumber! || settled.blockNumber <= receipt.reviewedBlockNumber || (mode === 'registration' && !institutionRegistrationMatches(settled, receipt.expected))) throw new Error('链上登记结果尚未核对，请恢复原会话');
+  remember(null); return { recovered: false, state: settled };
 }

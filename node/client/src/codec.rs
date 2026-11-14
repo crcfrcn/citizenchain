@@ -40,26 +40,10 @@ pub fn decode_hex_storage(hex_str: &str) -> Result<Vec<u8>, String> {
     hex::decode(clean).map_err(|e| format!("hex 解码失败: {e}"))
 }
 
-pub fn decode_u64_vec(data: &[u8]) -> Result<Vec<u64>, String> {
-    if data.is_empty() {
-        return Ok(Vec::new());
-    }
-    let (count, len_bytes) = read_compact_u32(data, 0)?;
-    let mut offset = len_bytes;
-    let mut ids = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        if offset + 8 > data.len() {
-            break;
-        }
-        let val = u64::from_le_bytes(
-            data[offset..offset + 8]
-                .try_into()
-                .map_err(|_| "SCALE 数据长度不足".to_string())?,
-        );
-        ids.push(val);
-        offset += 8;
-    }
-    Ok(ids)
+/// 严格解码提案 ID 列表；拒绝旧宽度、截断或尾随字节。
+pub fn decode_u128_vec(data: &[u8]) -> Result<Vec<u128>, String> {
+    use codec::DecodeAll;
+    Vec::<u128>::decode_all(&mut &data[..]).map_err(|e| format!("提案 ID 列表解码失败: {e}"))
 }
 
 pub fn read_compact_u32(data: &[u8], offset: usize) -> Result<(u32, usize), String> {
@@ -150,3 +134,8 @@ pub fn truncate_chars(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 #[path = "../tests/codec.rs"]
 mod tests;
+
+/// 提案 ID 和年内序号在 JSON 边界使用十进制字符串，避免 JavaScript 丢失精度。
+pub fn serialize_decimal<S: serde::Serializer, T: core::fmt::Display>(value: &T, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.collect_str(value)
+}

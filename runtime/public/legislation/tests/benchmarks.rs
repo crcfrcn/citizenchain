@@ -35,7 +35,7 @@ fn chapters<T: Config>(dense: bool, small: bool) -> ChaptersOf<T> {
     let mut budget = if small {
         1024
     } else {
-        max.min(<T as votebase::Config>::MaxProposalObjectLen::get() as usize)
+        max.min(<T as engingcore::Config>::MaxProposalObjectLen::get() as usize)
             .saturating_sub(65536)
     };
     let mut chapters = Vec::new();

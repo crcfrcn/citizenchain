@@ -35,3 +35,7 @@ pub(crate) use qr_login::{
 };
 pub(crate) use signature::verify_admin_signature_bytes;
 pub use signature::{admin_person_names, parse_account_id_bytes};
+
+// 既有测试目录直接调用原挑战创建函数，生产接口不增加旁路。
+#[cfg(test)]
+pub(crate) use qr_login::create_login_request;

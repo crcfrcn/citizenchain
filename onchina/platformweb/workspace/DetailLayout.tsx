@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   BankOutlined,
+  IdcardOutlined,
   FolderOpenOutlined,
   HistoryOutlined,
   HomeOutlined,
@@ -36,6 +37,12 @@ function defaultIcon(key: string) {
   switch (key) {
     case 'info':
       return <HomeOutlined />;
+    case 'roles':
+      return <BankOutlined />;
+    case 'assignments':
+      return <TeamOutlined />;
+    case 'representative':
+      return <IdcardOutlined />;
     case 'admins':
       return <TeamOutlined />;
     case 'accounts':

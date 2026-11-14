@@ -29,7 +29,7 @@ it.each([0, 1])('提案类型 %i 只允许链上确认未投票的管理员岗�
     switch (command) {
       case 'get_proposal_detail':
         return {
-          meta: { proposalId: 7, kind, stage: kind, status: 0, subjectCidNumbers: [cidNumber] },
+          meta: { proposalId: '7', kind, stage: kind, status: 0, subjectCidNumbers: [cidNumber] },
           voterRoleSubjects: [{ cidNumber, roleCode }],
         };
       case 'get_proposal_display': return null;
@@ -46,7 +46,7 @@ it.each([0, 1])('提案类型 %i 只允许链上确认未投票的管理员岗�
     }
   });
 
-  render(<ProposalDetailPage proposalId={7} cidNumber={cidNumber}
+  render(<ProposalDetailPage proposalId={"7"} cidNumber={cidNumber}
     adminSigners={accounts.map((accountId) => ({ accountId, accountLabel: '' }))}
     onBack={() => {}} />);
   await screen.findByRole('heading', { name: '管理员投票状态（4 人）' });

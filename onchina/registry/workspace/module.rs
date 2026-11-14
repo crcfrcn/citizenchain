@@ -243,6 +243,12 @@ impl ModuleBusiness for Module {
             ),
             modules::model::ModuleRoute::new(
                 "admin",
+                "/api/admin/citizens/{cid_number}/operation-roles",
+                &["GET"],
+                get(crate::citizens::authorization::operation_roles),
+            ),
+            modules::model::ModuleRoute::new(
+                "admin",
                 "/api/admin/citizens/{cid_number}/binding",
                 &["GET"],
                 get(crate::citizens::chain_identity::finalized_citizen_binding),
@@ -359,11 +365,12 @@ impl ModuleBusiness for Module {
     }
     async fn recheck_submit(
         &self,
-        _state: &AppState,
+        state: &AppState,
         ctx: &authentication::login::AdminAuthContext,
-        _session: &transactions::session::ChainSignSession,
+        session: &transactions::session::ChainSignSession,
     ) -> Result<(), axum::response::Response> {
-        authorization::rules::ensure_registry_admin(ctx)
+        authorization::rules::ensure_registry_admin(ctx)?;
+        citizens::authorization::recheck_submit(state, ctx, session).await
     }
     fn validate_submit_context(
         &self,

@@ -7,7 +7,7 @@ use codec::Decode;
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use sp_runtime::traits::SaturatedConversion;
-use votebase::CitizenIdentityReader;
+use engingcore::CitizenIdentityReader;
 
 use crate::pallet::{
     Config, JointInstitutionTallies, JointVotesByInstitution, Pallet, ReferendumVotesByCid,
@@ -21,17 +21,17 @@ fn decode<T: frame_system::Config>(raw: &[u8; 32]) -> T::AccountId {
 fn setup_proposal<T: Config>(
     stage: u8,
 ) -> (
-    u64,
-    votebase::Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
+    u128,
+    engingcore::Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
 ) {
-    let proposal_id = 0u64;
+    let proposal_id = 0u128;
     let nrc = &primitives::cid::china::china_cb::CHINA_CB[0];
     let now = 1u32.saturated_into();
     frame_system::Pallet::<T>::set_block_number(now);
-    let proposal = votebase::Proposal {
-        kind: votebase::PROPOSAL_KIND_JOINT,
+    let proposal = engingcore::Proposal {
+        kind: engingcore::PROPOSAL_KIND_JOINT,
         stage,
-        status: votebase::STATUS_VOTING,
+        status: engingcore::STATUS_VOTING,
         internal_code: None,
         actor_cid_number: Some(
             nrc.cid_number
@@ -45,7 +45,7 @@ fn setup_proposal<T: Config>(
         start: 0u32.saturated_into(),
         end: 2u32.saturated_into(),
     };
-    votebase::pallet::Proposals::<T>::insert(proposal_id, proposal.clone());
+    engingcore::pallet::Proposals::<T>::insert(proposal_id, proposal.clone());
     (proposal_id, proposal)
 }
 
@@ -55,23 +55,23 @@ mod benchmarks {
 
     #[benchmark]
     fn cast_admin() {
-        let (proposal_id, _) = setup_proposal::<T>(votebase::STAGE_JOINT);
+        let (proposal_id, _) = setup_proposal::<T>(engingcore::STAGE_JOINT);
         let entry = &primitives::cid::china::china_cb::CHINA_CB[0];
-        let actor_cid_number: votebase::CidNumber = entry
+        let actor_cid_number: engingcore::CidNumber = entry
             .cid_number
             .as_bytes()
             .to_vec()
             .try_into()
             .expect("NRC CID fits runtime bound");
         let voter = decode::<T>(&entry.admins[0]);
-        let voter_role_code: votebase::RoleCode =
+        let voter_role_code: engingcore::RoleCode =
             primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                 .to_vec()
                 .try_into()
                 .expect("committee role fits");
-        votebase::Pallet::<T>::snapshot_role_voters(
+        engingcore::Pallet::<T>::snapshot_role_voters(
             proposal_id,
-            votebase::AuthorizationSubject::Institution(votebase::RoleSubject {
+            engingcore::AuthorizationSubject::Institution(engingcore::RoleSubject {
                 cid_number: actor_cid_number.clone(),
                 role_code: voter_role_code.clone(),
             }),
@@ -79,11 +79,11 @@ mod benchmarks {
         )
         .expect("NRC role snapshot");
         let threshold =
-            votebase::fixed_governance_pass_threshold(&votebase::NRC).expect("NRC threshold");
+            engingcore::fixed_governance_pass_threshold(&engingcore::NRC).expect("NRC threshold");
         JointInstitutionTallies::<T>::insert(
             proposal_id,
             &actor_cid_number,
-            votebase::VoteCountU32 {
+            engingcore::VoteCountU32 {
                 yes: threshold.saturating_sub(1),
                 no: 0,
             },
@@ -106,14 +106,14 @@ mod benchmarks {
 
     #[benchmark]
     fn cast_referendum() {
-        let (proposal_id, _) = setup_proposal::<T>(votebase::STAGE_REFERENDUM);
+        let (proposal_id, _) = setup_proposal::<T>(engingcore::STAGE_REFERENDUM);
         let voter: T::AccountId = account("citizen", 0, 0);
-        let scope = votebase::PopulationScope::Country;
-        <T as votebase::Config>::CitizenIdentityReader::benchmark_seed_identity(&voter, &scope);
+        let scope = engingcore::PopulationScope::Country;
+        <T as engingcore::Config>::CitizenIdentityReader::benchmark_seed_identity(&voter, &scope);
         let voter_subject =
-            <T as votebase::Config>::CitizenIdentityReader::voting_subject(&voter, &scope)
+            <T as engingcore::Config>::CitizenIdentityReader::voting_subject(&voter, &scope)
                 .expect("benchmark citizen subject should exist");
-        votebase::Pallet::<T>::create_population_snapshot(proposal_id, &scope)
+        engingcore::Pallet::<T>::create_population_snapshot(proposal_id, &scope)
             .expect("benchmark proposal should create population snapshot");
 
         #[extrinsic_call]
@@ -127,15 +127,15 @@ mod benchmarks {
 
     #[benchmark]
     fn finalize_joint_timeout() {
-        let (proposal_id, proposal) = setup_proposal::<T>(votebase::STAGE_JOINT);
+        let (proposal_id, proposal) = setup_proposal::<T>(engingcore::STAGE_JOINT);
         let population_seed: T::AccountId = account("population", 0, 0);
-        <T as votebase::Config>::CitizenIdentityReader::benchmark_seed_identity(
+        <T as engingcore::Config>::CitizenIdentityReader::benchmark_seed_identity(
             &population_seed,
-            &votebase::PopulationScope::Country,
+            &engingcore::PopulationScope::Country,
         );
-        votebase::Pallet::<T>::create_population_snapshot(
+        engingcore::Pallet::<T>::create_population_snapshot(
             proposal_id,
-            &votebase::PopulationScope::Country,
+            &engingcore::PopulationScope::Country,
         )
         .expect("joint proposal population snapshot");
         frame_system::Pallet::<T>::set_block_number(3u32.saturated_into());
@@ -147,22 +147,22 @@ mod benchmarks {
         }
 
         assert_eq!(
-            votebase::pallet::Proposals::<T>::get(proposal_id).map(|item| item.stage),
-            Some(votebase::STAGE_REFERENDUM)
+            engingcore::pallet::Proposals::<T>::get(proposal_id).map(|item| item.stage),
+            Some(engingcore::STAGE_REFERENDUM)
         );
     }
 
     #[benchmark]
     fn finalize_jointreferendum_timeout() {
-        let (proposal_id, proposal) = setup_proposal::<T>(votebase::STAGE_REFERENDUM);
+        let (proposal_id, proposal) = setup_proposal::<T>(engingcore::STAGE_REFERENDUM);
         let population_seed: T::AccountId = account("population", 0, 0);
-        <T as votebase::Config>::CitizenIdentityReader::benchmark_seed_identity(
+        <T as engingcore::Config>::CitizenIdentityReader::benchmark_seed_identity(
             &population_seed,
-            &votebase::PopulationScope::Country,
+            &engingcore::PopulationScope::Country,
         );
-        votebase::Pallet::<T>::create_population_snapshot(
+        engingcore::Pallet::<T>::create_population_snapshot(
             proposal_id,
-            &votebase::PopulationScope::Country,
+            &engingcore::PopulationScope::Country,
         )
         .expect("joint proposal population snapshot");
         frame_system::Pallet::<T>::set_block_number(3u32.saturated_into());
@@ -174,8 +174,8 @@ mod benchmarks {
         }
 
         assert_eq!(
-            votebase::pallet::Proposals::<T>::get(proposal_id).map(|item| item.status),
-            Some(votebase::STATUS_REJECTED)
+            engingcore::pallet::Proposals::<T>::get(proposal_id).map(|item| item.status),
+            Some(engingcore::STATUS_REJECTED)
         );
     }
     #[benchmark]
@@ -183,23 +183,23 @@ mod benchmarks {
         for i in 0..=n {
             let mut bytes = sp_runtime::sp_std::vec![b'C';32];
             bytes[..4].copy_from_slice(&i.to_le_bytes());
-            let cid: votebase::CidNumber = bytes.try_into().unwrap();
-            let _ticket = votebase::InstitutionVoteTicket {
-                role_subject: votebase::RoleSubject {
+            let cid: engingcore::CidNumber = bytes.try_into().unwrap();
+            let _ticket = engingcore::InstitutionVoteTicket {
+                role_subject: engingcore::RoleSubject {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
                 voter_account_id: account::<T::AccountId>("cleanup", i, 0),
             };
-            crate::JointVotesByTicket::<T>::insert(0u64, _ticket, true);
+            crate::JointVotesByTicket::<T>::insert(0u128, _ticket, true);
         }
         let result;
         #[block]
         {
-            result = <Pallet<T> as votebase::ProposalTrackHandler<
+            result = <Pallet<T> as engingcore::ProposalTrackHandler<
                 frame_system::pallet_prelude::BlockNumberFor<T>,
                 T::AccountId,
-            >>::cleanup_chunk(votebase::PROPOSAL_KIND_JOINT, 0, n);
+            >>::cleanup_chunk(engingcore::PROPOSAL_KIND_JOINT, 0, n);
         }
         assert_eq!(result.expect("清理类型必须被认领").0, n);
     }
@@ -209,23 +209,23 @@ mod benchmarks {
         for i in 0..=n {
             let mut bytes = sp_runtime::sp_std::vec![b'C';32];
             bytes[..4].copy_from_slice(&i.to_le_bytes());
-            let cid: votebase::CidNumber = bytes.try_into().unwrap();
-            let _ticket = votebase::InstitutionVoteTicket {
-                role_subject: votebase::RoleSubject {
+            let cid: engingcore::CidNumber = bytes.try_into().unwrap();
+            let _ticket = engingcore::InstitutionVoteTicket {
+                role_subject: engingcore::RoleSubject {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
                 voter_account_id: account::<T::AccountId>("cleanup", i, 0),
             };
-            crate::JointVotesByInstitution::<T>::insert(0u64, cid, true);
+            crate::JointVotesByInstitution::<T>::insert(0u128, cid, true);
         }
         let result;
         #[block]
         {
-            result = <Pallet<T> as votebase::ProposalTrackHandler<
+            result = <Pallet<T> as engingcore::ProposalTrackHandler<
                 frame_system::pallet_prelude::BlockNumberFor<T>,
                 T::AccountId,
-            >>::cleanup_chunk(votebase::PROPOSAL_KIND_JOINT, 0, n);
+            >>::cleanup_chunk(engingcore::PROPOSAL_KIND_JOINT, 0, n);
         }
         assert_eq!(result.expect("清理类型必须被认领").0, n);
     }
@@ -235,27 +235,27 @@ mod benchmarks {
         for i in 0..=n {
             let mut bytes = sp_runtime::sp_std::vec![b'C';32];
             bytes[..4].copy_from_slice(&i.to_le_bytes());
-            let cid: votebase::CidNumber = bytes.try_into().unwrap();
-            let _ticket = votebase::InstitutionVoteTicket {
-                role_subject: votebase::RoleSubject {
+            let cid: engingcore::CidNumber = bytes.try_into().unwrap();
+            let _ticket = engingcore::InstitutionVoteTicket {
+                role_subject: engingcore::RoleSubject {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
                 voter_account_id: account::<T::AccountId>("cleanup", i, 0),
             };
             crate::JointInstitutionTallies::<T>::insert(
-                0u64,
+                0u128,
                 cid,
-                votebase::VoteCountU32 { yes: 1, no: 0 },
+                engingcore::VoteCountU32 { yes: 1, no: 0 },
             );
         }
         let result;
         #[block]
         {
-            result = <Pallet<T> as votebase::ProposalTrackHandler<
+            result = <Pallet<T> as engingcore::ProposalTrackHandler<
                 frame_system::pallet_prelude::BlockNumberFor<T>,
                 T::AccountId,
-            >>::cleanup_chunk(votebase::PROPOSAL_KIND_JOINT, 0, n);
+            >>::cleanup_chunk(engingcore::PROPOSAL_KIND_JOINT, 0, n);
         }
         assert_eq!(result.expect("清理类型必须被认领").0, n);
     }
@@ -265,41 +265,41 @@ mod benchmarks {
         for i in 0..=n {
             let mut bytes = sp_runtime::sp_std::vec![b'C';32];
             bytes[..4].copy_from_slice(&i.to_le_bytes());
-            let cid: votebase::CidNumber = bytes.try_into().unwrap();
-            let _ticket = votebase::InstitutionVoteTicket {
-                role_subject: votebase::RoleSubject {
+            let cid: engingcore::CidNumber = bytes.try_into().unwrap();
+            let _ticket = engingcore::InstitutionVoteTicket {
+                role_subject: engingcore::RoleSubject {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
                 voter_account_id: account::<T::AccountId>("cleanup", i, 0),
             };
             crate::ReferendumVotesByCid::<T>::insert(
-                0u64,
+                0u128,
                 cid,
-                benchmark_value::<votebase::CitizenReferendumTicket<T::AccountId>>(),
+                benchmark_value::<engingcore::CitizenReferendumTicket<T::AccountId>>(),
             );
         }
         let result;
         #[block]
         {
-            result = <Pallet<T> as votebase::ProposalTrackHandler<
+            result = <Pallet<T> as engingcore::ProposalTrackHandler<
                 frame_system::pallet_prelude::BlockNumberFor<T>,
                 T::AccountId,
-            >>::cleanup_chunk(votebase::PROPOSAL_KIND_JOINT, 0, n);
+            >>::cleanup_chunk(engingcore::PROPOSAL_KIND_JOINT, 0, n);
         }
         assert_eq!(result.expect("清理类型必须被认领").0, n);
     }
 
     #[benchmark]
     fn cleanup_terminal() {
-        crate::JointTallies::<T>::insert(0u64, votebase::VoteCountU32 { yes: 1, no: 0 });
-        crate::ReferendumTallies::<T>::insert(0u64, votebase::VoteCountU64 { yes: 1, no: 0 });
+        crate::JointTallies::<T>::insert(0u128, engingcore::VoteCountU32 { yes: 1, no: 0 });
+        crate::ReferendumTallies::<T>::insert(0u128, engingcore::VoteCountU64 { yes: 1, no: 0 });
         #[block]
         {
-            assert!(<Pallet<T> as votebase::ProposalTrackHandler<
+            assert!(<Pallet<T> as engingcore::ProposalTrackHandler<
                 frame_system::pallet_prelude::BlockNumberFor<T>,
                 T::AccountId,
-            >>::cleanup_terminal(votebase::PROPOSAL_KIND_JOINT, 0)
+            >>::cleanup_terminal(engingcore::PROPOSAL_KIND_JOINT, 0)
             .is_some());
         }
     }

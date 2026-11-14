@@ -56,7 +56,7 @@ sp-io = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
 sp-state-machine = { workspace = true, default-features = true }
 sp-storage = { workspace = true, default-features = true }
-votebase = { path = "../../runtime/votingengine/votebase", default-features = true }
+engingcore = { path = "../../runtime/votingengine/engingcore", default-features = true }
 
 [dev-dependencies]
 blockchain-harness = { path = "../../crates/harness" }

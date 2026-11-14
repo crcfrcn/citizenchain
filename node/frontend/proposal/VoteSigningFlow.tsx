@@ -9,7 +9,7 @@ import type { VoteSignRequestResult } from "../client/signing";
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 type Props = {
-  proposalId: number;
+  proposalId: string;
   proposalKind: number;
   adminSigners: AdminSignerMatch[];
   cidNumber?: string;

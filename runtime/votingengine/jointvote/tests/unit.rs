@@ -5,19 +5,19 @@ use super::*;
 fn joint_proposal_binds_role_plan_and_never_writes_admin_snapshot() {
     new_test_ext().execute_with(|| {
         let proposal_id = create_joint_proposal();
-        let plan = votebase::ProposalVotePlans::<Test>::get(proposal_id)
+        let plan = engingcore::ProposalVotePlans::<Test>::get(proposal_id)
             .expect("joint proposal must bind vote plan");
         assert_eq!(plan.voter_subjects.len(), CHINA_CB.len() + CHINA_CH.len());
         assert_eq!(
-            votebase::VoterSnapshot::<Test>::iter_prefix(proposal_id).count(),
+            engingcore::VoterSnapshot::<Test>::iter_prefix(proposal_id).count(),
             CHINA_CB.len() + CHINA_CH.len()
         );
         assert_eq!(
-            votebase::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id).count(),
+            engingcore::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id).count(),
             CHINA_CB.len() + CHINA_CH.len()
         );
         assert_eq!(
-            votebase::AdminSnapshot::<Test>::iter_prefix(proposal_id).count(),
+            engingcore::AdminSnapshot::<Test>::iter_prefix(proposal_id).count(),
             0,
             "migrated joint proposals must not write administrator snapshots"
         );
@@ -30,16 +30,16 @@ fn institution_ticket_count_preserves_same_account_id_in_multiple_roles() {
         let proposal_id = 77;
         let account = AccountId32::new([77; 32]);
         let second = AccountId32::new([78; 32]);
-        let cid_a: votebase::types::CidNumber =
+        let cid_a: engingcore::types::CidNumber =
             nrc_cid_number().try_into().expect("bounded NRC CID");
-        let cid_b: votebase::types::CidNumber = CHINA_CB[1]
+        let cid_b: engingcore::types::CidNumber = CHINA_CB[1]
             .cid_number
             .as_bytes()
             .to_vec()
             .try_into()
             .expect("bounded PRC CID");
-        let role = |cid: votebase::types::CidNumber, code: &[u8]| {
-            votebase::types::AuthorizationSubject::Institution(votebase::types::RoleSubject {
+        let role = |cid: engingcore::types::CidNumber, code: &[u8]| {
+            engingcore::types::AuthorizationSubject::Institution(engingcore::types::RoleSubject {
                 cid_number: cid,
                 role_code: code.to_vec().try_into().expect("bounded test role"),
             })
@@ -141,7 +141,7 @@ fn one_institution_rejection_via_cast_admin_enters_referendum() {
     new_test_ext().execute_with(|| {
         let proposal_id = create_joint_proposal();
         let cid_number = CHINA_CB[1].cid_number.as_bytes().to_vec();
-        finalize_institution(proposal_id, votebase::PRC, cid_number, false);
+        finalize_institution(proposal_id, engingcore::PRC, cid_number, false);
 
         let proposal = VotingEngine::proposals(proposal_id).expect("proposal should exist");
         assert_eq!(proposal.stage, STAGE_REFERENDUM);
@@ -172,7 +172,7 @@ fn cast_referendum_extrinsic_uses_frozen_snapshot_and_strict_majority() {
     new_test_ext().execute_with(|| {
         let proposal_id = create_joint_proposal();
         let cid_number = CHINA_CB[1].cid_number.as_bytes().to_vec();
-        finalize_institution(proposal_id, votebase::PRC, cid_number, false);
+        finalize_institution(proposal_id, engingcore::PRC, cid_number, false);
 
         let voters = referendum_voters();
         assert_ok!(JointVote::cast_referendum(
@@ -203,7 +203,7 @@ fn newly_added_voter_cannot_enter_existing_snapshot() {
     new_test_ext().execute_with(|| {
         let proposal_id = create_joint_proposal();
         let cid_number = CHINA_CB[1].cid_number.as_bytes().to_vec();
-        finalize_institution(proposal_id, votebase::PRC, cid_number, false);
+        finalize_institution(proposal_id, engingcore::PRC, cid_number, false);
 
         let post_snapshot_account = AccountId32::new([204; 32]);
         assert!(JointVote::cast_referendum(
@@ -212,7 +212,7 @@ fn newly_added_voter_cannot_enter_existing_snapshot() {
             true,
         )
         .is_err());
-        let post_snapshot_cid: votebase::types::CidNumber =
+        let post_snapshot_cid: engingcore::types::CidNumber =
             vec![204; 32].try_into().expect("account fits CID");
         assert!(!ReferendumVotesByCid::<Test>::contains_key(
             proposal_id,
@@ -226,7 +226,7 @@ fn same_citizen_cid_cannot_vote_twice_after_account_id_replacement() {
     new_test_ext().execute_with(|| {
         let proposal_id = create_joint_proposal();
         let cid_number = CHINA_CB[1].cid_number.as_bytes().to_vec();
-        finalize_institution(proposal_id, votebase::PRC, cid_number, false);
+        finalize_institution(proposal_id, engingcore::PRC, cid_number, false);
 
         let first_account_id = referendum_voters()[0].clone();
         assert_ok!(JointVote::cast_referendum(
@@ -240,13 +240,13 @@ fn same_citizen_cid_cannot_vote_twice_after_account_id_replacement() {
                 proposal_id,
                 false,
             ),
-            votebase::Error::<Test>::AlreadyVoted
+            engingcore::Error::<Test>::AlreadyVoted
         );
 
         let subject = referendum_subject(&first_account_id).expect("first voter is eligible");
         let ticket = ReferendumVotesByCid::<Test>::get(proposal_id, &subject.cid_number)
             .expect("complete citizen referendum ticket should exist");
-        assert_eq!(ticket.voter_subject, subject);
+        assert_eq!(ticket.voter_subject(subject.cid_number.clone()), subject);
         assert!(ticket.approve);
         assert_eq!(ReferendumTallies::<Test>::get(proposal_id).yes, 1);
         assert_eq!(ReferendumTallies::<Test>::get(proposal_id).no, 0);

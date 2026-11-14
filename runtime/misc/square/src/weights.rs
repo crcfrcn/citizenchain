@@ -22,7 +22,7 @@
 // --repeat=20
 // --output=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/finalweights
 // --template=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/weights.hbs
-// --pallets=votebase,upgrade,square
+// --pallets=engingcore,upgrade,square
 // --json-file=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/finish.samples.json
 
 #![cfg_attr(rustfmt, rustfmt_skip)]
@@ -304,6 +304,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `1625871`
 		// Minimum execution time: 197_000_000 picoseconds.
 		Weight::from_parts(204_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16646))
 			.saturating_add(Weight::from_parts(0, 1625871))
 			.saturating_add(T::DbWeight::get().reads(31))
 			.saturating_add(T::DbWeight::get().writes(25))
@@ -636,6 +638,8 @@ impl WeightInfo for () {
 		//  Estimated: `1625871`
 		// Minimum execution time: 197_000_000 picoseconds.
 		Weight::from_parts(204_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16646))
 			.saturating_add(Weight::from_parts(0, 1625871))
 			.saturating_add(RocksDbWeight::get().reads(31))
 			.saturating_add(RocksDbWeight::get().writes(25))

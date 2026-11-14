@@ -102,7 +102,7 @@ fn legacy_scope_index_accepts_law_1001_without_changing_constitution() {
         .collect();
         for law_id in 1..=1000u64 {
             assert_ok!(Lib::write_law_version(
-                law_id,
+                u128::from(law_id),
                 enact_summary(
                     Tier::National,
                     LawRegion::NATIONAL,

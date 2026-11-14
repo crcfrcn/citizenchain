@@ -146,12 +146,13 @@ fn insert_public_account<T: publicentity::Config>(
         },
     );
     publicentity::AccountRegisteredCid::<T>::insert(
-        account_id,
+        &account_id,
         PublicRegisteredInstitutionOf::<T> {
             cid_number: cid.clone(),
             account_name,
         },
     );
+    <<T as publicentity::Config>::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId>>::on_new_account(&account_id);
 }
 
 /// 模板派生机构落地：账户由 CID 号确定性派生，名称为运行态 String。
@@ -249,12 +250,13 @@ fn insert_derived_account<T: publicentity::Config>(
         },
     );
     publicentity::AccountRegisteredCid::<T>::insert(
-        account_id,
+        &account_id,
         PublicRegisteredInstitutionOf::<T> {
             cid_number: cid.clone(),
             account_name,
         },
     );
+    <<T as publicentity::Config>::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId>>::on_new_account(&account_id);
 }
 
 fn insert_public_institution<T: publicentity::Config>(
@@ -526,7 +528,7 @@ where
         let bounded: publicentity::institution::role::RoleAssignmentsOf<T> = list
             .try_into()
             .expect("genesis institution: FSC 单岗任职数量超限");
-        publicentity::InstitutionRoleAssignments::<T>::insert(&cid, &role_code, bounded);
+        publicentity::Pallet::<T>::store_role_assignments(&cid, &role_code, bounded);
     }
 
     // 程伟作为 FSC 公权管理员(四字段:公民 CID + 姓 + 名 + account)。
@@ -672,12 +674,13 @@ where
             },
         );
         privateentity::AccountRegisteredCid::<T>::insert(
-            account_id,
+            &account_id,
             PrivateRegisteredInstitutionOf::<T> {
                 cid_number: cid.clone(),
                 account_name,
             },
         );
+        <<T as privateentity::Config>::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId>>::on_new_account(&account_id);
     }
 
     let mut roles: Vec<privateentity::institution::role::InstitutionRoleOf<T>> = Vec::new();

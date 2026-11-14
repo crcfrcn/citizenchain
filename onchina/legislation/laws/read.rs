@@ -49,7 +49,7 @@ pub struct OnChainLawVersion {
     pub content_hash: [u8; 32],
     /// VoteType 单字节枚举。
     pub vote_type: u8,
-    pub proposal_id: u64,
+    pub proposal_id: u128,
     pub published_at: u64,
     pub effective_at: u64,
 }

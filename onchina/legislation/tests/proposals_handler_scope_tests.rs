@@ -10,7 +10,7 @@ fn cid(institution: &str, province: &str, city: &str) -> String {
             province_name: "测试省",
             city_code: city,
             city_name: "测试市",
-            year: "2026",
+            year: 2026,
             institution,
         },
     )
@@ -203,4 +203,20 @@ fn new_law_derives_original_cid_region_and_keeps_cn() {
     );
     assert_eq!(scope.province_code, "GD");
     assert_eq!(scope.city_code, "001");
+}
+
+#[test]
+fn representative_vote_request_preserves_u128_strings_and_rejects_invalid_ids() {
+    for id in [0u128, 7, (1u128 << 53) + 1, u128::from(u64::MAX) + 1, u128::MAX] {
+        let value = serde_json::json!({"proposalId":id.to_string(),"voterRoleCode":"REPRESENTATIVE","approve":true});
+        let decoded: CastRepresentativeVoteInput = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.proposal_id, id);
+    }
+    for id in ["", "-1", "1.5", "340282366920938463463374607431768211456"] {
+        let value = serde_json::json!({"proposalId":id,"voterRoleCode":"REPRESENTATIVE","approve":true});
+        assert!(serde_json::from_value::<CastRepresentativeVoteInput>(value).is_err());
+    }
+    assert!(serde_json::from_value::<CastRepresentativeVoteInput>(
+        serde_json::json!({"proposalId":7,"voterRoleCode":"REPRESENTATIVE","approve":true})
+    ).is_err());
 }

@@ -176,6 +176,7 @@ impl identity::BenchmarkHelper<u64, identity::pallet::SignatureOf<Test>>
 }
 
 impl identity::Config for Test {
+    type OnAccountRegistered = ();
     type RuntimeEvent = RuntimeEvent;
     type MaxCitizenSignatureLength = MaxCitizenSignatureLength;
     type CitizenIdentityAuthority = TestCitizenIdentityAuthority;
@@ -217,7 +218,7 @@ fn citizen_cid_number(tag: &str) -> Vec<u8> {
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution: "CTZN",
         },
     )

@@ -49,7 +49,7 @@ export function ClearingBankInstitutionDetailPage({
       institutionReadApi.fetchInstitutionDetail(cidNumber),
       offchainApi.queryClearingBankNodeInfo(cidNumber).catch(() => null),
       institutionReadApi
-        .fetchInstitutionProposals(cidNumber, 0, PROPOSAL_PAGE_SIZE)
+        .fetchInstitutionProposals(cidNumber, '0', PROPOSAL_PAGE_SIZE)
         .catch(() => ({ items: [], hasMore: false })),
     ])
       .then(([d, n, page]) => {

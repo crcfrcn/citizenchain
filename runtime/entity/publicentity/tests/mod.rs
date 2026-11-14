@@ -13,7 +13,7 @@ use frame_system as system;
 use sp_core::{sr25519, Pair as PairT};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
 
-use votebase::types::{code_bytes, InstitutionCode};
+use engingcore::types::{code_bytes, InstitutionCode};
 
 type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -42,7 +42,7 @@ mod runtime {
     pub type Balances = pallet_balances;
 
     #[runtime::pallet_index(2)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(3)]
     pub type InternalVote = internalvote;
@@ -202,24 +202,24 @@ impl crate::traits::RegistryAuthority<AccountId32> for TestRegistryAuthority {
 }
 
 pub struct TestCitizenIdentityReader;
-impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
-    votebase::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<AccountId32> {
+    engingcore::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -229,7 +229,7 @@ fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId
 }
 
 pub struct TestInternalAdminProvider;
-impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -253,10 +253,10 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
 
 // ─── Pallet Config 实现 ─────────────────────────────────────────────────
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -300,7 +300,7 @@ impl internalvote::Config for Test {
 
 pub struct TestInstitutionRoleProvider;
 
-impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
+impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         <crate::Pallet<Test> as entitybase::InstitutionRoleQuery<AccountId32>>::is_active_assignment(
             cid_number, who, role_code,
@@ -324,7 +324,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
         term_required: false,
         role_status: entitybase::InstitutionRoleStatus::Active,
     };
-    pallet::InstitutionRoles::<Test>::insert(cid_number, &role_code, role);
+    pallet::Pallet::<Test>::store_role(cid_number, &role_code, role);
     let assignments = institution_admins(3)
         .into_iter()
         .map(|admin| entitybase::InstitutionAdminAssignment {
@@ -338,7 +338,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
             assignment_status: entitybase::InstitutionAssignmentStatus::Active,
         })
         .collect::<Vec<_>>();
-    pallet::InstitutionRoleAssignments::<Test>::insert(
+    pallet::Pallet::<Test>::store_role_assignments(
         cid_number,
         &role_code,
         crate::institution::role::RoleAssignmentsOf::<Test>::try_from(assignments)
@@ -364,7 +364,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
         operation,
     })
     .collect::<Vec<_>>();
-    pallet::InstitutionRolePermissions::<Test>::insert(
+    pallet::Pallet::<Test>::store_role_permissions(
         cid_number,
         &role_code,
         BoundedVec::try_from(permissions).expect("permissions fit"),
@@ -435,7 +435,19 @@ impl entitybase::InstitutionCapabilityPolicy for TestInstitutionCapabilityPolicy
     }
 }
 
+/// Observe the production registration callback through real pallet execution.
+pub struct RecordAccountRegistration;
+impl frame_support::traits::OnNewAccount<AccountId32> for RecordAccountRegistration {
+    fn on_new_account(account: &AccountId32) {
+        sp_io::storage::set(&codec::Encode::encode(&(b"evm-receive-registration", account)), &[1]);
+    }
+}
+impl frame_support::traits::Get<frame_support::weights::Weight> for RecordAccountRegistration {
+    fn get() -> frame_support::weights::Weight { frame_support::weights::Weight::zero() }
+}
+
 impl pallet::Config for Test {
+    type OnAccountRegistered = RecordAccountRegistration;
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type InternalVoteEngine = internalvote::Pallet<Test>;
@@ -499,7 +511,7 @@ pub fn generated_cid_bytes(tag: &str, institution: &str) -> alloc::vec::Vec<u8> 
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution,
         },
     )
@@ -547,12 +559,12 @@ pub fn account_names_bv(names: &[&[u8]]) -> pallet::InstitutionAccountNamesOf<Te
     BoundedVec::try_from(v).expect("account_id names fit")
 }
 
-pub fn last_proposal_id() -> u64 {
-    votebase::Pallet::<Test>::next_proposal_id().saturating_sub(1)
+pub fn last_proposal_id() -> u128 {
+    engingcore::Pallet::<Test>::next_proposal_id().saturating_sub(1)
 }
 
-pub fn cast_yes_votes(admins: &[AccountId32], n: usize, pid: u64) -> sp_runtime::DispatchResult {
-    use votebase::STATUS_VOTING;
+pub fn cast_yes_votes(admins: &[AccountId32], n: usize, pid: u128) -> sp_runtime::DispatchResult {
+    use engingcore::STATUS_VOTING;
     for who in admins.iter().take(n) {
         <internalvote::Pallet<Test>>::do_internal_vote(
             who.clone(),

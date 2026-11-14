@@ -49,20 +49,46 @@ pub type RolePermissionsOf<T> =
 const MAX_ROLE_CODE_GENERATION_ATTEMPTS: u32 = 16;
 
 impl<T: Config> Pallet<T> {
-    /// 为已通过提案分配永不复用的动态岗位码；调用方没有提交岗位码的入口。
+    /// 治理岗位保留真实提案ID及原哈希格式。
     pub(crate) fn allocate_dynamic_role_code(
         cid_number: &CidNumberOf<T>,
         current_nonce: u64,
-        proposal_id: u64,
+        proposal_id: u128,
     ) -> Result<(RoleCodeOf, u64), Error<T>> {
-        let mut nonce = current_nonce;
-        for _ in 0..MAX_ROLE_CODE_GENERATION_ATTEMPTS {
-            let raw = entitybase::generate_dynamic_role_code(
+        Self::allocate_role_code(cid_number, current_nonce, |nonce| {
+            entitybase::generate_dynamic_role_code(
                 crate::MODULE_TAG,
                 cid_number.as_slice(),
                 nonce,
                 proposal_id,
-            );
+            )
+        })
+    }
+
+    /// 登记来源使用真实载荷引用；和治理共用单调nonce与永久占用检查。
+    pub(crate) fn allocate_registration_role_code(
+        cid_number: &CidNumberOf<T>,
+        current_nonce: u64,
+        registration_ref: &[u8],
+    ) -> Result<(RoleCodeOf, u64), Error<T>> {
+        Self::allocate_role_code(cid_number, current_nonce, |nonce| {
+            entitybase::institution_role::generate_registration_role_code(
+                crate::MODULE_TAG,
+                cid_number.as_slice(),
+                nonce,
+                registration_ref,
+            )
+        })
+    }
+
+    fn allocate_role_code(
+        cid_number: &CidNumberOf<T>,
+        current_nonce: u64,
+        generate: impl Fn(u64) -> Vec<u8>,
+    ) -> Result<(RoleCodeOf, u64), Error<T>> {
+        let mut nonce = current_nonce;
+        for _ in 0..MAX_ROLE_CODE_GENERATION_ATTEMPTS {
+            let raw = generate(nonce);
             nonce = nonce.checked_add(1).ok_or(Error::<T>::RoleNonceOverflow)?;
             let role_code: RoleCodeOf = raw.try_into().map_err(|_| Error::<T>::InvalidRoleCode)?;
             if !UsedRoleCodes::<T>::get(cid_number, &role_code)
@@ -74,7 +100,7 @@ impl<T: Config> Pallet<T> {
         Err(Error::<T>::RoleCodeGenerationExhausted)
     }
 
-    fn is_assignment_effective(
+    pub(crate) fn is_assignment_effective(
         role: &InstitutionRoleOf<T>,
         assignment: &InstitutionAdminAssignmentOf<T>,
     ) -> bool {
@@ -113,7 +139,7 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::DuplicateRoleCode
             );
             ensure!(
-                !InstitutionRoles::<T>::iter_prefix(cid_number)
+                !Pallet::<T>::roles_for(cid_number)
                     .any(|(_, existing)| existing.role_name == role.role_name),
                 Error::<T>::DuplicateRoleName
             );
@@ -184,8 +210,8 @@ impl<T: Config> Pallet<T> {
             let bounded_assignments: RoleAssignmentsOf<T> = role_assignments
                 .try_into()
                 .map_err(|_| Error::<T>::TooManyInstitutionAdmins)?;
-            InstitutionRoles::<T>::insert(cid_number, &role.role_code, role.clone());
-            InstitutionRoleAssignments::<T>::insert(
+            Pallet::<T>::store_role(cid_number, &role.role_code, role.clone());
+            Pallet::<T>::store_role_assignments(
                 cid_number,
                 &role.role_code,
                 bounded_assignments,
@@ -208,24 +234,24 @@ impl<T: Config> Pallet<T> {
                 .try_into()
                 .map_err(|_| Error::<T>::InvalidRoleName)?;
         ensure!(
-            !InstitutionRoles::<T>::iter_prefix(cid_number).any(|(existing_code, existing)| {
+            !Pallet::<T>::roles_for(cid_number).any(|(existing_code, existing)| {
                 existing_code != role_code && existing.role_name == role_name
             }),
             Error::<T>::DuplicateRoleName
         );
-        if let Some(existing) = InstitutionRoles::<T>::get(cid_number, &role_code) {
+        if let Some(existing) = Pallet::<T>::institution_role_of(cid_number, &role_code) {
             ensure!(
                 existing.cid_number == *cid_number
                     && existing.role_code == role_code
                     && existing.role_name == role_name
                     && !existing.term_required
                     && existing.role_status == InstitutionRoleStatus::Active
-                    && InstitutionRoleAssignments::<T>::get(cid_number, &role_code).len() <= 1,
+                    && Pallet::<T>::institution_role_assignments(cid_number, &role_code).len() <= 1,
                 Error::<T>::DuplicateRoleCode
             );
             return Ok(());
         }
-        InstitutionRoles::<T>::insert(
+        Pallet::<T>::store_role(
             cid_number,
             &role_code,
             InstitutionRole {
@@ -236,7 +262,7 @@ impl<T: Config> Pallet<T> {
                 role_status: InstitutionRoleStatus::Active,
             },
         );
-        InstitutionRoleAssignments::<T>::insert(
+        Pallet::<T>::store_role_assignments(
             cid_number,
             role_code,
             RoleAssignmentsOf::<T>::default(),
@@ -317,7 +343,7 @@ impl<T: Config> Pallet<T> {
         let permissions: RolePermissionsOf<T> = permissions
             .try_into()
             .map_err(|_| Error::<T>::TooManyRolePermissions)?;
-        InstitutionRolePermissions::<T>::insert(cid_number, role_code, permissions);
+        Pallet::<T>::store_role_permissions(cid_number, role_code, permissions);
         UsedRoleCodes::<T>::insert(cid_number, role_code, true);
         Ok(())
     }
@@ -342,13 +368,13 @@ impl<T: Config> InstitutionRoleQuery<T::AccountId> for Pallet<T> {
         ) else {
             return false;
         };
-        let Some(role) = InstitutionRoles::<T>::get(&cid_number, &role_code) else {
+        let Some(role) = Pallet::<T>::institution_role_of(&cid_number, &role_code) else {
             return false;
         };
         if role.role_status != InstitutionRoleStatus::Active {
             return false;
         }
-        InstitutionRoleAssignments::<T>::get(&cid_number, role_code)
+        Pallet::<T>::institution_role_assignments(&cid_number, role_code)
             .into_iter()
             .any(|assignment| {
                 assignment.account_id == canonical
@@ -366,13 +392,13 @@ impl<T: Config> InstitutionRoleQuery<T::AccountId> for Pallet<T> {
         let Some(institution) = Institutions::<T>::get(&cid_number) else {
             return Vec::new();
         };
-        let Some(role) = InstitutionRoles::<T>::get(&cid_number, &role_code) else {
+        let Some(role) = Pallet::<T>::institution_role_of(&cid_number, &role_code) else {
             return Vec::new();
         };
         if role.role_status != InstitutionRoleStatus::Active {
             return Vec::new();
         }
-        InstitutionRoleAssignments::<T>::get(&cid_number, role_code)
+        Pallet::<T>::institution_role_assignments(&cid_number, role_code)
             .into_iter()
             .filter(|assignment| {
                 T::InstitutionAdminQuery::is_institution_admin(
@@ -392,10 +418,10 @@ impl<T: Config> InstitutionRoleQuery<T::AccountId> for Pallet<T> {
         let Some(institution) = Institutions::<T>::get(&cid_number) else {
             return Vec::new();
         };
-        InstitutionRoles::<T>::iter_prefix(&cid_number)
+        Pallet::<T>::roles_for(&cid_number)
             .filter(|(_, role)| role.role_status == InstitutionRoleStatus::Active)
             .filter_map(|(role_code, role)| {
-                let active = InstitutionRoleAssignments::<T>::get(&cid_number, &role_code)
+                let active = Pallet::<T>::institution_role_assignments(&cid_number, &role_code)
                     .into_iter()
                     .any(|assignment| {
                         &assignment.account_id == admin
@@ -433,7 +459,7 @@ impl<T: Config> InstitutionRoleAuthorizationQuery<T::AccountId> for Pallet<T> {
         {
             return false;
         }
-        InstitutionRolePermissions::<T>::get(&cid_number, &role_code)
+        Pallet::<T>::institution_role_permissions(&cid_number, &role_code)
             .into_iter()
             .any(|permission| {
                 permission.role_subject.cid_number.as_slice() == cid_number.as_slice()
@@ -480,7 +506,7 @@ impl<T: Config> InstitutionRoleAuthorizationQuery<T::AccountId> for Pallet<T> {
             return Vec::new();
         }
 
-        let mut subjects = InstitutionRolePermissions::<T>::iter_prefix(&cid_number)
+        let mut subjects = Pallet::<T>::permissions_for(&cid_number)
             .filter_map(|(role_code, permissions)| {
                 if !InstitutionRoles::<T>::contains_key(&cid_number, &role_code)
                     || !permissions.iter().any(|permission| {
@@ -506,3 +532,206 @@ impl<T: Config> InstitutionRoleAuthorizationQuery<T::AccountId> for Pallet<T> {
         subjects
     }
 }
+
+// 存储只有一种去重值格式；以下入口从键恢复完整业务主体。
+pub type StoredRoleOf<T> = entitybase::StoredInstitutionRole<AccountNameOf<T>>;
+pub type StoredAssignmentsOf<T> = BoundedVec<
+    entitybase::StoredInstitutionAdminAssignment<
+        <T as frame_system::Config>::AccountId,
+        AssignmentSourceRefOf,
+    >,
+    <T as Config>::MaxAdmins,
+>;
+pub type StoredPermissionsOf = BoundedVec<
+    entitybase::StoredRoleBusinessPermission<ModuleTagOf>,
+    ConstU32<MAX_ROLE_PERMISSIONS_PER_ROLE>,
+>;
+
+impl<T: Config> Pallet<T> {
+    fn storage_subject<C: codec::EncodeLike<CidNumberOf<T>>, R: codec::EncodeLike<RoleCodeOf>>(
+        cid: &C,
+        role: &R,
+    ) -> Option<(CidNumberOf<T>, RoleCodeOf)> {
+        use codec::DecodeAll;
+        Some((
+            CidNumberOf::<T>::decode_all(&mut &cid.encode()[..]).ok()?,
+            RoleCodeOf::decode_all(&mut &role.encode()[..]).ok()?,
+        ))
+    }
+    pub fn institution_role_of<
+        C: codec::EncodeLike<CidNumberOf<T>>,
+        R: codec::EncodeLike<RoleCodeOf>,
+    >(
+        cid: C,
+        role: R,
+    ) -> Option<InstitutionRoleOf<T>> {
+        let (cid, role) = Self::storage_subject(&cid, &role)?;
+        InstitutionRoles::<T>::get(&cid, &role).map(|value| value.with_subject(cid, role))
+    }
+    pub fn institution_role_assignments<
+        C: codec::EncodeLike<CidNumberOf<T>>,
+        R: codec::EncodeLike<RoleCodeOf>,
+    >(
+        cid: C,
+        role: R,
+    ) -> RoleAssignmentsOf<T> {
+        let Some((cid, role)) = Self::storage_subject(&cid, &role) else {
+            return Default::default();
+        };
+        InstitutionRoleAssignments::<T>::get(&cid, &role)
+            .into_iter()
+            .map(|value| value.with_subject(cid.clone(), role.clone()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("same bounded assignment length")
+    }
+    pub fn institution_role_permissions<
+        C: codec::EncodeLike<CidNumberOf<T>>,
+        R: codec::EncodeLike<RoleCodeOf>,
+    >(
+        cid: C,
+        role: R,
+    ) -> RolePermissionsOf<T> {
+        let Some((cid, role)) = Self::storage_subject(&cid, &role) else {
+            return Default::default();
+        };
+        InstitutionRolePermissions::<T>::get(&cid, &role)
+            .into_iter()
+            .map(|value| value.with_subject(cid.clone(), role.clone()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("same bounded permission length")
+    }
+    pub fn try_role_permissions<
+        C: codec::EncodeLike<CidNumberOf<T>>,
+        R: codec::EncodeLike<RoleCodeOf>,
+    >(
+        cid: C,
+        role: R,
+    ) -> Result<RolePermissionsOf<T>, ()> {
+        let (cid, role) = Self::storage_subject(&cid, &role).ok_or(())?;
+        let stored = InstitutionRolePermissions::<T>::try_get(&cid, &role)?;
+        Ok(stored
+            .into_iter()
+            .map(|value| value.with_subject(cid.clone(), role.clone()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("same bounded permission length"))
+    }
+    pub fn store_role<
+        C: codec::EncodeLike<CidNumberOf<T>>,
+        R: codec::EncodeLike<RoleCodeOf>,
+        V: core::borrow::Borrow<InstitutionRoleOf<T>>,
+    >(
+        cid: C,
+        role: R,
+        value: V,
+    ) {
+        use codec::Encode;
+        let value = value.borrow();
+        assert!(
+            cid.encode() == value.cid_number.encode() && role.encode() == value.role_code.encode(),
+            "role storage subject mismatch"
+        );
+        InstitutionRoles::<T>::insert(cid, role, StoredRoleOf::<T>::from(value.clone()));
+    }
+    pub fn store_role_assignments<
+        C: codec::EncodeLike<CidNumberOf<T>>,
+        R: codec::EncodeLike<RoleCodeOf>,
+        V: core::borrow::Borrow<RoleAssignmentsOf<T>>,
+    >(
+        cid: C,
+        role: R,
+        values: V,
+    ) {
+        use codec::Encode;
+        let values = values.borrow();
+        assert!(
+            values
+                .iter()
+                .all(|v| cid.encode() == v.cid_number.encode()
+                    && role.encode() == v.role_code.encode()),
+            "assignment storage subject mismatch"
+        );
+        let stored: StoredAssignmentsOf<T> = values
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("same bounded assignment length");
+        InstitutionRoleAssignments::<T>::insert(cid, role, stored);
+    }
+    pub fn store_role_permissions<
+        C: codec::EncodeLike<CidNumberOf<T>>,
+        R: codec::EncodeLike<RoleCodeOf>,
+        V: core::borrow::Borrow<RolePermissionsOf<T>>,
+    >(
+        cid: C,
+        role: R,
+        values: V,
+    ) {
+        use codec::Encode;
+        let values = values.borrow();
+        assert!(
+            values
+                .iter()
+                .all(|v| cid.encode() == v.role_subject.cid_number.encode()
+                    && role.encode() == v.role_subject.role_code.encode()),
+            "permission storage subject mismatch"
+        );
+        let stored: StoredPermissionsOf = values
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("same bounded permission length");
+        InstitutionRolePermissions::<T>::insert(cid, role, stored);
+    }
+    pub fn roles_for<C: codec::EncodeLike<CidNumberOf<T>>>(
+        cid: C,
+    ) -> impl Iterator<Item = (RoleCodeOf, InstitutionRoleOf<T>)> {
+        use codec::DecodeAll;
+        let cid = CidNumberOf::<T>::decode_all(&mut &cid.encode()[..]).ok();
+        cid.into_iter().flat_map(|cid| {
+            InstitutionRoles::<T>::iter_prefix(cid.clone())
+                .map(move |(role, value)| (role.clone(), value.with_subject(cid.clone(), role)))
+        })
+    }
+    pub fn assignments_for<C: codec::EncodeLike<CidNumberOf<T>>>(
+        cid: C,
+    ) -> impl Iterator<Item = (RoleCodeOf, RoleAssignmentsOf<T>)> {
+        use codec::DecodeAll;
+        let cid = CidNumberOf::<T>::decode_all(&mut &cid.encode()[..]).ok();
+        cid.into_iter().flat_map(|cid| {
+            InstitutionRoleAssignments::<T>::iter_prefix(cid.clone()).map(move |(role, values)| {
+                let full = values
+                    .into_iter()
+                    .map(|v| v.with_subject(cid.clone(), role.clone()))
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .expect("same bounded assignment length");
+                (role, full)
+            })
+        })
+    }
+    pub fn permissions_for<C: codec::EncodeLike<CidNumberOf<T>>>(
+        cid: C,
+    ) -> impl Iterator<Item = (RoleCodeOf, RolePermissionsOf<T>)> {
+        use codec::DecodeAll;
+        let cid = CidNumberOf::<T>::decode_all(&mut &cid.encode()[..]).ok();
+        cid.into_iter().flat_map(|cid| {
+            InstitutionRolePermissions::<T>::iter_prefix(cid.clone()).map(move |(role, values)| {
+                let full = values
+                    .into_iter()
+                    .map(|v| v.with_subject(cid.clone(), role.clone()))
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .expect("same bounded permission length");
+                (role, full)
+            })
+        })
+    }
+}
+

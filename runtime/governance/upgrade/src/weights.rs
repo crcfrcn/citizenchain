@@ -22,7 +22,7 @@
 // --repeat=20
 // --output=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/finalweights
 // --template=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/weights.hbs
-// --pallets=votebase,upgrade,square
+// --pallets=engingcore,upgrade,square
 // --json-file=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/finish.samples.json
 
 #![cfg_attr(rustfmt, rustfmt_skip)]
@@ -114,6 +114,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `875594`
 		// Minimum execution time: 16_892_000_000 picoseconds.
 		Weight::from_parts(17_174_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 18678))
 			.saturating_add(Weight::from_parts(0, 875594))
 			.saturating_add(T::DbWeight::get().reads(627))
 			.saturating_add(T::DbWeight::get().writes(279))
@@ -146,6 +148,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `649945`
 		// Minimum execution time: 6_364_000_000 picoseconds.
 		Weight::from_parts(6_430_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 8))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(T::DbWeight::get().reads(10))
 			.saturating_add(T::DbWeight::get().writes(1))
@@ -226,6 +230,8 @@ impl WeightInfo for () {
 		//  Estimated: `875594`
 		// Minimum execution time: 16_892_000_000 picoseconds.
 		Weight::from_parts(17_174_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 18678))
 			.saturating_add(Weight::from_parts(0, 875594))
 			.saturating_add(RocksDbWeight::get().reads(627))
 			.saturating_add(RocksDbWeight::get().writes(279))
@@ -258,6 +264,8 @@ impl WeightInfo for () {
 		//  Estimated: `649945`
 		// Minimum execution time: 6_364_000_000 picoseconds.
 		Weight::from_parts(6_430_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 8))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(RocksDbWeight::get().reads(10))
 			.saturating_add(RocksDbWeight::get().writes(1))

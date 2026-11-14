@@ -2,7 +2,7 @@
 //! 私权机构管理员账户集合模块。
 //!
 //! 机构唯一身份是 CID。本模块只保存 `AdminAccounts[cid_number] -> admins`；
-//! 岗位和任职归 entity，投票阈值归 votebase，机构账户不参与管理员寻址。
+//! 岗位和任职归 entity，投票阈值归 engingcore，机构账户不参与管理员寻址。
 
 extern crate alloc;
 
@@ -23,7 +23,7 @@ use adminbase::{
     InstitutionAdmins,
 };
 use entitybase::InstitutionLegalRepresentativeQuery as _;
-use votebase::types::InstitutionCode;
+use engingcore::types::InstitutionCode;
 
 pub use pallet::*;
 
@@ -34,7 +34,7 @@ const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 pub mod pallet {
     use super::*;
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config {
+    pub trait Config: frame_system::Config + engingcore::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 

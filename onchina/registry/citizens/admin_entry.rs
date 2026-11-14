@@ -185,7 +185,7 @@ pub(crate) fn generate_citizen_cid_candidate(
         format!("{seed}|n{nonce}")
     };
     let cid_number = generate_cid_number(GenerateCidInput {
-        account_id: seeded.as_str(),
+        seed: seeded.as_str(),
         p1: "1",
         province_name: v.province_name.as_str(),
         city_name: v.city_name.as_str(),

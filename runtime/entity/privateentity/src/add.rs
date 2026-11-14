@@ -10,7 +10,7 @@ use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use codec::Encode;
 use sp_runtime::{traits::Zero, DispatchResult};
-use votebase::InternalVoteEngine;
+use engingcore::InternalVoteEngine;
 
 use frame_support::ensure;
 
@@ -124,21 +124,21 @@ pub(crate) fn do_propose_add_institution_account<T: Config>(
 
 /// 投票通过回调执行体:与关闭账户 finalizer 同样的重校验后落库派生账户。
 pub(crate) fn execute_institution_add_account_with_finalizer<T: Config>(
-    proposal_id: u64,
+    proposal_id: u128,
     action: &AddInstitutionAccountAction<T::AccountId, CidNumberOf<T>, AccountNameOf<T>>,
 ) -> DispatchResult {
     let info =
         Institutions::<T>::get(&action.actor_cid_number).ok_or(Error::<T>::InstitutionNotFound)?;
     let institution_code = info.institution_code;
 
-    let proposal = votebase::Pallet::<T>::proposals(proposal_id)
+    let proposal = engingcore::Pallet::<T>::proposals(proposal_id)
         .ok_or(Error::<T>::ProposalActionNotFound)?;
     ensure!(
-        votebase::Pallet::<T>::is_callback_execution_scope(proposal_id)
-            && votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
-            && proposal.kind == votebase::PROPOSAL_KIND_INTERNAL
-            && proposal.stage == votebase::STAGE_INTERNAL
-            && proposal.status == votebase::STATUS_PASSED
+        engingcore::Pallet::<T>::is_callback_execution_scope(proposal_id)
+            && engingcore::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
+            && proposal.kind == engingcore::PROPOSAL_KIND_INTERNAL
+            && proposal.stage == engingcore::STAGE_INTERNAL
+            && proposal.status == engingcore::STATUS_PASSED
             && proposal.internal_code == Some(institution_code)
             && proposal.actor_cid_number.as_ref().map(|cid| cid.as_slice())
                 == Some(action.actor_cid_number.as_slice())
@@ -202,6 +202,7 @@ pub(crate) fn execute_institution_add_account_with_finalizer<T: Config>(
                 account_name: account_name.clone(),
             },
         );
+        <T::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId>>::on_new_account(account_id);
         Pallet::<T>::deposit_event(Event::<T>::InstitutionAccountAdded {
             cid_number: action.actor_cid_number.clone(),
             account_name: account_name.clone(),

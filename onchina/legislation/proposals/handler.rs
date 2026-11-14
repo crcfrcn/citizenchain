@@ -37,7 +37,8 @@ pub(crate) struct LawListQuery {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CastRepresentativeVoteInput {
-    pub proposal_id: u64,
+    #[serde(serialize_with = "onchina::response::serialize_decimal", deserialize_with = "onchina::response::deserialize_decimal")]
+    pub proposal_id: u128,
     pub voter_role_code: String,
     pub approve: bool,
 }
@@ -301,7 +302,7 @@ pub(crate) async fn law(
 pub(crate) async fn get_proposal_state(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(proposal_id): Path<u64>,
+    Path(proposal_id): Path<u128>,
 ) -> impl IntoResponse {
     if let Err(resp) = require_admin_any(&state, &headers) {
         return resp;

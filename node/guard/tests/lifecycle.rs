@@ -40,7 +40,7 @@ fn citizen_cid_number(tag: &str) -> Vec<u8> {
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution: "CTZN",
         },
     )
@@ -57,7 +57,7 @@ fn natp_cid_number(tag: &str) -> Vec<u8> {
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution: "NATP",
         },
     )
@@ -184,7 +184,7 @@ fn ordinary_institution_can_be_deleted_but_genesis_institution_cannot() {
             province_name: "广东省",
             city_code: "001",
             city_name: "荔湾市",
-            year: "2026",
+            year: 2026,
             institution: "SFGQ",
         },
     )
@@ -713,4 +713,21 @@ fn candidate_identity_can_only_be_deleted_with_cid_and_voting_revocation() {
         ),
         Ok(())
     );
+}
+
+#[test]
+fn cid_guard_keeps_its_existing_rules_for_u32_year_cids() {
+    for institution in ["CTZN", "NATP", "CGOV", "NRC"] {
+        for year in [2026u32, 10000, u32::MAX] {
+            let cid = primitives::cid::generator::generate_cid_number(
+                primitives::cid::generator::GenerateCidNumberInput {
+                    public_key: "node-cid-year", p1: "1",
+                    province_code: "GD", province_name: "广东省",
+                    city_code: "001", city_name: "荔湾市", year, institution,
+                },
+            ).unwrap();
+            assert_eq!(parse_cid(cid.as_bytes()).unwrap(),
+                primitives::cid::code::institution_code_from_str(institution).unwrap());
+        }
+    }
 }

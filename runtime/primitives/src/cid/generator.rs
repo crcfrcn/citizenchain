@@ -25,8 +25,8 @@ pub struct GenerateCidNumberInput<'a> {
     pub city_code: &'a str,
     /// 市行政区名称,N9 hash 使用。
     pub city_name: &'a str,
-    /// 生成年份 YYYY。
-    pub year: &'a str,
+    /// UTC 生成年份；编码为至少四位十进制，超过 9999 后自然扩展，最大为 u32::MAX。
+    pub year: u32,
     /// 机构码或机构简称。
     pub institution: &'a str,
 }
@@ -63,14 +63,12 @@ fn valid_ascii_code(value: &str, len: usize) -> bool {
 
 pub fn generate_cid_number(input: GenerateCidNumberInput<'_>) -> Result<String, &'static str> {
     if input.public_key.trim().is_empty()
-        || input.year.trim().is_empty()
         || input.institution.trim().is_empty()
     {
-        return Err("public_key, year, institution are required");
+        return Err("public_key, institution are required");
     }
-    if input.year.len() != 4 || !input.year.bytes().all(|b| b.is_ascii_digit()) {
-        return Err("year must be YYYY");
-    }
+    // 哈希、校验和及显示共用同一文本，保留包括 0000～0999 在内的旧四位年份字节。
+    let year = format!("{:04}", input.year);
 
     let institution_code = code::institution_code_from_str(input.institution)
         .ok_or("institution must be a registered CID institution code")?;
@@ -94,7 +92,7 @@ pub fn generate_cid_number(input: GenerateCidNumberInput<'_>) -> Result<String, 
     // 人与机构的 CID 生成方式彻底分开:人只吃公钥/码/年,不吃省市;撞号仅由桶数 1e12 决定,
     // 由 registry nonce 探测吸收。
     let (r5, n9) = if code::is_person_code(&institution_code) {
-        let number = hash_u64(&format!("{}|{}|{}", input.public_key, code_str, input.year))
+        let number = hash_u64(&format!("{}|{}|{}", input.public_key, code_str, year))
             % 1_000_000_000_000;
         let high3 = number / 1_000_000_000; // 0..=999
         let low9 = number % 1_000_000_000;
@@ -118,7 +116,7 @@ pub fn generate_cid_number(input: GenerateCidNumberInput<'_>) -> Result<String, 
             "{:09}",
             (hash_text(&format!(
                 "{}|{}|{}|{}|{}",
-                input.public_key, code_str, input.province_name, input.city_name, input.year
+                input.public_key, code_str, input.province_name, input.city_name, year
             )) as usize)
                 % 1_000_000_000
         );
@@ -127,15 +125,12 @@ pub fn generate_cid_number(input: GenerateCidNumberInput<'_>) -> Result<String, 
 
     if code::is_three_char_code(&institution_code) {
         let profit_char = if profit { "1" } else { "0" };
-        let payload = format!("{r5}{code_str}{profit_char}{n9}{}", input.year);
+        let payload = format!("{r5}{code_str}{profit_char}{n9}{year}");
         let c = checksum_char_mod36(&payload);
-        Ok(format!(
-            "{r5}-{code_str}{profit_char}{c}-{n9}-{}",
-            input.year
-        ))
+        Ok(format!("{r5}-{code_str}{profit_char}{c}-{n9}-{year}"))
     } else {
-        let payload = format!("{r5}{code_str}{n9}{}", input.year);
+        let payload = format!("{r5}{code_str}{n9}{year}");
         let m1 = checksum_char_m1(&payload, profit);
-        Ok(format!("{r5}-{code_str}{m1}-{n9}-{}", input.year))
+        Ok(format!("{r5}-{code_str}{m1}-{n9}-{year}"))
     }
 }

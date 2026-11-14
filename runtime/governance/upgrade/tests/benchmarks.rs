@@ -5,7 +5,7 @@
 use frame_benchmarking::v2::*;
 use frame_support::traits::{EnsureOrigin, Get};
 use sp_runtime::sp_std::vec;
-use votebase::CitizenIdentityReader;
+use engingcore::CitizenIdentityReader;
 
 use crate::pallet::{CodeOf, Config, ReasonOf};
 use crate::Pallet;
@@ -35,7 +35,7 @@ fn code_max<T: Config>() -> CodeOf<T> {
         .expect("benchmark runtime code should fit")
 }
 
-fn nrc_cid_number() -> votebase::CidNumber {
+fn nrc_cid_number() -> engingcore::CidNumber {
     primitives::cid::china::china_cb::CHINA_CB[0]
         .cid_number
         .as_bytes()
@@ -44,7 +44,7 @@ fn nrc_cid_number() -> votebase::CidNumber {
         .expect("NRC CID fits runtime bound")
 }
 
-fn committee_role_code() -> votebase::RoleCode {
+fn committee_role_code() -> engingcore::RoleCode {
     primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
         .to_vec()
         .try_into()
@@ -55,9 +55,9 @@ fn seed_population<T>()
 where
     T: Config + jointvote::Config,
 {
-    let scope = votebase::PopulationScope::Country;
+    let scope = engingcore::PopulationScope::Country;
     let citizen: T::AccountId = account("runtime-upgrade-citizen", 0, 0);
-    <T as votebase::Config>::CitizenIdentityReader::benchmark_seed_identity(&citizen, &scope);
+    <T as engingcore::Config>::CitizenIdentityReader::benchmark_seed_identity(&citizen, &scope);
 }
 
 #[benchmarks(where T: Config + jointvote::Config)]
@@ -90,9 +90,9 @@ mod benchmarks {
             .expect("benchmark runtime upgrade proposal should succeed");
         }
 
-        let proposal_id = votebase::Pallet::<T>::next_proposal_id().saturating_sub(1);
+        let proposal_id = engingcore::Pallet::<T>::next_proposal_id().saturating_sub(1);
         assert!(
-            votebase::Pallet::<T>::get_proposal_data(proposal_id).is_some(),
+            engingcore::Pallet::<T>::get_proposal_data(proposal_id).is_some(),
             "runtime upgrade benchmark should store proposal data in voting engine"
         );
     }

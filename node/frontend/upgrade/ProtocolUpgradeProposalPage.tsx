@@ -32,6 +32,9 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, a
   const [txHash, setTxHash] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [powParams, setPowParams] = useState<PowDifficultyParams | null>(null);
+  const [showPowAdvanced, setShowPowAdvanced] = useState(false);
+  const [powLoadError, setPowLoadError] = useState<string | null>(null);
+  const [loadingPowParams, setLoadingPowParams] = useState(true);
 
   const signRequestRef = useRef(signRequest);
   const selectedSignerAccountIdRef = useRef(selectedSignerAccountId);
@@ -44,11 +47,19 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, a
   reasonRef.current = reason;
   powParamsRef.current = powParams;
 
-  useEffect(() => {
-    api.getPowDifficultyParams()
-      .then(setPowParams)
-      .catch((e) => setError(sanitizeError(e)));
+  const loadPowParams = useCallback(async () => {
+    setLoadingPowParams(true);
+    try {
+      setPowParams(await api.getPowDifficultyParams());
+      setPowLoadError(null);
+    } catch (e) {
+      setPowLoadError(sanitizeError(e));
+    } finally {
+      setLoadingPowParams(false);
+    }
   }, []);
+
+  useEffect(() => { void loadPowParams(); }, [loadPowParams]);
 
   useEffect(() => {
     if (step !== 'qr') return;
@@ -77,6 +88,20 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, a
 
   const handleBuildRequest = useCallback(async () => {
     if (!wasmPath.trim() || !selectedSignerAccountId || !reason.trim() || !powParams) return;
+    const reasonBytes = new TextEncoder().encode(reason.trim()).length;
+    if (reasonBytes > 1024) {
+      setError(`升级理由不能超过 1024 字节，当前 ${reasonBytes} 字节`);
+      return;
+    }
+    if (Object.values(powParams).some((value) => !Number.isSafeInteger(value) || value < 1)) {
+      setError('PoW 参数必须是可准确表示的正整数');
+      return;
+    }
+    if (powParams.paramsVersion > 0xffffffff || powParams.algorithmVersion > 0xffff
+      || powParams.adjustmentInterval > 0xffffffff) {
+      setError('PoW 参数超出链上字段范围');
+      return;
+    }
     setBuilding(true);
     setError(null);
     try {
@@ -102,8 +127,8 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, a
   const handleScanResult = useCallback(async (responseText: string) => {
     const req = signRequestRef.current;
     const signerAccountId = selectedSignerAccountIdRef.current;
-    const path = wasmPathRef.current;
-    const reasonVal = reasonRef.current;
+    const path = wasmPathRef.current.trim();
+    const reasonVal = reasonRef.current.trim();
     const params = powParamsRef.current;
     if (!req || !signerAccountId || !params) { setError('签名请求数据丢失，请重试'); setStep('error'); return; }
     setStep('submit');
@@ -142,7 +167,16 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, a
 
       {step === 'form' && (
         <div className="create-proposal-form">
-          {error && <div className="error">{error}</div>}
+          {error && <div className="error" role="alert">{error}</div>}
+          {powLoadError && (
+            <div className="error" role="alert">
+              {powLoadError}{' '}
+              <button type="button" className="metric-help-button"
+                onClick={() => { void loadPowParams(); }} disabled={loadingPowParams}>
+                重试读取
+              </button>
+            </div>
+          )}
 
           <div className="wallet-form-field">
             <label htmlFor="upgrade-reason">升级理由</label>
@@ -171,28 +205,42 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, a
 
           {powParams && (
             <div className="wallet-form-field">
-              <label>PoW 参数（与 runtime code 一起进入联合投票）</label>
-              {([
-                ['paramsVersion', '参数版本'],
-                ['algorithmVersion', '算法版本'],
-                ['targetBlockTimeMs', '平均目标时间（毫秒）'],
-                ['adjustmentInterval', '调整窗口（块）'],
-                ['maxAdjustUpFactor', '最大上调倍率'],
-                ['maxAdjustDownDivisor', '最大下调分母'],
-              ] as const).map(([field, label]) => (
-                <label key={field}>{label}
-                  <input
-                    type="number"
-                    min={1}
-                    value={powParams[field]}
-                    onChange={(e) => setPowParams({
-                      ...powParams,
-                      [field]: Number(e.target.value),
-                    })}
-                    disabled={building}
-                  />
-                </label>
-              ))}
+              <div className="metric-label metric-label-with-help" style={{ justifyContent: 'space-between' }}>
+                <span>设置 PoW 参数</span>
+                <button
+                  type="button"
+                  className="metric-help-button"
+                  aria-expanded={showPowAdvanced}
+                  aria-controls="upgrade-pow-params"
+                  onClick={() => setShowPowAdvanced((shown) => !shown)}
+                  disabled={building}
+                >
+                  高级设置
+                </button>
+              </div>
+              <div id="upgrade-pow-params" hidden={!showPowAdvanced}>
+                {([
+                  ['paramsVersion', '参数版本'],
+                  ['algorithmVersion', '算法版本'],
+                  ['targetBlockTimeMs', '平均目标时间（毫秒）'],
+                  ['adjustmentInterval', '调整窗口（块）'],
+                  ['maxAdjustUpFactor', '最大上调倍率'],
+                  ['maxAdjustDownDivisor', '最大下调分母'],
+                ] as const).map(([field, label]) => (
+                  <label key={field}>{label}
+                    <input
+                      type="number"
+                      min={1}
+                      value={powParams[field]}
+                      onChange={(e) => setPowParams({
+                        ...powParams,
+                        [field]: Number(e.target.value),
+                      })}
+                      disabled={building}
+                    />
+                  </label>
+                ))}
+              </div>
             </div>
           )}
 
@@ -243,10 +291,10 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, a
       {step === 'done' && (
         <div className="vote-signing-body">
           <div className="vote-success">
-            <p>协议升级提案已提交</p>
+            <p>升级提案交易已提交</p>
             {txHash && <code className="tx-hash">交易哈希: {txHash}</code>}
           </div>
-          <p className="upgrade-done-note">提案已进入联合投票阶段。</p>
+          <p className="upgrade-done-note">等待链上确认，最终确认后可在提案列表查看。</p>
         </div>
       )}
 

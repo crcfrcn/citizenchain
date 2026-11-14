@@ -8,7 +8,7 @@ use nodeclient::codec::read_compact_u32;
 pub const TAG_RESOLUTION_ISSUANCE: &[u8] = b"res-iss";
 
 pub fn decode_resolution_issuance_action(
-    proposal_id: u64,
+    proposal_id: u128,
     data: &[u8],
 ) -> Option<ResolutionIssuanceDetail> {
     // SCALE 布局：MODULE_TAG("res-iss":7) + actor_cid_number + proposer_role_code

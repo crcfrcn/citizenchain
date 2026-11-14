@@ -4,7 +4,8 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolutionDestroyDetail {
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
     pub actor_cid_number: String,
 
     pub institution_account_id: String,

@@ -14,7 +14,7 @@ use sp_runtime::traits::{CheckedAdd, Hash};
 
 impl<T: Config> Pallet<T> {
     pub(crate) fn execute_approved_issuance(
-        proposal_id: u64,
+        proposal_id: u128,
         reason: &ReasonOf<T>,
         total_amount: BalanceOf<T>,
         allocations: &AllocationOf<T>,
@@ -26,7 +26,7 @@ impl<T: Config> Pallet<T> {
     }
 
     fn do_execute_inner(
-        proposal_id: u64,
+        proposal_id: u128,
         reason: &[u8],
         total_amount: BalanceOf<T>,
         allocations: &AllocationOf<T>,

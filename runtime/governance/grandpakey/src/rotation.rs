@@ -91,7 +91,7 @@ impl<T: Config> Pallet<T> {
         new_public_key: [u8; 32],
         proof_nonce: u64,
         change_kind: GrandpaKeyChangeKind,
-        proposal_id: Option<u64>,
+        proposal_id: Option<u128>,
         next_authorities: AuthorityList,
     ) -> Result<
         PendingGrandpaKeyChangeState<T::AccountId, frame_system::pallet_prelude::BlockNumberFor<T>>,

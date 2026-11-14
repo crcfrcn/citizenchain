@@ -56,11 +56,13 @@ pub struct ProposeInstitutionGovernanceArgs {
 #[derive(Debug, Clone)]
 pub struct RegisterInstitutionAdminsArgs {
     pub cid_number: Vec<u8>,
-    pub admins: InstitutionAdminsPayload,
+    pub action: entitybase::InstitutionGovernanceAction<[u8; 32]>,
     pub institution_code: [u8; 4],
     pub actor_cid_number: Vec<u8>,
     /// 当前注册局操作人的任职岗位；由现有链端权限规则最终核验。
     pub actor_role_code: Vec<u8>,
+    pub expected_state_hash: [u8; 32],
+    pub initial_threshold: Option<u32>,
 }
 
 /// `propose_add_institution_account` 完整参数(runtime call index 7)。
@@ -134,15 +136,18 @@ pub fn encode_propose_institution_governance(args: &ProposeInstitutionGovernance
     }
 }
 
-/// 编码注册局登记机构管理员集合调用。字段顺序与 runtime call index 9 完全一致。
+/// 复用统一治理action；call 9顺序为CID、action、办理机构、岗位、状态指纹、初始阈值。
+/// 状态冲突必须刷新后重新审阅签名，不能自动重建已签名载荷。
 pub fn encode_register_institution_admins(args: &RegisterInstitutionAdminsArgs) -> ChainCall {
     let pallet_index = institution_manage_pallet_index(&args.institution_code);
     let mut out = vec![pallet_index, REGISTER_INSTITUTION_ADMINS_CALL_INDEX];
 
     encode_bytes(&mut out, &args.cid_number);
-    out.extend(encode_admins_payload(&args.admins));
+    out.extend(args.action.encode());
     encode_bytes(&mut out, &args.actor_cid_number);
     encode_bytes(&mut out, &args.actor_role_code);
+    out.extend(args.expected_state_hash.encode());
+    out.extend(args.initial_threshold.encode());
 
     ChainCall {
         action: chain_action_code(pallet_index, REGISTER_INSTITUTION_ADMINS_CALL_INDEX),

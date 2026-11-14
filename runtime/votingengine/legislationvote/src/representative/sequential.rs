@@ -5,7 +5,7 @@ use frame_support::dispatch::DispatchResult;
 
 impl<T: Config> Pallet<T> {
     /// 当前机构通过后进入下一个机构；全部机构通过后进入终局或法律专属程序。
-    pub(crate) fn advance_sequential_representative_vote(proposal_id: u64) -> DispatchResult {
+    pub(crate) fn advance_sequential_representative_vote(proposal_id: u128) -> DispatchResult {
         Self::advance_representative_body_or_finish(proposal_id)
     }
 }

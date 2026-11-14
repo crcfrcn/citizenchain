@@ -125,7 +125,7 @@ impl SquarePostCitizenIdentityProvider<AccountId32> for TestCitizenIdentity {
                 province_name: "广东",
                 city_code: "001",
                 city_name: "基准市",
-                year: "2026",
+                year: 2026,
                 institution: "CTZN",
             },
         )
@@ -163,7 +163,7 @@ impl entitybase::InstitutionMultisigQuery<AccountId32> for MockInstitutionQuery 
 // 只供单元测试的服务装配：岗位权限来自原固定目录，请求保存在测试线程，
 // 不替代Runtime投票引擎；生产权重仍由真实Runtime的CLI基准生成。
 thread_local! {
-    static VOTE_REQUEST: RefCell<Option<(votebase::VotePlanOf<AccountId32>, Vec<u8>)>> = const { RefCell::new(None) };
+    static VOTE_REQUEST: RefCell<Option<(engingcore::VotePlanOf<AccountId32>, Vec<u8>)>> = const { RefCell::new(None) };
 }
 
 fn platform_code() -> primitives::cid::code::InstitutionCode {
@@ -227,22 +227,22 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestRoles {
 }
 
 pub struct TestVotes;
-impl votebase::InternalVoteEngine<AccountId32> for TestVotes {
+impl engingcore::InternalVoteEngine<AccountId32> for TestVotes {
     fn create_institution_proposal_with_data(
         who: AccountId32,
         code: primitives::cid::code::InstitutionCode,
         cid: Vec<u8>,
         execution: Option<AccountId32>,
         subjects: Vec<Vec<u8>>,
-        plan: votebase::VotePlanOf<AccountId32>,
+        plan: engingcore::VotePlanOf<AccountId32>,
         data: Vec<u8>,
-    ) -> Result<u64, sp_runtime::DispatchError> {
+    ) -> Result<u128, sp_runtime::DispatchError> {
         use entitybase::InstitutionRoleAuthorizationQuery;
         let action = entitybase::BusinessActionId {
             module_tag: crate::MODULE_TAG.to_vec(),
             action_code: entitybase::business_action::ACTION_PLATFORM_PRICE,
         };
-        let votebase::AuthorizationSubject::Institution(proposer) = &plan.proposer_subject else {
+        let engingcore::AuthorizationSubject::Institution(proposer) = &plan.proposer_subject else {
             return Err(sp_runtime::DispatchError::Other("test proposer"));
         };
         let proposer = entitybase::RoleSubject {
@@ -277,14 +277,14 @@ impl votebase::InternalVoteEngine<AccountId32> for TestVotes {
         )
         .into_iter()
         .map(|subject| {
-            votebase::AuthorizationSubject::Institution(votebase::RoleSubject {
+            engingcore::AuthorizationSubject::Institution(engingcore::RoleSubject {
                 cid_number: subject.cid_number.try_into().unwrap(),
                 role_code: subject.role_code.try_into().unwrap(),
             })
         })
         .collect::<Vec<_>>();
         frame_support::ensure!(
-            plan.voting_engine == votebase::VotingEngineKind::Internal
+            plan.voting_engine == engingcore::VotingEngineKind::Internal
                 && plan.voter_subjects.as_slice() == expected.as_slice(),
             sp_runtime::DispatchError::Other("test voters")
         );

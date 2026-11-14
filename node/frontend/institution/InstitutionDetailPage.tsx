@@ -4,6 +4,7 @@ import { proposalApi } from '../proposal/api';
 import { sanitizeError } from "../client/tauri";
 import { formatBalance } from "../client/format";
 import { accountIdToSs58 } from "../client/ss58";
+import { MetricHelp } from '../desktop/MetricHelp';
 import { adminsChangeApi } from "./admins";
 import { CreateMultisigTransferPage } from "../multisig/CreateProposalPage";
 import { SafetyFundProposalPage } from "../multisig/SafetyFundProposalPage";
@@ -21,7 +22,7 @@ type Props = {
   cidNumber: string;
   onBack: () => void;
   onOpenAdminList?: (cidNumber: string, orgType: number) => void;
-  onSelectProposal?: (proposalId: number, adminSigners: AdminSignerMatch[], cidNumber: string) => void;
+  onSelectProposal?: (proposalId: string, adminSigners: AdminSignerMatch[], cidNumber: string) => void;
   /** 隐藏返回按钮（用于直接作为 Tab 内容显示时）。 */
   hideBackButton?: boolean;
 };
@@ -32,6 +33,18 @@ type ActiveProposal =
   | { kind: 'grandpa-key' | 'protocol-upgrade'; signers: AdminSignerMatch[] };
 
 const PROPOSAL_PAGE_SIZE = 10;
+
+const INSTITUTION_ACCOUNT_HELP = [
+  '所有机构均有1个主账户和1个费用账户，主账户和费用账户不可注销，所有机构特指链上注册的机构。',
+  '主账户用于该机构持有资金，费用账户用于支付该机构交易产生的手续费等费用，费用账户只能向主账户转账。',
+  '机构可注册更多账户，机构账户由账户名称+机构CID号经哈希运算后产生，故一个机构CID号+不同账户名称可产生无限多的机构账户。',
+  '机构账户发起转账交易的，必须由该机构的管理员发起转账提案，经该机构管理员内部投票通过后执行。',
+];
+const NRC_ACCOUNT_HELP = [
+  '国家储委会拥有安全基金专用账户，安全基金用于公民链的技术安全，赔付因公民链技术原因造成的用户资金损失。',
+  '国家储委会拥有两和基金专用账户，两和基金用于历史和解与和平建国，修复因内战、运动、迫害等历史问题造成的民族创伤。',
+];
+const PRB_ACCOUNT_HELP = '省储行拥有永久质押账户，永久质押账户用于永久质押省储行创立发行的公民币，永久质押账户只能收款，不能支出。';
 
 function VotingHelpDialog({ onClose }: { onClose: () => void }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -65,7 +78,7 @@ function VotingHelpDialog({ onClose }: { onClose: () => void }) {
       >
         <h2 id="institution-vote-help-title">投票说明</h2>
         <ol className="institution-vote-help-intro" start={0}>
-          <li>公民链投票引擎由内部投票、联合投票、立法投票和选举投票共4个模块组成。</li>
+          <li>公民链「投票引擎」由内部投票、联合投票、立法投票、选举投票和引擎核心共5个模块组成，「投票引擎」是公民链所有投票、多签的链上统一执行单元。</li>
         </ol>
         <section>
           <h3>一、内部投票</h3>
@@ -106,7 +119,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   const [detail, setDetail] = useState<InstitutionDetail | null>(null);
   const [proposals, setProposals] = useState<ProposalListItem[]>([]);
   const [proposalHasMore, setProposalHasMore] = useState(false);
-  const [proposalNextStartId, setProposalNextStartId] = useState<number | null>(null);
+  const [proposalNextStartId, setProposalNextStartId] = useState<string | null>(null);
   const [loadingMoreProposals, setLoadingMoreProposals] = useState(false);
   const [proposalRefreshError, setProposalRefreshError] = useState<string | null>(null);
   const proposalPageGeneration = useRef(0);
@@ -139,12 +152,12 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
     setLoadingMoreProposals(true);
     setProposalRefreshError(null);
     try {
-      const page = await proposalApi.getInstitutionProposalPage(cidNumber, Number.MAX_SAFE_INTEGER, PROPOSAL_PAGE_SIZE);
+      const page = await proposalApi.getInstitutionProposalPage(cidNumber, ((1n << 128n) - 1n).toString(), PROPOSAL_PAGE_SIZE);
       if (generation !== proposalPageGeneration.current) return;
       setProposals(page.items);
       setProposalHasMore(page.hasMore);
       const lastId = page.items[page.items.length - 1]?.proposalId ?? 0;
-      setProposalNextStartId(lastId > 0 ? lastId - 1 : null);
+      setProposalNextStartId(BigInt(lastId) > 0n ? (BigInt(lastId) - 1n).toString() : null);
     } catch (e) {
       if (generation === proposalPageGeneration.current) setProposalRefreshError(sanitizeError(e));
     } finally {
@@ -218,7 +231,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
         setProposalHasMore(page.hasMore);
         if (page.items.length > 0) {
           const lastId = page.items[page.items.length - 1].proposalId;
-          setProposalNextStartId(lastId > 0 ? lastId - 1 : null);
+          setProposalNextStartId(BigInt(lastId) > 0n ? (BigInt(lastId) - 1n).toString() : null);
         } else {
           setProposalHasMore(false);
         }
@@ -398,8 +411,8 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
     accounts.push({ name: '费用账户', accountId: detail.cbAccountId, balanceFen: detail.cbFeeFen });
   } else if (detail.orgType === 2) {
     accounts.push(
-      { name: '永久质押账户', accountId: detail.stakeAccountId, balanceFen: detail.stakingBalanceFen },
       { name: '费用账户', accountId: detail.feeAccountId, balanceFen: detail.feeBalanceFen },
+      { name: '永久质押账户', accountId: detail.stakeAccountId, balanceFen: detail.stakingBalanceFen },
     );
   }
 
@@ -435,7 +448,13 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
       {detail.warning && <div className="warning">{detail.warning}</div>}
 
       <section className="institution-overview-accounts" aria-labelledby="institution-overview-accounts-title">
-        <h3 id="institution-overview-accounts-title">账户列表</h3>
+        <div className="institution-overview-account-heading">
+          <h3 id="institution-overview-accounts-title">账户列表</h3>
+          <MetricHelp title="机构账户说明" items={[
+            ...INSTITUTION_ACCOUNT_HELP,
+            ...(detail.orgType === 0 ? NRC_ACCOUNT_HELP : detail.orgType === 2 ? [PRB_ACCOUNT_HELP] : []),
+          ]} />
+        </div>
         <table className="institution-overview-account-table">
           <thead>
             <tr>

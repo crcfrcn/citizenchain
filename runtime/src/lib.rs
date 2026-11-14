@@ -9,6 +9,7 @@ pub mod apis;
 #[path = "../tests/benchmarks.rs"]
 mod benchmarks;
 pub mod configs;
+mod evm_accounts;
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -78,7 +79,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // 当前 runtime 采用统一模块命名：
     // genesis / publicadmin / privateadmin / personaladmin /
-    // publicentity / privateentity / personalentity / votebase /
+    // publicentity / privateentity / personalentity / engingcore /
     // multisig / offchain / onchain /
     // square。
     // square 订阅采用 runtime 真实公历时间戳协议：只执行扣款、最小状态和时间戳比较；
@@ -329,7 +330,7 @@ mod runtime {
 
     // 投票引擎核心:Proposals/反向索引/状态机/快照/锁/清理共用基础设施
     #[runtime::pallet_index(9)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     // 内部投票 sub-pallet：个人多签按管理员账户投票；机构按 VotePlan 岗位快照投票。
     #[runtime::pallet_index(20)]

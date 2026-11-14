@@ -6,8 +6,8 @@ import { NetworkInlineSection } from "./NetworkInlineSection";
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const FEE_HELP = [
-  '本机矿工出块后，可获得该区块的链上交易手续费 80% 的收益。',
-  '分成发到出块时已绑定的「矿工收款账户」，未绑定的，矿工份额直接销毁。',
+  '本机矿工出块后，可获得该区块的链上交易手续费 80% 的收益，20%由国家储委会费用账户和安全基金账户各获得10%的收益。',
+  '分成发到出块时已绑定的「矿工收款账户」，未绑定的，矿工份额直接销毁，「矿工收款账户」在「设置」中绑定。',
   '手续费累计统计本机矿工产出且已获最终确认的区块。',
   '链上交易手续费为交易金额的0.1%，单笔最低0.1元，不足0.1元的以0.1元计算，由付款方支付。',
 ];
@@ -99,7 +99,7 @@ export function MiningDashboardSection() {
             <div key={label} className="metric-card">
               <div className="metric-label metric-label-with-help">
                 <span>{label}</span>
-                {help && <MetricHelp title={`${label}说明`} items={help} />}
+                {help && <MetricHelp title={`${label}说明`} items={help} dialogClassName={help === FEE_HELP ? 'fee-help-dialog' : undefined} />}
               </div>
               <div className="metric-value">
                 {loading ? '加载中...' : `${formatIncomeDisplay(amount)}元`}

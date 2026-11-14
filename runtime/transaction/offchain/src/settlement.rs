@@ -11,7 +11,7 @@
 //!     2. nonce 单调递增(`nonce::consume_nonce`)
 //!     3. 费率正确性(按 **收款方** 清算行 `L2FeeRateBp`,最低 1 分)
 //!     4. 偿付自动保护(`solvency::ensure_can_debit`)
-//!     5. 防重放(`ProcessedOffchainTx` 不命中)
+//!     5. 防重放(`ProcessedOffchainTxAt` 不命中)
 //! - 手续费**全部归收款方清算行的费用账户**,无省储行分成。
 //!
 //! **收款方主导清算**模型。
@@ -38,7 +38,7 @@ use crate::batch_item::OffchainBatchItem;
 use crate::{
     bank_check::{self, CidAccountQuery},
     fee_config, nonce, solvency, BankTotalDeposits, Config, DepositBalance, Error, Event, Pallet,
-    ProcessedOffchainTx, ProcessedOffchainTxAt, UserBank,
+    ProcessedOffchainTxAt, UserBank,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
 
@@ -219,7 +219,7 @@ fn execute_single_item<T: Config>(
     let tx_hash: T::Hash = T::Hash::decode(&mut &item.tx_id.as_bytes()[..])
         .map_err(|_| Error::<T>::InvalidL3Signature)?;
     ensure!(
-        !ProcessedOffchainTx::<T>::contains_key(province_shard, tx_hash),
+        !ProcessedOffchainTxAt::<T>::contains_key(province_shard, tx_hash),
         Error::<T>::TxAlreadyProcessed
     );
 
@@ -285,7 +285,6 @@ fn execute_single_item<T: Config>(
     }
 
     // 5. 防重放标记 + 事件(tx_hash 已在本函数开头从 item.tx_id 解码)
-    ProcessedOffchainTx::<T>::insert(province_shard, tx_hash, true);
     ProcessedOffchainTxAt::<T>::insert(province_shard, tx_hash, now);
 
     Pallet::<T>::deposit_event(Event::<T>::PaymentSettled {

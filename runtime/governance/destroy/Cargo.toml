@@ -21,7 +21,7 @@ sp-std = { workspace = true }
 
 primitives = { path = "../../primitives", default-features = false }
 entitybase = { path = "../../entity/entitybase", default-features = false }
-votebase = { path = "../../votingengine/votebase", default-features = false }
+engingcore = { path = "../../votingengine/engingcore", default-features = false }
 
 [features]
 default = ["std"]
@@ -37,7 +37,7 @@ std = [
     "sp-std/std",
     "primitives/std",
     "entitybase/std",
-    "votebase/std",
+    "engingcore/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",

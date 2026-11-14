@@ -156,3 +156,51 @@ fn split_action_into_details_maps_each_variant() {
     let (_, ru2, _, _, _) = split_action_into_details(crate::types::ProposalAction::Unknown);
     assert!(ru2.is_none());
 }
+
+
+#[test]
+fn proposal_json_and_storage_codec_preserve_full_unsigned_widths() {
+    let meta = crate::types::ProposalMeta {
+        proposal_id: u128::MAX, kind: 0, stage: 0, status: 3,
+        internal_code: None, actor_cid_number: None, execution_account_id: None,
+        subject_cid_numbers: Vec::new(),
+    };
+    assert_eq!(serde_json::to_value(meta).unwrap()["proposalId"], u128::MAX.to_string());
+    let display = crate::types::ProposalDisplayMeta { year: 65536, seq_in_year: u64::MAX };
+    let json = serde_json::to_value(display).unwrap();
+    assert_eq!(json["year"], 65536);
+    assert_eq!(json["seqInYear"], u64::MAX.to_string());
+    assert_eq!(nodeclient::codec::decode_u128_vec(&vec![u128::MAX].encode()).unwrap(), vec![u128::MAX]);
+    assert!(nodeclient::codec::decode_u128_vec(&vec![7u64].encode()).is_err());
+}
+
+#[test]
+fn proposal_page_windows_include_zero_and_preserve_the_last_page() {
+    for (start, count, expected, more) in [
+        (0u128, 1u32, vec![0u128], false),
+        (1, 20, vec![1, 0], false),
+        (1, 1, vec![1], true),
+        (2, 2, vec![2, 1], true),
+        (2, 3, vec![2, 1, 0], false),
+        (0, 0, Vec::new(), false),
+        (9, 0, Vec::new(), false),
+        (u128::MAX, 2, vec![u128::MAX, u128::MAX - 1], true),
+    ] {
+        let (ids, has_more) = crate::query::proposal_page_ids(start, count);
+        assert_eq!(ids.collect::<Vec<_>>(), expected);
+        assert_eq!(has_more, more);
+    }
+}
+
+#[test]
+fn next_proposal_id_rejects_short_and_trailing_data_instead_of_returning_zero() {
+    for id in [0u128, 1, u128::from(u64::MAX) + 1, u128::MAX] {
+        let raw = id.to_le_bytes();
+        assert_eq!(crate::query::decode_next_proposal_id(&raw).unwrap(), id);
+        for length in 0..16 {
+            assert!(crate::query::decode_next_proposal_id(&raw[..length]).is_err());
+        }
+        let mut trailing = raw.to_vec(); trailing.push(0);
+        assert!(crate::query::decode_next_proposal_id(&trailing).is_err());
+    }
+}

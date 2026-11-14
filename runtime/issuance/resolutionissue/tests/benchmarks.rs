@@ -11,7 +11,7 @@ use frame_support::{
 use primitives::cid::china::china_cb::CHINA_CB;
 use sp_runtime::traits::{CheckedAdd, SaturatedConversion, Zero};
 use sp_std::{vec, vec::Vec};
-use votebase::CitizenIdentityReader;
+use engingcore::CitizenIdentityReader;
 
 use crate::{pallet, AllowedRecipients, Config, Pallet, VotingProposalCount};
 
@@ -58,7 +58,7 @@ fn full_allocations<T: pallet::Config>() -> (pallet::AllocationOf<T>, pallet::Ba
     )
 }
 
-fn nrc_cid_number() -> votebase::types::CidNumber {
+fn nrc_cid_number() -> engingcore::types::CidNumber {
     CHINA_CB[0]
         .cid_number
         .as_bytes()
@@ -79,14 +79,14 @@ mod benchmarks {
         AllowedRecipients::<T>::put(recipients);
         VotingProposalCount::<T>::put(0u32);
         let actor_cid_number = nrc_cid_number();
-        let proposer_role_code: votebase::types::RoleCode =
+        let proposer_role_code: engingcore::types::RoleCode =
             primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                 .to_vec()
                 .try_into()
                 .expect("committee role code must fit");
-        let scope = votebase::PopulationScope::Country;
+        let scope = engingcore::PopulationScope::Country;
         let citizen: T::AccountId = frame_benchmarking::account("resolution-citizen", 0, 0);
-        <T as votebase::Config>::CitizenIdentityReader::benchmark_seed_identity(
+        <T as engingcore::Config>::CitizenIdentityReader::benchmark_seed_identity(
             &citizen, &scope,
         );
 

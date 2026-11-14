@@ -26,7 +26,7 @@ ed25519-dalek = { version = "2.1.1", default-features = false, optional = true }
 
 primitives = { path = "../../primitives", default-features = false }
 entitybase = { path = "../../entity/entitybase", default-features = false }
-votebase = { path = "../../votingengine/votebase", default-features = false }
+engingcore = { path = "../../votingengine/engingcore", default-features = false }
 
 [dev-dependencies]
 internalvote = { path = "../../votingengine/internalvote", default-features = false }
@@ -37,7 +37,7 @@ try-runtime = [
     "frame-system/try-runtime",
     "pallet-grandpa/try-runtime",
     "sp-runtime/try-runtime",
-    "votebase/try-runtime",
+    "engingcore/try-runtime",
 ]
 std = [
     "codec/std",
@@ -54,7 +54,7 @@ std = [
     "pallet-grandpa/std",
     "primitives/std",
     "entitybase/std",
-    "votebase/std",
+    "engingcore/std",
 ]
 runtime-benchmarks = [
     "dep:ed25519-dalek",

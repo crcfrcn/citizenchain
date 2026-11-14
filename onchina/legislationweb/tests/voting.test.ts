@@ -16,7 +16,11 @@ it('代表表决准备等待一次Passkey，保留请求且失败不重试', asy
       lawAction: 'enact', proposerRoleCode: 'REPRESENTATIVE', tier: 1,
       voteType: 2, title: '测试法律', chapters: [], effectiveAt: 1000, lawId: null,
     };
-    const operations = [{ path: '/api/legislation/representative-vote', payload: { proposalId: 7, voterRoleCode: 'REPRESENTATIVE', approve: true }, run: () => castRepresentativeVote(auth, 7, 'REPRESENTATIVE', true) }];
+    const operations = ['0', '7', '9007199254740993', '18446744073709551616', '340282366920938463463374607431768211455'].map(proposalId => ({
+      path: '/api/legislation/representative-vote',
+      payload: { proposalId, voterRoleCode: 'REPRESENTATIVE', approve: true },
+      run: () => castRepresentativeVote(auth, proposalId, 'REPRESENTATIVE', true),
+    }));
     const assertion = vi.mocked(assertPasskey);
     const fetcher = vi.spyOn(globalThis, 'fetch');
     const prepared = { requestId: 'fixture-request', signRequest: 'fixture-sign-request' };
@@ -62,4 +66,19 @@ it('代表表决准备等待一次Passkey，保留请求且失败不重试', asy
       fetcher.mockRestore();
     }
   });
+});
+
+
+it('提案进度URL完整保留十进制u128字符串', async () => {
+  const { getProposalState } = await import('../proposals/api');
+  const auth = { accessToken: 'test-session' } as never;
+  const fetcher = vi.spyOn(globalThis, 'fetch');
+  try {
+    for (const proposalId of ['0', '9007199254740993', '18446744073709551616', '340282366920938463463374607431768211455']) {
+      fetcher.mockReset();
+      fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, data: { proposalId } })));
+      expect((await getProposalState(auth, proposalId)).proposalId).toBe(proposalId);
+      expect(fetcher.mock.calls[0][0]).toBe(`/api/legislation/proposals/${proposalId}`);
+    }
+  } finally { fetcher.mockRestore(); }
 });

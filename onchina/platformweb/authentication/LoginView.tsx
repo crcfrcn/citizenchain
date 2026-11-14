@@ -274,7 +274,7 @@ export function LoginView() {
           scannerHint={
             pendingQrLogin
               ? '扫描公民钱包生成的签名响应二维码'
-              : '读取 QR_V1 账户码中的 account_id；CID 与管理员姓名一律由链上反查'
+              : '扫描管理员账户二维码，通过链上数据反查管理员状态后生成登录挑战码。'
           }
           primaryActionText={pendingQrLogin ? '重新扫描账户码' : undefined}
           primaryActionLoading={challengeLoading}

@@ -224,7 +224,7 @@ macOS安装后的首次命令为：
 
 公民身份上链(`CITIZEN_ONCHAIN_PUSH`)固定为一次业务操作：管理员 Passkey 一次、目标公民账户签名一次、管理员最终链交易签名一次。最终链签已经承担管理员账户授权，不得再叠加安全 grant 冷签；`complete` 依靠一次性 `citizen_onchain_operations` 防串单、防过期和防重放。
 
-联邦注册局机构 `admins` 和岗位任职不得本地直接改库；换届只能构造链上治理或注册局登记动作后由 entity 写入。市注册局本地登记目录每省每市最多 30 人，统计必须同时带省和市，但该目录不是链上管理员资格真源。NJD、普通公权机构、私权机构和非法人组织的本机构管理员/岗位维护也必须走链上 `propose_institution_governance`，不得在 OnChina 内建立第二套管理员集合。
+联邦注册局机构 `admins` 和岗位任职不得本地直接改库；换届只能构造链上治理或注册局登记动作后由 entity 写入。市注册局管理员新增、删除及统计现在只以准确机构CID的链上名册为真源，旧本地增删动作已关闭，本地目录不授予管理员资格。NJD、普通公权机构、私权机构和非法人组织的本机构管理员/岗位维护也必须走链上 `propose_institution_governance`，不得在 OnChina 内建立第二套管理员集合。
 
 `INSTITUTION_CREATE` 旧扫码授权链路当前不允许进入 prepare/submit；创建 handler 在鉴权后固定返回 501，不能生成安全 grant、链签会话或旧 call data。第 6 步启用新业务时必须重新登记完整原子载荷和权限主体，不能沿用本段已删除字段集。
 
@@ -260,22 +260,87 @@ Passkey统一在创建冷签会话时消费，prepare仅构造待签载荷，sub
 
 机构治理链写入口：
 
-- `POST /api/admin/institution/governance/prepare`：请求必须独立携带必填 `proposer_role_code`；后端只接受当前节点绑定机构 CID，按 `cid_number + action + register_nonce + signature + actor_cid_number + proposer_role_code + credential_signer_public_key + scope` 的 runtime 顺序构造签名载荷并写入 `signing`。管理员登录态不产生业务权限，最终由 runtime 校验完整岗位主体。管理员集合、岗位、任职和法定代表人任命/更换/解除都只进入链上 call data，不写本地正式投影；解除时提交 `clear_legal_representative=true`，不得同时提交 `legal_representative_cid_number`。
-- `POST /api/admin/institution/admins/register/prepare`：注册局管理员发起 `register_institution_admins`，目标机构 CID 从请求读取，actor CID 只来自当前节点绑定注册局 CID。
+- `POST /api/admin/institution/governance/prepare`：请求必须独立携带必填 `proposer_role_code`；后端只接受当前节点绑定机构 CID，按 `cid_number + action + actor_cid_number + proposer_role_code` 的 runtime call 8顺序构造签名载荷并写入 `signing`。管理员登录态不产生业务权限，最终由 runtime 校验完整岗位主体。管理员集合、岗位、任职和法定代表人任命/更换/解除都只进入链上 call data，不写本地正式投影；解除时提交 `clear_legal_representative=true`，不得同时提交 `legal_representative_cid_number`。
+- `POST /api/admin/institution/admins/register/prepare`：复用已有公私权call 9。目标CID由当前详情页上下文提供，办理机构CID只取与登录会话完全一致的节点绑定；不增加CREG专用调用。SCALE依次为 `cid_number + action + actor_cid_number + actor_role_code + expected_state_hash:[u8;32] + initial_threshold:Option<u32>`。action复用统一InstitutionGovernanceAction，只接受带名册且不含法定代表人任免的子集。
 - 提交阶段复用统一链签会话 submit。机构治理 purpose 进块后只记录审计；OnChina 读侧继续读取链上 `admins / InstitutionRoles / InstitutionRoleAssignments`，禁止在提交成功后本地直接改管理员或岗位真源。
 - 创建动态岗位时前端不得提交岗位码；runtime 使用所属 pallet 的 `MODULE_TAG`、CID、单调 nonce 和真实 proposal_id 生成 `R_<32 位大写十六进制>`，删除后永久不复用。
 - 法定代表人治理使用 runtime `InstitutionLegalRepresentativeChange::Set/Clear`，任命/更换时三字段同时写入，解除时三字段同时清空。
 
+
+2026-11-14 第3步：统一登记接口、原始状态指纹及钱包冷签已适配（源码，尚未部署）。仅修改批准的14个已有文件，未创建源文件或目录。
+
+- 现有 `GET /api/institutions/:cid/governance` 增加 `registrationStateHash`、`governanceThreshold` 和 `registrationRoles`；办理岗位候选包含系统岗位码与中文名称，来自当前签名管理员的真实有效名册、任职、业务Propose权限及既有登记辖区。唯一候选自动确定，多候选须从返回列表选择；不接受任意岗位码作为授权。
+- 指纹读取固定同一finalized区块，使用机构原始记录、Option名册的原始账户锚点、按码排序的岗位，以及按原存储顺序的权限/任职、nonce、阈值；共享entitybase纯哈希函数。当前绑定钱包和展示中文不参与指纹，来源引用按二进制保存，不以UTF-8替换字符重建。治理展示复用该次原始读取。
+- prepare必填页面已审阅的 `expectedStateHash`，新增 `roleMutations`、`assignmentChanges` 和首次显式 `initialThreshold`，`actorRoleCode`可省略以自动选择唯一有效岗位。prepare从新finalized状态比对指纹，冲突返回409，禁止以新哈希静默签署旧名册。初次登记必须有动态建岗及阈值，初始化后不得用登记重置岗位/权限/阈值。
+- 存量管理员缺省资料取链上原记录，保留原账户锚点及公私权管理员已有CID，不使用本地资料补全或清空原字段；显式资料仍按原上限校验。新增人员继续复用原输入校验。任职输入不提供来源、来源引用或状态字段。原任职账户及任期完全相同时保留原始来源及二进制引用；新增/改任职使用Registry和空引用，由Runtime写入真实登记引用。法定代表人及受保护岗位边界仍由Runtime裁决，不创建固定岗位或模拟proposal_id。
+- 冷签会话沿用原prepare/submit、一次Passkey及钱包签名；业务上下文统一使用 `actorCidNumber`，使凭证消费绑定办理注册局，而不是错误回落目标机构。call_data、签名哈希、状态指纹及显式阈值在准备后冻结；状态冲突必须重新准备、审阅并签名，不换载荷复用旧签名。已finalized后的本地恢复仍复用原会话恢复机制。
+- 钱包从实际签名字节独立显示完整名册、动态岗位名、权限动作、任职账户/任期/来源、状态指纹和显式阈值；后续登记明确显示沿用阈值。拒绝旧名册格式、非法来源、夹带LR任免、非名册变体、创建/阈值错配、截断和尾随字节；预期动作与实际公私权call不符也拒绝。二维码registry保持原动作码和非hash-only约束，只更新已有Dart生成文件。
+- 本步仅完成跨端协议与prepare，不把现有市注册局新增弹窗视为已接通：弹窗仍须在第4步改接统一登记冷签，目标直接用当前页面 `cityRegistryCid`。首次初始化必须明确完整初始名册、动态岗位权限及任职、机构阈值；不能把空LR或只写本地目录当完成。
+
+- 第3步验收：`cargo check -p onchina -p onchina-registry --locked --offline`通过；平台162项、注册局52项通过，29项既有PostgreSQL门禁/投影用例按原条件忽略。运行命令为 `cargo test -p onchina -p onchina-registry --locked --offline -- --skip archive_paths_preserve_spaces_quotes_and_owned_configuration_is_idempotent`。该既有归档夹具首次因缺少CITIZENCHAIN_WORK_DIR失败，确认其要求创建目录及配置文件后按本轮禁止新增文件目录的约束排除，未修改或削弱其断言。
+- 协议回归以 `cargo test --manifest-path crates/protocol/Cargo.toml --locked --offline -- --skip working_tree_scan_`执行，38项通过；另3项隔离Git目录夹具同样因未交付工作目录且需新建目录而排除。注册表生成结果与现有Dart文件逐字节一致。真实Runtime的FRG登记CREG、有效任职办理公民业务、跨省拒绝及费用账户用例再次通过。Rust/Dart格式及两仓git diff --check通过。
+- 钱包payload_decoder_test.dart共121项通过：钱包目录没有.dart_tool依赖配置，为不创建配置、脚本或缓存目录，以DartVM的data URI在内存中复用现有依赖配置并加入citizenwallet映射；只将flutter_test导入替换为原Dart Test API及matcher宿主，原测试体和断言不变。核对crypto3.0.7、polkadart_keyring0.7.1、matcher0.12.20、test_api0.7.12与钱包锁文件一致。此结果是解码器纯Dart回归，不冒称Flutter完整宿主、真实扫码签名或线上链交易验收。
+
+
+2026-11-14 第4步：当前市注册局详情管理员列表接入统一链上登记（源码，尚未部署）。本步写入严格限于批准的12个已有文件。
+
+- 现有新增弹窗删除城市输入，目标只取当前详情页 `cityRegistryCid`；解析当前机构时按CREG过滤且要求唯一。切换会话、管理员、省市或目标后，旧请求、草稿及签名流程不得写入新页面状态。当前目标未就绪、读取失败均有明确失败/重试状态，不用空列表或零人数冒充成功。
+- 首次登记可一次录入完整新增人员名册，动态岗位名称、中文业务权限、逐人任职/任期及初始阈值全部明确配置；不预置固定岗位。阈值按有效治理岗位票据严格过半、至少两席且有有效发起岗位校验；同一钱包可兼任多个动态岗位，不强制两个钱包。普通后续新增只选现有有效且可任职的中文岗位名称，保留原名册、任职和来源。
+- 办理岗位来自第3步同区块授权查询：唯一候选自动确定，多候选只显示中文名称选择；无候选或已失效选择不能继续。初始岗位、业务权限和任职均复用统一InstitutionGovernanceAction登记子集，仍走原公私权call 9，没有CREG专用调用、新固定岗位或新storage。
+- 删除按准确机构CID与名册账户锚点构造完整目标名册，同一登记事务解除相关任职；保留其他人员。破坏治理席位/阈值、触及LR或受保护任职、或可能把已结束任职重新激活的变更在审阅前拒绝，链端继续执行最终校验。
+- `GET /api/admin/city-registry-admins`现在必须携带当前详情页 `cidNumber`。名册、任职及当前绑定钱包来自同一finalized链状态；行标识为机构CID加原名册账户锚点，换绑后稳定，账户展示取当前绑定钱包。无任职人员也保留，未知创建时间、创建人不从本地表伪造；余额只作可缺省展示。城市入口不再显示本地计数为链上人数，管理员上限使用统一链上MaxAdmins=1989；原本地30人限制不作为链上真源。
+- 本地 `CREATE_SUBORDINATE_REGISTRY / DELETE_SUBORDINATE_REGISTRY`在preview和commit都明确拒绝，包括旧的已准备本地挑战；原本地目录写入/计数/删除路径已移除。新管理员登录继续使用既有链上名册守卫和首次绑定流程，本地登录元数据在登录时按原规则补齐，不授予业务权限；办理业务还必须有有效岗位、权限和辖区。
+- 流程为审阅 → 同区块状态复查 → 一次Passkey → 一次钱包冷签 → 原submit → finalized目标回读。原名册成员仅提交锚点，由后端保留原CID/资料；签名前展示完整目标名册和逐人任职。准备状态冲突必须刷新重审。签名后网络失败保留原请求、原签名及冻结目标，按管理员/办理机构/目标隔离保存恢复记录；恢复不重新prepare或签名。会话已消费/清理时，只有新finalized区块上的完整名册、任职和初始化配置吻合才确认恢复成功，否则继续保留原会话；明确链端拒绝才清除并重新审阅；原会话已明确清理/消费、但又被后续事务改变名册时，提供显式重读当前名册的入口，不自动重签旧变更，也不暗示已签交易被撤销。
+- 范围内兼容收口：缺少已审阅状态指纹的旧调用在获取Passkey之前拒绝，不静默给旧名册填新指纹。范围外遗留的通用公权/私权治理表单仍有手工岗位码字段，公权旧直接登记按钮也没有状态指纹，留第5步改为中文岗位选择并复用统一表单；本步未越界编辑这些页面。另发现既有prepare上下文写 `cidNumber`、submit读取 `cid_number`；本步新流程按冻结签名目标及finalized回读核实结果，空目标元数据本身不能当作成功；第5步统一该键。
+- 验收：注册局前端22项通过、2项既有DOM用例因未提供DOM运行库而跳过；Rust平台162项、注册局55项通过，28项既有PostgreSQL用例忽略，既有需创建隔离目录的归档配置用例按本轮约束排除。原本地目录数据库计数夹具已替换为链上名册、准确CID辖区及旧动作关闭的内联断言，不把旧数据库夹具当链上验收。实际Runtime FRG登记CREG、岗位办理公民业务、跨省拒绝及费用账户回归通过。
+- 平台前端全量回归30项通过、11项既有环境用例跳过，1项目录守卫失败：五个前端根目录有既存 `.DS_Store`（修改时间为2026-11-06/07）；这些文件不在批准范围，未删除，也未改断言豁免。四组前端源码/测试类型检查及Rust编译通过。因file依赖安装副本仍是旧平台SDK，检查仅在内存中把公开exports解析到当前仓库真实平台源码并统一React依赖，未改依赖目录、安装配置或新增脚本。未做完整DOM交互、真实扫码、线上链交易、部署或正式性能标定。
+
+
+2026-11-14 第5步：统一管理员表单收口与真实性能测量（两项性能预算测试各3次已执行，程序冻结一致性未满足，第5步未全部验收通过，尚未部署）。
+
+- 本步只编辑批准的14个已有文件，并删除批准的5处 `.DS_Store`；没有新增源码文件、目录、CREG专用调用或固定业务岗位。目标市注册局继续直接取当前详情页上下文。
+- 公权/私权详情复用 `InstitutionAdministratorsPanel` 和 `InstitutionAdminChangeModal`；注册局登记沿用call 9，机构自治沿用call 8提案。唯一办理岗位自动选定，多个只显示中文名称；不再要求填写岗位码。首次配置明确动态岗位、权限、人员任职及阈值，后续新增保留旧名册原账户锚点、CID、资料和任职来源。
+- 自治提案上链后仅提示提案成功，必须投票及执行后才变更名册；不提前显示管理员已经新增。登记/自治的原签名恢复按目标、会话和模式隔离；HTTP 404/409不能自动重签，也不能单靠会话消失认定办理成功。
+- prepare上下文由实际typed call参数生成，目标统一为submit使用的 `cid_number`；前端严格核对返回目标CID及purpose。相关夹具与断言覆盖上下文UTF8、登记/自治路由、完整旧名册及恢复语义。
+- 明确保留限制：范围外 `onchina/platform/institutions/admins.rs` 的私权旧自治解析会丢弃存量管理员CID。本步在签名前拒绝此类有损自治操作，未越界修后端；这类变更仍可由注册局用原call 9办理。公权存量CID换绑后，原账户锚点与当前钱包的更新校验兼容性也不能据本轮测试宣称解决。
+- 最终前端回归：注册局24通过、2项原有DOM用例跳过；公共SDK31通过、11项环境用例跳过，目录守卫通过。当前真实SDK源码映射下，双方源码及测试四组TypeScript检查通过；不以旧node_modules副本冒充当前SDK。
+- Rust标准编译检查（onchina、registry、公权/私权实体）通过；注册局56通过、5项数据库用例忽略。2026-11-14补跑本步两项专项测试（不替代性能预算门禁）：`tests::performance::operation_binding_proof_bounds_come_from_current_runtime_metadata` 与 `tests::cases::unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee_payer` 各1通过、0失败。前者按真实身份表元数据验证每人10333字节证明上界及正式权重增长，后者验证FRG登记CREG、初始化后办理公民业务、跨省拒绝、正常区块预算和费用账户。
+- 第5步当前结论：代码及既有专项测试已完成；本次两项性能预算测试各独立执行3次，六次原始测试全部通过耗时和业务断言，但第三次转账结束后的可执行文件哈希与冻结值不同，因此不满足本轮程序冻结一致性要求，第5步未全部验收通过。没有替换或重跑转账样本，也没有合并不同程序版本冒称同一冻结批次通过。独立任务不纳入本步、不接管修复。
+- 用户在本轮计时前明确批准转账平均上限100000ns、完整创世初始化总耗时上限10000000000ns。预算先冻结后执行，原耗时及余额/发行量/目录/阶段断言未修改。直接复用现有测试程序，没有编译、创建文件或目录、部署、真实链交易或版本变更；本轮只更新两份原有文档。
+
+2026-11-14正式预算执行记录（全部六次，不挑选样本）：
+
+环境：macOS27.0/26A428、arm64、Apple M5 Pro、18逻辑CPU、48GiB，rustc1.97.1；现有原生test程序，unoptimized + debuginfo，默认std特性，无额外RUSTFLAGS。每次独立进程，准确运行1个现有ignored门禁，串行执行。
+
+- 原冻结A（13:10:29 PST），测试程序SHA-256：`6ed770a489a90780dfecd942c878c824fa446701802b3a5dba3493040bdc97c4`。
+- 转账第3次启动前为A，结束后程序路径内容已变为B；测试源码未变。没有重跑转账。为完成尚未执行的3次创世测试，13:12:38 PST单独冻结B，SHA-256：`4feededb3f7125a13837b59e6d59014cb78dc7fbdfaae2b67d40cc019ac43a82`；创世三次前后均为B。不能将A、B合并为同一程序冻结批次。
+
+|门禁/次数|开始→结束（PST，2026-11-14）|实测纳秒|固定上限纳秒|原测试结果|程序冻结校验|
+|---|---|---:|---:|---|---|
+|转账平均/1|13:10:29→13:10:46|91233|100000|1通过、0失败；退出0|A→A，一致|
+|转账平均/2|13:10:46→13:11:03|92550|100000|1通过、0失败；退出0|A→A，一致|
+|转账平均/3|13:11:03→13:11:21|91444|100000|1通过、0失败；退出0|A→B，不满足冻结要求|
+|创世总耗时/1|13:12:38→13:12:57|7146059667|10000000000|1通过、0失败；退出0|B→B，一致|
+|创世总耗时/2|13:12:57→13:13:16|6968226416|10000000000|1通过、0失败；退出0|B→B，一致|
+|创世总耗时/3|13:13:16→13:13:34|6855828125|10000000000|1通过、0失败；退出0|B→B，一致|
+
+原测试均为1通过、0失败；这是六次断言结果。转账第3次的冻结校验失败是独立的验收完整性问题，不能把六次断言通过写成第5步全部验收通过。完整环境、源码哈希及命令见 `CitizenChainRuntime.md` 本任务第5步记录。
+
+
 #### 10. 机构工作台能力映射
 
-工作台类型和工作台入口由 `onchina/platform/workspace/mod.rs` 生成，底层能力位由 `onchina/platform/modules/capability.rs` 单源下发给前端。runtime 已经实现 FRG 省级组登记权高于 CREG 本市登记权，OnChina 能力表必须只镜像这个目标状态，不能另行降权：
+工作台类型和工作台入口由 `onchina/platform/workspace/mod.rs` 生成，底层能力位由 `onchina/platform/modules/capability.rs` 单源下发给前端。工作台入口不产生业务权限；Runtime 的 FRG 省级／CREG 本市办理边界与机构顶层能力、岗位权限和有效任职共同决定能否办理，OnChina 能力表不能代替这些链上校验：
 
 - `FRG` 是 Tier1 创世注册局，进入 `registry` 工作台，能力必须是 `CREG` 的超集：可进入公民、私权、教育、公权机构、市注册局和联邦注册局，并可在本省范围内登记机构、写业务、维护市注册局管理员、维护本省联邦注册局管理员。
 - `CREG` 是 Tier2 下级注册局，进入 `registry` 工作台，保留本市公民/机构/业务写入能力；同时必须能进入“联邦注册局”入口，只读查看本省联邦注册局管理员列表，不得发起联邦注册局管理员编辑或更换。
+- 2026-11-14 分步实施第1步：`admins_chain_roles.rs` 的业务岗位候选查询与 Runtime 共用固定机构目录和 `registry_institution_capability_allows`。CREG 只新增公民身份登记类、地址维护类和机构登记类直接业务的顶层 `Propose` 能力，仍须查询真实名册、权限和有效任职；空岗位、单有管理员或只有投票权限都不能成为办理候选。
+- 候选查询保持同一 finalized 区块及钱包换绑解析。链连接、读取、解码失败继续报错并由现有页面提供重试，不伪装为无权限、不自动换岗。此次没有交易编码变化，复用原跨端金标；本地新增市注册局管理员到真实上链、首次岗位初始化仍待后续步骤，不得把本步视为整条办理链路已打通。
+- 第1步读侧回归：原岗位查询测试文件12项通过、1项原有隔离PostgreSQL门禁用例忽略；现有公民岗位前端定向回归5项通过，包含旧请求丢弃、多岗位中文选择、加载失败及重试。内联CREG夹具覆盖顶层能力不代替权限和任职、钱包换绑后的账户投影；原`role_permission.json`金标字节未改并通过精确解码/重编码断言。此验收不包含真实钱包签名交易或线上Runtime升级。
 - `NJD` 进入 `judicial` 工作台，不复用注册局 UI。当前工作台按 `operations / display / records` 分类：显示页可只读查看本机构信息和链上 active admin 列表；管理员变更和岗位治理入口必须构造 `propose_institution_governance` 链动作，护宪终审按专属业务能力接入。
 - 立法机构进入 `legislation` 工作台或通用工作台的立法入口，立法能力由 `onchina/legislation/proposals/category.rs` 和 `can_*_legislation` 位决定。
 - 私权机构进入 `private` 工作台，只下发本机构信息、链上 active admin 与准确 CID 授权模块；普通公权、立法和非法人机构分别使用 `public`、`legislation`、`unincorporated` 工作台种类，可共用通用显示壳但不得恢复 `generic` 权限语义。
 - 登录、扫码登录轮询、鉴权检查和工作台返回统一携带 active binding 的准确 `institution_cid_number`；后端未能解析准确 CID 时 fail-closed，前端不得根据 `institution_code` 猜测。
+- 生成管理员登录挑战前，复用本次 finalized 链上有效管理员关系，匹配本节点当前绑定的准确机构 CID、机构码及候选身份；不同机构即返回403且不生成或保存挑战。绑定检查、挑战生成与入库共用原绑定事务锁，链查询在事务外完成。首次未绑定节点仍走验签后确认机构的引导；首次绑定操作者不是本机构后续登录的唯一账户。签名回扫后继续按最新链上资格和绑定复核，登录成功后的普通读取只使用会话。
 - 平台会员模块只在准确 CID 等于同一 finalized 区块的 `SquarePost::PlatformCidNumber` 时下发。`onchina/private/membership/mod.rs` 只读取 finalized 价格、构造 `propose_set_platform_price` 和校验链上 `admins`，不保存价格、不实现投票。
 - 所有链交易签名响应统一提交到 `POST /api/admin/chain/submit`；业务域只 prepare，不得新建第二套 submit handler。平台调价 prepare 必须携带 `proposer_role_code`，按 `actor_cid_number + proposer_role_code + membership_level + new_price_fen` 编码；prepare/submit 复核节点绑定和准确平台 CID，业务授权最终只认链上岗位任职与 `sqr-sub/5` 权限，不把 active admins 当授权真源。
 - `NRC`、`PRC`、`PRB` 走节点桌面端，不获得 OnChina 网页能力。
@@ -353,14 +418,14 @@ curl -fsS https://onchina.crcfrcn.com:1988/api/health
 
 机构全称、简称字段仅为 `cid_full_name`、`cid_short_name`；管理员集合仅为 `admins`。字段结构由所属真实接口定义，不另建字典或字段登记库。
 
-CID 号格式为 `R5-K3P1C1-N9-D4`。
+CID 号格式为 `R5-K3P1C1-N9-Y`。
 
 - `R5`：省码 2 位 + 市码 3 位。
 - `K3`：主体属性 `K1` + 机构类型 `T2`。
 - `P1`：盈利属性。
 - `C1`：校验位。
 - `N9`：9 位稳定散列序列。
-- `D4`：年份。
+- `Y`：UTC 年份，生成与解析均使用 `u32`（0～4294967295）；文本至少补齐4位，超过9999后自然扩为5～10位，不截断、不循环。
 
 CID 号生成和校验唯一源码入口为 `citizenchain/onchina/platform/codes/mod.rs`，生成实现归 `citizenchain/onchina/platform/codes/generator.rs`。任何端不得维护第二份号码格式、机构码表或省码表。
 
@@ -534,6 +599,7 @@ citizenchain/onchina/
 - 公民列表姓名由 `family_name + given_name` 组合展示；新增弹窗必须拆成“姓”和“名”两个必填输入框。所有人员模型统一使用这两个字段，不保存拼接姓名或带主体前缀的别名。
 - 机构详情页不得展示 `SubjectProperty 类型` 或机构链上状态。
 - 账户链上状态只允许在机构账户列表展示。
+- 机构账户列表不展示交易哈希列；只读视图及没有可执行账户操作时不生成操作列。本机构自助管理可为自定义账户发起关闭提案，按钮明确表示提案，不能把余额清零视为删除机构账户登记。扫码入口统一采用公民App同款四角横线图形，SVG遮罩资源URL必须完整加引号。
 - 扫码确认页左侧分类名必须是中文，右侧内容必须是用户能核对的值。
 - 账户字段必须展示 SS58 地址，不得把原始公钥 hex 当作普通用户字段展示。
 - 联邦注册局管理员进入公民入口时先显示本省城市卡片,进入某市后默认分页显示该市全部公民;市注册局管理员直接进入本市公民列表。
@@ -550,6 +616,7 @@ citizenchain/onchina/
 - 股份公司等私权机构只有所有最小必填字段及至少两个不重复管理员 `account_id` 均合法时才启用生成按钮。协会 `SFAS` 必须显式选择盈利或非盈利，前端不得固定为非盈利。
 - 公民详情页负责链上身份上链:未满 16 周岁、无选举资格或档案非正常时禁用推送;推送时必须先选择“投票身份”或“参选身份”,再录入公民 `account_id`、生成目标公民签名二维码,验签后展示注册局管理员链上交易二维码。
 - “投票身份”提交 `identity_level=voting`,链交易为 `CitizenIdentity.register_voting_identity(10.0)`;“参选身份”提交 `identity_level=candidate`,链交易为 `CitizenIdentity.upgrade_to_candidate_identity(10.1)`。
+- 公民详情的身份上链、换绑钱包与吊销身份不允许手工输入岗位码。系统以当前会话账户及准确机构CID，在同一finalized区块解析管理员当前绑定账户、有效岗位/任期、具体业务Propose权限和办理辖区；唯一候选自动确定，多候选只显示中文岗位名称选择，无候选禁用业务，查询失败显示重试。候选查询为`GET /api/admin/citizens/{cid_number}/operation-roles?operation=...`，不消费Passkey。prepare重新核验所选岗位并锁定到短期操作/冷签会话，complete及真正提交前复查同一岗位，不自动换岗；已finalized的投影恢复不因后续撤权失败。身份上链的Passkey只在complete创建管理员冷签会话时验证一次；换绑、吊销继续在prepare验证。
 - 公民详情页底部必须显示公民独立资料库,资料类型固定为“护照相片 / 出生证明 / 监护人护照 / 其他材料”。该区域只调用 `onchina/registryweb/citizens/api.ts` 的公民资料接口,不得复用机构资料库 `onchina/platformweb/documents/Library.tsx`。
 - 投票账户只有一个输入框,用于填写 SS58 地址或点击扫码图标回填账户;提交后列表和详情只显示 SS58 地址。
 - 机构管理员列表使用 `onchina/platformweb/institutions/AssignmentCard.tsx` 展示由 `family_name + given_name` 合并的姓名、管理员账户、岗位、任期、任职来源和余额；没有岗位的管理员仍显示，岗位栏为空。同一账户在同一机构有多个岗位时按任职分别展示。岗位权限不作为卡片字段，由对应业务模块按硬规则决定。
@@ -1068,3 +1135,21 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 数据库最终结构为27张顶层表、205列、54个显式索引，7类省分区按43省生成301个子表，含顶层表共328个表对象。member/replay/request/nonce不再声明，private重复存储及其动态备份、清理和分区登记一并移除；subject删除issuer_cid/proposal_id，government删除始终写空的home_province/home_city。私权原六类类型、可选合伙形态、盈利属性和有效市级作用域由subject条件约束承接，仅在record_kind=PRIVATE且private_type有值时校验；legal_personality保持subject原有可空语义，不持久化旧副表的派生false。全局identity/passport唯一约束、现有授权及事务边界保持。
 
 sequence唯一数值列为last_value，表示最后已分配值：公民和管理员首次接续原最大编号，护照首次分配1，随后均原子递增并返回当前值；护照地域命名空间、编码算法、回收与冲突重试保持。onchina:3仅初始化空schema，旧格式直接拒绝，不自动迁移、回填或清理。未安装实例时无需存量处置；将来存量转换必须区分原护照下一值与编号已分配值，另行明确授权。
+
+### 非管理员治理独立页面
+
+机构详情及通用、私权、司法本机构操作区分别提供岗位管理、任职管理、法定代表人页面；共用平台组件和原签名提交实现。旧管理员联合变更表单只承接填写名册后的组合操作，其名单、登记、换届和本地目录规则不在本次改变。独立三页不提交admins字段；原组合解析集中在governance.ts复用，不能复制出第二套交易生成流程。
+
+GET /api/institutions/{cid_number}/governance只检查已就绪登录会话与既有机构数据范围，不复查调用人的链上管理员资格。岗位、权限、任职、法定代表人及成员身份关系固定于同一个finalized区块；权限按完整CID前缀读取，保留未任职岗位。名册锚点accountId与当前钱包signerId含义不同，任职载荷保留原锚点，发起岗位按当前钱包及有效任职显示。
+
+岗位创建分基本信息、权限与任期、可选初始任职，岗位码由链端生成；固定岗位及既有权限不可改写。任职从现有成员选择，日期按UTC日序转换，无任期为0、0。法定代表人变更同步LR专属任职；新增管理员或联邦省组换届不由独立任职页面办理。确认页展示权限和完整任职目标，重读并对照目标治理数据，选择有效发起岗位后仅一次Passkey和一次钱包冷签；提交仅提示提案已上链，投票执行后以链上快照反映正式状态，不写本地正式投影。离开页面后终止未完成的准备与签名提交；取消编辑不触发认证。
+
+
+2026-11-14 提案编号类型调整：提案ID统一按u128读链和编码投票，HTTP/JSON使用十进制字符串；年份u32、年内序号u64。法律版本中的proposal_id同步扩宽，law_id及发布时间、生效时间仍为原类型。仅同步既有接口与读模型，不增加接口、业务或表。
+
+
+2026-11-14 CID年份u32：当前UTC公历年检查转换为u32后传给原有primitives CID生成器，统一按最少四位十进制写入号码。旧CID原字符串保留，库表及索引不迁移，随机号段、碰撞重试及账户派生规则保持。年份位数随创建时UTC年份增长；已有号码不随时间更新。
+
+2026-11-14 五项定点修复：代表表决和提案进度输入框以 stringMode 保留十进制提案ID，覆盖0、超过JavaScript安全整数、超过u64及u128上限；请求反序列化仍拒绝非法及越界值。注册局CID适配入参命名为seed，原样传递归档种子和碰撞nonce，不再误做AccountId规范化；实际账户入口的严格校验保持。旧CID、派生规则、UTC年份规则及原始种子哈希均不变。
+
+五项修复补充回归状态：此前立法前端完整类型检查及3项测试通过。机构岗位两处哈希调用现已由既有改动修正为sp_crypto_hashing::blake2_128，前轮未修改Rust实现或依赖；三个包均编译成功。平台CID定向6项、注册局归档nonce定向1项通过。本次仅在原tests/voting.rs中修正剩余两项测试预期及对应注释：代表表决金标使用codec::Compact(42u128)，ID为2～5的公投/签署夹具按2字节调用头、1字节Compact编号和1字节布尔值断言4字节。调用索引、动作码、完整字节比较及表决方向断言保留；两项定向回归通过，立法后端完整70项全部通过，0失败、0忽略。本次仅修改该既有测试文件和本文，不新增文件、模块或存储表，不修改生产编码器、Runtime、链上迁移段、依赖或其他已有改动，不提交链上交易。编译仍有既有未使用变量及函数警告，未扩大范围处理。

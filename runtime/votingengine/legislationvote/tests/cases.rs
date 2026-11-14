@@ -6,7 +6,7 @@ use crate::{
     Error, RepresentativeVoteRule,
 };
 use frame_support::{assert_noop, assert_ok};
-use votebase::{
+use engingcore::{
     STAGE_LEG_CONSTITUTION_GUARD, STAGE_LEG_OVERRIDE, STAGE_LEG_REFERENDUM,
     STAGE_LEG_REPRESENTATIVE, STAGE_LEG_SIGN, STATUS_EXECUTED, STATUS_REJECTED, STATUS_VOTING,
 };
@@ -89,7 +89,7 @@ fn referendum_threshold() {
     assert!(!primitives::constitution::referendum_passed(100, 48, 22)); // 参与70,赞成48/70≈68%<70%
 }
 
-fn regional_actor_cid(institution: &str) -> votebase::CidNumber {
+fn regional_actor_cid(institution: &str) -> engingcore::CidNumber {
     primitives::cid::generator::generate_cid_number(
         primitives::cid::generator::GenerateCidNumberInput {
             public_key: "legislation-scope-test",
@@ -98,7 +98,7 @@ fn regional_actor_cid(institution: &str) -> votebase::CidNumber {
             province_name: "广东省",
             city_code: "002",
             city_name: "测试市",
-            year: "2026",
+            year: 2026,
             institution,
         },
     )
@@ -112,12 +112,12 @@ fn regional_actor_cid(institution: &str) -> votebase::CidNumber {
 fn special_population_scope_is_derived_only_from_actor_cid() {
     assert_eq!(
         Lib::population_scope_for_actor(*b"NRP\0", &actor_cid_number()).expect("NRP is national"),
-        votebase::PopulationScope::Country
+        engingcore::PopulationScope::Country
     );
 
     let province_actor = regional_actor_cid("PRP");
     match Lib::population_scope_for_actor(*b"PRP\0", &province_actor).expect("PRP is provincial") {
-        votebase::PopulationScope::Province(province_code) => {
+        engingcore::PopulationScope::Province(province_code) => {
             assert_eq!(province_code.as_slice(), b"GD")
         }
         _ => panic!("PRP must derive province scope"),
@@ -125,7 +125,7 @@ fn special_population_scope_is_derived_only_from_actor_cid() {
 
     let city_actor = regional_actor_cid("CSLF");
     match Lib::population_scope_for_actor(*b"CSLF", &city_actor).expect("CSLF is municipal") {
-        votebase::PopulationScope::City(province_code, city_code) => {
+        engingcore::PopulationScope::City(province_code, city_code) => {
             assert_eq!(province_code.as_slice(), b"GD");
             assert_eq!(city_code.as_slice(), b"002");
         }
@@ -146,12 +146,12 @@ fn representative_only_finishes_without_law_procedure() {
             vote_plan,
             route,
             RepresentativeVoteRule::Regular,
-            votebase::types::ProposalSubjectCidNumbers::new(),
+            engingcore::types::ProposalSubjectCidNumbers::new(),
             b"personnel",
             vec![1],
         )
         .expect("representative-only proposal");
-        assert!(votebase::ProposalPopulationSnapshots::<Test>::get(pid).is_none());
+        assert!(engingcore::ProposalPopulationSnapshots::<Test>::get(pid).is_none());
         // 发起人属于当前机构，创建时已经自动投下第一张赞成票。
         for i in 2u8..=7 {
             assert_ok!(cast(member(i), pid, true));
@@ -175,7 +175,7 @@ fn representative_only_rejects_special_rule() {
             vote_plan,
             route,
             RepresentativeVoteRule::Special,
-            votebase::types::ProposalSubjectCidNumbers::new(),
+            engingcore::types::ProposalSubjectCidNumbers::new(),
             b"personnel",
             vec![1],
         );
@@ -277,7 +277,7 @@ fn double_vote_rejected() {
                     .expect("test role fits"),
                 true,
             ),
-            votebase::Error::<Test>::AlreadyVoted
+            engingcore::Error::<Test>::AlreadyVoted
         );
     });
 }
@@ -297,7 +297,7 @@ fn non_member_cannot_vote() {
                     .expect("test role fits"),
                 true,
             ),
-            votebase::Error::<Test>::NoPermission
+            engingcore::Error::<Test>::NoPermission
         );
     });
 }
@@ -316,10 +316,10 @@ fn create_requires_actor_cid_admin_even_when_vote_route_is_valid() {
                 route,
                 RepresentativeVoteRule::Regular,
                 crate::VoteProcedure::Legislation,
-                votebase::types::ProposalSubjectCidNumbers::new(),
+                engingcore::types::ProposalSubjectCidNumbers::new(),
                 meta,
             ),
-            Err(votebase::Error::<Test>::NoPermission.into())
+            Err(engingcore::Error::<Test>::NoPermission.into())
         );
     });
 }
@@ -327,7 +327,7 @@ fn create_requires_actor_cid_admin_even_when_vote_route_is_valid() {
 // ───────────────── 两院顺序 + 签署 + 三人会签 ─────────────────
 
 /// 两院全过后推进至行政签署阶段(辅助):返回处于 STAGE_LEG_SIGN 的提案。
-fn two_houses_passed_to_sign() -> u64 {
+fn two_houses_passed_to_sign() -> u128 {
     let pid = create(member(1), two_houses(), RepresentativeVoteRule::Major);
     for i in 1u8..=8 {
         assert_ok!(cast(member(i), pid, true));
@@ -465,7 +465,7 @@ fn special_case_advances_to_referendum_then_passes() {
         // 特别案创建时由投票引擎内联生成全国人口快照，分母 100。
         let pid = create(member(1), single_house(), RepresentativeVoteRule::Special);
         assert_eq!(
-            votebase::ProposalPopulationSnapshots::<Test>::get(pid)
+            engingcore::ProposalPopulationSnapshots::<Test>::get(pid)
                 .map(|snapshot| snapshot.population_data.eligible_total),
             Some(100)
         );
@@ -487,7 +487,7 @@ fn special_case_advances_to_referendum_then_passes() {
             cast_referendum(pid, i, false);
         }
         // 期满结算(本入口不提前判定)。
-        let p = votebase::pallet::Proposals::<Test>::get(pid).unwrap();
+        let p = engingcore::pallet::Proposals::<Test>::get(pid).unwrap();
         System::set_block_number(p.end + 1);
         finalize_referendum(pid);
         assert_eq!(status(pid), STATUS_EXECUTED);
@@ -506,7 +506,7 @@ fn legislation_referendum_rejects_votes_beyond_population_snapshot_denominator()
         }
         crate::pallet::LegReferendumTally::<Test>::insert(
             pid,
-            votebase::VoteCountU64 { yes: 70, no: 30 },
+            engingcore::VoteCountU64 { yes: 70, no: 30 },
         );
 
         assert_noop!(
@@ -537,13 +537,13 @@ fn legislation_referendum_deduplicates_permanent_cid_after_account_id_replacemen
         assert_ok!(Lib::do_cast_referendum_vote(member(100), pid, true));
         assert_noop!(
             Lib::do_cast_referendum_vote(member(201), pid, false),
-            votebase::Error::<Test>::AlreadyVoted
+            engingcore::Error::<Test>::AlreadyVoted
         );
 
         let subject = test_citizen_subject(&member(100));
         let ticket = crate::pallet::LegReferendumVotesByCid::<Test>::get(pid, &subject.cid_number)
             .expect("complete citizen referendum ticket should exist");
-        assert_eq!(ticket.voter_subject, subject);
+        assert_eq!(ticket.voter_subject(subject.cid_number.clone()), subject);
         assert!(ticket.approve);
         assert_eq!(crate::pallet::LegReferendumTally::<Test>::get(pid).yes, 1);
         assert_eq!(crate::pallet::LegReferendumTally::<Test>::get(pid).no, 0);
@@ -551,7 +551,7 @@ fn legislation_referendum_deduplicates_permanent_cid_after_account_id_replacemen
 }
 
 /// 公投投一票：资格由 CitizenIdentityReader 返回完整主体，票据按 CID 去重。
-fn cast_referendum(pid: u64, seed: u64, approve: bool) {
+fn cast_referendum(pid: u128, seed: u64, approve: bool) {
     frame_support::storage::with_transaction(
         || -> frame_support::storage::TransactionOutcome<sp_runtime::DispatchResult> {
             let r = Lib::do_cast_referendum_vote(member((seed % 200) as u8), pid, approve);
@@ -564,8 +564,8 @@ fn cast_referendum(pid: u64, seed: u64, approve: bool) {
     .expect("referendum vote ok");
 }
 
-fn finalize_referendum(pid: u64) {
-    let proposal = votebase::pallet::Proposals::<Test>::get(pid).unwrap();
+fn finalize_referendum(pid: u128) {
+    let proposal = engingcore::pallet::Proposals::<Test>::get(pid).unwrap();
     frame_support::storage::with_transaction(
         || -> frame_support::storage::TransactionOutcome<sp_runtime::DispatchResult> {
             match Lib::do_finalize_referendum_timeout(&proposal, pid) {
@@ -581,7 +581,7 @@ fn finalize_referendum(pid: u64) {
 // ───────────────── 护宪大法官终审(仅修宪,宪法第21条)─────────────────
 
 /// 修宪重要案(单院)推进到护宪大法官终审阶段(辅助)。
-fn constitution_amend_to_guard() -> u64 {
+fn constitution_amend_to_guard() -> u128 {
     let pid = create_guard(member(1), single_house(), RepresentativeVoteRule::Major);
     // 重要案:>90% 参与 + ≥70% 赞成 → 全员 10 投,8 赞成 2 反对 → 院通过 → 行政签署。
     for i in 1u8..=8 {

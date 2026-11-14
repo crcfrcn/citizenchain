@@ -12,7 +12,7 @@ fn fixture_cid(code: &[u8; 4]) -> String {
             province_name: "广东省",
             city_code: "001",
             city_name: "测试市",
-            year: "2026",
+            year: 2026,
             institution: super::super::model::institution_code_text(code).as_str(),
         },
     )

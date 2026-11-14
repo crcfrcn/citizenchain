@@ -187,7 +187,7 @@ export function CitizensView() {
       render: (v: string | undefined) => v ?? '-',
     },
     {
-      title: '身份CID',
+      title: '公民CID号',
       dataIndex: 'cidNumber',
       align: 'center',
       render: (v: string | undefined) => v ?? '-',
@@ -205,7 +205,7 @@ export function CitizensView() {
       render: (_v: unknown, row) => makeCitizenName(row),
     },
     {
-      title: '当前绑定钱包账户',
+      title: '绑定钱包账户',
       dataIndex: 'accountId',
       align: 'center',
       render: (accountId: string | null | undefined) => accountId ? encodeSs58(accountId) : '-',
@@ -274,7 +274,7 @@ export function CitizensView() {
             <Form.Item name="keyword" style={{ marginBottom: 0 }}>
               <Input
                 style={{ width: 420, maxWidth: '72vw' }}
-                placeholder="护照号/身份CID/姓名/当前绑定钱包账户"
+                placeholder="护照号/公民CID号/姓名/绑定钱包账户"
                 allowClear
                 disabled={!canUseCitizenList}
                 onPressEnter={() => searchForm.submit()}

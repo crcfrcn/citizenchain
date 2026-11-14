@@ -6,8 +6,8 @@
 //! - [`jointreferendum`]:联合公投阶段 — 业务函数 `do_jointreferendum_vote` /
 //!   `do_finalize_jointreferendum_timeout`。
 //!
-//! 共用基础设施仍归 [`votebase`] 引擎核心,本 pallet 通过
-//! `Config: votebase::Config` 直接访问提案、投票计划与岗位投票人快照等共用 storage。
+//! 共用基础设施仍归 [`engingcore`] 引擎核心,本 pallet 通过
+//! `Config: engingcore::Config` 直接访问提案、投票计划与岗位投票人快照等共用 storage。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -20,8 +20,8 @@ use primitives::count_const::{
     JOINT_VOTE_PASS_THRESHOLD, NRC_JOINT_VOTE_WEIGHT, PRB_JOINT_VOTE_WEIGHT, PRC_JOINT_VOTE_WEIGHT,
 };
 
-use votebase::types::{CidNumber, InstitutionVoteTicket, RoleCode};
-use votebase::Proposal;
+use engingcore::types::{CidNumber, InstitutionVoteTicket, RoleCode};
+use engingcore::Proposal;
 
 pub mod jointinternal;
 pub mod jointreferendum;
@@ -93,11 +93,11 @@ pub mod pallet {
     pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config {
+    pub trait Config: frame_system::Config + engingcore::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// 联合提案创建时读取岗位当前有效任职，业务权限仍由业务模块校验。
-        type InstitutionRoleProvider: votebase::InstitutionRoleProvider<Self::AccountId>;
+        type InstitutionRoleProvider: engingcore::InstitutionRoleProvider<Self::AccountId>;
         type WeightInfo: crate::weights::WeightInfo;
     }
 
@@ -110,7 +110,7 @@ pub mod pallet {
     pub type JointVotesByTicket<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
-        u64,
+        u128,
         Blake2_128Concat,
         InstitutionVoteTicket<T::AccountId>,
         bool,
@@ -122,22 +122,22 @@ pub mod pallet {
     pub type JointInstitutionTallies<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
-        u64,
+        u128,
         Blake2_128Concat,
         CidNumber,
-        votebase::VoteCountU32,
+        engingcore::VoteCountU32,
         ValueQuery,
     >;
 
     /// 联合投票机构级汇总:(proposal_id, 机构) → 赞成/反对。
     #[pallet::storage]
     pub type JointVotesByInstitution<T: Config> =
-        StorageDoubleMap<_, Blake2_128Concat, u64, Blake2_128Concat, CidNumber, bool, OptionQuery>;
+        StorageDoubleMap<_, Blake2_128Concat, u128, Blake2_128Concat, CidNumber, bool, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn joint_tally)]
     pub type JointTallies<T: Config> =
-        StorageMap<_, Blake2_128Concat, u64, votebase::VoteCountU32, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, u128, engingcore::VoteCountU32, ValueQuery>;
 
     /// 联合公投票据：`(proposal_id, 永久公民 CID) → 完整公民主体 + 票值`。
     ///
@@ -146,24 +146,24 @@ pub mod pallet {
     pub type ReferendumVotesByCid<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
-        u64,
+        u128,
         Blake2_128Concat,
         CidNumber,
-        votebase::CitizenReferendumTicket<T::AccountId>,
+        engingcore::CitizenReferendumTicket<T::AccountId>,
         OptionQuery,
     >;
 
     #[pallet::storage]
     #[pallet::getter(fn referendum_tally)]
     pub type ReferendumTallies<T: Config> =
-        StorageMap<_, Blake2_128Concat, u64, votebase::VoteCountU64, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, u128, engingcore::VoteCountU64, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         /// 联合投票中某机构管理员已投出一票。
         JointInstitutionTicketVoteCast {
-            proposal_id: u64,
+            proposal_id: u128,
             cid_number: CidNumber,
             who: T::AccountId,
             voter_role_code: RoleCode,
@@ -171,14 +171,14 @@ pub mod pallet {
         },
         /// 联合投票中某机构已形成最终结果(赞成/反对)。
         JointInstitutionVoteFinalized {
-            proposal_id: u64,
+            proposal_id: u128,
             cid_number: CidNumber,
             approved: bool,
         },
         /// 联合公投已投出一票。
         ReferendumVoteCast {
-            proposal_id: u64,
-            voter_subject: votebase::CitizenSubject<T::AccountId>,
+            proposal_id: u128,
+            voter_subject: engingcore::CitizenSubject<T::AccountId>,
             approve: bool,
         },
     }
@@ -203,7 +203,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::cast_admin())]
         pub fn cast_admin(
             origin: OriginFor<T>,
-            proposal_id: u64,
+            #[pallet::compact] proposal_id: u128,
             cid_number: CidNumber,
             voter_role_code: RoleCode,
             approve: bool,
@@ -218,7 +218,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::cast_referendum())]
         pub fn cast_referendum(
             origin: OriginFor<T>,
-            proposal_id: u64,
+            #[pallet::compact] proposal_id: u128,
             approve: bool,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -228,26 +228,26 @@ pub mod pallet {
     }
 }
 // trait 实现 — 业务方法住在 jointinternal / jointreferendum 子模块
-impl<T: Config> votebase::JointVoteEngine<T::AccountId> for Pallet<T> {
+impl<T: Config> engingcore::JointVoteEngine<T::AccountId> for Pallet<T> {
     fn create_joint_proposal_with_data(
         who: T::AccountId,
         actor_cid_number: sp_std::vec::Vec<u8>,
-        vote_plan: votebase::types::VotePlanOf<T::AccountId>,
+        vote_plan: engingcore::types::VotePlanOf<T::AccountId>,
         data: sp_std::vec::Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         frame_support::storage::with_transaction(|| {
             let actor_cid_number = match CidNumber::try_from(actor_cid_number) {
                 Ok(value) => value,
                 Err(_) => {
                     return frame_support::storage::TransactionOutcome::Rollback(Err(
-                        votebase::Error::<T>::InvalidInstitution.into(),
+                        engingcore::Error::<T>::InvalidInstitution.into(),
                     ))
                 }
             };
             let data_hash = T::Hashing::hash(data.as_slice());
             if data_hash.as_ref() != vote_plan.business_object_hash.as_slice() {
                 return frame_support::storage::TransactionOutcome::Rollback(Err(
-                    votebase::Error::<T>::InvalidVotePlan.into(),
+                    engingcore::Error::<T>::InvalidVotePlan.into(),
                 ));
             }
             let module_tag = vote_plan.proposal_owner.clone();
@@ -257,7 +257,7 @@ impl<T: Config> votebase::JointVoteEngine<T::AccountId> for Pallet<T> {
                 Err(err) => return frame_support::storage::TransactionOutcome::Rollback(Err(err)),
             };
             let now = <frame_system::Pallet<T>>::block_number();
-            match <votebase::Pallet<T>>::register_proposal_data(
+            match <engingcore::Pallet<T>>::register_proposal_data(
                 proposal_id,
                 module_tag.as_slice(),
                 data,
@@ -272,24 +272,24 @@ impl<T: Config> votebase::JointVoteEngine<T::AccountId> for Pallet<T> {
     fn create_joint_proposal_with_data_and_object(
         who: T::AccountId,
         actor_cid_number: sp_std::vec::Vec<u8>,
-        vote_plan: votebase::types::VotePlanOf<T::AccountId>,
+        vote_plan: engingcore::types::VotePlanOf<T::AccountId>,
         data: sp_std::vec::Vec<u8>,
         object_kind: u8,
         object_data: sp_std::vec::Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         frame_support::storage::with_transaction(|| {
             let actor_cid_number = match CidNumber::try_from(actor_cid_number) {
                 Ok(value) => value,
                 Err(_) => {
                     return frame_support::storage::TransactionOutcome::Rollback(Err(
-                        votebase::Error::<T>::InvalidInstitution.into(),
+                        engingcore::Error::<T>::InvalidInstitution.into(),
                     ))
                 }
             };
             let object_hash = T::Hashing::hash(object_data.as_slice());
             if object_hash.as_ref() != vote_plan.business_object_hash.as_slice() {
                 return frame_support::storage::TransactionOutcome::Rollback(Err(
-                    votebase::Error::<T>::InvalidVotePlan.into(),
+                    engingcore::Error::<T>::InvalidVotePlan.into(),
                 ));
             }
             let module_tag = vote_plan.proposal_owner.clone();
@@ -299,7 +299,7 @@ impl<T: Config> votebase::JointVoteEngine<T::AccountId> for Pallet<T> {
                 Err(err) => return frame_support::storage::TransactionOutcome::Rollback(Err(err)),
             };
             let now = <frame_system::Pallet<T>>::block_number();
-            if let Err(err) = <votebase::Pallet<T>>::register_proposal_data(
+            if let Err(err) = <engingcore::Pallet<T>>::register_proposal_data(
                 proposal_id,
                 module_tag.as_slice(),
                 data,
@@ -307,7 +307,7 @@ impl<T: Config> votebase::JointVoteEngine<T::AccountId> for Pallet<T> {
             ) {
                 return frame_support::storage::TransactionOutcome::Rollback(Err(err));
             }
-            match <votebase::Pallet<T>>::store_proposal_object(
+            match <engingcore::Pallet<T>>::store_proposal_object(
                 proposal_id,
                 object_kind,
                 object_data,
@@ -320,97 +320,97 @@ impl<T: Config> votebase::JointVoteEngine<T::AccountId> for Pallet<T> {
 }
 
 impl<T: Config>
-    votebase::traits::JointProposalFinalizer<
+    engingcore::traits::JointProposalFinalizer<
         frame_system::pallet_prelude::BlockNumberFor<T>,
         T::AccountId,
     > for Pallet<T>
 {
     fn finalize_joint_timeout(
         proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
-        proposal_id: u64,
+        proposal_id: u128,
     ) -> DispatchResult {
         Self::do_finalize_joint_timeout(proposal, proposal_id)
     }
 
     fn finalize_jointreferendum_timeout(
         proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
-        proposal_id: u64,
+        proposal_id: u128,
     ) -> DispatchResult {
         Self::do_finalize_jointreferendum_timeout(proposal, proposal_id)
     }
 }
 
-impl<T: Config> votebase::traits::JointCleanupHandler for Pallet<T> {
+impl<T: Config> engingcore::traits::JointCleanupHandler for Pallet<T> {
     fn cleanup_joint_admin_votes_chunk(
-        proposal_id: u64,
+        proposal_id: u128,
         limit: u32,
-    ) -> votebase::traits::CleanupChunkResult {
+    ) -> engingcore::traits::CleanupChunkResult {
         let result = JointVotesByTicket::<T>::clear_prefix(proposal_id, limit, None);
         (result.unique, result.maybe_cursor.is_some())
     }
     fn cleanup_joint_institution_votes_chunk(
-        proposal_id: u64,
+        proposal_id: u128,
         limit: u32,
-    ) -> votebase::traits::CleanupChunkResult {
+    ) -> engingcore::traits::CleanupChunkResult {
         let result = JointVotesByInstitution::<T>::clear_prefix(proposal_id, limit, None);
         (result.unique, result.maybe_cursor.is_some())
     }
     fn cleanup_joint_institution_tallies_chunk(
-        proposal_id: u64,
+        proposal_id: u128,
         limit: u32,
-    ) -> votebase::traits::CleanupChunkResult {
+    ) -> engingcore::traits::CleanupChunkResult {
         let result = JointInstitutionTallies::<T>::clear_prefix(proposal_id, limit, None);
         (result.unique, result.maybe_cursor.is_some())
     }
     fn cleanup_referendum_votes_chunk(
-        proposal_id: u64,
+        proposal_id: u128,
         limit: u32,
-    ) -> votebase::traits::CleanupChunkResult {
+    ) -> engingcore::traits::CleanupChunkResult {
         let result = ReferendumVotesByCid::<T>::clear_prefix(proposal_id, limit, None);
         (result.unique, result.maybe_cursor.is_some())
     }
 
-    fn cleanup_joint_terminal(proposal_id: u64) {
+    fn cleanup_joint_terminal(proposal_id: u128) {
         JointTallies::<T>::remove(proposal_id);
         ReferendumTallies::<T>::remove(proposal_id);
     }
 }
 
 impl<T: Config>
-    votebase::ProposalTrackHandler<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>
+    engingcore::ProposalTrackHandler<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>
     for Pallet<T>
 {
     fn handles(kind: u8) -> bool {
-        kind == votebase::PROPOSAL_KIND_JOINT
+        kind == engingcore::PROPOSAL_KIND_JOINT
     }
 
     fn finalize_timeout(
         proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
-        proposal_id: u64,
+        proposal_id: u128,
     ) -> Option<DispatchResult> {
         if !Self::handles(proposal.kind) {
             return None;
         }
         Some(match proposal.stage {
-            votebase::STAGE_JOINT => Self::do_finalize_joint_timeout(proposal, proposal_id),
-            votebase::STAGE_REFERENDUM => {
+            engingcore::STAGE_JOINT => Self::do_finalize_joint_timeout(proposal, proposal_id),
+            engingcore::STAGE_REFERENDUM => {
                 Self::do_finalize_jointreferendum_timeout(proposal, proposal_id)
             }
-            _ => Err(votebase::Error::<T>::InvalidProposalStage.into()),
+            _ => Err(engingcore::Error::<T>::InvalidProposalStage.into()),
         })
     }
 
     fn cleanup_chunk(
         kind: u8,
-        proposal_id: u64,
+        proposal_id: u128,
         limit: u32,
-    ) -> Option<votebase::CleanupChunkResult> {
+    ) -> Option<engingcore::CleanupChunkResult> {
         if !Self::handles(kind) {
             return None;
         }
         let limit = limit.max(1);
         let mut removed = 0u32;
-        let result = <Self as votebase::JointCleanupHandler>::cleanup_joint_admin_votes_chunk(
+        let result = <Self as engingcore::JointCleanupHandler>::cleanup_joint_admin_votes_chunk(
             proposal_id,
             limit,
         );
@@ -418,7 +418,7 @@ impl<T: Config>
         if result.1 || removed >= limit {
             return Some((removed, true));
         }
-        let result = <Self as votebase::JointCleanupHandler>::cleanup_joint_institution_votes_chunk(
+        let result = <Self as engingcore::JointCleanupHandler>::cleanup_joint_institution_votes_chunk(
             proposal_id,
             limit.saturating_sub(removed),
         );
@@ -427,7 +427,7 @@ impl<T: Config>
             return Some((removed, true));
         }
         let result =
-            <Self as votebase::JointCleanupHandler>::cleanup_joint_institution_tallies_chunk(
+            <Self as engingcore::JointCleanupHandler>::cleanup_joint_institution_tallies_chunk(
                 proposal_id,
                 limit.saturating_sub(removed),
             );
@@ -435,7 +435,7 @@ impl<T: Config>
         if result.1 || removed >= limit {
             return Some((removed, true));
         }
-        let result = <Self as votebase::JointCleanupHandler>::cleanup_referendum_votes_chunk(
+        let result = <Self as engingcore::JointCleanupHandler>::cleanup_referendum_votes_chunk(
             proposal_id,
             limit.saturating_sub(removed),
         );
@@ -446,16 +446,16 @@ impl<T: Config>
         Some((removed, false))
     }
 
-    fn cleanup_terminal(kind: u8, proposal_id: u64) -> Option<()> {
+    fn cleanup_terminal(kind: u8, proposal_id: u128) -> Option<()> {
         Self::handles(kind)
-            .then(|| <Self as votebase::JointCleanupHandler>::cleanup_joint_terminal(proposal_id))
+            .then(|| <Self as engingcore::JointCleanupHandler>::cleanup_joint_terminal(proposal_id))
     }
 
     fn timeout_weight(stage: u8) -> Option<frame_support::weights::Weight> {
         use crate::weights::WeightInfo;
         match stage {
-            votebase::STAGE_JOINT => Some(<T as Config>::WeightInfo::finalize_joint_timeout()),
-            votebase::STAGE_REFERENDUM => {
+            engingcore::STAGE_JOINT => Some(<T as Config>::WeightInfo::finalize_joint_timeout()),
+            engingcore::STAGE_REFERENDUM => {
                 Some(<T as Config>::WeightInfo::finalize_jointreferendum_timeout())
             }
             u8::MAX => Some(
@@ -468,7 +468,7 @@ impl<T: Config>
 
     fn cleanup_chunk_weight(kind: u8, limit: u32) -> Option<frame_support::weights::Weight> {
         use crate::weights::WeightInfo;
-        matches!(kind, votebase::PROPOSAL_KIND_JOINT | u8::MAX).then(|| {
+        matches!(kind, engingcore::PROPOSAL_KIND_JOINT | u8::MAX).then(|| {
             <T as crate::pallet::Config>::WeightInfo::cleanup_votes(limit.max(1))
                 .max(<T as crate::pallet::Config>::WeightInfo::cleanup_institutions(limit.max(1)))
                 .max(<T as crate::pallet::Config>::WeightInfo::cleanup_tallies(
@@ -480,7 +480,7 @@ impl<T: Config>
 
     fn cleanup_terminal_weight(kind: u8) -> Option<frame_support::weights::Weight> {
         use crate::weights::WeightInfo;
-        matches!(kind, votebase::PROPOSAL_KIND_JOINT | u8::MAX)
+        matches!(kind, engingcore::PROPOSAL_KIND_JOINT | u8::MAX)
             .then(<T as crate::pallet::Config>::WeightInfo::cleanup_terminal)
     }
 }

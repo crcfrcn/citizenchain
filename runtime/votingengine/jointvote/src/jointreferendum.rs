@@ -8,7 +8,7 @@
 //!
 use frame_support::{ensure, pallet_prelude::DispatchResult};
 
-use votebase::{Proposal, PROPOSAL_KIND_JOINT, STATUS_PASSED};
+use engingcore::{Proposal, PROPOSAL_KIND_JOINT, STATUS_PASSED};
 
 use super::pallet::{Config, Error, Event, Pallet, ReferendumTallies, ReferendumVotesByCid};
 use super::{is_jointreferendum_vote_passed, is_jointreferendum_vote_rejected};
@@ -17,30 +17,30 @@ impl<T: Config> Pallet<T> {
     /// 联合公投：按快照返回的完整公民主体验证，并按永久 CID 去重。
     pub fn do_jointreferendum_vote(
         who: T::AccountId,
-        proposal_id: u64,
+        proposal_id: u128,
         approve: bool,
     ) -> DispatchResult {
-        let proposal = <votebase::Pallet<T>>::ensure_open_proposal(proposal_id)?;
+        let proposal = <engingcore::Pallet<T>>::ensure_open_proposal(proposal_id)?;
 
         ensure!(
             proposal.kind == PROPOSAL_KIND_JOINT,
-            votebase::Error::<T>::InvalidProposalKind
+            engingcore::Error::<T>::InvalidProposalKind
         );
         ensure!(
-            proposal.stage == votebase::STAGE_REFERENDUM,
-            votebase::Error::<T>::InvalidProposalStage
+            proposal.stage == engingcore::STAGE_REFERENDUM,
+            engingcore::Error::<T>::InvalidProposalStage
         );
-        let eligible_total = <votebase::Pallet<T>>::population_eligible_total_of(proposal_id)
+        let eligible_total = <engingcore::Pallet<T>>::population_eligible_total_of(proposal_id)
             .ok_or(Error::<T>::CitizenEligibleTotalNotSet)?;
         ensure!(eligible_total > 0, Error::<T>::CitizenEligibleTotalNotSet);
         let voter_subject =
-            <votebase::Pallet<T>>::voting_subject_at_population_snapshot(proposal_id, &who)
+            <engingcore::Pallet<T>>::voting_subject_at_population_snapshot(proposal_id, &who)
                 .ok_or(Error::<T>::CitizenNotEligible)?;
         let voter_cid_number = voter_subject.cid_number.clone();
 
         ensure!(
             !ReferendumVotesByCid::<T>::contains_key(proposal_id, &voter_cid_number),
-            votebase::Error::<T>::AlreadyVoted
+            engingcore::Error::<T>::AlreadyVoted
         );
         let current_tally = ReferendumTallies::<T>::get(proposal_id);
         ensure!(
@@ -51,8 +51,8 @@ impl<T: Config> Pallet<T> {
         ReferendumVotesByCid::<T>::insert(
             proposal_id,
             voter_cid_number,
-            votebase::CitizenReferendumTicket {
-                voter_subject: voter_subject.clone(),
+            engingcore::CitizenReferendumTicket {
+                voter_account_id: voter_subject.account_id.clone(),
                 approve,
             },
         );
@@ -72,11 +72,11 @@ impl<T: Config> Pallet<T> {
         });
 
         if is_jointreferendum_vote_passed(tally.yes, eligible_total) {
-            <votebase::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
+            <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
         } else if is_jointreferendum_vote_rejected(tally.no, eligible_total) {
-            <votebase::Pallet<T>>::set_status_and_emit(
+            <engingcore::Pallet<T>>::set_status_and_emit(
                 proposal_id,
-                votebase::STATUS_REJECTED,
+                engingcore::STATUS_REJECTED,
             )?;
         }
 
@@ -86,28 +86,28 @@ impl<T: Config> Pallet<T> {
     /// 联合公投超时结算:按 >50% 规则,未达阈值否决。
     pub fn do_finalize_jointreferendum_timeout(
         proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
-        proposal_id: u64,
+        proposal_id: u128,
     ) -> DispatchResult {
         ensure!(
-            proposal.stage == votebase::STAGE_REFERENDUM,
-            votebase::Error::<T>::InvalidProposalStage
+            proposal.stage == engingcore::STAGE_REFERENDUM,
+            engingcore::Error::<T>::InvalidProposalStage
         );
         ensure!(
-            proposal.status == votebase::STATUS_VOTING,
-            votebase::Error::<T>::ProposalAlreadyFinalized
+            proposal.status == engingcore::STATUS_VOTING,
+            engingcore::Error::<T>::ProposalAlreadyFinalized
         );
         ensure!(
             <frame_system::Pallet<T>>::block_number() > proposal.end,
-            votebase::Error::<T>::VoteNotExpired
+            engingcore::Error::<T>::VoteNotExpired
         );
         let tally = ReferendumTallies::<T>::get(proposal_id);
-        let eligible_total = <votebase::Pallet<T>>::population_eligible_total_of(proposal_id)
+        let eligible_total = <engingcore::Pallet<T>>::population_eligible_total_of(proposal_id)
             .ok_or(Error::<T>::CitizenEligibleTotalNotSet)?;
         let status = if is_jointreferendum_vote_passed(tally.yes, eligible_total) {
             STATUS_PASSED
         } else {
-            votebase::STATUS_REJECTED
+            engingcore::STATUS_REJECTED
         };
-        <votebase::Pallet<T>>::set_status_and_emit(proposal_id, status)
+        <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, status)
     }
 }

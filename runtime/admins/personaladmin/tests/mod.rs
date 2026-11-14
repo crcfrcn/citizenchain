@@ -9,7 +9,7 @@ use frame_support::{
 use frame_system as system;
 use sp_core::{sr25519, Pair as PairT};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use votebase::types::{InstitutionCode, PMUL};
+use engingcore::types::{InstitutionCode, PMUL};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -34,7 +34,7 @@ mod runtime {
     pub type System = frame_system;
 
     #[runtime::pallet_index(1)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(2)]
     pub type InternalVote = internalvote;
@@ -51,24 +51,24 @@ impl system::Config for Test {
 }
 
 pub struct TestCitizenIdentityReader;
-impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
-    votebase::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<AccountId32> {
+    engingcore::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -78,7 +78,7 @@ fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId
 }
 
 pub struct TestInternalAdminProvider;
-impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         _institution_code: InstitutionCode,
         _cid_number: &[u8],
@@ -111,10 +111,10 @@ impl UnixTime for TestTimeProvider {
     }
 }
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;

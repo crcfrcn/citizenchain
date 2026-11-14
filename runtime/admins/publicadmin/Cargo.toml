@@ -20,7 +20,7 @@ sp-std = { workspace = true }
 primitives = { path = "../../primitives", default-features = false }
 adminbase = { path = "../adminbase", default-features = false }
 entitybase = { path = "../../entity/entitybase", default-features = false }
-votebase = { path = "../../votingengine/votebase", default-features = false }
+engingcore = { path = "../../votingengine/engingcore", default-features = false }
 
 [features]
 default = ["std"]
@@ -38,7 +38,7 @@ std = [
     "primitives/std",
     "adminbase/std",
     "entitybase/std",
-    "votebase/std",
+    "engingcore/std",
 ]
 
 [dev-dependencies]

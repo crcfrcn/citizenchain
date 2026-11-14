@@ -17,7 +17,7 @@ impl ProposalAction {
 
 /// 尝试从内部投票 ProposalData 识别业务动作。
 pub(crate) fn decode_internal_proposal_data_action(
-    proposal_id: u64,
+    proposal_id: u128,
     data: &[u8],
 ) -> Option<ProposalAction> {
     nodemultisig::proposal::decode_proposal_data_action(proposal_id, data)
@@ -25,7 +25,7 @@ pub(crate) fn decode_internal_proposal_data_action(
 }
 
 /// 查询业务模块独立 storage 中的提案动作。
-pub(crate) fn fetch_stored_action(proposal_id: u64) -> Result<Option<ProposalAction>, String> {
+pub(crate) fn fetch_stored_action(proposal_id: u128) -> Result<Option<ProposalAction>, String> {
     Ok(nodemultisig::proposal::fetch_stored_action(proposal_id)?
         .map(|action| crate::business::ProposalAction::TransferModule(Box::new(action))))
 }

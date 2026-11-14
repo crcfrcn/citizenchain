@@ -28,7 +28,7 @@ use frame_support::{
 use frame_system::pallet_prelude::*;
 use sp_runtime::DispatchResult;
 use sp_std::collections::btree_set::BTreeSet;
-use votebase::{
+use engingcore::{
     types::{InstitutionCode, PMUL},
     InternalVoteResultCallback, ProposalExecutionOutcome, ProposalSubject, PROPOSAL_KIND_INTERNAL,
     STAGE_INTERNAL, STATUS_EXECUTION_FAILED, STATUS_PASSED, STATUS_REJECTED, STATUS_VOTING,
@@ -56,15 +56,15 @@ const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo;
-    use votebase::InternalVoteEngine;
+    use engingcore::InternalVoteEngine;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config {
+    pub trait Config: frame_system::Config + engingcore::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// 内部投票引擎。
-        type InternalVoteEngine: votebase::InternalVoteEngine<Self::AccountId>;
+        type InternalVoteEngine: engingcore::InternalVoteEngine<Self::AccountId>;
 
         /// 单个个人多签账户管理员最大数量上限。
         #[pallet::constant]
@@ -117,7 +117,7 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// 已发起个人多签管理员集合变更提案。
         AdminSetChangeProposed {
-            proposal_id: u64,
+            proposal_id: u128,
             account: T::AccountId,
             proposer: T::AccountId,
             old_admins_len: u32,
@@ -126,13 +126,13 @@ pub mod pallet {
         },
         /// 个人多签管理员集合已完成执行。
         AdminSetChanged {
-            proposal_id: u64,
+            proposal_id: u128,
             account: T::AccountId,
             admins_len: u32,
             threshold: u32,
         },
         /// 个人多签管理员集合提案通过后执行失败。
-        AdminSetChangeExecutionFailed { proposal_id: u64 },
+        AdminSetChangeExecutionFailed { proposal_id: u128 },
         /// 个人多签管理员账户已写入 Pending。
         AdminAccountPendingCreated {
             account: T::AccountId,
@@ -289,17 +289,17 @@ pub mod pallet {
         }
 
         pub(crate) fn ensure_lifecycle_proposal(
-            proposal_id: u64,
+            proposal_id: u128,
             module_tag: &[u8],
             account: T::AccountId,
             expected_status: u8,
             require_callback_scope: bool,
         ) -> DispatchResult {
             ensure!(
-                votebase::Pallet::<T>::is_proposal_owner(proposal_id, module_tag),
+                engingcore::Pallet::<T>::is_proposal_owner(proposal_id, module_tag),
                 Error::<T>::InvalidLifecycleScope
             );
-            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
+            let proposal = engingcore::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::InvalidLifecycleScope)?;
             ensure!(
                 proposal.kind == PROPOSAL_KIND_INTERNAL,
@@ -324,7 +324,7 @@ pub mod pallet {
             );
             if require_callback_scope {
                 ensure!(
-                    votebase::Pallet::<T>::is_callback_execution_scope(proposal_id),
+                    engingcore::Pallet::<T>::is_callback_execution_scope(proposal_id),
                     Error::<T>::InvalidLifecycleScope
                 );
             }
@@ -582,10 +582,10 @@ pub mod pallet {
         }
 
         pub(crate) fn try_execute_set_change_from_action(
-            proposal_id: u64,
+            proposal_id: u128,
             action: AdminSetChangeAction<T::AccountId, AdminsOf<T>>,
         ) -> DispatchResult {
-            let proposal = votebase::Pallet::<T>::proposals(proposal_id)
+            let proposal = engingcore::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalActionNotFound)?;
             ensure!(
                 proposal.kind == PROPOSAL_KIND_INTERNAL && proposal.stage == STAGE_INTERNAL,
@@ -604,7 +604,7 @@ pub mod pallet {
                 proposal.internal_code == Some(PMUL),
                 Error::<T>::ProposalActionNotFound
             );
-            votebase::Pallet::<T>::ensure_admin_set_mutation_lock_owner(
+            engingcore::Pallet::<T>::ensure_admin_set_mutation_lock_owner(
                 ProposalSubject::PersonalAccount(action.personal_account_id.clone()),
                 proposal_id,
             )?;
@@ -645,7 +645,7 @@ impl<T: pallet::Config> AdminAccountLifecycle<T::AccountId, Admin<T::AccountId>>
     for pallet::Pallet<T>
 {
     fn create_pending_admin_account_for_proposal(
-        proposal_id: u64,
+        proposal_id: u128,
         module_tag: &[u8],
         personal_account_id: T::AccountId,
         _cid_number: Vec<u8>,
@@ -669,7 +669,7 @@ impl<T: pallet::Config> AdminAccountLifecycle<T::AccountId, Admin<T::AccountId>>
     }
 
     fn activate_admin_account_for_proposal(
-        proposal_id: u64,
+        proposal_id: u128,
         module_tag: &[u8],
         personal_account_id: T::AccountId,
     ) -> DispatchResult {
@@ -684,11 +684,11 @@ impl<T: pallet::Config> AdminAccountLifecycle<T::AccountId, Admin<T::AccountId>>
     }
 
     fn remove_pending_admin_account_for_proposal(
-        proposal_id: u64,
+        proposal_id: u128,
         module_tag: &[u8],
         personal_account_id: T::AccountId,
     ) -> DispatchResult {
-        let proposal = votebase::Pallet::<T>::proposals(proposal_id)
+        let proposal = engingcore::Pallet::<T>::proposals(proposal_id)
             .ok_or(pallet::Error::<T>::ProposalActionNotFound)?;
         ensure!(
             matches!(proposal.status, STATUS_REJECTED | STATUS_EXECUTION_FAILED),
@@ -705,7 +705,7 @@ impl<T: pallet::Config> AdminAccountLifecycle<T::AccountId, Admin<T::AccountId>>
     }
 
     fn close_admin_account_for_proposal(
-        proposal_id: u64,
+        proposal_id: u128,
         module_tag: &[u8],
         personal_account_id: T::AccountId,
     ) -> DispatchResult {
@@ -806,13 +806,13 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
     }
 
     fn on_internal_vote_finalized(
-        proposal_id: u64,
+        proposal_id: u128,
         approved: bool,
     ) -> Result<ProposalExecutionOutcome, sp_runtime::DispatchError> {
-        if !votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG) {
+        if !engingcore::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG) {
             return Ok(ProposalExecutionOutcome::Ignored);
         }
-        let raw = votebase::Pallet::<T>::get_proposal_data(proposal_id)
+        let raw = engingcore::Pallet::<T>::get_proposal_data(proposal_id)
             .ok_or(pallet::Error::<T>::ProposalActionNotFound)?;
 
         if !approved {

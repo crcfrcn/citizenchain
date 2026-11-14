@@ -129,7 +129,7 @@ pub fn double_map_key(pallet: &str, storage: &str, key1: &[u8], key2: &[u8]) -> 
 /// **前缀**(只到第一层 K1,不含第二层 K2),用于 `state_getKeysPaged` 列举:
 ///   twox_128(pallet) + twox_128(storage) + twox_64(K1) + K1
 ///
-/// 对应 votebase 的 `ProposalsByCode / ProposalsByCid / ByOwner / ByYear`。
+/// 对应 engingcore 的 `ProposalsByCode / ProposalsByCid / ByOwner / ByYear`。
 /// 4 张反向索引的列举前缀。
 pub fn twox64_concat_prefix(pallet: &str, storage: &str, key1: &[u8]) -> String {
     nodedesktop::storage::to_hex(&nodedesktop::storage::twox64_map(

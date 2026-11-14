@@ -49,7 +49,7 @@ frame_benchmarking::define_benchmarks!(
     [multisig, MultisigTransfer]
     [internalvote, InternalVote]
     [jointvote, JointVote]
-    [votebase, VotingEngine]
+    [engingcore, VotingEngine]
     [legislationvote, LegislationVote]
     [electionvote, ElectionVote]
     [square, SquarePost]

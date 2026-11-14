@@ -481,14 +481,14 @@ fn decode_account_name_from_key(full_key_hex: &str, cid_prefix_hex: &str) -> Opt
 
 /// 机构提案列表分页。
 ///
-/// 当前阶段返回空列表占位。提案存储在 `votebase::Proposals[id]`,
+/// 当前阶段返回空列表占位。提案存储在 `engingcore::Proposals[id]`,
 /// 按 cid_number 过滤需要扫描全表 + 对照 ProposalMeta.actor_cid_number，
 /// 实现略显重,放 follow-up 任务卡。
 ///
 /// 前端 UI 展示"暂无提案"行兜底,未来填充时无需改 UI 结构。
 pub(crate) fn fetch_institution_proposals(
     _cid_number: &str,
-    _start_id: u64,
+    _start_id: u128,
     _page_size: u32,
 ) -> Result<InstitutionProposalPage, String> {
     Ok(InstitutionProposalPage {

@@ -30,7 +30,7 @@ mod benchmarks {
                 province_name: "广东省",
                 city_code: "001",
                 city_name: "荔湾市",
-                year: "2026",
+                year: 2026,
                 institution: "CTZN",
             },
         )

@@ -222,6 +222,227 @@ fn signed_eoa_transfers_keep_existing_amount_fee_payer_and_distribution() {
         assert_eq!(System::account_nonce(signer()), 3);
     });
 }
+
+#[test]
+fn receive_address_vectors_match_the_sdk_golden_fixture() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("evm-account-mapping-v1.json")).unwrap();
+    for row in fixture["vectors"].as_array().unwrap() {
+        let bytes = hex::decode(row["account_id"].as_str().unwrap().trim_start_matches("0x")).unwrap();
+        let account = AccountId::new(bytes.try_into().unwrap());
+        assert_eq!(
+            format!("{:#x}", pallet_revive::AccountId32Mapper::<Runtime>::to_address(&account)),
+            row["ethereum_address"].as_str().unwrap()
+        );
+    }
+}
+
+#[test]
+fn ethereum_receive_alias_preserves_the_original_native_account_after_reaping() {
+    ext().execute_with(|| {
+        let account = AccountId::new([0xa7; 32]);
+        let address = pallet_revive::AccountId32Mapper::<Runtime>::to_address(&account);
+        Balances::set_balance(&account, 1_000);
+        assert_eq!(pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&address), account);
+        apply(tx(Some(address), vec![], 200));
+        assert_eq!(Balances::free_balance(&account), 1_200);
+        Balances::set_balance(&account, 0);
+        assert!(!System::account_exists(&account));
+        assert_eq!(pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&address), account);
+        apply(tx(Some(address), vec![], 500));
+        assert_eq!(Balances::free_balance(&account), 500 + EXISTENTIAL_DEPOSIT);
+        assert_eq!(Balances::free_balance(
+            pallet_revive::AccountId32Mapper::<Runtime>::to_fallback_account_id(&address)), 0);
+    });
+}
+
+#[test]
+fn zero_balance_business_registration_and_backfill_use_one_index() {
+    use frame_support::{migrations::MultiStepMigrator, traits::{OnNewAccount, OnRuntimeUpgrade}};
+    ext().execute_with(|| {
+        let cid: publicentity::pallet::CidNumberOf<Runtime> = b"evm-fixture".to_vec().try_into().unwrap();
+        let account = AccountId::new([0xb7; 32]);
+        publicentity::AccountRegisteredCid::<Runtime>::insert(&account, publicentity::RegisteredInstitution {
+            cid_number: cid,
+            account_name: b"fixture".to_vec().try_into().unwrap(),
+        });
+        let legacy = AccountId::new([0xb6; 32]);
+        Balances::set_balance(&legacy, 1_000);
+        let legacy_address = pallet_revive::AccountId32Mapper::<Runtime>::to_address(&legacy);
+        let mut legacy_key = frame_support::storage::storage_prefix(b"Revive", b"OriginalAccount").to_vec();
+        legacy_key.extend_from_slice(legacy_address.as_bytes());
+        sp_io::storage::clear(&legacy_key); // Existing pre-upgrade System account.
+        let identity_account = AccountId::new([0xb5; 32]);
+        let identity_cid: identity::CidNumberBound = b"evm-identity".to_vec().try_into().unwrap();
+        identity::CidByAccountId::<Runtime>::insert(&identity_account, &identity_cid);
+        identity::AccountIdByCid::<Runtime>::insert(&identity_cid, &identity_account);
+        let address = pallet_revive::AccountId32Mapper::<Runtime>::to_address(&account);
+        assert!(!System::account_exists(&account));
+        assert_ne!(pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&address), account);
+        let issuance = Balances::total_issuance();
+        crate::evm_accounts::BackfillEvmAccounts::on_runtime_upgrade();
+        let cursor_key = b":citizenchain:evm-account-mapping:progress:v1";
+        let first_cursor = sp_io::storage::get(cursor_key).expect("large genesis needs continuation");
+        // Re-entry (e.g. reopening and continuing an upgrade) must advance the
+        // saved cursor instead of starting again at System.Account.
+        crate::evm_accounts::BackfillEvmAccounts::on_runtime_upgrade();
+        assert_ne!(sp_io::storage::get(cursor_key).as_deref(), Some(&first_cursor[..]));
+        let header = Header::new(3, Default::default(), Default::default(), Default::default(), System::digest());
+        assert_eq!(Executive::initialize_block(&header), sp_runtime::ExtrinsicInclusionMode::AllExtrinsics);
+        use frame_support::traits::{Contains, PostInherents};
+        assert!(!crate::configs::RuntimeCallFilter::contains(&RuntimeCall::Revive(
+            pallet_revive::Call::eth_transact { payload: vec![] }
+        )));
+        assert!(crate::configs::RuntimeCallFilter::contains(&RuntimeCall::System(
+            frame_system::Call::remark { remark: vec![] }
+        )));
+        <Runtime as frame_system::Config>::PostInherents::post_inherents();
+        let mut steps = 0;
+        while crate::evm_accounts::BackfillEvmAccounts::ongoing() {
+            let weight = crate::evm_accounts::BackfillEvmAccounts::step();
+            assert!(weight.all_lte(crate::configs::RuntimeBlockWeights::get().max_block));
+            steps += 1;
+            assert!(steps < 10_000, "cursor must make bounded forward progress");
+        }
+        assert!(steps > 0, "the actual genesis account set requires bounded continuation");
+        assert_eq!(pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&address), account);
+        assert_eq!(Balances::free_balance(&account), 0);
+        assert_eq!(Balances::total_issuance(), issuance);
+        assert_eq!(pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&legacy_address), legacy);
+        assert_eq!(Balances::free_balance(&legacy), 1_000);
+        let identity_address = pallet_revive::AccountId32Mapper::<Runtime>::to_address(&identity_account);
+        assert_eq!(pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&identity_address), identity_account);
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        crate::evm_accounts::BackfillEvmAccounts::on_runtime_upgrade();
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+
+        let fresh = AccountId::new([0xb8; 32]);
+        privateentity::AccountRegisteredCid::<Runtime>::insert(&fresh, privateentity::RegisteredInstitution {
+            cid_number: b"evm-private".to_vec().try_into().unwrap(),
+            account_name: b"fixture".to_vec().try_into().unwrap(),
+        });
+        <Runtime as privateentity::Config>::OnAccountRegistered::on_new_account(&fresh);
+        let fresh_address = pallet_revive::AccountId32Mapper::<Runtime>::to_address(&fresh);
+        assert_eq!(pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&fresh_address), fresh);
+        apply(tx(Some(fresh_address), vec![], 500));
+        assert_eq!(Balances::free_balance(&fresh), 500 + EXISTENTIAL_DEPOSIT);
+    });
+}
+
+#[test]
+fn prefunded_fallback_does_not_block_new_accounts_or_historical_backfill() {
+    use frame_support::{migrations::MultiStepMigrator, traits::OnRuntimeUpgrade};
+    ext().execute_with(|| {
+        let source = AccountId::new([0xc6; 32]);
+        Balances::set_balance(&source, 10_000);
+        let account = AccountId::new([0xc7; 32]);
+        let address = pallet_revive::AccountId32Mapper::<Runtime>::to_address(&account);
+        let fallback =
+            pallet_revive::AccountId32Mapper::<Runtime>::to_fallback_account_id(&address);
+        // Anyone can fund this native address without possessing E's key.
+        assert_ok!(OnchainTransaction::transfer_with_remark(
+            RuntimeOrigin::signed(source.clone()),
+            fallback.clone(),
+            1_000,
+            vec![].try_into().unwrap(),
+        ));
+        let fallback_before = System::account(&fallback);
+        assert_ok!(OnchainTransaction::transfer_with_remark(
+            RuntimeOrigin::signed(source.clone()),
+            account.clone(),
+            500,
+            vec![].try_into().unwrap(),
+        ));
+        assert_eq!(
+            pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&address),
+            account
+        );
+        assert_eq!(System::account(&fallback), fallback_before);
+
+        // An unfunded historical institution account must also migrate even
+        // when someone has previously funded its fallback.
+        let legacy = AccountId::new([0xc9; 32]);
+        publicentity::AccountRegisteredCid::<Runtime>::insert(
+            &legacy,
+            publicentity::RegisteredInstitution {
+                cid_number: b"evm-prefunded".to_vec().try_into().unwrap(),
+                account_name: b"fixture".to_vec().try_into().unwrap(),
+            },
+        );
+        let legacy_address = pallet_revive::AccountId32Mapper::<Runtime>::to_address(&legacy);
+        let legacy_fallback =
+            pallet_revive::AccountId32Mapper::<Runtime>::to_fallback_account_id(&legacy_address);
+        assert_ok!(OnchainTransaction::transfer_with_remark(
+            RuntimeOrigin::signed(source),
+            legacy_fallback.clone(),
+            1_000,
+            vec![].try_into().unwrap(),
+        ));
+        let legacy_fallback_before = System::account(&legacy_fallback);
+        let issuance = Balances::total_issuance();
+        crate::evm_accounts::BackfillEvmAccounts::on_runtime_upgrade();
+        let mut steps = 0;
+        while crate::evm_accounts::BackfillEvmAccounts::ongoing() {
+            crate::evm_accounts::BackfillEvmAccounts::step();
+            steps += 1;
+            assert!(steps < 10_000, "funding a fallback cannot block migration");
+        }
+        assert_eq!(
+            pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&legacy_address),
+            legacy
+        );
+        assert_eq!(System::account(&legacy_fallback), legacy_fallback_before);
+        assert_eq!(Balances::free_balance(&legacy), 0);
+        assert_eq!(Balances::total_issuance(), issuance);
+        apply(tx(Some(address), vec![], 200));
+        assert_eq!(Balances::free_balance(&account), 700);
+        assert_eq!(System::account(&fallback), fallback_before);
+    });
+}
+
+#[test]
+fn genuine_mapping_conflicts_never_reassign_the_index_or_complete_backfill() {
+    ext().execute_with(|| {
+        let account = AccountId::new([0xc7; 32]);
+        let address = pallet_revive::AccountId32Mapper::<Runtime>::to_address(&account);
+        let mut key =
+            frame_support::storage::storage_prefix(b"Revive", b"OriginalAccount").to_vec();
+        key.extend_from_slice(address.as_bytes());
+        let other = AccountId::new([0xc8; 32]);
+        sp_io::storage::set(&key, &other.encode());
+        assert!(crate::evm_accounts::ensure_mapping(&account).is_err());
+        assert_eq!(
+            pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&address),
+            other
+        );
+
+        publicentity::AccountRegisteredCid::<Runtime>::insert(
+            &account,
+            publicentity::RegisteredInstitution {
+                cid_number: b"evm-conflict".to_vec().try_into().unwrap(),
+                account_name: b"fixture".to_vec().try_into().unwrap(),
+            },
+        );
+        let mut before_key =
+            publicentity::AccountRegisteredCid::<Runtime>::hashed_key_for(&account);
+        before_key.pop();
+        let cursor = (1u8, Some(before_key)).encode();
+        let cursor_key = b":citizenchain:evm-account-mapping:progress:v1";
+        sp_io::storage::set(cursor_key, &cursor);
+        use frame_support::migrations::MultiStepMigrator;
+        crate::evm_accounts::BackfillEvmAccounts::step();
+        assert!(crate::evm_accounts::BackfillEvmAccounts::ongoing());
+        assert_eq!(
+            sp_io::storage::get(cursor_key).as_deref(),
+            Some(&cursor[..])
+        );
+        assert_eq!(
+            pallet_revive::AccountId32Mapper::<Runtime>::to_account_id(&address),
+            other
+        );
+    });
+}
+
 #[test]
 fn signed_deployment_storage_logs_and_internal_call_charge_outer_transaction_once() {
     ext().execute_with(|| {

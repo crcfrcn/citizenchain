@@ -18,7 +18,7 @@ pub mod validation;
 pub mod weights;
 
 pub use pallet::*;
-use votebase::JointVoteResultCallback;
+use engingcore::JointVoteResultCallback;
 
 /// 模块标识前缀，用于在投票引擎 ProposalData 中识别决议发行提案。
 ///
@@ -36,7 +36,7 @@ pub mod pallet {
     #[cfg(feature = "std")]
     use sp_runtime::traits::Zero;
     use sp_std::vec::Vec;
-    use votebase::JointVoteEngine;
+    use engingcore::JointVoteEngine;
 
     pub type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -54,7 +54,7 @@ pub mod pallet {
     }
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config {
+    pub trait Config: frame_system::Config + engingcore::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -100,11 +100,11 @@ pub mod pallet {
 
     /// proposal_id 是否已有短期执行记录，用于审计展示和维护排障。
     #[pallet::storage]
-    pub type Executed<T: Config> = StorageMap<_, Twox64Concat, u64, BlockNumberFor<T>, OptionQuery>;
+    pub type Executed<T: Config> = StorageMap<_, Twox64Concat, u128, BlockNumberFor<T>, OptionQuery>;
 
     /// proposal_id 是否历史上执行过。该标记永久防重放，维护清理不得删除。
     #[pallet::storage]
-    pub type EverExecuted<T: Config> = StorageMap<_, Twox64Concat, u64, (), OptionQuery>;
+    pub type EverExecuted<T: Config> = StorageMap<_, Twox64Concat, u128, (), OptionQuery>;
 
     /// 决议发行累计执行量。
     #[pallet::storage]
@@ -174,25 +174,25 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// 决议发行提案已创建，联合投票已发起。
         ResolutionIssuanceProposed {
-            proposal_id: u64,
-            actor_cid_number: votebase::types::CidNumber,
-            proposer_role_code: votebase::types::RoleCode,
+            proposal_id: u128,
+            actor_cid_number: engingcore::types::CidNumber,
+            proposer_role_code: engingcore::types::RoleCode,
             proposer_account_id: T::AccountId,
             total_amount: BalanceOf<T>,
             allocation_count: u32,
         },
         /// 联合投票已终结，approved 表示是否通过。
-        JointVoteFinalized { proposal_id: u64, approved: bool },
+        JointVoteFinalized { proposal_id: u128, approved: bool },
         /// 投票通过且发行执行成功，铸币已落账。
         IssuanceExecutionTriggered {
-            proposal_id: u64,
+            proposal_id: u128,
             total_amount: BalanceOf<T>,
         },
         /// 投票通过但发行执行失败，投票引擎状态会写为 STATUS_EXECUTION_FAILED。
-        IssuanceExecutionFailed { proposal_id: u64 },
+        IssuanceExecutionFailed { proposal_id: u128 },
         /// 决议发行已经执行。
         ResolutionIssuanceExecuted {
-            proposal_id: u64,
+            proposal_id: u128,
             total_amount: BalanceOf<T>,
             recipient_count: u32,
             reason_hash: T::Hash,
@@ -235,13 +235,13 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// 创建“决议发行”联合投票提案。
         /// 本模块只提交决议发行业务内容；人口快照、联合签名、
-        /// 投票资格和计票流程全部由 votebase 负责。
+        /// 投票资格和计票流程全部由 engingcore 负责。
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::propose_issuance())]
         pub fn propose_issuance(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            proposer_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            proposer_role_code: engingcore::types::RoleCode,
             reason: ReasonOf<T>,
             total_amount: BalanceOf<T>,
             allocations: AllocationOf<T>,
@@ -266,18 +266,18 @@ pub mod pallet {
 
 impl<T: pallet::Config> JointVoteResultCallback for pallet::Pallet<T> {
     fn on_joint_vote_finalized(
-        vote_proposal_id: u64,
+        vote_proposal_id: u128,
         approved: bool,
-    ) -> Result<votebase::ProposalExecutionOutcome, sp_runtime::DispatchError> {
+    ) -> Result<engingcore::ProposalExecutionOutcome, sp_runtime::DispatchError> {
         let outcome = pallet::Pallet::<T>::apply_joint_vote_result(vote_proposal_id, approved)?;
         Ok(match outcome {
             pallet::FinalizeOutcome::ApprovedExecutionSucceeded => {
-                votebase::ProposalExecutionOutcome::Executed
+                engingcore::ProposalExecutionOutcome::Executed
             }
             pallet::FinalizeOutcome::ApprovedExecutionFailed => {
-                votebase::ProposalExecutionOutcome::FatalFailed
+                engingcore::ProposalExecutionOutcome::FatalFailed
             }
-            pallet::FinalizeOutcome::Rejected => votebase::ProposalExecutionOutcome::Executed,
+            pallet::FinalizeOutcome::Rejected => engingcore::ProposalExecutionOutcome::Executed,
         })
     }
 }

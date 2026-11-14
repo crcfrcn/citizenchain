@@ -10,8 +10,8 @@ use primitives::cid::china::china_cb::CHINA_CB;
 use sp_consensus_grandpa::AuthorityId as GrandpaAuthorityId;
 use sp_core::{ed25519, Pair, Void};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use votebase::types::{AuthorizationSubject, VotingEngineKind};
-use votebase::InstitutionRoleProvider as _;
+use engingcore::types::{AuthorizationSubject, VotingEngineKind};
+use engingcore::InstitutionRoleProvider as _;
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -39,7 +39,7 @@ mod runtime {
     pub type Grandpa = pallet_grandpa;
 
     #[runtime::pallet_index(2)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(99)]
     pub type InternalVote = internalvote;
@@ -73,18 +73,18 @@ impl pallet_grandpa::Config for Test {
 }
 
 pub struct TestCitizenIdentityReader;
-impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         _who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         None
     }
 
     fn candidate_subject(
         _who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         None
     }
 }
@@ -111,7 +111,7 @@ impl TestInternalAdminProvider {
     }
 }
 
-impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -137,14 +137,14 @@ impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider 
 
 pub struct TestInstitutionRoleProvider;
 
-fn committee_role() -> votebase::types::RoleCode {
+fn committee_role() -> engingcore::types::RoleCode {
     primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
         .to_vec()
         .try_into()
         .expect("committee role fits protocol bound")
 }
 
-impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
+impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         Self::active_accounts_for_role(cid_number, role_code).contains(who)
     }
@@ -155,7 +155,7 @@ impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvi
         }
         let Some(code) = core::str::from_utf8(cid_number)
             .ok()
-            .and_then(votebase::types::institution_code_from_cid_number)
+            .and_then(engingcore::types::institution_code_from_cid_number)
         else {
             return Vec::new();
         };
@@ -219,10 +219,10 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -353,7 +353,7 @@ fn authority_id_from_key(key: [u8; 32]) -> GrandpaAuthorityId {
     GrandpaAuthorityId::from(ed25519::Public::from_raw(key))
 }
 
-fn pass_prc_proposal(node_index: usize, proposal_id: u64) {
+fn pass_prc_proposal(node_index: usize, proposal_id: u128) {
     // 提案发起人已经由投票引擎自动记一票，这里只补足剩余固定阈值票。
     for admin_index in 1..6 {
         assert_ok!(cast_vote(
@@ -374,12 +374,12 @@ fn finalize_grandpa_at(block: u64) {
 }
 
 /// 获取最近一次 create_internal_proposal 分配的 proposal_id。
-fn last_proposal_id() -> u64 {
-    votebase::Pallet::<Test>::next_proposal_id().saturating_sub(1)
+fn last_proposal_id() -> u128 {
+    engingcore::Pallet::<Test>::next_proposal_id().saturating_sub(1)
 }
 
 /// 测试辅助:走投票引擎公开 `internal_vote` extrinsic 投票(统一入口)。
-fn cast_vote(who: AccountId32, proposal_id: u64, approve: bool) -> DispatchResult {
+fn cast_vote(who: AccountId32, proposal_id: u128, approve: bool) -> DispatchResult {
     frame_support::storage::with_transaction(
         || -> frame_support::storage::TransactionOutcome<DispatchResult> {
             match internalvote::Pallet::<Test>::do_internal_vote(

@@ -7,11 +7,11 @@ use frame_support::{
 };
 use frame_system as system;
 
-// 引擎核心 storage / 类型 / trait(住在 votebase 主 crate)。
+// 引擎核心 storage / 类型 / trait(住在 engingcore 主 crate)。
 // `use super::*` 拉进 internalvote 自有的 pallet items(Pallet/Event/Error/Config/InternalVotesByTicket/...);
-// 这里追加 votebase 的 storage 与 trait 名,让测试代码用短名引用。
+// 这里追加 engingcore 的 storage 与 trait 名,让测试代码用短名引用。
 use primitives::cid::code::PRS;
-use votebase::pallet::{
+use engingcore::pallet::{
     AdminSnapshot, AutoFinalizeDeadLetters, AutoFinalizeRetryStates, CurrentProposalYear,
     ExecutionRetryDeadlines, NextProposalId, PendingCleanupQueue, PendingCleanupQueueHead,
     PendingCleanupQueueTail, PendingExecutionRetryExpirations, PendingExpiryBucket,
@@ -20,7 +20,7 @@ use votebase::pallet::{
     ProposalsByOwner, ProposalsByYear, ScheduledCleanupHead, ScheduledCleanupTail,
     ScheduledCleanups, YearProposalCounter,
 };
-use votebase::types::{
+use engingcore::types::{
     code_bytes, CidNumber, InstitutionCode, ProposalSubject, RoleSubject, NJD, NRC, PMUL, PRB, PRC,
 };
 // 个人多签按账户键测试；公权、私权法人按机构 CID 键测试。
@@ -37,11 +37,11 @@ use sp_runtime::{
     traits::{Hash as _, IdentityLookup},
     AccountId32, BuildStorage, DispatchError,
 };
-use votebase::traits::{
+use engingcore::traits::{
     InternalAdminProvider, InternalVoteEngine, InternalVoteResultCallback, JointVoteEngine,
     JointVoteResultCallback,
 };
-use votebase::{
+use engingcore::{
     PendingCleanupStage, Proposal, ProposalExecutionOutcome, VoteCountU32, VoteCountU64,
     PROPOSAL_KIND_JOINT, STAGE_INTERNAL, STAGE_JOINT, STAGE_REFERENDUM, STATUS_EXECUTED,
     STATUS_EXECUTION_FAILED, STATUS_PASSED, STATUS_REJECTED, STATUS_VOTING,
@@ -70,7 +70,7 @@ mod runtime {
     pub type System = frame_system;
 
     #[runtime::pallet_index(1)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(2)]
     pub type InternalVote = super;
@@ -86,11 +86,11 @@ impl system::Config for Test {
     type Lookup = IdentityLookup<Self::AccountId>;
 }
 
-// 本模块验证投票行为/条数/FIFO，资源约束由votebase预算回归及Runtime预算回归验证。
+// 本模块验证投票行为/条数/FIFO，资源约束由engingcore预算回归及Runtime预算回归验证。
 // 避免FRAME通用测试默认的小预算掩盖本模块要验证的状态转换。
 frame_support::parameter_types! { pub const MaintenanceBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -160,13 +160,13 @@ thread_local! {
     static INTERNAL_CALLBACK_SHOULD_FAIL: RefCell<bool> = const { RefCell::new(false) };
 }
 thread_local! {
-    static INTERNAL_CALLBACK_LOG: RefCell<Vec<(u64, bool)>> = const { RefCell::new(Vec::new()) };
+    static INTERNAL_CALLBACK_LOG: RefCell<Vec<(u128, bool)>> = const { RefCell::new(Vec::new()) };
 }
 thread_local! {
     static INTERNAL_CALLBACK_OVERRIDE_STATUS: RefCell<Option<u8>> = const { RefCell::new(None) };
 }
 thread_local! {
-    static INTERNAL_TERMINAL_CLEANUP_LOG: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+    static INTERNAL_TERMINAL_CLEANUP_LOG: RefCell<Vec<u128>> = const { RefCell::new(Vec::new()) };
 }
 thread_local! {
     static INTERNAL_TERMINAL_CLEANUP_SHOULD_FAIL: RefCell<bool> = const { RefCell::new(false) };
@@ -418,7 +418,7 @@ impl InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     }
 }
 
-impl votebase::InstitutionRoleProvider<AccountId32> for TestInternalAdminProvider {
+impl engingcore::InstitutionRoleProvider<AccountId32> for TestInternalAdminProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         Self::active_accounts_for_role(cid_number, role_code).contains(who)
     }
@@ -427,7 +427,7 @@ impl votebase::InstitutionRoleProvider<AccountId32> for TestInternalAdminProvide
         let Ok(cid_text) = core::str::from_utf8(cid_number) else {
             return Vec::new();
         };
-        let Some(code) = votebase::types::institution_code_from_cid_number(cid_text) else {
+        let Some(code) = engingcore::types::institution_code_from_cid_number(cid_text) else {
             return Vec::new();
         };
         let expected_role = test_institution_role(code);
@@ -458,23 +458,23 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
         TEST_NOW_SECS.with(|secs| core::time::Duration::from_secs(*secs.borrow()))
     }
 }
-impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         (who == &nrc_admin(0)).then(|| test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         (who == &nrc_admin(0)).then(|| test_citizen_subject(who))
     }
 
-    fn population_data(scope: &votebase::PopulationScope) -> Option<votebase::PopulationData> {
-        Some(votebase::PopulationData {
+    fn population_data(scope: &engingcore::PopulationScope) -> Option<engingcore::PopulationData> {
+        Some(engingcore::PopulationData {
             scope: scope.clone(),
             eligible_total: TEST_POPULATION_COUNT.with(|count| *count.borrow()),
             eligibility_revision: 1,
@@ -484,14 +484,14 @@ impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader 
 
     fn voting_subject_at(
         who: &AccountId32,
-        _population_data: &votebase::PopulationData,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _population_data: &engingcore::PopulationData,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         (who == &nrc_admin(0)).then(|| test_citizen_subject(who))
     }
 }
 
-fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
-    votebase::CitizenSubject {
+fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<AccountId32> {
+    engingcore::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(who)
             .to_vec()
             .try_into()
@@ -502,7 +502,7 @@ fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId
 
 impl JointVoteResultCallback for TestJointVoteResultCallback {
     fn on_joint_vote_finalized(
-        vote_proposal_id: u64,
+        vote_proposal_id: u128,
         _approved: bool,
     ) -> Result<ProposalExecutionOutcome, DispatchError> {
         if JOINT_CALLBACK_SHOULD_FAIL.with(|flag| *flag.borrow()) {
@@ -524,7 +524,7 @@ impl JointVoteResultCallback for TestJointVoteResultCallback {
 
 impl InternalVoteResultCallback for TestInternalVoteResultCallback {
     fn on_internal_vote_finalized(
-        proposal_id: u64,
+        proposal_id: u128,
         approved: bool,
     ) -> Result<ProposalExecutionOutcome, DispatchError> {
         // 先记日志；thread_local 不参与 storage transaction，仅用于确认回调调用次数。
@@ -548,7 +548,7 @@ impl InternalVoteResultCallback for TestInternalVoteResultCallback {
         }
     }
 
-    fn on_execution_failed_terminal(proposal_id: u64) -> DispatchResult {
+    fn on_execution_failed_terminal(proposal_id: u128) -> DispatchResult {
         if INTERNAL_TERMINAL_CLEANUP_SHOULD_FAIL.with(|flag| *flag.borrow()) {
             return Err(DispatchError::Other("internal terminal cleanup failed"));
         }
@@ -591,13 +591,13 @@ fn subject_cids_for(actor_cid_number: &CidNumber) -> Vec<Vec<u8>> {
     sp_std::vec![actor_cid_number.to_vec()]
 }
 
-fn internal_mutex_for(actor_cid_number: CidNumber) -> Option<votebase::InternalProposalMutexState> {
+fn internal_mutex_for(actor_cid_number: CidNumber) -> Option<engingcore::InternalProposalMutexState> {
     VotingEngine::internal_proposal_mutex(ProposalSubject::InstitutionCid(actor_cid_number))
 }
 
 fn personal_mutex_for(
     personal_account_id: AccountId32,
-) -> Option<votebase::InternalProposalMutexState> {
+) -> Option<engingcore::InternalProposalMutexState> {
     VotingEngine::internal_proposal_mutex(ProposalSubject::PersonalAccount(personal_account_id))
 }
 
@@ -676,7 +676,7 @@ fn institution_threshold(cid_number: CidNumber) -> usize {
     panic!("unknown institution");
 }
 
-fn cast_joint_votes_until_finalized(proposal_id: u64, cid_number: CidNumber, approve: bool) {
+fn cast_joint_votes_until_finalized(proposal_id: u128, cid_number: CidNumber, approve: bool) {
     let admins = institution_admins(cid_number.clone());
     let threshold = institution_threshold(cid_number.clone());
     let required_votes = if approve {
@@ -698,7 +698,7 @@ fn cast_joint_votes_until_finalized(proposal_id: u64, cid_number: CidNumber, app
 
 fn submit_joint_vote(
     who: AccountId32,
-    proposal_id: u64,
+    proposal_id: u128,
     cid_number: CidNumber,
     approve: bool,
 ) -> DispatchResult {
@@ -725,7 +725,7 @@ fn create_joint_proposal_for(
     who: AccountId32,
     actor_cid_number: CidNumber,
     eligible_total: u64,
-) -> u64 {
+) -> u128 {
     try_create_joint_proposal_for(who, actor_cid_number, eligible_total)
         .expect("joint proposal should be created")
 }
@@ -734,7 +734,7 @@ fn try_create_joint_proposal_for(
     who: AccountId32,
     actor_cid_number: CidNumber,
     eligible_total: u64,
-) -> Result<u64, DispatchError> {
+) -> Result<u128, DispatchError> {
     set_population_data(eligible_total);
     let data = b"joint-test".to_vec();
     let hash = <Test as frame_system::Config>::Hashing::hash(data.as_slice());
@@ -742,7 +742,7 @@ fn try_create_joint_proposal_for(
     business_object_hash.copy_from_slice(hash.as_ref());
     let actor_text = core::str::from_utf8(actor_cid_number.as_slice())
         .map_err(|_| DispatchError::Other("invalid actor CID"))?;
-    let actor_code = votebase::types::institution_code_from_cid_number(actor_text)
+    let actor_code = engingcore::types::institution_code_from_cid_number(actor_text)
         .ok_or(DispatchError::Other("invalid actor CID"))?;
     let proposer_role_code = if matches!(actor_code, NRC | PRC) {
         primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
@@ -750,7 +750,7 @@ fn try_create_joint_proposal_for(
         primitives::governance_skeleton::ROLE_CODE_DIRECTOR
     };
     let proposer_subject =
-        votebase::types::AuthorizationSubject::Institution(votebase::types::RoleSubject {
+        engingcore::types::AuthorizationSubject::Institution(engingcore::types::RoleSubject {
             cid_number: actor_cid_number.clone(),
             role_code: proposer_role_code
                 .to_vec()
@@ -760,7 +760,7 @@ fn try_create_joint_proposal_for(
     let voter_subjects = CHINA_CB
         .iter()
         .map(|entry| {
-            votebase::types::AuthorizationSubject::Institution(votebase::types::RoleSubject {
+            engingcore::types::AuthorizationSubject::Institution(engingcore::types::RoleSubject {
                 cid_number: bounded_cid(entry.cid_number.as_bytes()),
                 role_code: primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                     .to_vec()
@@ -769,7 +769,7 @@ fn try_create_joint_proposal_for(
             })
         })
         .chain(CHINA_CH.iter().map(|entry| {
-            votebase::types::AuthorizationSubject::Institution(votebase::types::RoleSubject {
+            engingcore::types::AuthorizationSubject::Institution(engingcore::types::RoleSubject {
                 cid_number: bounded_cid(entry.cid_number.as_bytes()),
                 role_code: primitives::governance_skeleton::ROLE_CODE_DIRECTOR
                     .to_vec()
@@ -782,15 +782,15 @@ fn try_create_joint_proposal_for(
         .to_vec()
         .try_into()
         .map_err(|_| DispatchError::Other("invalid module tag"))?;
-    let vote_plan = votebase::types::VotePlanOf::try_new(
-        votebase::types::BusinessActionId {
+    let vote_plan = engingcore::types::VotePlanOf::try_new(
+        engingcore::types::BusinessActionId {
             module_tag: module_tag.clone(),
             action_code: 0,
         },
         module_tag,
         proposer_subject,
         voter_subjects,
-        votebase::types::VotingEngineKind::Joint,
+        engingcore::types::VotingEngineKind::Joint,
         business_object_hash,
     )
     .map_err(|_| DispatchError::Other("invalid joint vote plan"))?;
@@ -826,7 +826,7 @@ fn create_internal_proposal_via_engine(
     who: AccountId32,
     institution_code: InstitutionCode,
     actor_cid_number: CidNumber,
-) -> u64 {
+) -> u128 {
     let data = b"payload".to_vec();
     let vote_plan = internal_vote_plan(&actor_cid_number, &data);
     <InternalVote as InternalVoteEngine<AccountId32>>::create_institution_proposal_with_data(
@@ -844,7 +844,7 @@ fn create_internal_proposal_via_engine(
 fn internal_vote_plan(
     actor_cid_number: &CidNumber,
     data: &[u8],
-) -> votebase::types::VotePlanOf<AccountId32> {
+) -> engingcore::types::VotePlanOf<AccountId32> {
     internal_vote_plan_with_owner(actor_cid_number, b"test", data)
 }
 
@@ -852,27 +852,27 @@ fn internal_vote_plan_with_owner(
     actor_cid_number: &CidNumber,
     module_tag: &[u8],
     data: &[u8],
-) -> votebase::types::VotePlanOf<AccountId32> {
+) -> engingcore::types::VotePlanOf<AccountId32> {
     let actor_text = core::str::from_utf8(actor_cid_number.as_slice()).expect("valid CID");
-    let code = votebase::types::institution_code_from_cid_number(actor_text)
+    let code = engingcore::types::institution_code_from_cid_number(actor_text)
         .expect("known institution code");
     let role_code = test_institution_role(code);
     let owner: BoundedVec<u8, ConstU32<32>> = module_tag.to_vec().try_into().expect("owner");
-    let role_subject = votebase::types::RoleSubject {
+    let role_subject = engingcore::types::RoleSubject {
         cid_number: actor_cid_number.clone(),
         role_code: role_code.to_vec().try_into().expect("role code"),
     };
-    votebase::types::VotePlanOf::try_new(
-        votebase::types::BusinessActionId {
+    engingcore::types::VotePlanOf::try_new(
+        engingcore::types::BusinessActionId {
             module_tag: owner.clone(),
             action_code: 0,
         },
         owner,
-        votebase::types::AuthorizationSubject::Institution(role_subject.clone()),
-        vec![votebase::types::AuthorizationSubject::Institution(
+        engingcore::types::AuthorizationSubject::Institution(role_subject.clone()),
+        vec![engingcore::types::AuthorizationSubject::Institution(
             role_subject,
         )],
-        votebase::types::VotingEngineKind::Internal,
+        engingcore::types::VotingEngineKind::Internal,
         sp_io::hashing::blake2_256(data),
     )
     .expect("valid internal vote plan")
@@ -881,7 +881,7 @@ fn internal_vote_plan_with_owner(
 fn create_pending_personal_proposal_via_engine(
     who: AccountId32,
     personal_account_id: AccountId32,
-) -> u64 {
+) -> u128 {
     <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_account_create_proposal_with_data(
         who,
         personal_account_id,
@@ -893,7 +893,7 @@ fn create_pending_personal_proposal_via_engine(
     .expect("pending personal proposal should be created")
 }
 
-fn create_personal_proposal_via_engine(who: AccountId32, personal_account_id: AccountId32) -> u64 {
+fn create_personal_proposal_via_engine(who: AccountId32, personal_account_id: AccountId32) -> u128 {
     <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_proposal_with_data(
         who,
         personal_account_id,
@@ -906,7 +906,7 @@ fn create_personal_proposal_via_engine(who: AccountId32, personal_account_id: Ac
 fn create_admin_set_mutation_proposal_via_engine(
     who: AccountId32,
     personal_account_id: AccountId32,
-) -> u64 {
+) -> u128 {
     <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_admin_change_proposal_with_data(
         who,
         personal_account_id,
@@ -924,7 +924,7 @@ fn create_admin_set_mutation_proposal_via_engine(
 /// 此函数包裹 `RuntimeOrigin::signed(who)` 让测试代码保持简洁。
 fn cast_internal_vote_via_extrinsic(
     who: AccountId32,
-    proposal_id: u64,
+    proposal_id: u128,
     approve: bool,
 ) -> DispatchResult {
     // 测试 helper 直调底层 do_internal_vote；保留 extrinsic dispatch 的事务语义。
@@ -932,7 +932,7 @@ fn cast_internal_vote_via_extrinsic(
     let ticket_claim = if let Some(actor_cid_number) = proposal.actor_cid_number {
         let actor_text = core::str::from_utf8(actor_cid_number.as_slice()).expect("测试 CID 合法");
         let code =
-            votebase::types::institution_code_from_cid_number(actor_text).expect("测试机构码合法");
+            engingcore::types::institution_code_from_cid_number(actor_text).expect("测试机构码合法");
         InternalVoteTicketClaim::InstitutionRole(
             test_institution_role(code)
                 .to_vec()
@@ -963,7 +963,7 @@ fn process_current_block() {
     <VotingEngine as Hooks<u64>>::on_initialize(now);
 }
 
-fn insert_joint_referendum_proposal(proposal_id: u64, eligible_total: u64, end: u64) {
+fn insert_joint_referendum_proposal(proposal_id: u128, eligible_total: u64, end: u64) {
     Proposals::<Test>::insert(
         proposal_id,
         Proposal {
@@ -985,13 +985,13 @@ fn insert_joint_referendum_proposal(proposal_id: u64, eligible_total: u64, end: 
             end,
         },
     );
-    votebase::ProposalPopulationSnapshots::<Test>::insert(
+    engingcore::ProposalPopulationSnapshots::<Test>::insert(
         proposal_id,
-        votebase::ProposalPopulationSnapshot {
-            population_data: votebase::PopulationData {
-                scope: votebase::PopulationScope::Country,
+        engingcore::ProposalPopulationSnapshot {
+            population_data: engingcore::PopulationData {
+                scope: engingcore::PopulationScope::Country,
                 eligible_total,
-                eligibility_revision: proposal_id,
+                eligibility_revision: proposal_id as u64,
                 eligibility_date: 20_000,
             },
             created_at: System::block_number(),
@@ -999,8 +999,8 @@ fn insert_joint_referendum_proposal(proposal_id: u64, eligible_total: u64, end: 
     );
 }
 
-fn full_retry_deadline_bucket(seed: u64) -> BoundedVec<u64, ConstU32<128>> {
-    (0..128u64)
+fn full_retry_deadline_bucket(seed: u128) -> BoundedVec<u128, ConstU32<128>> {
+    (0..128u128)
         .map(|index| 2_000_000 + seed.saturating_mul(128) + index)
         .collect::<Vec<_>>()
         .try_into()
@@ -1017,7 +1017,7 @@ fn reset_cleanup_sequence(_current_block: u64) {
 
 fn fill_retry_deadline_window(from: u64) {
     for offset in 0..100u64 {
-        ExecutionRetryDeadlines::<Test>::insert(from + offset, full_retry_deadline_bucket(offset));
+        ExecutionRetryDeadlines::<Test>::insert(from + offset, full_retry_deadline_bucket(u128::from(offset)));
     }
 }
 

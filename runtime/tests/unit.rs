@@ -67,7 +67,7 @@ fn pow_digest_author_finds_pow_engine_author() {
 fn maintenance_allocations_leave_space_for_other_hooks() {
     use frame_support::traits::Get;
     let max = <Runtime as frame_system::Config>::BlockWeights::get().max_block;
-    let vote = <Runtime as votebase::Config>::MaxExecutionWeightPerBlock::get();
+    let vote = <Runtime as engingcore::Config>::MaxExecutionWeightPerBlock::get();
     let legal = <Runtime as legislation::Config>::ActivationWeightBudget::get();
     let identity = <Runtime as identity::Config>::MaxPopulationMaintenanceWeightPerBlock::get();
     let square =

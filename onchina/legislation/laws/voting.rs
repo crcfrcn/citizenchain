@@ -28,10 +28,10 @@ pub const OVERRIDE_SIGN_CALL_INDEX: u8 = 4;
 /// `guard_vote` call index(护宪大法官终审)。
 pub const GUARD_VOTE_CALL_INDEX: u8 = 5;
 
-/// 编码 `(proposal_id: u64 小端, approve: bool 0x01/0x00)` + `[26, call_index]` 前缀。
-fn encode_vote(call_index: u8, proposal_id: u64, approve: bool) -> ChainCall {
+/// 编码 `(proposal_id: Compact<u128>, approve: bool 0x01/0x00)` + `[26, call_index]` 前缀。
+fn encode_vote(call_index: u8, proposal_id: u128, approve: bool) -> ChainCall {
     let mut out = vec![LEGISLATION_VOTE_PALLET_INDEX, call_index];
-    out.extend(proposal_id.to_le_bytes());
+    out.extend(codec::Compact(proposal_id).encode());
     out.push(if approve { 0x01 } else { 0x00 });
     ChainCall {
         action: chain_action_code(LEGISLATION_VOTE_PALLET_INDEX, call_index),
@@ -41,7 +41,7 @@ fn encode_vote(call_index: u8, proposal_id: u64, approve: bool) -> ChainCall {
 
 /// 当前代表机构的管理员按其机构席位投票。
 pub fn encode_cast_representative_vote(
-    proposal_id: u64,
+    proposal_id: u128,
     voter_role_code: &str,
     approve: bool,
 ) -> ChainCall {
@@ -51,7 +51,7 @@ pub fn encode_cast_representative_vote(
         LEGISLATION_VOTE_PALLET_INDEX,
         CAST_REPRESENTATIVE_VOTE_CALL_INDEX,
     ];
-    out.extend(proposal_id.to_le_bytes());
+    out.extend(codec::Compact(proposal_id).encode());
     out.extend(role_code.to_vec().encode());
     out.push(if approve { 0x01 } else { 0x00 });
     ChainCall {
@@ -64,22 +64,22 @@ pub fn encode_cast_representative_vote(
 }
 
 /// 特别案立法公投。
-pub fn encode_cast_referendum_vote(proposal_id: u64, approve: bool) -> ChainCall {
+pub fn encode_cast_referendum_vote(proposal_id: u128, approve: bool) -> ChainCall {
     encode_vote(CAST_REFERENDUM_VOTE_CALL_INDEX, proposal_id, approve)
 }
 
 /// 行政签署/否决(法定代表人:市长/省长/总统)。
-pub fn encode_executive_sign(proposal_id: u64, approve: bool) -> ChainCall {
+pub fn encode_executive_sign(proposal_id: u128, approve: bool) -> ChainCall {
     encode_vote(EXECUTIVE_SIGN_CALL_INDEX, proposal_id, approve)
 }
 
 /// 三人会签救济(院长 + 参议长 + 众议长)。
-pub fn encode_override_sign(proposal_id: u64, approve: bool) -> ChainCall {
+pub fn encode_override_sign(proposal_id: u128, approve: bool) -> ChainCall {
     encode_vote(OVERRIDE_SIGN_CALL_INDEX, proposal_id, approve)
 }
 
 /// 护宪大法官终审(修宪)。
-pub fn encode_guard_vote(proposal_id: u64, approve: bool) -> ChainCall {
+pub fn encode_guard_vote(proposal_id: u128, approve: bool) -> ChainCall {
     encode_vote(GUARD_VOTE_CALL_INDEX, proposal_id, approve)
 }
 

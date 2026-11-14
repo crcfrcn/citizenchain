@@ -459,6 +459,56 @@ pub fn legislation_institution_capability_allows(
     }
 }
 
+/// 普通市注册局可配置的登记业务能力；不创建岗位、权限或任职。
+///
+/// 这里只开放直接办理动作的 Propose 能力。FRG 继续使用固定机构目录；
+/// 实际业务仍须校验机构存在性、具体岗位权限、有效任职与办理辖区。
+pub fn registry_institution_capability_allows(
+    institution_code: InstitutionCode,
+    cid_number: &[u8],
+    module_tag: &[u8],
+    action_code: u32,
+    operation: RolePermissionOperation,
+) -> bool {
+    if institution_code != *b"CREG" || operation != RolePermissionOperation::Propose {
+        return false;
+    }
+    let Ok(parts) = primitives::cid::number::parse_cid_number_parts_bytes(cid_number) else {
+        return false;
+    };
+    if parts.institution != institution_code {
+        return false;
+    }
+    let Ok((_, city)) = primitives::cid::number::cid_scope_codes(cid_number) else {
+        return false;
+    };
+    if city == *b"000" {
+        return false;
+    }
+    match module_tag {
+        MODULE_CITIZEN_IDENTITY => matches!(
+            action_code,
+            ACTION_REGISTER_VOTING_IDENTITY
+                | ACTION_UPGRADE_CANDIDATE_IDENTITY
+                | ACTION_UPDATE_VOTING_IDENTITY
+                | ACTION_UPDATE_CANDIDATE_IDENTITY
+                | ACTION_REVOKE_IDENTITY
+                | ACTION_OCCUPY_CID
+                | ACTION_ADMIN_REBIND_CID_ACCOUNT_ID
+                | ACTION_REVOKE_CID
+        ),
+        MODULE_ADDRESS_REGISTRY => matches!(
+            action_code,
+            ACTION_SET_ADDRESS_NAME
+                | ACTION_REMOVE_ADDRESS_NAME
+                | ACTION_SET_ADDRESS
+                | ACTION_REMOVE_ADDRESS
+        ),
+        MODULE_INSTITUTION_REGISTRATION => action_code == ACTION_REGISTER_INSTITUTION,
+        _ => false,
+    }
+}
+
 /// 固定创世机构 CID 顶层能力白名单。
 ///
 /// 固定岗位权限必须是本白名单的子集。动态岗位后续需要新增业务时，应先由对应业务步骤

@@ -15,7 +15,7 @@ use frame_support::{
 use primitives::institution_asset::{InstitutionAsset, InstitutionAssetAction};
 use primitives::{account_derive::RESERVED_NAME_FEE, fee_policy::OnchainFeeCharger};
 use sp_runtime::{traits::Zero, DispatchResult};
-use votebase::InternalVoteEngine;
+use engingcore::InternalVoteEngine;
 
 use crate::institution::types::CloseInstitutionAction;
 use crate::pallet::{
@@ -121,7 +121,7 @@ pub(crate) fn do_propose_institution_close<T: Config>(
 }
 
 pub(crate) fn execute_institution_close_with_finalizer<T: Config>(
-    proposal_id: u64,
+    proposal_id: u128,
     action: &CloseInstitutionAction<T::AccountId, CidNumberOf<T>>,
 ) -> DispatchResult {
     use entitybase::InstitutionMultisigQuery;
@@ -159,14 +159,14 @@ pub(crate) fn execute_institution_close_with_finalizer<T: Config>(
     let institution_code =
         Pallet::<T>::resolve_institution_code_for_account(&action.institution_account_id)
             .ok_or(Error::<T>::AccountNotFound)?;
-    let proposal = votebase::Pallet::<T>::proposals(proposal_id)
+    let proposal = engingcore::Pallet::<T>::proposals(proposal_id)
         .ok_or(Error::<T>::ProposalActionNotFound)?;
     ensure!(
-        votebase::Pallet::<T>::is_callback_execution_scope(proposal_id)
-            && votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
-            && proposal.kind == votebase::PROPOSAL_KIND_INTERNAL
-            && proposal.stage == votebase::STAGE_INTERNAL
-            && proposal.status == votebase::STATUS_PASSED
+        engingcore::Pallet::<T>::is_callback_execution_scope(proposal_id)
+            && engingcore::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
+            && proposal.kind == engingcore::PROPOSAL_KIND_INTERNAL
+            && proposal.stage == engingcore::STAGE_INTERNAL
+            && proposal.status == engingcore::STATUS_PASSED
             && proposal.internal_code == Some(institution_code)
             && proposal.actor_cid_number.as_ref().map(|cid| cid.as_slice())
                 == Some(action.actor_cid_number.as_slice())

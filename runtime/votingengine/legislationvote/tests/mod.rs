@@ -2,8 +2,8 @@
 
 //! 立法投票 sub-pallet 单测 mock runtime。
 //!
-//! System + VotingEngine + InternalVote(供 votebase 必填 finalizer)+ LegislationVote。
-//! votebase::Config 通过 TrackHandlers 注册 LegislationVote，
+//! System + VotingEngine + InternalVote(供 engingcore 必填 finalizer)+ LegislationVote。
+//! engingcore::Config 通过 TrackHandlers 注册 LegislationVote，
 //! LegislationVoteResultCallback 装 `()`(本 sub-pallet 单测只验投票机制,不验业务写法律)。
 //! TestInternalAdminProvider 定义两院议员名册;公投公民资格从测试用 CitizenIdentityReader 返回。
 
@@ -42,7 +42,7 @@ mod runtime {
     pub type System = frame_system;
 
     #[runtime::pallet_index(1)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(99)]
     pub type InternalVote = internalvote;
@@ -59,7 +59,7 @@ impl system::Config for Test {
 }
 
 // ───────── 测试机构 CID / 议员名册 ─────────
-fn bounded_cid(cid_number: &str) -> votebase::types::CidNumber {
+fn bounded_cid(cid_number: &str) -> engingcore::types::CidNumber {
     cid_number
         .as_bytes()
         .to_vec()
@@ -68,17 +68,17 @@ fn bounded_cid(cid_number: &str) -> votebase::types::CidNumber {
 }
 
 /// 业务发起机构与代表表决机构分离，权限统一按 actor CID 下的 admins 校验。
-pub fn actor_cid_number() -> votebase::types::CidNumber {
+pub fn actor_cid_number() -> engingcore::types::CidNumber {
     bounded_cid(CHINA_LF[2].cid_number)
 }
 
-pub fn house1_cid() -> votebase::types::CidNumber {
+pub fn house1_cid() -> engingcore::types::CidNumber {
     bounded_cid(CHINA_LF[2].cid_number)
 }
-pub fn house2_cid() -> votebase::types::CidNumber {
+pub fn house2_cid() -> engingcore::types::CidNumber {
     bounded_cid(CHINA_LF[1].cid_number)
 }
-pub fn house3_cid() -> votebase::types::CidNumber {
+pub fn house3_cid() -> engingcore::types::CidNumber {
     bounded_cid(CHINA_JY[0].cid_number)
 }
 /// house1 议员 = 账户 [1..=10];house2 议员 = 账户 [11..=20]。
@@ -100,21 +100,21 @@ pub fn set_guard_member_ids(ids: &[u8]) {
 }
 
 // 签署机构(ADR-027 修订):行政机构 + 立法院(两院级,供院长)。
-pub fn exec_body_cid() -> votebase::types::CidNumber {
+pub fn exec_body_cid() -> engingcore::types::CidNumber {
     bounded_cid(CHINA_ZF[0].cid_number)
 }
 /// 行政首长(市长/省长/总统)= 行政机构法定代表人。
 pub fn exec_rep() -> AccountId32 {
     AccountId32::new([81u8; 32])
 }
-pub fn leg_body_cid() -> votebase::types::CidNumber {
+pub fn leg_body_cid() -> engingcore::types::CidNumber {
     bounded_cid(CHINA_LF[0].cid_number)
 }
 /// 立法院院长 = 立法院法定代表人。
 pub fn leg_rep() -> AccountId32 {
     AccountId32::new([71u8; 32])
 }
-pub fn guard_body_cid() -> votebase::types::CidNumber {
+pub fn guard_body_cid() -> engingcore::types::CidNumber {
     bounded_cid(
         CHINA_SF
             .iter()
@@ -129,7 +129,7 @@ const LR_ROLE: &[u8] = primitives::institution_constraints::ROLE_CODE_LEGAL_REPR
 const GUARD_ROLE: &[u8] = primitives::governance_skeleton::ROLE_CODE_CONSTITUTION_GUARD;
 
 fn role_subject(
-    cid_number: votebase::types::CidNumber,
+    cid_number: engingcore::types::CidNumber,
     role_code: &[u8],
 ) -> crate::types::RepresentativeBody {
     entitybase::RoleSubject {
@@ -155,23 +155,23 @@ pub struct TestCitizenIdentityReader;
 pub struct TestInternalAdminProvider;
 pub struct TestInstitutionRoleProvider;
 
-impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
     fn voting_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
     fn candidate_subject(
         who: &AccountId32,
-        _scope: &votebase::PopulationScope,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _scope: &engingcore::PopulationScope,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 
-    fn population_data(scope: &votebase::PopulationScope) -> Option<votebase::PopulationData> {
-        Some(votebase::PopulationData {
+    fn population_data(scope: &engingcore::PopulationScope) -> Option<engingcore::PopulationData> {
+        Some(engingcore::PopulationData {
             scope: scope.clone(),
             eligible_total: 100,
             eligibility_revision: 1,
@@ -181,20 +181,20 @@ impl votebase::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader 
 
     fn voting_subject_at(
         who: &AccountId32,
-        _population_data: &votebase::PopulationData,
-    ) -> Option<votebase::CitizenSubject<AccountId32>> {
+        _population_data: &engingcore::PopulationData,
+    ) -> Option<engingcore::CitizenSubject<AccountId32>> {
         Some(test_citizen_subject(who))
     }
 }
 
 /// 账户 201 模拟账户 100 更换后的新绑定账户，两者共用同一永久 CID。
-fn test_citizen_subject(who: &AccountId32) -> votebase::CitizenSubject<AccountId32> {
+fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<AccountId32> {
     let cid_source = if who == &member(201) {
         member(100)
     } else {
         who.clone()
     };
-    votebase::CitizenSubject {
+    engingcore::CitizenSubject {
         cid_number: <AccountId32 as AsRef<[u8]>>::as_ref(&cid_source)
             .to_vec()
             .try_into()
@@ -225,7 +225,7 @@ impl TestInternalAdminProvider {
 }
 
 /// 代表机构管理员与发起机构权限全部按 CID 路由，不再用机构账户充当主体。
-impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
         institution_code: primitives::cid::code::InstitutionCode,
         cid_number: &[u8],
@@ -258,7 +258,7 @@ impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider 
     }
 }
 
-impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
+impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         cid_number == actor_cid_number().as_slice()
             && role_code == REPRESENTATIVE_ROLE
@@ -304,19 +304,19 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
 
 /// 测试业务回调:模拟业务壳认领立法提案并返回 Executed(真实 runtime 接 LegislationYuan)。
 pub struct TestLegislationCallback;
-impl votebase::LegislationVoteResultCallback for TestLegislationCallback {
+impl engingcore::LegislationVoteResultCallback for TestLegislationCallback {
     fn on_legislation_vote_finalized(
-        _vote_proposal_id: u64,
+        _vote_proposal_id: u128,
         _approved: bool,
-    ) -> Result<votebase::ProposalExecutionOutcome, sp_runtime::DispatchError> {
-        Ok(votebase::ProposalExecutionOutcome::Executed)
+    ) -> Result<engingcore::ProposalExecutionOutcome, sp_runtime::DispatchError> {
+        Ok(engingcore::ProposalExecutionOutcome::Executed)
     }
 }
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -381,44 +381,44 @@ use crate::{RepresentativeBodies, RepresentativeRoute, RepresentativeVoteRule, V
 /// 创建立法提案并注册 ProposalData(设置 ProposalOwner,终态回调需要),不自动投票。
 pub fn create(
     proposer_account_id: AccountId32,
-    bodies: sp_runtime::sp_std::vec::Vec<votebase::types::CidNumber>,
+    bodies: sp_runtime::sp_std::vec::Vec<engingcore::types::CidNumber>,
     rule: RepresentativeVoteRule,
-) -> u64 {
+) -> u128 {
     create_inner(proposer_account_id, bodies, rule, false)
 }
 
 /// 修宪提案(needs_guard=true):现有流程通过后进护宪大法官终审。
 pub fn create_guard(
     proposer_account_id: AccountId32,
-    bodies: sp_runtime::sp_std::vec::Vec<votebase::types::CidNumber>,
+    bodies: sp_runtime::sp_std::vec::Vec<engingcore::types::CidNumber>,
     rule: RepresentativeVoteRule,
-) -> u64 {
+) -> u128 {
     try_create_inner(proposer_account_id, bodies, rule, true).expect("proposal created")
 }
 
 fn create_inner(
     proposer_account_id: AccountId32,
-    bodies: sp_runtime::sp_std::vec::Vec<votebase::types::CidNumber>,
+    bodies: sp_runtime::sp_std::vec::Vec<engingcore::types::CidNumber>,
     rule: RepresentativeVoteRule,
     needs_guard: bool,
-) -> u64 {
+) -> u128 {
     try_create_inner(proposer_account_id, bodies, rule, needs_guard).expect("proposal created")
 }
 
 pub fn try_create_guard(
     proposer_account_id: AccountId32,
-    bodies: sp_runtime::sp_std::vec::Vec<votebase::types::CidNumber>,
+    bodies: sp_runtime::sp_std::vec::Vec<engingcore::types::CidNumber>,
     rule: RepresentativeVoteRule,
-) -> Result<u64, sp_runtime::DispatchError> {
+) -> Result<u128, sp_runtime::DispatchError> {
     try_create_inner(proposer_account_id, bodies, rule, true)
 }
 
 fn try_create_inner(
     proposer_account_id: AccountId32,
-    bodies: sp_runtime::sp_std::vec::Vec<votebase::types::CidNumber>,
+    bodies: sp_runtime::sp_std::vec::Vec<engingcore::types::CidNumber>,
     rule: RepresentativeVoteRule,
     needs_guard: bool,
-) -> Result<u64, sp_runtime::DispatchError> {
+) -> Result<u128, sp_runtime::DispatchError> {
     let bounded: RepresentativeBodies = bodies
         .into_iter()
         .map(|cid| role_subject(cid, REPRESENTATIVE_ROLE))
@@ -439,11 +439,11 @@ fn try_create_inner(
         route,
         rule,
         VoteProcedure::Legislation,
-        votebase::types::ProposalSubjectCidNumbers::new(),
+        engingcore::types::ProposalSubjectCidNumbers::new(),
         legislation_meta,
     )?;
     let now = System::block_number();
-    votebase::Pallet::<Test>::register_proposal_data(
+    engingcore::Pallet::<Test>::register_proposal_data(
         pid,
         b"leg-yuan",
         sp_runtime::sp_std::vec![1u8],
@@ -476,7 +476,7 @@ pub fn legislation_meta(
 pub fn test_vote_plan(
     route: &RepresentativeRoute,
     meta: Option<&crate::pallet::LegislationMeta>,
-) -> votebase::VotePlanOf<AccountId32> {
+) -> engingcore::VotePlanOf<AccountId32> {
     test_vote_plan_with_owner(route, meta, b"leg-yuan")
 }
 
@@ -484,7 +484,7 @@ pub fn test_vote_plan_with_owner(
     route: &RepresentativeRoute,
     meta: Option<&crate::pallet::LegislationMeta>,
     module_tag: &[u8],
-) -> votebase::VotePlanOf<AccountId32> {
+) -> engingcore::VotePlanOf<AccountId32> {
     let owner: frame_support::BoundedVec<
         u8,
         ConstU32<{ entitybase::BUSINESS_MODULE_TAG_MAX_BYTES }>,
@@ -492,7 +492,7 @@ pub fn test_vote_plan_with_owner(
     let mut voters = route
         .bodies()
         .into_iter()
-        .map(votebase::AuthorizationSubject::Institution)
+        .map(engingcore::AuthorizationSubject::Institution)
         .collect::<Vec<_>>();
     if let Some(meta) = meta {
         voters.extend(
@@ -501,54 +501,54 @@ pub fn test_vote_plan_with_owner(
                 .chain(meta.override_signers.iter())
                 .chain(meta.guard.iter())
                 .cloned()
-                .map(votebase::AuthorizationSubject::Institution),
+                .map(engingcore::AuthorizationSubject::Institution),
         );
     }
-    votebase::VotePlanOf::try_new(
+    engingcore::VotePlanOf::try_new(
         entitybase::BusinessActionId {
             module_tag: owner.clone(),
             action_code: 0,
         },
         owner,
-        votebase::AuthorizationSubject::Institution(role_subject(
+        engingcore::AuthorizationSubject::Institution(role_subject(
             actor_cid_number(),
             REPRESENTATIVE_ROLE,
         )),
         voters,
-        votebase::VotingEngineKind::Legislation,
+        engingcore::VotingEngineKind::Legislation,
         [3u8; 32],
     )
     .expect("test legislation plan")
 }
 
 /// 单院院序列 [house1]。
-pub fn single_house() -> sp_runtime::sp_std::vec::Vec<votebase::types::CidNumber> {
+pub fn single_house() -> sp_runtime::sp_std::vec::Vec<engingcore::types::CidNumber> {
     sp_runtime::sp_std::vec![house1_cid()]
 }
 /// 两院院序列 [house1, house2]。
-pub fn two_houses() -> sp_runtime::sp_std::vec::Vec<votebase::types::CidNumber> {
+pub fn two_houses() -> sp_runtime::sp_std::vec::Vec<engingcore::types::CidNumber> {
     sp_runtime::sp_std::vec![house1_cid(), house2_cid()]
 }
 
 /// 两个管理员名册重叠的代表机构，用于验证同一账户按机构席位分别投票。
-pub fn overlapping_bodies() -> sp_runtime::sp_std::vec::Vec<votebase::types::CidNumber> {
+pub fn overlapping_bodies() -> sp_runtime::sp_std::vec::Vec<engingcore::types::CidNumber> {
     sp_runtime::sp_std::vec![house1_cid(), house3_cid()]
 }
 
 /// 当前提案状态(从核心读)。
-pub fn status(pid: u64) -> u8 {
-    votebase::pallet::Proposals::<Test>::get(pid)
+pub fn status(pid: u128) -> u8 {
+    engingcore::pallet::Proposals::<Test>::get(pid)
         .expect("proposal exists")
         .status
 }
-pub fn stage(pid: u64) -> u8 {
-    votebase::pallet::Proposals::<Test>::get(pid)
+pub fn stage(pid: u128) -> u8 {
+    engingcore::pallet::Proposals::<Test>::get(pid)
         .expect("proposal exists")
         .stage
 }
 
 /// 投一票(事务内,因 set_status_and_emit 需在事务中)。
-pub fn cast(who: AccountId32, pid: u64, approve: bool) -> sp_runtime::DispatchResult {
+pub fn cast(who: AccountId32, pid: u128, approve: bool) -> sp_runtime::DispatchResult {
     let meta = RepresentativeMetas::<Test>::get(pid).expect("representative meta exists");
     let voter_role_code = meta
         .route
@@ -570,17 +570,17 @@ pub fn cast(who: AccountId32, pid: u64, approve: bool) -> sp_runtime::DispatchRe
 }
 
 pub fn representative_ticket(
-    cid_number: votebase::types::CidNumber,
+    cid_number: engingcore::types::CidNumber,
     who: AccountId32,
-) -> votebase::InstitutionVoteTicket<AccountId32> {
-    votebase::InstitutionVoteTicket {
+) -> engingcore::InstitutionVoteTicket<AccountId32> {
+    engingcore::InstitutionVoteTicket {
         role_subject: role_subject(cid_number, REPRESENTATIVE_ROLE),
         voter_account_id: who,
     }
 }
 
 /// 行政签署(事务内)。
-pub fn exec_sign(who: AccountId32, pid: u64, approve: bool) -> sp_runtime::DispatchResult {
+pub fn exec_sign(who: AccountId32, pid: u128, approve: bool) -> sp_runtime::DispatchResult {
     let result = frame_support::storage::with_transaction(
         || -> frame_support::storage::TransactionOutcome<sp_runtime::DispatchResult> {
             match Lib::do_executive_sign(who, pid, approve) {
@@ -596,7 +596,7 @@ pub fn exec_sign(who: AccountId32, pid: u64, approve: bool) -> sp_runtime::Dispa
 }
 
 /// 三人会签(事务内)。
-pub fn override_sign(who: AccountId32, pid: u64, approve: bool) -> sp_runtime::DispatchResult {
+pub fn override_sign(who: AccountId32, pid: u128, approve: bool) -> sp_runtime::DispatchResult {
     let result = frame_support::storage::with_transaction(
         || -> frame_support::storage::TransactionOutcome<sp_runtime::DispatchResult> {
             match Lib::do_override_sign(who, pid, approve) {
@@ -612,7 +612,7 @@ pub fn override_sign(who: AccountId32, pid: u64, approve: bool) -> sp_runtime::D
 }
 
 /// 护宪大法官终审表决(事务内)。
-pub fn guard_vote(who: AccountId32, pid: u64, approve: bool) -> sp_runtime::DispatchResult {
+pub fn guard_vote(who: AccountId32, pid: u128, approve: bool) -> sp_runtime::DispatchResult {
     let result = frame_support::storage::with_transaction(
         || -> frame_support::storage::TransactionOutcome<sp_runtime::DispatchResult> {
             match Lib::do_guard_vote(who, pid, approve) {
@@ -630,17 +630,17 @@ pub fn guard_vote(who: AccountId32, pid: u64, approve: bool) -> sp_runtime::Disp
 /// 执行当前区块维护钩子，让 PASSED 立法提案完成一次异步业务执行。
 pub fn process_current_block() {
     let now = System::block_number();
-    votebase::Pallet::<Test>::on_initialize(now);
+    engingcore::Pallet::<Test>::on_initialize(now);
 }
 
 /// 推进到提案 end 之后并触发到期结算(用于签署/会签超时测试)。
-pub fn run_to_expiry(pid: u64) {
-    let end = votebase::pallet::Proposals::<Test>::get(pid)
+pub fn run_to_expiry(pid: u128) {
+    let end = engingcore::pallet::Proposals::<Test>::get(pid)
         .expect("proposal exists")
         .end;
     // 到期桶挂在 end+1;推进到 end+1 并触发 on_initialize 自动结算。
     System::set_block_number(end + 1);
-    votebase::Pallet::<Test>::on_initialize(end + 1);
+    engingcore::Pallet::<Test>::on_initialize(end + 1);
 }
 
 mod cases;

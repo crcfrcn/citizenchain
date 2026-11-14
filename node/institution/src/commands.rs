@@ -149,9 +149,10 @@ pub async fn fetch_clearing_bank_institution_detail(
 pub async fn fetch_clearing_bank_institution_proposals(
     app: AppHandle,
     cid_number: String,
-    start_id: u64,
+    start_id: String,
     page_size: u32,
 ) -> Result<InstitutionProposalPage, String> {
+    let start_id = start_id.parse::<u128>().map_err(|_| "提案 ID 超出 u128 范围")?;
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行,无法查询链上数据".to_string());

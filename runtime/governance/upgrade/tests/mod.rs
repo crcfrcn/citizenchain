@@ -33,7 +33,7 @@ mod runtime {
     pub type System = frame_system;
 
     #[runtime::pallet_index(1)]
-    pub type VotingEngine = votebase;
+    pub type VotingEngine = engingcore;
 
     #[runtime::pallet_index(99)]
     pub type InternalVote = internalvote;
@@ -105,7 +105,7 @@ impl frame_support::traits::EnsureOrigin<RuntimeOrigin> for EnsureNrcAdminForTes
 }
 
 thread_local! {
-    static NEXT_JOINT_ID: RefCell<u64> = const { RefCell::new(100) };
+    static NEXT_JOINT_ID: RefCell<u128> = const { RefCell::new(100) };
 }
 thread_local! {
     static EXEC_SHOULD_FAIL: RefCell<bool> = const { RefCell::new(false) };
@@ -113,7 +113,7 @@ thread_local! {
 
 pub struct TestJointVoteEngine;
 impl TestJointVoteEngine {
-    fn allocate_id() -> u64 {
+    fn allocate_id() -> u128 {
         NEXT_JOINT_ID.with(|id| {
             let mut id = id.borrow_mut();
             let proposal_id = *id;
@@ -123,38 +123,38 @@ impl TestJointVoteEngine {
     }
 
     fn store_data(
-        proposal_id: u64,
-        vote_plan: votebase::types::VotePlanOf<AccountId32>,
+        proposal_id: u128,
+        vote_plan: engingcore::types::VotePlanOf<AccountId32>,
         data: Vec<u8>,
     ) -> Result<(), DispatchError> {
         let bounded_data: frame_support::BoundedVec<
             u8,
-            <Test as votebase::Config>::MaxProposalDataLen,
+            <Test as engingcore::Config>::MaxProposalDataLen,
         > = data
             .try_into()
             .map_err(|_| DispatchError::Other("proposal data too large"))?;
-        let owner: frame_support::BoundedVec<u8, <Test as votebase::Config>::MaxModuleTagLen> =
+        let owner: frame_support::BoundedVec<u8, <Test as engingcore::Config>::MaxModuleTagLen> =
             vote_plan
                 .proposal_owner
                 .to_vec()
                 .try_into()
                 .map_err(|_| DispatchError::Other("module tag too large"))?;
-        votebase::ProposalData::<Test>::insert(proposal_id, bounded_data);
-        votebase::ProposalOwner::<Test>::insert(proposal_id, owner);
-        votebase::ProposalVotePlans::<Test>::insert(proposal_id, vote_plan);
+        engingcore::ProposalData::<Test>::insert(proposal_id, bounded_data);
+        engingcore::ProposalOwner::<Test>::insert(proposal_id, owner);
+        engingcore::ProposalVotePlans::<Test>::insert(proposal_id, vote_plan);
         Ok(())
     }
 }
 
-impl votebase::JointVoteEngine<AccountId32> for TestJointVoteEngine {
+impl engingcore::JointVoteEngine<AccountId32> for TestJointVoteEngine {
     // 测试 mock 模拟投票引擎“已准备好投票上下文”的创建入口，
     // upgrade 测试不再传入人口快照或联合签名材料。
     fn create_joint_proposal_with_data(
         _who: AccountId32,
         _actor_cid_number: Vec<u8>,
-        vote_plan: votebase::types::VotePlanOf<AccountId32>,
+        vote_plan: engingcore::types::VotePlanOf<AccountId32>,
         data: Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         let hash = <Test as frame_system::Config>::Hashing::hash(data.as_slice());
         if hash.as_ref() != vote_plan.business_object_hash.as_slice() {
             return Err(DispatchError::Other("business object hash mismatch"));
@@ -167,11 +167,11 @@ impl votebase::JointVoteEngine<AccountId32> for TestJointVoteEngine {
     fn create_joint_proposal_with_data_and_object(
         who: AccountId32,
         actor_cid_number: Vec<u8>,
-        vote_plan: votebase::types::VotePlanOf<AccountId32>,
+        vote_plan: engingcore::types::VotePlanOf<AccountId32>,
         data: Vec<u8>,
         object_kind: u8,
         object_data: Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         let object_hash = <Test as frame_system::Config>::Hashing::hash(&object_data);
         if object_hash.as_ref() != vote_plan.business_object_hash.as_slice() {
             return Err(DispatchError::Other("business object hash mismatch"));
@@ -184,14 +184,14 @@ impl votebase::JointVoteEngine<AccountId32> for TestJointVoteEngine {
         let object_hash = <Test as frame_system::Config>::Hashing::hash(&object_data);
         let bounded_object: frame_support::BoundedVec<
             u8,
-            <Test as votebase::Config>::MaxProposalObjectLen,
+            <Test as engingcore::Config>::MaxProposalObjectLen,
         > = object_data
             .try_into()
             .map_err(|_| DispatchError::Other("proposal object too large"))?;
-        votebase::ProposalObject::<Test>::insert(proposal_id, bounded_object);
-        votebase::ProposalObjectMeta::<Test>::insert(
+        engingcore::ProposalObject::<Test>::insert(proposal_id, bounded_object);
+        engingcore::ProposalObjectMeta::<Test>::insert(
             proposal_id,
-            votebase::ProposalObjectMetadata {
+            engingcore::ProposalObjectMetadata {
                 kind: object_kind,
                 object_len,
                 object_hash,
@@ -208,10 +208,10 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-// 本模块验证业务状态转换；有界预算由votebase专用测试与Runtime预算测试覆盖。
+// 本模块验证业务状态转换；有界预算由engingcore专用测试与Runtime预算测试覆盖。
 frame_support::parameter_types! { pub const LogicBudget: frame_support::weights::Weight = frame_support::weights::Weight::MAX; }
 
-impl votebase::Config for Test {
+impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
@@ -245,16 +245,16 @@ impl votebase::Config for Test {
 }
 
 pub struct TestInternalAdminProvider;
-impl votebase::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
     fn is_institution_admin(
-        institution_code: votebase::InstitutionCode,
+        institution_code: engingcore::InstitutionCode,
         cid_number: &[u8],
         who: &AccountId32,
     ) -> bool {
-        (institution_code == votebase::types::NRC
+        (institution_code == engingcore::types::NRC
             && cid_number == nrc_cid().as_slice()
             && *who == nrc_admin())
-            || (institution_code == votebase::types::PRC
+            || (institution_code == engingcore::types::PRC
                 && cid_number == prc_cid().as_slice()
                 && *who == prc_admin())
     }
@@ -302,13 +302,13 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32>
     }
 }
 
-impl votebase::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleAuthorization {
+impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleAuthorization {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
         role_code == primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
-            && [votebase::types::NRC, votebase::types::PRC]
+            && [engingcore::types::NRC, engingcore::types::PRC]
                 .into_iter()
                 .any(|code| {
-                    <TestInternalAdminProvider as votebase::InternalAdminProvider<
+                    <TestInternalAdminProvider as engingcore::InternalAdminProvider<
                         AccountId32,
                     >>::is_institution_admin(code, cid_number, who)
                 })
@@ -403,7 +403,7 @@ fn prc_admin() -> AccountId32 {
     AccountId32::new([3u8; 32])
 }
 
-fn nrc_cid() -> votebase::types::CidNumber {
+fn nrc_cid() -> engingcore::types::CidNumber {
     primitives::cid::china::china_cb::CHINA_CB[0]
         .cid_number
         .as_bytes()
@@ -412,7 +412,7 @@ fn nrc_cid() -> votebase::types::CidNumber {
         .expect("NRC CID fits runtime bound")
 }
 
-fn prc_cid() -> votebase::types::CidNumber {
+fn prc_cid() -> engingcore::types::CidNumber {
     primitives::cid::china::china_cb::CHINA_CB[1]
         .cid_number
         .as_bytes()
@@ -421,7 +421,7 @@ fn prc_cid() -> votebase::types::CidNumber {
         .expect("PRC CID fits runtime bound")
 }
 
-fn committee_role() -> votebase::types::RoleCode {
+fn committee_role() -> engingcore::types::RoleCode {
     primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
         .to_vec()
         .try_into()
@@ -442,8 +442,8 @@ fn code_ok() -> pallet::CodeOf<Test> {
 }
 
 /// 从 ProposalData 读取并跳过 MODULE_TAG 后 decode 提案摘要。
-fn decode_proposal(proposal_id: u64) -> pallet::Proposal<Test> {
-    let raw = votebase::Pallet::<Test>::get_proposal_data(proposal_id)
+fn decode_proposal(proposal_id: u128) -> pallet::Proposal<Test> {
+    let raw = engingcore::Pallet::<Test>::get_proposal_data(proposal_id)
         .expect("proposal data should exist");
     let tag = crate::MODULE_TAG;
     assert!(
@@ -467,19 +467,19 @@ fn propose_ok() {
 /// 在投票引擎中插入一个 PASSED 状态的 Proposal，使回调执行结果写入可用。
 /// 测试 mock 的 TestJointVoteEngine 不创建真实 Proposals 条目，
 /// 需手工补一个以模拟真实回调上下文。
-fn insert_engine_proposal(proposal_id: u64) {
-    insert_engine_proposal_with_status(proposal_id, votebase::STATUS_PASSED);
+fn insert_engine_proposal(proposal_id: u128) {
+    insert_engine_proposal_with_status(proposal_id, engingcore::STATUS_PASSED);
 }
 
-fn insert_engine_proposal_with_status(proposal_id: u64, status: u8) {
-    insert_engine_proposal_with_stage_and_status(proposal_id, votebase::STAGE_JOINT, status);
+fn insert_engine_proposal_with_status(proposal_id: u128, status: u8) {
+    insert_engine_proposal_with_stage_and_status(proposal_id, engingcore::STAGE_JOINT, status);
 }
 
-fn insert_engine_proposal_with_stage_and_status(proposal_id: u64, stage: u8, status: u8) {
-    votebase::pallet::Proposals::<Test>::insert(
+fn insert_engine_proposal_with_stage_and_status(proposal_id: u128, stage: u8, status: u8) {
+    engingcore::pallet::Proposals::<Test>::insert(
         proposal_id,
-        votebase::Proposal {
-            kind: votebase::PROPOSAL_KIND_JOINT,
+        engingcore::Proposal {
+            kind: engingcore::PROPOSAL_KIND_JOINT,
             stage,
             status,
             internal_code: None,
@@ -495,29 +495,29 @@ fn insert_engine_proposal_with_stage_and_status(proposal_id: u64, stage: u8, sta
             subject_cid_numbers: Default::default(),
             start: 0u64,
             end: 100u64,
-            // 这是 votebase::Proposal 的固定字段，非 upgrade 入参。
+            // 这是 engingcore::Proposal 的固定字段，非 upgrade 入参。
         },
     );
 }
 
 fn call_joint_callback(
-    proposal_id: u64,
+    proposal_id: u128,
     approved: bool,
-) -> Result<votebase::ProposalExecutionOutcome, DispatchError> {
-    votebase::pallet::CallbackExecutionScopes::<Test>::insert(proposal_id, ());
+) -> Result<engingcore::ProposalExecutionOutcome, DispatchError> {
+    engingcore::pallet::CallbackExecutionScopes::<Test>::insert(proposal_id, ());
     let result = RuntimeUpgrade::on_joint_vote_finalized(proposal_id, approved);
-    votebase::pallet::CallbackExecutionScopes::<Test>::remove(proposal_id);
+    engingcore::pallet::CallbackExecutionScopes::<Test>::remove(proposal_id);
     match result {
         Ok(outcome) => {
             if approved {
-                votebase::pallet::Proposals::<Test>::mutate(proposal_id, |maybe| {
+                engingcore::pallet::Proposals::<Test>::mutate(proposal_id, |maybe| {
                     if let Some(proposal) = maybe {
                         proposal.status = match outcome {
-                            votebase::ProposalExecutionOutcome::Executed => {
-                                votebase::STATUS_EXECUTED
+                            engingcore::ProposalExecutionOutcome::Executed => {
+                                engingcore::STATUS_EXECUTED
                             }
-                            votebase::ProposalExecutionOutcome::FatalFailed => {
-                                votebase::STATUS_EXECUTION_FAILED
+                            engingcore::ProposalExecutionOutcome::FatalFailed => {
+                                engingcore::STATUS_EXECUTION_FAILED
                             }
                             _ => proposal.status,
                         };

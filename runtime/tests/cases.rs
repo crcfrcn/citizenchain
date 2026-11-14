@@ -4,6 +4,56 @@
 use super::*;
 
 #[test]
+fn engine_core_package_keeps_voting_engine_chain_contract() {
+    use codec::Encode;
+
+    let metadata = serde_json::to_value(Runtime::metadata().1).expect("真实Runtime元数据");
+    let metadata = &metadata["V14"];
+    let pallet = metadata["pallets"]
+        .as_array().expect("pallets")
+        .iter().find(|pallet| pallet["name"] == "VotingEngine")
+        .expect("包名改变不能更改链上VotingEngine名称");
+    assert_eq!(pallet["index"], 9);
+    assert_eq!(pallet["storage"]["prefix"], "VotingEngine");
+    let types = metadata["types"]["types"].as_array().expect("types");
+    let call = &types.iter().find(|ty| ty["id"] == pallet["calls"]["ty"])
+        .expect("VotingEngine调用类型")["type"];
+    assert_eq!(call["path"][0], "engingcore");
+    let calls = call["def"]["variant"]["variants"].as_array().expect("calls");
+    assert_eq!(calls.iter().map(|call| (
+        call["name"].as_str().expect("call name"),
+        call["index"].as_u64().expect("call index"),
+    )).collect::<Vec<_>>(), [
+        ("finalize_proposal", 3),
+        ("retry_passed_proposal", 4),
+        ("cancel_passed_proposal", 5),
+    ]);
+
+    // 固定既有链上调用字节；不使用更名后的类型自行生成期望值。
+    assert_eq!(RuntimeCall::VotingEngine(engingcore::Call::finalize_proposal {
+        proposal_id: 42,
+    }).encode(), [9, 3, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(RuntimeCall::VotingEngine(engingcore::Call::retry_passed_proposal {
+        proposal_id: 42,
+    }).encode(), [9, 4, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(RuntimeCall::VotingEngine(engingcore::Call::cancel_passed_proposal {
+        proposal_id: 42, reason: Default::default(),
+    }).encode(), [9, 5, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+    // RPC查询键必须继续使用原pallet前缀、存储名称和Blake2_128Concat编码。
+    for (name, actual) in [
+        ("Proposals", engingcore::Proposals::<Runtime>::hashed_key_for(42u128)),
+        ("ProposalVotePlans", engingcore::ProposalVotePlans::<Runtime>::hashed_key_for(42u128)),
+    ] {
+        let mut expected = sp_io::hashing::twox_128(b"VotingEngine").to_vec();
+        expected.extend_from_slice(&sp_io::hashing::twox_128(name.as_bytes()));
+        expected.extend_from_slice(&sp_io::hashing::blake2_128(&42u128.to_le_bytes()));
+        expected.extend_from_slice(&42u128.to_le_bytes());
+        assert_eq!(actual, expected, "{name}");
+    }
+}
+
+#[test]
 fn square_subscription_metadata_uses_canonical_prices() {
     // 从真实 Runtime 的 Subscriptions 存储入口解析类型，防止测试自建同名替身。
     let metadata = serde_json::to_value(Runtime::metadata().1).expect("Runtime metadata 可序列化");
@@ -105,7 +155,7 @@ fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
             let role_code: publicentity::RoleCodeOf =
                 role.to_vec().try_into().expect("role code fits");
             let assignments =
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code);
+                publicentity::Pallet::<Runtime>::institution_role_assignments(&cid, &role_code);
             assert!(
                 assignments.iter().any(|a| a.account_id == chengwei
                     && a.assignment_status == publicentity::InstitutionAssignmentStatus::Active),
@@ -346,13 +396,13 @@ fn nrc_he_fund_transfer_debits_he_and_pays_execution_fee_from_nrc_fee_account() 
 
     new_test_ext().execute_with(|| {
         let nrc = &CHINA_CB[0];
-        let cid: votebase::types::CidNumber = nrc
+        let cid: engingcore::types::CidNumber = nrc
             .cid_number
             .as_bytes()
             .to_vec()
             .try_into()
             .expect("NRC CID fits");
-        let role: votebase::types::RoleCode =
+        let role: engingcore::types::RoleCode =
             primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                 .to_vec()
                 .try_into()
@@ -400,7 +450,7 @@ fn nrc_he_fund_transfer_debits_he_and_pays_execution_fee_from_nrc_fee_account() 
         let nrc_share = fee * Balance::from(primitives::fee_policy::ONCHAIN_FEE_NRC_PERCENT) / 100;
         assert_eq!(
             VotingEngine::proposals(pid).unwrap().status,
-            votebase::STATUS_EXECUTED
+            engingcore::STATUS_EXECUTED
         );
         assert_eq!(Balances::free_balance(&he), he_before - amount);
         assert_eq!(Balances::free_balance(&main), main_before);
@@ -505,13 +555,13 @@ fn institution_operation_debits_only_exact_fee_account_without_signer_fallback()
 #[test]
 fn joint_vote_benchmark_callback_ignores_execution_without_mutating_issuance() {
     new_test_ext().execute_with(|| {
-        let proposal_id = 999_999u64;
+        let proposal_id = 999_999u128;
         resolutionissue::pallet::VotingProposalCount::<Runtime>::put(1u32);
         let issued_before = resolutionissue::pallet::TotalIssued::<Runtime>::get();
 
         assert!(matches!(
             RuntimeJointVoteResultCallback::on_joint_vote_finalized(proposal_id, true),
-            Ok(votebase::ProposalExecutionOutcome::Ignored)
+            Ok(engingcore::ProposalExecutionOutcome::Ignored)
         ));
         assert_eq!(
             resolutionissue::pallet::VotingProposalCount::<Runtime>::get(),
@@ -532,7 +582,7 @@ fn joint_vote_callback_routes_to_resolution_issuance_and_executes() {
     use codec::Encode;
     new_test_ext().execute_with(|| {
         // 统一 ID：proposal_id 即投票引擎 ID，不再有双 ID 映射
-        let proposal_id = 99u64;
+        let proposal_id = 99u128;
         let per_recipient_amount = 123u128;
         let allocations: Vec<resolutionissue::proposal::RecipientAmount<AccountId, Balance>> =
             CHINA_CB
@@ -574,23 +624,23 @@ fn joint_vote_callback_routes_to_resolution_issuance_and_executes() {
         encoded.extend_from_slice(&data.encode());
         let bounded_data: frame_support::BoundedVec<
             u8,
-            <Runtime as votebase::Config>::MaxProposalDataLen,
+            <Runtime as engingcore::Config>::MaxProposalDataLen,
         > = encoded.try_into().expect("proposal data bound");
         let owner: frame_support::BoundedVec<
             u8,
-            <Runtime as votebase::Config>::MaxModuleTagLen,
+            <Runtime as engingcore::Config>::MaxModuleTagLen,
         > = resolutionissue::MODULE_TAG
             .to_vec()
             .try_into()
             .expect("module tag bound");
-        votebase::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
-        votebase::ProposalOwner::<Runtime>::insert(proposal_id, owner);
-        votebase::Proposals::<Runtime>::insert(
+        engingcore::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
+        engingcore::ProposalOwner::<Runtime>::insert(proposal_id, owner);
+        engingcore::Proposals::<Runtime>::insert(
             proposal_id,
-            votebase::Proposal {
-                kind: votebase::PROPOSAL_KIND_JOINT,
-                stage: votebase::STAGE_JOINT,
-                status: votebase::STATUS_PASSED,
+            engingcore::Proposal {
+                kind: engingcore::PROPOSAL_KIND_JOINT,
+                stage: engingcore::STAGE_JOINT,
+                status: engingcore::STATUS_PASSED,
                 internal_code: None,
                 actor_cid_number: Some(
                     CHINA_CB[0]
@@ -608,12 +658,12 @@ fn joint_vote_callback_routes_to_resolution_issuance_and_executes() {
         );
 
         resolutionissue::pallet::VotingProposalCount::<Runtime>::put(1u32);
-        votebase::CallbackExecutionScopes::<Runtime>::insert(proposal_id, ());
+        engingcore::CallbackExecutionScopes::<Runtime>::insert(proposal_id, ());
         assert_ok!(RuntimeJointVoteResultCallback::on_joint_vote_finalized(
             proposal_id,
             true
         ));
-        votebase::CallbackExecutionScopes::<Runtime>::remove(proposal_id);
+        engingcore::CallbackExecutionScopes::<Runtime>::remove(proposal_id);
 
         // 验证 VotingProposalCount 已递减
         assert_eq!(
@@ -683,7 +733,7 @@ fn resolution_destro_internal_vote_flow_executes_destroy_and_reduces_issuance() 
         let now = System::block_number();
         <VotingEngine as frame_support::traits::Hooks<BlockNumber>>::on_initialize(now);
 
-        // 提案数据由 votebase 延迟清理，执行后仍保留
+        // 提案数据由 engingcore 延迟清理，执行后仍保留
         assert!(VotingEngine::get_proposal_data(pid).is_some());
 
         assert_eq!(
@@ -1275,8 +1325,8 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
         // 不存在的提案 ID 应返回错误
         assert!(RuntimeJointVoteResultCallback::on_joint_vote_finalized(999_999, true).is_err());
 
-        // 测试中直接写入 votebase 存储；生产路径必须走 create_*_with_data 原子入口。
-        let proposal_id = 7u64;
+        // 测试中直接写入 engingcore 存储；生产路径必须走 create_*_with_data 原子入口。
+        let proposal_id = 7u128;
         let proposer = AccountId::new(CHINA_CB[0].admins[0]);
         let reason: upgrade::pallet::ReasonOf<Runtime> =
             b"upgrade".to_vec().try_into().expect("reason");
@@ -1304,39 +1354,39 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
         encoded.extend_from_slice(&codec::Encode::encode(&proposal));
         let bounded_data: frame_support::BoundedVec<
             u8,
-            <Runtime as votebase::Config>::MaxProposalDataLen,
+            <Runtime as engingcore::Config>::MaxProposalDataLen,
         > = encoded.try_into().expect("proposal data bound");
         let owner: frame_support::BoundedVec<
             u8,
-            <Runtime as votebase::Config>::MaxModuleTagLen,
+            <Runtime as engingcore::Config>::MaxModuleTagLen,
         > = upgrade::MODULE_TAG
             .to_vec()
             .try_into()
             .expect("module tag bound");
-        votebase::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
-        votebase::ProposalOwner::<Runtime>::insert(proposal_id, owner);
+        engingcore::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
+        engingcore::ProposalOwner::<Runtime>::insert(proposal_id, owner);
         let code_vec = code.into_inner();
         let object_len = u32::try_from(code_vec.len()).expect("runtime code length fits u32");
         let object_hash = <Runtime as frame_system::Config>::Hashing::hash(&code_vec);
         let bounded_object: frame_support::BoundedVec<
             u8,
-            <Runtime as votebase::Config>::MaxProposalObjectLen,
+            <Runtime as engingcore::Config>::MaxProposalObjectLen,
         > = code_vec.try_into().expect("runtime code object bound");
-        votebase::ProposalObject::<Runtime>::insert(proposal_id, bounded_object);
-        votebase::ProposalObjectMeta::<Runtime>::insert(
+        engingcore::ProposalObject::<Runtime>::insert(proposal_id, bounded_object);
+        engingcore::ProposalObjectMeta::<Runtime>::insert(
             proposal_id,
-            votebase::ProposalObjectMetadata {
+            engingcore::ProposalObjectMetadata {
                 kind: upgrade::pallet::PROPOSAL_OBJECT_KIND_RUNTIME_WASM,
                 object_len,
                 object_hash,
             },
         );
-        votebase::Proposals::<Runtime>::insert(
+        engingcore::Proposals::<Runtime>::insert(
             proposal_id,
-            votebase::Proposal {
-                kind: votebase::PROPOSAL_KIND_JOINT,
-                stage: votebase::STAGE_JOINT,
-                status: votebase::STATUS_REJECTED,
+            engingcore::Proposal {
+                kind: engingcore::PROPOSAL_KIND_JOINT,
+                stage: engingcore::STAGE_JOINT,
+                status: engingcore::STATUS_REJECTED,
                 internal_code: None,
                 actor_cid_number: Some(
                     CHINA_CB[0]
@@ -1353,13 +1403,13 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
             },
         );
 
-        // 回调拒绝后，业务摘要保持创建时快照，终态由 votebase 统一维护。
-        votebase::CallbackExecutionScopes::<Runtime>::insert(proposal_id, ());
+        // 回调拒绝后，业务摘要保持创建时快照，终态由 engingcore 统一维护。
+        engingcore::CallbackExecutionScopes::<Runtime>::insert(proposal_id, ());
         let outcome = RuntimeJointVoteResultCallback::on_joint_vote_finalized(proposal_id, false)
             .expect("upgrade callback should succeed");
-        votebase::CallbackExecutionScopes::<Runtime>::remove(proposal_id);
-        assert_eq!(outcome, votebase::ProposalExecutionOutcome::Executed);
-        let raw = votebase::Pallet::<Runtime>::get_proposal_data(proposal_id)
+        engingcore::CallbackExecutionScopes::<Runtime>::remove(proposal_id);
+        assert_eq!(outcome, engingcore::ProposalExecutionOutcome::Executed);
+        let raw = engingcore::Pallet::<Runtime>::get_proposal_data(proposal_id)
             .expect("proposal data should exist");
         let tag = upgrade::MODULE_TAG;
         assert!(
@@ -1370,10 +1420,10 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
             .expect("should decode");
         assert_eq!(updated.code_hash, code_hash);
         assert_eq!(
-            votebase::Proposals::<Runtime>::get(proposal_id)
+            engingcore::Proposals::<Runtime>::get(proposal_id)
                 .expect("engine proposal should exist")
                 .status,
-            votebase::STATUS_REJECTED
+            engingcore::STATUS_REJECTED
         );
     });
 }
@@ -1960,7 +2010,7 @@ fn ensure_nrc_admin_and_runtime_admin_directory_paths() {
         assert!(!is_nrc_admin(&nrc_admin));
         assert!(!is_nrc_admin(&outsider));
         assert!(!RuntimeInternalAdminProvider::is_institution_admin(
-            votebase::types::NRC,
+            engingcore::types::NRC,
             nrc_cid.as_slice(),
             &nrc_admin
         ));
@@ -1975,7 +2025,7 @@ fn ensure_nrc_admin_and_runtime_admin_directory_paths() {
 fn onchain_issuance_rejects_admin_without_an_authorized_business_role() {
     new_test_ext().execute_with(|| {
         let nrc = &CHINA_CB[0];
-        let actor_cid_number: votebase::types::CidNumber = nrc
+        let actor_cid_number: engingcore::types::CidNumber = nrc
             .cid_number
             .as_bytes()
             .to_vec()
@@ -1985,7 +2035,7 @@ fn onchain_issuance_rejects_admin_without_an_authorized_business_role() {
         let main_account = AccountId::new(nrc.main_account);
         // 通用资产发行不是 NRC 委员固定权限；即使账户属于 NRC 且执行账户匹配，
         // 也必须先存在业务模块允许的岗位权限，不能退化为“管理员即可发行”。
-        let committee_role: votebase::types::RoleCode =
+        let committee_role: engingcore::types::RoleCode =
             primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                 .to_vec()
                 .try_into()
@@ -2034,13 +2084,13 @@ fn onchain_issuance_rejects_admin_without_an_authorized_business_role() {
 #[test]
 fn onchain_issuance_rejects_non_admin_and_non_nrc_monitor_actor() {
     new_test_ext().execute_with(|| {
-        let nrc_cid: votebase::types::CidNumber = CHINA_CB[0]
+        let nrc_cid: engingcore::types::CidNumber = CHINA_CB[0]
             .cid_number
             .as_bytes()
             .to_vec()
             .try_into()
             .expect("NRC CID fits runtime bound");
-        let committee_role: votebase::types::RoleCode =
+        let committee_role: engingcore::types::RoleCode =
             primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                 .to_vec()
                 .try_into()
@@ -2058,7 +2108,7 @@ fn onchain_issuance_rejects_non_admin_and_non_nrc_monitor_actor() {
         );
 
         let prc = &CHINA_CB[1];
-        let prc_cid: votebase::types::CidNumber = prc
+        let prc_cid: engingcore::types::CidNumber = prc
             .cid_number
             .as_bytes()
             .to_vec()
@@ -2447,12 +2497,12 @@ fn genesis_citizenchain_foundation_is_complete_and_protected() {
                 .to_vec()
                 .try_into()
                 .expect("fixed role code fits");
-            let role = privateentity::InstitutionRoles::<Runtime>::get(&cid, &role_code)
+            let role = privateentity::Pallet::<Runtime>::institution_role_of(&cid, &role_code)
                 .expect("fixed foundation role exists");
             assert_eq!(role.role_name.as_slice(), fixed_role.role_name);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                privateentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code);
+                privateentity::Pallet::<Runtime>::institution_role_assignments(&cid, &role_code);
             assert_eq!(assignments.len(), 1);
             assert_eq!(
                 assignments[0].account_id,
@@ -2462,7 +2512,7 @@ fn genesis_citizenchain_foundation_is_complete_and_protected() {
                 )
             );
             let permissions =
-                privateentity::InstitutionRolePermissions::<Runtime>::get(&cid, &role_code);
+                privateentity::Pallet::<Runtime>::institution_role_permissions(&cid, &role_code);
             let expected = entitybase::fixed_role_permission_specs(
                 *b"SFGY",
                 cid.as_slice(),
@@ -2540,9 +2590,9 @@ fn genesis_national_singletons_exist_and_member_bodies_are_unconstituted() {
                 .to_vec()
                 .try_into()
                 .expect("member role code fits");
-            assert!(publicentity::InstitutionRoles::<Runtime>::get(&cid, &role_code).is_none());
+            assert!(publicentity::Pallet::<Runtime>::institution_role_of(&cid, &role_code).is_none());
             assert!(
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code)
+                publicentity::Pallet::<Runtime>::institution_role_assignments(&cid, &role_code)
                     .is_empty()
             );
             assert!(publicadmin::AdminAccounts::<Runtime>::get(cid).is_none());
@@ -2619,7 +2669,7 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
             .to_vec()
             .try_into()
             .expect("member role code fits");
-        publicentity::InstitutionRoles::<Runtime>::insert(
+        publicentity::Pallet::<Runtime>::store_role(
             &cid_number,
             &member_role_code,
             entitybase::InstitutionRole {
@@ -2653,23 +2703,23 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
             &cid_number,
             spec.min_members / 2 + 1,
         );
-        let vote_plan = votebase::VotePlanOf::<AccountId>::try_new(
-            votebase::BusinessActionId {
+        let vote_plan = engingcore::VotePlanOf::<AccountId>::try_new(
+            engingcore::BusinessActionId {
                 module_tag: b"test".to_vec().try_into().expect("owner fits"),
                 action_code: 0,
             },
             b"test".to_vec().try_into().expect("owner fits"),
-            votebase::AuthorizationSubject::Institution(votebase::RoleSubject {
+            engingcore::AuthorizationSubject::Institution(engingcore::RoleSubject {
                 cid_number: cid_number.clone(),
                 role_code: member_role_code.clone(),
             }),
-            vec![votebase::AuthorizationSubject::Institution(
-                votebase::RoleSubject {
+            vec![engingcore::AuthorizationSubject::Institution(
+                engingcore::RoleSubject {
                     cid_number: cid_number.clone(),
                     role_code: member_role_code.clone(),
                 },
             )],
-            votebase::VotingEngineKind::Internal,
+            engingcore::VotingEngineKind::Internal,
             [0u8; 32],
         )
         .expect("valid singleton vote plan");
@@ -2936,14 +2986,14 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
         for node in primitives::cid::china::china_cb::CHINA_CB.iter() {
             let cid_number = cid(node.cid_number);
             let code = role_code(primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER);
-            let role = publicentity::InstitutionRoles::<Runtime>::get(&cid_number, &code)
+            let role = publicentity::Pallet::<Runtime>::institution_role_of(&cid_number, &code)
                 .expect("committee role exists");
             assert_eq!(role.cid_number, cid_number);
             assert_eq!(role.role_name.as_slice(), "委员".as_bytes());
             assert!(!role.term_required);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid_number, &code);
+                publicentity::Pallet::<Runtime>::institution_role_assignments(&cid_number, &code);
             assert_eq!(assignments.len(), node.admins.len());
             assert_eq!(
                 assignments
@@ -2993,13 +3043,13 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
         for node in primitives::cid::china::china_ch::CHINA_CH.iter() {
             let cid_number = cid(node.cid_number);
             let code = role_code(primitives::governance_skeleton::ROLE_CODE_DIRECTOR);
-            let role = publicentity::InstitutionRoles::<Runtime>::get(&cid_number, &code)
+            let role = publicentity::Pallet::<Runtime>::institution_role_of(&cid_number, &code)
                 .expect("director role exists");
             assert_eq!(role.role_name.as_slice(), "董事".as_bytes());
             assert!(!role.term_required);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid_number, &code);
+                publicentity::Pallet::<Runtime>::institution_role_assignments(&cid_number, &code);
             assert_eq!(assignments.len(), node.admins.len());
             assert_eq!(
                 assignments
@@ -3066,13 +3116,13 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
                     .into_iter()
                     .find(|spec| spec.role_code == raw_code)
                     .expect("NJD role spec exists");
-            let role = publicentity::InstitutionRoles::<Runtime>::get(&njd_cid, &code)
+            let role = publicentity::Pallet::<Runtime>::institution_role_of(&njd_cid, &code)
                 .expect("NJD role exists");
             assert_eq!(role.role_name.as_slice(), spec.role_name);
             assert!(!role.term_required);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&njd_cid, &code);
+                publicentity::Pallet::<Runtime>::institution_role_assignments(&njd_cid, &code);
             assert_eq!(assignments.len(), seats);
             assert!(assignments.iter().all(|assignment| {
                 assignment.assignment_source == entitybase::InstitutionAssignmentSource::Genesis
@@ -3093,7 +3143,7 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
         ]
         .into_iter()
         .flat_map(|raw_code| {
-            publicentity::InstitutionRoleAssignments::<Runtime>::get(&njd_cid, role_code(raw_code))
+            publicentity::Pallet::<Runtime>::institution_role_assignments(&njd_cid, role_code(raw_code))
                 .into_iter()
                 .map(|assignment| assignment.account_id)
         })
@@ -3126,7 +3176,7 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
                     province.province_code,
                 ),
             );
-            let role = publicentity::InstitutionRoles::<Runtime>::get(&frg_cid, &code)
+            let role = publicentity::Pallet::<Runtime>::institution_role_of(&frg_cid, &code)
                 .expect("FRG province commissioner role exists");
             assert_eq!(
                 role.role_name.as_slice(),
@@ -3137,7 +3187,7 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
             assert!(!role.term_required);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&frg_cid, &code);
+                publicentity::Pallet::<Runtime>::institution_role_assignments(&frg_cid, &code);
             assert_eq!(
                 assignments.len(),
                 primitives::count_const::FRG_PROVINCE_GROUP_ADMIN_COUNT as usize
@@ -3212,7 +3262,7 @@ fn genesis_fixed_role_permissions_match_the_shared_catalog() {
             let cid_number = cid(node.cid_number);
             let code = role_code(primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER);
             let permissions =
-                publicentity::InstitutionRolePermissions::<Runtime>::get(&cid_number, &code);
+                publicentity::Pallet::<Runtime>::institution_role_permissions(&cid_number, &code);
             for operation in [
                 RolePermissionOperation::Propose,
                 RolePermissionOperation::Vote,
@@ -3242,7 +3292,7 @@ fn genesis_fixed_role_permissions_match_the_shared_catalog() {
         let prb_cid = cid(prb.cid_number);
         let director = role_code(primitives::governance_skeleton::ROLE_CODE_DIRECTOR);
         let permissions =
-            publicentity::InstitutionRolePermissions::<Runtime>::get(&prb_cid, &director);
+            publicentity::Pallet::<Runtime>::institution_role_permissions(&prb_cid, &director);
         assert!(has(
             &permissions,
             MODULE_RUNTIME_UPGRADE,
@@ -3272,7 +3322,7 @@ fn genesis_fixed_role_permissions_match_the_shared_catalog() {
         let nrc_cid = cid(nrc.cid_number);
         let lr = role_code(primitives::institution_constraints::ROLE_CODE_LEGAL_REPRESENTATIVE);
         assert!(publicentity::InstitutionRolePermissions::<Runtime>::contains_key(&nrc_cid, &lr));
-        assert!(publicentity::InstitutionRolePermissions::<Runtime>::get(&nrc_cid, lr).is_empty());
+        assert!(publicentity::Pallet::<Runtime>::institution_role_permissions(&nrc_cid, lr).is_empty());
     });
 }
 
@@ -3308,12 +3358,12 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
                     .try_into()
                     .expect("PRC CID fits");
                 let mut permissions =
-                    publicentity::InstitutionRolePermissions::<Runtime>::get(&cid, &role_code);
+                    publicentity::Pallet::<Runtime>::institution_role_permissions(&cid, &role_code);
                 // 第一省只缺 Vote，其余省两项均缺，覆盖已有部分权限的状态。
                 permissions.retain(|permission| {
                     !is_sweep(permission) || (index == 0 && permission.operation == Propose)
                 });
-                publicentity::InstitutionRolePermissions::<Runtime>::insert(
+                publicentity::Pallet::<Runtime>::store_role_permissions(
                     &cid,
                     &role_code,
                     &permissions,
@@ -3330,16 +3380,16 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
             .try_into()
             .expect("NRC CID fits");
         let nrc_before =
-            publicentity::InstitutionRolePermissions::<Runtime>::get(&nrc_cid, &role_code);
+            publicentity::Pallet::<Runtime>::institution_role_permissions(&nrc_cid, &role_code);
         let (last_cid, last_permissions) = old_rows.last().unwrap();
         publicentity::InstitutionRolePermissions::<Runtime>::remove(last_cid, &role_code);
         Migrations::on_runtime_upgrade();
         let (first_cid, first_permissions) = &old_rows[0];
         assert_eq!(
-            &publicentity::InstitutionRolePermissions::<Runtime>::get(first_cid, &role_code),
+            &publicentity::Pallet::<Runtime>::institution_role_permissions(first_cid, &role_code),
             first_permissions
         );
-        publicentity::InstitutionRolePermissions::<Runtime>::insert(
+        publicentity::Pallet::<Runtime>::store_role_permissions(
             last_cid,
             &role_code,
             last_permissions,
@@ -3353,7 +3403,7 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
             .iter()
             .map(|(cid, original)| {
                 let permissions =
-                    publicentity::InstitutionRolePermissions::<Runtime>::get(cid, &role_code);
+                    publicentity::Pallet::<Runtime>::institution_role_permissions(cid, &role_code);
                 let added_count = 2 - original.iter().filter(|entry| is_sweep(entry)).count();
                 assert_eq!(permissions.len(), original.len() + added_count);
                 assert_eq!(&permissions[..original.len()], original.as_slice());
@@ -3373,10 +3423,19 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
             })
             .collect();
         assert_eq!(
-            publicentity::InstitutionRolePermissions::<Runtime>::get(&nrc_cid, &role_code),
+            publicentity::Pallet::<Runtime>::institution_role_permissions(&nrc_cid, &role_code),
             nrc_before
         );
 
+        // SingleBlockMigrations now also schedules the bounded EVM backfill.
+        // Its cursor must finish before asserting tuple-wide idempotence.
+        use frame_support::migrations::MultiStepMigrator;
+        let mut steps = 0;
+        while crate::evm_accounts::BackfillEvmAccounts::ongoing() {
+            crate::evm_accounts::BackfillEvmAccounts::step();
+            steps += 1;
+            assert!(steps < 10_000, "migration cursor must advance");
+        }
         let root_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
         Migrations::on_runtime_upgrade();
         assert_eq!(
@@ -3385,7 +3444,7 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
         );
         for ((cid, _), expected) in old_rows.iter().zip(migrated_rows) {
             assert_eq!(
-                publicentity::InstitutionRolePermissions::<Runtime>::get(cid, &role_code),
+                publicentity::Pallet::<Runtime>::institution_role_permissions(cid, &role_code),
                 expected
             );
         }
@@ -3398,13 +3457,13 @@ fn runtime_prc_sweep_accepts_exactly_111_fen_left_and_rejects_less() {
     for (amount, executes) in [(10, true), (11, false)] {
         new_test_ext().execute_with(|| {
             let prc = &CHINA_CB[1];
-            let cid: votebase::types::CidNumber = prc
+            let cid: engingcore::types::CidNumber = prc
                 .cid_number
                 .as_bytes()
                 .to_vec()
                 .try_into()
                 .expect("PRC CID fits");
-            let role: votebase::types::RoleCode =
+            let role: engingcore::types::RoleCode =
                 primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                     .to_vec()
                     .try_into()
@@ -3439,10 +3498,10 @@ fn runtime_prc_sweep_accepts_exactly_111_fen_left_and_rejects_less() {
                 System::block_number(),
             );
             let (status, main_after, fee_after) = if executes {
-                (votebase::STATUS_EXECUTED, main_before + amount, 111)
+                (engingcore::STATUS_EXECUTED, main_before + amount, 111)
             } else {
-                assert!(votebase::ProposalExecutionRetryStates::<Runtime>::contains_key(pid));
-                (votebase::STATUS_PASSED, main_before, initial_fee)
+                assert!(engingcore::ProposalExecutionRetryStates::<Runtime>::contains_key(pid));
+                (engingcore::STATUS_PASSED, main_before, initial_fee)
             };
             assert_eq!(VotingEngine::proposals(pid).unwrap().status, status);
             assert_eq!(Balances::free_balance(&main), main_after);
@@ -3541,7 +3600,7 @@ fn runtime_governance_result_router_enforces_fixed_role_seats() {
             .to_vec()
             .try_into()
             .expect("NJD role code fits");
-        let stored = publicentity::InstitutionRoleAssignments::<Runtime>::get(
+        let stored = publicentity::Pallet::<Runtime>::institution_role_assignments(
             njd_cid_number.clone(),
             role_code,
         );
@@ -3790,4 +3849,652 @@ fn address_benchmark_authority_initializes_missing_runtime_state() {
         assert!(RuntimeAddressAuthority::benchmark_authority(5).is_none());
         assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
     });
+}
+
+
+#[test]
+fn creg_capability_requires_one_existing_public_entity() {
+    use entitybase::{
+        business_action::*, BusinessActionId, InstitutionCapabilityPolicy, RolePermissionOperation,
+    };
+    new_test_ext().execute_with(|| {
+        let cid = test_cid_number(b"NX013-CREGN-937676656-2026");
+        let action = BusinessActionId {
+            module_tag: MODULE_CITIZEN_IDENTITY.to_vec(),
+            action_code: ACTION_REGISTER_VOTING_IDENTITY,
+        };
+        assert!(RuntimeInstitutionCapabilityPolicy::allows(
+            &cid,
+            &action,
+            RolePermissionOperation::Propose
+        ));
+        assert!(!RuntimeInstitutionCapabilityPolicy::allows(
+            &cid,
+            &action,
+            RolePermissionOperation::Vote
+        ));
+        let info = publicentity::Institutions::<Runtime>::get(&cid).unwrap();
+        privateentity::Institutions::<Runtime>::insert(&cid, info);
+        assert!(!RuntimeInstitutionCapabilityPolicy::allows(
+            &cid,
+            &action,
+            RolePermissionOperation::Propose
+        ));
+        publicentity::Institutions::<Runtime>::remove(&cid);
+        assert!(!RuntimeInstitutionCapabilityPolicy::allows(
+            &cid,
+            &action,
+            RolePermissionOperation::Propose
+        ));
+        privateentity::Institutions::<Runtime>::remove(&cid);
+        assert!(!RuntimeInstitutionCapabilityPolicy::allows(
+            &cid,
+            &action,
+            RolePermissionOperation::Propose
+        ));
+    });
+}
+
+#[test]
+fn creg_business_still_requires_roster_permission_effective_assignment_and_local_scope() {
+    use address::AddressUpdateAuthority;
+    use entitybase::{
+        business_action::*, RoleBusinessPermission, RolePermissionOperation, RoleSubject,
+    };
+    use identity::CitizenIdentityAuthority;
+    new_test_ext().execute_with(|| {
+        let cid = test_cid_number(b"NX013-CREGN-937676656-2026");
+        let who = AccountId::new([61; 32]);
+        // 仅准备下游授权夹具；本步不实现或绕过管理员登记接口。
+        let role: publicentity::RoleCodeOf = entitybase::generate_dynamic_role_code(publicentity::MODULE_TAG, &cid, 0, 18).try_into().unwrap();
+        let allowed = || RuntimeCitizenIdentityAuthority::can_manage_voting_identity(
+            &who, &cid, &role, b"NX", b"013", identity::CitizenIdentityLevel::Voting, ACTION_REGISTER_VOTING_IDENTITY);
+        assert!(!allowed());
+        let admins: publicadmin::AdminsOf<Runtime> = vec![adminbase::Admin {
+            account_id: who.clone(), cid_number: Default::default(),
+            family_name: "测".as_bytes().to_vec().try_into().unwrap(),
+            given_name: "试".as_bytes().to_vec().try_into().unwrap(),
+        }].try_into().unwrap();
+        publicadmin::AdminAccounts::<Runtime>::insert(&cid, adminbase::InstitutionAdmins { institution_code: *b"CREG", admins });
+        assert!(!allowed(), "只有管理员名册不授予业务权限");
+        publicentity::Pallet::<Runtime>::store_role(&cid, &role, entitybase::InstitutionRole {
+            cid_number: cid.clone(), role_code: role.clone(), role_name: "测试动态岗位".as_bytes().to_vec().try_into().unwrap(),
+            term_required: true, role_status: entitybase::InstitutionRoleStatus::Active,
+        });
+        let assignments: publicentity::institution::role::RoleAssignmentsOf<Runtime> = vec![entitybase::InstitutionAdminAssignment {
+            cid_number: cid.clone(), account_id: who.clone(), role_code: role.clone(),
+            term_start: 1, term_end: u32::MAX, assignment_source: entitybase::InstitutionAssignmentSource::InstitutionGovernance,
+            assignment_source_ref: vec![18].try_into().unwrap(), assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+        }].try_into().unwrap();
+        publicentity::Pallet::<Runtime>::store_role_assignments(&cid, &role, &assignments);
+        assert!(!allowed(), "有效任职仍需具体业务权限");
+        let permissions: publicentity::RolePermissionsOf<Runtime> = [
+            (MODULE_CITIZEN_IDENTITY, ACTION_REGISTER_VOTING_IDENTITY),
+            (MODULE_CITIZEN_IDENTITY, ACTION_OCCUPY_CID),
+            (MODULE_CITIZEN_IDENTITY, ACTION_ADMIN_REBIND_CID_ACCOUNT_ID),
+            (MODULE_CITIZEN_IDENTITY, ACTION_REVOKE_CID),
+            (MODULE_ADDRESS_REGISTRY, ACTION_SET_ADDRESS),
+            (MODULE_INSTITUTION_REGISTRATION, ACTION_REGISTER_INSTITUTION),
+        ].into_iter().map(|(module, action)| RoleBusinessPermission {
+            role_subject: RoleSubject { cid_number: cid.clone(), role_code: role.clone() },
+            business_action_id: entitybase::BusinessActionId { module_tag: module.to_vec().try_into().unwrap(), action_code: action },
+            operation: RolePermissionOperation::Propose,
+        }).collect::<Vec<_>>().try_into().unwrap();
+        publicentity::Pallet::<Runtime>::store_role_permissions(&cid, &role, permissions);
+        assert!(allowed());
+        for (province, city) in [(b"GZ".as_slice(), b"013".as_slice()), (b"NX".as_slice(), b"014".as_slice())] {
+            assert!(!RuntimeCitizenIdentityAuthority::can_manage_voting_identity(&who, &cid, &role, province, city, identity::CitizenIdentityLevel::Voting, ACTION_REGISTER_VOTING_IDENTITY));
+            assert!(!RuntimeAddressAuthority::can_update_address(&who, &cid, &role, province, city, ACTION_SET_ADDRESS));
+        }
+        assert!(!RuntimeCitizenIdentityAuthority::can_manage_voting_identity(&who, &cid, &role, b"NX", b"013", identity::CitizenIdentityLevel::Candidate, ACTION_UPGRADE_CANDIDATE_IDENTITY));
+        for action in [ACTION_OCCUPY_CID, ACTION_ADMIN_REBIND_CID_ACCOUNT_ID, ACTION_REVOKE_CID] {
+            assert!(RuntimeCitizenIdentityAuthority::can_manage_anonymous_cid(&who, &cid, &role, action));
+        }
+        assert!(RuntimeAddressAuthority::can_update_address(&who, &cid, &role, b"NX", b"013", ACTION_SET_ADDRESS));
+        assert!(!RuntimeAddressAuthority::can_update_catalog(&who, &cid, &role, ACTION_SET_ADDRESS_CATALOG));
+        assert!(!<RuntimeRegistryAuthority as entitybase::RegistryAuthority<AccountId>>::can_register_institution_origin(&who, &cid, &role, &cid, *b"CREG"));
+        publicentity::InstitutionRoleAssignments::<Runtime>::mutate(&cid, &role, |rows| rows[0].term_end = 1);
+        assert!(!allowed(), "过期任职不得继续办理");
+        publicentity::Pallet::<Runtime>::store_role_assignments(&cid, &role, &assignments);
+        publicentity::InstitutionRoleAssignments::<Runtime>::mutate(&cid, &role, |rows| rows[0].assignment_status = entitybase::InstitutionAssignmentStatus::Ended);
+        assert!(!allowed(), "已结束任职不得继续办理");
+        publicentity::Pallet::<Runtime>::store_role_assignments(&cid, &role, &assignments);
+        publicentity::InstitutionRoles::<Runtime>::mutate(&cid, &role, |stored| stored.as_mut().unwrap().role_status = entitybase::InstitutionRoleStatus::Inactive);
+        assert!(!allowed(), "停用岗位不得继续办理");
+        publicentity::InstitutionRoles::<Runtime>::mutate(&cid, &role, |stored| stored.as_mut().unwrap().role_status = entitybase::InstitutionRoleStatus::Active);
+        publicadmin::AdminAccounts::<Runtime>::remove(&cid);
+        assert!(!allowed(), "从名册移除后原任职不得继续授权");
+    });
+}
+
+
+#[test]
+fn unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee_payer() {
+    use codec::Encode;
+    use entitybase::InstitutionMultisigQuery;
+    use entitybase::{
+        business_action::*, InstitutionGovernanceAction, InstitutionRoleMutation,
+        RolePermissionOperation,
+    };
+    use identity::CitizenIdentityAuthority;
+    use onchain::CallFeeRoute;
+    new_test_ext().execute_with(|| {
+        let target = test_cid_number(b"NX013-CREGN-937676656-2026");
+        let frg = primitives::governance_skeleton::federal_registry_institution();
+        let actor = test_cid_number(frg.cid_number.as_bytes());
+        let role: publicentity::RoleCodeOf =
+            primitives::governance_skeleton::province_commissioner_role_code(*b"NX")
+                .try_into()
+                .unwrap();
+        let signer = publicentity::Pallet::<Runtime>::institution_role_assignments(&actor, &role)[0]
+            .account_id
+            .clone();
+        let people = [AccountId::new([91; 32]), AccountId::new([92; 32])];
+        let action = InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+            admins: people
+                .iter()
+                .map(|account| adminbase::Admin {
+                    account_id: account.clone(),
+                    cid_number: Default::default(),
+                    family_name: "测".as_bytes().to_vec().try_into().unwrap(),
+                    given_name: "试".as_bytes().to_vec().try_into().unwrap(),
+                })
+                .collect(),
+            role_mutations: vec![InstitutionRoleMutation::Create {
+                role_name: "测试动态岗位".as_bytes().to_vec(),
+                term_required: false,
+                permissions: [
+                    (
+                        publicentity::MODULE_TAG,
+                        ACTION_INSTITUTION_GOVERNANCE,
+                        RolePermissionOperation::Propose,
+                    ),
+                    (
+                        publicentity::MODULE_TAG,
+                        ACTION_INSTITUTION_GOVERNANCE,
+                        RolePermissionOperation::Vote,
+                    ),
+                    (
+                        MODULE_CITIZEN_IDENTITY,
+                        ACTION_REGISTER_VOTING_IDENTITY,
+                        RolePermissionOperation::Propose,
+                    ),
+                ]
+                .into_iter()
+                .map(
+                    |(module, action_code, operation)| entitybase::RolePermissionSpec {
+                        business_action_id: entitybase::BusinessActionId {
+                            module_tag: module.to_vec(),
+                            action_code,
+                        },
+                        operation,
+                    },
+                )
+                .collect(),
+                assignments: people
+                    .iter()
+                    .map(|account| entitybase::InstitutionAssignmentTarget {
+                        account_id: account.clone(),
+                        term_start: 0,
+                        term_end: 0,
+                        assignment_source: entitybase::InstitutionAssignmentSource::Registry,
+                        assignment_source_ref: Vec::new(),
+                        assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+                    })
+                    .collect(),
+            }],
+            assignment_changes: Vec::new(),
+            legal_representative_change: None,
+        };
+        let expected = PublicManage::registration_state_hash(&target).unwrap();
+        let call = RuntimeCall::PublicManage(publicentity::Call::register_institution_admins {
+            cid_number: target.clone(),
+            action: action.clone(),
+            actor_cid_number: actor.to_vec(),
+            actor_role_code: role.to_vec(),
+            expected_state_hash: expected,
+            initial_threshold: Some(2),
+        });
+        assert_eq!(
+            call.encode(),
+            (
+                30u8,
+                9u8,
+                target.clone(),
+                action.clone(),
+                actor.to_vec(),
+                role.to_vec(),
+                expected,
+                Some(2u32)
+            )
+                .encode()
+        );
+        let private_target = test_cid_number(
+            primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION
+                .cid_number
+                .as_bytes(),
+        );
+        let private_call =
+            RuntimeCall::PrivateManage(privateentity::Call::register_institution_admins {
+                cid_number: private_target.clone(),
+                action: action.clone(),
+                actor_cid_number: actor.to_vec(),
+                actor_role_code: role.to_vec(),
+                expected_state_hash: expected,
+                initial_threshold: Some(2),
+            });
+        assert_eq!(
+            private_call.encode(),
+            (
+                31u8,
+                9u8,
+                private_target,
+                action.clone(),
+                actor.to_vec(),
+                role.to_vec(),
+                expected,
+                Some(2u32)
+            )
+                .encode()
+        );
+        let normal_limit = RuntimeBlockWeights::get()
+            .get(frame_support::dispatch::DispatchClass::Normal)
+            .max_extrinsic
+            .unwrap();
+        assert!(
+            PublicManage::registration_weight(&target, &action).all_lte(normal_limit),
+            "普通首次登记必须可进入正常区块预算"
+        );
+        let fee_account = RuntimeInstitutionQuery::lookup_institution_account(
+            &actor,
+            primitives::account_derive::RESERVED_NAME_FEE,
+        )
+        .unwrap();
+        assert_eq!(
+            RuntimeFeeRouter::fee_route(&signer, &call),
+            primitives::fee_policy::FeeRoute::Onchain {
+                transaction_amount: 0,
+                payer_account_id: fee_account
+            }
+        );
+        let other_role: publicentity::RoleCodeOf =
+            primitives::governance_skeleton::province_commissioner_role_code(*b"GZ")
+                .try_into()
+                .unwrap();
+        let other_signer =
+            publicentity::Pallet::<Runtime>::institution_role_assignments(&actor, &other_role)[0]
+                .account_id
+                .clone();
+        assert_noop!(
+            PublicManage::register_institution_admins(
+                RuntimeOrigin::signed(other_signer),
+                target.clone(),
+                action.clone(),
+                actor.to_vec(),
+                other_role.to_vec(),
+                expected,
+                Some(2)
+            ),
+            publicentity::Error::<Runtime>::RegistryAuthorityDenied
+        );
+        assert_ok!(PublicManage::register_institution_admins(
+            RuntimeOrigin::signed(signer.clone()),
+            target.clone(),
+            action.clone(),
+            actor.to_vec(),
+            role.to_vec(),
+            expected,
+            Some(2)
+        ));
+        let created = publicentity::Pallet::<Runtime>::roles_for(&target)
+            .find(|(_, item)| item.role_name.as_slice() == "测试动态岗位".as_bytes())
+            .unwrap()
+            .0;
+        assert!(RuntimeCitizenIdentityAuthority::can_manage_voting_identity(
+            &people[0],
+            &target,
+            &created,
+            b"NX",
+            b"013",
+            identity::CitizenIdentityLevel::Voting,
+            ACTION_REGISTER_VOTING_IDENTITY
+        ));
+        assert!(
+            !RuntimeCitizenIdentityAuthority::can_manage_voting_identity(
+                &people[0],
+                &target,
+                &created,
+                b"GZ",
+                b"013",
+                identity::CitizenIdentityLevel::Voting,
+                ACTION_REGISTER_VOTING_IDENTITY
+            )
+        );
+        // 上级注册局不能借通用任职登记改任受保护基金会创世岗位。
+        let foundation = test_cid_number(
+            primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION
+                .cid_number
+                .as_bytes(),
+        );
+        let mut foundation_admins = privateadmin::AdminAccounts::<Runtime>::get(&foundation)
+            .unwrap()
+            .admins
+            .to_vec();
+        let outsider = AccountId::new([93; 32]);
+        foundation_admins.push(adminbase::Admin {
+            account_id: outsider.clone(),
+            cid_number: Default::default(),
+            family_name: b"F".to_vec().try_into().unwrap(),
+            given_name: b"G".to_vec().try_into().unwrap(),
+        });
+        let protected = InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+            admins: foundation_admins,
+            role_mutations: Vec::new(),
+            assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
+                role_code: primitives::cid::china::citizenchain::ROLE_CODE_GENESIS_PRODUCT_MANAGER
+                    .to_vec(),
+                assignments: vec![entitybase::InstitutionAssignmentTarget {
+                    account_id: outsider,
+                    term_start: 0,
+                    term_end: 0,
+                    assignment_source: entitybase::InstitutionAssignmentSource::Registry,
+                    assignment_source_ref: Vec::new(),
+                    assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+                }],
+            }],
+            legal_representative_change: None,
+        };
+        let gz_role: publicentity::RoleCodeOf =
+            primitives::governance_skeleton::province_commissioner_role_code(*b"GZ")
+                .try_into()
+                .unwrap();
+        let gz_actor = publicentity::Pallet::<Runtime>::institution_role_assignments(&actor, &gz_role)
+            [0]
+        .account_id
+        .clone();
+        let expected_foundation = PrivateManage::registration_state_hash(&foundation).unwrap();
+        assert_noop!(
+            PrivateManage::register_institution_admins(
+                RuntimeOrigin::signed(gz_actor),
+                foundation,
+                protected,
+                actor.to_vec(),
+                gz_role.to_vec(),
+                expected_foundation,
+                None
+            ),
+            privateentity::Error::<Runtime>::RegistrationRoleChangeDenied
+        );
+        assert_noop!(
+            PublicManage::register_institution_admins(
+                RuntimeOrigin::signed(signer),
+                target,
+                action,
+                actor.to_vec(),
+                role.to_vec(),
+                expected,
+                Some(2)
+            ),
+            publicentity::Error::<Runtime>::StaleRegistrationState
+        );
+    });
+}
+
+
+#[test]
+fn evm_account_creation_weights_cover_fee_rewards_and_background_payouts() {
+    use frame_support::{traits::Get, weights::Weight};
+    let mapping = crate::evm_accounts::EvmAccountMapping::get();
+    macro_rules! budget {
+        ($config:path, $interface:path, $base:ty, $method:ident, $count:expr) => {
+            assert_eq!(
+                <<Runtime as $config>::WeightInfo as $interface>::$method(),
+                <$base as $interface>::$method()
+                    .saturating_add(mapping.saturating_mul($count as u64)),
+                stringify!($method),
+            );
+        };
+    }
+    budget!(
+        pallet_transaction_payment::Config,
+        pallet_transaction_payment::WeightInfo,
+        pallet_transaction_payment::weights::SubstrateWeight<Runtime>,
+        charge_transaction_payment,
+        3
+    );
+    budget!(
+        onchain::pallet::Config,
+        onchain::weights::WeightInfo,
+        onchain::weights::SubstrateWeight<Runtime>,
+        transfer_with_remark,
+        1
+    );
+    let ordinary = <<Runtime as onchain::pallet::Config>::WeightInfo as onchain::weights::WeightInfo>::transfer_with_remark();
+    let payment = <<Runtime as pallet_transaction_payment::Config>::WeightInfo as pallet_transaction_payment::WeightInfo>::charge_transaction_payment();
+    let old = <onchain::weights::SubstrateWeight<Runtime> as onchain::weights::WeightInfo>::transfer_with_remark()
+        .saturating_add(<pallet_transaction_payment::weights::SubstrateWeight<Runtime> as pallet_transaction_payment::WeightInfo>::charge_transaction_payment());
+    assert_eq!(
+        ordinary.saturating_add(payment),
+        old.saturating_add(mapping.saturating_mul(4)),
+        "ordinary principal and common fee receivers must not be counted twice"
+    );
+
+    budget!(
+        fullnodeissue::Config,
+        fullnodeissue::weights::WeightInfo,
+        fullnodeissue::weights::SubstrateWeight<Runtime>,
+        on_finalize_reward,
+        1
+    );
+    budget!(
+        fullnodeissue::Config,
+        fullnodeissue::weights::WeightInfo,
+        fullnodeissue::weights::SubstrateWeight<Runtime>,
+        bind_reward_account,
+        0
+    );
+    budget!(
+        fullnodeissue::Config,
+        fullnodeissue::weights::WeightInfo,
+        fullnodeissue::weights::SubstrateWeight<Runtime>,
+        rebind_reward_account,
+        0
+    );
+    budget!(
+        citizenissue::Config,
+        citizenissue::weights::WeightInfo,
+        citizenissue::weights::SubstrateWeight<Runtime>,
+        on_voting_identity_registered,
+        1
+    );
+    budget!(
+        prbbankissue::Config,
+        prbbankissue::weights::WeightInfo,
+        prbbankissue::weights::SubstrateWeight<Runtime>,
+        on_finalize_settlement,
+        primitives::cid::china::china_ch::CHINA_CH.len()
+    );
+    budget!(
+        personalentity::Config,
+        personalentity::weights::WeightInfo,
+        personalentity::weights::SubstrateWeight<Runtime>,
+        propose_close,
+        4
+    );
+    assert_eq!(
+        <<Runtime as personalentity::Config>::WeightInfo as personalentity::weights::WeightInfo>::propose_create(3),
+        <personalentity::weights::SubstrateWeight<Runtime> as personalentity::weights::WeightInfo>::propose_create(3)
+            .saturating_add(mapping.saturating_mul(4)),
+    );
+    for (method, actual, original) in [
+        ("multisig transfer", <RuntimeMultisigWeights as multisig::weights::WeightInfo>::propose_transfer(),
+            <multisig::weights::SubstrateWeight<Runtime> as multisig::weights::WeightInfo>::propose_transfer()
+                .saturating_add(Weight::from_parts(10_000_000, 3_000))
+                .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads(1))),
+        ("safety fund", <RuntimeMultisigWeights as multisig::weights::WeightInfo>::propose_safety_fund_transfer(),
+            <multisig::weights::SubstrateWeight<Runtime> as multisig::weights::WeightInfo>::propose_safety_fund_transfer()),
+        ("fee sweep", <RuntimeMultisigWeights as multisig::weights::WeightInfo>::propose_sweep_to_main(),
+            <multisig::weights::SubstrateWeight<Runtime> as multisig::weights::WeightInfo>::propose_sweep_to_main()),
+    ] {
+        assert_eq!(actual, original.saturating_add(mapping.saturating_mul(4)), "{method}");
+    }
+    let original_joint = <upgrade::weights::SubstrateWeight<Runtime> as upgrade::weights::WeightInfo>::propose_runtime_upgrade()
+        .max(<resolutionissue::weights::SubstrateWeight<Runtime> as resolutionissue::weights::WeightInfo>::propose_issuance());
+    let allocation_budget = mapping.saturating_mul(ResolutionIssuanceMaxAllocations::get() as u64);
+    assert_eq!(
+        <RuntimeJointVoteResultCallback as engingcore::JointVoteResultCallback>::execution_weight(),
+        Weight::from_parts(original_joint.ref_time(), 0).saturating_add(allocation_budget),
+        "mapping proof budget must survive the existing callback proof reset",
+    );
+    budget!(
+        square::Config,
+        square::weights::WeightInfo,
+        square::weights::SubstrateWeight<Runtime>,
+        subscribe,
+        1
+    );
+    budget!(
+        square::Config,
+        square::weights::WeightInfo,
+        square::weights::SubstrateWeight<Runtime>,
+        change_subscription_plan,
+        1
+    );
+    budget!(
+        square::Config,
+        square::weights::WeightInfo,
+        square::weights::SubstrateWeight<Runtime>,
+        process_one_due,
+        1
+    );
+    budget!(
+        square::Config,
+        square::weights::WeightInfo,
+        square::weights::SubstrateWeight<Runtime>,
+        renewal_success,
+        1
+    );
+    budget!(
+        square::Config,
+        square::weights::WeightInfo,
+        square::weights::SubstrateWeight<Runtime>,
+        renewal_creator,
+        1
+    );
+    budget!(
+        square::Config,
+        square::weights::WeightInfo,
+        square::weights::SubstrateWeight<Runtime>,
+        on_initialize_base,
+        0
+    );
+    budget!(
+        square::Config,
+        square::weights::WeightInfo,
+        square::weights::SubstrateWeight<Runtime>,
+        publish_post,
+        0
+    );
+}
+
+/// 最终确认区块 107 的旧提案 0 原始键值；直接内嵌，禁止生成额外夹具文件。
+#[test]
+fn proposal_id_upgrade_preserves_the_existing_executed_proposal_and_constitution() {
+    use codec::Encode;
+    use frame_support::traits::{OnRuntimeUpgrade, StorageVersion};
+    new_test_ext().execute_with(|| {
+        let old_rows: Vec<(String, String)> = serde_json::from_str(r#"[["0x940b0e4fbd2321a3969f62ab78f429108acca8665c54f33eb487a1d7f3b59c25","0xea07"],["0x940b0e4fbd2321a3969f62ab78f42910ef71665d8dae6a883da700b7f4e11259","0x01000000"],["0x940b0e4fbd2321a3969f62ab78f429102f58f30b61a6ff2e8c744b01d7249e0c","0x0100000000000000"],["0x940b0e4fbd2321a3969f62ab78f4291088c2f7188c6fdd1dffae2fa0d171f440c804ce198ec337e3dc762bdd1a09aece0000000000000000","0x000003014e52430001684c4e3030312d4e524330472d3934343830353136352d32303236017c0c099ee4df10c5bd3f618ddf132b6d15390fa27d2c1369f70aeb6b5f3907e504684c4e3030312d4e524330472d3934343830353136352d3230323658000000781c0000"],["0x940b0e4fbd2321a3969f62ab78f42910ac1871b31bf1a157b8c41a711a1b7f5d05dcc4600dd6efb06e6cddee227c8945791c0000","0x040000000000000000"],["0x940b0e4fbd2321a3969f62ab78f42910113cc4a45cdac965b8536c3bb68b3105c804ce198ec337e3dc762bdd1a09aece0000000000000000","0x206d756c746973696700000000206d756c746973696700684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d4245520400684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d42455200f90f939f2c16af0b247be325c97200de7d28cb0912d607c305942861a4c2ef68"],["0x940b0e4fbd2321a3969f62ab78f42910be6e08c284900d6188163af99c8f32abc804ce198ec337e3dc762bdd1a09aece0000000000000000272eb39721706017a72568b4dbfa1bf500684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d424552","0x4c2837cdcbf8876af4cbea8bd2a2025cf978a10cd82d7c2abf1dc75ed753046702089083a3cc675ecd00992888ea5f07a1a33a75aae6028b8b9647e322cca4446d92f660e7847590e0ec2477292c08a2a636eb434e8e90d046f50aee9e46950c02b8178d5bd83863384a434978d60690a0d1878b378fef0e871d1c055e22a90677240a846236c82599cb3579b4a3f603bfa154c9e1fcc2148de7f87976fdcad5031853095cb03fa48f31d79664de8a6b6d5dcbb0a1df4c849d984aea94cb38b838c2ac72d5a5ded1bd353e3f8b9e12e4cc26b3a964abc86f3d36fedf7aa7801041e4af7f1dd82567cbef1c27e10fc17fc4c51db98856a3c13043ff85bfb2c96171b214e383f128cb490205848fa14d81461269b4a3f6e4ca9a1c7c931f5f1ec9675040647c9dc3b24a91068781d2bac726df955480d94a0c3e535b0f3cc661297beef25f0dc68a1e1e250d61ea431c3e9b17ad1a1da79a05dffe4649e086fa9c3800339746be531077a625d4cae0c9ed8a6d96822f1c1a1ab1d5230b1f3614a8420ce3e7c321eae667130725a2ed824d793944dcf940755a65f6e1ce88a4c1a95134b8ac7127c63ecc5023d68a5cee90383624a588a376def423ee0af888ba96642edb16bf528f3ff1495f1a78be229efe506538db8f122f1a676f59209711b7636c5cd20ac500c37a7204d8137101259edfa84499ce1b05b5e9a6a6adc17d040336450c6c0a2bf7e8efade878819d9d64a8358123ec2dc6af00420e96a3734706ac1e28c5926304e9277e015b48b947c7f4fac939374f1e906849bfd89cd43d41749f82ecf2d2efda27a1965c0de91224bd3c1ceda2dfbe349027b1e368a51a72"],["0x940b0e4fbd2321a3969f62ab78f42910d1eed86c0f3b72780c5e625e0afb9e1ec804ce198ec337e3dc762bdd1a09aece000000000000000034d0a423b5e137e95e7bc919c6e5d546684c4e3030312d4e524330472d3934343830353136352d32303236","0x13000000"],["0x940b0e4fbd2321a3969f62ab78f42910e54f94641d7d44c0c1ea4675a3af0d57c804ce198ec337e3dc762bdd1a09aece0000000000000000","0xb9026d756c746973696701684c4e3030312d4e524330472d3934343830353136352d323032367c0c099ee4df10c5bd3f618ddf132b6d15390fa27d2c1369f70aeb6b5f3907e5bdd95642f8ea916a02859dcb8d6cd563474bc03ceeeeeeeeeeeeeeeeeeeeeeeea086010000000000000000000000000064e6b58be696b07761736de79a84e4bba5e5a4aae585bce5aeb92837cdcbf8876af4cbea8bd2a2025cf978a10cd82d7c2abf1dc75ed753046702"],["0x940b0e4fbd2321a3969f62ab78f42910cb8f88266dcb33b7dc4054c2c56a9b12c804ce198ec337e3dc762bdd1a09aece0000000000000000","0x206d756c7469736967"],["0x940b0e4fbd2321a3969f62ab78f4291081b9aa7d67184f022ad57b3022119a34c804ce198ec337e3dc762bdd1a09aece0000000000000000","0x580000000166000000"],["0x940b0e4fbd2321a3969f62ab78f429101d0e4850dc45d8460af68508684ecb98bb1bdbcacd6ac9340000000000000000","0xc75400000000000000000000"],["0x940b0e4fbd2321a3969f62ab78f429106e5b6ee014398d36aaf08160d086afbd0f9a1987a75d08a737fd09a13db7e35200684c4e3030312d4e524330472d3934343830353136352d32303236","0x00"],["0x940b0e4fbd2321a3969f62ab78f42910c3b7e8ee9a87e612aff0da100757ddc0c804ce198ec337e3dc762bdd1a09aece0000000000000000","0xea0700000000"],["0x940b0e4fbd2321a3969f62ab78f429108c68a587d1a776a2be607a371f00993a0ceac3169ca8a02a4e524300bb1bdbcacd6ac9340000000000000000","0x"],["0x940b0e4fbd2321a3969f62ab78f42910b7a345e83b2ef8ae370992f95123a1a2fcc2ecb4f16cb890684c4e3030312d4e524330472d3934343830353136352d32303236bb1bdbcacd6ac9340000000000000000","0x"],["0x940b0e4fbd2321a3969f62ab78f4291022bcf5038ca8f3a8212dbf8e0e2ec224aa2fef6e3e773278206d756c7469736967bb1bdbcacd6ac9340000000000000000","0x"],["0x940b0e4fbd2321a3969f62ab78f42910885776b620ebedb3f2ef1522c9c3af21a204d8aae77d8e94ea07bb1bdbcacd6ac9340000000000000000","0x"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece0000000000000000238312960aab452b33cd5e380194c1aa01684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d4245526c5cd20ac500c37a7204d8137101259edfa84499ce1b05b5e9a6a6adc17d0403","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece00000000000000004467409fd24db031db310e3f8e7c89cb01684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d4245521853095cb03fa48f31d79664de8a6b6d5dcbb0a1df4c849d984aea94cb38b838","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece000000000000000048c098b9038a38d63a5318030b95449d01684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d424552240a846236c82599cb3579b4a3f603bfa154c9e1fcc2148de7f87976fdcad503","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece000000000000000049bbb60cf6d57d556707fccd3668404901684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d4245525040647c9dc3b24a91068781d2bac726df955480d94a0c3e535b0f3cc661297b","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece00000000000000005f41013016e5db192dff1b1d476474de01684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d424552e4af7f1dd82567cbef1c27e10fc17fc4c51db98856a3c13043ff85bfb2c96171","0x00"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece00000000000000008714e5f670127fafe96abb10f138211f01684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d424552eef25f0dc68a1e1e250d61ea431c3e9b17ad1a1da79a05dffe4649e086fa9c38","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece000000000000000089a971a82676e62395892a2ce29580f401684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d4245522edb16bf528f3ff1495f1a78be229efe506538db8f122f1a676f59209711b763","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece0000000000000000924d852def22ce3da3002f6cb32fc97e01684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d4245520ce3e7c321eae667130725a2ed824d793944dcf940755a65f6e1ce88a4c1a951","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece0000000000000000a6903b89ba63b7042c2bb96bd887b85501684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d424552089083a3cc675ecd00992888ea5f07a1a33a75aae6028b8b9647e322cca4446d","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece0000000000000000b7a7f6cfb70923f50dac63f298cc526f01684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d42455200339746be531077a625d4cae0c9ed8a6d96822f1c1a1ab1d5230b1f3614a842","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece0000000000000000b9d75cc88465724491fd34e170ccfe4001684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d424552b8178d5bd83863384a434978d60690a0d1878b378fef0e871d1c055e22a90677","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece0000000000000000cbb10ef529157b52087708e36f53678201684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d42455234b8ac7127c63ecc5023d68a5cee90383624a588a376def423ee0af888ba9664","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece0000000000000000d6f0ab9f69e4ba1353b3d58964d95c1401684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d42455292f660e7847590e0ec2477292c08a2a636eb434e8e90d046f50aee9e46950c02","0x00"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece0000000000000000e3bf27f157da89a410e1b931356768a301684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d424552b214e383f128cb490205848fa14d81461269b4a3f6e4ca9a1c7c931f5f1ec967","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cde3c3fe6496d9716810203b024b48195ec804ce198ec337e3dc762bdd1a09aece0000000000000000f43fce72c9723a3f251ada340cce4bef01684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d4245522837cdcbf8876af4cbea8bd2a2025cf978a10cd82d7c2abf1dc75ed753046702","0x01"],["0xc2c566f58c1a6eb3a58088f5662cf9cda352da679dea4257d0e569b8f20f350ec804ce198ec337e3dc762bdd1a09aece0000000000000000","0x0d00000002000000"],["0xc2c566f58c1a6eb3a58088f5662cf9cd199451d5eede742a4124c82f7e6f1838c804ce198ec337e3dc762bdd1a09aece0000000000000000","0x0d000000"],["0xc2c566f58c1a6eb3a58088f5662cf9cdc4852d3215287c04cb1af4612942a2a0c804ce198ec337e3dc762bdd1a09aece0000000000000000","0x00"]]"#).unwrap();
+        for (key, value) in &old_rows { sp_io::storage::set(&hex::decode(&key[2..]).unwrap(), &hex::decode(&value[2..]).unwrap()); }
+        let law_key = legislation::LawVersions::<Runtime>::hashed_key_for(0u64, 1u32);
+        let law_before = legislation::LawVersions::<Runtime>::get(0, 1).unwrap();
+        let law_new = sp_io::storage::get(&law_key).unwrap();
+        // 创世占位 ID 仍为 0；仅还原旧版尾部编码，正文全部采用真实创世配置。
+        let offset = law_new.len() - 32;
+        let mut law_old = law_new[..offset].to_vec(); law_old.extend(0u64.encode()); law_old.extend_from_slice(&law_new[offset + 16..]);
+        sp_io::storage::set(&law_key, &law_old);
+        let accounts_before = frame_system::Account::<Runtime>::iter().collect::<Vec<_>>();
+        let issuance_before = Balances::total_issuance();
+        StorageVersion::new(0).put::<engingcore::Pallet<Runtime>>();
+        AddPrcFeeSweepPermissions::on_runtime_upgrade();
+        assert_eq!(StorageVersion::get::<engingcore::Pallet<Runtime>>(), StorageVersion::new(1));
+        assert_eq!(engingcore::NextProposalId::<Runtime>::get(), 1u128);
+        assert_eq!(engingcore::CurrentProposalYear::<Runtime>::get(), 2026u32);
+        assert_eq!(engingcore::YearProposalCounter::<Runtime>::get(), 1u64);
+        let display = engingcore::ProposalDisplayId::<Runtime>::get(0u128).unwrap();
+        assert_eq!((display.year, display.seq_in_year), (2026u32, 0u64));
+        assert_eq!(engingcore::Proposals::<Runtime>::get(0u128).unwrap().status, engingcore::STATUS_EXECUTED);
+        assert_eq!(internalvote::InternalVotesByTicket::<Runtime>::iter_prefix(0u128).count(), 15);
+        let tally = internalvote::InternalTallies::<Runtime>::get(0u128);
+        assert_eq!((tally.yes, tally.no), (13, 2));
+        assert_eq!(internalvote::InternalThresholdSnapshot::<Runtime>::get(0u128), Some(13));
+        assert_eq!(engingcore::ProposalsByExpiry::<Runtime>::get(7289).as_slice(), &[0u128]);
+        let cleanup = engingcore::ScheduledCleanups::<Runtime>::get(0u64).unwrap();
+        assert_eq!((cleanup.cleanup_at, cleanup.proposal_id), (21703, 0u128));
+        assert!(engingcore::ProposalsByYear::<Runtime>::contains_key(2026u32, 0u128));
+        assert!(engingcore::ProposalsByCode::<Runtime>::contains_key(*b"NRC\0", 0u128));
+        let cid: engingcore::types::CidNumber = b"LN001-NRC0G-944805165-2026".to_vec().try_into().unwrap();
+        assert!(engingcore::ProposalsByCid::<Runtime>::contains_key(&cid, 0u128));
+        let owner: frame_support::BoundedVec<u8, <Runtime as engingcore::Config>::MaxModuleTagLen> = b"multisig".to_vec().try_into().unwrap();
+        assert!(engingcore::ProposalsByOwner::<Runtime>::contains_key(&owner, 0u128));
+        let voters = engingcore::VoterSnapshot::<Runtime>::iter_prefix(0u128).collect::<Vec<_>>();
+        assert_eq!(voters.len(), 1);
+        assert_eq!(voters[0].1.len(), 19);
+        assert_eq!(engingcore::InstitutionTicketCountSnapshot::<Runtime>::iter_prefix(0u128).next().unwrap().1, 19);
+
+        assert_eq!(legislation::LawVersions::<Runtime>::get(0, 1).unwrap().encode(), law_before.encode());
+        assert_eq!(frame_system::Account::<Runtime>::iter().collect::<Vec<_>>(), accounts_before);
+        assert_eq!(Balances::total_issuance(), issuance_before);
+        // 原始主记录、业务载荷、快照及投票值必须逐字节保留，并删除旧 ID 键。
+        for name in ["Proposals", "ProposalData", "ProposalVotePlans", "ProposalOwner", "ProposalMeta"] {
+            let prefix = frame_support::storage::storage_prefix(b"VotingEngine", name.as_bytes());
+            let mut old_key = prefix.to_vec(); old_key.extend(sp_io::hashing::blake2_128(&0u64.encode())); old_key.extend(0u64.encode());
+            let mut new_key = prefix.to_vec(); new_key.extend(sp_io::hashing::blake2_128(&0u128.encode())); new_key.extend(0u128.encode());
+            let expected = old_rows.iter().find(|(k, _)| *k == format!("0x{}", hex::encode(&old_key))).unwrap();
+            assert!(!sp_io::storage::exists(&old_key));
+            assert_eq!(sp_io::storage::get(&new_key).unwrap().to_vec(), hex::decode(&expected.1[2..]).unwrap());
+        }
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        AddPrcFeeSweepPermissions::on_runtime_upgrade();
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+        assert_eq!(engingcore::Pallet::<Runtime>::allocate_proposal_id().unwrap(), 1u128);
+        let display = engingcore::ProposalDisplayId::<Runtime>::get(1u128).unwrap();
+        assert_eq!((display.year, display.seq_in_year), (2026u32, 1u64));
+    });
+}
+
+#[test]
+fn proposal_id_upgrade_rejects_invalid_old_layout_without_partial_writes() {
+    use frame_support::traits::{OnRuntimeUpgrade, StorageVersion};
+    new_test_ext().execute_with(|| {
+        StorageVersion::new(0).put::<engingcore::Pallet<Runtime>>();
+        sp_io::storage::set(&engingcore::CurrentProposalYear::<Runtime>::hashed_key(), &2026u16.to_le_bytes());
+        sp_io::storage::set(&engingcore::NextProposalId::<Runtime>::hashed_key(), &[1, 2, 3]);
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(std::panic::catch_unwind(|| AddPrcFeeSweepPermissions::on_runtime_upgrade()).is_err());
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+    });
+}
+
+#[test]
+fn p1_compact_vote_calls_preserve_full_id_range_and_export_real_metadata() {
+    use codec::{Encode,DecodeAll,Compact};
+    for id in [0,63,64,16383,16384,(1u128<<30)-1,1u128<<30,u128::MAX] {
+        let call=RuntimeCall::JointVote(jointvote::Call::cast_referendum {proposal_id:id,approve:true});
+        let bytes=call.encode();
+        let mut expected=vec![21,1];expected.extend(Compact(id).encode());expected.push(1);
+        assert_eq!(bytes,expected);
+        assert_eq!(RuntimeCall::decode_all(&mut &bytes[..]).unwrap(),call);
+        let mut bad=vec![21,1,1,0,1];
+        assert!(RuntimeCall::decode_all(&mut &bad[..]).is_err(),"non-minimal compact zero must be rejected");
+        bad=bytes;bad.push(0);
+        assert!(RuntimeCall::decode_all(&mut &bad[..]).is_err());
+    }
+    if let Ok(dir)=std::env::var("P1_METADATA_EXPORT_DIR") {
+        std::fs::create_dir_all(&dir).unwrap();
+        for version in [14,15] {
+            let metadata=Runtime::metadata_at_version(version).unwrap();
+            let hex=metadata.iter().map(|b|format!("{b:02x}")).collect::<String>();
+            std::fs::write(std::path::Path::new(&dir).join(format!("p1-runtime-v{version}-metadata.hex")),format!("0x{hex}\n")).unwrap();
+        }
+    }
 }

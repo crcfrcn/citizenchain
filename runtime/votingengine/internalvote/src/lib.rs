@@ -8,7 +8,7 @@
 //! 投票引擎的模式校验与调用方业务 pallet 的业务权限校验。
 //!
 //! 共用基础设施(Proposals 主 storage / 双层 ID / 反向索引 / 状态机骨架 / 快照 / 锁 / 清理)
-//! 仍归 [`votebase`] 引擎核心,本 pallet 通过 `Config: votebase::Config` 直接访问。
+//! 仍归 [`engingcore`] 引擎核心,本 pallet 通过 `Config: engingcore::Config` 直接访问。
 //!
 //! 本 pallet 自有:
 //! - storage:`InternalVotesByTicket` / `InternalTallies` / `InternalThresholdSnapshot`
@@ -17,8 +17,8 @@
 //! - extrinsic:`cast(proposal_id, ticket_claim, approve)`
 //! - 业务函数:`do_create_internal_proposal*` / `do_internal_vote` / `do_finalize_internal_timeout`
 //! - trait impl:`InternalVoteEngine`(供业务 pallet 创建提案)
-//! - trait impl:`InternalProposalFinalizer`(votebase 主 pallet finalize 路径反向调用)
-//! - trait impl:`InternalCleanupHandler`(votebase 主 pallet cleanup 状态机反向调用)
+//! - trait impl:`InternalProposalFinalizer`(engingcore 主 pallet finalize 路径反向调用)
+//! - trait impl:`InternalCleanupHandler`(engingcore 主 pallet cleanup 状态机反向调用)
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -34,7 +34,7 @@ use sp_runtime::{Debug, DispatchError};
 
 use primitives::count_const::VOTING_DURATION_BLOCKS;
 
-use votebase::{
+use engingcore::{
     pallet::{AdminSnapshot, Proposals},
     types::{
         institution_code_from_cid_number, is_personal_code, is_valid_governance_code,
@@ -110,11 +110,11 @@ pub mod pallet {
     pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config {
+    pub trait Config: frame_system::Config + engingcore::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// 只读取岗位有效任职；业务权限已由业务 pallet 前置校验。
-        type InstitutionRoleProvider: votebase::InstitutionRoleProvider<Self::AccountId>;
+        type InstitutionRoleProvider: engingcore::InstitutionRoleProvider<Self::AccountId>;
         type WeightInfo: crate::weights::WeightInfo;
     }
 
@@ -127,7 +127,7 @@ pub mod pallet {
     pub type InternalVotesByTicket<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
-        u64,
+        u128,
         Blake2_128Concat,
         InternalVoteTicket<T::AccountId>,
         bool,
@@ -137,19 +137,19 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn internal_tally)]
     pub type InternalTallies<T: Config> =
-        StorageMap<_, Blake2_128Concat, u64, votebase::VoteCountU32, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, u128, engingcore::VoteCountU32, ValueQuery>;
 
     /// 内部投票阈值快照:提案创建时锁定阈值,投票期间不受账户状态变化影响。
     #[pallet::storage]
     pub type InternalThresholdSnapshot<T: Config> =
-        StorageMap<_, Blake2_128Concat, u64, u32, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, u128, u32, OptionQuery>;
 
     /// 注册个人多签待激活动态阈值:proposal_id -> threshold。
     ///
     /// 注册提案发起时写入，提案执行成功后移动到 `ActivePersonalThresholds`。
     #[pallet::storage]
     pub type PendingPersonalThresholds<T: Config> =
-        StorageMap<_, Blake2_128Concat, u64, u32, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, u128, u32, OptionQuery>;
 
     /// 个人多签已激活动态阈值：个人多签账户 -> threshold。
     #[pallet::storage]
@@ -161,7 +161,7 @@ pub mod pallet {
     pub type PendingPersonalAdminChangeThresholds<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
-        u64,
+        u128,
         PendingPersonalAdminChangeThreshold<T::AccountId>,
         OptionQuery,
     >;
@@ -169,14 +169,14 @@ pub mod pallet {
     /// 内部提案语义分类。用于终态副作用，不交给业务模块判断。
     #[pallet::storage]
     pub type InternalProposalRoles<T: Config> =
-        StorageMap<_, Blake2_128Concat, u64, InternalProposalRole, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, u128, InternalProposalRole, OptionQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         /// 内部投票已投出一票。
         InternalVoteCast {
-            proposal_id: u64,
+            proposal_id: u128,
             who: T::AccountId,
             /// 个人多签为 `None`；机构投票记录实际使用的岗位码。
             voter_role_code: Option<RoleCode>,
@@ -207,7 +207,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::cast())]
         pub fn cast(
             origin: OriginFor<T>,
-            proposal_id: u64,
+            #[pallet::compact] proposal_id: u128,
             ticket_claim: InternalVoteTicketClaim,
             approve: bool,
         ) -> DispatchResult {
@@ -225,34 +225,34 @@ fn is_valid_institution_context(institution_code: InstitutionCode, cid_number: &
 }
 
 fn is_personal_admin<T: Config>(personal_account_id: T::AccountId, who: &T::AccountId) -> bool {
-    <T as votebase::Config>::InternalAdminProvider::is_personal_admin(personal_account_id, who)
+    <T as engingcore::Config>::InternalAdminProvider::is_personal_admin(personal_account_id, who)
 }
 
 fn active_institution_threshold<T: Config>(
     institution_code: InstitutionCode,
     cid_number: &CidNumber,
 ) -> Option<u32> {
-    <T as votebase::Config>::InternalAdminProvider::institution_threshold(
+    <T as engingcore::Config>::InternalAdminProvider::institution_threshold(
         institution_code,
         cid_number.as_slice(),
     )
 }
 // 业务方法
 // trait 实现
-impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
+impl<T: Config> engingcore::InternalVoteEngine<T::AccountId> for Pallet<T> {
     fn create_institution_proposal_with_data(
         who: T::AccountId,
         institution_code: InstitutionCode,
         actor_cid_number: sp_std::vec::Vec<u8>,
         execution_account_id: Option<T::AccountId>,
         subject_cid_numbers: sp_std::vec::Vec<sp_std::vec::Vec<u8>>,
-        vote_plan: votebase::types::VotePlanOf<T::AccountId>,
+        vote_plan: engingcore::types::VotePlanOf<T::AccountId>,
         data: sp_std::vec::Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         with_transaction(|| {
             if sp_io::hashing::blake2_256(&data) != vote_plan.business_object_hash {
                 return TransactionOutcome::Rollback(Err(
-                    votebase::Error::<T>::InvalidVotePlan.into(),
+                    engingcore::Error::<T>::InvalidVotePlan.into(),
                 ));
             }
             let proposal_id = match Self::do_create_institution_proposal(
@@ -267,7 +267,7 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
                 Err(err) => return TransactionOutcome::Rollback(Err(err)),
             };
             if let Err(err) =
-                votebase::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
+                engingcore::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
@@ -288,7 +288,7 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
         personal_account_id: T::AccountId,
         module_tag: &[u8],
         data: sp_std::vec::Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         with_transaction(|| {
             let proposal_id =
                 match Self::do_create_personal_proposal(who.clone(), personal_account_id) {
@@ -306,13 +306,13 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
         who: T::AccountId,
         institution_code: InstitutionCode,
         actor_cid_number: sp_std::vec::Vec<u8>,
-        vote_plan: votebase::types::VotePlanOf<T::AccountId>,
+        vote_plan: engingcore::types::VotePlanOf<T::AccountId>,
         data: sp_std::vec::Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         with_transaction(|| {
             if sp_io::hashing::blake2_256(&data) != vote_plan.business_object_hash {
                 return TransactionOutcome::Rollback(Err(
-                    votebase::Error::<T>::InvalidVotePlan.into(),
+                    engingcore::Error::<T>::InvalidVotePlan.into(),
                 ));
             }
             let proposal_id = match Self::do_create_institution_proposal_with_mutex(
@@ -329,7 +329,7 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
                 Err(err) => return TransactionOutcome::Rollback(Err(err)),
             };
             if let Err(err) =
-                votebase::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
+                engingcore::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
             {
                 return TransactionOutcome::Rollback(Err(err));
             }
@@ -350,7 +350,7 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
         personal_account_id: T::AccountId,
         module_tag: &[u8],
         data: sp_std::vec::Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         with_transaction(|| {
             let proposal_id =
                 match Self::do_create_personal_lifecycle_proposal(who.clone(), personal_account_id)
@@ -372,7 +372,7 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
         dynamic_threshold: u32,
         module_tag: &[u8],
         data: sp_std::vec::Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         with_transaction(|| {
             let proposal_id = match Self::do_create_personal_account_create_proposal(
                 who.clone(),
@@ -397,7 +397,7 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
         new_threshold: u32,
         module_tag: &[u8],
         data: sp_std::vec::Vec<u8>,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<u128, DispatchError> {
         with_transaction(|| {
             let proposal_id = match Self::do_create_personal_admin_change_proposal(
                 who.clone(),
@@ -428,7 +428,7 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
     }
 
     fn configured_institution_threshold(
-        _proposal_id: u64,
+        _proposal_id: u128,
         institution_code: InstitutionCode,
         cid_number: &[u8],
     ) -> Option<u32> {
@@ -436,7 +436,7 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
     }
 
     fn configured_personal_threshold(
-        proposal_id: u64,
+        proposal_id: u128,
         personal_account_id: T::AccountId,
     ) -> Option<u32> {
         PendingPersonalThresholds::<T>::get(proposal_id)
@@ -445,14 +445,14 @@ impl<T: Config> votebase::InternalVoteEngine<T::AccountId> for Pallet<T> {
 }
 
 impl<T: Config>
-    votebase::traits::InternalProposalFinalizer<
+    engingcore::traits::InternalProposalFinalizer<
         frame_system::pallet_prelude::BlockNumberFor<T>,
         T::AccountId,
     > for Pallet<T>
 {
     fn finalize_internal_timeout(
         proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
-        proposal_id: u64,
+        proposal_id: u128,
     ) -> DispatchResult {
         Self::do_finalize_internal_timeout(proposal, proposal_id)
     }

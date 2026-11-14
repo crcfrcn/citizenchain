@@ -6,6 +6,7 @@
 // 身份准备辅助函数必须原样返回统一 Axum 拒绝响应，禁止不同入口各自改写错误语义。
 #![allow(clippy::result_large_err)]
 
+use super::authorization::{resolve_operation_role, CitizenOperation};
 use crate::citizens::admin_entry::CitizenQueries;
 
 use axum::{
@@ -64,7 +65,8 @@ impl CitizenOnchainIdentityLevel {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenOnchainInput {
     pub(crate) account_id: String,
-    pub(crate) actor_role_code: String,
+    #[serde(default)]
+    pub(crate) actor_role_code: Option<String>,
     pub(crate) identity_level: CitizenOnchainIdentityLevel,
 }
 
@@ -201,7 +203,15 @@ pub(crate) async fn prepare_citizen_onchain_signature(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let actor_role_code = match validate_actor_role_code(input.actor_role_code.as_str()) {
+    let (actor_role_code, snapshot) = match resolve_operation_role(
+        &state,
+        &ctx,
+        &cid_number,
+        CitizenOperation::for_level(input.identity_level),
+        input.actor_role_code.as_deref(),
+    )
+    .await
+    {
         Ok(value) => value,
         Err(resp) => return resp,
     };
@@ -225,17 +235,6 @@ pub(crate) async fn prepare_citizen_onchain_signature(
             Err(resp) => return resp,
         };
     // 创世哈希与身份版本取自同一 finalized 快照；有效期按链上时间推算，不用本机时间。
-    let snapshot = match onchina::chain_identity::read_finalized_citizen_identity(
-        record.cid_number.as_str(),
-    )
-    .await
-    {
-        Ok(value) => value,
-        Err(err) => {
-            tracing::error!(cid_number = %record.cid_number, error = %err, "read finalized citizen identity failed");
-            return api_error(StatusCode::BAD_GATEWAY, 2004, "finalized 公民身份读取失败");
-        }
-    };
     let authorization_expires_at = snapshot
         .chain_now_seconds
         .saturating_add(CITIZEN_IDENTITY_AUTHORIZATION_LIFETIME_SECS);
@@ -396,16 +395,17 @@ pub(crate) async fn complete_citizen_onchain_signature(
     }
     let citizen_signature = sign_response.body.signature;
     // 身份版本与有效期取 prepare 阶段落库的值，不在此重新推算。
-    let snapshot = match onchina::chain_identity::read_finalized_citizen_identity(
-        cid_number.as_str(),
+    let (_, snapshot) = match resolve_operation_role(
+        &state,
+        &ctx,
+        &cid_number,
+        CitizenOperation::for_level(input.identity_level),
+        Some(&operation.actor_role_code),
     )
     .await
     {
         Ok(value) => value,
-        Err(err) => {
-            tracing::error!(cid_number = %cid_number, error = %err, "read finalized citizen identity failed");
-            return api_error(StatusCode::BAD_GATEWAY, 2004, "finalized 公民身份读取失败");
-        }
+        Err(resp) => return resp,
     };
     let authorization_bytes = build_citizen_identity_authorization_bytes(
         &snapshot.genesis_hash,
@@ -437,10 +437,7 @@ pub(crate) async fn complete_citizen_onchain_signature(
         }
     }
 
-    let actor_cid_number = match active_registry_cid_number(&state) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
+    let actor_cid_number = ctx.institution_cid_number.clone();
     let signature_bytes = match parse_signature_bytes(citizen_signature.as_str()) {
         Some(v) => v,
         None => return api_error(StatusCode::BAD_REQUEST, 1001, "公民签名格式错误"),

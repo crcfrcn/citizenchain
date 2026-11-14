@@ -17,7 +17,7 @@
 // --min-duration=0
 // --output-analysis=max
 // --quiet
-// --pallets=onchain,address,fullnodeissue,multisig,personaladmin,personalentity,publicentity,privateentity,internalvote,jointvote,electionvote,legislationvote,votebase,square,upgrade,legislation
+// --pallets=onchain,address,fullnodeissue,multisig,personaladmin,personalentity,publicentity,privateentity,internalvote,jointvote,electionvote,legislationvote,engingcore,square,upgrade,legislation
 // --heap-pages=8192
 // --steps=50
 // --repeat=20
@@ -122,6 +122,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `649945`
 		// Minimum execution time: 230_000_000 picoseconds.
 		Weight::from_parts(238_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16630))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(T::DbWeight::get().reads(33))
 			.saturating_add(T::DbWeight::get().writes(23))
@@ -206,6 +208,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `649945`
 		// Minimum execution time: 269_000_000 picoseconds.
 		Weight::from_parts(278_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16638))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(T::DbWeight::get().reads(30))
 			.saturating_add(T::DbWeight::get().writes(24))
@@ -288,6 +292,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `649945`
 		// Minimum execution time: 273_000_000 picoseconds.
 		Weight::from_parts(288_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16638))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(T::DbWeight::get().reads(31))
 			.saturating_add(T::DbWeight::get().writes(24))
@@ -302,6 +308,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `0`
 		// Minimum execution time: 1_000_000 picoseconds.
 		Weight::from_parts(2_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16))
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(T::DbWeight::get().writes(2))
 	}
@@ -387,6 +395,8 @@ impl WeightInfo for () {
 		//  Estimated: `649945`
 		// Minimum execution time: 230_000_000 picoseconds.
 		Weight::from_parts(238_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16630))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(RocksDbWeight::get().reads(33))
 			.saturating_add(RocksDbWeight::get().writes(23))
@@ -471,6 +481,8 @@ impl WeightInfo for () {
 		//  Estimated: `649945`
 		// Minimum execution time: 269_000_000 picoseconds.
 		Weight::from_parts(278_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16638))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(RocksDbWeight::get().reads(30))
 			.saturating_add(RocksDbWeight::get().writes(24))
@@ -553,6 +565,8 @@ impl WeightInfo for () {
 		//  Estimated: `649945`
 		// Minimum execution time: 273_000_000 picoseconds.
 		Weight::from_parts(288_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16638))
 			.saturating_add(Weight::from_parts(0, 649945))
 			.saturating_add(RocksDbWeight::get().reads(31))
 			.saturating_add(RocksDbWeight::get().writes(24))
@@ -567,6 +581,8 @@ impl WeightInfo for () {
 		//  Estimated: `0`
 		// Minimum execution time: 1_000_000 picoseconds.
 		Weight::from_parts(2_000_000, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16))
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(RocksDbWeight::get().writes(2))
 	}

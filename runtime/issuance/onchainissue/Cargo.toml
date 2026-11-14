@@ -19,7 +19,7 @@ pallet-assets = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
 sp-io = { workspace = true }
-votebase = { path = "../../votingengine/votebase", default-features = false }
+engingcore = { path = "../../votingengine/engingcore", default-features = false }
 primitives = { path = "../../primitives", default-features = false }
 entitybase = { path = "../../entity/entitybase", default-features = false }
 
@@ -36,7 +36,7 @@ std = [
     "sp-runtime/std",
     "sp-std/std",
     "sp-io/std",
-    "votebase/std",
+    "engingcore/std",
     "primitives/std",
     "entitybase/std",
 ]
@@ -47,7 +47,7 @@ runtime-benchmarks = [
     "frame-system/runtime-benchmarks",
     "pallet-balances/runtime-benchmarks",
     "pallet-assets/runtime-benchmarks",
-    "votebase/runtime-benchmarks",
+    "engingcore/runtime-benchmarks",
 ]
 try-runtime = [
     # try-runtime feature 必须传播给所有 frame / pallet 依赖,
@@ -56,7 +56,7 @@ try-runtime = [
     "frame-system/try-runtime",
     "pallet-balances/try-runtime",
     "pallet-assets/try-runtime",
-    "votebase/try-runtime",
+    "engingcore/try-runtime",
     "sp-runtime/try-runtime",
 ]
 

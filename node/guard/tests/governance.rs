@@ -10,12 +10,12 @@ use crate::guard::governance_skeleton::expected_roles;
 use crate::guard::governance_skeleton::is_private_protected_cid;
 use crate::guard::governance_skeleton::needs_full_check;
 use crate::guard::governance_skeleton::protected_institutions;
-use crate::guard::governance_skeleton::DecodedInstitutionAdminAssignment;
+type DecodedInstitutionAdminAssignment = entitybase::StoredInstitutionAdminAssignment<[u8;32],Vec<u8>>;
 use crate::guard::governance_skeleton::DecodedInstitutionInfo;
-use crate::guard::governance_skeleton::DecodedInstitutionRole;
+type DecodedInstitutionRole = entitybase::StoredInstitutionRole<Vec<u8>>;
 use crate::guard::governance_skeleton::DecodedPrivateInstitutionAdmins;
 use crate::guard::governance_skeleton::DecodedPublicInstitutionAdmins;
-use crate::guard::governance_skeleton::DecodedRoleBusinessPermission;
+type DecodedRoleBusinessPermission = entitybase::StoredRoleBusinessPermission<Vec<u8>>;
 use crate::guard::governance_skeleton::ExpectedRole;
 use crate::guard::governance_skeleton::GuardError;
 use adminbase::Admin;
@@ -71,8 +71,6 @@ fn account_bytes(institution: &FixedInstitution, admins: Vec<[u8; 32]>) -> Vec<u
 
 fn role_bytes(institution: &FixedInstitution, role: &ExpectedRole) -> Vec<u8> {
     DecodedInstitutionRole {
-        cid_number: institution.cid_number.as_bytes().to_vec(),
-        role_code: role.role_code.clone(),
         role_name: role.role_name.clone(),
         term_required: false,
         role_status: InstitutionRoleStatus::Active,
@@ -111,11 +109,7 @@ fn permission_bytes(institution: &FixedInstitution, role: &ExpectedRole) -> Vec<
         &role.role_code,
     )
     .into_iter()
-    .map(|permission| RoleBusinessPermission {
-        role_subject: RoleSubject {
-            cid_number: institution.cid_number.as_bytes().to_vec(),
-            role_code: role.role_code.clone(),
-        },
+    .map(|permission| entitybase::StoredRoleBusinessPermission {
         business_action_id: BusinessActionId {
             module_tag: permission.module_tag.to_vec(),
             action_code: permission.action_code,
@@ -132,9 +126,7 @@ fn assignment(
     account_id: [u8; 32],
 ) -> DecodedInstitutionAdminAssignment {
     DecodedInstitutionAdminAssignment {
-        cid_number: institution.cid_number.as_bytes().to_vec(),
         account_id,
-        role_code: role.role_code.clone(),
         term_start: 0,
         term_end: 0,
         assignment_source: InstitutionAssignmentSource::Genesis,

@@ -7,7 +7,7 @@ pub mod weights;
 
 use frame_support::pallet_prelude::DispatchResult;
 pub use pallet::*;
-use votebase::JointVoteResultCallback;
+use engingcore::JointVoteResultCallback;
 
 /// 模块标识前缀，用于在 ProposalData 中区分不同业务模块，防止跨模块误解码。
 pub const MODULE_TAG: &[u8] = b"rt-upg";
@@ -39,7 +39,7 @@ pub mod pallet {
         traits::{Hash, SaturatedConversion},
         DispatchError,
     };
-    use votebase::JointVoteEngine;
+    use engingcore::JointVoteEngine;
 
     pub type ReasonOf<T> = BoundedVec<u8, <T as Config>::MaxReasonLen>;
     pub type CodeOf<T> = BoundedVec<u8, <T as Config>::MaxRuntimeCodeSize>;
@@ -67,7 +67,7 @@ pub mod pallet {
     )]
     #[scale_info(skip_type_params(T))]
     pub struct RuntimeUpgradeAudit<T: Config> {
-        pub proposal_id: Option<u64>,
+        pub proposal_id: Option<u128>,
         pub execution_path: UpgradeExecutionPath,
         pub code_hash: T::Hash,
         pub old_pow_params_hash: T::Hash,
@@ -77,16 +77,16 @@ pub mod pallet {
         pub developer: Option<T::AccountId>,
     }
 
-    /// 提案摘要数据：序列化后存入 votebase 的 ProposalData。
-    /// 大对象 wasm code 单独写入 votebase 的 ProposalObject。
+    /// 提案摘要数据：序列化后存入 engingcore 的 ProposalData。
+    /// 大对象 wasm code 单独写入 engingcore 的 ProposalObject。
     #[derive(
         Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct Proposal<T: Config> {
-        pub actor_cid_number: votebase::types::CidNumber,
+        pub actor_cid_number: engingcore::types::CidNumber,
         /// 提案发起岗位码；与机构 CID、签名账户共同形成完整授权主体。
-        pub actor_role_code: votebase::types::RoleCode,
+        pub actor_role_code: engingcore::types::RoleCode,
         /// 提案发起人（国家储委会或省储委会对应岗位的任职管理员）
         pub proposer_account_id: T::AccountId,
         /// 升级理由
@@ -102,7 +102,7 @@ pub mod pallet {
     use crate::weights::WeightInfo;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + votebase::Config + difficulty::Config {
+    pub trait Config: frame_system::Config + engingcore::Config + difficulty::Config {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -141,23 +141,23 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         RuntimeUpgradeProposed {
-            proposal_id: u64,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            proposal_id: u128,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             proposer_account_id: T::AccountId,
             code_hash: T::Hash,
             pow_params_hash: T::Hash,
         },
         JointVoteFinalized {
-            proposal_id: u64,
+            proposal_id: u128,
             approved: bool,
         },
         RuntimeUpgradeExecuted {
-            proposal_id: u64,
+            proposal_id: u128,
             code_hash: T::Hash,
         },
         RuntimeUpgradeExecutionFailed {
-            proposal_id: u64,
+            proposal_id: u128,
             code_hash: T::Hash,
         },
         /// 开发期直接升级成功（不走投票）。
@@ -187,13 +187,13 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// NRC/PRC 委员岗位任职人发起 runtime 升级提案，升级流程走联合投票。
         /// 本模块只提交协议升级业务内容；人口快照、联合签名、
-        /// 投票资格和计票流程全部由 votebase 负责。
+        /// 投票资格和计票流程全部由 engingcore 负责。
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::propose_runtime_upgrade())]
         pub fn propose_runtime_upgrade(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             reason: ReasonOf<T>,
             code: CodeOf<T>,
             new_pow_params: difficulty::PowDifficultyParams,
@@ -202,10 +202,10 @@ pub mod pallet {
 
             let actor_text = core::str::from_utf8(actor_cid_number.as_slice())
                 .map_err(|_| Error::<T>::InvalidActorCid)?;
-            let actor_code = votebase::types::institution_code_from_cid_number(actor_text)
+            let actor_code = engingcore::types::institution_code_from_cid_number(actor_text)
                 .ok_or(Error::<T>::InvalidActorCid)?;
             ensure!(
-                matches!(actor_code, votebase::types::NRC | votebase::types::PRC),
+                matches!(actor_code, engingcore::types::NRC | engingcore::types::PRC),
                 Error::<T>::InvalidActorCid
             );
             let proposer_role = RoleSubject {
@@ -281,18 +281,18 @@ pub mod pallet {
         )]
         pub fn developer_direct_upgrade(
             origin: OriginFor<T>,
-            actor_cid_number: votebase::types::CidNumber,
-            actor_role_code: votebase::types::RoleCode,
+            actor_cid_number: engingcore::types::CidNumber,
+            actor_role_code: engingcore::types::RoleCode,
             code: CodeOf<T>,
             new_pow_params: difficulty::PowDifficultyParams,
         ) -> DispatchResult {
             let who = T::DeveloperUpgradeOrigin::ensure_origin(origin)?;
             let actor_text = core::str::from_utf8(actor_cid_number.as_slice())
                 .map_err(|_| Error::<T>::InvalidActorCid)?;
-            let actor_code = votebase::types::institution_code_from_cid_number(actor_text)
+            let actor_code = engingcore::types::institution_code_from_cid_number(actor_text)
                 .ok_or(Error::<T>::InvalidActorCid)?;
             ensure!(
-                actor_code == votebase::types::NRC,
+                actor_code == engingcore::types::NRC,
                 Error::<T>::InvalidActorCid
             );
             let role_subject = RoleSubject {
@@ -331,7 +331,7 @@ pub mod pallet {
             Ok(())
         }
 
-        // call_index = 1 保持空缺：联合投票终结只能由 votebase 回调进入，
+        // call_index = 1 保持空缺：联合投票终结只能由 engingcore 回调进入，
         // 不再暴露 Root 手工回放 extrinsic，避免形成第二条执行入口。
     }
 
@@ -340,7 +340,7 @@ pub mod pallet {
             cid_number: &[u8],
             role_code: &[u8],
         ) -> Result<
-            entitybase::RoleSubject<votebase::types::CidNumber, votebase::types::RoleCode>,
+            entitybase::RoleSubject<engingcore::types::CidNumber, engingcore::types::RoleCode>,
             DispatchError,
         > {
             Ok(entitybase::RoleSubject {
@@ -357,9 +357,9 @@ pub mod pallet {
 
         /// 协议升级固定使用 NRC/PRC 委员与 PRB 董事组成的联合投票计划。
         fn build_vote_plan(
-            actor_cid_number: &votebase::types::CidNumber,
+            actor_cid_number: &engingcore::types::CidNumber,
             business_object_hash: [u8; 32],
-        ) -> Result<votebase::types::VotePlanOf<T::AccountId>, DispatchError> {
+        ) -> Result<engingcore::types::VotePlanOf<T::AccountId>, DispatchError> {
             let proposer_role = Self::bounded_role_subject(
                 actor_cid_number.as_slice(),
                 ROLE_CODE_COMMITTEE_MEMBER,
@@ -385,7 +385,7 @@ pub mod pallet {
                 .to_vec()
                 .try_into()
                 .map_err(|_| Error::<T>::JointVoteCreateFailed)?;
-            votebase::types::VotePlanOf::<T::AccountId>::try_new(
+            engingcore::types::VotePlanOf::<T::AccountId>::try_new(
                 BusinessActionId {
                     module_tag: module_tag.clone(),
                     action_code: entitybase::business_action::ACTION_RUNTIME_UPGRADE,
@@ -393,7 +393,7 @@ pub mod pallet {
                 module_tag,
                 AuthorizationSubject::Institution(proposer_role),
                 voters,
-                votebase::types::VotingEngineKind::Joint,
+                engingcore::types::VotingEngineKind::Joint,
                 business_object_hash,
             )
             .map_err(|_| Error::<T>::JointVoteCreateFailed.into())
@@ -403,7 +403,7 @@ pub mod pallet {
         fn execute_upgrade_bundle(
             code: &[u8],
             new_pow_params: difficulty::PowDifficultyParams,
-            proposal_id: Option<u64>,
+            proposal_id: Option<u128>,
             execution_path: UpgradeExecutionPath,
             developer: Option<T::AccountId>,
         ) -> DispatchResult {
@@ -430,14 +430,14 @@ pub mod pallet {
         }
 
         /// 快速判断 proposal_id 是否属于本模块（通过 ProposalOwner 匹配）。
-        pub fn owns_proposal(proposal_id: u64) -> bool {
-            votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
+        pub fn owns_proposal(proposal_id: u128) -> bool {
+            engingcore::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG)
         }
 
         /// 从投票引擎 ProposalData 中读取并解码本模块的提案摘要。
         /// 先校验 MODULE_TAG 前缀，防止跨模块误解码。
-        pub(crate) fn load_proposal(proposal_id: u64) -> Result<Proposal<T>, DispatchError> {
-            let raw = votebase::Pallet::<T>::get_proposal_data(proposal_id)
+        pub(crate) fn load_proposal(proposal_id: u128) -> Result<Proposal<T>, DispatchError> {
+            let raw = engingcore::Pallet::<T>::get_proposal_data(proposal_id)
                 .ok_or(Error::<T>::ProposalNotFound)?;
             let tag = crate::MODULE_TAG;
             if raw.len() < tag.len() || &raw[..tag.len()] != tag {
@@ -447,46 +447,46 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::ProposalNotFound.into())
         }
 
-        fn load_runtime_code(proposal_id: u64) -> Result<CodeOf<T>, DispatchError> {
-            let meta = votebase::Pallet::<T>::get_proposal_object_meta(proposal_id)
+        fn load_runtime_code(proposal_id: u128) -> Result<CodeOf<T>, DispatchError> {
+            let meta = engingcore::Pallet::<T>::get_proposal_object_meta(proposal_id)
                 .ok_or(Error::<T>::RuntimeCodeMissing)?;
             ensure!(
                 meta.kind == PROPOSAL_OBJECT_KIND_RUNTIME_WASM,
                 Error::<T>::RuntimeCodeMissing
             );
-            let raw = votebase::Pallet::<T>::get_proposal_object(proposal_id)
+            let raw = engingcore::Pallet::<T>::get_proposal_object(proposal_id)
                 .ok_or(Error::<T>::RuntimeCodeMissing)?;
             raw.try_into()
                 .map_err(|_| Error::<T>::RuntimeCodeMissing.into())
         }
 
-        /// 联合投票结果回调（由 votebase 的 set_status_and_emit 在事务内调用）。
+        /// 联合投票结果回调（由 engingcore 的 set_status_and_emit 在事务内调用）。
         ///
-        /// 状态处理模式与 votebase 对齐：
+        /// 状态处理模式与 engingcore 对齐：
         /// - approved + 执行成功 → 返回 `Executed`，由投票引擎写 STATUS_EXECUTED。
         /// - approved + 执行失败 → 返回 `FatalFailed`，由投票引擎写 STATUS_EXECUTION_FAILED。
         /// - rejected → 返回 `Executed`，投票引擎保留 STATUS_REJECTED。
         pub(crate) fn apply_joint_vote_result(
-            proposal_id: u64,
+            proposal_id: u128,
             approved: bool,
-        ) -> Result<votebase::ProposalExecutionOutcome, DispatchError> {
+        ) -> Result<engingcore::ProposalExecutionOutcome, DispatchError> {
             let proposal = Self::load_proposal(proposal_id)?;
-            let engine_proposal = votebase::Pallet::<T>::proposals(proposal_id)
+            let engine_proposal = engingcore::Pallet::<T>::proposals(proposal_id)
                 .ok_or(Error::<T>::ProposalNotFound)?;
             ensure!(
-                votebase::Pallet::<T>::is_callback_execution_scope(proposal_id)
-                    && votebase::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG,)
-                    && engine_proposal.kind == votebase::PROPOSAL_KIND_JOINT
+                engingcore::Pallet::<T>::is_callback_execution_scope(proposal_id)
+                    && engingcore::Pallet::<T>::is_proposal_owner(proposal_id, crate::MODULE_TAG,)
+                    && engine_proposal.kind == engingcore::PROPOSAL_KIND_JOINT
                     && matches!(
                         engine_proposal.stage,
-                        votebase::STAGE_JOINT | votebase::STAGE_REFERENDUM
+                        engingcore::STAGE_JOINT | engingcore::STAGE_REFERENDUM
                     ),
                 Error::<T>::ProposalNotVoting
             );
             let expected_status = if approved {
-                votebase::STATUS_PASSED
+                engingcore::STATUS_PASSED
             } else {
-                votebase::STATUS_REJECTED
+                engingcore::STATUS_REJECTED
             };
             ensure!(
                 engine_proposal.status == expected_status,
@@ -530,16 +530,16 @@ pub mod pallet {
                     });
                 }
                 Ok(if exec_ok {
-                    votebase::ProposalExecutionOutcome::Executed
+                    engingcore::ProposalExecutionOutcome::Executed
                 } else {
-                    votebase::ProposalExecutionOutcome::FatalFailed
+                    engingcore::ProposalExecutionOutcome::FatalFailed
                 })
             } else {
                 Self::deposit_event(Event::<T>::JointVoteFinalized {
                     proposal_id,
                     approved: false,
                 });
-                Ok(votebase::ProposalExecutionOutcome::Executed)
+                Ok(engingcore::ProposalExecutionOutcome::Executed)
             }
         }
     }
@@ -547,9 +547,9 @@ pub mod pallet {
 
 impl<T: pallet::Config> JointVoteResultCallback for pallet::Pallet<T> {
     fn on_joint_vote_finalized(
-        vote_proposal_id: u64,
+        vote_proposal_id: u128,
         approved: bool,
-    ) -> Result<votebase::ProposalExecutionOutcome, sp_runtime::DispatchError> {
+    ) -> Result<engingcore::ProposalExecutionOutcome, sp_runtime::DispatchError> {
         // 统一使用 voting engine 的 proposal_id，不再需要反查映射。
         pallet::Pallet::<T>::apply_joint_vote_result(vote_proposal_id, approved)
     }

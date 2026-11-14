@@ -194,7 +194,8 @@ pub struct LawView {
     pub title_en: Option<String>,
     /// 正文哈希(0x hex)。
     pub content_hash: String,
-    pub proposal_id: u64,
+    #[serde(serialize_with = "onchina::response::serialize_decimal", deserialize_with = "onchina::response::deserialize_decimal")]
+    pub proposal_id: u128,
     pub published_at: u64,
     pub effective_at: u64,
     /// 表决院序列(机构 CID)。

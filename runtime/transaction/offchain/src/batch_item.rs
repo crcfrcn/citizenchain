@@ -94,10 +94,13 @@ pub struct OffchainBatchItem<AccountId, BlockNumber> {
     pub recipient_account_id: AccountId,
     /// 收款方绑定的清算行 **CID**。
     pub recipient_bank_cid: crate::InstitutionCidNumber,
+    #[codec(compact)]
     pub transfer_amount: u128,
+    #[codec(compact)]
     pub fee_amount: u128,
     /// L3 sr25519 签名(64 字节)。
     pub payer_sig: [u8; 64],
+    #[codec(compact)]
     pub payer_nonce: u64,
     pub expires_at: BlockNumber,
 }

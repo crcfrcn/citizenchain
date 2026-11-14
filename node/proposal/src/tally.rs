@@ -8,7 +8,7 @@ use crate::types::ReferendumVoteTally;
 use crate::types::UserVoteStatus;
 use crate::types::VoteTally;
 
-pub(crate) fn fetch_internal_tally(proposal_id: u64) -> Result<VoteTally, String> {
+pub(crate) fn fetch_internal_tally(proposal_id: u128) -> Result<VoteTally, String> {
     let key = nodeclient::query::map_key(
         "InternalVote",
         "InternalTallies",
@@ -37,7 +37,7 @@ pub(crate) fn fetch_internal_tally(proposal_id: u64) -> Result<VoteTally, String
     }
 }
 
-pub(crate) fn fetch_joint_tally(proposal_id: u64) -> Result<JointVoteTally, String> {
+pub(crate) fn fetch_joint_tally(proposal_id: u128) -> Result<JointVoteTally, String> {
     let key = nodeclient::query::map_key("JointVote", "JointTallies", &proposal_id.to_le_bytes());
     // (ADR-017):投票计数按 finalized 口径读取,禁止 best。
     match nodeclient::query::fetch_finalized_storage(&key)? {
@@ -62,7 +62,7 @@ pub(crate) fn fetch_joint_tally(proposal_id: u64) -> Result<JointVoteTally, Stri
     }
 }
 
-pub(crate) fn fetch_referendum_tally(proposal_id: u64) -> Result<ReferendumVoteTally, String> {
+pub(crate) fn fetch_referendum_tally(proposal_id: u128) -> Result<ReferendumVoteTally, String> {
     let key =
         nodeclient::query::map_key("JointVote", "ReferendumTallies", &proposal_id.to_le_bytes());
     // (ADR-017):投票计数按 finalized 口径读取,禁止 best。
@@ -90,7 +90,7 @@ pub(crate) fn fetch_referendum_tally(proposal_id: u64) -> Result<ReferendumVoteT
 
 /// 查询指定用户（管理员公钥）对某提案的投票状态。
 pub(crate) fn fetch_user_vote_status(
-    proposal_id: u64,
+    proposal_id: u128,
     signer_public_key: &str,
     cid_number: Option<&str>,
     voter_role_code: Option<&str>,

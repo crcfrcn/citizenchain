@@ -629,6 +629,10 @@ pub mod pallet {
 
         type CitizenIdentityAuthority: CitizenIdentityAuthority<Self::AccountId, SignatureOf<Self>>;
 
+        /// Binding may declare an unfunded account; register its receive alias.
+        type OnAccountRegistered: frame_support::traits::OnNewAccount<Self::AccountId>
+            + Get<Weight>;
+
         /// 只负责为 FRAME benchmark 生成真实账户和签名，不参与生产鉴权。
         #[cfg(feature = "runtime-benchmarks")]
         type BenchmarkHelper: BenchmarkHelper<Self::AccountId, SignatureOf<Self>>;
@@ -841,6 +845,7 @@ pub mod pallet {
                 CidRegistry::<T>::insert(cid_number, record);
                 AccountIdByCid::<T>::insert(cid_number, account_id);
                 CidByAccountId::<T>::insert(account_id, cid_number);
+                <T::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId>>::on_new_account(account_id);
                 BindingRevisionByCid::<T>::insert(cid_number, 1);
             }
             // 创世登记全部是 Active(上面逐条断言过 CID 不重复),计数直接取条数。
@@ -1303,7 +1308,7 @@ pub mod pallet {
         /// signer_onchain_route)。commitment 由链上从 origin 计算(= `blake2_256(account_id
         /// 公钥)`,D2 锚定基;换绑授权来自当前双向绑定而非本值)。复用已退役的 call_index(5)。
         #[pallet::call_index(5)]
-        #[pallet::weight(<T as Config>::WeightInfo::self_occupy_cid())]
+        #[pallet::weight(<T as Config>::WeightInfo::self_occupy_cid().saturating_add(<T::OnAccountRegistered as Get<Weight>>::get()))]
         pub fn self_occupy_cid(origin: OriginFor<T>, cid_number: CidNumberBound) -> DispatchResult {
             let account_id = ensure_signed(origin)?;
             // 自助只出匿名身份,类型限 CTZN(公民)/ NATP(居民),用户自选。
@@ -1339,7 +1344,7 @@ pub mod pallet {
         /// 当前账户从 `AccountIdByCid[cid]` 反查、不用传;已升级投票/竞选公民的 CID 只能经注册局
         /// 换绑。CTZN 匿名 + NATP 均可自助换绑。新账户任意(能签即可),但不得已绑另一 CID。
         #[pallet::call_index(9)]
-        #[pallet::weight(<T as Config>::WeightInfo::self_rebind_cid_account_id())]
+        #[pallet::weight(<T as Config>::WeightInfo::self_rebind_cid_account_id().saturating_add(<T::OnAccountRegistered as Get<Weight>>::get()))]
         pub fn self_rebind_cid_account_id(
             origin: OriginFor<T>,
             cid_number: CidNumberBound,
@@ -1408,7 +1413,7 @@ pub mod pallet {
         /// `OP_SIGN_CID_ADMIN_REBIND` 签名，证明新账户受控。费用由注册局机构承担。
         /// 复用删批量占号释放出的 `call_index(7)`。
         #[pallet::call_index(7)]
-        #[pallet::weight(<T as Config>::WeightInfo::admin_rebind_cid_account_id())]
+        #[pallet::weight(<T as Config>::WeightInfo::admin_rebind_cid_account_id().saturating_add(<T::OnAccountRegistered as Get<Weight>>::get()))]
         // 8 个参数逐字节镜像 CidRebindAuthorization 签名载荷,属链上编码契约。
         // citizenwallet payload_decoder 逐字段解码并中文展示(两色识别要求
         // expected_binding_revision / expires_at / new_account_signature 三个防重放
@@ -1494,7 +1499,7 @@ pub mod pallet {
         /// commitment 链上算 `blake2_256(account_id 公钥)`(与自助占号同基);不写 VotingIdentity
         /// (匿名),居住/姓名等档案改由 onchina 链下 `citizens` 表选填保存。
         #[pallet::call_index(6)]
-        #[pallet::weight(<T as Config>::WeightInfo::occupy_cid())]
+        #[pallet::weight(<T as Config>::WeightInfo::occupy_cid().saturating_add(<T::OnAccountRegistered as Get<Weight>>::get()))]
         pub fn occupy_cid(
             origin: OriginFor<T>,
             actor_cid_number: CidNumberBound,
@@ -1923,6 +1928,7 @@ pub mod pallet {
         fn bind_account_id(cid_number: &CidNumberBound, account: &T::AccountId) -> u64 {
             AccountIdByCid::<T>::insert(cid_number, account);
             CidByAccountId::<T>::insert(account, cid_number);
+            <T::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId>>::on_new_account(account);
             if let Some(binding_revision) = BindingRevisionByCid::<T>::get(cid_number) {
                 return binding_revision;
             }
@@ -1943,6 +1949,7 @@ pub mod pallet {
             CidByAccountId::<T>::remove(current_account_id);
             AccountIdByCid::<T>::insert(cid_number, new_account_id);
             CidByAccountId::<T>::insert(new_account_id, cid_number);
+            <T::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId>>::on_new_account(new_account_id);
             BindingRevisionByCid::<T>::insert(cid_number, binding_revision);
             Ok(binding_revision)
         }

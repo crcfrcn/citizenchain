@@ -40,3 +40,8 @@ export * as platform_subjects_api from "../institutions/api";
 export * as platform_subjects_institutionLabels from "../institutions/institutionLabels";
 export * as platform_subjects_labels from "../institutions/labels";
 export * as platform_workspace_WorkspaceShell from "./WorkspaceShell";
+
+export * as platform_institutions_RolesView from "../institutions/RolesView";
+export * as platform_institutions_AssignmentsView from "../institutions/AssignmentsView";
+export * as platform_institutions_RepresentativeView from "../institutions/RepresentativeView";
+export * as platform_institutions_GovernanceReview from "../institutions/GovernanceReview";

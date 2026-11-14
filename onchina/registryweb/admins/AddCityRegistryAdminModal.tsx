@@ -1,183 +1,267 @@
 import scanIcon from '../../../icons/scan.svg?url';
-import { useEffect } from 'react';
-import { Button, Form, Input, Modal, Select } from 'antd';
-import { decodeSs58 } from '@gmb/onchina-platform/codes/ss58';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Button, Card, Checkbox, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Typography } from 'antd';
+import { decodeSs58, tryEncodeSs58 } from '@gmb/onchina-platform/codes/ss58';
 import { ScanAccountModal } from '@gmb/onchina-platform/qr/ScanAccountModal';
+import { useChainSign } from '@gmb/onchina-platform/qr/useChainSign';
+import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';
+import { useAuth } from '@gmb/onchina-platform/authentication/useAuth';
+import { ApiError } from '@gmb/onchina-platform/http';
+import { notice } from '@gmb/onchina-platform/controls/notice';
 import { CID_MODAL_Z_INDEX } from '@gmb/onchina-platform/controls/modalStack';
-import { MAX_CITY_REGISTRY_ADMINS_PER_CITY, type RegistryAdminsSharedState } from './cityRegistryAdminsApi';
+import { buildInstitutionRegistration, buildInstitutionAdminGovernance, governanceProposers, dateFromDay, dayFromDate, getGovernanceState, institutionRegistrationPermissions, permissionLabel,
+  type GovernanceState, type InstitutionGovernanceAssignmentTargetInput, type InstitutionGovernanceRoleMutationInput,
+  type InstitutionRegistrationInput } from '@gmb/onchina-platform/institutions/governance';
+import { runInstitutionRegistration, readRegistrationReceipt, saveRegistrationReceipt,
+  type PendingInstitutionRegistration, type InstitutionAdminMode, type RegistryAdminsSharedState } from './cityRegistryAdminsApi';
 
-// 新增市注册局管理员 Modal
-// 当 selectedCity 有值时，城市字段预填并锁定（已在某市详情页内新增）
+type Person = { account: string; familyName: string; givenName: string };
+type Role = { name: string; term: boolean; permissions: string[]; assignments: InstitutionGovernanceAssignmentTargetInput[] };
+type Assignment = { roleCode: string; assignments: InstitutionGovernanceAssignmentTargetInput[] };
+const emptyPerson = (): Person => ({ account: '', familyName: '', givenName: '' });
 
-interface AddCityRegistryAdminModalProps {
-  state: RegistryAdminsSharedState;
+/** 所有机构复用同一表单；市注册局只把当前详情页上下文传入，不维护专用调用或岗位。 */
+export function AddCityRegistryAdminModal({ state }: { state: RegistryAdminsSharedState }) {
+  const { auth } = useAuth();
+  if (!auth) return null;
+  return <InstitutionAdminChangeModal auth={auth} cidNumber={state.cityRegistryCid} open={state.addCityRegistryOpen}
+    removing={state.deleteCityRegistryAdmin} label="市注册局"
+    onClose={() => { state.setAddCityRegistryOpen(false); state.setDeleteCityRegistryAdmin(null); }}
+    onSubmitted={async () => { await state.refreshCityRegistryAdmins(); }} />;
 }
 
-export function AddCityRegistryAdminModal({ state }: AddCityRegistryAdminModalProps) {
-  const {
-    addCityRegistryOpen,
-    setAddCityRegistryOpen,
-    addCityRegistryLoading,
-    addCityRegistryForm,
-    cityRegistryAdmins,
-    cityRegistryAdminCities,
-    cityRegistryAdminCitiesLoading,
-    selectedCity,
-    onCreateCityRegistry,
-    accountScanTarget,
-    setAccountScanTarget,
-  } = state;
-  const selectedCityRegistryCity = Form.useWatch('cityScopeCityName', addCityRegistryForm);
-  // 新增弹窗只做提前拦截,单市 30 人上限最终以后端校验为准。
-  const cityCityRegistryCount = (cityName: string) => cityRegistryAdmins.filter((item) => item.cityName === cityName).length;
-  const selectedCityLimitReached = selectedCityRegistryCity
-    ? cityCityRegistryCount(selectedCityRegistryCity) >= MAX_CITY_REGISTRY_ADMINS_PER_CITY
-    : false;
+type RemoveTarget = { id: string; institutionCidNumber: string; rosterAccountId: string; familyName: string; givenName: string };
+export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removing = null, mode = 'registration', label = '机构', onClose, onSubmitted }: {
+  auth: AdminAuth; cidNumber: string | null; open: boolean; removing?: RemoveTarget | null;
+  mode?: InstitutionAdminMode; label?: string; onClose: () => void; onSubmitted: () => void | Promise<void>;
+}) {
+  const [snapshot, setSnapshot] = useState<GovernanceState | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [people, setPeople] = useState<Person[]>([emptyPerson()]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [threshold, setThreshold] = useState<number>();
+  const [actorRole, setActorRole] = useState<string>();
+  const [review, setReview] = useState<InstitutionRegistrationInput | null>(null);
+  const [pending, setPending] = useState<PendingInstitutionRegistration | null>(null);
+  const pendingRef = useRef<PendingInstitutionRegistration | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [closedRecovery, setClosedRecovery] = useState(false);
+  const [scanIndex, setScanIndex] = useState<number | null>(null);
+  const context = `${auth?.accessToken}|${auth?.accountId}|${auth?.institutionCidNumber}|${cid}|${open}|${mode}`;
+  const current = useRef(context);
+  current.current = context;
+  const operation = useRef<AbortController | null>(null);
+  const { signChain, chainSignModal } = useChainSign('机构管理员登记签名');
+  const reload = () => { setReview(null); setRevision(r => r + 1); };
 
-  // selectedCity 有值时预填城市字段
   useEffect(() => {
-    if (addCityRegistryOpen && selectedCity) {
-      addCityRegistryForm.setFieldsValue({ cityScopeCityName: selectedCity });
-    }
-  }, [addCityRegistryOpen, selectedCity, addCityRegistryForm]);
+    setPeople([emptyPerson()]); setRoles([]); setAssignments([]); setThreshold(undefined); setActorRole(undefined);
+    setReview(null); setBusy(false); setClosedRecovery(false); setScanIndex(null);
+    const receipt = auth && cid && open ? readRegistrationReceipt(auth, cid, mode) : null;
+    pendingRef.current = receipt; setPending(receipt);
+    return () => { operation.current?.abort(); };
+  }, [context, removing?.id]);
 
-  return (
-    <>
-      <Modal
-        title={<div style={{ textAlign: 'center', width: '100%' }}>新增市注册局管理员</div>}
-        open={addCityRegistryOpen}
-        onCancel={() => {
-          if (addCityRegistryLoading) return;
-          addCityRegistryForm.resetFields();
-          setAddCityRegistryOpen(false);
-        }}
-        footer={[
-          <Button
-            key="cancel"
-            disabled={addCityRegistryLoading}
-            onClick={() => {
-              addCityRegistryForm.resetFields();
-              setAddCityRegistryOpen(false);
-            }}
-          >
-            取消新增
-          </Button>,
-          <Button
-            key="submit"
-            type="primary"
-            loading={addCityRegistryLoading}
-            disabled={selectedCityLimitReached}
-            title={selectedCityLimitReached ? `本市市注册局管理员已满 ${MAX_CITY_REGISTRY_ADMINS_PER_CITY} 人` : undefined}
-            onClick={() => addCityRegistryForm.submit()}
-          >
-            确认新增
-          </Button>,
-        ]}
-        destroyOnClose
-        closable={!addCityRegistryLoading}
-        maskClosable={!addCityRegistryLoading}
-        zIndex={CID_MODAL_Z_INDEX.business}
-      >
-        <Form
-          form={addCityRegistryForm}
-          layout="vertical"
-          onFinish={(values: { familyName: string; givenName: string; cityRegistryAccount: string; cityScopeCityName: string }) =>
-            onCreateCityRegistry({
-              familyName: values.familyName,
-              givenName: values.givenName,
-              cityRegistryAccount: values.cityRegistryAccount,
-              cityName: values.cityScopeCityName,
-            })
-          }
-        >
-          <Form.Item
-            label="姓"
-            name="familyName"
-            rules={[{ required: true, message: '请输入市注册局管理员姓' }]}
-          >
-            <Input placeholder="请输入市注册局管理员姓" />
-          </Form.Item>
-          <Form.Item
-            label="名"
-            name="givenName"
-            rules={[{ required: true, message: '请输入市注册局管理员名' }]}
-          >
-            <Input placeholder="请输入市注册局管理员名" />
-          </Form.Item>
-          <Form.Item
-            label="市"
-            name="cityScopeCityName"
-            rules={[
-              { required: true, message: '请选择市' },
-              {
-                validator: async (_rule, value) => {
-                  if (!value) return;
-                  if (cityCityRegistryCount(String(value)) >= MAX_CITY_REGISTRY_ADMINS_PER_CITY) {
-                    throw new Error(`本市市注册局管理员已满 ${MAX_CITY_REGISTRY_ADMINS_PER_CITY} 人`);
-                  }
-                },
-              },
-            ]}
-          >
-            <Select
-              placeholder="请选择市"
-              loading={cityRegistryAdminCitiesLoading}
-              disabled={selectedCity !== null}
-              options={cityRegistryAdminCities
-                .filter((c) => c.cityCode !== '000')
-                .map((c) => {
-                  const count = cityCityRegistryCount(c.cityName);
-                  return {
-                    label: `${c.cityName} (${c.cityCode}) ${count}/${MAX_CITY_REGISTRY_ADMINS_PER_CITY}`,
-                    value: c.cityName,
-                    disabled: count >= MAX_CITY_REGISTRY_ADMINS_PER_CITY,
-                  };
-                })}
-            />
-          </Form.Item>
-          <Form.Item
-            label="账户"
-            name="cityRegistryAccount"
-            rules={[
-              { required: true, message: '请输入市注册局管理员账户' },
-              {
-                validator: async (_rule, value) => {
-                  if (!value) return;
-                  try {
-                    decodeSs58(String(value));
-                  } catch (err) {
-                    throw new Error(err instanceof Error ? err.message : '账户格式无效');
-                  }
-                },
-              },
-            ]}
-          >
-            <Input
-              placeholder="请输入市注册局管理员账户(SS58)"
-              suffix={
-                <span
-                  title="扫码识别用户码"
-                  style={{ cursor: 'pointer', display: 'inline-flex', color: '#0d9488' }}
-                  onClick={() => setAccountScanTarget('city_registry')}
-                >
-                  <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url(${scanIcon})`,WebkitMaskImage:`url(${scanIcon})`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
-                </span>
-              }
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
+  useEffect(() => {
+    setSnapshot(null); setError(null);
+    if (!open || !auth || !cid) { setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    getGovernanceState(auth, cid).then(value => {
+      if (cancelled) return;
+      if (value.cidNumber !== cid || !value.registrationStateHash || value.governanceThreshold === undefined || !value.registrationRoles) throw new Error('登记链状态未就绪');
+      setSnapshot(value);
+    }).catch(error => { if (!cancelled) setError(error instanceof Error ? error.message : String(error)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [context, revision]);
 
-      <ScanAccountModal
-        open={accountScanTarget !== null}
-        onClose={() => setAccountScanTarget(null)}
-        onResolved={(addr) => {
-          if (accountScanTarget === 'city_registry') {
-            addCityRegistryForm.setFieldsValue({ cityRegistryAccount: addr });
-          }
-          setAccountScanTarget(null);
-        }}
-      />
-    </>
-  );
+  const candidates = snapshot ? mode === 'governance' ? governanceProposers(auth, snapshot).map(role => ({ roleCode: role.roleCode, roleName: role.roleName })) : snapshot.registrationRoles ?? [] : [];
+  const initial = snapshot?.governanceThreshold === null;
+  const permissionOptions = snapshot ? institutionRegistrationPermissions(snapshot) : [];
+  const personOptions = people.flatMap((person, index) => {
+    try { return [{ value: decodeSs58(person.account.trim()), label: `${person.familyName}${person.givenName || '（待填写姓名）'}（第${index + 1}人）` }]; } catch { return []; }
+  });
+  const remember = (receipt: PendingInstitutionRegistration | null) => {
+    pendingRef.current = receipt; setPending(receipt);
+    if (auth && cid) saveRegistrationReceipt(auth, cid, receipt, mode);
+  };
+  const close = () => {
+    if (busy) return;
+    onClose();
+  };
+  const buildReview = () => {
+    if (!snapshot || !cid || snapshot.cidNumber !== cid) return;
+    try {
+      if (removing && removing.institutionCidNumber !== cid) throw new Error('删除目标不属于当前机构');
+      const mutations: InstitutionGovernanceRoleMutationInput[] = roles.map(role => ({ mutation: 'CREATE', roleName: role.name.trim(), termRequired: role.term,
+        permissions: role.permissions.map(key => {
+          const option = permissionOptions.find(option => option.value === key);
+          if (!option) throw new Error('请选择有效的业务权限');
+          return option.permission;
+        }), assignments: role.assignments }));
+      const draft = removing ? { removeAccountId: removing.rosterAccountId } : {
+        addedAdmins: people.map(person => ({ accountId: decodeSs58(person.account.trim()), familyName: person.familyName, givenName: person.givenName })),
+        ...(initial ? { initialRoles: mutations, initialThreshold: threshold } : { assignments }),
+      };
+      setReview(mode === 'governance' ? buildInstitutionAdminGovernance(auth, snapshot, draft, actorRole) : buildInstitutionRegistration(snapshot, draft, actorRole));
+    } catch (error) { notice.error(error, '登记校验失败'); }
+  };
+
+  const submit = async () => {
+    if (!auth || !cid || busy || (operation.current && !operation.current.signal.aborted) || (!review && !pendingRef.current)) return;
+    const owner = context;
+    const controller = new AbortController(); operation.current = controller;
+    const ensureCurrent = () => { controller.signal.throwIfAborted(); if (current.current !== owner) throw new Error('办理身份或页面目标已变化'); };
+    setBusy(true);
+    try {
+      const result = await runInstitutionRegistration({ auth, cidNumber: cid, input: review,
+        pending: pendingRef.current, sign: signChain, remember, check: ensureCurrent, signal: controller.signal, mode });
+      ensureCurrent();
+      setReview(null);
+      notice.success(result.recovered ? '链上管理员变更结果已恢复核对' : mode === 'governance' ? '治理提案已确认上链，投票通过并执行后名册生效' : '管理员登记已在链上确认');
+      onClose();
+      await onSubmitted();
+    } catch (error) {
+      if (controller.signal.aborted || current.current !== owner) return;
+      if (!pendingRef.current) reload();
+      if (pendingRef.current && error instanceof ApiError && (error.status === 404 || error.status === 409 && error.message.includes('已被消费'))) setClosedRecovery(true);
+      notice.error(error, pendingRef.current ? '结果未确认，保留原签名供恢复' : '登记未完成');
+    } finally { if (operation.current === controller) { operation.current = null; if (current.current === owner) setBusy(false); } }
+  };
+
+  // 原会话已清理/消费后若又有别的事务改变名册，允许显式重读；绝不自动重签旧变更。
+  const recheckClosedRecovery = async () => {
+    if (!auth || !cid || busy) return;
+    const owner = context; setBusy(true);
+    try {
+      const fresh = await getGovernanceState(auth, cid);
+      if (current.current !== owner || fresh.cidNumber !== cid) return;
+      remember(null); setClosedRecovery(false); setReview(null); setSnapshot(fresh);
+      setPeople([emptyPerson()]); setRoles([]); setAssignments([]); setThreshold(undefined); setActorRole(undefined);
+      onClose(); await onSubmitted();
+    } catch (error) { if (current.current === owner) notice.error(error, '读取当前链上名册失败'); }
+    finally { if (current.current === owner) setBusy(false); }
+  };
+
+  const renderAssignments = (rows: InstitutionGovernanceAssignmentTargetInput[], update: (rows: InstitutionGovernanceAssignmentTargetInput[]) => void, term: boolean) => <Space direction="vertical" style={{ width: '100%' }}>
+    {rows.map((row, index) => <Space key={index} wrap>
+      <Select aria-label={`任职人员${index + 1}`} placeholder="选择新增名册人员" style={{ minWidth: 180 }} value={row.accountId || undefined} options={personOptions}
+        onChange={accountId => update(rows.map((r, i) => i === index ? { ...r, accountId } : r))} />
+      {term && <><Input aria-label={`任期开始${index + 1}`} type="date" value={dateFromDay(row.termStart)} onChange={e => { try { update(rows.map((r, i) => i === index ? { ...r, termStart: e.target.value ? dayFromDate(e.target.value) : 0 } : r)); } catch (error) { notice.error(error); } }} />
+      <Input aria-label={`任期结束${index + 1}`} type="date" value={dateFromDay(row.termEnd)} onChange={e => { try { update(rows.map((r, i) => i === index ? { ...r, termEnd: e.target.value ? dayFromDate(e.target.value) : 0 } : r)); } catch (error) { notice.error(error); } }} /></>}
+      <Button danger onClick={() => update(rows.filter((_, i) => i !== index))}>移除此任职</Button>
+    </Space>)}
+    <Button onClick={() => update([...rows, { accountId: '', termStart: 0, termEnd: 0 }])}>添加任职人员</Button>
+  </Space>;
+
+  return <>
+    <Modal title={pending ? '恢复机构管理员变更' : `${mode === 'governance' ? '提案：' : ''}${removing ? '删除' : '新增'}${label}管理员`} open={open} width={900} destroyOnClose
+      onCancel={close} closable={!busy} maskClosable={!busy} zIndex={CID_MODAL_Z_INDEX.business}
+      footer={<Space><Button disabled={busy} onClick={close}>关闭</Button>
+        {pending ? <>{closedRecovery && <Button disabled={busy} onClick={() => void recheckClosedRecovery()}>重新核对当前名册</Button>}<Button type="primary" loading={busy} onClick={() => void submit()}>恢复原会话结果</Button></> : review ? <>
+          <Button disabled={busy} onClick={() => setReview(null)}>返回修改</Button><Button type="primary" loading={busy} onClick={() => void submit()}>{mode === 'governance' ? '确认并签名提交治理提案' : '确认并签名上链'}</Button>
+        </> : <Button type="primary" disabled={!snapshot || loading || !!error || !candidates.length} onClick={buildReview}>核对登记</Button>}
+      </Space>}>
+      <Typography.Paragraph>目标机构：{cid ?? '当前详情页目标未就绪'}</Typography.Paragraph>
+      {mode === 'governance' && <Alert type="info" message="本机构治理提案需投票通过并执行后生效" />}
+      {pending ? <Alert type="info" showIcon message="已有签名会话待恢复" description={closedRecovery ? '原会话已清理或消费，但当前链状态不再完全吻合。可以重新核对当前名册；这不会撤销已签交易，也不会自动重签旧变更。' : '恢复使用原请求和原签名，不重新准备或重复签名。'} /> : <>
+        {loading && <Spin tip="读取链上名册及有效岗位"><div style={{ minHeight: 60 }} /></Spin>}
+        {error && <Alert type="error" message="登记链状态读取失败" description={error} action={<Button onClick={reload}>重试</Button>} />}
+        {snapshot && !loading && <>
+          {candidates.length === 1 ? <Typography.Paragraph>办理岗位：{candidates[0].roleName}</Typography.Paragraph> : <Form.Item label="办理岗位">
+            <Select aria-label="办理岗位" placeholder="请选择办理岗位名称" value={actorRole} disabled={!!review} onChange={setActorRole} options={candidates.map(r => ({ value: r.roleCode, label: r.roleName }))} /></Form.Item>}
+          {!candidates.length && <Alert type="warning" message="当前管理员没有有效的登记办理岗位" />}
+          {review ? <>
+            <Descriptions column={1} bordered size="small">
+              <Descriptions.Item label="登记名册人数">{review.admins.length}</Descriptions.Item>
+              <Descriptions.Item label="机构阈值">{review.initialThreshold ?? '沿用现有阈值'}</Descriptions.Item>
+              <Descriptions.Item label="登记类型">{removing ? '删除成员并解除相关任职' : initial ? '首次名册、岗位权限与任职初始化' : '追加成员及明确任职'}</Descriptions.Item>
+            </Descriptions>
+            <Table rowKey="accountId" pagination={false} dataSource={review.admins} columns={[
+              { title: '名册人员', render: (_, m) => { const old = snapshot.members.find(p => p.accountId === m.accountId); return m.familyName ? `${m.familyName}${m.givenName ?? ''}` : old ? `${old.familyName}${old.givenName}` : '资料待完善'; } },
+              { title: '名册账户', render: (_, m) => tryEncodeSs58(m.accountId) },
+            ]} />
+            {(review.roleMutations ?? []).map((role, index) => <Typography.Paragraph key={index}>创建岗位：{role.roleName}；权限：{role.permissions?.map(permissionLabel).join('、')}；任职：{role.assignments?.map(a => `${personOptions.find(p => p.value === a.accountId)?.label ?? tryEncodeSs58(a.accountId)} ${role.termRequired ? `${dateFromDay(a.termStart)}至${dateFromDay(a.termEnd)}` : '无任期'}`).join('、')}</Typography.Paragraph>)}
+            {(review.assignmentChanges ?? []).map(change => <Typography.Paragraph key={change.roleCode}>岗位：{snapshot.roles.find(r => r.roleCode === change.roleCode)?.roleName}；目标任职：{change.assignments.map(a => `${personOptions.find(p => p.value === a.accountId)?.label ?? snapshot.members.find(p => p.accountId === a.accountId)?.familyName ?? tryEncodeSs58(a.accountId)} ${a.termStart ? `${dateFromDay(a.termStart)}至${dateFromDay(a.termEnd)}` : '无任期'}`).join('、') || '空缺'}</Typography.Paragraph>)}
+          </> : removing ? <Typography.Paragraph>删除：{removing.familyName}{removing.givenName}。将同时处理其现有任职，保留其他人员及任职。</Typography.Paragraph> : <>
+            {people.map((person, index) => <Space key={index} wrap align="start" style={{ marginBottom: 12 }}>
+              <Typography.Text>新增人员{index + 1}</Typography.Text>
+              <Input aria-label={`管理员姓${index + 1}`} placeholder="姓" value={person.familyName} onChange={e => setPeople(people.map((p, i) => i === index ? { ...p, familyName: e.target.value } : p))} />
+              <Input aria-label={`管理员名${index + 1}`} placeholder="名" value={person.givenName} onChange={e => setPeople(people.map((p, i) => i === index ? { ...p, givenName: e.target.value } : p))} />
+              <Input aria-label={`管理员账户${index + 1}`} placeholder="管理员账户（SS58）" value={person.account} style={{ width: 390 }} onChange={e => setPeople(people.map((p, i) => i === index ? { ...p, account: e.target.value } : p))}
+                suffix={<Button type="text" size="small" aria-label={`扫描管理员账户${index + 1}`} onClick={() => setScanIndex(index)}><img src={scanIcon} width={18} alt="" /></Button>} />
+              <Button danger disabled={people.length === 1} onClick={() => setPeople(people.filter((_, i) => i !== index))}>移除此人员</Button>
+            </Space>)}
+            <Button onClick={() => setPeople([...people, emptyPerson()])}>添加名册人员</Button>
+            {initial ? <>
+              <Alert style={{ marginTop: 16 }} type="info" message="首次登记须明确岗位权限、任职和机构阈值" description="治理票数按有效岗位席位计算，同一人员可兼任不同岗位；岗位名称和权限由办理人明确配置。" />
+              {roles.map((role, index) => <div key={index} style={{ marginTop: 16, border: '1px solid #ddd', padding: 12 }}>
+                <Form.Item label="岗位名称"><Input aria-label={`新岗位名称${index + 1}`} value={role.name} onChange={e => setRoles(roles.map((r, i) => i === index ? { ...r, name: e.target.value } : r))} /></Form.Item>
+                <Form.Item label="业务权限"><Select aria-label={`业务权限${index + 1}`} mode="multiple" style={{ width: '100%' }} value={role.permissions} options={permissionOptions} optionFilterProp="label" onChange={permissions => setRoles(roles.map((r, i) => i === index ? { ...r, permissions } : r))} /></Form.Item>
+                <Checkbox checked={role.term} onChange={e => setRoles(roles.map((r, i) => i === index ? { ...r, term: e.target.checked, assignments: [] } : r))}>岗位要求任期</Checkbox>
+                {renderAssignments(role.assignments, assignments => setRoles(roles.map((r, i) => i === index ? { ...r, assignments } : r)), role.term)}
+                <Button danger onClick={() => setRoles(roles.filter((_, i) => i !== index))}>移除此新岗位</Button>
+              </div>)}
+              <Button style={{ marginTop: 12 }} onClick={() => setRoles([...roles, { name: '', term: false, permissions: [], assignments: [] }])}>添加动态岗位</Button>
+              <Form.Item label="初始治理阈值"><InputNumber aria-label="初始治理阈值" min={2} precision={0} value={threshold} onChange={value => setThreshold(value ?? undefined)} /></Form.Item>
+            </> : <>
+              <Typography.Paragraph style={{ marginTop: 16 }}>为新增人员选择现有岗位并明确任职；保留原成员任职及来源。</Typography.Paragraph>
+              {assignments.map((change, index) => {
+                const role = snapshot.roles.find(r => r.roleCode === change.roleCode);
+                return <div key={index} style={{ marginBottom: 12 }}><Select aria-label={`任职岗位${index + 1}`} placeholder="选择岗位名称" style={{ minWidth: 220 }} value={change.roleCode || undefined}
+                  options={snapshot.roles.filter(r => r.active && !r.assignmentLocked).map(r => ({ value: r.roleCode, label: r.roleName }))}
+                  onChange={roleCode => setAssignments(assignments.map((a, i) => i === index ? { roleCode, assignments: [] } : a))} />
+                  {role && <Typography.Paragraph>岗位权限：{role.permissions.map(permissionLabel).join('、') || '无业务权限'}</Typography.Paragraph>}
+                  {renderAssignments(change.assignments, targets => setAssignments(assignments.map((a, i) => i === index ? { ...a, assignments: targets } : a)), !!role?.termRequired)}
+                  <Button danger onClick={() => setAssignments(assignments.filter((_, i) => i !== index))}>移除此岗位任职</Button></div>;
+              })}
+              <Button onClick={() => setAssignments([...assignments, { roleCode: '', assignments: [] }])}>选择任职岗位</Button>
+            </>}
+          </>}
+        </>}
+      </>}
+    </Modal>
+    <ScanAccountModal open={scanIndex !== null} onClose={() => setScanIndex(null)} onResolved={account => { setPeople(people.map((p, i) => i === scanIndex ? { ...p, account } : p)); setScanIndex(null); }} />
+    {chainSignModal}
+  </>;
+}
+
+
+/** 公权/私权详情共用管理员入口；登记权限与本机构提案权限分别来自真实候选。 */
+export function InstitutionAdministratorsPanel({ auth, cidNumber, canWrite, onSubmitted }: {
+  auth: AdminAuth; cidNumber: string; canWrite: boolean; onSubmitted: () => void;
+}) {
+  const [snapshot, setSnapshot] = useState<GovernanceState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [draft, setDraft] = useState<{ mode: InstitutionAdminMode; removing?: RemoveTarget } | null>(null);
+  useEffect(() => {
+    let cancelled = false; setSnapshot(null); setError(null); setDraft(null);
+    getGovernanceState(auth, cidNumber).then(state => { if (!cancelled) setSnapshot(state); })
+      .catch(error => { if (!cancelled) setError(error instanceof Error ? error.message : String(error)); });
+    return () => { cancelled = true; };
+  }, [auth.accessToken, auth.accountId, auth.institutionCidNumber, cidNumber, revision]);
+  const canPropose = canWrite && !!snapshot && governanceProposers(auth, snapshot).length > 0;
+  const canRegister = canWrite && !!snapshot?.registrationRoles?.length;
+  return <Card title="机构治理">
+    <Typography.Paragraph>管理员集合</Typography.Paragraph>
+    {error && <Alert type="error" message="管理员链状态读取失败" description={error} action={<Button onClick={() => setRevision(r => r + 1)}>重试</Button>} />}
+    {!snapshot && !error && <Spin tip="读取链上名册"><div style={{ minHeight: 40 }} /></Spin>}
+    <Space wrap><Button disabled={!canPropose} onClick={() => setDraft({ mode: 'governance' })}>发起本机构治理</Button>
+      <Button disabled={!canRegister} onClick={() => setDraft({ mode: 'registration' })}>注册局直接登记管理员</Button></Space>
+    <Table rowKey="accountId" pagination={false} dataSource={snapshot?.members ?? []} columns={[
+      { title: '姓名', render: (_, member) => `${member.familyName}${member.givenName}` || '资料待完善' },
+      { title: '绑定钱包账户', render: (_, member) => tryEncodeSs58(member.signerId) },
+      { title: '操作', render: (_, member) => <Space>
+        <Button danger disabled={!canPropose} onClick={() => setDraft({ mode: 'governance', removing: { id: member.accountId, institutionCidNumber: cidNumber, rosterAccountId: member.accountId, familyName: member.familyName, givenName: member.givenName } })}>提案删除</Button>
+        <Button danger disabled={!canRegister} onClick={() => setDraft({ mode: 'registration', removing: { id: member.accountId, institutionCidNumber: cidNumber, rosterAccountId: member.accountId, familyName: member.familyName, givenName: member.givenName } })}>登记删除</Button>
+      </Space> },
+    ]} />
+    <InstitutionAdminChangeModal key={`${auth.accessToken}|${auth.accountId}|${cidNumber}|${draft?.mode ?? ''}`} auth={auth} cidNumber={cidNumber} open={!!draft}
+      mode={draft?.mode} removing={draft?.removing} onClose={() => setDraft(null)} onSubmitted={() => { setRevision(r => r + 1); onSubmitted(); }} />
+  </Card>;
 }

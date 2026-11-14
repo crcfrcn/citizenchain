@@ -4,7 +4,8 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeUpgradeDetail {
-    pub proposal_id: u64,
+    #[serde(serialize_with = "nodeclient::codec::serialize_decimal")]
+    pub proposal_id: u128,
 
     pub proposer_account_id: String,
     pub reason: String,

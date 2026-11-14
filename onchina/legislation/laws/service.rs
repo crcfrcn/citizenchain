@@ -170,7 +170,7 @@ fn ensure_title_and_chapters(input: &ProposeLawInput) -> Result<(), LegislationE
 
 /// 组织一次代表机构表决 → 裸 SCALE call-data。
 pub fn build_representative_vote_call(
-    proposal_id: u64,
+    proposal_id: u128,
     voter_role_code: &str,
     approve: bool,
 ) -> ChainCall {

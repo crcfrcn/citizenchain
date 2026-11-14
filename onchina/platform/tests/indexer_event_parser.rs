@@ -72,7 +72,7 @@ fn runtime_issuance_and_personal_events_project_real_fields() {
             runtime_event(
                 "MultisigTransfer",
                 "TransferExecuted",
-                (1u64, other, other, account, 123u128, 2u128),
+                (1u128, other, other, account, 123u128, 2u128),
             ),
             "proposal_transfer",
             account,
@@ -81,7 +81,7 @@ fn runtime_issuance_and_personal_events_project_real_fields() {
             runtime_event(
                 "PersonalManage",
                 "PersonalCreated",
-                (1u64, account, other, 3u32, 2u32, 123u128, 2u128),
+                (1u128, account, other, 3u32, 2u32, 123u128, 2u128),
             ),
             "institution_multisig_create",
             account,
@@ -90,7 +90,7 @@ fn runtime_issuance_and_personal_events_project_real_fields() {
             runtime_event(
                 "PersonalManage",
                 "PersonalClosed",
-                (1u64, other, account, 3u32, 2u32, 123u128, 2u128),
+                (1u128, other, account, 3u32, 2u32, 123u128, 2u128),
             ),
             "institution_multisig_close",
             account,

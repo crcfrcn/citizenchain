@@ -466,7 +466,8 @@ where
                 role_code: expected_role.role_code.clone(),
             }
         })?;
-        let role: DecodedInstitutionRole = decode_exact(&role_raw).map_err(|_| {
+        let role: DecodedInstitutionRole = decode_exact::<entitybase::StoredInstitutionRole<Vec<u8>>>(&role_raw)
+            .map(|v| v.with_subject(expected_cid.to_vec(), expected_role.role_code.clone())).map_err(|_| {
             crate::guard::governance_skeleton::GuardError::RoleDecodeFailed {
                 code: institution.code,
                 role_code: expected_role.role_code.clone(),
@@ -516,7 +517,8 @@ where
                 role_code: expected_role.role_code.clone(),
             }
         })?;
-        let permissions: Vec<DecodedRoleBusinessPermission> = decode_exact(&permissions_raw)
+        let permissions: Vec<DecodedRoleBusinessPermission> = decode_exact::<Vec<entitybase::StoredRoleBusinessPermission<Vec<u8>>>>(&permissions_raw)
+            .map(|rows| rows.into_iter().map(|v| v.with_subject(expected_cid.to_vec(), expected_role.role_code.clone())).collect())
             .map_err(|_| {
                 crate::guard::governance_skeleton::GuardError::PermissionsDecodeFailed {
                     code: institution.code,
@@ -561,7 +563,8 @@ where
                 role_code: expected_role.role_code.clone(),
             }
         })?;
-        let assignments: Vec<DecodedInstitutionAdminAssignment> = decode_exact(&assignments_raw)
+        let assignments: Vec<DecodedInstitutionAdminAssignment> = decode_exact::<Vec<entitybase::StoredInstitutionAdminAssignment<[u8;32], Vec<u8>>>>(&assignments_raw)
+            .map(|rows| rows.into_iter().map(|v| v.with_subject(expected_cid.to_vec(), expected_role.role_code.clone())).collect())
             .map_err(|_| {
                 crate::guard::governance_skeleton::GuardError::AssignmentsDecodeFailed {
                     code: institution.code,

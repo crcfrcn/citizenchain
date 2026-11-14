@@ -113,7 +113,7 @@ fn private_institution_admins_preserve_citizen_cid() {
 fn institution_role_permission_fixture_matches_shared_rust_types() {
     use entitybase::{AuthorizationSubject, BusinessActionId, RoleBusinessPermission, RoleSubject};
     use frame_support::pallet_prelude::{ConstU32, DecodeWithMemTracking};
-    use votebase::VotePlan;
+    use engingcore::VotePlan;
 
     let role: RoleSubject<Vec<u8>, Vec<u8>> =
         decode_exact(&fixture_case("role_subject_nrc_committee"));

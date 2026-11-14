@@ -17,7 +17,7 @@
 // --min-duration=0
 // --output-analysis=max
 // --quiet
-// --pallets=onchain,address,fullnodeissue,multisig,personaladmin,personalentity,publicentity,privateentity,internalvote,jointvote,electionvote,legislationvote,votebase,square,upgrade,legislation
+// --pallets=onchain,address,fullnodeissue,multisig,personaladmin,personalentity,publicentity,privateentity,internalvote,jointvote,electionvote,legislationvote,engingcore,square,upgrade,legislation
 // --heap-pages=8192
 // --steps=50
 // --repeat=20
@@ -96,6 +96,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `105893`
 		// Minimum execution time: 71_000_000 picoseconds.
 		Weight::from_parts(69_636_363, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16622))
 			.saturating_add(Weight::from_parts(0, 105893))
 			// Standard Error: 4_966
 			.saturating_add(Weight::from_parts(2_194_199, 0).saturating_mul(n.into()))
@@ -161,6 +163,8 @@ impl WeightInfo for () {
 		//  Estimated: `105893`
 		// Minimum execution time: 71_000_000 picoseconds.
 		Weight::from_parts(69_636_363, 0)
+            // 提案 ID 扩宽的存储证明补差；保留原基准耗时及读写次数。
+            .saturating_add(Weight::from_parts(0, 16622))
 			.saturating_add(Weight::from_parts(0, 105893))
 			// Standard Error: 4_966
 			.saturating_add(Weight::from_parts(2_194_199, 0).saturating_mul(n.into()))

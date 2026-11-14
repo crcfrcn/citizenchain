@@ -301,8 +301,8 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "75397e8e2682394b69f5a0548344a92026b5d0ee5e81a1eabdab851342b2722e",
-        "Dart registry 与包含充值动作的正式导出金标不一致"
+        "72cc5662764a3ddfc97b0f7255e82d86acdc0aba457015b3479be828ede617f3",
+        "Dart registry 与包含统一机构登记状态锁的正式导出金标不一致"
     );
 }
 
@@ -435,4 +435,35 @@ fn topup_is_registered_full_offchain_authorization() {
     );
     assert!(action.pallet.is_none());
     assert!(action.call.is_none());
+}
+
+#[test]
+fn unified_registration_requires_full_action_snapshot_and_explicit_threshold_review() {
+    let actions = actions().expect("registry");
+    for key in [
+        "register_public_institution_admins",
+        "register_private_institution_admins",
+    ] {
+        let action = actions
+            .iter()
+            .find(|a| a.action_key == key)
+            .expect("registration action");
+        assert!(!action.hash_only_allowed);
+        for required in [
+            "cid_number",
+            "admins",
+            "governance_action",
+            "governance_detail",
+            "expected_state_hash",
+            "initial_threshold",
+            "actor_cid_number",
+            "actor_role_code",
+            "fee_payer_description",
+        ] {
+            assert!(
+                action.required_fields.iter().any(|field| field == required),
+                "{key} missing {required}"
+            );
+        }
+    }
 }

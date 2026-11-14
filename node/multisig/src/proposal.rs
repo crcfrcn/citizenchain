@@ -7,13 +7,13 @@ use crate::types::TransferProposalDetail;
 const TAG_TRANSFER: &[u8] = b"multisig";
 
 /// 从 `VotingEngine::ProposalData` 的业务 payload 解码普通多签转账动作。
-pub fn decode_proposal_data_action(proposal_id: u64, data: &[u8]) -> Option<ProposalAction> {
+pub fn decode_proposal_data_action(proposal_id: u128, data: &[u8]) -> Option<ProposalAction> {
     decode_transfer_action(proposal_id, data)
         .map(|detail| crate::types::ProposalAction::Transfer(Box::new(detail)))
 }
 
 /// 从 multisig-transfer 独立 storage 查询安全基金转账或手续费划转动作。
-pub fn fetch_stored_action(proposal_id: u64) -> Result<Option<ProposalAction>, String> {
+pub fn fetch_stored_action(proposal_id: u128) -> Result<Option<ProposalAction>, String> {
     if let Some(detail) = fetch_safety_fund_proposal_action(proposal_id)? {
         return Ok(Some(crate::types::ProposalAction::SafetyFund(Box::new(
             detail,
@@ -41,7 +41,7 @@ where
     }
 }
 
-fn decode_transfer_action(proposal_id: u64, data: &[u8]) -> Option<TransferProposalDetail> {
+fn decode_transfer_action(proposal_id: u128, data: &[u8]) -> Option<TransferProposalDetail> {
     // MODULE_TAG("multisig") + actor_cid_number: Option<CidNumber> + funding_account_id
     // + beneficiary + amount: u128(16) + remark: Vec<u8> + proposer: [u8;32]
     let tag = TAG_TRANSFER;
@@ -107,7 +107,7 @@ fn decode_transfer_action(proposal_id: u64, data: &[u8]) -> Option<TransferPropo
 }
 
 fn fetch_safety_fund_proposal_action(
-    proposal_id: u64,
+    proposal_id: u128,
 ) -> Result<Option<SafetyFundProposalDetail>, String> {
     let key = nodeclient::query::map_key(
         "MultisigTransfer",
@@ -158,7 +158,7 @@ fn fetch_safety_fund_proposal_action(
     }
 }
 
-fn fetch_sweep_proposal_action(proposal_id: u64) -> Result<Option<SweepProposalDetail>, String> {
+fn fetch_sweep_proposal_action(proposal_id: u128) -> Result<Option<SweepProposalDetail>, String> {
     let key = nodeclient::query::map_key(
         "MultisigTransfer",
         "SweepProposalActions",
