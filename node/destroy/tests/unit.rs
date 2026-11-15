@@ -27,7 +27,7 @@ fn destroy_decoding_rejects_every_truncation_and_wrong_owner_tag() {
 fn destroy_json_keeps_exact_account_and_string_amount() {
     let detail = decode_resolution_destroy_action(7, &payload(u128::MAX)).unwrap();
     let json = serde_json::to_value(detail).unwrap();
-    assert_eq!(json["proposalId"], 7);
+    assert_eq!(json["proposalId"], "7");
     assert_eq!(json["actorCidNumber"], "test-cid");
     assert_eq!(
         json["institutionAccountId"],

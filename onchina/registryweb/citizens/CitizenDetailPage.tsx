@@ -1,6 +1,6 @@
 import { encodeSs58 } from '@gmb/onchina-platform/codes/ss58';
 // 公民详情页承接单个公民档案展示与链上身份推送。
-// 本地建档不要求钱包;只有本页推送链上身份时才录入钱包并要求目标钱包签名。
+// 身份授权直接使用最新finalized绑定钱包；本页不再重复录入或扫描账户。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -9,7 +9,6 @@ import {
   Card,
   Descriptions,
   Form,
-  Input,
   Modal,
   Popconfirm,
   Select,
@@ -26,9 +25,7 @@ import {
   DownloadOutlined,
   EditOutlined,
   QrcodeOutlined,
-  ScanOutlined,
   UploadOutlined,
-  WalletOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 
@@ -37,7 +34,6 @@ import { glassCardHeadStyle, glassCardStyle } from '@gmb/onchina-platform/contro
 import { CitizenSignatureModal } from '@gmb/onchina-platform/qr/CitizenSignatureModal';
 import { EditCitizenModal } from './EditCitizenModal';
 import { OperationRoleSelect, useCitizenOperationRoles } from './OperationRoleSelect';
-import { ScanAccountModal } from '@gmb/onchina-platform/qr/ScanAccountModal';
 import { submitChainSign, useChainSign } from '@gmb/onchina-platform/qr/useChainSign';
 import { notice } from '@gmb/onchina-platform/controls/notice';
 import {
@@ -71,7 +67,6 @@ type Props = {
 };
 
 type OnchainForm = {
-  accountId: string;
   identityLevel: CitizenOnchainIdentityLevel;
 };
 
@@ -154,7 +149,6 @@ export function CitizenDetailPage({
   const currentRef = useRef(current);
   currentRef.current = current;
   const [editOpen, setEditOpen] = useState(false);
-  const [scanOpen, setScanOpen] = useState(false);
   const [prepareLoading, setPrepareLoading] = useState(false);
   const [completeLoading, setCompleteLoading] = useState(false);
   const [prepared, setPrepared] = useState<PrepareCitizenOnchainResult | null>(null);
@@ -169,6 +163,7 @@ export function CitizenDetailPage({
     '请新钱包本人用公民钱包 / 公民App 扫码换绑',
   );
   const [rebinding, setRebinding] = useState(false);
+  const [rebindOpen, setRebindOpen] = useState(false);
 
   const ageYears = useMemo(() => calculateAgeYears(current.citizenBirthDate), [current.citizenBirthDate]);
   const canPushOnchain =
@@ -213,9 +208,8 @@ export function CitizenDetailPage({
       currentRef.current = next;
       setCurrent(next);
       onUpdated(next);
-      form.setFieldValue('accountId', accountId ?? '');
     },
-    [form, onUpdated],
+    [onUpdated],
   );
 
   const loadFinalizedBinding = useCallback(async () => {
@@ -231,15 +225,20 @@ export function CitizenDetailPage({
   }, [loadFinalizedBinding]);
 
   const prepareOnchainSignature = async () => {
+    if (!pushRoles.ready || prepareLoading) return;
     const values = await form.validateFields();
-    if (!pushRoles.ready) return;
     setPrepareLoading(true);
     setPrepared(null);
     try {
+      // 准备授权前刷新链上真源，不使用档案缓存中的旧绑定或可编辑表单值。
+      const binding = await loadFinalizedBinding();
+      if (!binding.bindingActive || !binding.accountId) {
+        throw new Error('公民当前没有有效绑定钱包，不能生成身份授权');
+      }
       const output = await prepareCitizenOnchainSignature(
         auth,
         current.cidNumber,
-        values.accountId.trim(),
+        binding.accountId,
         pushRoles.roleCode,
         values.identityLevel,
       );
@@ -401,14 +400,21 @@ export function CitizenDetailPage({
               {titleText}
             </span>
             {canWrite && (
-              <Button
-                type="link"
-                icon={<EditOutlined />}
-                style={{ position: 'absolute', right: 0, paddingRight: 0 }}
-                onClick={() => setEditOpen(true)}
-              >
-                编辑资料
-              </Button>
+              <Space style={{ position: 'absolute', right: 0 }}>
+                <Button
+                  type="link"
+                  danger
+                  icon={<CloudUploadOutlined />}
+                  loading={chainSubmitting}
+                  disabled={!revokeRoles.ready || chainSubmitting || prepareLoading || completeLoading || rebinding}
+                  onClick={revokeOnchain}
+                >
+                  吊销身份
+                </Button>
+                <Button type="link" icon={<EditOutlined />} style={{ paddingRight: 0 }} onClick={() => setEditOpen(true)}>
+                  编辑资料
+                </Button>
+              </Space>
             )}
           </div>
         }
@@ -421,7 +427,7 @@ export function CitizenDetailPage({
         </Typography.Title>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 24, alignItems: 'start' }}>
-          <Descriptions column={1} size="small" bordered style={{ minWidth: 0 }} contentStyle={{ overflowWrap: 'anywhere' }}>
+          <Descriptions column={1} size="small" bordered style={{ minWidth: 0 }} styles={{ label: { width: 120, minWidth: 120, maxWidth: 120, boxSizing: 'border-box' }, content: { overflowWrap: 'anywhere' } }}>
             <Descriptions.Item label="护照号">{current.passportNo || '-'}</Descriptions.Item>
             <Descriptions.Item label="公民CID号">{current.cidNumber || '-'}</Descriptions.Item>
             <Descriptions.Item label="姓名">{makeCitizenName(current)}</Descriptions.Item>
@@ -438,8 +444,15 @@ export function CitizenDetailPage({
               {formatDateRange(current.passportValidFrom, current.passportValidUntil)}
             </Descriptions.Item>
           </Descriptions>
-          <Descriptions column={1} size="small" bordered style={{ minWidth: 0 }} contentStyle={{ overflowWrap: 'anywhere' }}>
-            <Descriptions.Item label="绑定钱包账户">{current.accountId ? encodeSs58(current.accountId) : '-'}</Descriptions.Item>
+          <Descriptions column={1} size="small" bordered style={{ minWidth: 0 }} styles={{ label: { width: 120, minWidth: 120, maxWidth: 120, boxSizing: 'border-box' }, content: { overflowWrap: 'anywhere' } }}>
+            <Descriptions.Item label="绑定钱包账户">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
+                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{current.accountId ? encodeSs58(current.accountId) : '-'}</span>
+                {canWrite && <Button type="link" style={{ flexShrink: 0, paddingRight: 0 }} loading={rebinding}
+                  disabled={!rebindRoles.ready || prepareLoading || completeLoading || chainSubmitting}
+                  onClick={() => setRebindOpen(true)}>更换</Button>}
+              </div>
+            </Descriptions.Item>
             <Descriptions.Item label="绑定版本">{current.bindingRevision || '-'}</Descriptions.Item>
             <Descriptions.Item label="绑定区块号">
               {current.bindingBlockNumber ?? '-'}
@@ -469,7 +482,6 @@ export function CitizenDetailPage({
             form={form}
             layout="inline"
             initialValues={{
-              accountId: current.accountId ?? '',
               identityLevel: 'voting',
             }}
             style={{ rowGap: 12 }}
@@ -490,27 +502,6 @@ export function CitizenDetailPage({
             <Form.Item style={{ marginBottom: 0 }}>
               <OperationRoleSelect control={pushRoles} disabled={prepareLoading || completeLoading || !!prepared} />
             </Form.Item>
-            <Form.Item
-              name="accountId"
-              rules={[{ required: canPushOnchain, message: '请输入账户 ID' }]}
-              style={{ minWidth: 460, marginBottom: 0 }}
-            >
-              <Input
-                prefix={<WalletOutlined />}
-                placeholder="推送链上身份时录入公民账户 ID"
-                disabled={!canPushOnchain || prepareLoading || completeLoading || !!prepared}
-                allowClear
-              />
-            </Form.Item>
-            <Form.Item style={{ marginBottom: 0 }}>
-              <Button
-                icon={<ScanOutlined />}
-                disabled={!canPushOnchain || prepareLoading || completeLoading || !!prepared}
-                onClick={() => setScanOpen(true)}
-              >
-                扫描钱包
-              </Button>
-            </Form.Item>
             <Form.Item style={{ marginBottom: 0 }}>
               <Button
                 type="primary"
@@ -525,17 +516,6 @@ export function CitizenDetailPage({
             <Form.Item style={{ marginBottom: 0 }}>
               <OperationRoleSelect control={revokeRoles} label="吊销办理岗位" disabled={chainSubmitting} />
             </Form.Item>
-            <Form.Item style={{ marginBottom: 0 }}>
-              <Button
-                danger
-                icon={<CloudUploadOutlined />}
-                loading={chainSubmitting}
-                disabled={!revokeRoles.ready || chainSubmitting || prepareLoading || completeLoading}
-                onClick={revokeOnchain}
-              >
-                吊销身份(墓碑)
-              </Button>
-            </Form.Item>
           </Form>
         </div>
 
@@ -545,22 +525,7 @@ export function CitizenDetailPage({
           </Typography.Title>
           <Space wrap>
             <OperationRoleSelect control={rebindRoles} disabled={rebinding} />
-            <Popconfirm
-              title={`确认换绑 ${current.cidNumber} 的钱包账户?`}
-              okText="换绑"
-              cancelText="取消"
-              disabled={!rebindRoles.ready || rebinding}
-              onConfirm={rebindWallet}
-            >
-              <Button
-                type="primary"
-                icon={<WalletOutlined />}
-                loading={rebinding}
-                disabled={!rebindRoles.ready}
-              >
-                换绑钱包
-              </Button>
-            </Popconfirm>
+
           </Space>
         </div>
       </Card>
@@ -667,15 +632,20 @@ export function CitizenDetailPage({
         }}
       />
 
-      <ScanAccountModal
-        open={scanOpen}
-        onClose={() => setScanOpen(false)}
-        onResolved={(accountId) => {
-          form.setFieldsValue({ accountId: accountId });
-          setScanOpen(false);
-        }}
-      />
-
+      <Modal
+        title="确认更换绑定钱包账户"
+        open={rebindOpen}
+        onCancel={() => setRebindOpen(false)}
+        okText="确认更换"
+        cancelText="取消"
+        okButtonProps={{ disabled: !rebindRoles.ready || rebinding }}
+        onOk={() => { setRebindOpen(false); void rebindWallet(); }}
+      >
+        <Typography.Paragraph>确认更换该公民CID的绑定钱包账户？</Typography.Paragraph>
+        <Typography.Paragraph>公民CID：{current.cidNumber}</Typography.Paragraph>
+        <Typography.Paragraph style={{ overflowWrap: 'anywhere' }}>当前绑定钱包：{current.accountId ? encodeSs58(current.accountId) : '-'}</Typography.Paragraph>
+        <Typography.Paragraph>确认后由新钱包签名，并由当前管理员验证密钥、冷签提交。</Typography.Paragraph>
+      </Modal>
 
       <CitizenSignatureModal
         title={prepared?.actionLabelZh ?? '公民签名确认'}

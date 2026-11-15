@@ -35,7 +35,7 @@ fn decode_rejects_every_truncation_wrong_tag_and_trailing_bytes() {
 fn issuance_json_preserves_maximum_amount_and_owner_fields() {
     let detail = decode_resolution_issuance_action(7, &payload("公开原因", u128::MAX)).unwrap();
     let json = serde_json::to_value(detail).unwrap();
-    assert_eq!(json["proposalId"], 7);
+    assert_eq!(json["proposalId"], "7");
     assert_eq!(json["actorCidNumber"], "44");
     assert_eq!(json["proposerRoleCode"], "NRC-MEMBER");
     assert_eq!(json["totalAmountFen"], u128::MAX.to_string());

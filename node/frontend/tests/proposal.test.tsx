@@ -5,15 +5,15 @@ import {proposalApi} from '../proposal/api';
 import { ProposalDetailPage } from '../proposal/ProposalDetailPage';
 const mocks=vi.hoisted(()=>({invoke:vi.fn()}));
 vi.mock('../client/tauri',()=>({invoke:mocks.invoke,sanitizeError:String}));
-const api=proposalApi as unknown as Record<string,(...args:unknown[])=>Promise<unknown>>;
+const api=proposalApi;
 beforeEach(() => {
   mocks.invoke.mockReset();
 });
-it("getInstitutionProposalPage保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["getInstitutionProposalPage"](...["44",7,20])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("get_institution_proposal_page", {"cidNumber":"44","startId":7,"count":20}); });
-it("buildJointVoteRequest保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["buildJointVoteRequest"](...[7,"public","44","role",true])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("build_joint_vote_request", {"proposalId":7,"signerPublicKey":"public","cidNumber":"44","voterRoleCode":"role","approve":true}); });
-it("checkVoteStatus保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["checkVoteStatus"](...[7,"public"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("check_vote_status", {"proposalId":7,"signerPublicKey":"public","cidNumber":null,"voterRoleCode":null}); });
-it("submitVote保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["submitVote"](...["request","public","digest","0x0102",3,9,"response"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("submit_vote", {"requestId":"request","expectedPublicKey":"public","expectedPayloadHash":"digest","callDataHex":"0x0102","signNonce":3,"signBlockNumber":9,"responseJson":"response"}); });
-it('IPC失败保留拒绝状态且不自动重放', async()=>{const failure=new Error('合成失败');mocks.invoke.mockRejectedValueOnce(failure);await expect(api["getInstitutionProposalPage"](...["44",7,20])).rejects.toBe(failure);expect(mocks.invoke).toHaveBeenCalledOnce();});
+it("getInstitutionProposalPage保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api.getInstitutionProposalPage("44","7",20)).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("get_institution_proposal_page", {"cidNumber":"44","startId":"7","count":20}); });
+it("buildJointVoteRequest保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api.buildJointVoteRequest("7","public","44","role",true)).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("build_joint_vote_request", {"proposalId":"7","signerPublicKey":"public","cidNumber":"44","voterRoleCode":"role","approve":true}); });
+it("checkVoteStatus保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api.checkVoteStatus("7","public")).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("check_vote_status", {"proposalId":"7","signerPublicKey":"public","cidNumber":null,"voterRoleCode":null}); });
+it("submitVote保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api.submitVote("request","public","digest","0x0102",3,9,"response")).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("submit_vote", {"requestId":"request","expectedPublicKey":"public","expectedPayloadHash":"digest","callDataHex":"0x0102","signNonce":3,"signBlockNumber":9,"responseJson":"response"}); });
+it('IPC失败保留拒绝状态且不自动重放', async()=>{const failure=new Error('合成失败');mocks.invoke.mockRejectedValueOnce(failure);await expect(api.getInstitutionProposalPage("44","7",20)).rejects.toBe(failure);expect(mocks.invoke).toHaveBeenCalledOnce();});
 
 it.each([0, 1])('提案类型 %i 只允许链上确认未投票的管理员岗位发起投票', async (kind) => {
   const cidNumber = 'TEST-CID';

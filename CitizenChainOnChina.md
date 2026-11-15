@@ -8,7 +8,7 @@ CitizenChainOnChina 涉及聊天时只作为依赖使用方；本条不代表尚
 
 本文是 CitizenChain OnChina 唯一技术事实文档，统一收录机构工作台、链上交互、前后端边界与部署约束。
 
-OnChina的reqwest跟随产品原始锁统一固定的版本，启用json与rustls，和节点共用由Cargo生成的原始工作区锁。依赖收敛不修改链上Runtime、机构授权、数据库或HTTP业务逻辑，也不能替代实际TLS初始化、请求处理及应用运行验收。
+OnChina的reqwest跟随产品原始锁统一固定的版本，启用json与rustls，和节点共用由Cargo生成的原始工作区锁。
 
 #### 1. 功能定位
 
@@ -25,9 +25,9 @@ citizenchain/onchina/
 ├── legislation/    # 立法院Cargo后端
 ├── legislationweb/ # 立法院npm前端，按功能组织子目录
 ├── private/        # 私权机构Cargo后端
-│   └── frontend/   # 独立npm包，少量源码与测试直接放包根
+│   └── frontend/   # 独立npm包，少量源码直接放包根
 └── judicial/       # 司法Cargo后端
-    └── frontend/   # 独立npm包，少量源码与测试直接放包根
+    └── frontend/   # 独立npm包，少量源码直接放包根
 ```
 
 #### 2. 数据边界
@@ -71,16 +71,6 @@ AddressRegistry(33).remove_address(4)
 action = (33 << 8) | call_index
 ```
 
-#### 6. 验收
-
-```text
-cargo check --manifest-path citizenchain/Cargo.toml -p onchina -p onchina-registry -p onchina-legislation -p onchina-private -p onchina-judicial
-npm --prefix citizenchain/onchina/platformweb run build
-sqlite3 citizenchain/onchina/platform/codes/china.sqlite "PRAGMA integrity_check"
-```
-
----
-
 #### 1. 功能需求
 
 OnChina 后端负责多机构工作台、管理员身份、行政区、机构、公民、管理员、扫码签名、公开查询和链侧凭证。它运行在 `citizenchain/onchina/`，属于公民链产品内部能力。
@@ -101,9 +91,8 @@ citizenchain/onchina/
 - platform、registry、legislation、private、judicial各为真实Cargo包，属于公民链根workspace。平台包提供公共lib与宿主bin，其余包只编入自身业务并依赖平台公开库；平台不依赖业务包，业务包之间不静态引用实现。
 - Cargo包根只保留Cargo.toml，真实入口由Cargo声明，归各包既有modules/workspace功能目录。复杂源码归第3级功能目录，少量小前端原位平铺，不为套模板造子目录。
 - 注册局办理归registry；法律与表决准备归legislation；私权机构自身业务归private；现有司法工作台归judicial。相近功能在所属包内组织，新增可独立交付的功能按同一公开装载接口增加包。
-- 五个前端分别拥有真实npm声明、原锁、配置和测试；有功能子目录的前端与后端平级，只有少量文件的前端包置于对应后端根frontend。完整工程配对见本文“工程配对和目录边界”，不设总前端声明或统一前端测试根。
+- 五个前端分别拥有独立npm声明、原锁及配置；有功能子目录的前端与后端平级，只有少量文件的前端包置于对应后端根frontend。完整工程配对见本文“工程配对和目录边界”，不设总前端声明。
 - 公共链读取、二维码、认证、授权、数据库基础和通用交易仍在platform中各有唯一实现。业务通过真实公开接口调用；公民SQL与投影保留在registry，注册局本地扩展trait复用平台Db连接和事务，不向平台反向引入公民业务。
-- 本次保留原进程、装载、重启、HTTP、QR/SCALE、数据库、UI和交互行为，不通过拆包开放预留业务。
 
 #### 4. Store 和表边界
 
@@ -112,18 +101,18 @@ citizenchain/onchina/
 - 机构主写入只进入 `onchina/platform/institutions/mod.rs`、`onchina/registry/institutions/mod.rs`、`onchina/registry/institutions/mod.rs`、`onchina/platform/institutions/mod.rs` 和 `onchina/platform/documents/mod.rs`。
 - 公民主写入只进入 `onchina/registry/citizens/mod.rs`、`subject`、`citizen`、`document`、`passport` 和 `sequence`。
 - 管理员写入只进入 `admins`（本地展示元数据）和短生命周期安全运行态表；管理员字段固定为 `account_id + cid_number + family_name + given_name`，成员资格与岗位范围只来自链上，禁止建立本地管理员授权范围表。
-- 旧机构直接创建 API 当前固定返回 501，不写 `signing`、机构业务草稿、占用表或本地机构投影。第 6 步的新业务模块必须原子提交 CID 基础资料、admins、LR、初始治理岗位/权限/任职/投票规则和协议账户后，才能重新开放创建。
+- 旧机构直接创建 API 当前固定返回 501，不写 `signing`、机构业务草稿、占用表或本地机构投影。新机构创建业务模块必须原子提交 CID 基础资料、admins、LR、初始治理岗位/权限/任职/投票规则和协议账户后，才能重新开放创建。
 - 创建机构和创建公民只有两种业务结果：链上确认成功后写正式投影；未链上确认就是失败，并删除对应短期签名会话，不保留名称、CID、管理员或公民档案占用。
 - 公权机构唯一真源是链上 `PublicManage`;`subject/government/account` 中的公权行只是本地查询投影,投影版本只记录在 `projection`。
 - `subject.chain_status` 只作机构查询投影，不得成为授权真源。账户 `chain_status` 由真实链账户 DTO 提供，本地 `account` 不承担账户状态真源。
 - 交易索引只读取 finalized 区块；余额事件必须匹配当前 Runtime 的真实事件/字段名，已登记事件解码、金额或索引越界、事件数量不完整时整块失败，不允许跳过后推进。`transaction(block_number,event_index)` 唯一；记录及唯一 `projection(wallet-transactions)` 的 genesis/hash/number 锚点同事务提交。旧索引没有可信锚点或已有重复记录时明确停止，钱包查询也拒绝返回无可信锚点的历史；历史补录/修复必须另行授权，不能自动删除或重置持久数据。
 - 公民本地编辑在既有一次 Passkey 后，按绑定、CID、计数器锁序重新读取档案并复核范围与不可变字段；护照分配、主行及相关索引在同一事务提交，响应返回实际数据库行。过期绑定修订与零行更新均失败。管理员 ID 复用 `sequence` 原子分配，接续已有 ID 并显式拒绝容量溢出。
 - 冷签会话创建时保存原绑定 ID、准确机构 CID 和机构码；prepare 升级不得覆盖这三个原始锚点。HTTP 与后台恢复共用带续租的数据库互斥，所有恢复上下文更新检查租约；后台按最近检查时间轮转，单条损坏会话不阻塞其余记录。后台只扫描已留提交/最终确认锚点的会话，只核实 canonical finalized + ExtrinsicSuccess 并补写，不签名、不重提、不要求原管理员继续任职。业务投影与消费标记同事务，原机构不匹配或历史锚点不完整则保留等待处理；重复占号恢复保留已补正本。
-- 当前 schema 声明包含名册准确 CID、机构链状态、会话租约及交易唯一索引。此任务只修改声明及读写源码；禁止据此自动改造正在使用的持久数据库。存量无归属 CID/无可信索引锚点/无会话原绑定的记录不得猜测补齐，须在后续获准的数据库方案中逐项处理。测试、编译、安装及持久数据修复均须独立执行授权，源代码变更不代表已部署。
+- schema包含名册准确CID、机构链状态、会话租约及交易唯一索引。存量记录缺少归属CID、可信索引锚点或原会话绑定时不得自动猜测补齐，也不自动重置正在使用的持久数据。
 - 立法读取保留已验证会话的原省、市范围，并按法律 houses 中现有机构 CID 的原省码与省内市号匹配。省代码是永久固定的两位大写字母，省内市号保持原编号；CID及现有省市解析规则保持。
 - 立法发起机构直接采用登录绑定的完整 CID，并用于同一签名会话归属；本机构同时为表决院时复用该 CID，其他路由机构仍经原唯一查询解析，校验 CID 格式与机构码。
 - 法律地域唯一使用 primitives::genesis::LawRegion：原两位大写字母省码与原省内市号。新法请求不接收数字地域占位，后端从登录绑定的原机构 CID 派生并核对会话；修法、废法继续核对目标法律 ID、层级、地域及原机构 CID。预算、任免预留 DTO 同样不接收地域占位，但不增加业务实现。
-- 逐席投票按提案、院次、机构 CID、岗位码和账户关联，同钱包不同岗位独立计票；前端只调整内部 key 与 DTO，不改页面布局、控件或扫码步骤；账户分类完整包含联邦公民安全基金账户，市编号说明固定为省内唯一的三位数字。
+- 逐席投票按提案、院次、机构 CID、岗位码和账户关联，同钱包不同岗位独立计票；账户分类完整包含联邦公民安全基金账户，市编号说明固定为省内唯一的三位数字。
 
 - CORS 的指定 origin 与显式通配策略共享 PATCH 和现行认证请求头；生产 origin 限制不变，不因预检修复扩大可信来源。
 
@@ -142,14 +131,10 @@ citizenchain/onchina/
 - OnChina 不得在启动时从 `china.sqlite` 重新生成公权机构；`china.sqlite` 只提供行政区名称和镇级索引校验/展示。
 - 投影状态写入 `projection(projection_key='public-government')`;旧 `gov_manifest`、`ensure-government`、`reconcile-government`、`check-government` 均不得恢复。
 - 普通列表、联邦注册局详情和本机构显示页只能读取 `gov.source='CHAIN'` 的公权投影；本地手工/pending 行不能冒充链上公权机构真源。
-- `audit-chain-catalog` 只做创世链目录验收,不得用本地派生结果灌库。
+- `audit-chain-catalog` 只做创世链目录审计,不得用本地派生结果灌库。
 - CitizenApp 公权机构接口只读取链上投影并下发 `chain_genesis_hash / chain_block_hash / chain_block_number / synced_at` 作为同步锚点;`manifest_version` 由 genesis hash + finalized block hash/number + 投影数量组成,不得使用本地 `synced_at` 单独推进版本,也不得把 OnChina PostgreSQL 当成公权机构真源。
 - `PublicManage::InstitutionInfo` 按当前 runtime 精确字段序解码；机构存在即表示 active，
   不得在 OnChina 追加已删除的 lifecycle/status 尾字段，也不得用兼容分支吞掉尾随字节。
-- 2026-07-16 创世准备验收使用 preview 块 0 的真实 node 和全新临时 PostgreSQL：启动投影
-  49,593 个机构、99,231 个账户，33 项创世目录抽样对账通过，`/api/health` 返回
-  `UP`，公权目录版本锚定同一 genesis/block#0，前端首页真实返回“链上中国平台”。该
-  preview 不替代正式冻结锚点，验收结束后节点、OnChina、PostgreSQL 与临时目录均已清理。
 
 #### 5. 公民录入和护照号
 
@@ -188,7 +173,7 @@ citizenchain/onchina/
 
 业务模块不得新增全局链目录，不得在 handler 内手写 pallet/call 字节或二维码动作码。动作码、payload、签名/验签规则以 `CitizenChainOnChina.md` 为唯一登记入口。
 
-PublicManage/PrivateManage call 5 及 `0x1e05/0x1f05` 已永久留洞，后端不得继续编码旧 `cid_number + cid_full_name + cid_short_name + town_code + admins + actor_cid_number` 载荷。新创建协议由第 6 步独立业务模块另行登记；必须携带注册局完整 `RoleSubject`，并原子绑定目标机构的岗位、权限、任职和投票规则，不能只凭注册局 admins 或在创建后补权限。
+PublicManage/PrivateManage call 5 及 `0x1e05/0x1f05` 已永久留洞，后端不得继续编码旧 `cid_number + cid_full_name + cid_short_name + town_code + admins + actor_cid_number` 载荷。新创建协议由独立业务模块定义；必须携带注册局完整 `RoleSubject`，并原子绑定目标机构的岗位、权限、任职和投票规则，不能只凭注册局 admins 或在创建后补权限。
 
 #### 7. 局域网公信 HTTPS
 
@@ -226,7 +211,7 @@ macOS安装后的首次命令为：
 
 联邦注册局机构 `admins` 和岗位任职不得本地直接改库；换届只能构造链上治理或注册局登记动作后由 entity 写入。市注册局管理员新增、删除及统计现在只以准确机构CID的链上名册为真源，旧本地增删动作已关闭，本地目录不授予管理员资格。NJD、普通公权机构、私权机构和非法人组织的本机构管理员/岗位维护也必须走链上 `propose_institution_governance`，不得在 OnChina 内建立第二套管理员集合。
 
-`INSTITUTION_CREATE` 旧扫码授权链路当前不允许进入 prepare/submit；创建 handler 在鉴权后固定返回 501，不能生成安全 grant、链签会话或旧 call data。第 6 步启用新业务时必须重新登记完整原子载荷和权限主体，不能沿用本段已删除字段集。
+`INSTITUTION_CREATE` 旧扫码授权链路当前不允许进入 prepare/submit；创建 handler 在鉴权后固定返回 501，不能生成安全 grant、链签会话或旧 call data。启用机构创建业务时必须重新登记完整原子载荷和权限主体，不能沿用本段已删除字段集。
 
 三级权限统一为：登录态读取、登录态+一次Passkey的本地业务写、登录态+一次Passkey+一次管理员冷签的链上操作。机构资料保存、资料上传/删除、照片上传、公民本地档案/材料修改、市注册局本地登记目录增删和节点本地解绑均为Passkey档，不创建或消费冷签grant。本地登记目录不授予链上管理员资格。真实机构管理员/岗位治理、机构账户操作、立法和公民上链继续走链上操作档。
 
@@ -234,7 +219,7 @@ macOS安装后的首次命令为：
 
 首次未设置Passkey的会话只能访问登录元数据、状态、登出和密钥初始化通路，所有业务读取/写入由后端拒绝。首次WebAuthn注册完成时，凭证入库和同绑定会话setupRequired=false在同一事务内提交；并发初始化不能绕过已有凭证断言。已有密钥新增/变更是本地写，finish必须消费一次已有Passkey断言。初始化成功但状态刷新失败时，前端提供刷新状态，不重复创建凭证。
 
-链上写的 passkey 那一半由**类型闸门**强制，不靠 handler 自觉（2026-07-30 创世前审计整改）：
+链上写的 passkey 那一半由**类型闸门**强制，不靠 handler 自觉：
 `auth/passkey::require_passkey_assertion` 成功时返回 `PasskeyProof`，该类型字段私有、
 无公开构造函数，全仓唯一产出点就是这个函数；冷签会话唯一创建入口
 `Db::insert_chain_sign_session(&session, &PasskeyProof)` 把它列为必填参数。
@@ -254,7 +239,7 @@ Passkey统一在创建冷签会话时消费，prepare仅构造待签载荷，sub
 
 机构管理员列表 API 联合读取链上 `admins(account_id + cid_number + family_name + given_name)` 人员集合与 entity 岗位、`InstitutionRolePermissions` 和有效任职。一次读取必须固定到同一个 finalized 区块：名册 `account_id` 继续作为岗位任职关联锚点，带 CID 管理员对外返回和鉴权使用该 CID 的当前绑定 `account_id`；换绑后岗位不重写，但新账户立即取得签名权、旧账户立即失权。`onchina/platform/institutions/admins_chain_roles.rs` 负责公权/私权岗位路由、任职合并和 FRG 省专员范围解析；管理员即使没有岗位也必须保留人员行，姓名只展示。本地联系方式、照片和 Passkey 不得成为管理员资格或岗位真源；业务授权必须由完整 `RoleSubject + BusinessActionId + operation` 查询，不按账户或前端标签推断。
 
-链上机构唯一查询先读取 `PublicManage::Institutions[cid_number]`，未命中再读取 `PrivateManage::Institutions[cid_number]`，不建立本地分流真源；公私权 CID 不重复由 runtime 与 NodeGuard 的链上不变式保证。2026-07-24 当前 fresh 链全量投影精确为 49,593 个机构和 99,232 个账户：49,593 个机构主账户、49,593 个机构费用账户、43 个省储行质押账户，以及两和基金、安全基金、联邦公民安全基金三个独立基金账户。非营利法人“公民链技术发展基金会” `GZ018-SFGYR-201206100-2026` 属私权创世机构，只参加独立私权存在性审计，不冒充公权目录行。启动抽样当前覆盖 32 个派生公权机构、1 个公权常量机构和该基金会，共 34 项。
+链上机构唯一查询先读取 `PublicManage::Institutions[cid_number]`，未命中再读取 `PrivateManage::Institutions[cid_number]`，不建立本地分流真源；公私权 CID 不重复由 runtime 与 NodeGuard 的链上不变式保证。创世公权目录包含 49,593 个机构和 99,232 个账户：49,593 个机构主账户、49,593 个机构费用账户、43 个省储行质押账户，以及两和基金、安全基金、联邦公民安全基金三个独立基金账户。非营利法人“公民链技术发展基金会” `GZ018-SFGYR-201206100-2026` 属私权创世机构，只参加独立私权存在性审计，不冒充公权目录行。启动抽样当前覆盖 32 个派生公权机构、1 个公权常量机构和该基金会，共 34 项。
 
 链上机构管理员无论来自 `PublicAdmins` 还是 `PrivateAdmins`，都统一解码为 `account_id + cid_number + family_name + given_name`。OnChina 严格镜像 runtime 分层解析：非空管理员 CID 通过 `CitizenIdentity::AccountIdByCid / CidByAccountId` 正反向闭环取得当前账户；私权法定代表人名册 CID 为空时，使用同一机构 `PrivateManage::Institutions.legal_representative.cid_number`；冻结公权无 CID 管理员和私权非 LR 无 CID 管理员直接使用名册 `account_id`。CID 已撤销、绑定缺失或正反向不闭合时失败关闭，不回退名册旧账户。个人多签只按账户治理且不进入 OnChina。本地公民库只能用于输入补全和展示，不能变成链上授权真源。
 
@@ -266,76 +251,36 @@ Passkey统一在创建冷签会话时消费，prepare仅构造待签载荷，sub
 - 创建动态岗位时前端不得提交岗位码；runtime 使用所属 pallet 的 `MODULE_TAG`、CID、单调 nonce 和真实 proposal_id 生成 `R_<32 位大写十六进制>`，删除后永久不复用。
 - 法定代表人治理使用 runtime `InstitutionLegalRepresentativeChange::Set/Clear`，任命/更换时三字段同时写入，解除时三字段同时清空。
 
-
-2026-11-14 第3步：统一登记接口、原始状态指纹及钱包冷签已适配（源码，尚未部署）。仅修改批准的14个已有文件，未创建源文件或目录。
-
 - 现有 `GET /api/institutions/:cid/governance` 增加 `registrationStateHash`、`governanceThreshold` 和 `registrationRoles`；办理岗位候选包含系统岗位码与中文名称，来自当前签名管理员的真实有效名册、任职、业务Propose权限及既有登记辖区。唯一候选自动确定，多候选须从返回列表选择；不接受任意岗位码作为授权。
 - 指纹读取固定同一finalized区块，使用机构原始记录、Option名册的原始账户锚点、按码排序的岗位，以及按原存储顺序的权限/任职、nonce、阈值；共享entitybase纯哈希函数。当前绑定钱包和展示中文不参与指纹，来源引用按二进制保存，不以UTF-8替换字符重建。治理展示复用该次原始读取。
 - prepare必填页面已审阅的 `expectedStateHash`，新增 `roleMutations`、`assignmentChanges` 和首次显式 `initialThreshold`，`actorRoleCode`可省略以自动选择唯一有效岗位。prepare从新finalized状态比对指纹，冲突返回409，禁止以新哈希静默签署旧名册。初次登记必须有动态建岗及阈值，初始化后不得用登记重置岗位/权限/阈值。
 - 存量管理员缺省资料取链上原记录，保留原账户锚点及公私权管理员已有CID，不使用本地资料补全或清空原字段；显式资料仍按原上限校验。新增人员继续复用原输入校验。任职输入不提供来源、来源引用或状态字段。原任职账户及任期完全相同时保留原始来源及二进制引用；新增/改任职使用Registry和空引用，由Runtime写入真实登记引用。法定代表人及受保护岗位边界仍由Runtime裁决，不创建固定岗位或模拟proposal_id。
 - 冷签会话沿用原prepare/submit、一次Passkey及钱包签名；业务上下文统一使用 `actorCidNumber`，使凭证消费绑定办理注册局，而不是错误回落目标机构。call_data、签名哈希、状态指纹及显式阈值在准备后冻结；状态冲突必须重新准备、审阅并签名，不换载荷复用旧签名。已finalized后的本地恢复仍复用原会话恢复机制。
 - 钱包从实际签名字节独立显示完整名册、动态岗位名、权限动作、任职账户/任期/来源、状态指纹和显式阈值；后续登记明确显示沿用阈值。拒绝旧名册格式、非法来源、夹带LR任免、非名册变体、创建/阈值错配、截断和尾随字节；预期动作与实际公私权call不符也拒绝。二维码registry保持原动作码和非hash-only约束，只更新已有Dart生成文件。
-- 本步仅完成跨端协议与prepare，不把现有市注册局新增弹窗视为已接通：弹窗仍须在第4步改接统一登记冷签，目标直接用当前页面 `cityRegistryCid`。首次初始化必须明确完整初始名册、动态岗位权限及任职、机构阈值；不能把空LR或只写本地目录当完成。
-
-- 第3步验收：`cargo check -p onchina -p onchina-registry --locked --offline`通过；平台162项、注册局52项通过，29项既有PostgreSQL门禁/投影用例按原条件忽略。运行命令为 `cargo test -p onchina -p onchina-registry --locked --offline -- --skip archive_paths_preserve_spaces_quotes_and_owned_configuration_is_idempotent`。该既有归档夹具首次因缺少CITIZENCHAIN_WORK_DIR失败，确认其要求创建目录及配置文件后按本轮禁止新增文件目录的约束排除，未修改或削弱其断言。
-- 协议回归以 `cargo test --manifest-path crates/protocol/Cargo.toml --locked --offline -- --skip working_tree_scan_`执行，38项通过；另3项隔离Git目录夹具同样因未交付工作目录且需新建目录而排除。注册表生成结果与现有Dart文件逐字节一致。真实Runtime的FRG登记CREG、有效任职办理公民业务、跨省拒绝及费用账户用例再次通过。Rust/Dart格式及两仓git diff --check通过。
-- 钱包payload_decoder_test.dart共121项通过：钱包目录没有.dart_tool依赖配置，为不创建配置、脚本或缓存目录，以DartVM的data URI在内存中复用现有依赖配置并加入citizenwallet映射；只将flutter_test导入替换为原Dart Test API及matcher宿主，原测试体和断言不变。核对crypto3.0.7、polkadart_keyring0.7.1、matcher0.12.20、test_api0.7.12与钱包锁文件一致。此结果是解码器纯Dart回归，不冒称Flutter完整宿主、真实扫码签名或线上链交易验收。
-
-
-2026-11-14 第4步：当前市注册局详情管理员列表接入统一链上登记（源码，尚未部署）。本步写入严格限于批准的12个已有文件。
 
 - 现有新增弹窗删除城市输入，目标只取当前详情页 `cityRegistryCid`；解析当前机构时按CREG过滤且要求唯一。切换会话、管理员、省市或目标后，旧请求、草稿及签名流程不得写入新页面状态。当前目标未就绪、读取失败均有明确失败/重试状态，不用空列表或零人数冒充成功。
 - 首次登记可一次录入完整新增人员名册，动态岗位名称、中文业务权限、逐人任职/任期及初始阈值全部明确配置；不预置固定岗位。阈值按有效治理岗位票据严格过半、至少两席且有有效发起岗位校验；同一钱包可兼任多个动态岗位，不强制两个钱包。普通后续新增只选现有有效且可任职的中文岗位名称，保留原名册、任职和来源。
-- 办理岗位来自第3步同区块授权查询：唯一候选自动确定，多候选只显示中文名称选择；无候选或已失效选择不能继续。初始岗位、业务权限和任职均复用统一InstitutionGovernanceAction登记子集，仍走原公私权call 9，没有CREG专用调用、新固定岗位或新storage。
+- 办理岗位来自同区块授权查询：唯一候选自动确定，多候选只显示中文名称选择；无候选或已失效选择不能继续。初始岗位、业务权限和任职均复用统一InstitutionGovernanceAction登记子集，仍走原公私权call 9，没有CREG专用调用、新固定岗位或新storage。
 - 删除按准确机构CID与名册账户锚点构造完整目标名册，同一登记事务解除相关任职；保留其他人员。破坏治理席位/阈值、触及LR或受保护任职、或可能把已结束任职重新激活的变更在审阅前拒绝，链端继续执行最终校验。
 - `GET /api/admin/city-registry-admins`现在必须携带当前详情页 `cidNumber`。名册、任职及当前绑定钱包来自同一finalized链状态；行标识为机构CID加原名册账户锚点，换绑后稳定，账户展示取当前绑定钱包。无任职人员也保留，未知创建时间、创建人不从本地表伪造；余额只作可缺省展示。城市入口不再显示本地计数为链上人数，管理员上限使用统一链上MaxAdmins=1989；原本地30人限制不作为链上真源。
 - 本地 `CREATE_SUBORDINATE_REGISTRY / DELETE_SUBORDINATE_REGISTRY`在preview和commit都明确拒绝，包括旧的已准备本地挑战；原本地目录写入/计数/删除路径已移除。新管理员登录继续使用既有链上名册守卫和首次绑定流程，本地登录元数据在登录时按原规则补齐，不授予业务权限；办理业务还必须有有效岗位、权限和辖区。
 - 流程为审阅 → 同区块状态复查 → 一次Passkey → 一次钱包冷签 → 原submit → finalized目标回读。原名册成员仅提交锚点，由后端保留原CID/资料；签名前展示完整目标名册和逐人任职。准备状态冲突必须刷新重审。签名后网络失败保留原请求、原签名及冻结目标，按管理员/办理机构/目标隔离保存恢复记录；恢复不重新prepare或签名。会话已消费/清理时，只有新finalized区块上的完整名册、任职和初始化配置吻合才确认恢复成功，否则继续保留原会话；明确链端拒绝才清除并重新审阅；原会话已明确清理/消费、但又被后续事务改变名册时，提供显式重读当前名册的入口，不自动重签旧变更，也不暗示已签交易被撤销。
-- 范围内兼容收口：缺少已审阅状态指纹的旧调用在获取Passkey之前拒绝，不静默给旧名册填新指纹。范围外遗留的通用公权/私权治理表单仍有手工岗位码字段，公权旧直接登记按钮也没有状态指纹，留第5步改为中文岗位选择并复用统一表单；本步未越界编辑这些页面。另发现既有prepare上下文写 `cidNumber`、submit读取 `cid_number`；本步新流程按冻结签名目标及finalized回读核实结果，空目标元数据本身不能当作成功；第5步统一该键。
-- 验收：注册局前端22项通过、2项既有DOM用例因未提供DOM运行库而跳过；Rust平台162项、注册局55项通过，28项既有PostgreSQL用例忽略，既有需创建隔离目录的归档配置用例按本轮约束排除。原本地目录数据库计数夹具已替换为链上名册、准确CID辖区及旧动作关闭的内联断言，不把旧数据库夹具当链上验收。实际Runtime FRG登记CREG、岗位办理公民业务、跨省拒绝及费用账户回归通过。
-- 平台前端全量回归30项通过、11项既有环境用例跳过，1项目录守卫失败：五个前端根目录有既存 `.DS_Store`（修改时间为2026-11-06/07）；这些文件不在批准范围，未删除，也未改断言豁免。四组前端源码/测试类型检查及Rust编译通过。因file依赖安装副本仍是旧平台SDK，检查仅在内存中把公开exports解析到当前仓库真实平台源码并统一React依赖，未改依赖目录、安装配置或新增脚本。未做完整DOM交互、真实扫码、线上链交易、部署或正式性能标定。
 
+#### 统一管理员表单与恢复
 
-2026-11-14 第5步：统一管理员表单收口与真实性能测量（两项性能预算测试各3次已执行，程序冻结一致性未满足，第5步未全部验收通过，尚未部署）。
+公权/私权详情复用InstitutionAdministratorsPanel和InstitutionAdminChangeModal，注册局登记使用call 9，机构自治使用call 8提案。目标市注册局取当前详情页上下文。办理岗位唯一时自动选定，多个时显示中文名称；首次配置明确动态岗位、权限、人员任职及阈值，后续新增保留旧名册账户锚点、CID、资料及任职来源。
 
-- 本步只编辑批准的14个已有文件，并删除批准的5处 `.DS_Store`；没有新增源码文件、目录、CREG专用调用或固定业务岗位。目标市注册局继续直接取当前详情页上下文。
-- 公权/私权详情复用 `InstitutionAdministratorsPanel` 和 `InstitutionAdminChangeModal`；注册局登记沿用call 9，机构自治沿用call 8提案。唯一办理岗位自动选定，多个只显示中文名称；不再要求填写岗位码。首次配置明确动态岗位、权限、人员任职及阈值，后续新增保留旧名册原账户锚点、CID、资料和任职来源。
-- 自治提案上链后仅提示提案成功，必须投票及执行后才变更名册；不提前显示管理员已经新增。登记/自治的原签名恢复按目标、会话和模式隔离；HTTP 404/409不能自动重签，也不能单靠会话消失认定办理成功。
-- prepare上下文由实际typed call参数生成，目标统一为submit使用的 `cid_number`；前端严格核对返回目标CID及purpose。相关夹具与断言覆盖上下文UTF8、登记/自治路由、完整旧名册及恢复语义。
-- 明确保留限制：范围外 `onchina/platform/institutions/admins.rs` 的私权旧自治解析会丢弃存量管理员CID。本步在签名前拒绝此类有损自治操作，未越界修后端；这类变更仍可由注册局用原call 9办理。公权存量CID换绑后，原账户锚点与当前钱包的更新校验兼容性也不能据本轮测试宣称解决。
-- 最终前端回归：注册局24通过、2项原有DOM用例跳过；公共SDK31通过、11项环境用例跳过，目录守卫通过。当前真实SDK源码映射下，双方源码及测试四组TypeScript检查通过；不以旧node_modules副本冒充当前SDK。
-- Rust标准编译检查（onchina、registry、公权/私权实体）通过；注册局56通过、5项数据库用例忽略。2026-11-14补跑本步两项专项测试（不替代性能预算门禁）：`tests::performance::operation_binding_proof_bounds_come_from_current_runtime_metadata` 与 `tests::cases::unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee_payer` 各1通过、0失败。前者按真实身份表元数据验证每人10333字节证明上界及正式权重增长，后者验证FRG登记CREG、初始化后办理公民业务、跨省拒绝、正常区块预算和费用账户。
-- 第5步当前结论：代码及既有专项测试已完成；本次两项性能预算测试各独立执行3次，六次原始测试全部通过耗时和业务断言，但第三次转账结束后的可执行文件哈希与冻结值不同，因此不满足本轮程序冻结一致性要求，第5步未全部验收通过。没有替换或重跑转账样本，也没有合并不同程序版本冒称同一冻结批次通过。独立任务不纳入本步、不接管修复。
-- 用户在本轮计时前明确批准转账平均上限100000ns、完整创世初始化总耗时上限10000000000ns。预算先冻结后执行，原耗时及余额/发行量/目录/阶段断言未修改。直接复用现有测试程序，没有编译、创建文件或目录、部署、真实链交易或版本变更；本轮只更新两份原有文档。
+自治提交成功只表示提案入链，投票执行后才更新名册。登记和自治恢复按目标、会话和模式隔离，HTTP 404/409或会话消失不能触发自动重签，也不单独作为办理成功依据。prepare从实际typed call参数生成cid_number上下文，前端核对返回的目标CID及purpose。
 
-2026-11-14正式预算执行记录（全部六次，不挑选样本）：
-
-环境：macOS27.0/26A428、arm64、Apple M5 Pro、18逻辑CPU、48GiB，rustc1.97.1；现有原生test程序，unoptimized + debuginfo，默认std特性，无额外RUSTFLAGS。每次独立进程，准确运行1个现有ignored门禁，串行执行。
-
-- 原冻结A（13:10:29 PST），测试程序SHA-256：`6ed770a489a90780dfecd942c878c824fa446701802b3a5dba3493040bdc97c4`。
-- 转账第3次启动前为A，结束后程序路径内容已变为B；测试源码未变。没有重跑转账。为完成尚未执行的3次创世测试，13:12:38 PST单独冻结B，SHA-256：`4feededb3f7125a13837b59e6d59014cb78dc7fbdfaae2b67d40cc019ac43a82`；创世三次前后均为B。不能将A、B合并为同一程序冻结批次。
-
-|门禁/次数|开始→结束（PST，2026-11-14）|实测纳秒|固定上限纳秒|原测试结果|程序冻结校验|
-|---|---|---:|---:|---|---|
-|转账平均/1|13:10:29→13:10:46|91233|100000|1通过、0失败；退出0|A→A，一致|
-|转账平均/2|13:10:46→13:11:03|92550|100000|1通过、0失败；退出0|A→A，一致|
-|转账平均/3|13:11:03→13:11:21|91444|100000|1通过、0失败；退出0|A→B，不满足冻结要求|
-|创世总耗时/1|13:12:38→13:12:57|7146059667|10000000000|1通过、0失败；退出0|B→B，一致|
-|创世总耗时/2|13:12:57→13:13:16|6968226416|10000000000|1通过、0失败；退出0|B→B，一致|
-|创世总耗时/3|13:13:16→13:13:34|6855828125|10000000000|1通过、0失败；退出0|B→B，一致|
-
-原测试均为1通过、0失败；这是六次断言结果。转账第3次的冻结校验失败是独立的验收完整性问题，不能把六次断言通过写成第5步全部验收通过。完整环境、源码哈希及命令见 `CitizenChainRuntime.md` 本任务第5步记录。
-
-
+私权旧自治解析存在丢弃存量管理员CID的限制，前端在签名前拒绝这类有损自治提交，相关变更可由注册局使用call 9办理。
 #### 10. 机构工作台能力映射
 
 工作台类型和工作台入口由 `onchina/platform/workspace/mod.rs` 生成，底层能力位由 `onchina/platform/modules/capability.rs` 单源下发给前端。工作台入口不产生业务权限；Runtime 的 FRG 省级／CREG 本市办理边界与机构顶层能力、岗位权限和有效任职共同决定能否办理，OnChina 能力表不能代替这些链上校验：
 
 - `FRG` 是 Tier1 创世注册局，进入 `registry` 工作台，能力必须是 `CREG` 的超集：可进入公民、私权、教育、公权机构、市注册局和联邦注册局，并可在本省范围内登记机构、写业务、维护市注册局管理员、维护本省联邦注册局管理员。
 - `CREG` 是 Tier2 下级注册局，进入 `registry` 工作台，保留本市公民/机构/业务写入能力；同时必须能进入“联邦注册局”入口，只读查看本省联邦注册局管理员列表，不得发起联邦注册局管理员编辑或更换。
-- 2026-11-14 分步实施第1步：`admins_chain_roles.rs` 的业务岗位候选查询与 Runtime 共用固定机构目录和 `registry_institution_capability_allows`。CREG 只新增公民身份登记类、地址维护类和机构登记类直接业务的顶层 `Propose` 能力，仍须查询真实名册、权限和有效任职；空岗位、单有管理员或只有投票权限都不能成为办理候选。
-- 候选查询保持同一 finalized 区块及钱包换绑解析。链连接、读取、解码失败继续报错并由现有页面提供重试，不伪装为无权限、不自动换岗。此次没有交易编码变化，复用原跨端金标；本地新增市注册局管理员到真实上链、首次岗位初始化仍待后续步骤，不得把本步视为整条办理链路已打通。
-- 第1步读侧回归：原岗位查询测试文件12项通过、1项原有隔离PostgreSQL门禁用例忽略；现有公民岗位前端定向回归5项通过，包含旧请求丢弃、多岗位中文选择、加载失败及重试。内联CREG夹具覆盖顶层能力不代替权限和任职、钱包换绑后的账户投影；原`role_permission.json`金标字节未改并通过精确解码/重编码断言。此验收不包含真实钱包签名交易或线上Runtime升级。
+- `admins_chain_roles.rs` 的业务岗位候选查询与 Runtime 共用固定机构目录和 `registry_institution_capability_allows`。CREG 只新增公民身份登记类、地址维护类和机构登记类直接业务的顶层 `Propose` 能力，仍须查询真实名册、权限和有效任职；空岗位、单有管理员或只有投票权限都不能成为办理候选。
+- 候选查询保持同一 finalized 区块及钱包换绑解析。链连接、读取、解码失败继续报错并由现有页面提供重试，不伪装为无权限、不自动换岗。
 - `NJD` 进入 `judicial` 工作台，不复用注册局 UI。当前工作台按 `operations / display / records` 分类：显示页可只读查看本机构信息和链上 active admin 列表；管理员变更和岗位治理入口必须构造 `propose_institution_governance` 链动作，护宪终审按专属业务能力接入。
 - 立法机构进入 `legislation` 工作台或通用工作台的立法入口，立法能力由 `onchina/legislation/proposals/category.rs` 和 `can_*_legislation` 位决定。
 - 私权机构进入 `private` 工作台，只下发本机构信息、链上 active admin 与准确 CID 授权模块；普通公权、立法和非法人机构分别使用 `public`、`legislation`、`unincorporated` 工作台种类，可共用通用显示壳但不得恢复 `generic` 权限语义。
@@ -362,33 +307,6 @@ Passkey统一在创建冷签会话时消费，prepare仅构造待签载荷，sub
 - 接口只下发行政区 code,不下发行政区名称副本;CitizenApp 通过内置行政区字典按 `province_code / city_code / town_code` join 名称。
 - 接口不得读取 `china.sqlite` 运行态派生公权机构,也不得把本地 `subject/government/account` 投影作为授权真源。
 
-#### 11. 验收
-
-2026-07-25 正式创世前依赖告警复验：OnChina 生产二进制和全部测试目标自身均通过
-`cargo clippy -p onchina --all-targets --no-deps -- -D warnings`，144 项单元测试全部通过。
-测试夹具允许在各自 `#[cfg(test)]` 模块内使用断言式 `expect/unwrap`，生产模块不得据此
-扩大豁免范围。用户完成 runtime 路径二次确认后，
-`cargo clippy --workspace --all-targets -- -D warnings` 与
-`cargo test --workspace --all-targets` 均已通过，OnChina 传递依赖不再遗留 Clippy 告警。
-本轮只处理 lint、测试夹具与注释边界，没有修改订阅业务逻辑。
-
-2026-07-17 机构治理运行态补验：当前源码 `citizenchain-fresh --tmp` 使用 `WASM_BUILD_FROM_SOURCE=1` 构建后启动成功，OnChina 使用临时内嵌 PostgreSQL 和 `ONCHAIN_WS_URL=ws://127.0.0.1:19944` 连接 fresh 链启动成功；启动期完成公权链投影 `49,593` 个机构与 `99,231` 个账户，首页 HTTP 返回 200，`subject` 表旧 `legal_rep_*` 列为 0，新 `legal_representative_*` 三字段列齐备。交互式 CitizenWallet 扫码签名需要真实管理员登录会话和扫码设备，本次仅完成链、数据库、服务和页面基础运行态，不伪造扫码签名结果。
-
-正式创世前曾使用管理员三字段布局；该布局现已全部废弃。OnChina 当前对公权、私权机构统一按四字段 `Admin` 解码与治理/登记编码，不兼容任何旧三字段机构布局；个人多签同样使用统一四字段 SCALE 结构。
-
-2026-07-19 私权创世公民链基金会第 6 步验收：`institution_lookup` 已实现在相同 CID 主键下依次读取 `PublicManage` 和 `PrivateManage`，公权全量目录迭代继续只读取公权 storage；启动抽样固定增加公民链基金会，全量公权审计先独立核验基金会存在，再执行 49,593 个公权机构的双向比对。OnChina 137 项测试通过；没有把基金会复制进本地公权投影、没有读取本地公民数据库生成法定代表人，也没有新增第二套基金会身份常量。
-
-2026-08-01 正式创世前管理员换绑接管验收：登录反查、管理员列表、岗位合并和会话复查统一固定到 finalized 区块，带 CID 管理员只接受当前绑定账户，岗位继续以名册账户关联。当次历史冻结 plain chainspec 的创世哈希为 `0x278e68bced2dabf9690701188272da22d216fdaa2c617e7dcbe100df3e8bcbfa`；该值已被同日新创世替代，不是当前部署锚点。临时 OnChina 从链投影得到 49,593 个机构、99,232 个账户并完成 34 项抽样对账。真实 `POST /api/admin/auth/qr/sign-request` 验证 FRG 冻结无 CID 管理员与基金会当前绑定账户均返回 200，无在册账户返回 403 / `ONCHINA_LOGIN_ADMIN_NOT_ONCHAIN`。OnChina 191 项测试和 `cargo clippy -p onchina --all-targets -- -D warnings` 通过；未修改 runtime、创世或远端状态。
-
-```text
-rg "mod chain;|crate::chain|chain::" citizenchain/onchina -g '*.rs'
-cargo check --manifest-path citizenchain/Cargo.toml -p onchina -p onchina-registry -p onchina-legislation -p onchina-private -p onchina-judicial
-ONCHINA_EMBEDDED_PG=0 DATABASE_URL=<local_pg> ONCHAIN_WS_URL=<chain_wss> cargo run --manifest-path citizenchain/Cargo.toml -p onchina -- sync-gov
-curl -fsS https://onchina.crcfrcn.com:1988/api/health
-```
-
-涉及数据库、登录、管理员列表、机构详情和扫码签名的变更必须跑真实 HTTP 接口。只通过 `cargo check` 不能证明连接池、SQL 字段顺序和扫码验签流程正确。
-
 ---
 
 #### 1. 功能需求
@@ -397,7 +315,7 @@ curl -fsS https://onchina.crcfrcn.com:1988/api/health
 
 #### 2. 行政区数据
 
-行政区名称字段仅为 `country_name`、`province_name`、`city_name`、`town_name`、`division_name`，不得以泛化名称字段替代。国家全称、简称的链定义见 `CitizenChainRuntime.md` 的“Runtime 修改与链协议边界”。本段是命名合同，不表示所有字段均已在当前接口使用或验收。
+行政区名称字段仅为 `country_name`、`province_name`、`city_name`、`town_name`、`division_name`，不得以泛化名称字段替代。国家全称、简称的链定义见 `CitizenChainRuntime.md` 的“Runtime 修改与链协议边界”。
 
 - 开发真源：`citizenchain/onchina/platform/codes/china.sqlite`
 - 生产读取：`ONCHINA_CHINA_DB` 指向随包只读 SQLite
@@ -550,15 +468,6 @@ OnChina 管理员登录必须使用登录专用错误码，禁止继续把登录
 
 OnChina 只签发投票引擎已经定义的资格凭证、人口快照或身份凭证。OnChina 不实现投票流程，不处理计票、状态推进、通过/否决判定，也不得内嵌投票引擎逻辑。
 
-#### 8. 验收
-
-```text
-sqlite3 citizenchain/onchina/platform/codes/china.sqlite "PRAGMA integrity_check"
-rg "旧独立身份系统名|backend/src|frontend/api|frontend/chain" memory AGENTS.md citizenchain/onchina --glob '!tasks/**' --glob '!docs/**' --glob '!**/node_modules/**' --glob '!**/dist/**'
-```
-
----
-
 #### 1. 功能需求
 
 OnChina 前端是公民链内置多机构工作台，负责管理员登录、工作台分发、管理员目录、公民电子护照、机构登记、机构账户、资料库、审计和扫码签名确认。
@@ -610,7 +519,7 @@ citizenchain/onchina/
 - 新增公民弹窗必须展示当前办理城市对应的居住省市,只允许选择居住镇;出生省市镇必须选择。
 - 新增公民请求只提交 `province_name / city_name / town_code` 和 `birth_*` 字段;不得向后端发送旧的第二套居住字段。
 - 旧机构直接创建流程已关闭：共享创建弹窗当前只保留资料录入布局，按钮固定禁用并说明必须原子提交 LR、初始治理岗位、不可变权限、初始任职和投票规则；前端不得调用旧 API、生成旧签名二维码或提交 `0x1e05/0x1f05`。
-- 第 6 步接入新机构创建业务时，表单必须在同一业务载荷中收集机构资料、至少两个 admins、至少一个初始治理岗位及其权限和任职、初始投票规则；动态岗位码仍由 runtime 生成，前端不得手填或预生成。
+- 机构创建业务的表单必须在同一业务载荷中收集机构资料、至少两个 admins、至少一个初始治理岗位及其权限和任职、初始投票规则；动态岗位码仍由 runtime 生成，前端不得手填或预生成。
 - 本地资料写入统一使用passkeySubmitHeaders，不生成扫码授权grant；账户、治理、立法和公民上链等真实链签流程在创建signing时消费一次Passkey，submit只消费本次冷签，不增加第二次Passkey或安全grant冷签。
 - 每个机构必须存在唯一 `LR / 法定代表人` 岗位且允许空缺；前端不得要求用户手填 LR 岗位码，也不得把“管理员”当成统一岗位名。
 - 股份公司等私权机构只有所有最小必填字段及至少两个不重复管理员 `account_id` 均合法时才启用生成按钮。协会 `SFAS` 必须显式选择盈利或非盈利，前端不得固定为非盈利。
@@ -662,7 +571,7 @@ passkey 客户端在调用 `navigator.credentials.create/get` 前必须检查 `w
 - 私权机构详情页显示同一“机构治理”tab，只构造本机构内部治理，不开放注册局直接登记按钮。
 - 动态岗位创建不得显示或提交岗位码；runtime 按所属 pallet 的 `MODULE_TAG` 和链上 nonce 生成。发起既有业务提案时，页面必须独立显示并提交当前任职的 `proposer_role_code`，不得把“治理中创建/改名的目标岗位”和“本次提案发起岗位”混成一个字段。
 
-2026-07-19 第 5B：公权/私权机构治理页面新增必填“提案发起岗位码”，平台调价页面同样独立提交 `proposer_role_code`（公民链基金会可预填 `GENESIS_PRODUCT_MANAGER`）。业务模块固定选择内部投票引擎，前端不得提供引擎选择器；管理员登录成功本身不代表拥有任何业务发起权限。
+公权/私权机构治理页面新增必填“提案发起岗位码”，平台调价页面同样独立提交 `proposer_role_code`（公民链基金会可预填 `GENESIS_PRODUCT_MANAGER`）。业务模块固定选择内部投票引擎，前端不得提供引擎选择器；管理员登录成功本身不代表拥有任何业务发起权限。
 - 法定代表人任命/更换只填公民 CID；后端从公民档案读取 `family_name/given_name/account`。解除法定代表人使用“解除法定代表人并清空链上公开结构”复选框，前端禁止和公民 CID 同时提交。
 
 CitizenApp 不承担管理员登录 QR 职责。前端文案不得引导用户使用 CitizenApp 处理管理员登录签名请求。
@@ -683,17 +592,7 @@ CitizenApp 不承担管理员登录 QR 职责。前端文案不得引导用户�
 - 首屏按登录或会话检查返回的setupRequired决定：未设置只提供原密钥设置通路，完成后进入业务；已设置直接渲染授权工作台，不额外等待Passkey查询。Context统一消费此服务端阶段，换会话丢弃旧刷新。初始页面从最终可见入口选择，不先挂载公民页。市注册局、联邦注册局两个顶层Tab及原导航保持；只调整本地目录操作的验证档位。
 - 联邦注册局管理员列表的操作列只允许 `FRG` 看到；`CREG` 进入同一入口时必须是只读表格。
 
-#### 9. 验收
-
-```text
-npm --prefix citizenchain/onchina/platformweb run build
-rg "旧独立身份系统名" citizenchain/onchina/platformweb --glob '!node_modules/**' --glob '!dist/**'
-rg "NotAllowedError.*摄像头" citizenchain/onchina/platformweb --glob '!node_modules/**' --glob '!dist/**'
-```
-
-涉及登录、权限、扫码或页面展示的变更，必须启动真实本地服务并检查真实页面；只通过 `npm run build` 不算完成。
-
-管理员模型现统一为 `account_id + cid_number + family_name + given_name`，登录态、Header、机构治理批量输入、市注册局管理员新增以及联邦/本机构管理员列表必须使用同一字段布局。ADR-039 第 3 步已关闭旧机构首次登记提交路径；当前创建按钮固定禁用，不能把历史验收解读为旧创建流程仍有效。TypeScript检查与Vite构建必须针对当前源码独立验收，历史通过记录不能代表当前重构已通过。
+管理员模型统一为account_id、cid_number、family_name和given_name；登录态、Header、机构治理批量输入及各管理员列表使用同一布局。旧机构首次登记提交路径已关闭，共享创建按钮禁用。
 
 ---
 
@@ -719,8 +618,6 @@ OnChina 不是第五个产品。仓库产品只保留：
 - 账户与 32 字节公钥的文本形式统一为小写 `0x` 加 64 位十六进制；`ss58_address` 仅作派生展示值，不作为登录、权限或数据库关系真源。
 - 登录验签必须从 `signer_public_key` 得到 `signer_account_id`，再读取链上 admins、有效岗位任职和岗位权限；节点绑定或本地投影不得产生第二套授权。
 - OnChina PostgreSQL 业务库按最终 schema 重建，不写迁移、双读或兼容列；密钥和 Secret 不在删除范围。
-- 2026-07-22 已删除并重建本机 `127.0.0.1:5433/onchina` 业务库；重建后旧账户列和旧账户索引均为零，账户与公钥格式约束按最终 schema 生效。
-- 完整目标与进度见 ADR-040 和任务卡 `账户官方统一.md`。
 
 ##### 1.2 与 CitizenApp 边缘架构的边界
 
@@ -811,7 +708,7 @@ schema 初始化和链上业务投影必须分离。schema 入口只允许幂等
   `ExtrinsicSuccess` 后，才读取该交易所在 finalized 区块的完整快照回写本地。前端动作完成后
   必须重新调用全局查询接口，不得把扫码账户或 prepare 会话字段直接显示为已生效绑定。
 
-旧机构直接创建入口已关闭：OnChina 当前创建 API 固定返回 501，前端创建按钮固定禁用，不生成 `0x1e05/0x1f05` 或旧签名会话。后续如恢复机构登记，公权与私权机构管理员必须统一使用 `Admin { account_id, cid_number, family_name, given_name }`，机构治理阈值必须作为 entity 机构配置独立提交，不能由管理员人数或岗位数推导；具体登记规则需另立方案确认。
+旧机构直接创建入口已关闭：OnChina 当前创建 API 固定返回 501，前端创建按钮固定禁用，不生成 `0x1e05/0x1f05` 或旧签名会话。后续如恢复机构登记，公权与私权机构管理员必须统一使用 `Admin { account_id, cid_number, family_name, given_name }`，机构治理阈值必须作为 entity 机构配置独立提交，不能由管理员人数或岗位数推导。
 
 #### 6. 高并发策略
 
@@ -878,53 +775,6 @@ OnChina 高并发目标建立在结构化表、组合索引、省分区和省市
 - 徽章必须与当前语言条标题行内垂直居中；中文徽章使用更小字号，避免抢占条标题视觉层级。
 - 法律编辑弹窗里的结构定位只允许显示“章序 / 节序 / 条序 / 款序”，不得把结构序号伪装成正文标题。
 
-#### 9. 发布和 CI 边界
-
-OnChina 属于 `citizenchain`。不再保留独立 旧独立身份系统 CI、独立 旧独立身份系统安装包 或独立产品发布入口。
-
-- 修改 `citizenchain/onchina/**`：执行 OnChina 后端编译、测试和真实 HTTP 验收。
-- 修改 `citizenchain/onchina/*/frontend/**`：执行前端 build，并通过真实页面检查关键流程。
-- 修改节点桌面端 OnChina 启动入口：同步检查 `citizenchain/node/src/main.rs`、`citizenchain/node/src/platform.rs` 和节点设置页，确认 OnChina 不随节点默认启动。
-- 涉及 QR、签名、链交易载荷、CID 号格式时：必须同步更新 `CitizenChainOnChina.md` 和相关端实现。
-
-#### 10. 验收口径
-
-涉及 API、数据库、登录、权限、扫码或页面展示的任务，必须使用真实本地服务、真实 PostgreSQL、真实 HTTP 接口或真实页面验收。只通过编译、类型检查或前端 build 不算完成。
-
-CID 身份总任务第 5 步于 2026-07-30 使用当前源码 fresh runtime、独立链端口、两套独立
-PostgreSQL 和两个不同市注册局 OnChina 实例完成真实验收。两套实例均投影 49,593 个机构和
-99,232 个机构账户，并对 `CN220-CTZN2-198805200-2026` 返回完全一致的 finalized 绑定：
-Active、`binding_revision=1`、当前账户
-`0x0cb1d05c0c9c7f05679b60d6f24c7e5719a3985264e41c5e899d4822dca4b06b`，区块和创世哈希
-均为 `0x49622cb851a0815af75573e281b992565cb31df509c2e3d3b847858c351ef46e`。该哈希只是本步
-隔离 fresh 验收锚点，不是正式创世冻结结果。
-
-本步同时确认：当前仍在运行的旧冻结链 WASM 没有 `BindingRevisionByCid` 元数据，新
-OnChina 会按设计返回失败而不是回退旧账户。正式环境必须等后续唯一正式创世重生并冻结后
-整体切换，禁止把新 OnChina 单独部署到旧 runtime。
-
-账户标识统一第 10 步于 2026-07-24 使用 Pixel 8a、仓库外 fresh 链和独立
-PostgreSQL 完成总验收。当前 fresh genesis hash 为
-`0xafac9d55a77a10780b5c5cb29da6118ecf4a7b9652960e52502ebacf5d403535`，
-OnChina 投影为 49,593 个机构和 99,232 个账户；新增的一个计数来自联邦公民安全
-基金账户，不是机构重复行。CitizenApp 与 CitizenWallet 使用同一公开测试助记词恢复
-出相同规范 `account_id`，旧字段、非法大小写和 SS58 主键入口均失败关闭。仓库没有 fresh
-创世管理员公开账户对应的私钥或助记词，因此本次没有伪造管理员成功登录或线上业务
-签名；链内正例由全 workspace runtime externalities 测试覆盖。
-
-最低检查：
-
-```text
-rg "旧独立身份系统名" memory AGENTS.md citizenchain/onchina --glob '!tasks/**' --glob '!docs/**'
-cargo check --manifest-path citizenchain/Cargo.toml -p onchina -p onchina-registry -p onchina-legislation -p onchina-private -p onchina-judicial
-cargo test --manifest-path citizenchain/Cargo.toml -p onchina -p onchina-registry -p onchina-legislation -p onchina-private -p onchina-judicial
-npm --prefix citizenchain/onchina/platformweb exec tsc -- --noEmit
-```
-
-如果工作区存在其它线程的未完成改动，验收必须说明受影响的命令和原因，不得把其它线程的失败混入本任务结论。
-
----
-
 ### OnChina 架构总览
 
 OnChina 是公民链 `citizenchain` 内置的链上中国平台能力，不再作为独立产品存在。仓库当前只保留四个产品：公民、公民链、公民钱包和官方网站；OnChina 属于公民链产品内部的多机构工作台、注册局业务、机构登记、行政区和管理后台能力。
@@ -964,9 +814,9 @@ OnChina 是公民链 `citizenchain` 内置的链上中国平台能力，不再�
 
 三个复杂前端包根只保留package.json、原package-lock.json和必要.npmrc。平台宿主启动、应用、SDK公开入口、HTTP基础实现及HTML归platformweb/workspace；注册局组合组件归registryweb/controls/Workspace.tsx；立法院导出归并到legislationweb/proposals/LegislationView.tsx。软件接口1的公开标识仍由标准exports定位真实唯一源码，不保留旧路径桥接。
 
-两个小前端各自源码合为frontend/Workspace.tsx，原业务测试合为frontend/Workspace.test.tsx；加上声明、原锁及原file依赖确需的.npmrc，各只有5个真实根文件。六类私权登记的小页面/API/类型/转发归并成registryweb/private下的sole、partnership、company、corporation、welfare、association六个tsx模块；原机构码和值保持。
+两个小前端各自源码合为frontend/Workspace.tsx；加上声明、原锁及原file依赖确需的.npmrc。六类私权登记的小页面/API/类型/转发归并成registryweb/private下的sole、partnership、company、corporation、welfare、association六个tsx模块；原机构码和值保持。
 
-浏览器和测试TypeScript编译作用域继续隔离，原严格选项由scripts/onchina.mjs唯一实现；每个前端自身的typecheck/test/build命令调用该公开入口，工具从本包原锁依赖加载。重复tsconfig、vite-env、Vite/Vitest转发配置与已无消费者的包内构建声明不保留。Vite真实构建、Vitest真实测试和独立类型检查仍分别执行，不额外引入构建框架或配置登记表。公共TLS读取与校验由scripts/build.mjs唯一实现，原证书输入、TLS1.3、WSS与代理验证保持。构建和预览沿用ONCHINA_FRONTEND_DIST，显式构建目标优先于环境输入。
+scripts/onchina.mjs提供各前端的类型检查与构建入口，工具从各包原锁依赖加载。公共TLS读取与校验由scripts/build.mjs提供，保持TLS1.3、WSS、代理和证书校验。构建与预览使用ONCHINA_FRONTEND_DIST，显式构建目标优先于环境输入。
 
 #### 数据真源
 
@@ -1006,20 +856,9 @@ FRG/CREG，只返回同一 finalized 区块中的 CID 状态、当前账户、�
 - 禁止在业务模块内复刻 QR 协议、扫码签名、验签或交易载荷解析。
 - 禁止保留旧命名、旧文案、旧接口、旧部署脚本或旧文档作为兼容口径。
 
-#### 实施与验收约束
-
-- 开工前确认任务属于 `citizenchain/onchina/`，并按范围读取本技术文档；行政区、CID 号、
-  权限、扫码签名、错误码和跨端接口必须以所属实际接口与对应技术章节为准。
-- 扫码、签名、验签和交易载荷只使用 `QR_V1` 与统一协议实现，不得在前后端复制协议。
-- 页面字段分类名使用中文，账户地址只在展示边界使用 `ss58_address`；授权和持久化继续使用
-  `account_id`。
-- 修改后必须同步本技术文档、完善必要中文注释并清理旧命名、旧路径和兼容残留。
-- 涉及真实接口、数据库、登录、权限、扫码或页面展示时，必须完成真实服务、真实数据库、
-  真实 HTTP 接口或真实页面验收后才能完成任务。
-
 ## 目录整合与平台输入
 
-前端二维码生成文件归入 `onchina/platformweb/qr/qrBodies.g.ts`，导出器及调用方同时调整。中国行政区静态数据直接位于 `onchina/platform/codes/area_code_2024.csv.gz`；数据字节与查询语义保持不变。Runtime 与上游不参与本次目录调整。
+前端二维码生成文件归入 `onchina/platformweb/qr/qrBodies.g.ts`，导出器及调用方同时调整。中国行政区静态数据直接位于 `onchina/platform/codes/area_code_2024.csv.gz`；数据字节与查询语义保持不变。
 ## 目录与业务边界
 
 五个真实Cargo包分别位于onchina/platform、registry、legislation、private、judicial。平台包名onchina，公共库入口platform/modules/lib.rs，宿主入口platform/modules/main.rs；四个业务包名及程序名分别为onchina-registry、onchina-legislation、onchina-private、onchina-judicial，各自Cargo.toml只声明本包workspace/main.rs。没有OnChina根Cargo.toml或根src；全部成员由公民链根Cargo.toml登记，共用原workspace锁。
@@ -1028,37 +867,31 @@ FRG/CREG，只返回同一 finalized 区块中的 CID 状态、当前账户、�
 
 各后端包根只保留Cargo.toml，入口归modules/workspace，功能源码位于第3级目录，不再以几十个前缀文件堆在src中。注册局护照算法归registry/citizens/passport.rs，公民资料归registry/documents/mod.rs及documents/handler.rs；机构资料归platform/documents/mod.rs及documents/handler.rs；立法表决编码归legislation/laws/voting.rs；私权准确实例业务清单归private/workspace/module.rs。不存在被替代的旧目录桥接或第二份实现。
 
-每个Rust包只有自己的tests目录，单元、必要集成、测试辅助及所属金标都在那里。平台公共测试辅助只由cfg(test)或test-support加载，业务包仅在开发依赖中启用，正式构建不启用。真实ModuleBusiness声明、能力、工作台和业务路由分别在所属包验收；能力和路由金标只有各自所有者tests内的一份。
+平台公共辅助仅在cfg(test)或test-support下加载，正式构建不启用测试特性。
 
 前后端工程配对、必要根文件及小前端平铺规则统一见上文“工程配对和目录边界”。各包自身声明及原锁保持独立，公共工具执行只在本仓现有公开入口实现，JS/CSS交付和UI交互保持。
 
-行政区资产仍为platform/codes/china.sqlite与area_code_2024.csv.gz，原字节不变；Runtime输入不参与本次调整。Rust二维码生成文件归platform/qr/generated.rs，TypeScript生成文件仍归platformweb/qr/qrBodies.g.ts；导出及检查读取各自真实路径，不复制协议实现。
+行政区资产仍为platform/codes/china.sqlite与area_code_2024.csv.gz。Rust二维码生成文件归platform/qr/generated.rs，TypeScript生成文件仍归platformweb/qr/qrBodies.g.ts；导出及检查读取各自真实路径，不复制协议实现。
 
-### 框架、鉴权与回归约束
+### 框架与鉴权边界
 
-冷签会话、提交与恢复归 `platform/transactions/mod.rs`；注册局业务编码、finalized 身份校验和正式档案投影仍归 `registry`。平台HTTP方法、URL、路由分区和中间件顺序金标归platform/tests/routes.json，业务路由和能力/工作台金标分别归所属包tests；platform/tests/layout.json只登记实际目录、真实入口、定义归属、公共能力和退役路径负例，不保存任务进度或完成状态。结构扫描包含生产和测试源码，以及仓库消费者与三份根技术文档。
+冷签会话、提交和恢复归platform/transactions/mod.rs；注册局业务编码、finalized身份校验及正式档案投影归registry。
 
 公民与管理员 ID 均使用 `sequence` 原子递增并显式处理容量边界；已有 ID 保留。公民正本编辑锁后重读，出生日期等不可变字段不能并发覆盖，护照和相关索引一起提交；Passkey 有效期在获得绑定事务锁后按当前时间检查。链日期以真实日历校验并统一为 YYYY-MM-DD。Passkey 凭证消费绑定当时的账户与准确节点绑定，后续写入重核。机构治理、注册局登记管理员、法律案发起、代表表决及平台调价的链签名准备均复用一次现有 Passkey 认证；验证成功才发送业务请求，取消或失败不发送，后续钱包扫码提交不重复触发认证。后端校验不得降级。
 
 上传文件上限 10MiB，请求体另允许 64KiB multipart 开销；破损流失败并清理本次部分文件，元数据失败清理未提交文件。节点解绑和直接名册治理按现行动作类型执行一次 Passkey；其它 grant 不重复消费。挑战与 grant 的有效期须在等待事务锁后重新判定。
 
-测试声明复用原锁的 Tower，通过真实 Router 验证 CORS、方法、鉴权及上传边界；前端使用独立 Vitest 配置，不依赖开发 TLS/HMR 输入。数据库集成回归只接受控制台显式交付的本机 ONCHINA_TEST_DATABASE_URL，库名以 onchina_test 开头，必须显式指定本机主机或Unix套接字，所有hostaddr实际地址必须为回环地址，连接前拒绝空目标与非本机地址；用例只创建和清理自己 UUID 命名的 schema；默认 ignored，普通测试不隐式连接数据库。
-
-回归覆盖当前 Runtime 元数据事件解码、溢出和坏事件停止、交易记录/锚点/进度原子性、并发 ID/公民编辑、绑定切换、名册准确归属、公民迁出正本保留、立法跨省同市号、同钱包多岗位票据及恢复互斥。源码断言与静态检查不能代替测试、类型检查、编译或运行验收；具体授权和执行证据只登记在唯一任务卡。
-
 ## 模块独立构建与装载
 
 唯一专属构建入口是 scripts/onchina.mjs。构建目标读取Cargo metadata中的真实workspace成员、manifest、package及bin；业务模块的 ID、独立软件版本、前端入口、公开导出、HTTP 路由、提交 purpose、安全动作和工作台能力由对应module.rs实际实现提供。构建时执行已编译程序的 --describe 取得声明，该动作在日志、数据库、TLS 和链连接初始化之前返回。夹具不作为生产配置，既不新增 module.json，也不从目录名猜测业务。
 
-scripts/build.mjs只保留GitHub正式整包编译限制；它直接调用scripts/onchina.mjs的buildPreparedOnChina公开实现，传入准确检出、已准备依赖、原生平台和本轮工作根。专属脚本复用现有checkWork、runBuildProcess、platformCargoEnvironment、npmCLI及Windows运行库处理，不恢复旧资源回执、工具库存、租约、GitHub管理或发布框架。调用方拥有的现场不由内部接口重新申请或清理；前端worker只消费调用方明确传入的工程、输出及实际程序声明。
+scripts/build.mjs只保留GitHub正式整包编译限制；它直接调用scripts/onchina.mjs的buildPreparedOnChina公开实现，传入准确检出、已准备依赖、原生平台和当前构建的工作根。专属脚本复用现有checkWork、runBuildProcess、platformCargoEnvironment、npmCLI及Windows运行库处理，不恢复旧资源回执、工具库存、租约、GitHub管理或发布框架。调用方拥有的现场不由内部接口重新申请或清理；前端worker只消费调用方明确传入的工程、输出及实际程序声明。
 
 各前端npm run build调用同一个专属脚本并传入--frontend .，只构建所属前后端工程对，默认交付到target/onchina/<原生平台>/<ID>；直接执行node scripts/onchina.mjs build构建宿主与全部模块，交付到同平台all目录；node scripts/onchina.mjs build --module <ID>只构建和交付所选目标，默认到同级<ID>目录。--platform必须匹配现有产品声明的本机系统和架构；--output可指定一个不存在的新交付目录，拒绝覆盖已有目录，也不能指向源码、活动现场或其父目录。它不生成正式节点安装包、Tag或Release，不安装或改链。
 
-开发构建使用target/onchina/<平台>/work作为专属互斥现场，与正式整包的target/build/<平台>分开。构建直接读取当前准确检出，不复制开发源码；依赖按各自已有npm/Cargo锁及官方包管理器准备，工具版本通过scripts/build.mjs共用的checkTools核对产品声明。不存在未授权的资源获取器；工具缺失、版本不符或原生平台不符明确失败。只有成功申请现场的调用者负责清理；普通失败及成功交付后清理，信号/超时等无法确认后代退出时保留现场，不清理别人的活动任务。默认开发交付在全部验收成功后替换；显式交付使用独占新目录，并支持跨磁盘复制。
+开发构建使用target/onchina/<平台>/work作为专属互斥现场，与正式整包的target/build/<平台>分开。构建直接读取当前准确检出，不复制开发源码；依赖按各自已有npm/Cargo锁及官方包管理器准备，工具版本通过scripts/build.mjs共用的checkTools核对产品声明。不存在未授权的资源获取器；工具缺失、版本不符或原生平台不符明确失败。只有成功申请现场的调用者负责清理；普通失败及成功交付后清理，信号/超时等无法确认后代退出时保留现场，不清理别人的活动任务。默认开发交付在全部产物校验成功后替换；显式交付使用独占新目录，并支持跨磁盘复制。
 
-测试由调用产品流程的控制台及既有塔塔自动化登记执行；编译实现不隐式运行另一套测试。已取消脚本单元测试，保留真实源码结构、HTTP/能力合同、业务和实际产物验收；本地与塔塔自动化执行相同完整文件，不以名称过滤保留已取消的脚本mock用例。完整验收执行结构回归、各包Rust回归、完整前端typecheck和业务Vitest；单模块编译只选择所属package/bin及其库依赖，前端构建只检查所选生产入口；测试和完整类型检查分别走所属包公开命令，不编译其他业务或宿主bin。四个正式节点Workflow已有完整前端typecheck、Vitest、结构及Rust前置测试登记，失败不会进入编译，本轮不重复登记另一套Workflow测试。
-
-buildPreparedOnChina只编译所选Cargo目标与原前端入口。frontendOnly是公开函数的可选内部参数：不执行Cargo build，但要求对应真实业务程序已存在，复制其原字节与新前端配对后仍须验收。未消费的prepared/frontend命令入口已移除，frontend-worker只作内部子进程使用；导入脚本不执行工具、资源准备或构建。
+buildPreparedOnChina只编译所选Cargo目标与原前端入口。frontendOnly是公开函数的可选内部参数：不执行Cargo build，但要求对应真实业务程序已存在，复制其原字节与新前端配对后仍须校验配对产物。未消费的prepared/frontend命令入口已移除，frontend-worker只作内部子进程使用；导入脚本不执行工具、资源准备或构建。
 
 npm run dev沿用构建后预览流程；npm run preview读取宿主独立工程的target/onchina/<原生平台>/platform/frontend，使用现有前端依赖中与原声明一致的Vite，仍要求原开发TLS证书输入。前端开发依赖按onchina/platformweb原锁准备，预览不自动下载替代Vite。/api与/modules由同一受校验HTTPS代理访问正在运行的宿主，预览不维护另一套模块资源副本。
 
@@ -1070,25 +903,23 @@ npm run dev沿用构建后预览流程；npm run preview读取宿主独立工程
 
 宿主保留原公共 HTTP 路由与中间件顺序，模块业务方法/URL 不变；上传请求限额由真实路由声明原样带到转发处。未匹配的 API 返回原 JSON 错误格式，不落入前端 HTML。原请求头、二维码、Passkey 和钱包冷签提交字段保持；宿主在消费凭证或会话前按实际登记归属转发，模块独立执行原业务校验。公民业务的 finalized 身份核验和正式投影归注册局；通用事务仍共同核对原绑定、租约、投影及会话完成标记。后台恢复各自只领取所属 purpose；模块缺失不会消费或清理其待完成会话。
 
-公共机构投影、私权机构类别字符串及类别映射归 platform；注册局录入、查询、资料和公民投影归 registry。类别映射只是原有机构类别归属迁移，所有字符串和值保持。宿主初始化现有公共数据库结构，模块只连接已有库；本次未改变 schema。今后模块自己的数据升级应由模块自身负责，不能借独立升级重建公共表或清除其他模块数据。
+公共机构投影、私权机构类别字符串及类别映射归 platform；注册局录入、查询、资料和公民投影归 registry。类别映射只是原有机构类别归属迁移，所有字符串和值保持。宿主初始化现有公共数据库结构，模块只连接已有库。今后模块自己的数据升级应由模块自身负责，不能借独立升级重建公共表或清除其他模块数据。
 
-前端在原启动阶段仅装载一次健康接口登记的模块；健康声明与每组同源JS/CSS装载各自最多等待15秒。地址全部通过校验后才插入资源节点；失败或超时清除该模块节点、导出、事件和计时器，保留失败隔离结果，迟到资源不能恢复为可用模块。实际导出和前后端元数据均须匹配。公共 React、认证 Context、请求/401 状态从宿主公开接口取得；平台包默认入口引用宿主完整SDK对象，运行时子入口仅公开该唯一SDK真实导出的实现，共享认证类型使用标准types条件，测试辅助与HTML分别由明确用途的公开入口定位；工作台按后端准确实例业务清单优先，再按实际模块的机构类声明选择，新增机构模块不需要增加宿主名称分支。原注册局管理员组件移至 registryweb/admins/ProvinceDetailView.tsx，专属状态和 API 移至同目录 cityRegistryAdminsApi.ts；通用本机构管理员组件留在平台。基金会会员治理仍只是 private 中准确 CID 授权的一项业务。
-
-现有结构、HTTP 方法/路径金标、能力位金标、真实路由回归、恢复和授权回归随所有者同步；每个业务二进制单独对照原能力金标核验自身真实声明。模块装载回归覆盖正常资源、版本不符、样式失败、跨源拒绝、工作台冲突及准确实例优先。源码维护及静态核对与实际类型检查、测试、编译、部署验收分别记录在唯一任务卡。
+前端在原启动阶段仅装载一次健康接口登记的模块；健康声明与每组同源JS/CSS装载各自最多等待15秒。地址全部通过校验后才插入资源节点；失败或超时清除该模块节点、导出、事件和计时器，保留失败隔离结果，迟到资源不能恢复为可用模块。实际导出和前后端元数据均须匹配。公共 React、认证 Context、请求/401 状态从宿主公开接口取得；平台包默认入口引用宿主完整SDK对象，运行时子入口仅公开该唯一SDK真实导出的实现，共享认证类型使用标准types条件，HTML由明确用途的公开入口定位；工作台按后端准确实例业务清单优先，再按实际模块的机构类声明选择，新增机构模块不需要增加宿主名称分支。原注册局管理员组件移至 registryweb/admins/ProvinceDetailView.tsx，专属状态和 API 移至同目录 cityRegistryAdminsApi.ts；通用本机构管理员组件留在平台。基金会会员治理仍只是 private 中准确 CID 授权的一项业务。
 
 ## 当前交付归属
 
-OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scripts/onchina.mjs 的 buildPreparedOnChina 公开实现。它直接读取真实workspace Cargo metadata目标，执行已编译模块的 --describe，编译同一声明的前端并交付宿主、模块及所需运行库；控制台不实现模块编译。依赖由本仓各自原始 npm/Cargo 锁及官方包管理器准备，构建与测试输出只进入本轮 target 现场，工程直接使用本仓准确检出，不创建整仓源码副本或资源回执。测试由Workflow执行，build.mjs只做编译和完整产物。整个原 Run 结束后的历史清理、恢复不重派与版本规则统一见 CitizenChainNode.md 当前合同；OnChina 模块自身 VERSION 和 MODULE_INTERFACE_VERSION 不由交付命名改写。
+OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scripts/onchina.mjs 的 buildPreparedOnChina 公开实现。它直接读取真实workspace Cargo metadata目标，执行已编译模块的 --describe，编译同一声明的前端并交付宿主、模块及所需运行库；控制台不实现模块编译。依赖由本仓各自原始 npm/Cargo 锁及官方包管理器准备，构建输出只进入target现场，工程直接使用本仓准确检出，不创建整仓源码副本或资源回执。build.mjs负责编译和完整产物组装。整个原 Run 结束后的历史清理、恢复不重派与版本规则统一见 CitizenChainNode.md 当前合同；OnChina 模块自身 VERSION 和 MODULE_INTERFACE_VERSION 不由交付命名改写。
 
 ### 模块装载与维护边界
 
-登记机构管理员的现有 call 9 必须依次编码目标 CID、管理员集合、操作注册局 CID、actor_role_code；岗位码复用原治理表单输入，后端不代选岗位，原链端权限校验保持。界面、钱包扫码顺序与全部 HTTP 方法/路径保持；链签名准备前完成后端要求的一次Passkey认证。完整载荷回归使用现有 RuntimeCall 解码交叉核验；测试代码维护不表示已执行。
+登记机构管理员的现有 call 9 必须依次编码目标 CID、管理员集合、操作注册局 CID、actor_role_code；岗位码复用原治理表单输入，后端不代选岗位，原链端权限校验保持。界面、钱包扫码顺序与全部 HTTP 方法/路径保持；链签名准备前完成后端要求的一次Passkey认证。
 
 五处链签名准备均通过现有 passkeySubmitHeaders 取得一次断言，不增加页面控件或改变钱包扫码流程。法律地域直接保留原省码字母和省内市号，旧数字占位及错误默认值已删除。
 
 内部实例工作台查询并行度最多4，单次请求含响应体读取最多5秒；该期限不应用于正式交易转发、扫码签名或最终确认。模块就绪最长等待120秒，说明进程最多10秒，独立等待不会串行阻塞其他同批模块。开发与预览的/api和/modules仅在serve时显式指定公信HTTPS目标并正常验证证书，构建不依赖运行中的宿主，不复制另一套前端资源。路径归属统一按原生relative边界判断，支持Windows分隔符并拒绝跨盘、父目录和同名前缀目录。
 
-能力夹具只为真实所属模块声明业务能力；无owner的NRC、PRC、PRB和未知码回归必须经过真实基础能力分支。工作台夹具完整保留分区、动作、文字、顺序及enabled值。普通回归使用独立测试进程和临时证书核验真实HTTPS转发、证书/主机名拒绝、退出和同路径程序替换，不连接业务数据库或链。verifyPreparedOnChina复用本轮已解析的Cargo目标表并静态核对产物；真实业务IIFE验收由既有四平台塔塔自动化在编译后、记录产物原始字节前登记：向既有结构测试及前端测试明确传入ONCHINA_TEST_MODULE_ROOT和ONCHINA_TEST_MODULE_IDS，只核验所选模块。实际--describe、JS/CSS首行、IIFE导出和宿主真实公开对象/React/认证Provider须一致；任一失败中止交付。普通单元测试未提供产物时明确跳过，不能把伪DOM回归作为真实产物验收。
+verifyPreparedOnChina复用已解析的Cargo目标表核对产物；实际--describe、JS/CSS首行、IIFE导出及宿主公开对象、React和认证Provider必须一致，不符则停止交付。
 
 ### 法律地域协议
 
@@ -1096,11 +927,11 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 法律只读 DTO 的 region 为 provinceCode/cityNumber 展示投影；全国 provinceCode 为空、cityNumber 为0，仅按层级解释。前端只发送层级和原业务字段；后端核对原会话范围，链端入口和执行回调均复核授权机构 CID 的地域。Runtime 查询 API v2 接收相同四字节地域，非法参数返回空列表；不同省相同市号分别索引。UI布局、操作顺序、Passkey及钱包扫码交互保持。
 
-当前只有创世宪法，不设计普通法律存量迁移，不改宪法字节、索引、国家立法院归属、众议会发起和两院表决规则，不改节点守卫。Runtime升级统一遵循CitizenChainRuntime.md的版本政策：每次正式升级两个版本各自加1，钱包同步交易版本；OnChina不生成或写回版本号，不以spec_version代替transaction_version。地域接口与版本值按现有Runtime合同保持；源码维护不表示已经执行链上升级或部署，实际验证证据只归唯一任务卡。
+当前只有创世宪法，不设计普通法律存量迁移，不改宪法字节、索引、国家立法院归属、众议会发起和两院表决规则，不改节点守卫。Runtime升级统一遵循CitizenChainRuntime.md的版本政策：每次正式升级两个版本各自加1，钱包同步交易版本；OnChina不生成或写回版本号，不以spec_version代替transaction_version。
 
-公共机构治理通过platform/institutions/model.rs的GovernanceCitizen与platform/database/records.rs的只读查询取得CID、姓、名及可空账户。查询沿用原修剪、空输入、created_at倒序及未找到语义，真实数据库失败原样返回；不静态编入注册局完整档案、写入或投影业务。Passkey一次性断言消费使用PostgreSQL官方GenericClient，连接与事务共用原SQL；事务回滚恢复可消费状态，提交后仍只消费一次。既有真实数据库回归覆盖查询字段、顺序、缺失与故障和断言事务语义，仍需控制台提供隔离测试数据库后显式执行，不以普通编译代替集成验收。
+公共机构治理通过platform/institutions/model.rs的GovernanceCitizen与platform/database/records.rs的只读查询取得CID、姓、名及可空账户。查询沿用原修剪、空输入、created_at倒序及未找到语义，真实数据库失败原样返回；不静态编入注册局完整档案、写入或投影业务。Passkey一次性断言消费使用PostgreSQL官方GenericClient，连接与事务共用原SQL；事务回滚恢复可消费状态，提交后仍只消费一次。
 
-本轮链上中国自有HTTP DTO采用Serde官方camelCase，Rust成员仍为snake_case，业务字段不超过三个单词。软件模块装载版本1的ModuleDescription/工作台规范及固定QR_V1接口保留原声明；能力字段的Rust成员缩短，原公开装载JSON键由官方Serde明确保持，不建立新旧双读。当前Runtime源码、目录、metadata和SCALE合同冻结。数据库目标声明在本轮隔离验收，真实数据不自动迁移或清空。
+链上中国自有HTTP DTO采用Serde官方camelCase，Rust成员仍为snake_case，业务字段不超过三个单词。软件模块装载版本1的ModuleDescription/工作台规范及固定QR_V1接口保留原声明；能力字段的Rust成员缩短，原公开装载JSON键由官方Serde明确保持，不建立新旧双读。当前Runtime源码、目录、metadata和SCALE合同冻结。运行时不自动迁移或清空持久数据。
 
 认证挑战、授权、登录请求和绑定挑战以严格Serde JSON作为唯一持久事实，身份/归属/过期从同一JSON的PostgreSQL表达式索引查询；内部期限使用Chrono官方UTC毫秒序列化，不改QR原始期限或签名内容。会话只额外保存令牌哈希，不保存明文或空令牌占位；查询后关联本次请求原令牌。二维码结果只额外保存原挑战键。
 
@@ -1108,7 +939,7 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 结构初始化以PostgreSQL原生schema注释记录onchina:3格式。仅无业务对象的新命名空间或官方空public空间可事务初始化；已有结构核对格式、27张逻辑表、205列及全部表列命名，随后只读复用。模块connect_existing也先核验，旧结构、额外旧表或损坏列明确失败，不自动修补。schema声明不执行照片清理，业务过期仍由照片原读写入口校验。真实旧库数据处置留待单独批准。
 
-固定协议边界：QR_V1 管理员签名、软件接口版本2健康响应和 CitizenApp 公开目录（含共享分页与法定代表人）保持其所属既有 JSON 格式。管理端自有 HTTP DTO 使用 camelCase；数据库恢复上下文只使用唯一 snake_case 键。测试隔离库在独立线程初始化与清理，避免同步 postgres 在异步测试内嵌套 runtime。
+固定协议边界：QR_V1 管理员签名、软件接口版本2健康响应和 CitizenApp 公开目录（含共享分页与法定代表人）保持其所属既有 JSON 格式。管理端自有 HTTP DTO 使用 camelCase；数据库恢复上下文只使用唯一 snake_case 键。
 
 管理端城市查询发送 provinceName；扫码登录结果查询发送 challengeId/sessionId；机构审计查询发送 targetCid。管理员表单与局部校验统一使用 familyName/givenName/accountId 和 adminsText。共享照片上传响应维持 file_path/file_name/mime_type/file_size，前端按同一合同读取。HTTP 参数拒绝即使返回非 JSON 也保留状态与401清退语义；每个准确会话重新登记失效回调，普通与二进制请求的迟到401不得清退后来登录的会话。不推断后端版本或要求重启；轮询遇确定的参数/鉴权拒绝停止，操作记录读取失败明确显示错误与重试，不能伪装为空记录。
 
@@ -1116,21 +947,19 @@ OnChina 的完整正式交付归本仓四个平台 Workflow，使用唯一 scrip
 
 上游 JSON-RPC 响应保持官方封装，局部读取结构不能以 deny_unknown_fields 拒绝 jsonrpc/id 等未消费的官方字段。匿名与鉴权请求共用同一 request 实现，不另设函数别名。
 
-公开目录的物理查询回归必须覆盖代表人列、keyset 边界、版本空窗口、自定义账户名与公开字段白名单；CitizenApp 的查询参数、分页和代表人字段保持已发布 snake_case 合同。
+CitizenApp公开目录的查询参数、分页和法定代表人字段使用已发布的snake_case格式。
 
 注册局公民行、建档、身份签名准备/完成和finalized绑定的自有DTO只携带规范accountId；SS58展示复用前端既有encodeSs58。私有链签会话也不保存地址副本。账户校验仍要求小写0x与32字节，不改变QR签名载荷或CID控制账户判断。
 
-### 包与测试入口
+### 包与源码入口
 
-|Cargo包|源码入口|唯一Rust测试目录|
-|---|---|---|
-|onchina|onchina/platform/modules/lib.rs、src/main.rs|onchina/platform/tests|
-|onchina-registry|onchina/registry/workspace/main.rs、src/module.rs|onchina/registry/tests|
-|onchina-legislation|onchina/legislation/workspace/main.rs、src/module.rs|onchina/legislation/tests|
-|onchina-private|onchina/private/workspace/main.rs、src/module.rs|onchina/private/tests|
-|onchina-judicial|onchina/judicial/workspace/main.rs、src/module.rs|onchina/judicial/tests|
-
-五个前端测试分别归各自独立npm包；复杂前端使用本包tests，两个嵌套小前端各合为包根Workspace.test.tsx。共用安全mock和后端常量读取只归platformweb/tests/security.ts，由平台包公开testing入口提供。真实程序、JS/CSS首行及IIFE验收显式交付ONCHINA_TEST_MODULE_ROOT和ONCHINA_TEST_MODULE_IDS，既支持完整模块集合，也支持仅所选模块；没有产物输入的普通测试明确跳过实际产物项，不把跳过当通过。完整端到端、设备、预算性能与跨平台实际运行单独验收。
+|Cargo包|源码入口|
+|---|---|
+|onchina|onchina/platform/modules/lib.rs、src/main.rs|
+|onchina-registry|onchina/registry/workspace/main.rs、src/module.rs|
+|onchina-legislation|onchina/legislation/workspace/main.rs、src/module.rs|
+|onchina-private|onchina/private/workspace/main.rs、src/module.rs|
+|onchina-judicial|onchina/judicial/workspace/main.rs、src/module.rs|
 
 数据库最终结构为27张顶层表、205列、54个显式索引，7类省分区按43省生成301个子表，含顶层表共328个表对象。member/replay/request/nonce不再声明，private重复存储及其动态备份、清理和分区登记一并移除；subject删除issuer_cid/proposal_id，government删除始终写空的home_province/home_city。私权原六类类型、可选合伙形态、盈利属性和有效市级作用域由subject条件约束承接，仅在record_kind=PRIVATE且private_type有值时校验；legal_personality保持subject原有可空语义，不持久化旧副表的派生false。全局identity/passport唯一约束、现有授权及事务边界保持。
 
@@ -1138,14 +967,16 @@ sequence唯一数值列为last_value，表示最后已分配值：公民和管�
 
 ### 非管理员治理独立页面
 
-机构详情及通用、私权、司法本机构操作区分别提供岗位管理、任职管理、法定代表人页面；共用平台组件和原签名提交实现。旧管理员联合变更表单只承接填写名册后的组合操作，其名单、登记、换届和本地目录规则不在本次改变。独立三页不提交admins字段；原组合解析集中在governance.ts复用，不能复制出第二套交易生成流程。
+机构详情及通用、私权、司法本机构操作区分别提供岗位管理、任职管理、法定代表人页面；共用平台组件和原签名提交实现。旧管理员联合变更表单只承接填写名册后的组合操作，独立三页不提交admins字段；原组合解析集中在governance.ts复用，不能复制出第二套交易生成流程。
 
 GET /api/institutions/{cid_number}/governance只检查已就绪登录会话与既有机构数据范围，不复查调用人的链上管理员资格。岗位、权限、任职、法定代表人及成员身份关系固定于同一个finalized区块；权限按完整CID前缀读取，保留未任职岗位。名册锚点accountId与当前钱包signerId含义不同，任职载荷保留原锚点，发起岗位按当前钱包及有效任职显示。
 
 岗位创建分基本信息、权限与任期、可选初始任职，岗位码由链端生成；固定岗位及既有权限不可改写。任职从现有成员选择，日期按UTC日序转换，无任期为0、0。法定代表人变更同步LR专属任职；新增管理员或联邦省组换届不由独立任职页面办理。确认页展示权限和完整任职目标，重读并对照目标治理数据，选择有效发起岗位后仅一次Passkey和一次钱包冷签；提交仅提示提案已上链，投票执行后以链上快照反映正式状态，不写本地正式投影。离开页面后终止未完成的准备与签名提交；取消编辑不触发认证。
 
+提案编号：提案ID统一按u128读链和编码投票，HTTP/JSON使用十进制字符串；年份u32、年内序号u64。法律版本中的proposal_id同步扩宽，law_id及发布时间、生效时间仍为原类型。
 
-2026-11-14 提案编号类型调整：提案ID统一按u128读链和编码投票，HTTP/JSON使用十进制字符串；年份u32、年内序号u64。法律版本中的proposal_id同步扩宽，law_id及发布时间、生效时间仍为原类型。仅同步既有接口与读模型，不增加接口、业务或表。
+CID年份u32：当前UTC公历年检查转换为u32后传给原有primitives CID生成器，统一按最少四位十进制写入号码。旧CID原字符串保留，库表及索引不迁移，随机号段、碰撞重试及账户派生规则保持。年份位数随创建时UTC年份增长；已有号码不随时间更新。
 
+### 公民详情布局与绑定钱包授权
 
-2026-11-14 CID年份u32：当前UTC公历年检查转换为u32后传给原有primitives CID生成器，统一按最少四位十进制写入号码。旧CID原字符串保留，库表及索引不迁移，随机号段、碰撞重试及账户派生规则保持。年份位数随创建时UTC年份增长；已有号码不随时间更新。
+公民详情左右名称列均为120px，值列自适应并允许地址/哈希换行。身份上链不提供钱包地址输入或账户扫码，生成公民授权二维码前经既有绑定接口刷新finalized绑定，只使用有效绑定账户；失败或无有效绑定不生成授权，不消费Passkey。公民授权与管理员Passkey、冷签沿用原接口。吊销身份使用页头红色图标文字入口，位于编辑资料左侧；绑定钱包账户行右侧的更换先弹确认，取消不请求业务或认证，确认沿用原新钱包签名和管理员冷签流程，成功后刷新链上绑定。办理岗位显示、选择和查询暂保持，原换绑独立区域暂留岗位控件；后端、链端和API协议不变。

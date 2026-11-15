@@ -38,7 +38,7 @@ fn multisig_payload_to_public_details_keeps_flattened_ownership() {
         .unwrap()
         .into_details();
     let json = serde_json::to_value(details).unwrap();
-    assert_eq!(json["transferDetail"]["proposalId"], 7);
+    assert_eq!(json["transferDetail"]["proposalId"], "7");
     assert_eq!(json["transferDetail"]["amountFen"], "111");
     assert!(json["safetyFundDetail"].is_null());
     assert!(json["sweepDetail"].is_null());

@@ -2,8 +2,6 @@
 
 ## Runtime 修改与链协议边界
 
-任何可能改变 `<本仓根>/runtime/` 的修改、格式化、生成或批量命令，必须先列出完整绝对路径、预计差异和原因，取得用户第二次明确确认后执行。本文档修改不授予 Runtime 源码修改、编译或链上升级权限。
-
 Runtime 账户类型必须使用 `AccountId`；账户、公钥和 SS58 的字段与文本合同统一见 `CitizenChainNode.md` 的“账户标识目标契约”。国家名称的基础字段仅为 `country_full_name`、`country_short_name`；既有语言字段由 `runtime/primitives/src/cid/code.rs` 的真实接口定义，不另建字段真源。行政区、机构名称和管理员集合字段的消费边界见 `CitizenChainOnChina.md` 的“行政区数据”和“CID 号”。
 
 哈希域签名仅使用 `runtime/primitives/src/sign.rs` 的 `primitives::sign::signing_message(op_tag, scale_payload)`，结果为 `blake2_256(GMB ‖ op_tag ‖ SCALE)`；既有 `0x18/0x19` 二进制前缀域按同文件定义执行，不改为哈希域。Pallet 的非签名业务哈希必须使用所属 Pallet 的 `MODULE_TAG` 作域；提案数据归属按本文“MODULE_TAG 注册表”核验。
@@ -12,9 +10,9 @@ Runtime 账户类型必须使用 `AccountId`；账户、公钥和 SS58 的字段
 
 Runtime 所属33个 crate 的目录末级名、Cargo包名、Rust crate名和依赖键一致；名称在本工作空间内唯一。主运行时包名为 `runtime`，产品、节点程序和链身份仍为 `citizenchain`。管理员共用模块为 `adminbase`，实体共用模块为 `entitybase`；各管理员模块使用 `personaladmin/privateadmin/publicadmin`，实体生命周期模块使用 `personalentity/privateentity/publicentity`。
 
-发行模块为 `citizenissue/fullnodeissue/onchainissue/prbbankissue/resolutionissue`；投票子模块为 `electionvote/internalvote/jointvote/legislationvote`。工程命名阶段保留各模块Cargo.toml和生产源码内部结构；随后adminbase/privateadmin/publicadmin/election的单源码入口统一为模块根lib.rs，其余当前入口及权重组织见本文“六模块源码组织”，测试组织统一见本文“模块测试组织”。primitives仍是单一crate，china与cid物理平级；其中 `china::citizenchain` 是基金会名称与常量源码模块，不是主运行时crate。
+发行模块为 `citizenissue/fullnodeissue/onchainissue/prbbankissue/resolutionissue`；投票子模块为 `electionvote/internalvote/jointvote/legislationvote`。adminbase/privateadmin/publicadmin/election的单源码入口统一为模块根lib.rs，其余当前入口及权重组织见本文“六模块源码组织”。primitives仍是单一crate，china与cid物理平级；其中 `china::citizenchain` 是基金会名称与常量源码模块，不是主运行时crate。
 
-整链创世配置和预设唯一归属 `genesis` crate 的 `runtime/genesis/src/config.rs`，通过 `genesis::config::genesis_config::<RuntimeGenesisConfig>()` 与泛型 `get_preset` 公开入口消费。主Runtime保留FRAME生成的实际汇总配置类型并负责Runtime API装配，Node直接依赖genesis；genesis不反向依赖主Runtime，不复制配置类型或构造实现，不保留旧源码模块、兼容转发或重导出。依赖完整Runtime的原创世回归保留在 `runtime/tests/genesis.rs`。
+整链创世配置和预设唯一归属 `genesis` crate 的 `runtime/genesis/src/config.rs`，通过 `genesis::config::genesis_config::<RuntimeGenesisConfig>()` 与泛型 `get_preset` 公开入口消费。主Runtime保留FRAME生成的实际汇总配置类型并负责Runtime API装配，Node直接依赖genesis；genesis不反向依赖主Runtime，不复制配置类型或构造实现，不保留旧源码模块、兼容转发或重导出。
 
 工程改名只同步源码身份和引用，保留已部署pallet名称及索引、存储前缀、MODULE_TAG、调用/签名协议、SCALE字段顺序与类型、Runtime版本和冻结创世输入。权重文件中的历史 `--pallet` 参数对应既有链上pallet选择器，不是Cargo包名。主运行时内部WASM输出为 `wbuild/runtime/runtime.wasm`、`runtime.compact.wasm` 和 `runtime.compact.compressed.wasm`；产品附件显示名称仍按原产品规范生成。冻结创世JSON不得用新编译WASM替换。
 
@@ -22,58 +20,36 @@ Runtime 所属33个 crate 的目录末级名、Cargo包名、Rust crate名和依
 
 ChainIdentityApi::genesis_hash保持API版本1、原方法名和32字节SCALE返回编码。调用时先检查System::BlockHash(0)实际存在，再读取并拒绝零值，最后与冻结的GENESIS_HASH比较；成功返回当前链状态保存的实际哈希，缺失、零值或不一致使API调用明确失败。该API只读，不写入storage，不新增extrinsic、覆盖参数或链身份缓存，也不改变区块执行和既有升级入口。
 
-固定消费SDK的System::finalize在区块哈希裁剪时保留块0，因此超过BlockHashCount后仍核对同一历史身份。GENESIS_STATE_ROOT用于真实创世区块头核验，不与当前运行状态根比较。测试直接调用官方Runtime API分发入口，覆盖正常返回/原编码/只读、缺失、零值、错误、每次查询重读，以及实际System::finalize裁剪窗口边界。
-
-生产验收必须先核对正式链真实块0及区块头，再由旧Node承载新Runtime升级。升级后的链上代码须与获准WASM一致，在同一最终确认块查询本API并与真实块0比较，同时验证持续出块和最终确认；完成后才增加Node对应身份守卫并更新各节点软件。源码API、候选WASM或本地测试不能替代链上验收。
+固定消费SDK的System::finalize在区块哈希裁剪时保留块0，因此超过BlockHashCount后仍核对同一历史身份。GENESIS_STATE_ROOT用于真实创世区块头核验，不与当前运行状态根比较。
 
 ## 合约执行依赖与Ethereum网络标识
 
-本次固定消费补齐历史缺方法的准确框架错误识别及升级待首个真实Ethereum区块的状态识别；禁止全零默认区块进入节点索引，区块查询与高度接口明确表达尚未生成。不修改Runtime源码、链上代码、冻结创世身份或收费规则，不为升级区块补造Ethereum数据。新提交不重新选择依赖包版本，消费编译及真实启动以唯一任务卡记录为准。
+SDK识别升级前历史缺少方法的准确框架错误，并区分尚未生成首个Ethereum区块的状态。默认全零区块不得写入索引，区块查询与高度接口明确表达尚未生成；不为升级前区块补造Ethereum数据。
 
-当前Node启动修复统一固定消费SDK提交`05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4`；相对此前费用基线`134a87024fbd9edb5fd5fc22d7ae2ba71090fb46`，本次接入保留原收费实现，仅增加节点近期历史索引和进程内RPC监听修复。根与QR声明及根锁同步迁移固定Git来源，包版本、registry checksum及非SDK依赖连接不变。节点包继续沿用链上Runtime，本步不修改Runtime源码、冻结创世常量或链上WASM。下列旧提交测试属于其当时验收记录，新固定消费与实际Node启动结果以唯一任务卡为准。
+Node统一固定消费SDK提交`05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4`，根与QR声明及根锁使用同一固定Git来源。节点近期历史索引与进程内RPC复用现有Runtime及原收费实现。
 
-SDK正式开发源码为`/Users/rhett/polkadot-sdk`，唯一维护仓`crcfrcn/polkadot-sdk`的main；官方上游固定`paritytech/polkadot-sdk`。它与公民链产品、只读依赖原件和构建缓存具有不同职责，禁止在原件或缓存修改SDK。官方更新必须选择稳定系列和精确SHA，检查相对当前基线的API、存储、共识、执行和工具变化，再保留最小自有改动并完成适用验收；不自动跟随官方分支。
+SDK维护仓为crcfrcn/polkadot-sdk，官方上游为paritytech/polkadot-sdk。产品Cargo声明与原始锁文件固定精确Git提交；只读依赖原件、构建缓存和SDK维护仓分别承担消费、缓存与开发职责，不自动跟随官方分支。
 
-费用兼容实现位于 SDK Revive 的严格原生分支，以下费用验收基线为 134a87024fbd9edb5fd5fc22d7ae2ba71090fb46，当前节点固定消费见本节开头。相关回归位于 runtime/tests/ethereum.rs，覆盖签名报价、gas 预算和费用边界；生产费率、最低费与付款者路由保持既定合同。固定钱包价格为 NativeToEthRatio / 10^7（至少 1 wei），并在完整性检查要求能整除原生单位；公民链为 1 gwei。估算取资源需求与既有 native_quote 换算的费用 gas 两者最大值；已签 gas 必须同时覆盖资源和实际费，钱包参数修复接受 EIP-1559 上限至少为固定价格且优先费不超过该上限，Legacy/EIP-2930 价格至少为固定价格；合法非零优先费不作为框架 tip 收取。该提交的 SDK 费用回归19项、整模块670项及全部目标检查已通过；1项上游统计用例与5项文档示例保持原有ignore，未计为通过。固定消费后的完整 Runtime 库72项已实际通过，零失败/零忽略；真实三节点基础四档费用、报价/签名参数一致及最终性已通过。MetaMask 新消费实签1 GMB交易成功，三个节点最终确认、单次FeePaid10分和回执精确乘积一致；本轮固定消费的完整Node Ethereum RPC模块5项也已实际通过，零失败/零忽略（327项无关节点测试未运行）；其余三档钱包签名、确认页费用/图标仍待本轮验收。执行前捕获同一路由报价，成功和回滚回执均以该费准确换算 gasUsed，effectiveGasPrice 保持固定价格，二者乘积等于原生费的 EVM 表达，不补扣或退款；溢出、余数及超过 u64 的 gas 拒绝。原有 Weight 双维及区块资源限制继续独立执行，非严格模式保持上游规则。API、存储和 extrinsic 编码形状不新增字段。旧固定提交 4fbac6450231e8fe4bf660a3a8f6eb2b4e28c306 的历史验收：2026年10月7日完整 Runtime 库66项测试通过，耗时278.03秒，零失败、零忽略；包含四档金额的 Legacy/EIP-1559 收费、gas缓冲、价格上限、无效价格/优先费/签名预算拒绝及原有成功、回滚和资源失败断言。源码 WASM 实际构建并用于 Node Ethereum RPC 的5项真实服务测试，全部通过；三节点四笔转账单次扣费、回执精确乘积与最终状态一致。具体证据与钱包页面待验收边界记录在唯一任务卡。
+费用兼容实现位于SDK Revive的严格原生分支。固定钱包价格为 NativeToEthRatio / 10^7（至少 1 wei），并在完整性检查要求能整除原生单位；公民链为 1 gwei。估算取资源需求与既有 native_quote 换算的费用 gas 两者最大值；已签 gas 必须同时覆盖资源和实际费，钱包参数修复接受 EIP-1559 上限至少为固定价格且优先费不超过该上限，Legacy/EIP-2930 价格至少为固定价格；合法非零优先费不作为框架 tip 收取。
 
-SDK本仓门禁固定Node25.2.1、Rust1.97.1（同一对象包含rust-src及wasm32-unknown-unknown目标组件）、Git2.54.0和actionlint1.7.12。公开Workflow独立维护远端输入：官方Ubuntu24.04 x64 Runner已有Clang18.1.3、libclang及CMake3.31.6须实际回读匹配；solc0.8.30、resolc1.0.0和protoc35.0从固定官方原件逐项验真。Git保留HTTPS，libcurl及expat仅安装两份已列明版本/摘要的官方开发包，系统对应运行库及zlib开发输入不匹配即失败，不联网解析其他包。一次准备在源码外本仓独占临时根内，以同对象Cargo读取准确SDK锁及Rust标准库锁，联合1556项官方原件/完整展开清单/逐文件摘要和两锁不变均通过后交付独立离线目录源。全部编译及测试保持--locked --offline、完整夹具和WASM；宿主生成器变化同时验证原生、真实WASM执行器及文档测试。SDK不依赖控制台运行。控制台按本机已保存SHA完成同提交门禁和准确push事件的远端回查，成功后仍须验证远端main未漂移。
-
-SDK执行器测试夹具的missing_external与yet_another_missing_external通过WASM专用
-link(wasm_import_module="env")属性声明为宿主导入，保留既有执行时缺失函数trap
-回归；不提供假宿主实现，也不放宽其它未解析符号的链接检查。此属性只作用于该
-上游测试夹具，不改变公民链生产Runtime或执行器的宿主函数策略。
+SDK构建工具固定Node25.2.1、Rust1.97.1（同一对象包含rust-src及wasm32-unknown-unknown目标组件）、Git2.54.0和actionlint1.7.12。公开Workflow独立维护远端输入：官方Ubuntu24.04 x64 Runner已有Clang18.1.3、libclang及CMake3.31.6须实际回读匹配；solc0.8.30、resolc1.0.0和protoc35.0从固定官方原件逐项验真。Git保留HTTPS，libcurl及expat仅安装两份已列明版本/摘要的官方开发包，系统对应运行库及zlib开发输入不匹配即失败，不联网解析其他包。一次准备在源码外本仓独占临时根内，以同对象Cargo读取准确SDK锁及Rust标准库锁，核对官方原件、完整展开清单、逐文件摘要及两份锁文件后交付独立离线目录源。
 
 Git使用官方NO_INSTALL_HARDLINKS安装选项并回读主程序链接数为1；独占普通文件校验保持不变，拒绝时报告准确路径。远端门禁的源码验证区间固定为本仓合同initial_sha至当前push的准确head，覆盖初始化后的全部自有改动；上一轮失败后的工具补修也必须重新验证金额边界相关crate和宿主接口。本机提交区间及远端push事件身份检查保持原规则。
 
-远端Linux x64原生目标固定交付CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=--cfg=rustix_use_libc，选择原锁rustix已有的官方libc后端，避免其linux_raw内部属性与Rust1.97.1冲突。remoteTools拒绝目标值缺失、误值及全局RUSTFLAGS/CARGO_ENCODED_RUSTFLAGS覆盖；WASM目标仍按既有真实构建路径验证。libc0.2.172和errno0.3.10均在原锁及同一联合闭包内，不改锁或原件、不增加依赖版本；完整Linux矩阵须实际验收。
+远端Linux x64原生目标固定交付CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=--cfg=rustix_use_libc，选择原锁rustix已有的官方libc后端，避免其linux_raw内部属性与Rust1.97.1冲突。remoteTools拒绝目标值缺失、误值及全局RUSTFLAGS/CARGO_ENCODED_RUSTFLAGS覆盖；WASM目标仍按既有真实构建路径验证。libc0.2.172和errno0.3.10均在原锁及同一联合闭包内，不改锁或原件、不增加依赖版本。
 
-WASM子Cargo设置自身RUSTFLAGS后，明确清除父进程CARGO_ENCODED_RUSTFLAGS及CARGO_CFG_RUSTIX_USE_LIBC，避免父原生目标派生cfg使子构建后端与依赖图不一致。SDK既有门禁文件的第15项回归使用公开交付的同一Rust/Cargo1.97.1、零外部依赖临时包及冻结锁，真实验证继承父cfg失败、隔离后通过；构建脚本保留已交付的Apple宿主链接器、SDKROOT和DEVELOPER_DIR，受管PATH不扩大。全部检查保持离线，临时目录自动清理。
+WASM子Cargo设置自身RUSTFLAGS后，清除父进程CARGO_ENCODED_RUSTFLAGS及CARGO_CFG_RUSTIX_USE_LIBC，防止父原生目标cfg影响子构建后端。Apple宿主链接器、SDKROOT和DEVELOPER_DIR继续由构建环境提供；构建保持离线，临时目录由调用方清理。
 
-上一轮消费清单经第8步二次准确确认固定为`add12c738a8510cb2253e4a98393e8955286e2b6`；SDK修复已通过52项RPC回归，新的产品三节点源码WASM/TLS/HTTPS/GRANDPA、分叉、迟到、原库重启及单次收费验收3项全部通过，耗时943.77秒；Runtime源码无差异，正式链升级及部署RuntimeVersion仍待受保护读取；第6步本机离线开发验收已完成，官方父基线为`0bf9cb31b867b91b2e9cca3cf59ef3014e430a0b`。现有自有差异包含网络/PoW/SS58改动与21份Workflow，必须逐项核实，不能把整个差异都认定为公民链必需功能。旧分支154590c2839f28095237dde09e81b854ccb58a66保留历史；初始化main不自动合并该分支。未来GMB整分金额与费用改动只在SDK正式源码开发，验收后保存和门禁推送；全部消费声明与锁统一到获准准确提交时，才变更公民链依赖。SDK合并成功不等于公民链升级成功。
+citizenchain/Cargo.toml通过工作空间声明pallet-revive，与FRAME组件使用同一锁定SDK来源。Runtime关闭其默认feature，由std及try-runtime传播对应feature。REVM由Revive引入，版本由公民链Cargo.lock固定；SDK仓库锁文件不会自动被消费者继承。
 
-`citizenchain/Cargo.toml`统一声明`pallet-revive`，与现有FRAME组件使用
-`https://github.com/crcfrcn/polkadot-sdk.git`的固定提交
-`134a87024fbd9edb5fd5fc22d7ae2ba71090fb46`。Runtime通过工作空间引用该依赖，
-关闭默认feature，由自己的`std`和`try-runtime`分别传播对应feature。
-REVM由Revive引入，已由Cargo在公民链自己的`Cargo.lock`中固定为`27.1.0`，
-Revive解析为`0.19.0`；SDK仓库的锁文件不会被Cargo自动继承。
-第1步锁解析新增110个包，没有移除当时已有包坐标；第6步当前固定消费及完整闭包见下文。
-新增同名不同版本属于上游传递依赖，不新增第一方直接依赖的版本分叉。
+SDK与公民链根工作空间分别声明radium0.7.0的固定Git补丁，来源为https://github.com/paritytech/radium-0.7-fork.git，提交为a5da15a15c90fd169d661d206cf0db592487f52b。Cargo不继承Git依赖仓根patch。
 
-第5步已在获批源码中注册Revive pallet35并接入Ethereum交易包装器，真实Runtime、WASM和Node执行验收已通过。Ethereum RPC在第6步获批源码中接入，本轮固定消费、原生锁验证及真实HTTPS/WSS/WASM分叉、最终链和同库重启验收均通过。
-Runtime benchmark已登记Revive并传播其feature；benchmark/try-runtime检查在第5步已通过。正式业务权重保持不变。
-
-第6步正式依赖补充已在SDK与公民链根工作空间声明同一radium0.7.0固定Git补丁，来源为`https://github.com/paritytech/radium-0.7-fork.git`，提交为`a5da15a15c90fd169d661d206cf0db592487f52b`。Cargo不继承Git依赖仓根patch，实际消费工作空间各自声明。公民链已按准确差异授权写入新固定SDK消费及完整RPC闭包，根锁1844包、SDK328包；第一方futures-timer由3.0.4统一锁为3.0.3，仍符合原version="3.0.2"范围，使用已登记的完整WASM依赖，不补下载。iana-time-zone0.1.65继续连接windows-core0.61.2，num_enum_derive0.7.6继续连接proc-macro-crate2.0.0，未接受额外重选。QR当前实际锁没有radium或SDK包，不添加未使用的补丁。根、QR及真实WASM夹具的原生锁验证已通过；本轮Runtime64项与原生收费/签名112项库测试及5项金标集成测试全部通过，benchmark和try-runtime检查通过。真实WASM执行4项已通过，覆盖实际导出上的标准预编译/非法输入/签名单次费用及既有部署/回滚；完整默认Node330项回归、默认二进制构建及真实HTTPS/WSS/WASM网络验收均已通过，包含分叉、最终链与同库重启；本轮只完成本机离线开发验收，生产证书部署、正式链升级及MetaMask实际连接归第8步。
-
-已验收SDK经本机独立保存为`ac4a17f99d39e6e67b47a9e809351a763fe789f0`，源码与通过的验收快照完全一致。产品根与QR已统一正式消费该40位提交，正式锁及两声明回读摘要与获准候选一致。离线原件只由已保存提交物化，当时已缓存的旧SDK来源/174坐标已替换为新来源/328坐标；17仓83份正式Cargo文件无旧提交消费、索引零引用及新bundle包含旧提交历史均核对后，仅删除旧SDK原件。产品原生锁验证、完整Runtime64项、真实WASM执行4项及完整默认Node330项均通过；默认Node二进制构建和真实HTTPS/WSS分叉、最终链及同库重启验收通过。结果限定为本机离线开发验收，不代表远端CI、正式链升级或生产部署。
-
-已选定Ethereum ChainId为十进制`2027`（RPC十六进制表达`0x7eb`），后续Ethereum
+Ethereum ChainId为十进制`2027`（RPC十六进制表达`0x7eb`），后续Ethereum
 签名和Revive配置使用同一编号。现有`SS58_FORMAT = 2027`是地址格式前缀，与ChainId
-含义和配置分别管理，不能用SS58前缀字段替代ChainId。第5步Runtime执行验收已通过，MetaMask真实连接归第8步正式网络验收。
+含义和配置分别管理，不能用SS58前缀字段替代ChainId。
 
-第4步账户与交易方案及Runtime准确文件二次确认均已取得，源码与开发验收完成。
 公民链已在既有`runtime/primitives/src/core_const.rs`声明独立
-`ETHEREUM_CHAIN_ID: u64 = 2027`；第5步Revive配置直接绑定该唯一常量。
+`ETHEREUM_CHAIN_ID: u64 = 2027`；Revive配置直接绑定该唯一常量。
 原32字节`AccountId`、CID/机构派生、余额账本、原生GMB业务签名及多签授权保持原合同。
 Ethereum发送者只采用真实签名恢复的H160，复用官方AccountId32Mapper的
 20字节地址加12字节0xEE映射；无新增余额或绑定交易，不能借地址映射接管现有账户。
@@ -84,96 +60,17 @@ Ethereum发送者只采用真实签名恢复的H160，复用官方AccountId32Map
 nonce沿用System和CheckNonce；上游最大值会回绕到零，严格入口提前拒绝不可递增值。
 Ethereum保留标准签名格式，不能把原生GMB业务签名域拼入Ethereum交易。
 来源标记SetOrigin的布尔字段不进入编码，仅在验签后由Runtime代码设置；
-原生载荷、签名字节和交易编码以实际回归核对，编码不能伪造EthTransaction来源。
-费用仍走第3步接口，未授权的原生业务包装入口继续拒绝。
+编码不能伪造EthTransaction来源。
+费用仍走Runtime费用接口，未授权的原生业务包装入口继续拒绝。
 
-第4步已在SDK测试Runtime验收账户和签名规则。第5步已实现并验收正式Revive Config、Ethereum交易包装器及chain-signing组装；SDK最终固定SHA已用于本机离线消费，远端门禁独立判定推送成功。第6步本机RPC开发验收已完成；MetaMask真实连接归第8步正式网络验收。
-2026年10月5日完整Revive回归666项通过、0失败、1项上游既有忽略；七项新增账户/验签
-回归及真实交易扩展、REVM调用通过，合约失败按确切事件记录并核对value回滚和单次扣费。
-公民链primitives/onchain/chain-signing共116项通过、0失败、0忽略；其文档测试均为0项。
-SDK Revive no_std wasm32编译通过；原生费用规则及两仓冻结Cargo锁摘要保持不变。
-
-公民币仍按原生两位小数记账，单位、发行规则、最低余额及收费规则保持现有实现。
-金额适配必须解决Revive当前`NativeToEthRatio: Get<u32>`无法表达`10^16`倍率的问题；
-收费适配必须解决生产`FeeInfo`要求`BlockRatioFee`与当前按交易金额收费配置的差异，
-不能用默认费用实现或测试用`FeeInfo = ()`替代生产设计。
-
-依赖接入验收须覆盖固定SDK来源、REVM锁版本、默认Runtime与Node、WASM、已有
-benchmark和try-runtime构建、适用回归测试及节点真实运行。2026年10月1日已完成
-离线锁解析、默认Runtime release及源码WASM构建、try-runtime检查；Runtime、primitives、
-onchain现有156项单元测试和5项文档测试通过。生成WASM的锁中Revive、REVM及SDK
-提交与产品锁一致。WASM构建所需18项标准库依赖只在任务缓存引用已登记Rust工具原件，
-未修改工具、产品源码或构建流程。
-
-既有runtime-benchmarks首次检查失败：`runtime/misc/identity/src/benchmarks.rs`
-的7处身份调用未同步当前接口和完整授权签名。经扩大范围二次确认，已补齐调用参数，
-统一按包含创世哈希、当前身份版本和有效期的`CitizenIdentityAuthorization`签名。
-授权有效期使用当前链上时间加既有最大期限，版本读取真实身份版本存储，保留生产验签。
-此修改仅同步benchmark夹具，不更改生产身份接口、签名域、授权规则或权重值。
-修复后benchmark feature原生检查通过，身份模块83项回归通过，真实验签回归通过。
-普通Runtime、primitives、onchain的156项单元测试和5项文档测试再次通过，try-runtime
-检查通过；默认Node构建与150项核心回归也通过，当前源码WASM策略探测和真实P2P
-坏块拒绝均实际执行通过。所有结果使用本轮清空后重新准备的受控环境取得。
-
-第一步依赖接入已完成开发验收。SquarePost基准沿用模块既有`sp_std`依赖显式导入
-`vec`宏及`Vec`，修复no_std编译；联合投票两条生产回调测试仅在生产配置运行，
-benchmark配置单独验证既有`Ignored`回调且发行状态不变，没有改生产回调逻辑。
-本轮生产Runtime、primitives、onchain共156项单元测试及5项文档测试通过；benchmark
-配置下身份83项、Runtime55项、SquarePost38项单元测试全部通过，另有2项既有文档
-示例标记ignored。生产与benchmark源码WASM均构建成功；5条身份基准CLI实际执行
-通过（2 steps / 1 repeat，仅验证运行路径，不用作正式权重校准），输出只写任务缓存。
-当前生产WASM还通过真实节点客户端的候选Runtime策略行为探测，没有因缺少WASM跳过。
-产品锁与WASM生成锁均固定Revive0.19.0、REVM27.1.0及原SDK提交；正式权重没有改动。
-这只完成依赖基础，不表示已经注册Revive、提供Ethereum交易或具备EVM功能。
+公民币按原生两位小数记账，单位、发行规则、最低余额与收费规则由现有Runtime实现。金额适配使用能够表达10^16倍率的类型，生产费用通过Runtime已有报价及扣款器处理，不采用默认空费用实现。
 
 FRAME benchmark用于开发阶段测量执行和存储资源，生产使用事先生成的WeightInfo控制
 区块资源。当前WeightToFee及LengthToFee均为零，实际金额由OnchainChargeAdapter和
 primitives::fee_policy计算，benchmark不会替代公民币制度收费。生产构建不启用
 runtime-benchmarks；新增EVM时资源计量与收费适配分别设计。
 
-### 第二步金额适配（锁解析完成，待消费验收）
-
-2026年10月4日用户确认本步方案并明确“二次确认”，授权现有两份Runtime primitives
-文件及任务卡登记的SDK修改范围。金额边界回归及WASM目标源码库编译已通过，
-本轮已二次授权将产品清单与锁统一到已验收SDK提交
-`1af3efdc2efddee0d40f7e6920ed6dd95deae9ee`；清单已切换，Cargo原生离线锁解析完成，消费验收尚未执行，不能把正式SDK工作树中的实现视为生产已接入。
-
-金额补丁最初保存为SDK本机候选`e539564e42fed793e2cb45e5cbb34e233e1bc8cb`，
-该最初候选随后经补修提交到SDK main；最终固定提交的完整远端验收结果见下文。
-SDK完整门禁前置修复仅涉及自己的工具、离线锁闭包和夹具子构建环境，保留真实Rust、
-solc EVM及resolc PVM夹具编译与完整lib测试；此前跳过夹具条件下的边界回归不能替代它。
-本轮完整夹具构建及3项测试、Revive完整lib的651项测试已通过（另1项为上游既有ignore）。
-宿主函数生成器已按独立二次确认增加仅适用wasm32的env导入声明，修复Rust严格链接
-检查下的宿主符号声明；原生及RISC-V接口保留原行为。四处SDK Runtime的完整check、
-WASM构建及lib测试已通过，合计42项成功、1项上游既有ignore；全部WASM宿主函数
-均明确从env导入。SDK既有WasmExecutor实际宿主调用19项及runtime-interface文档示例
-4项全部通过，包含缺失宿主函数、无效UTF-8和内存释放路径。前置修复已真实保存为
-`e5bd88306e05c79325aff99f6ce1e35b30a2f1f2`，该准确洁净快照的七个变化crate完整门禁及
-原生1项、WASM执行器19项、文档4项均通过。独立远端准备补修已保存并推送为
-`a93ed7b73119fdf4edb512943dba616bd9d53ba1`，本机准确快照完整门禁通过；远端工具准备
-通过后在独占普通文件校验失败，尚未开始远端联合闭包准备及编译。后续无硬链接安装及
-完整自有差异验收补修已保存并推送为`61940104202fae6c44303a6d04e49f9643b2b5e7`，
-14项门禁回归、本机准确SHA门禁及远端1556项完整闭包准备通过；远端随后在首个Runtime的
-WASM构建失败，因缺少同一Rust的wasm32-unknown-unknown目标组件，尚未完成完整Rust验收。
-同版本WASM目标补修已保存并推送为`7c096069384c67818b49cda5d61628cdefb9505b`，
-14项回归及actionlint、本机准确SHA增量门禁通过，远端main回读一致；同push
-Run37270776741最终失败：WASM目标安装及1556项联合闭包准备通过，按门禁执行顺序已越过
-首个Runtime的check，在其lib测试编译时遇到锁内rustix0.37.23的Linux原始系统调用后端
-使用Rust1.97.1拒绝的rustc内部属性。后续完整矩阵未执行，不能标远端验收成功。
-原生官方libc后端交付补修已保存并推送为`fb919c92e8f2929059f2e60a670b6ae834b4f755`，
-14项回归、actionlint及本机准确SHA增量门禁通过，远端main回读一致；新push
-Run37332072845最终失败：工具交付及1556项闭包准备通过，首个Runtime的lib测试触发
-westend-runtime的WASM子构建时，父构建CARGO_CFG_RUSTIX_USE_LIBC泄漏使rustix0.38.42
-错误选择libc后端，而子Cargo依赖图没有该后端依赖，产生28项未解析导入错误。
-真实同版本Cargo离线诊断已复现继承时失败、清除该变量时通过；正式源码隔离补修本轮已二次确认，15项直接回归通过并保存为25a40b8139099753dfb12bbbda412577fb23149f。
-正常App任务890700097在上传前的测试检查失败，未触发新远端Run。新增测试的子Cargo漏传已有macOS宿主链接器及SDK输入，受管PATH诊断实际报linker cc not found；已在同一获准测试中保留调用方公开交付的DEVELOPER_DIR、SDKROOT及Apple宿主目标链接器，仍使用同一Rust对象和冻结离线锁。完整矩阵尚待验收。
-修正后现有交付函数的受管环境15项全部通过，正常App保存1af3efdc2efddee0d40f7e6920ed6dd95deae9ee，并通过准确SHA本地增量门禁（changed_crates为substrate-wasm-builder）；上传及远端main回读一致。完整push Run37339936197、Job111864145981最终均success。
-正常App任务624947459于2026-10-05T16:49:31.524Z因等待超时收口failed/exit1，准确Run当时仍在运行。控制台回查固定上限30分钟，SDK Job固定上限240分钟；二者的终态必须分开核实，当前没有重新推送或改控制台流程。
-该准确Run及Job随后completed/success，17:11:04.7752914Z门禁成功JSON覆盖initial_sha至1af3efdc的全部8crate；1556闭包、15项Node回归、8crate的check/lib及3组宿主检查按同提交严格实现完成，未跳过夹具或WASM，远端main最终回读同SHA。Rust单项计数未在成功日志输出，不能使用Mac计数替代Linux证据。SDK源代码完整Linux验收已通过。用户确认后，真实App通过现有NOOP流程回查同一成功Run；任务927260544于2026-10-05T17:28:05.526Z真实success/exit0，main与准确Run保持1af3efdc，无新提交或新Run。获准旧Run37270776741、37216489940及日志已永久清理，两者Artifact均0；远端仅保留当前成功37339936197与较新失败37332072845。原App超时失败记录保留，费用及公民链消费SHA未改。
-本次App在远端执行期间先因回查连接失败收口，远端Run后续失败由准确Job日志独立核实；
-二者不能混为同一错误，也不能标完整远端验收成功。
-消费接入统一固定SDK提交，原费用模型保持不变；当前验收结果以唯一任务卡为准。
-SDK消费提交由本仓Cargo声明与原始锁文件固定为7f115f0825a59df94faabe7074ec83c3e9463c7d；锁定Git原件保留该准确提交与完整历史，registry原件按产品锁定版本与摘要物化。消费验收使用--locked --offline，禁止解析时漂移包、版本、来源、checksum或传递连接。完整离线闭包、源码WASM、Runtime与Node的实际验收证据只记录在唯一任务卡。
+### 原生与Ethereum金额适配
 
 原生账本永久按`u128`分记账：`TOKEN_DECIMALS=2`、最小1分、100分=1 GMB、
 最低余额111分。`EVM_DECIMALS=18`仅为兼容表达，`NATIVE_TO_ETH_RATIO=10^16`。
@@ -205,7 +102,7 @@ deactivate或在销毁时配对burn。外层CREATE也必须登记本次创建集
 付款人、80/10/10分配、Free路径、非零tip拒绝和不退交易费均不改。
 1分只是原生金额协议下限，不能覆盖上述收费。ERC-20资产精度不属于原生GMB边界。
 
-第3步费用适配直接复用现有 `onchain::charge_details` 只读入口，计算函数体不变；
+费用适配直接复用现有 `onchain::charge_details` 只读入口，计算函数体不变；
 免费及业务内清算返回无外层扣款，拒绝项继续拒绝。实际付款、单次扣款、FeePaid和
 80/10/10分账仍由现有OnchainChargeAdapter及OnchainFeeRouter完成。SDK不复制费率、
 最低费、分类或付款账户计算。内部CALL/CREATE数量和底层余额转移不新增收费事项。
@@ -222,18 +119,11 @@ proof_size也受上限约束，不以gas决定公民币费用。钱包已签金�
 舍入补扣，实际费用以FeePaid为准，不承诺gasUsed乘gasPrice等于公民链实际费用。
 原生业务包装及合约内部runtime派发在未完成逐项授权与原有费用路由前继续拒绝。
 
-第3步源码开发验收已通过：SDK Revive完整回归659项通过、0失败、1项上游既有忽略；
-公民链onchain及primitives回归110项通过、0失败，SDK no_std WASM目标编译通过。
-SDK测试Runtime实际执行了验签、交易扩展扣款、REVM、失败及模拟回滚；这不代表生产接入。
-上述第3步结果只证明该阶段费用适配。第5步正式Runtime账户/交易入口已完成执行验收；RPC属于第6步。
-固定SDK消费SHA不因工作树改动自动切换。
-
 ### 标准Precompiles及RPC费用边界
 
 Runtime的`Precompiles = ()`仅表示没有自定义业务预编译；官方集合仍组合Builtin，
 支持0x01至0x09及P256验证0x100。KZG点求值0x0a仍为明确不支持，不能宣称完整
-Cancun预编译支持。第6步只在既有Runtime测试中增加真实签名入口、共识向量、失败
-输入、P256无效签名和模拟回滚覆盖，不修改Runtime生产配置或费用实现。
+Cancun预编译支持。
 
 原生业务不增加Precompile或新ABI；任何合约内部Runtime派发仍受既有过滤、权限
 和收费路由约束。不能把SDK的System/Storage内置工具当作已授权的公民业务入口。
@@ -242,25 +132,19 @@ Cancun预编译支持。第6步只在既有Runtime测试中增加真实签名入
 
 Ethereum RPC回执的gasUsed/cumulativeGasUsed只描述资源，不参与GMB扣费计算。
 真实费用继续以OnchainTransaction::FeePaid及既有费用查询为真源，倍率10^16、
-111分ED、付款人和80/10/10分账保持原合同；非整分金额继续拒绝。第6步新增两项
-标准向量/非法输入及模拟根回滚测试已包含在实际通过的完整Runtime64项中；
-对应真实WASM执行4项已全部通过，禁止原生回退；完整默认Node330项及默认二进制构建通过，真实HTTPS/WSS验证签名执行、回执/日志、重组、GRANDPA最终状态及同库重启。本轮费用与ED分别核验，费用制度不变；结果限定为本机离线开发验收。
+111分ED、付款人和80/10/10分账保持原合同；非整分金额继续拒绝。
 
-第2步的金额边界阶段未注册Revive或接入Ethereum账户/签名/交易/RPC；当前第5步源码状态以本文执行注册章节为准。本任务不改既有业务创世授权或兑换资产。
-完成SDK验证并取得准确消费提交授权后，才统一公民链主体、QR协议Cargo声明及实际
-受影响锁；不得修改Cargo缓存中的依赖源码。验收覆盖精确往返、非法金额、底层和内部
-调用、状态覆盖恢复、真实ED出资及发行量不变。余额查询沿用SDK扣除最低余额和冻结
-限制的可用余额口径，账户及RPC步骤须明确该口径，不能额外加到账本或自动补发。
+余额查询沿用SDK扣除最低余额和冻结限制后的可用余额，不向原生账本额外补发或增加金额。
 
 Runtime是完整CitizenChain产品的wasm平台组件，受控缓存固定为 `citizenchain/target/wasm/<build|ci|release|publish>/`，不增加旧仓库层、`runs/` 或 `start/`。开发升级下载、冷签会话工作文件和回执属于 `publish/`；Runtime Build 的 Cargo 目标、日志和临时文件属于 `build/`。
 
-## 2026-09-02 本机 WASM 编译入口
+## 本机WASM编译入口
 
 本文是 CitizenChain Runtime 唯一技术事实文档，统一收录运行时模块、链上数据、治理、发行、交易、权重与协议边界。
 
 ### runtime admins 技术文档
 
-最新更新：2026-07-20。`citizenchain/runtime/admins/` 由四个 crate 组成，管理员链上状态按管理员类型分别保存在各自 pallet。
+`citizenchain/runtime/admins/` 由四个 crate 组成，管理员链上状态按管理员类型分别保存在各自 pallet。
 
 #### 模块边界
 
@@ -319,7 +203,7 @@ Runtime是完整CitizenChain产品的wasm平台组件，受控缓存固定为 `c
 - 机构管理员名册更换不得附带阈值变更；机构阈值只由对应 entity 配置，任职结果同样不能隐式改阈值。
 - 国家储委会、省储委会、省储行、国家司法院固定人数；国家司法院岗位为 7 护宪、1 首席、2 次席、5 大法官。
 - FRG 在 `publicadmin` 只有一个含 215 个钱包的机构管理员集合；43 个省专员岗位、每岗5人的分组真源在 entity 任职 storage，不存在虚拟省组账户。省域业务只能授权对应省专员 `RoleSubject`，不能授权 FRG 全体 admins。
-- 岗位任职不得驱动管理员更换；public/private admins 当前不暴露对外管理员集合变更 extrinsic，管理员维护入口在第2步单独实现。
+- 岗位任职不得驱动管理员更换；public/private admins 当前不暴露对外管理员集合变更 extrinsic。
 - ADR-039 目标 NodeGuard 保护强制 LR 和创世固定岗位的码、名、固定权限及制度席位；创世机构可以依法增加普通动态岗位，不能再因存在额外岗位而拒绝。固定岗位成员可依法原子轮换。
 - 私权创世的公民链基金会固定为一名程伟管理员、三个固定岗位各一席和机构阈值 2；同一程伟钱包同时任职三岗。固定岗位不能改名、停用、增删或扩席，但不能为了满足阈值而伪造多个钱包或降低阈值。
 - `publicadmin`、`privateadmin` 没有 `WeightInfo` 和 `weights.rs`；其写入仅由 entity 生命周期内部接口调用。
@@ -337,21 +221,11 @@ Runtime是完整CitizenChain产品的wasm平台组件，受控缓存固定为 `c
 |------|----------------|
 | `personaladmin` | `29.0 propose_admin_set_change` |
 
-#### 验证命令
-
-```bash
-cargo check --manifest-path citizenchain/Cargo.toml -p node
-cargo test --manifest-path citizenchain/Cargo.toml -p publicadmin -p privateadmin -p personaladmin -p publicentity -p privateentity -p personalentity -p multisig --lib
-cargo test --manifest-path citizenchain/Cargo.toml -p runtime --lib
-```
-
 ### entitybase 技术说明
 
 模块：`entitybase`
 
 职责：实体生命周期共用类型与 trait。该 crate 不含 storage、不含 extrinsic、不保存 CID 登记状态。
-
-ADR-039 已冻结机构岗位权限目标模型。任务卡第 2 步已落地共享授权类型，第 3 步已落地岗位权限 storage、任职有效期和动态岗位生命周期，第 4 步已落地稳定业务动作目录与创世固定权限；投票快照和具体业务接入仍按后续步骤实施。
 
 #### 边界
 
@@ -364,13 +238,11 @@ ADR-039 已冻结机构岗位权限目标模型。任务卡第 2 步已落地共
 - 已定义 `RoleSubject { cid_number, role_code }`，作为机构业务授权和机构岗位投票资格的唯一主体。
 - 已定义 `BusinessActionId { module_tag, action_code: u32 }`、`RoleBusinessPermission { role_subject, business_action_id, operation }` 和 `AuthorizationSubject` 强类型；个人多签使用 discriminant `1` 的独立 `PersonalMultisig(AccountId)` 变体。
 - `RolePermissionOperation` 的 SCALE discriminant 固定为 `Propose = 0`、`Vote = 1`；`AuthorizationSubject` 固定为 `Institution = 0`、`PersonalMultisig = 1`。
-- 跨端 SCALE 金标唯一文件为受保护测试资产 `citizenchain/runtime/primitives/tests/fixtures/role_permission.json`；Node 使用本 crate 共享类型逐字节解码，OnChina、CitizenApp、CitizenWallet 对同一金标严格解码并拒绝尾随字段。
+- Node使用entitybase共享类型解码SCALE；OnChina、CitizenApp和CitizenWallet对同一协议严格解码并拒绝尾随字段。
 - 定义 `InstitutionCapabilityPolicy` 与 `InstitutionRoleAuthorizationQuery`，供业务模块校验“CID 顶层能力 + 岗位权限 + 有效任职”；本 crate 只定义 trait，不保存权限 storage、不选择投票引擎。
 - `business_action.rs` 是稳定 `module_tag/action_code` 与受保护创世岗位固定权限唯一目录；协议升级与决议发行采用同一联合权限矩阵：NRC/PRC 委员岗位拥有 `Propose + Vote`，PRB 正式 `DIRECTOR / 董事` 只有 `Vote`。该目录不选择投票引擎，也不表示尚未迁移的业务已经按岗位执法。
 - CREG 顶层登记业务能力由同文件 `registry_institution_capability_allows` 单源声明，不属于固定创世岗位目录，也不创建岗位、权限或任职。仅允许 `Propose`：`cit-id` 的 0/1/2/3/4/6/7/8、`addr-reg` 的 1/2/3/4、`ins-reg` 的 0；全国地址目录版本 `addr-reg/0`、未列出的动作与 `Vote` 均不在新增范围。
 - Runtime 先确认完整 CID 唯一存在于公权 entity，才接入上述目录；私权命名空间、重复 CID、未登记机构均不得借 CREG 类型取得能力。实际业务继续同时校验在册管理员、准确岗位主体、具体权限、有效任职和原有辖区；实名身份与地址限本市，匿名 CID 保持原有全国注册局规则，CREG 不得登记其它 CREG。
-- 2026-11-14 分步实施第1步只补齐上述顶层能力及 OnChina 候选查询的一致性，不改变管理员登记 call 9、首次岗位初始化或任何 SCALE 编码。复用现有 `role_permission.json` 金标，新增测试夹具在原测试文件内定义；后续步骤另行确认。
-- 第1步验收：`cargo test -p entitybase --lib --locked --offline` 15项通过；`cargo test -p runtime --lib --locked --offline` 85项通过、0失败、2项原有性能用例按既有固定环境要求忽略。新增断言覆盖唯一公权实体、无管理员/权限/有效任职拒绝、实名和地址跨辖区拒绝、全国目录版本拒绝及匿名CID原规则。`cargo check -p entitybase -p runtime -p onchina --locked --offline` 和差异格式检查通过；编译仍有既有未使用项/依赖兼容性提示，不扩大本步文件修改范围。
 - 机构内 `role_code` 与 `role_name` 分别唯一；同名多人属于一个岗位的多个任职席位。一个管理员可以担任多个不同岗位，但同一岗位内不得重复占席。
 - 每个机构唯一的 `LR / 法定代表人` 岗位永久存在，任职只能为 0 或 1 人；法定代表人结构与 LR 任职必须原子一致。岗位不保存阈值，阈值属于机构或业务绑定的投票计划。
 - 复用 `primitives::multisig` 的账户校验、保留地址、保护地址 trait。
@@ -427,7 +299,7 @@ pending 处理。
 - 机构唯一主键是 `cid_number`；`Institutions[cid_number]` 保存机构信息。
 - `InstitutionAccounts[(cid_number, account_name)]` 是账户正向真源，`AccountRegisteredCid[address]` 只是反向索引；不存在 CID 到账户的重复正向表、生命周期状态或默认账户标志。
 - 普通机构必须具有主账户、费用账户；特殊制度账户统一由 `primitives::institution_constraints` 决定。协议账户恰好一个且永久不可关闭，只有 `InstitutionNamed` 可关闭。
-- 第 6 步新机构创建业务必须把全部协议账户以零余额原子建立；后续入金另走账户交易。
+- 新机构创建业务必须把全部协议账户以零余额原子建立；后续入金另走账户交易。
 
 #### 管理员与岗位
 
@@ -445,7 +317,7 @@ pending 处理。
 
 #### 链上入口
 
-- call 5 已永久关闭并从 metadata/QR/钱包解码移除。普通机构创建由第 6 步的新业务模块原子提交 admins、完整零余额协议账户、强制 LR、至少一个初始治理岗位及固定权限、初始任职和初始投票规则；不得恢复旧直接创建载荷。
+- call 5 已永久关闭并从 metadata/QR/钱包解码移除。普通机构创建由机构创建业务模块原子提交 admins、完整零余额协议账户、强制 LR、至少一个初始治理岗位及固定权限、初始任职和初始投票规则；不得恢复旧直接创建载荷。
 - `update_institution_info`（call 6）：注册局管理员更新目标机构名称。
 - `add_institution_account`（call 7）：注册局管理员给目标 CID 新增自定义账户。
 - `propose_institution_governance`（call 8）：本机构指定岗位任职人发起内部治理提案；SCALE 在 `actor_cid_number` 后固定编码独立 `proposer_role_code`。入口校验完整 `RoleSubject + pri-mgmt/3 + Propose`，再按同一 CID 拥有 `Vote` 权限的岗位构造内部 `VotePlan`。通过后可原子替换 `admins`、变更动态岗位/任职、整体设置或清空法定代表人结构；岗位任职来源必须是 `InstitutionGovernance`，不得伪装成普选、互选或任命结果。
@@ -480,7 +352,7 @@ pending 处理。
 - `Institutions[cid_number]` 保存机构信息；`InstitutionAccounts[(cid_number, account_name)]` 是账户正向真源；`AccountRegisteredCid[address]` 仅作反向索引。
 - 不保存机构/账户生命周期状态、默认账户标志、CID 到账户的重复正向表或创世保护旁路。
 - 普通机构强制主账户和费用账户；特殊机构由 `primitives::institution_constraints::required_protocol_account_kinds` 返回完整协议账户集合。每种协议账户恰好一个且永远不可关闭，只有 `InstitutionNamed` 自定义账户可关闭。
-- 逻辑账户允许零余额；第 6 步新机构创建业务必须把全部协议账户以零余额原子建立，后续入金另走账户交易。
+- 逻辑账户允许零余额；新机构创建业务必须把全部协议账户以零余额原子建立，后续入金另走账户交易。
 
 #### 管理员、岗位与授权
 
@@ -497,7 +369,7 @@ pending 处理。
 
 #### 链上入口
 
-- call 5 已永久关闭并从 metadata/QR/钱包解码移除。普通机构创建由第 6 步的新业务模块原子提交 admins、完整零余额协议账户、强制 LR、至少一个初始治理岗位及固定权限、初始任职和初始投票规则；不得恢复旧直接创建载荷。
+- call 5 已永久关闭并从 metadata/QR/钱包解码移除。普通机构创建由机构创建业务模块原子提交 admins、完整零余额协议账户、强制 LR、至少一个初始治理岗位及固定权限、初始任职和初始投票规则；不得恢复旧直接创建载荷。
 - `update_institution_info`（call 6）：注册局管理员更新目标机构名称。
 - `add_institution_account`（call 7）：注册局管理员给目标 CID 批量新增自定义账户。
 - `propose_institution_governance`（call 8）：本机构指定岗位任职人发起内部治理提案；SCALE 在 `actor_cid_number` 后固定编码独立 `proposer_role_code`。入口校验完整 `RoleSubject + pub-mgmt/3 + Propose`，再按同一 CID 拥有 `Vote` 权限的岗位构造内部 `VotePlan`。通过后可原子替换 `admins`、变更动态岗位/任职、整体设置或清空法定代表人结构；岗位任职来源必须是 `InstitutionGovernance`，不得伪装成普选、互选或任命结果。
@@ -559,18 +431,17 @@ runtime/genesis/src/
 私权创世机构“公民链技术发展基金会”是 SFGY 非营利法人，也是唯一在创世明确携带法定代表人的例外：
 
 - 基金会简称“公民链基金会”，英文全称 `CitizenChain Technology Development Foundation`，英文简称 `CitizenChain Technology Foundation`；CID `GZ018-SFGYR-201206100-2026`，主账户 `0xaa23304c7b663ba25a9d3a2fb1efafdd650ecf2504a2caedc228fe81b46b4333`，费用账户 `0xe4837d50cd5ef677c9b10ea49baf8c7d60cf11b422d748377e9e5f750640e927`；
-- 法定代表人为程伟，公民 CID 引用 `CN220-CTZN2-198805200-2026`，法定代表人账户 `0x0cb1d05c0c9c7f05679b60d6f24c7e5719a3985264e41c5e899d4822dca4b06b`（model B //0，2026-07-27 重新创世）；创世不伪造第二份公民记录，后续由对应注册局依法从链上公民真源核验；
+- 法定代表人为程伟，公民 CID 引用 `CN220-CTZN2-198805200-2026`，法定代表人账户 `0x0cb1d05c0c9c7f05679b60d6f24c7e5719a3985264e41c5e899d4822dca4b06b`（model B //0）；创世不伪造第二份公民记录，后续由对应注册局依法从链上公民真源核验；
 - 只创建一条程伟管理员人员记录 `Admin { account_id, cid_number, family_name, given_name }`；同一账户分别任职 `LR / 法定代表人`、`GENESIS_PRODUCT_MANAGER / 创世产品经理`、`GENESIS_PROGRAMMER / 创世程序员`，每岗一席。三岗的岗位码、岗位名和岗位权限永久固定，但基金会仍可增加普通动态岗位；
 - `PrivateAdmins::AdminAccounts`、三项 `PrivateManage` 岗位/任职和 `PrivateManage::InstitutionGovernanceThresholds[cid_number] = 2` 在同一创世构建中写入。阈值 2 是机构阈值，不与唯一管理员钱包数量绑定；
 - 基金会身份、主/费用协议账户以及三个固定岗位治理骨架受 NodeGuard 保护，成员依法轮换必须通过同一原子治理结果同步更新 admins 和岗位任职，不能裸改其中一侧；NodeGuard 不得禁止新增普通动态岗位。
 
-#### 1.1 ADR-039 目标创世权限（实现中）
+#### 1.1 创世固定岗位权限
 
 - 创世 seeder 必须为全部创世固定岗位写入固定 `RoleBusinessPermission`，不能只写岗位码、名称和席位。
 - 创世 admins 只作为可任职人员集合，不直接取得业务权限；业务权限必须来自固定岗位的有效创世任职。
 - 全部创世固定岗位使用既定固定码；动态岗位码生成使用所属 pallet 的 `MODULE_TAG` 作哈希域，但 genesis 不用动态算法替代固定码。
 - 普通机构不由 genesis seeder 创建；其运行期创建必须原子建立 LR、至少一个初始治理岗位及权限、任职和投票规则。
-- 本节是 ADR-039 目标，runtime/genesis 与 NodeGuard 代码迁移分别在任务卡第 3、4 步执行。
 
 #### 2. 五个受守卫字段
 
@@ -604,7 +475,6 @@ FRAME `StorageVersion` 必须保持 0。旧 `TargetBlockTimeMs` 已删除，同�
 - 两个字段只能在同一个包含 `:code` 变化的 runtime 升级区块中原子写入；
 - 禁止普通区块修改、部分修改、显式写回创世默认值、反向切换和重新启用开发者直升；
 - 转为 `Operation` 后永久冻结；
-- 本轮没有自动执行阶段切换，正式切换仍需单独确认迁移和治理授权。
 
 #### 4. 公共接口
 
@@ -641,27 +511,12 @@ pub trait DeveloperUpgradeCheck {
 4. 完整状态导入：整个 pallet 前缀进入共享单遍分区，未知 key、缺失值、错误 SCALE、
    尾随字节和非规范状态全部拒绝。
 
-#### 7. 测试与验收
-
-- `genesis` 单元测试：默认阶段、开发者开关、trait、阶段模拟和创世配置；
-- NodeGuard 策略测试：RAW key、两种规范状态、三个固定事实、未知旧字段、畸形 SCALE、
-  非规范默认写回、合法原子转换、无 `:code`、部分转换、反向转换和固定事实触碰；
-- NodeGuard 真实 runtime 创世完整状态测试确认五字段策略参与共享扫描和拒绝链路；
-- 最终结果以任务卡中的本轮编译、WASM 和 fresh 节点真实验收记录为准。
-
-2026-07-25 第8.1步 WASM 复验：首次 CI no_std 编译发现
-`institution/seeder.rs` 使用 `vec![]` 后只导入了 `alloc::vec::Vec`。修复仅补充
-`alloc::vec` 宏导入；创世集合内容、顺序、账户、岗位、管理员和余额完全不变。修复后
-`genesis --no-default-features`、模块严格 Clippy 和当前源码 release WASM
-构建均通过。
-
 #### 8. 文件索引
 
 - `citizenchain/runtime/genesis/src/lib.rs`：类型、存储、创世构建和开发者升级查询；
 - `citizenchain/runtime/genesis/src/roles.rs`：89 个公权受保护创世机构的固定岗位、席位和钱包索引映射；
 - PRS、NLG、NSN、NRP、NSP、NED 六个国家级单例在 block#0 写精确机构身份、制度账户和唯一空缺 `LR / 法定代表人` 岗位，不写成员岗位、任职、admins 或动态阈值。首次组成前先独立登记 admins；其中 NSN、NRP、NED 还受法定成员岗位与人数区间约束。
 - `citizenchain/runtime/genesis/src/institution.rs`：公私权创世机构、岗位、任职和管理员钱包唯一写入方；公民链基金会写入 `privateentity` / `privateadmin`，不污染公权目录；
-- `citizenchain/runtime/genesis/tests/`：阶段存储与私有岗位映射单元测试；
 - `citizenchain/runtime/primitives/src/genesis.rs`：三个创世事实的固定真源；
 - `citizenchain/runtime/genesis/src/config.rs`：真实 runtime genesis patch；
 - `citizenchain/node/guard/src/phase.rs`：节点独立永久规则。
@@ -849,27 +704,6 @@ PRC 只由本 PRC 的 9 个委员岗位投票，机构阈值为 6。投票资格
 非秘密的待处理状态保存为 `<app_data>/grandpa-key-change.json`；GRANDPA 私钥只保存
 在节点 `gran` keystore，不写入该状态文件、日志或前端。
 
-#### 11. 测试与验收
-
-Runtime 测试至少覆盖：
-
-- call index `0/1` 连续且 SCALE 布局固定；
-- 正常更换岗位授权、双签、nonce、过期和延迟生效；
-- 紧急恢复只生成目标机构内部投票；
-- NRC `13/19`、PRC `6/9` 的机构阈值来自现有机构配置；
-- PRB、跨机构委员、无任职管理员和无权限岗位被拒绝；
-- 无效、弱、相同、已使用和已预留公钥被拒绝；
-- pending 冲突、回调重试、否决和确定失败清理；
-- 只有实际 authority set 已切换后才更新当前公钥索引。
-
-节点验收至少覆盖：
-
-- 新私钥写入时保留旧私钥；
-- finalized 前不删除旧私钥；
-- finalized 状态确认新 authority 生效后删除旧私钥；
-- 未提交且证明过期的新候选私钥可安全清理；
-- 两条 call 均能被节点和离线钱包按同一二维码注册表解析。
-
 #### 0. 功能需求
 `destroy` 的功能需求是：为国家储委会、各省储委会、各省储行提供“机构自有资金销毁”治理流程，由拥有该业务权限的岗位有效任职人发起、岗位快照选民投票，在提案通过后自动或手动执行链上销毁。
 
@@ -1045,37 +879,11 @@ pub struct DestroyAction<AccountId, Balance> {
 
 注:本模块不暴露独立 execute wrapper extrinsic,手动重试走 `VotingEngine::retry_passed_proposal`(pallet 9.4),权重由投票引擎统一计入。
 
-2026-07-19 已用当前源码导出的临时 fresh spec 和 benchmark runtime、50 steps / 20 repeats 重新生成正式权重：`239 ms / proof 584308 / 25 reads / 23 writes`。benchmark 脚本显式使用 `spec-genesis`，不读取冻结 chainspec 或裸 WASM 创世。
-
----
-
-#### 9. 测试覆盖
-运行命令：
-```
-cargo test --offline --manifest-path citizenchain/runtime/governance/destroy/Cargo.toml -- --nocapture
-```
-
-当前结果：16 passed
-
-覆盖重点：
-- NRC/PRC/PRB 三种组织达阈值自动执行销毁
-- 非目标岗位任职人或无该业务权限的岗位不能发起，非岗位快照选民不能投票
-- 零金额拒绝 + 余额不足拒绝
-- ED 保留校验（销毁全部余额被拒）
-- 自动执行失败后手动执行成功
-- 被拒绝提案不阻塞新提案
-- 已执行提案不阻塞新提案
-- 重复投票由投票引擎拒绝
-- 非岗位有效选民快照成员不能触发投票引擎 retry
-- 无效机构返回 None
-- mock runtime 已接入岗位授权查询和机构 `VotePlan`，机构路径不写 `AdminSnapshot`
-
 ---
 
 #### 10. 运维建议
 1. 监控 `DestroyExecutionFailed` 事件，出现后优先补齐机构余额，再由提案任一冻结岗位 `VoterSnapshot` 成员调用 `VotingEngine::retry_passed_proposal`（pallet 9.4）。
 2. 若 3 次手动执行仍失败，或超过 `ExecutionRetryGraceBlocks` 无人处理，提案会由投票引擎统一转 `STATUS_EXECUTION_FAILED`。
-3. 业务或岗位快照读写变化后必须重新运行 benchmark；不得复用本次权重掩盖后续存储变化。
 
 ##### 0.1 模块职责
 `upgrade` 负责把"Runtime wasm 升级"包装成一个受治理约束的链上流程，核心要求是：
@@ -1275,84 +1083,20 @@ Runtime 配置位置：
 
 Runtime 层的 `RuntimeJointVoteResultCallback` 负责路由：先尝试 `resolutionissue`，再尝试 `upgrade`。
 
-##### 7.1 已修复风险：执行失败误记为 Passed
-旧实现中，联合投票通过后会先把提案写成 `Passed` 并清空 `code`，再尝试执行 `set_code`。如果执行失败：
-- 链上状态仍显示 `Passed`
-- 原始 code 已丢失
+##### 7.1 执行结果与状态
 
-现已修复：
-- 先执行，根据结果返回 `ProposalExecutionOutcome`
-- 执行成功由投票引擎进入 `STATUS_EXECUTED`
-- 执行失败由投票引擎进入 `STATUS_EXECUTION_FAILED`
-- 业务摘要不再保存业务状态字段
+业务执行返回ProposalExecutionOutcome，由投票引擎统一记录结果：通过且执行成功写STATUS_EXECUTED，否决保持STATUS_REJECTED，通过但执行失败写STATUS_EXECUTION_FAILED。查询层以engingcore的Proposal.status为准，业务摘要只保存proposer、reason及code_hash。
 
-##### 7.2 已修复风险：大 wasm 直接塞入 ProposalData 导致提案创建失败
-旧实现中整份 runtime wasm 会直接编码进 `ProposalData`，而投票引擎通用摘要存储无法承载 MB 级对象，runtime 升级提案会在创建阶段触发 `ProposalDataTooLarge`。
+##### 7.2 WASM对象与容量
 
-现已修复：
-- `ProposalData` 只存摘要
-- wasm 改为统一写入投票引擎对象层 `ProposalObject`
-- 创建提案时通过 `create_joint_proposal_with_data_and_object` 一次性原子写入，后续不暴露对象覆写入口
-- 投票引擎摘要上限提升到 `100KB`
-- 投票引擎对象层上限提升到 `10MB`
-- runtime 升级业务自身 `MaxRuntimeCodeSize` 继续保持 `5MB`
+ProposalData仅保存摘要，Runtime WASM存入投票引擎ProposalObject，通过create_joint_proposal_with_data_and_object原子创建，不提供对象覆写入口。摘要上限100KB，对象层上限10MB，升级业务MaxRuntimeCodeSize为5MB。
 
-##### 7.3 已修复风险：投票引擎状态与业务执行结果脱节
-旧实现/旧文档把投票引擎终态过度抽象成统一的 `STATUS_EXECUTED`，无法准确表达“联合投票已通过，但 runtime code 执行失败”的差异，也容易让查询层误判真实业务结果。
+##### 7.3 执行权重
 
-现已修复：
-- 联合投票通过且执行成功时写入 `STATUS_EXECUTED`
-- 联合投票拒绝时保持 `STATUS_REJECTED`
-- 联合投票通过但执行失败时写入 `STATUS_EXECUTION_FAILED`
-- 查询层文档已明确：展示真实升级结果时以 engingcore 的 `Proposal.status` 为准，业务摘要只用于展示 proposer/reason/code_hash
+propose_runtime_upgrade权重计入机构岗位、有效选民快照及ProposalVotePlans。终结执行成本由投票引擎联合终态回调路径承担，不提供独立finalize_joint_vote权重入口。
+##### 7.4 回调入口
 
-##### 7.4 已修复风险：benchmark 与实际逻辑不一致
-旧版 benchmark 存在偏差。现已修复：
-- `propose_runtime_upgrade` benchmark 改为真实 extrinsic
-- `propose_runtime_upgrade` benchmark 已删除人口快照、联合签名、省份和签名管理员公钥参数。
-- benchmark 环境先构建真实创世机构，再写入 NRC/PRC 委员与 PRB 董事岗位、任职和固定权限，不再用 admins 伪装业务授权。
-- 权重已用当前 benchmark runtime WASM、50 steps / 20 repeats 重算：367 reads / 281 writes，参考时间 12.483 s，并真实计入 87 个岗位快照、87 个 CID 有效选民快照与 `ProposalVotePlans`。
-- `finalize_joint_vote` benchmark 与权重项已删除，终结执行成本由 `engingcore` 的联合投票终态回调路径覆盖。
-
-##### 7.5 已收口入口
-1. `finalize_joint_vote` 手工 Root 入口已删除，只保留 engingcore callback。
-
-#### 8. 中文注释覆盖重点
-本模块当前已在以下关键位置补充注释：
-- `RuntimeCodeExecutor` 职责边界
-- `propose_runtime_upgrade` 与 engingcore 的职责边界
-- 联合投票通过后的执行/失败分叉
-- `ProposalExecutionOutcome::Executed / FatalFailed` 与投票引擎状态的映射原因
-- `on_joint_vote_finalized` 回调入口
-
-#### 9. 测试覆盖
-已覆盖（当前单测与框架完整性检查共 20 个测试）：
-- NRC 和 PRC 委员岗位有效任职账户可发起提案，普通 staff 即使属于 admins 也被拒绝
-- `VotePlan` 精确绑定 44 个委员主体、43 个董事主体、联合引擎与 runtime WASM 对象哈希
-- 提案摘要与对象数据正确分别存入 engingcore
-- 联合投票拒绝时保持 engingcore `STATUS_REJECTED`（含 wasm 对象保留到统一清理）
-- 联合投票通过并成功执行进入 engingcore `STATUS_EXECUTED`
-- 联合投票通过但执行失败进入 engingcore `STATUS_EXECUTION_FAILED`
-- 联合投票通过成功时投票引擎状态进入 `STATUS_EXECUTED`
-- `owns_proposal` 能正确识别本模块提案
-- 已终结的提案不可重复终结（`ProposalNotVoting`）
-- 不存在的提案终结失败（`ProposalNotFound`）
-- 开发者直升：国家储委会管理员可直接升级
-- 开发者直升：省储委会管理员拒绝（`BadOrigin`）
-- 开发者直升：开关关闭时拒绝（`DeveloperUpgradeDisabled`）
-- 开发者直升：非国家储委会管理员拒绝（`BadOrigin`）
-- 开发者直升：空 code 拒绝（`EmptyRuntimeCode`）
-- GenesisConfig 构建成功
-- Runtime 完整性检查
-
-Runtime 集成测试：
-- 不存在的 proposal_id 回调返回错误
-- 回调正确路由到本模块并执行拒绝流程
-
-本地验证：
-- 2026-05-10 `cargo test --manifest-path citizenchain/Cargo.toml -p upgrade --lib`：通过，17 passed。
-- 2026-05-10 `cargo check --manifest-path citizenchain/Cargo.toml -p upgrade`：通过。
-- 已执行格式整理与残留扫描。
+升级终结仅通过投票引擎callback进入，不提供手工Root终结入口。
 
 #### 10. 文件索引
 - 模块代码：`src/lib.rs`
@@ -1507,31 +1251,9 @@ finalize，`src/weights.rs` 由 Substrate benchmark CLI 重新生成；当前测
 - finalize 后队列必须清空，永久标记和累计数必须精确推进；
 - 未登记的 `CitizenIssuance` key 变化、收款账户变化或总发行变化一律 fail-closed。
 
-#### 8. 验收基线（2026-07-10）
+#### 9. CID防重键
 
-- `citizenissue` 单元测试：13/13 通过；
-- `citizenissue` 的 `integration` 集成测试业务用例：5/5 通过；
-- `node_guard`：38/38 通过；`constitution`：38/38 通过；
-- runtime benchmark feature 编译及 release benchmark 实跑通过；
-- 当前源码 WASM 的隔离双节点真实登记 CID `GD000-CTZN6-616532784-2026`；矿工节点产出
-  block#1，禁用挖矿的全节点通过 WSS 导入相同哈希
-  `0x702e65e7b64ae7df80dbfb1e16e99ea9909ba302628c3c9d6fc722f6714050c5`；
-- `RewardedCount=1`，待发计数不存在，身份、CID/账户永久防重标记均存在；
-- Alice 同时是矿工和新公民：两笔奖励合计 1,999,800 分，扣身份登记制度费 100 分后，
-  free balance 净增 1,999,700 分；
-- 第二轮由 Alice 出块、Bob 作为新公民：block#1 双端哈希一致为
-  `0x26d751b62ef23cc5d5884153c1782f67a5922b1d2246f16c5e610e5e034823a6`；Alice 获 PoW
-  奖励并支付登记费后净增 999,800 分，Bob 新账户精确收到公民奖励 999,900 分；
-- 临时 chainspec、节点数据库、测试签名代码和测试密钥材料已全部删除。
-
-#### 9. CID 直接键与双重防重验收（2026-07-30）
-
-- `IdentityRewardClaimed` 与 `PendingIdentityRewardClaimed` 已从派生哈希改为完整规范
-  `cid_number`；账户永久/临时表继续保留，任一键重复即拒绝；
-- FRAME benchmark 50×20 真实记录 7 reads / 8 writes，CID map 最大值 49 字节，
-  proof size 3,593 字节；
-- 单元测试 16/16、身份集成测试 7/7、NodeGuard 发行专项 9/9 通过；
-- 生产 release Node 与当前源码 WASM 构建成功；隔离 fresh 节点通过 NodeGuard 自检。
+IdentityRewardClaimed与PendingIdentityRewardClaimed使用完整规范cid_number为键；账户永久及临时防重表同时保留，任一键重复即拒绝奖励。
 
 #### 0. 功能需求
 `fullnodeissue` 的功能需求是：在固定的 PoW 奖励区块高度区间内，按照制度常量为成功出块的全节点作者发放固定金额奖励，并允许矿工自行管理奖励接收账户。
@@ -1669,40 +1391,11 @@ Runtime 注入配置：
 - `on_finalize` 的执行预算由 `on_initialize` 统一预申报。
 
 注意事项：
-- 2026-08-02 已使用 Substrate Benchmark CLI 53.0.0 按 `steps=50`、`repeat=20` 重新生成
-  `src/weights.rs`，没有手工改写权重。
 - `bind_reward_account` 为 1 次读取 + 1 次写入，生成权重为 `6_000_000` ref time、
   `3545` proof size，再加 1 次数据库读取与 1 次写入。
 - `rebind_reward_account` 为 1 次读取 + 1 次写入，生成权重为 `7_000_000` ref time、
   `3545` proof size，再加 1 次数据库读取与 1 次写入。
 - `on_finalize` 的预算通过 `on_initialize` 的 `reads_writes(5,7)` 预申报，包含三个审计字段的读写。
-- Cargo feature：`runtime-benchmarks` 会向测试/benchmark runtime 使用的 `pallet-balances` 传播；`primitives` 当前不暴露 benchmark feature，不在传播列表中。
-
----
-
-#### 8. 测试覆盖（当前）
-`cargo test --manifest-path citizenchain/runtime/issuance/fullnodeissue/Cargo.toml` 当前 20 项通过，覆盖：
-- 一次性绑定与重复绑定拒绝
-- 从未真实出块的账户可以预绑定奖励接收账户
-- 首次出块会记录 `LastAuthoredBlockByMiner`
-- 预绑定账户收到矿工后续区块奖励
-- 绑定矿工自身账户为奖励接收账户会被拒绝
-- 起始边界块（`1`）发放
-- 结束边界块（`9_999_999`）发放
-- 区间外（`0`、`end+1`）不发放
-- 未绑定奖励接收账户时奖励发到矿工自身账户
-- 多区块累计奖励正确
-- `FindAuthor = None` 跳过事件
-- 未绑定奖励接收账户时奖励发到矿工并 emit FullnodeIssuanceIssued
-- `rebind` 正常路径与未绑定拒绝
-- `rebind` 到矿工自身账户会被拒绝
-- `rebind` 到当前已绑定奖励接收账户会被拒绝
-- `rebind` 后奖励端到端流向新奖励接收账户
-- `on_initialize` 区间内外 weight 声明行为
-- 每块审计计数、累计发行额和最近奖励审计元组
-- 无作者、区间外与多区块累计时审计状态不被错误推进
-
-节点侧 `cargo test --manifest-path citizenchain/node/Cargo.toml node_guard` 当前 22 项通过，其中全节点发行策略覆盖固定边界、绑定/未绑定奖励接收账户、错误奖励金额、错误余额与总发行增量、缺失总发行状态、finalize 前篡改、截止后继续发行、创世基准和 warp 累计状态。
 
 ---
 
@@ -1771,19 +1464,9 @@ Substrate 框架的 `sr25519_generate_new(key_type, None)` 行为：
 
 ---
 
-#### 11. 审查结论与建议
-当前审查结论：
+#### 11. 奖励账户约束
 
-当前状态：
-1. `bind_reward_account` 允许未出块账户预绑定；绑定表只在真实成为区块作者时被读取，不赋予
-   出块资格，垃圾登记由签名交易手续费约束。
-2. 已明确禁止把矿工身份账户本身作为奖励接收账户，避免身份账户与奖励接收账户混同。
-3. `rebind` 当前不设冷却期，但必须切换到不同的新奖励接收账户；重复绑定当前账户会直接拒绝，
-   避免无意义写操作和事件。
-4. 绑定 benchmark、测试前置与辅助函数残留已清理，权重已用当前 runtime 重新生成；
-   `on_finalize` 预算仍由 `on_initialize` 预申报。
-5. …32451 tokens truncated…建立岗位阈值；达阈值后回调本模块自动执行 sweep。
-
+bind_reward_account允许未出块账户预绑定，绑定表只在真实成为区块作者时读取，不授予出块资格。矿工身份账户不能同时作为奖励接收账户。rebind不设冷却期，但必须切换到不同的新奖励账户；重复绑定当前账户拒绝。on_finalize的奖励预算由on_initialize预申报。
 ##### 手续费划转准入与岗位权限
 
 国家储委会、省储委会和省储行均使用 `propose_sweep_to_main`。发起机构 CID 与转出的费用账户必须匹配。收款主账户由链上按同一 CID 查询。省储委会由 `COMMITTEE_MEMBER` 岗位发起和投票，达到 6 张赞成票后执行。
@@ -1825,29 +1508,22 @@ Substrate 框架的 `sr25519_generate_new(key_type, None)` 行为：
 | `SweepAmountExceedsCap` | 超过可用余额 80% 上限 |
 | `InstitutionSpendNotAllowed` | 资产保护检查未通过 |
 
-### offchain-transaction · 扫码支付 Step 1 技术说明
-
-- **日期**:2026-04-19
-- **范围**:本模块内扫码支付清算体系 Step 1(同清算行内 MVP)的**已落地代码**
-- **上层 ADR**:`CitizenChainRuntime.md`
-- **总任务卡**:`tasks/20260419-扫码支付-step1-同行MVP.md`
+### 扫码支付清算接口
 
 ---
 
-#### 1. 本步范围
+#### 1. 接口范围
 
-Step 1 已落地:L3 绑定清算行 + 充值 + 提现 + 切换的链上接口,以及清算行合法性判定和 L3 支付意图签名结构。**同行扫码支付的批次上链**逻辑定义了数据结构和 nonce 辅助,但**batch 执行流**(settlement.rs)由 Step 2 落地,避免一次性重写现有"省储行清算"代码。
+L3提供绑定清算行、充值、提现及切换的链上接口；清算行合法性由CidAccountQuery判断，支付意图使用独立签名结构。批次上链的资金处理由settlement模块执行。
 
-**并存策略**:本步新增的 Storage / Event / Error / Call 与现有 `submit_offchain_batch` / `execute_batch` / `InstitutionRateBp` / `RecipientClearingInstitution` 等完全独立,不触碰旧逻辑。Step 2 开始正式替换旧省储行清算模型。
-
-#### 2. 新增文件
+#### 2. 源码组成
 
 ```
 src/
-├── batch_item.rs    # Step 1 新增:PaymentIntent 结构 + 签名域常量 + 单测
-├── bank_check.rs    # Step 1 新增:清算行合法性判定 + CidAccountQuery trait
-├── deposit.rs       # Step 1 新增:bind/deposit/withdraw/switch 四函数实现
-└── nonce.rs         # Step 1 新增:L3PaymentNonce 消费辅助
+├── batch_item.rs    # PaymentIntent 结构 + 签名域常量
+├── bank_check.rs    # 清算行合法性判定 + CidAccountQuery trait
+├── deposit.rs       # bind/deposit/withdraw/switch 四函数实现
+└── nonce.rs         # L3PaymentNonce 消费辅助
 ```
 
 #### 3. 清算行合法性模型
@@ -1867,7 +1543,7 @@ pub fn subject_property_is_private_institution(cid_bytes: &[u8]) -> bool {
 2. `name` 段等于 `"主账户"`(3 字节 UTF-8 × 3 字 = 9 字节)
 3. K1 ∈ {S, F}
 4. `InstitutionAccounts[(cid_number, "主账户")].status == Active`
-5. `CidAccountQuery::is_clearing_bank_eligible(bank_main)` 通过。2026-05-02 起 OnChina 系统负责 `eligible-search` 候选筛选,链上不再保存 `subject_property/sub_type/parent_cid_number` 元数据,这里只确认账户属于已注册且 Active 的 CID 机构账户
+5. `CidAccountQuery::is_clearing_bank_eligible(bank_main)` 通过。OnChina系统负责 `eligible-search` 候选筛选,链上不再保存 `subject_property/sub_type/parent_cid_number` 元数据,这里只确认账户属于已注册且 Active 的 CID 机构账户
 6. `ClearingBankNodes[cid_number]` 已声明,确保用户不能绑定到"合法机构但未加入清算网络"的节点
 
 #### 4. 解耦抽象 `CidAccountQuery`
@@ -1884,7 +1560,7 @@ pub trait CidAccountQuery<AccountId> {
     fn is_registered_clearing_node(bank: &AccountId) -> bool;
 }
 
-// 默认 () 实现返回未登记,供测试用。
+// 默认 () 实现返回未登记。
 ```
 
 **runtime 层实现**（`citizenchain/runtime/src/configs.rs` 的 `MultisigCidAccountQuery`）：按公权、私权机构 CID 聚合账户索引：
@@ -1896,7 +1572,6 @@ pub trait CidAccountQuery<AccountId> {
 **好处**:
 - offchain-transaction 的 Cargo.toml 不新增实体生命周期 pallet 依赖
 - pallet 的 `Config` trait 不强制 `T: publicentity::Config` 或 `T: privateentity::Config`
-- 现有 tests 可直接用 `type CidAccountQuery = ();`,不破坏已有测试
 
 #### 5. L3 PaymentIntent 签名格式
 
@@ -1929,10 +1604,10 @@ citizenapp（Dart 端）必须逐字节对齐唯一
 | `UserBank` | `StorageMap<L3, InstitutionCidNumber, OptionQuery>` | L3 → 绑定的清算行机构 CID |
 | `DepositBalance` | `StorageDoubleMap<InstitutionCidNumber, L3, u128>` | 权威账本:各 L3 在该清算行的存款(分) |
 | `BankTotalDeposits` | `StorageMap<InstitutionCidNumber, u128>` | 清算行存款总额(偿付对账) |
-| `L3PaymentNonce` | `StorageMap<L3, u64>` | L3 单调递增 nonce(防重放,Step 2 起激活) |
+| `L3PaymentNonce` | `StorageMap<L3, u64>` | L3 单调递增 nonce(防重放) |
 
 不变式:`BankTotalDeposits[bank_cid] == Σ DepositBalance[bank_cid][*]`。
-Step 2 起增加偿付自动保护:`清算账户链上余额 ≥ BankTotalDeposits[bank_cid]`。
+偿付自动保护:`清算账户链上余额 ≥ BankTotalDeposits[bank_cid]`。
 
 #### 7. 新增 Call(call_index 30-33)
 
@@ -1954,7 +1629,7 @@ Withdrawn      { user, bank_cid, amount }
 BankSwitched   { user, old_bank_cid, new_bank_cid }
 ```
 
-跨行回归用两家合格清算行。旧行存款非零时返回 `MustClearBalanceFirst`，绑定和余额不变且不发切换事件。提现清零后，旧账项删除，新账项以零建立，`UserBank` 更新为目标 CID，`BankSwitched` 中用户、旧 CID 和新 CID 各自匹配。
+清算行切换时，旧行存款非零返回MustClearBalanceFirst，绑定与余额保持不变且不发切换事件。提现清零后删除旧账项，在新行建立零余额账项，更新UserBank并发出BankSwitched。
 
 #### 9. 新增 Error(19 个)
 
@@ -1968,400 +1643,33 @@ BankSwitched   { user, old_bank_cid, new_bank_cid }
 `InsufficientDepositBalance` / `InsufficientBankLiquidity` / `DepositForbidden` /
 `WithdrawForbidden`
 
-L3 签名类:`L3NonceOverflow` / `InvalidL3Nonce`(Step 2 启用)
+L3 签名类:`L3NonceOverflow` / `InvalidL3Nonce`
 
 #### 10. `institution-asset` 新增 4 个 Action
 
 ```
 L3DepositIn      # L3 充值入清算行主账户
 L3WithdrawOut    # 清算行主账户对 L3 提现
-L2ClearingDebit  # Step 2:扫码清算时扣 payer_bank
-L2FeeCollect     # Step 2:扫码清算时向 fee_account 收费
+L2ClearingDebit  # 扫码清算时扣 payer_bank
+L2FeeCollect     # 扫码清算时向 fee_account 收费
 ```
 
 `()` 默认 fail-open,runtime 的 `RuntimeInstitutionAsset` 会按"清算行主账户是否合法"严格裁决。
 
-#### 11. 与现有模块的边界
-
-| 模块 | 动向 |
-|---|---|
-| `publicentity` / `privateentity` | 清算行注册复用实体生命周期登记与账户状态 |
-| `multisig-transfer` | **不动** |
-| `onchain-transaction` | **不动** |
-| `identity` | **不动** |
-| `institution-asset` | **扩展 4 枚举**(代码改动见上) |
-| `offchain-transaction` 现有省储行清算逻辑 | **不动**,Step 2 替换 |
-
-#### 12. 编译验证
-
-```
-$ cargo check -p offchain-transaction
-$ cargo check -p institution-asset
-### (新增 struct/trait impl/match arm),无结构性风险,留 CI 把关。
-```
-
-#### 13. 后续 Step 2 / Step 3 展望
-
-**Step 2**:
-- 新增 `settlement.rs`:同行/跨行 `execute_batch` 分账
-- 新增 `fee_config.rs`:`L2FeeRateBp` + 延迟生效
-- 新增 `solvency.rs`:偿付自动保护
-- 废弃旧 `submit_offchain_batch` 的省储行模型
-
-**Step 3**:
-- 新增 `dispute.rs` / `reserve.rs`
-- 新增 `close_clearing_bank`
-- 白皮书 5.4.4 发布
-
-#### 14. 测试覆盖(Step 1)
-
-本步 tests 模块继续跑原有 `submit_offchain_batch` 相关测试(未被破坏)。
-新增的 bind/deposit/withdraw/switch 的**负向路径**(未登记 → `NotRegisteredClearingBank`)可通过 `type CidAccountQuery = ()` 的默认实现自动覆盖。
-**正向路径**测试需 mock `CidAccountQuery` 返回 Some,建议在 Step 2 引入完整 mock 一并实现。
-
-#### 15. 变更记录
-
-- 2026-04-19:Step 1 首次落地,新增 4 文件 + lib.rs 聚合扩展 + 跨模块配置改动。
-- 2026-05-02:清算行资格元数据从链上移除。CID 负责候选资格筛选,链上只确认机构账户已注册、Active 且已声明节点。
+### 批次清算与资金保护
 
 ---
 
-### 省储行费率治理(LEGACY · 已下线)
+#### 1. 实现组成
 
-> ⚠️ **Step 2b-iv-b(2026-04-20)已彻底删除** ADR-006 宣布退出的"省储行即时清算"
-> 体系。本文件描述的 `propose_institution_rate` / `vote_institution_rate` /
-> `InstitutionRateBp` / `RateProposalActions` 等 Call/Storage 均已从 runtime
-> 物理移除。当前清算行(L2)体系费率治理见:
->
-> - `call_index 40 propose_l2_fee_rate` + `41 set_max_l2_fee_rate`(Root / 联合投票)
-> - Storage `L2FeeRateBp` / `L2FeeRateProposed` / `MaxL2FeeRateBp`
-> - 延迟 7 天生效机制由 `on_initialize` + `fee_config::activate_pending_rates` 落实
-> - 技术文档:`STEP2B_IV_B_RUNTIME_CLEANUP.md`(清理记录)与 runtime pallet
->   源码 `src/fee_config.rs`
->
-> 下方内容仅作历史参考。
-
-#### 概述
-
-各省储行的链下交易费率通过内部投票（InternalVoteEngine）进行治理。省储行管理员（PRB admin）可发起费率变更提案，经内部投票通过后自动生效。
-
-#### 费率范围
-
-| 参数 | 值 | 说明 |
-|------|------|------|
-| OFFCHAIN_RATE_BP_MIN | 1 bp | 0.01% |
-| OFFCHAIN_RATE_BP_MAX | 10 bp | 0.1% |
-| BP_DENOMINATOR | 10,000 | 基点转换分母 |
-| OFFCHAIN_MIN_FEE | 1 分 | 单笔最低手续费 0.01 元 |
-
-费率单位为基点（bp），1 bp = 0.01%。合法范围 1~10 bp，对应 0.01%~0.1%。
-
-#### 默认费率
-
-未设置费率的省储行（`InstitutionRateBp` 存储值为 0）按最低费率 `OFFCHAIN_RATE_BP_MIN`（1 bp = 0.01%）执行。由 `ensure_rate_and_institution` 内部处理。
-
-#### 存储
-
-```rust
-// 各省储行链下清算费率（bp，范围1~10）
-pub type InstitutionRateBp<T> =
-    StorageMap<_, Blake2_128Concat, InstitutionPalletId, u32, ValueQuery>;
-
-// 费率治理提案动作
-pub type RateProposalActions<T: Config> =
-    StorageMap<_, Blake2_128Concat, u64, RateProposalAction, OptionQuery>;
-
-pub struct RateProposalAction {
-    pub institution: InstitutionPalletId,
-    pub new_rate_bp: u32,
-}
-```
-
-##### 1. 发起提案（propose_institution_rate）
-
-- **调用者**：省储行管理员（PRB admin，通过 `is_prb_admin` 验证）
-- **参数**：institution（省储行 PalletId）、new_rate_bp（目标费率）
-- **校验**：new_rate_bp 必须在 1~10 范围内
-- **操作**：
-  1. 通过 InternalVoteEngine 创建内部提案（org=ORG_PRB）
-  2. 将 RateProposalAction 写入 RateProposalActions 存储
-  3. 触发 InstitutionRateProposed 事件
-
-##### 2. 投票（vote_institution_rate）
-
-- **调用者**：同一省储行的其他管理员
-- **参数**：proposal_id、approve（赞成/反对）
-- **操作**：
-  1. 验证 proposal_id 对应的 RateProposalAction 存在
-  2. 验证调用者是该省储行管理员
-  3. 调用 InternalVoteEngine::cast_internal_vote 记录投票
-  4. 若赞成票且提案状态变为 PASSED，立即尝试执行
-
-##### 3. 自动执行（try_execute_rate）
-
-投票通过后在同一交易中自动执行，使用 `with_transaction` 保证原子性：
-
-1. 验证提案状态为 PASSED、kind 为 INTERNAL、institution 匹配
-2. 将 new_rate_bp 写入 `InstitutionRateBp` 存储
-3. 触发 InstitutionRateUpdated 事件
-4. 设置提案状态为 EXECUTED
-
-若执行失败，回滚并触发 InternalProposalExecutionFailed 事件。
-
-#### 费用计算公式
-
-```
-fee = max(amount * rate_bp / 10000, OFFCHAIN_MIN_FEE)
-```
-
-node 端 `calc_offchain_fee` 与链上计算逻辑保持一致。
-
-#### 提案清理
-
-过期或已执行的提案可通过 `prune_rate_proposal`（call_index=12）清理，移除 RateProposalActions 中的记录。
-
-#### 源码位置
-
-- `citizenchain/runtime/transaction/offchain/src/lib.rs`
-  - `propose_institution_rate`（call_index=1）
-  - `vote_institution_rate`（call_index=2）
-  - `try_execute_rate`（内部方法）
-  - `ensure_rate_and_institution`（内部方法）
-
----
-
-### OFFCHAIN_TECHNICAL(LEGACY · 已下线)
-
-> ⚠️ **Step 2b-iv-b(2026-04-20)已彻底删除** 本文描述的省储行清算体系:
-> `submit_offchain_batch` / `enqueue_offchain_batch` / `process_queued_batch` /
-> `bind_clearing_institution` / `propose_institution_rate` /
-> `vote_institution_rate` / 相关清理 Calls 全部从 runtime 物理移除;
-> `InstitutionRateBp` / `RecipientClearingInstitution` / `QueuedBatches` /
-> `RateProposalActions` 等 Storage 同步删除。
->
-> **当前清算行(L2)体系**技术文档:
-> - `CitizenChainRuntime.md`(决策)
-> - `CitizenChainRuntime.md`(清理记录)
-> - `CitizenChainRuntime.md`(集成测试)
-> - `CitizenChainRuntime.md`(Step 2a 实现)
-> - `CitizenChainRuntime.md`(Step 1 骨架)
->
-> 下方内容仅作历史参考,**不反映当前 runtime 行为**。
-
-模块：`offchain-transaction`(LEGACY)
-范围：省储行链下清算批次的上链验证、队列重试、治理配置与清理
-
-##### 0.1 核心职责
-- 为省储行链下清算批次提供链上验证、入队、出队执行和审计留痕能力。
-- 保证批次执行严格按机构内 `batch_seq` 单调推进，不允许跨序号乱序落账。
-- 将链下手续费独立结转到机构 `fee_account`，并支持后续治理归集。
-
-##### 0.2 机构与账户模型需求
-- 每个收款账户必须先绑定所属清算省储行，未绑定不得作为链下批次收款方。
-- 每个机构必须具备独立费率、验签密钥、relay 提交白名单和手续费账户。
-- 机构主账户只负责初始化默认验签密钥和 relay 白名单；后续调整必须走内部治理。
-
-##### 0.3 批次校验需求
-- 批次中的每条交易必须包含 `tx_id`、`payer`、`recipient`、`transfer_amount`、`offchain_fee_amount`。
-- `transfer_amount` 必须大于 0，`payer != recipient`，且付款源不能是制度保护地址。
-- `tx_id` 必须在批次内唯一，且不能命中已处理窗口或待处理队列索引。
-- `recipient` 必须已绑定清算机构，且绑定机构必须与批次机构一致。
-- `offchain_fee_amount` 必须严格等于按当前制度费率计算出的链下手续费。
-
-##### 0.4 提交与队列需求
-- 直接提交路径 `submit_offchain_batch` 与入队路径 `enqueue_offchain_batch` 都必须校验 relay 白名单。
-- 直接提交必须在不存在待处理 backlog 的前提下执行。
-- 入队时必须验证批次签名、锁定费率快照、锁定验签密钥纪元，并建立 `QueuedTxIndex` 防重。
-- 出队重试必须只处理 `Pending` 批次；处理成功、失败、取消都必须留下可观测状态。
-- 批次因换钥失效时，只有当前队头批次允许推进执行序号，不能跨序号跳过更早批次。
-
-##### 0.5 签名与换钥需求
-- 批次签名消息必须固定为 `signing_message(OP_SIGN_OFFCHAIN_BATCH, SCALE(institution, batch_seq, batch))`。
-- 入队和直接提交必须使用当前生效验签密钥完成验签。
-- 普通换钥必须走内部投票并延迟生效；紧急换钥必须要求至少两名管理员确认。
-- 已入队批次必须记录 `verify_key_epoch_snapshot`；当纪元落后于当前值时，批次必须作废且不得继续执行。
-
-##### 0.6 资金与治理需求
-- 批次执行时，主金额必须从 `payer` 转给 `recipient`，链下手续费必须从 `payer` 转给机构 `fee_account`。
-- `fee_account` 余额只能通过内部治理提案划转到机构主账户，且划转后必须保留最低储备并受单次比例上限约束。
-- 费率、验签密钥、relay 白名单、手续费归集都必须通过内部治理提案驱动并留下事件。
-- 若 `payer` 或 `fee_account` 命中制度账户白名单边界，还必须通过 `institution-asset` 的资金动作检查。
-
-##### 0.7 存储治理与可运维需求
-- 模块必须保存 processed tx、防重窗口、队列记录、批次摘要和提案动作映射，支持手动与自动清理。
-- `on_initialize` 必须负责普通换钥激活，`on_idle` 必须在剩余权重内做有界清理。
-- 清理 pending 队列或 stale 队列时，必须遵守“只能推进队头序列”的约束，避免破坏执行顺序。
-
-#### 1. 目标与边界
-- 本模块不负责链下“确认终态”，仅负责批次上链执行与治理控制。
-- 链下系统负责业务撮合和不可变确认；本模块负责链上可审计落账。
-- 上链手续费由机构手续费账户承担。
-
-#### 2. 核心业务口径
-1. 收款账户需先绑定清算省储行。
-2. 机构费率由治理维护，范围 `1..=10 bp`。
-3. 链下已确认交易可按批次上链（直接提交或先入队后处理）。
-4. 每条批次项包含：
-   - `tx_id`
-   - `payer`
-   - `recipient`
-   - `transfer_amount`
-   - `offchain_fee_amount`
-5. 要求：
-   - `transfer_amount > 0`
-   - `payer != recipient`
-   - `tx_id` 在批次内唯一
-   - `recipient` 已绑定且绑定机构一致
-
-#### 3. 签名与验证密钥
-- 批次消息为 `signing_message(OP_SIGN_OFFCHAIN_BATCH, SCALE(institution, batch_seq, batch))`。
-- 入队路径必须验签（当前机构生效密钥）。
-- 出队处理路径不重复验签；依赖入队验签结果与密钥纪元机制防止旧签名继续执行。
-
-##### 3.1 密钥轮换（普通）
-- 普通治理轮换在通过后进入 `PendingVerifyKeys`，延迟生效。
-- `on_initialize` 到激活高度时切换到新 key，并递增 `VerifyKeyEpoch`。
-- 若机构已有 pending 轮换，再次通过新轮换会被拒绝（防覆盖）。
-
-##### 3.2 密钥轮换（紧急）
-- `emergency_rotate_verify_key` 采用双管理员确认（至少 `EMERGENCY_ROTATE_MIN_ADMINS=2`）。
-- 支持 `cancel_emergency_rotation_approval` 撤回审批。
-- 紧急轮换成功后：
-  - 立即替换当前 key
-  - 清空 `PendingVerifyKeys`
-  - 从 `PendingRotationInstitutions` 主动移除机构
-  - 递增 `VerifyKeyEpoch`
-  - 清空该机构下所有紧急审批键空间（`clear_prefix`）
-
-#### 4. 防重放与队列
-- 已执行交易防重：`ProcessedOffchainTx + ProcessedOffchainTxAt`（带保留窗口）。
-- 待处理队列防重：`QueuedTxIndex` 防止跨入队批次重复 `tx_id`。
-- 批次顺序：
-  - 执行序号：`LastBatchSeq`
-  - 入队序号：`NextEnqueueBatchSeq`
-- 队列状态：`Pending | Processed | Failed | Cancelled`。
-
-##### 4.1 密钥纪元失效
-- 入队时记录 `verify_key_epoch_snapshot`。
-- 处理时若与当前 `VerifyKeyEpoch` 不一致，批次会自动标记 `Cancelled` 并释放 `QueuedTxIndex`，不会执行资金转移。
-
-#### 5. 执行与重试
-- 直接路径：`submit_offchain_batch`（事务包裹执行）。
-- 队列路径：
-  - `enqueue_offchain_batch`（持久化）
-  - `process_queued_batch`（重试执行）
-- 失败策略：
-  - 可重试错误保留队列并累计 `retry_count`
-  - 超过 `MAX_QUEUE_RETRY_COUNT` 变为 `Failed`
-  - 管理员可 `skip_failed_batch` 推进序号
-  - 管理员可 `cancel_queued_batch` 取消队头 pending 批次
-  - 管理员可 `cancel_stale_queued_batches` 批量取消过期 pending（按队头可推进序列原则）
-
-#### 6. 清理与存储治理
-- 手动清理入口：
-  - `prune_queued_batch`
-  - `prune_batch_summary`
-  - `prune_processed_tx`
-  - `prune_expired_proposal_action`
-- 自动清理入口：
-  - `on_idle` 有界清理 `processed/queued/summary`
-- 过期 pending 队列：
-  - `auto_prune_one_queued_batch` 对过期 pending 会直接清理存储与 `QueuedTxIndex`。
-  - `prune_queued_batch` 对 pending 也可用 `enqueued_at` 判定过期后清理。
-
-#### 7. 治理动作
-- 费率治理：`propose/vote_institution_rate`。
-- 验签密钥治理：`propose/vote_verify_key`。
-- 机构资金归集治理：`propose/vote_sweep_to_main`。
-- relay 白名单治理：`propose/vote_relay_submitters`。
-- 对“已通过但执行失败”的提案：`retry_execute_proposal`。
-
-#### 7.1 治理提案执行与 STATUS_EXECUTED
-
-四类治理动作（rate、verify_key、sweep、relay_submitters）在投票通过后由投票引擎回调本模块执行。执行成功后，本模块调用 `engingcore::Pallet::<T>::set_status_and_emit(proposal_id, STATUS_EXECUTED)` 将投票引擎侧的提案状态标记为已执行，防止同一提案被重复执行。
-
-各动作执行函数：
-- `try_execute_rate`：执行成功后调用 `set_status_and_emit(proposal_id, STATUS_EXECUTED)`
-- `try_execute_verify_key`：执行成功后调用 `set_status_and_emit(proposal_id, STATUS_EXECUTED)`
-- `try_execute_sweep`：执行成功后调用 `set_status_and_emit(proposal_id, STATUS_EXECUTED)`
-- `try_execute_relay_submitters`：执行成功后调用 `set_status_and_emit(proposal_id, STATUS_EXECUTED)`
-
-提案状态流转：`VOTING → PASSED → EXECUTED`
-
-行为变更：
-- 执行成功后不再立即删除 `ProposalActions` 中的动作数据，而是保留原始数据用于审计。
-- 动作数据由投票引擎的 90 天延迟清理机制统一回收，避免执行后立即丢失提案上下文。
-
-#### 8. 权重与完整性约束
-- 关键权重按最坏项上界声明（含 `MaxBatchSize` 影响）。
-- 关键常量完整性在 `integrity_test` 中断言：
-  - 费率上下界
-  - 紧急管理员阈值
-  - 分母与阈值非零
-  - `MaxBatchSize > 0`
-
-#### 9. 存储版本
-- pallet 已声明 `#[pallet::storage_version]`，当前版本为 `1`，用于未来安全迁移判定。
-
-#### 10. 关键事件（观测建议）
-- 批次：`Submitted/Queued/Processed/Failed/Cancelled/Pruned`
-- 紧急换钥：`Approval`、`ApprovalCancelled`、`EmergencyRotated`
-- 密钥普通轮换：`RotationScheduled`、`VerifyKeyRotated`
-- 治理执行：`InternalProposalExecutionFailed`、`ProposalExecutionRetried`
-
-#### 11. 当前测试覆盖（摘要）
-- 紧急换钥双管理员门限、审批撤回、单审批不生效。
-- 密钥纪元失效导致已入队批次自动取消。
-- pending key 不覆盖保护。
-- retry_execute_proposal 成功/失败分支。
-- on_idle 自动清理（含 stale pending）与 on_initialize 轮换 epoch 递增。
-- 批量取消 stale pending、序列推进与队列行为一致性。
-
----
-
-### offchain-transaction · 扫码支付 Step 2a 技术说明(Runtime 重写层)
-
-- **日期**:2026-04-19
-- **范围**:扫码支付清算体系 Step 2 在 **Runtime 层**的落地代码(本体)
-- **上层 ADR**:`CitizenChainRuntime.md`(其第 5 节 "Step 2 留档"即本步)
-- **总任务卡**:`tasks/20260419-扫码支付-step1-同行MVP.md`
-- **前置文档**:`STEP1_TECHNICAL.md`(Step 1 Runtime)
-- **后续文档**:`STEP2B_NODE.md`(节点接入)、`STEP2C_CITIZENAPP.md`(前端)、`STEP2D_CLEANUP.md`(删除旧代码)
-
----
-
-#### 1. 本步范围
-
-Step 2a 只做 **Runtime 新增**,与旧"省储行清算"代码路径**共存**:
-
-- 新增 3 个子模块:`fee_config.rs` / `solvency.rs` / `settlement.rs`
-- 新增 1 个结构:`batch_item::OffchainBatchItem`
-- 新增 4 个 Storage:`L2FeeRateBp` / `L2FeeRateProposed` / `MaxL2FeeRateBp` / `LastClearingBatchSeq`
-- 新增 5 个 Event:`L2FeeRateProposed` / `L2FeeRateActivated` / `MaxL2FeeRateUpdated` / `PaymentSettled` / `ClearingBankBatchSettled`
-- 新增 Error 覆盖清算行结算、费率、偿付、batch 签名与用户绑定一致性:
-  `InstitutionMismatch` / `ExpiredIntent` / `L2FeeRateNotConfigured` / `InvalidL3Signature` /
-  `InvalidL2FeeRate` / `SolvencyProtected` / `InvalidBatchSignature` / `InvalidBatchSeq` /
-  `UserBankMismatch`
-- 新增 3 个 Call:`submit_offchain_batch`(34)/ `propose_l2_fee_rate`(40)/ `set_max_l2_fee_rate`(41)
-- 机构授权 trait 方法统一为 `CidAccountQuery::is_institution_admin(actor_cid_number, who)`；账户查询只证明具体机构账户归属，不承担管理员身份语义
-- 扩展 `on_initialize`:激活到期费率提案
-- runtime 层 `MultisigCidAccountQuery` 按 CID 实现 `is_institution_admin`
-- runtime 层当前由唯一 `RuntimeFeeRouter` 将相关 call 显式映射为 `FeeRoute`，费用类别和付款账户不可分离
-
-**明确不做**(留 Step 2b/2c/2d):
-- Node 层接入(Step 2b)
-- citizenapp 改造(Step 2c)
-- 删除旧 `submit_offchain_batch` / `bind_clearing_institution` / `RecipientClearingInstitution` / `InstitutionRateBp`(Step 2d)
-- 联合投票回调 `set_max_l2_fee_rate`(Step 2b 接入;当前为 Root Origin)
-- 争议仲裁 / 保证金(Step 3)
-
+费率管理、偿付保护和批次结算分别由fee_config.rs、solvency.rs及settlement.rs承载，批次项结构归batch_item.rs。
 ##### 2.1 `fee_config.rs`
 
 清算行费率自治:
 - `L2_FEE_RATE_BP_MIN = 1` / `L2_FEE_RATE_BP_MAX = 10`(bp)
 - `RATE_CHANGE_DELAY_BLOCKS = 1_680`（7 × 240 块；按六分钟平均目标换算，不承诺自然日最晚出块）
 - `do_propose_l2_fee_rate(who, actor_cid_number, institution_account, new_rate)`:按 CID 校验管理员和主账户归属后写 `L2FeeRateProposed`
-- `do_set_max_l2_fee_rate(new_max)`:设全局上限(Step 2b 改为联合投票回调)
+- `do_set_max_l2_fee_rate(new_max)`:设全局上限
 - `activate_pending_rates(now)`:`on_initialize` 调用,搬到期提案到 `L2FeeRateBp`
 - `current_rate_bp(bank)`:查当前生效费率(供 settlement 查收款方费率用)
 
@@ -2370,7 +1678,6 @@ Step 2a 只做 **Runtime 新增**,与旧"省储行清算"代码路径**共存**:
 偿付能力自动保护:
 - `ensure_can_debit(bank_main, debit_fen)`:校验扣款后主账户余额仍 ≥ `BankTotalDeposits`
 - `solvency_ratio_bp(bank_main)`:返回偿付率(万分之)供监控用
-- Step 3 追加 `emit_warning_if_low` 告警事件 + 自动冻结
 
 ##### 2.3 `settlement.rs`
 
@@ -2415,7 +1722,7 @@ pub struct OffchainBatchItem<AccountId, BlockNumber> {
 
 trait 按 `actor_cid_number + who` 查询，`()` 默认返回 false。runtime 侧 `MultisigCidAccountQuery` 直接读取该 CID 对应的机构 admins 真源；个人多签不进入清算行机构授权路径。
 
-2026-06-26 补齐：清算行管理员真源不再由业务账户表镜像保存，所有内部投票和清算权限统一读取 `admins` 分类模块。
+清算行管理员真源不再由业务账户表镜像保存，所有内部投票和清算权限统一读取 `admins` 分类模块。
 
 ##### 3.1 Storage
 
@@ -2426,7 +1733,7 @@ MaxL2FeeRateBp: StorageValue<u32>                // 全局上限
 LastClearingBatchSeq<Bank, u64>                  // 已成功落账的最新批次序号
 ```
 
-2026-04-28 补齐:`LastClearingBatchSeq` 与 batch 级签名一起启用。`submit_offchain_batch`
+`LastClearingBatchSeq` 与 batch 级签名一起启用。`submit_offchain_batch`
 要求 `batch_seq == LastClearingBatchSeq[bank] + 1`,并只在 settlement 成功后推进序号。
 
 ##### 3.2 Call(3 个新)
@@ -2443,7 +1750,7 @@ LastClearingBatchSeq<Bank, u64>                  // 已成功落账的最新批�
 
 ##### 3.4 权重入口
 
-2026-04-29 补齐:清算行 pallet 已从裸 `T::DbWeight` 和空 `WeightInfo`
+清算行 pallet 已从裸 `T::DbWeight` 和空 `WeightInfo`
 迁移为统一权重入口:
 
 - `runtime/src/configs/mod.rs`:生产 runtime 使用
@@ -2459,72 +1766,6 @@ LastClearingBatchSeq<Bank, u64>                  // 已成功落账的最新批�
 
 当前权重不是自动 benchmark 产物,但已经替换掉空权重占位,并覆盖
 `submit_offchain_batch` 的按 item 线性增长。
-
-#### 4. 与 Step 1 的兼容关系
-
-| Step 1 结构 | Step 2a 状态 |
-|---|---|
-| `OffchainBatchItem`(旧) | 保留,`submit_offchain_batch`(call_index 0)继续走旧 `execute_batch` |
-| `RecipientClearingInstitution`(旧绑省储行) | 保留,Step 2d 删 |
-| `InstitutionRateBp`(旧省储行费率) | 保留,Step 2d 删 |
-| `bind_clearing_institution`(call_index 9) | 保留,Step 2d 删 |
-| `bind_clearing_bank` / `deposit` / `withdraw` / `switch_bank`(30~33) | 保留,依然工作 |
-| `UserBank` / `DepositBalance` / `BankTotalDeposits` / `L3PaymentNonce` | 保留，被当前清算路径正式使用 |
-
-2026-04-28 补齐：批量结算现在显式要求 `UserBank[payer] == item.payer_bank`
-且 `UserBank[recipient] == item.recipient_bank`,防止移动端或节点绕过 UI 构造出绑定漂移的批次。
-
-#### 5. 编译验证
-
-```
-$ cargo check -p offchain-transaction
-   Checking offchain-transaction v1.0.0
-   Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.69s
-```
-
-零 warning 零 error。
-
-#### 6. 后续 Step 2b / 2c / 2d 清单
-
-**Step 2b · Node**:
-- `offchain/settlement/packer.rs::pack_and_submit` 补实现:取 ledger pending → 组 `OffchainBatchItem` → 多签 → 调 `submit_offchain_batch`
-- `offchain/ledger.rs.accept_payment` 完整实现(签名验证 + 本地扣款 + 加入 pending)
-- `offchain/gossip.rs` 新建:清算行间 libp2p 协议推送 `{intent, a_sig, sender_ack}`
-- `offchain/rpc.rs` 增补 `offchain_submitPayment` + WS 订阅
-- `service.rs` / `rpc.rs` 按节点角色启动 + 注册 RPC namespace
-- 删除旧 `offchain_ledger.rs` / `offchain_packer.rs` / `offchain_gossip.rs`(Step 2b 完成时)
-
-**Step 2c · citizenapp**:
-- 重写 `trade/offchain/offchain_pay_page.dart`:走清算行节点 `offchain_submitPayment`,每笔 L3 签名
-- 改造 `wallet/ui/receive_qr_page.dart`:`body.bank` 填清算行主账户 SS58
-- 冷钱包 QR 签名接入绑定/充值/提现(沿用旧 `bind_clearing_page.dart` 模式)
-- 删除 `wallet/ui/bind_clearing_page.dart` + `trade/offchain/clearing_banks.dart` + `rpc/offchain.dart` + `rpc/onchain.dart.bindClearingInstitution`
-
-**Step 2d · 清理**:
-- 删除 pallet 内旧 `submit_offchain_batch` / `enqueue_offchain_batch` / `process_queued_batch`(走省储行分账的老路径)
-- 删除 `RecipientClearingInstitution` / `InstitutionRateBp` / `bind_clearing_institution` / `propose_institution_rate` / `vote_institution_rate`
-- 清理 Event / Error 中的旧变体
-- 删除现有 `pallet::execute_batch` 与 `validate_batch_items` 等辅助函数
-- 运行完整单元/集成测试
-
-**Step 2b `set_max_l2_fee_rate` 联合投票**:
-把本步的 `ensure_root(origin)` 入口改为接 `engingcore` 联合投票 pallet 的 `JointVoteEngine::execute_if_passed`,让提案通过后再由投票引擎回调本 pallet 的内部执行函数。
-
-#### 7. 风险与验证后续
-
-- **BlockLength 5 MB → 16 MB 升级**:Step 2b 做 runtime setCode 前必须升
-- **批量 sr25519 验签**:当前 settlement 逐笔 `sr25519_verify`,10 万笔需要 ~5s,Step 2b 前切到 `sp_io::crypto::sr25519_batch_verify`
-- **解码 H256 → T::Hash**:本步用 `T::Hash::decode` 跨类型兼容,依赖 runtime 中 `T::Hash == H256`(frame_system 默认)。若将来改 hasher 要同步改
-
-#### 8. 变更记录
-
-- 2026-04-19：Step 2a 落地，Runtime 新增 3 子模块 + 当前批量结构 + 3 Storage + 3 Call + hook 扩展，零编译错误。
-- 2026-04-28:批次级安全补齐:新增 `LastClearingBatchSeq`,严格校验
-  `batch_signature` / `batch_seq`,settlement 增加 `UserBank` 绑定一致性校验;
-  runtime `spec_version` 3 → 4,`transaction_version` 保持 2;单测增至 23 个并通过。
-- 2026-04-29:权重收口:新增 `SubstrateWeight<Runtime>` 生产配置,所有清算行
-  Call 改走 `T::WeightInfo`,不再使用空 `WeightInfo` 占位;`cargo test -p
-  offchain-transaction --lib` 23 个测试通过。
 
 #### 1. 模块定位
 
@@ -2635,27 +1876,6 @@ FeePaid { who: 实际付款账户, fee: 完整手续费 }
 - `citizenwallet/lib/signer/payload_decoder.dart`：冷签前拒绝非零 tip。
 - `citizenchain/onchina/`：机构身份仍只使用 CID、机构账户和 `admins`；不建立费用付款方缓存或第二路由表。
 
-#### 8. 测试要求
-
-必须覆盖：
-
-- 五种 `FeeRoute` 行为。
-- 链上费四舍五入、最低 0.1 元和极大金额。
-- 实际投票由签名者扣 1 元。
-- 机构操作只扣精确费用账户，管理员余额不变。
-- 费用账户缺失或映射不一致时直接拒绝，不回落管理员。
-- 投票回调执行期使用确切付款账户，手续费不足时本金、分账和事件全部回滚。
-- Fullnode 绑定由签名者扣 0.1 元。
-- 非零 tip 在 runtime 和 CitizenWallet 两端拒绝。
-- 80/10/10 正常分账与所有安全销毁路径。
-- `WeightToFee` / `LengthToFee` 不产生费用。
-
-主要命令：
-
-- `cargo test -p primitives -p onchain -p runtime`
-- `cargo test -p chain-signing -p node -p onchina`
-- `flutter test` 与 `flutter analyze`（CitizenApp、CitizenWallet）
-
 ### Transaction 目录说明
 
 本目录用于承载 CitizenChain runtime 下的交易相关 pallet 与文档。
@@ -2671,7 +1891,7 @@ FeePaid { who: 实际付款账户, fee: 完整手续费 }
 
 全部投票流程只归投票引擎。业务模块只提交提案语义并调用既定投票接口，不得实现、复刻、绕过或内嵌投票流程，不得自行处理人口快照、投票资格、联合签名、状态推进、计票、通过判定或清理状态机。
 
-ADR-039 已于 2026-07-19 冻结机构岗位主体目标。任务卡第 5A、5B、5C 已依次完成联合、内部、立法和选举投票迁移；全部机构 Track 都按 `VotePlan` 中的完整岗位主体冻结资格，不再以 CID 全体 admins 作为发起或投票资格。个人多签仍使用独立管理员主体。
+机构Track按VotePlan中的完整岗位主体冻结资格，不以CID全体admins作为发起或投票资格；个人多签使用独立管理员主体。
 
 #### 内部投票与业务权限
 
@@ -2694,116 +1914,35 @@ ADR-039 已于 2026-07-19 冻结机构岗位主体目标。任务卡第 5A、5B�
 - 岗位没有阈值 storage，也不得把岗位数或 admins 钱包数误作阈值；`VotePlan` 只决定哪些岗位任职席位进入快照。
 - public/private entity 的 `InstitutionGovernanceThresholds[cid_number]` 是机构治理阈值真源。`internalvote` 在建案事务中通过 runtime provider 读取并写入 `InternalThresholdSnapshot[proposal_id]`；建案后机构配置变化不得改变既有提案阈值。
 - 投票引擎不再保存机构 Active/Pending 阈值表，也不通过管理员更换隐式改阈值。个人多签继续使用 `ActivePersonalThresholds[personal_account]`，不受机构阈值重构影响。
-- 固定创世机构的阈值由 genesis 写入 entity，不是岗位阈值。公民链基金会只有一个程伟管理员钱包，但三个固定岗位各一席、机构阈值仍为 2；同一钱包的三项岗位任职已形成三张独立岗位票据，并通过内部投票阈值验收。
+- 固定创世机构的阈值由 genesis 写入 entity，不是岗位阈值。公民链基金会只有一个程伟管理员钱包，但三个固定岗位各一席、机构阈值仍为 2；同一钱包的三项岗位任职已形成三张独立岗位票据。
 
-#### 第2步：统一机构管理员登记（源码实现，尚未部署）
+#### 统一机构管理员登记
 
 - 公权/私权继续使用已有 `register_institution_admins` call 9，不增加CREG专用调用或固定岗位。新SCALE顺序统一为 `cid_number + action + actor_cid_number + actor_role_code + expected_state_hash:[u8;32] + initial_threshold:Option<u32>`；`action`复用已有 `InstitutionGovernanceAction`。只接受带管理员名册的ReplaceAdmins及ReplaceAdminsAndMutateRoles，登记不能夹带法定代表人任免；call 8仍只允许本机构治理本机构。
 - 登记前通过原RegistryAuthority校验办理人、actor岗位和目标辖区，再比对授权状态指纹。`registration_state_hash`以所属MODULE_TAG为域，按顺序编码目标CID、机构信息、规范管理员账户集合、按岗位码有序的岗位/权限/任职、现有nonce及阈值。余额不参与；每次成功名册写入同时推进现有InstitutionRoleNonce，包含人员资料变化，使旧快照/重复请求失效；不增加流水表或初始化状态storage。StaleRegistrationState要求刷新并重新审阅签名，不自动覆盖并发变更。
 - 第一次登记以InstitutionGovernanceThresholds缺失判断，必须显式提交动态岗位和初始阈值；默认空LR岗位不能当作已初始化。名册、权限、任职、nonce和阈值在同一个storage transaction提交，任何后续校验失败全部回滚。阈值按具有本机构治理Vote权限的有效岗位席位计数，至少两席且严格过半，并须有有效Propose岗位；不从管理员钱包数量推导。
 - 新增或改任职的Registry来源只接受空的输入assignment_source_ref，由Runtime绑定真实已签名登记载荷（含origin、状态哈希和初始阈值）的引用；存量任职只有人员、任期、状态、来源和引用逐字段与原记录相同时才可保留原来源，追加人员不重写原有任职事实；拒绝伪造来源或来源字段。登记动态岗位使用该引用、MODULE_TAG和现有nonce生成R_码；治理继续使用真实proposal_id及原生成公式，不使用0冒充登记提案。公权/私权共用既有角色校验与原子写入核心，各自入口保持来源边界。
 - 初始化后登记只更新名册和显式任职，不允许重新提交初始阈值或创建/改名/删除岗位；LR及受保护创世岗位的任职只能透传原记录，不能借登记接口改任；岗位定义与权限变化继续通过机构自身治理。未在变更中列出的岗位保持原状，删除人员必须同时处理其现有任职，否则InvalidAssignmentResultAdmins并回滚。
-- 权重覆盖当前快照与登记变更的岗位/权限/任职数量，并按输入编码大小计入额外工作；管理员写入新增nonce读写也计入回调权重。当前权重由原FRAME实测名册成本作保守组合并显式计入新增读写，不冒称整套权重重新跑分。现有benchmark文件扩展n/r初始化夹具，通过FRAME测试模式执行真实dispatch和verify。
-- 本步旧call 9载荷不兼容新格式，已增加拒绝旧编码、公私权字节顺序、原子回滚、状态冲突、来源、阈值和正常追加/删除断言。原角色/权限/任职及call 8编码金标不改。第3步必须同步现有OnChina登记编码和钱包解码；未完成跨端配套前不得部署，也不在本步递增正式链版本或修改创世。
-- 第2步验收：共享类型17项、公权实体25项、私权实体28项全部通过；完整Runtime回归86项通过、0失败、2项原有固定环境性能用例忽略。最终来源保留及受保护任职断言补齐后，实体全套70项再次通过；Runtime复跑85项通过、2项原有性能用例忽略，仅排除此前完整回归已通过且本步未修改的钱包长时费率用例 `wallet_quotes_and_signed_transfers_cover_minimum_rounding_and_percentage_fees`。两份现有benchmark文件各以FRAME测试模式执行最小/测试上限初始化dispatch和verify，共2项基准夹具测试通过；标准编译检查通过。Runtime基准特性检查初次因PATH缺少solc失败，复用本机已安装solc0.8.30/resolc1.0.0的临时工具搜索路径后通过，未安装工具或跳过Revive夹具。正式固定环境性能标定仍属于原第5步，不把测试模式verify冒称为重新生成实测权重。末次标准实体及Runtime整库编译检查再次通过；期间范围外并行改动导致的E0433在另一处工作修正后重跑通过，本步未修改范围外文件。
+- 权重覆盖当前快照与登记变更的岗位/权限/任职数量，并按输入编码大小计入额外工作；管理员写入新增nonce读写也计入回调权重。当前权重由原FRAME实测名册成本作保守组合并显式计入新增读写。
 
-
-#### 第3步：登记编码与冷签协议对齐（源码实现，尚未部署）
+#### 登记编码与冷签协议
 
 - OnChina现有公私权call 9编码器改为统一typed action及actor、32字节expected_state_hash、Option<u32> initial_threshold，字段顺序与Runtime一致；没有新增调用、CREG固定岗位或storage。共享action枚举及治理call 8布局不变。
 - 读侧同区块读取原始机构记录、Option名册账户锚点、有序岗位/权限/任职、nonce和阈值，经entitybase共享函数生成与Runtime相同的指纹；不使用当前钱包展示投影、余额或中文来源标签生成签名状态。存量二进制来源引用原样保留，新/改任职只传Registry空引用。
 - prepare比对页面已审阅指纹并按登录管理员同区块有效任职、权限和既有辖区确定办理岗位。唯一候选自动确定，多候选选择中文岗位名；未知/失效岗位拒绝。来源及引用由系统从链状态确定，不由输入指定。签名会话的actorCidNumber修正为实际办理注册局CID，保持现有Passkey和统一submit流程。
-- 钱包严格解码登记子集并从签名字节展开岗位权限、初始任职、名册、状态锁及显式首次阈值。对旧编码、来源、阈值/建岗不匹配、LR任免、截断、尾随及公私权动作错配增加断言；一份内联call十六进制金标在真实RuntimeCall解码和钱包解码两侧精确比较，无新夹具文件。
-- 尚未执行链升级或真实链交易；第4步接入现有新增弹窗、链上名册展示与登录办理回归后，再按原计划处理部署验收和固定环境性能标定。
+- 钱包严格解码登记子集并从签名字节展开岗位权限、初始任职、名册、状态锁及显式首次阈值。对旧编码、伪造来源、配置不匹配、LR任免、截断、尾随及公私权动作错配均拒绝。
 
-- 第3步验收：`cargo check -p onchina -p onchina-registry --locked --offline`通过；平台162项、注册局52项通过，29项既有PostgreSQL门禁/投影用例按原条件忽略。运行命令为 `cargo test -p onchina -p onchina-registry --locked --offline -- --skip archive_paths_preserve_spaces_quotes_and_owned_configuration_is_idempotent`。该既有归档夹具首次因缺少CITIZENCHAIN_WORK_DIR失败，确认其要求创建目录及配置文件后按本轮禁止新增文件目录的约束排除，未修改或削弱其断言。
-- 协议回归以 `cargo test --manifest-path crates/protocol/Cargo.toml --locked --offline -- --skip working_tree_scan_`执行，38项通过；另3项隔离Git目录夹具同样因未交付工作目录且需新建目录而排除。注册表生成结果与现有Dart文件逐字节一致。真实Runtime的FRG登记CREG、有效任职办理公民业务、跨省拒绝及费用账户用例再次通过。Rust/Dart格式及两仓git diff --check通过。
-- 钱包payload_decoder_test.dart共121项通过：钱包目录没有.dart_tool依赖配置，为不创建配置、脚本或缓存目录，以DartVM的data URI在内存中复用现有依赖配置并加入citizenwallet映射；只将flutter_test导入替换为原Dart Test API及matcher宿主，原测试体和断言不变。核对crypto3.0.7、polkadart_keyring0.7.1、matcher0.12.20、test_api0.7.12与钱包锁文件一致。此结果是解码器纯Dart回归，不冒称Flutter完整宿主、真实扫码签名或线上链交易验收。
+#### 注册局详情与登录办理
 
-
-#### 第4步：当前市注册局详情的登记与登录办理接入（源码实现，尚未部署）
-
-- 仅改批准的12个既有OnChina前后端、测试和文档文件；本步不变更Runtime调用或storage。现有新增/删除使用统一call 9；目标直接来自当前详情页，关闭旧本地目录增删。链上完整名册、原账户锚点和当前签名钱包分别表达，本地目录不再充当名单或人数真源。
+- 现有新增/删除使用统一call 9；目标直接来自当前详情页，关闭旧本地目录增删。链上完整名册、原账户锚点和当前签名钱包分别表达，本地目录不再充当名单或人数真源。
 - 首次配置明确动态岗位、业务权限、逐人任职和机构阈值；票据按有效岗位席位计算，同一钱包兼任多岗可形成多席，不生成固定岗位或按钱包人数推导阈值。后续追加不重写原名册/CID/资料/任职来源；删除必须同步处理相关任职并维持有效治理配置。
 - 确认前复查状态指纹，唯一办理岗位自动确定、多岗位中文名称选择。一次Passkey与一次钱包签名后只提交原会话；重复点击在组件层同步拦截。HTTP成功仍须回读finalized目标名册与任职；已消费或清理的会话只有链上目标状态吻合才恢复为成功，网络不确定时不盲目重签。既有登录链上守卫和CREG顶层业务能力/真实任职校验继续沿用。
-- 实际Runtime的统一FRG登记CREG、初始化后办理公民业务、跨省拒绝及费用账户回归再次通过。Rust平台162项、注册局55项通过（28项既有数据库用例忽略、1项归档配置目录夹具按本轮约束排除）；注册局前端22项通过、2项既有DOM用例跳过；平台前端30项通过、11项环境用例跳过，1项目录守卫被范围外既有.DS_Store阻断。Rust编译及当前真实源码的四组TypeScript检查通过，差异/格式检查通过；未把环境缺失或源码回归冒称真实扫码上链验收。
-- 第5步还须收口范围外旧通用表单的手工岗位码/缺少指纹入口，并统一登记prepare上下文的目标键（cidNumber）与submit读取键（cid_number）。当前新流程已按冻结签名目标和finalized状态核对成功，不将空返回字段当作成功凭据。固定环境性能预算和FRAME权重实测标定仍待执行，当前登记权重继续保留第2步记录的保守组合，未伪造跑分或递增正式链版本。
 
+#### 机构管理员登记资源预算
 
+统一表单使用公权/私权call 8自治提案和call 9注册局登记。prepare由实际call参数生成cid_number上下文；自治提交成功只表示提案入链，名册在投票执行后更新。前端拒绝会清空存量CID的有损自治提交，call 9保留原记录。
 
-#### 统一机构管理员第5步：权重补充与实测验收记录（2026-11-14）
-
-第5步未全部验收通过。代码和已列出的专项测试已完成；本轮按事前批准预算各独立执行3次原生转账/创世初始化门禁，六次原测试断言均通过，但转账第3次结束时可执行文件哈希偏离冻结值，程序冻结一致性未满足。本结论不将其他独立任务纳入本步、不接管其修复；本次仅更新两份原有文档，没有新增文件或目录、修改测试/断言/权重、编译、部署、真实链交易或正式版本变更。
-
-统一表单沿用现有公权/私权call 8自治提案、call 9注册局登记；没有CREG专用调用或固定岗位。登记prepare由实际call参数生成 `cid_number` 上下文；自治成功只代表提案已入链，名册等待投票执行。私权旧自治解析清空存量CID的问题在本次范围外，前端拒绝有损提交，登记call 9仍保留原记录；不能将此保护表述为后端已经修复。
-
-以下为此前measurement-only及登记基准记录，不计入本轮正式预算的六次样本。实测环境：Apple M5 Pro，18逻辑CPU、48GiB内存，rustc1.97.1；SDK固定05e0e9e。下列原生测试为unoptimized + debuginfo，WASM为release/wasm32v1-none + substrate_runtime。setup和verify位于派发计时外，均保留真实鉴权及结果断言。每项仅说明本机样本，不代表生产端到端延迟或全面参数回归拟合。
-
-|实测项目|样本/结果（纳秒）|范围与结论|
-|---|---|---|
-|原生直接转账|3批各1000次，批内平均91913、89540、88563；中位89540|余额及总发行量断言通过；不含签名扩展、交易池或共识|
-|全量默认创世build_storage|7037427625、6968729250、6759471916；中位6968729250|完整机构目录数量及Genesis阶段断言通过，纯内存初始化|
-|优化工具+优化WASM运行期登记|release frame-omni-bencher；n=2..128、r=1..2、p=2..4、a=2，steps2/repeat1，全部8次计时15991000..28494000|办理CREG名册1989人、签名者最后、真实CID身份绑定；全部验证开启。全参数上界未完成测量，不能称全覆盖|
-|运行期身份I/O|目标n由2到128，唯一读取31到535；增加504次|每位实名管理员4次额外身份读取；另有约7987次重复读取|
-|身份证明上界元数据|四表max_size=113、81、81、158，共433字节；默认百万项Trie追加9900字节|每人10333字节，沿用FRAME MEL策略而非测得小样本证明大小|
-
-优化工具命令使用同版本SDK独立 `frame-omni-bencher v1 benchmark pallet --runtime <现有runtime.wasm> --genesis-builder none --pallet publicentity --extrinsic registration_operation --extra --steps 2 --repeat 1 --min-duration 0 --low 2,1,2,2 --high 128,2,4,2 --heap-pages 8192 --json`；全量创世在每次setup内，未创建链数据或链规格文件。节点release构建因本机sqlx宏dylib的LINKEDIT加载错误失败，故改用同SDK优化基准工具，未关闭Revive编译或验证。开发版节点+优化WASM另已实测首次及存量登记：n<=128/r<=8/p<=4/a<=128，存量登记公开样本最大42.552ms、私权46.115ms；开发host样本仅作诊断，不冒充优化host结果。
-
-两份正式登记权重保留旧模型为下限，补入上述最慢Operation样本28494000ns对应的28494000000ps附加成本、每人4次读取及10333字节身份证明；办理方/目标方名册均覆盖，首次配置写入按4r补足。参数n是调用侧累计work而非单纯当前名册人数，p/a是累计权限/任职条目；测量原始r*p、r*a需换算，不能直接套作同名线性系数。本轮是基于实测和编码上界的保守补充，不是自动生成的全范围回归模型，也不保证最大逻辑名册可在单笔区块证明预算内提交。
-
-基准夹具在既有文件内覆盖真正空名册首次初始化、存量角色、最长人员名字/共同前缀、真实Operation实名管理员与最大办理方名册；校验完整名册、动态岗位/权限/任职、nonce及阈值，保留原断言。新增测试从Runtime真实身份表元数据计算证明上界，并核对正式权重随人数增长不低估；2026-11-14已实际执行，通过（1通过、0失败），四表最大编码长度之和433字节加默认Trie上界9900字节，共每人10333字节。
-
-本步检查：双方前端四组类型检查通过，注册局24通过2跳过、公共SDK31通过11跳过。Rust标准编译检查（onchina、registry、公权/私权实体）通过；注册局Rust56通过、5忽略。原有环境依赖用例没有改为通过，也没有放宽断言。
-
-2026-11-14两项专项测试的实际执行结果（不替代下述性能预算门禁）：
-
-|现有测试|结果|验证内容|
-|---|---|---|
-|`tests::performance::operation_binding_proof_bounds_come_from_current_runtime_metadata`|1通过、0失败|真实身份表元数据；每人10333字节证明上界；公权/私权正式登记权重的增长断言|
-|`tests::cases::unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee_payer`|1通过、0失败|FRG统一登记CREG；首次动态岗位、权限、任职及阈值初始化；办理公民业务；跨省拒绝；正常区块预算；费用账户|
-
-实际命令（各准确匹配并执行1项测试，不把0项匹配视为通过）：
-
-```sh
-cargo test -p runtime --lib --locked --offline tests::performance::operation_binding_proof_bounds_come_from_current_runtime_metadata -- --exact --nocapture
-cargo test -p runtime --lib --locked --offline tests::cases::unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee_payer -- --exact --nocapture
-```
-
-上述业务/权重专项测试结果保留；它们不替代耗时预算验收。本轮两项性能预算门禁执行结果如下；独立任务的整库运行记录不纳入本步待修复任务。
-
-2026-11-14正式预算验收（本轮全部原始结果）：
-
-用户在运行前明确批准：`CITIZENCHAIN_PERF_TRANSFER_NS=100000`、`CITIZENCHAIN_PERF_GENESIS_NS=10000000000`。两项各独立运行3次，必须全部满足原断言及冻结条件；禁止抬高预算、重跑替换样本或以旧measurement-only数据补作本轮通过。
-
-冻结环境和程序：
-
-- macOS27.0（26A428）、arm64、Apple M5 Pro、18逻辑CPU、51539607552字节内存（48GiB）；`rustc 1.97.1 (8bab26f4f 2026-07-14)`。
-- 直接复用现有程序 `/Users/rhett/citizenchain/target/debug/deps/runtime-62e4f8a62139a5c6`；原生test构建，unoptimized + debuginfo，debug assertions开启。fingerprint特性为 `default,std,substrate-wasm-builder`，RUSTFLAGS为空。没有调用Cargo或重新编译；每次独立进程、串行执行、`--exact --ignored --nocapture --test-threads=1`，各准确执行1项测试。
-- 原冻结A：`2026-11-14T13:10:29-08:00`，程序SHA-256 `6ed770a489a90780dfecd942c878c824fa446701802b3a5dba3493040bdc97c4`。
-- 转账第3次开始前校验A，结束后程序路径的SHA-256已为B：`4feededb3f7125a13837b59e6d59014cb78dc7fbdfaae2b67d40cc019ac43a82`。门禁源码未变，原始测试退出0且耗时断言通过；自动冻结校验判为不满足，立即停止该批，不编译或重跑任何转账样本。
-- 为交付尚未执行的创世3次，单独冻结B：`2026-11-14T13:12:38-08:00`，程序SHA-256 `4feededb3f7125a13837b59e6d59014cb78dc7fbdfaae2b67d40cc019ac43a82`；创世三次前后及结束校验均为B。该组3/3通过，但不能与A组混称同一冻结程序下的完整验收通过。
-- 准备阶段进程监控曾因非UTF8进程名解码失败，当时未启动任何门禁样本；仅修正内存监控脚本后才开始上述正式记录，不修改测试程序。运行期间使用2秒间隔进程观察和每次前后哈希核验；文件哈希变化的实际证据保留，不以进程采样未捕获构建为由忽略它。
-
-冻结时源码与锁文件SHA-256（两组相同）：
-
-|文件|SHA-256|
-|---|---|
-|`runtime/tests/performance.rs`|`cf8ea6057e4114217a139b295c90cc92a4579b143182cc6ae63d2b659248058e`|
-|`runtime/tests/mod.rs`|`35084ac86a3e294f7c0c0804b0b34b9151a9d910ea2d5cce1ca8b13e17ff0b90`|
-|`Cargo.lock`|`8ecfbd0753a441e8d965aea2a8d5ed087eca43fc437ed95e4ed01c486b83ad77`|
-
-|门禁/次数|开始→结束（PST，2026-11-14）|实测纳秒|固定上限纳秒|原测试结果|程序冻结校验|
-|---|---|---:|---:|---|---|
-|转账平均/1|13:10:29→13:10:46|91233|100000|1通过、0失败；退出0|A→A，一致|
-|转账平均/2|13:10:46→13:11:03|92550|100000|1通过、0失败；退出0|A→A，一致|
-|转账平均/3|13:11:03→13:11:21|91444|100000|1通过、0失败；退出0|A→B，不满足冻结要求|
-|创世总耗时/1|13:12:38→13:12:57|7146059667|10000000000|1通过、0失败；退出0|B→B，一致|
-|创世总耗时/2|13:12:57→13:13:16|6968226416|10000000000|1通过、0失败；退出0|B→B，一致|
-|创世总耗时/3|13:13:16→13:13:34|6855828125|10000000000|1通过、0失败；退出0|B→B，一致|
-
-两项原门禁的完整测试名分别为 `tests::performance::native_transfer_dispatch_meets_declared_budget_and_preserves_balances`、`tests::performance::full_genesis_initialization_meets_budget_and_preserves_fixed_catalog`。实际子进程均带上述两个固定环境变量，以现有程序直接运行对应完整测试名及 `--exact --ignored --nocapture --test-threads=1`，每个测试名独立启动3次。转账计时之外的Runtime初始化计入进程总耗时，不混入转账平均派发值；创世只对 `build_storage()` 计时，目录/阶段核验在计时之外。余额、总发行量、49,593机构目录及Genesis阶段等原断言均保留并通过。
-
-验收结论：六次测试进程全部退出0，各1通过、0失败，耗时均在事前批准上限内；5轮满足所冻结程序前后哈希一致，转账第3轮的程序文件哈希校验不一致。**本次程序冻结完整性要求未全部满足，第5步未全部验收通过。** 未替换任何样本、未提高阈值、不接管其他任务。该结论与测试业务/耗时断言通过分别记录，不能互相替代。
+登记权重以原模型为下限，追加28494000000ps成本、每人4次读取及10333字节身份证明，覆盖办理方与目标方名册，首次配置写入按4r计入。参数n为累计调用work，p/a为累计权限及任职条目，r*p和r*a须换算后计费。每人证明上界由四表最大编码433字节及Trie上界9900字节组成。该保守预算不保证最大逻辑名册可在单个区块证明预算内提交。
 
 #### 公民身份真源
 
@@ -2824,7 +1963,7 @@ proposal_id 快照进行。
 
 OnChina 本地数据库只能用于注册局录入和界面提示，不能作为链上投票资格真源。
 
-2026-07-30 资格读取统一返回 `CitizenSubject { cid_number, account_id }`。联合公投、立法公投和 Popular 选举均以 `(proposal_id, cid_number)` 唯一去重，票据值保存完整主体；同一永久 CID 更换绑定账户后不能再投一票。候选快照和当选结果保存完整主体，候选计票表以候选 CID 为唯一键；当前绑定账户只用于签名授权与审计。人口快照仍只保存作用域、有效总数、资格 revision、判定日期和创建区块，不枚举公民名单。
+资格读取返回 `CitizenSubject { cid_number, account_id }`。联合公投、立法公投和 Popular 选举均以 `(proposal_id, cid_number)` 唯一去重，票据值保存完整主体；同一永久 CID 更换绑定账户后不能再投一票。候选快照和当选结果保存完整主体，候选计票表以候选 CID 为唯一键；当前绑定账户只用于签名授权与审计。人口快照仍只保存作用域、有效总数、资格 revision、判定日期和创建区块，不枚举公民名单。
 
 #### 人口作用域
 
@@ -2938,123 +2077,63 @@ legislationvote/
 - `internalvote` 的 proposal、threshold、vote、cleanup 各自独立；`legislationvote` 的代表表决、公投、签署、护宪、结果和清理实现均位于对应真实模块。
 - 生产源码单文件不得超过 800 行，不得用纯注释文件或空实现伪造职责边界。
 
-#### 2026-07-14 第一步安全修复
+#### 公开超时与提案隔离
 
 - 立法签署、三人会签和护宪终审的公开超时入口统一要求当前区块严格大于提案截止区块，防止任意账户提前终结提案。
-- 自动到期结算失败不再回插原到期桶；第三步已补充独立计数、指数退避和 dead-letter，确定性错误不会永久阻塞执行重试和历史清理管线。
+- 自动到期结算失败不再回插原到期桶；使用独立计数、指数退避和 dead-letter，确定性错误不会永久阻塞执行重试和历史清理管线。
 - 立法特别案公投统一调用 `primitives::constitution::referendum_passed`，不再保留重复数学实现。
 - 注册多签待激活动态阈值按 `proposal_id` 隔离，避免同机构并发注册提案互相覆盖。
 
-#### 2026-07-14 第三步安全收口
+#### 异步执行与终态维护
 
 - `on_initialize` 在到期桶尚未排空时不再提前返回，执行重试、终态清理和 90 天清理管线每块都能继续获得有界处理机会。
 - 投票判定与业务执行已通过 `PendingProposalExecutions` 解耦；队列按 weight 预算执行，错误指数退避并在三次失败后 dead-letter，既有手动重试和终态清理契约已完成适配。
 - `finalize_proposal` 承担投票判定与执行入队；系统 `set_code` 成本显式计入业务执行和手动重试预算。投票、清理及回调预算使用各自实测模型组合。
-- `jointvote` 本 crate 现有 12 项直属测试，除原有 `cast_admin`、`cast_referendum`、105 票全票、机构否决和超时转公投外，直接覆盖 `VotePlan`/岗位快照绑定、同 CID 去重和跨 CID 独立投票；`internalvote` 继续提供跨 pallet 回归覆盖。
 - `legislationvote` 的 signing、guard、referendum、result、cleanup 文件已承载实际规则或清理辅助，不再是纯注释残桩。
-- 该步骤当时曾把五个投票 pallet 及触达模块设为开发期 `StorageVersion = 1`；2026-07-21 最终创世决策已取代该版本口径，当前五个投票 pallet 及全部项目 pallet storage version 已统一为 `0`，不保留开发期 migration。
 
-#### 2026-07-14 Track 与维护调度收口
+#### Track与维护调度
 
 - Runtime 以 `(InternalVote, (JointVote, (LegislationVote, (ElectionVote, ()))))` 注册递归 Track tuple；手动超时、自动超时、模式清理和内部阈值副作用走同一类型路由。
 - 自动终结、业务执行、历史清理保留各自配置上界，但共同使用一个维护预算池，按区块轮换优先次序；生产总池为最大区块权重的 `3/4`，不再把三条独立预算相加。
 - 延迟 FIFO 与就绪 FIFO 均以单调 `u64` 序号键控，不存在单区块桶容量、顺延窗口或严格头部反复处理。
-- 新增公平轮转测试和 Track 隔离清理测试：大任务存在时小任务仍推进，内部提案清理不会删除联合投票账本。
 
-#### 2026-07-14 资格快照与执行重试加固
+#### 资格快照与执行重试
 
 - `identity` 以全局 `eligibility_revision` 和每账户不可变版本历史冻结创建时资格；同一区块多次身份写入也能确定顺序，账户查询按版本数二分定位。
 - 联合公投、立法公投和 Popular 选举统一写入 `ProposalPopulationSnapshots[proposal_id]`；`identity::PopulationSnapshots/NextSnapshotId`、核心 `ProposalPopulationSnapshotIds`、`Proposal.citizen_eligible_total`、`ReferendumScopes`、`LegislationMeta.referendum_scope`、Popular 全量选民表及 `MaxElectionVoters` 已删除。
 - Popular 不受完整选区人数的 `BoundedVec` 限制；Mutual 只使用核心岗位快照，`MutualVoters` 和 `MaxMutualVoters` 已删除。
-- `jointvote` crate 直属测试当前为 12 项，直接覆盖 `cast_admin`、`cast_referendum`、105 票全票执行、机构否决转公投、超时转公投、创建后新增选民拒绝、岗位快照绑定和有效选民去重。
-- 自动执行结果应用阶段的确定性错误不再每块无限重排；R2 回归用例覆盖 `Ignored` 三次退避后 dead-letter，以及孤儿执行队列立即删除。
+- 自动执行结果应用阶段的确定性错误不再每块无限重排；Ignored三次退避后进入dead-letter，孤儿执行队列立即删除。
 
-#### 2026-07-14 生产 Benchmark 与动态权重
+#### 生产权重与维护成本
 
-- 工具与依赖复用本仓声明、原锁和本机已有版本；通过原 Node CLI 的 FRAME benchmark 入口执行 compiled WASM，采样参数与实际结果归任务卡。
-- 本轮覆盖16个业务/引擎包，共97个权重模型；其余 Runtime benchmark 登记保持各自职责。
 - 核心权重由当前真实调用生成；业务执行另组合回调预算、对象实际字节和 `SystemWeightInfo::set_code()`，不把系统换码成本混入可重生的框架模型。
 - 内部权重沿用既有实测；联合和立法已按资格历史存储重新生成，公民公投写票均真实计入 snapshot 绑定、快照元数据和账户资格版本读取。
-- 2026-07-30 使用当前源码 WASM、50 steps、20 repeats 重算选举权重。最后一票按候选人数
+- 选举最后一票按候选人数线性计费。最后一票按候选人数
   `c` 线性计费：Popular 基础约 `54.4m ps`、Mutual 基础约 `51.1m ps`，两者每候选人
   约增加 `1.94m ps`；Popular 读为 `12+c`、Mutual 读为 `11+c`，写均为 10。
 - 人口、岗位及签署基准通过既有 provider 和所属公开接口准备状态，计时内调用真实入口；框架、Track、回调和系统换码成本按各自模型显式组合。
 - `ProposalTrackHandler` 同时返回 stage timeout、Track chunk cleanup、Track terminal cleanup 权重；手动终结、自动终结和清理维护均按具体 Track 实际值计账。
-- 投票维护池 `3/4`、身份维护 `1/8`、法律 `1/32`、广场 `1/32`，合计 `15/16`，为其它 Hook 保留余量。预算不足保留任务，业务测试与资源预算测试分别验证状态规则和预算约束。
+- 投票维护池 `3/4`、身份维护 `1/8`、法律 `1/32`、广场 `1/32`，合计 `15/16`，为其它 Hook 保留余量。预算不足保留任务。
 
-##### 覆盖率口径
-
-- 原生 LLVM coverage 排除测试、benchmark、weights 和纯声明 `traits/types/data` 后，可执行业务代码共 4,324 行，命中 3,537 行，行覆盖率 81.80%。
-- 若把纯接口与类型声明也计入，五个投票 crate 全源码为 71.60%。文档同时保留两项，80% 门禁只使用可执行业务代码口径。
-- electionvote 现有测试文件内建立完整 mock runtime，覆盖普选/互选创建、人口/岗位快照、人口未就绪原子回滚、资格拒绝、写票、超时、结果回调与分块清理；当前为 14 项。
-
-#### 2026-07-19 第 5B 岗位主体内部投票收口
+#### 岗位主体内部投票
 
 - `InternalVoteEngine` 的机构创建接口强制接收业务模块构造的 `VotePlan`；创建事务按 plan 中每个 `RoleSubject` 读取有效任职、写入 `VoterSnapshot`，并按 CID 累加 `InstitutionTicketCountSnapshot`。机构路径不再写 `AdminSnapshot`。
 - `internalvote::cast` 的机构调用必须显式声明 `voter_role_code`，以 `InternalVoteTicket::Institution(RoleSubject + account)` 校验和防双投；个人多签使用 `InternalVoteTicket::Personal(account)` 并读取 `AdminSnapshot`。两类主体没有兼容回落。
 - 核心投票引擎不再暴露把机构人员名册写入个人多签快照的入口。机构 `admins` 查询只允许业务模块和 entity 用于确认人员名册归属，不能生成投票资格。
-- engingcore Config、runtime 接线和测试 runtime 不再存在机构管理员人数 provider。机构阈值只由 entity 提供，岗位席位数只来自提案冻结的票据快照；不得恢复通过管理员人数推导机构计票的第二路径。
+- engingcore Config、runtime 接线 不再存在机构管理员人数 provider。机构阈值只由 entity 提供，岗位席位数只来自提案冻结的票据快照；不得恢复通过管理员人数推导机构计票的第二路径。
 - 机构阈值继续来自机构固定阈值或机构动态阈值；岗位只决定选民集合，不新增岗位阈值。创建时若机构阈值无法由本次有效岗位快照达到，整笔提案回滚。
 - 手动重试和取消同样按提案主体分流：机构读取有效岗位选民快照，个人多签读取个人管理员快照。
 - 已接入业务为 public/private 本机构治理与关闭、决议销毁、GRANDPA 密钥紧急恢复、机构普通转账、NRC 安全基金转账、费用账户划转主账户和公民链基金会平台调价。每个业务自己校验 `RoleSubject + BusinessActionId + Propose`、枚举拥有 `Vote` 权限的岗位并固定使用内部投票引擎。GRANDPA 正常更换由目标机构单个委员完成旧、新私钥双签后直接延迟调度，不进入投票引擎。
 - public/private治理、Square调价及原清单其余方法均通过完整调用基准生成，不再使用旧的400ms/700KB手工占位；固定席位记录按共享规格准备最大字段，对应PoV模式在基准中明确标注。
-- 旧权重benchmark脚本及模板已删除；既有 `weights.rs` 数值和算法未因目录整理变更。后续重新生成权重须单独确定并验收所属Runtime入口。
-
-#### 验收
-
-- `cargo test -p engingcore`
-- `cargo test -p jointvote`
-- `cargo test -p legislationvote`
-- `cargo test -p internalvote`
-- `cargo test -p electionvote`
-- `cargo test -p runtime`
-- `cargo check -p runtime --features runtime-benchmarks`
-- `cargo check -p runtime --features try-runtime`
-
-2026-07-14 执行重试与资格快照最终验收：`identity` 23、`internalvote` 96、`jointvote` 10、`legislationvote` 33、`electionvote` 13、runtime 40 项专项测试及 `cargo test --workspace` 全部通过；六个相关 crate 的 `no_std`、runtime benchmark/try-runtime 编译和最终 release WASM 构建通过。当前源码以 `citizenchain-fresh --tmp` 真实启动成功，genesis hash 为 `0xd81962210c603a4a0f078b2cc022bac3daab344cd7dce8c6fc3501973d1552ab`，`isSyncing=false`，metadata RPC 响应 418,806 字节，runtime `specVersion/systemVersion/stateVersion` 均为 1；验收节点已停止。
-
-2026-07-14 第 3 步最终运行态：`WASM_BUILD_FROM_SOURCE=1` release 构建通过；当前源码 WASM 以全新 base path 启动隔离 `citizenchain-fresh` 节点，NodeGuard 与创世装载通过。block#0/genesis hash 为 `0x8d3fc4c4567796d8056e61a8dbf431f04230126a1023a49ffecde7b5bff25390`，state root 为 `0x51ef488b720c9f049c501367f31e3779dd7a3711c295ce8cc79ddbe7688413ca`，runtime `specVersion=1`，`system_health.isSyncing=false`，metadata RPC 响应 415,442 字节；验收节点已停止。fresh 链无交易且无同 genesis peer 时按“空块不提交 + 离线不挖矿”规则保持 block 0。
-
-2026-07-14 结构收口第 1 步：四个超限生产文件已完成物理拆分，核心 `lib.rs` 785 行、traits 门面 16 行、internal `lib.rs` 496 行、legislation `lib.rs` 572 行；五个投票 crate、runtime 40 项测试和五 crate `no_std` 构建通过。当前源码 `citizenchain-fresh --tmp` 真实启动成功，block#0 为 `0x15b19408800b8ab685b49e8076f861ed76b4713abea54a216a7be2dc0cee41ea`，`isSyncing=false`，验收节点已停止。
-
-2026-07-14 结构收口第 2 步：Track tuple、两级公平清理 FIFO、三条独立 weight 预算和五 pallet `StorageVersion = 1` 最终创世布局已落地。全工作区测试目标检查通过；personalentity 23、internal 94、joint 3、legislation 33、election 3、runtime 40 项测试通过；五 crate `no_std` 与 runtime 普通/benchmark/try-runtime 构建通过。当前源码 fresh 节点 block#0 为 `0xf20b42ad98756fa464678ab2473abc6f0be089dceae290c587cea80c1ead9ab1`，`isSyncing=false`，metadata RPC 响应 415,442 字节，验收节点已停止。
-
-结构、Track、公平维护、正式 benchmark、覆盖率和 fresh genesis 三步门禁均已完成。正式创世发布仍需统一烘焙冻结 chainspec 并切换同 genesis bootnode；本任务未修改冻结 chainspec、未推送、未部署。
-
-2026-07-13 第四步 B1 验收：runtime 37、`legislationvote` 32、`legislation` 30、
-OnChina 120 项测试全部通过；node、runtime `no_std` 和 OnChina 生产构建通过。当前源码 production
-WASM 的 fresh 临时节点正常启动，block#0 为
-`0xf5f7bb30535ead9b5cd5b0159b61124dd0116635ebe78b6b550eb3aa7dc169fe`；真实 metadata
-已确认新代表机构存储与 `cast_representative_vote` 生效，被替换的旧存储和旧调用名不存在。
-
-2026-07-13 第四步 B2 曾把 `electionvote` 结果直接封装为 entity 的通用
-`InstitutionGovernanceResult`；该过渡实现缺少选举业务层复核，已在 2026-07-14 治理职责第 3 步撤销，
-不得恢复为投票引擎直写任职。
-
-2026-07-14 治理职责收口第 1 步：内部投票与业务权限完成分层。FRG 账户上下文不再错误绑定省域 5 人组；多签转账统一从 entity 解析所有机构；销毁仍由业务模块固定 NRC/PRC/PRB，GRANDPA 密钥仍固定 NRC/PRC。专项测试通过：`internalvote` 88、`multisig` 24、`destroy` 15、`grandpakey` 17，runtime 整体 `cargo check` 通过。
-
-2026-07-17 的“普通内部事项按提案管理员快照派生严格过半”口径已被 ADR-039 取代；目标按 VotePlan 指定岗位主体的有效任职快照派生。组成结果仍只写岗位和任职，绝不派生 admins。
-
-2026-07-14 治理职责收口第 3 步：业务执行端新增 owner/kind/stage/code/account/CID/action 全绑定；联合业务接受联合阶段或公投阶段的合法通过终态；立法路由改为链端双重复校验；选举引擎删除外部创建入口和直写 entity 路径。投票引擎继续只负责投票流程，业务权限与执行前复核留在业务 pallet。
-
-2026-07-22 公民主体快照接口最终验收：`voting_subject`、`candidate_subject`、`voting_subject_at` 全部返回完整 `CitizenSubject`；联合公投与立法公投按永久 CID 去重，票据值与事件保存 CID + 当前签名钱包，钱包更换不能形成第二票。候选、Popular 票据、候选计票和结果仍是第 6 步边界。五个投票 crate、runtime 46 项及受影响业务模块测试，全 workspace 测试目标，`no_std`、WASM、benchmark/try-runtime 和 release Node 构建均通过。真实 fresh 节点 block #0 为 `0x69b4a0025356d050004cff3ef176167a6520b59c9086c9ac6b9a45c4b9e9c0e6`，state root 为 `0x0b066c3567ed25c15cfa96b7d249b6235df4746a253144db21c87dfd2ed2333e`，metadata 二进制 220,197 字节，runtime 六项项目版本均为 `0`；节点已停止。
-
-2026-07-22 选举投票模型最终验收：`ElectionMeta` 只保留唯一机构 `actor_cid_number + role_code`；候选快照、普选票据、候选计票和当选结果全部使用完整 `CitizenSubject`。普选按永久 CID 去重，互选继续按机构 CID + 岗位码 + 钱包票据去重，同一管理员可按多个不同岗位各投一票。`electionvote` 17 项、engingcore 4 项、runtime 46 项、全 workspace 测试目标、`no_std`、WASM、benchmark/try-runtime 和 release Node 构建通过。真实 fresh 节点 block #0 为 `0x285ca7f4ab0f24771baff6a6fc10141ee281fbbd6ce1a8f9dcd1d7676501a41b`，state root 为 `0x27ecdc5b73ce195df4bdfe6c05fe68ef0b682c58751f5f145868a69a1f4672bd`，metadata 二进制 220,398 字节，runtime 六项项目版本均为 `0`；节点已停止。
-
-2026-07-22 全端协议验收：QR 唯一注册表已登记 `ElectionVote.cast_popular_vote = 0x1602` 和 `cast_mutual_vote = 0x1603`；CitizenWallet 严格解码提案编号、完整候选 `CitizenSubject`，互选另解码选民岗位码，旧裸钱包载荷和任何截断、尾随载荷均拒签。CitizenApp 不直接创建选举，也不开放不存在的通用选举业务入口；未来只能由具体公权选举业务模块创建并绑定本引擎。第 8 步未修改 runtime，正式重算权重和 fresh Node/真实交易验收属于第 9 步。
-
-2026-07-22 第 9 步正式权重与最终验收：使用当前源码 WASM、临时 fresh spec、FRAME Benchmark CLI 53.0.0、50 steps、20 repeats，重新生成核心 `engingcore`、`jointvote`、`legislationvote`、`electionvote` 的生产权重；联合投票超时夹具先由 `identity` 准备人口真源，再由投票引擎生成提案快照。`electionvote` 最后一票继续按候选人数线性计费，范围 `1..=256`。五个相关 crate 与 runtime 测试、benchmark 编译和当前源码 release Node 构建均通过；最终 fresh 节点 block #0 为 `0x4bd7e3f65f5ad4788e6ac8917abce9b0683f0c93d286766a7512854084ff0dd9`，state root 为 `0xd15b1a20d972f0cc5f64aa9a08a09f6793fe51886f9445c6dc953c0f9d438f7b`，六项项目 Runtime 版本均为 `0`，metadata 二进制 220,247 字节；节点已停止。
 
 ### 公民币订阅与税务架构索引
 
 > 状态：原组合草案已拆分；本文件只保留导航，不再承载可执行方案
-> 修订：2026-07-18
 
 原文把平台订阅、创作者订阅、外部支付、收入台账和税务分期写在同一份预研方案中，包含已经废弃的双轨付款、弱交易镜像、旧目录和未确认税务设计。为避免它继续成为第二套实现真源，订阅部分已全部收敛到以下当前文件：
 
 - 订阅技术架构：`CitizenChainRuntime.md`
 - 订阅决策：`CitizenChainRuntime.md`
-- 订阅执行任务：`历史实施记录《公民币平台订阅与创作者订阅统一改造》（卡已删除，规范以本文为准）`
 - 跨端协议：`CitizenChainRuntime.md` 的 P-TX-014 与 P-STORAGE-006
 
 当前订阅边界固定为：
@@ -3064,22 +2143,15 @@ WASM 的 fresh 临时节点正常启动，block#0 为
 - Cloudflare 只保存 finalized 完整交易证明、可重建订阅镜像和创作者展示资料，不计算日期、不触发扣款、不保存未来扣款价格真源。
 - OnChina 与 CitizenWallet 只承接公民链基金会平台调价提案的统一签名流程：OnChina 展示请求二维码，CitizenWallet 只签名一次并显示响应二维码，OnChina 回扫响应后提交；投票流程完全复用统一投票引擎。
 
-税务仍属于独立业务范围，只能以 ADR-038 及其后续经用户确认的独立任务为准。不得从本文件恢复税务 pallet、收入台账、税率、目录、索引、回调或分期安排，也不得因为订阅已经实施而推断税务方案获得授权。
+订阅不包含税务pallet、收入台账或征税规则。
 
 ---
 
 ### 公民币平台订阅与创作者订阅技术架构
 
-> 状态：统一目标架构
-> 任务卡：`历史实施记录《公民币平台订阅与创作者订阅统一改造》（卡已删除，规范以本文为准）`
-> 决策：`CitizenChainRuntime.md`
-
 #### 1. 目标
 
 平台订阅和创作者订阅统一使用公民币付款，并复用现有 `SquarePost` pallet。订阅期限和自动扣款都以区块唯一的共识 unix 毫秒时间戳为依据；runtime 使用确定性的 UTC 公历算法计算月、季、年，绝不使用区块高度、固定天数或固定毫秒替代真实日期。
-
-当前处于开发期零用户阶段，本契约随全网重新创世直接启用。禁止 storage migration、
-旧键读取、旧订阅格式和任何双轨兼容。
 
 #### 2. 系统边界
 
@@ -3264,8 +2336,8 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 #### 14. CitizenApp 与签名体验
 
 - 订阅、取消、换套餐和创作者设置套餐各自使用一笔热钱包标准 extrinsic，并等待 finalized；同一业务操作不得追加第二次账户签名，自动续费没有用户交易或签名。
-- 第三步已经接入完整页面流程、finalized 状态读取、真实日期展示和创作者一次签名后边缘镜像重试，不实现续费编排。
-- 第四步已把 finalized 证明扩展为交易哈希、区块哈希和完整已签名 extrinsic；App 按钱包持久化有限证明历史与待重试队列，镜像失败不重复签名。
+- CitizenApp提供完整页面流程、finalized 状态读取、真实日期展示和创作者一次签名后边缘镜像重试，不实现续费编排。
+- finalized证明包含交易哈希、区块哈希和完整已签名 extrinsic；App 按钱包持久化有限证明历史与待重试队列，镜像失败不重复签名。
 - 页面显示使用 `DateTime.fromMillisecondsSinceEpoch(...).toLocal()` 展示真实日期和时间，不显示区块高度或“固定天数”。
 - Cloudflare 暂时不可用时，App 仍以 finalized 链上价格、档位和订阅状态工作；展示名称可使用本地兜底。
 
@@ -3285,16 +2357,6 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 - 平台调价动作在唯一 QR registry 中为 `propose_set_platform_price`；CitizenWallet 必须中文展示公民链基金会 CID、目标平台档位和新价格，未知或不完整载荷直接拒签。
 - `propose_set_platform_price` 只创建统一内部投票提案。资格、计票、推进和终态执行归投票引擎，OnChina 和 SquarePost 不实现第二套投票。
 
-#### 15. 真实验收
-
-- runtime 单元测试、金标 SCALE、benchmark 编译、完整 runtime 测试和 WASM 构建通过。
-- 在全新本地链确认 SquarePost 只生成 CID 键，不存在 AccountId 旧键或迁移入口。
-- runtime 覆盖月末、闰年、跨年、季和年周期计算、自动续费、停链后补扣和余额不足终止。
-- Cloudflare 严格解码新状态，拒绝尾随字节和非法标签，且不包含任何日期计算。
-- Cloudflare 必须验证 finalized 主链中完整已签名 extrinsic、同一区块状态和首次请求绑定；旧区块证明不能刷新链时钟。
-- OnChina 已在隔离本地 PostgreSQL 上连接真实本地链并完成链投影同步；平台价格、调价提案和统一提交接口在无登录态时均 fail-closed，旧公民专属提交入口已移除。
-- OnChina、CitizenWallet 与统一二维码注册表已完成编译、静态分析和自动测试；最终跨端调价交易、内部投票终态及完整订阅生命周期纳入第 6 步总验收。
-
 #### 16. 禁止事项
 
 - 禁止用区块高度、固定天数或固定毫秒表示订阅周期。
@@ -3306,32 +2368,27 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 
 ---
 
-## 第5步执行注册与空间资源边界
+## 执行注册与空间资源边界
 
-第5步已取得六份Runtime既有文件二次确认、两份SDK空间补修范围、具体验收目录及本轮一次远端固定准备确认，已完成本机执行注册验收；本阶段未开放网络RPC或操作生产节点。
-严格原生模式复用SDK已有RuntimeCosts，在日志空间计量中加入数据长度加256字节固定结构上界，在不可变数据中加入数据长度和AccountId编码长度；非严格模式不加此空间量，既有计时测量权重不改。这只限制状态增长，与公民链费用分类、公式、最低费、付款和分账无关。计划区块仍60秒及普通75%，proof_size有限8MiB；Runtime真实integrity与空间耗尽回归已验证128MiB/512MiB配置和有限空间预算。
+严格原生模式复用SDK RuntimeCosts：日志空间按数据长度加256字节固定结构上界计量，不可变数据计入数据长度和AccountId编码长度。非严格模式不增加该空间量，既有计时权重不变。该预算限制状态增长，不改变GMB费用分类、公式、最低费、付款和分账。区块计算预算60秒，普通交易占75%，proof_size上限8MiB。
 
-本轮获批Runtime源码已使用官方UncheckedExtrinsic包装器、pallet35及完整原有交易扩展，SetOrigin置于CheckMetadataHash后、WeightReclaim前；原生默认标记编码为空，chain-signing保留旧payload字节验收。RuntimeNativeFee报价只读复用charge_details，付款预检和实际收费均绑定现有OnChargeTransaction；只新增Ethereum金额严格整分后进入现有链上路由，其余Revive原生业务入口拒绝。区块proof_size设8MiB，时间60秒、普通75%、费用权重和字节价格均保留原值。Runtime/Executive集成回归和原生编码回归已实际通过；真实源码WASM执行也已验证部署、存储、日志、内部调用、模拟恢复及失败单次收费分账。默认Node构建、完整节点回归及runtime-benchmarks/try-runtime编译检查均已通过。
+Runtime使用官方UncheckedExtrinsic包装器、pallet35及完整原有交易扩展，SetOrigin置于CheckMetadataHash后、WeightReclaim前；原生默认标记编码为空，chain-signing保持原生payload编码。RuntimeNativeFee报价只读复用charge_details，付款预检和实际收费均绑定现有OnChargeTransaction；只新增Ethereum金额严格整分后进入现有链上路由，其余Revive原生业务入口拒绝。区块proof_size设8MiB，时间60秒、普通75%、费用权重和字节价格均保留原值。
 
-本机开发使用已保存固定SDK提交7f115f0825a59df94faabe7074ec83c3e9463c7d及不可变Git bundle，仍不读取SDK开发工作树；本机SDK源码验收与本机门禁通过后即可离线消费，不要求先等远端。远端门禁只用于独立判定本次推送成功，运行中不冒充成功。174项SDK来源统一，包版本、checksum及非SDK锁连接保留。
+Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.1的一条连接；不新增包或版本，不改checksum及非SDK连接。
 
-Revive benchmark特性传播在原锁中补入pallet-revive到已有rand_pcg0.3.1的一条连接；不新增包或版本，不改checksum及非SDK连接，后续正式验收仍强制--locked --offline。
-
-交易扩展末两项使用官方TransactionExtension嵌套元组，将SetOrigin和WeightReclaim组合在同一项；顺序仍在CheckMetadataHash之后，避免Rust标准元组Debug/Eq上限。默认标记及隐式数据仍为空编码，原生完整签名载荷已由字节回归证明不变；收费器预检显式指定既有Runtime类型，不改变收费配置或计算。
+交易扩展末两项使用官方TransactionExtension嵌套元组，将SetOrigin和WeightReclaim组合在同一项；顺序仍在CheckMetadataHash之后，避免Rust标准元组Debug/Eq上限。默认标记及隐式数据仍为空编码，原生完整签名载荷编码不变；收费器预检显式指定既有Runtime类型，不改变收费配置或计算。
 
 ## MLS公钥登记签名域
 
 `runtime/primitives/src/sign.rs` 中唯一登记常量为 `OP_SIGN_MLS_DEVICE_BIND: u8 = 0x1C`。它授权当前 CID 绑定账户登记本机同一32字节 MLS 公钥，链下验签仍使用 `blake2_256(GMB ‖ op_tag ‖ SCALE)`。载荷顺序为 `cid_number`、`binding_revision u64LE`、`account_id`、`public_key`、`issued_at u64LE`；账户和公钥文本均为小写 `0x` 加64位十六进制。
 
-签名金标闭集为16个当前哈希域；删除的编号不重用、不提供别名或兼容常量。链上交易、二进制前缀签名与其他现行授权域保持其既有语义。共享 QR 注册表以动作13承载 MLS 登记，正式导出到钱包和链内消费者；生成文件禁止手改。
+哈希签名域闭集为16个；删除的编号不重用、不提供别名或兼容常量。链上交易、二进制前缀签名与其他现行授权域保持其既有语义。共享 QR 注册表以动作13承载 MLS 登记，正式导出到钱包和链内消费者；生成文件禁止手改。
 
 ## Runtime 自身版本与 WASM 自动化
 
-本机RPC公开证书交付只涉及node/src/application.rs，证书生成模块仅同步注释；WASM构建仍不回写原仓Runtime或Node源码。当前macOS正式节点把本次公开DER十六进制交付到既有正式数据目录的rpc-certificate.hex，runtime.mjs按固定位置只读消费，不新增配置项、不读取私钥、不改控制台、Runtime、UI或交互。开发数据命名空间不交付正式证书。脚本核对目录及祖先的所有者、权限、链接和ACL，通过O_NOFOLLOW/O_NONBLOCK打开普通单链接文件，以同一文件描述符检查、读取、前后复核；元数据或路径身份变化立即停止。每轮读链固定一份证书快照，仅装入127.0.0.1本机HTTPS请求的ca，保留有效期及主机名校验、超时与64KiB响应边界，不修改全局信任、不重定向、不降级、不自动换证书重试。证书缺失、损坏、过期、旧会话或权限异常均停止派发；同一finalized块双版本读取与分别加1规则不变。GitHub只接收既有版本基线，不读取公开证书文件。文件回归的ACL与UID替身只验证拒绝分支；桌面同文件另有真实macOS ACL读取及内存TLS服务消费正式脚本的正例、错误证书、错误主机名、过期与旧会话回归，测试私钥不交付给脚本或磁盘。该边界信任当前系统用户，不能防御同用户恶意程序或root。以上描述源码及中文注释合同；Runtime编译脚本不再承载内嵌回归。桌面真实TLS、正式构建、安装及真实读链须分别取得实际阶段回执，前一阶段通过不能替代后续验收。
+WASM构建仍不回写原仓Runtime或Node源码。当前macOS正式节点把本次公开DER十六进制交付到既有正式数据目录的rpc-certificate.hex，runtime.mjs按固定位置只读消费，不新增配置项、不读取私钥、不改控制台、Runtime、UI或交互。开发数据命名空间不交付正式证书。脚本核对目录及祖先的所有者、权限、链接和ACL，通过O_NOFOLLOW/O_NONBLOCK打开普通单链接文件，以同一文件描述符检查、读取、前后复核；元数据或路径身份变化立即停止。每轮读链固定一份证书快照，仅装入127.0.0.1本机HTTPS请求的ca，保留有效期及主机名校验、超时与64KiB响应边界，不修改全局信任、不重定向、不降级、不自动换证书重试。证书缺失、损坏、过期、旧会话或权限异常均停止派发；同一finalized块双版本读取与分别加1规则不变。GitHub只接收既有版本基线，不读取公开证书文件。
 
-真实macOS TLS回归从产品已交付的NODE启动导入脚本，使用独立哨兵参数避免误入构建CLI；监听器用非阻塞accept限制等待，接受的socket显式转为带超时的阻塞流，避免继承非阻塞属性后把WouldBlock误作TLS失败。临时服务完整消费Content-Length或分块POST正文再响应，并发送TLS close_notify，防止夹具提前关闭制造ECONNRESET；失败保留客户端及服务端诊断。不启动真实节点或派发GitHub任务。
-
-Runtime正式候选的编译入口为scripts/runtime.mjs build。 工具版本复用scripts/build.mjs的checkTools，进程退出状态不明时仍由Runtime入口保留现场。该文件只处理编译输入、WASM构建、产物检查和本轮编译现场；配置只声明数据。wasm.yml编排候选检查、测试、编译、发布和历史清理。共用工作流实现由.github/release.mjs提供，WASM候选校验复用本文件的基线和双版本校验。WASM仍使用链上双版本各加1，显示号取目标spec_version；原Runtime及Node源码不写入，仅临时编译输入的VERSION替换两个数字，冻结创世输入、升级授权、表决与宪法规则保持。
+Runtime正式候选的编译入口为scripts/runtime.mjs build。 工具版本复用scripts/build.mjs的checkTools，进程退出状态不明时仍由Runtime入口保留现场。该文件只处理编译输入、WASM构建、产物检查和当前构建的编译现场；配置只声明数据。wasm.yml编排候选检查、测试、编译、发布和历史清理。共用工作流实现由.github/release.mjs提供，WASM候选校验复用本文件的基线和双版本校验。WASM仍使用链上双版本各加1，显示号取目标spec_version；原Runtime及Node源码不写入，仅临时编译输入的VERSION替换两个数字，冻结创世输入、升级授权、表决与宪法规则保持。
 
 候选输入沿用version、transaction_version、source_sha和runtime_base。readRuntimeTarget只读本机既有公开证书及同一finalized块的冻结链身份、双版本；声明读取不读链、不派发。Workflow的prepare核对准确源码及基线加1关系，编译入口重新检查冻结创世与双版本并核对实际WASM。Runner不连接本机RPC；旧请求构造、launch/read/dispatch回调和配置转调均不保留。
 
@@ -3345,13 +2402,11 @@ Runtime开发升级仍属于控制台既有功能。该功能仅同步正式WASM
 
 宪法/国家地域的显式NATIONAL编码为00 00 00 00，与原u32=0逐字节相同，不是解析失败默认值。Laws和LawsByScope存储名称、前缀、哈希算法、宪法原键/值、Law字段顺序及后续偏移不变；创世宪法law_id=0、国家立法院归属、众议会发起、众参两院表决和全部冻结条款保持。节点守卫继续按原u32=0冻结布局读取，无需修改。当前只有创世宪法，不增加普通法律迁移、兼容分支或第二套索引，不重建创世数据。
 
-原始u32=0法律记录金标和独立拼装的宪法索引键断言保留，并覆盖不同省同市号隔离、非法地域、CID与地域不符、最终写入回调复校验及第1001部法律。transaction_version是框架RuntimeVersion原生字段，交易使用框架CheckTxVersion；本次参数类型变化按上述统一升级政策处理，不再单独询问是否提高两个版本。地域源码和配套维护已完成，候选由scripts/runtime.mjs构建时依据真实部署基线派生该次版本。本轮保留版本数值，不根据仓库值推断运行节点版本；未执行测试、类型检查、编译、守卫验收、安装或链升级。
+transaction_version是框架RuntimeVersion字段，交易通过CheckTxVersion核验。scripts/runtime.mjs依据真实部署基线生成候选双版本，不能由仓库静态版本推断运行节点版本。
 
-Runtime产物验收由runtime.mjs读取三份实际WASM的runtime_version段，支持SDK原压缩格式并沿用其50MiB解压边界。WASM段长接受u32宽度内合法LEB128补零，保留超长、溢出、截断和段越界拒绝。三个产物必须属于citizenchain且双版本与本轮目标一致，不从文件名或Tag推断。runtime.mjs的recordAssets记录完整集合及原始字节摘要，publish读取同一Run的三份实际附件并复核双版本、字节和来源后创建草稿及正式交付；下载回读保持。输出version与runtime记录绑定source_sha、genesis_hash、base_block_hash、spec_name、基线及目标双版本，显示号等于目标spec_version，目标双版本分别为基线加1；配置中的原公开命名和证明接口仅转调该文件的WASM校验，不复制实现。正常退出清理临时源码；工具退出未确认时保留现场。
+Runtime产物校验由runtime.mjs读取三份实际WASM的runtime_version段，支持SDK原压缩格式并沿用其50MiB解压边界。WASM段长接受u32宽度内合法LEB128补零，保留超长、溢出、截断和段越界拒绝。三个产物必须属于citizenchain且双版本与当前构建的目标一致，不从文件名或Tag推断。runtime.mjs的recordAssets记录完整集合及原始字节摘要，publish读取同一Run的三份实际附件并复核双版本、字节和来源后创建草稿及正式交付；下载回读保持。输出version与runtime记录绑定source_sha、genesis_hash、base_block_hash、spec_name、基线及目标双版本，显示号等于目标spec_version，目标双版本分别为基线加1；配置中的原公开命名和证明接口仅转调该文件的WASM校验，不复制实现。正常退出清理临时源码；工具退出未确认时保留现场。
 
-WASM历史维护直接归原Workflow的cleanup，不派发repository_dispatch维护Run。本轮按已结束的prepare、build、release结果占用一个保留名额，三项全部成功才占成功名额，否则占失败名额；已完成历史按GitHub真实conclusion选择，保留最近成功1条、失败1条。活动Run不删除；旧资产按准确Run、SHA与Tag归属处理，删除后回读Run不存在并核对两类各最多1条，错误不得吞掉。本轮最终conclusion由GitHub在cleanup结束后确定，清理失败或外部强制中断不得报告严格两条已完成。
-
-WASM专属回归、临时夹具和断言集中在runtime.mjs，config.mjs保留声明及通用规则回归；协议所有者repo_guard.rs保留原阶段/依赖/拒绝断言，并校验runtime_base必需、Runner不依赖RPC地址及Workflow只转调Runtime。回归覆盖原始/压缩WASM、合法补零/非法长度、双版本加1、0/溢出、同基线重试、冻结链身份、基线完整性、派发传递、导入和创建声明无网络副作用、Runner仅消费快照、原源码不变、旧入口拒绝及整数名称。公开证书新增描述符读/关闭、UID及权限、链接/硬链接、ACL未知或写授权拒绝、文件/目录替换、格式与大小边界、HTTPS证书选项及失败不派发回归；本机派发夹具改用HTTPS请求注入，不再用全局fetch替身绕开生产本机请求。收尾回归直接调用同一finalize函数的内存GitHub替身，覆盖旧版本/失败草稿清理、保留项和活动Run保护、API拒绝、删除未确认、attempt漂移及未知来源；失败必须核对具体原因。这里只描述源码与回归合同，不构成测试、GitHub编译、安装或链升级通过的证据。
+WASM历史维护直接归原Workflow的cleanup，不派发repository_dispatch维护Run。当前Run按已结束的prepare、build、release结果占用一个保留名额，三项全部成功才占成功名额，否则占失败名额；已完成历史按GitHub真实conclusion选择，保留最近成功1条、失败1条。活动Run不删除；旧资产按准确Run、SHA与Tag归属处理，删除后回读Run不存在并核对两类各最多1条，错误不得吞掉。当前构建的最终conclusion由GitHub在cleanup结束后确定，清理失败或外部强制中断不得报告严格两条已完成。
 
 ## 包、分组和源码结构
 
@@ -3359,95 +2414,19 @@ Runtime为总装配包，src和tests归其自身；genesis和primitives为直接
 
 每包src与唯一tests平级。src默认平铺真实模块文件；仅primitives的cid/china、engingcore的traits、legislationvote的legislation/representative、公权和私权实体的institution保留一层模块目录。genesis的播种和岗位直接归src/institution.rs、src/roles.rs。每个保留目录至少两个真实直接子项，不增加占位文件或包装层。
 
-primitives的cid和china源码分别归src/cid与src/china，逻辑CID协议及现有机构常量保持单一真源。gen_area_data.py和rederive_accounts.py沿用原维护工具，只同步路径；本次不运行生成或重派生。冻结node/citizenchain.json及内嵌创世WASM/patch、GENESIS_HASH、GENESIS_STATE_ROOT和行政区二进制保持。
-
-## 模块测试组织
-
-每包的全部人工测试正文、辅助夹具、固定金标和FRAME基准归所属根tests。src仅保留工具所需的框架定义、接口及显式挂载。库内用例在cfg(test)编译；基准按runtime-benchmarks编译，不误设为仅cfg(test)。weights.rs继续为生产实现。
-
-全部包关闭Cargo自动集成测试发现，独立目标显式注册一次。primitives原三份金标和citizenissue原独立集成目标保持；Runtime真实节点端到端为独立e2e目标。固定输入与编码预期不按当前实现自动重写。
-
-单元覆盖正常、失败、边界和回归；真实协作边界必须集成覆盖；安全、契约、恢复、属性、性能和端到端按所属功能选择。相同场景只有一份实现，允许关联多种覆盖目标。
-
-### 当前测试入口索引
-
-| Cargo包 | 所属测试目录 | 独立Cargo测试目标 |
-|---|---|---|
-| runtime | `runtime/tests` | e2e |
-| primitives | `runtime/primitives/tests` | account_derive_golden, sign_golden, scale_codec_golden |
-| adminbase | `runtime/admins/adminbase/tests` | 无；库内显式挂载 |
-| publicadmin | `runtime/admins/publicadmin/tests` | 无；库内显式挂载 |
-| privateadmin | `runtime/admins/privateadmin/tests` | 无；库内显式挂载 |
-| personaladmin | `runtime/admins/personaladmin/tests` | 无；库内显式挂载 |
-| grandpakey | `runtime/governance/grandpakey/tests` | 无；库内显式挂载 |
-| destroy | `runtime/governance/destroy/tests` | 无；库内显式挂载 |
-| upgrade | `runtime/governance/upgrade/tests` | 无；库内显式挂载 |
-| legislation | `runtime/public/legislation/tests` | 无；库内显式挂载 |
-| election | `runtime/public/election/tests` | 无；库内显式挂载 |
-| engingcore | `runtime/votingengine/engingcore/tests` | 无；库内显式挂载 |
-| internalvote | `runtime/votingengine/internalvote/tests` | 无；库内显式挂载 |
-| jointvote | `runtime/votingengine/jointvote/tests` | 无；库内显式挂载 |
-| electionvote | `runtime/votingengine/electionvote/tests` | 无；库内显式挂载 |
-| legislationvote | `runtime/votingengine/legislationvote/tests` | 无；库内显式挂载 |
-| citizenissue | `runtime/issuance/citizenissue/tests` | integration |
-| fullnodeissue | `runtime/issuance/fullnodeissue/tests` | 无；库内显式挂载 |
-| onchainissue | `runtime/issuance/onchainissue/tests` | 无；库内显式挂载 |
-| resolutionissue | `runtime/issuance/resolutionissue/tests` | 无；库内显式挂载 |
-| prbbankissue | `runtime/issuance/prbbankissue/tests` | 无；库内显式挂载 |
-| identity | `runtime/misc/identity/tests` | 无；库内显式挂载 |
-| difficulty | `runtime/misc/difficulty/tests` | 无；库内显式挂载 |
-| address | `runtime/misc/address/tests` | 无；库内显式挂载 |
-| square | `runtime/misc/square/tests` | 无；库内显式挂载 |
-| genesis | `runtime/genesis/tests` | 无；库内显式挂载 |
-| offchain | `runtime/transaction/offchain/tests` | 无；库内显式挂载 |
-| onchain | `runtime/transaction/onchain/tests` | 无；库内显式挂载 |
-| entitybase | `runtime/entity/entitybase/tests` | 无；库内显式挂载 |
-| publicentity | `runtime/entity/publicentity/tests` | 无；库内显式挂载 |
-| privateentity | `runtime/entity/privateentity/tests` | 无；库内显式挂载 |
-| personalentity | `runtime/entity/personalentity/tests` | 无；库内显式挂载 |
-| multisig | `runtime/transaction/multisig/tests` | 无；库内显式挂载 |
-
-源码维护、单元/集成执行、基准测量、性能达标、真实节点端到端分别验收。默认ignored的端到端或性能场景必须在最终验收显式执行，缺少输入失败，不能计作普通测试通过。实际结果、授权和剩余项唯一归任务卡。
+primitives的cid和china源码分别归src/cid与src/china，逻辑CID协议及现有机构常量保持单一真源。gen_area_data.py和rederive_accounts.py沿用原维护工具，只同步路径。冻结node/citizenchain.json及内嵌创世WASM/patch、GENESIS_HASH、GENESIS_STATE_ROOT和行政区二进制保持。
 
 ## 四个原单源码包的职责拆分
 
 adminbase平铺lib.rs、types.rs、policy.rs、traits.rs，分别承担库入口、原有记录类型、要素/分类策略、生命周期和查询接口；唯一公开出口归包根，不复制实现。publicadmin和privateadmin平铺lib.rs、validation.rs、lifecycle.rs、query.rs；FRAME存储/事件/错误/Config保持，校验、事务写入和身份授权读取分别组织。公权原始字段强制与私权姓名规范化及LR身份回落保持原不同语义。
 
-election平铺lib.rs及election.rs；前者为Cargo必需入口，后者承载现有空FRAME定义。该包没有新增选举业务、类型、调用、事件或存储；元数据占位、编号和无副作用行为由所属测试与真实Runtime复核。四包原根lib.rs/tests.rs删除，Cargo入口和tests挂载同步。
-
-## 专项测试边界
-
-资产框架的未实现执行与两类回调在完整Runtime中逐入口核验NotImplemented和无副作用，含空载荷、坏动作、空强制关闭调度及资产编号溢出；不伪造资产发行成功，不打开原调用过滤。
-
-属性回归使用原锁proptest1.11.0：费用以U256独立参考算术核对全u128空间，地域固定四字节及完整解码，个人投票计划身份隔离，合法日期后继、真实月历时刻和转账守恒。固定金标不重算；失败样本仍归测试所有者，运行生成物进入独立现场。
-
-管理员拆分的定向回归覆盖字段长度与编码尾量、枚举固定判别值、公开生命周期写入和查询一致、名册替换后旧人员失权、非法人数/重复/机构码覆盖原子性，以及个人变更异步排队、阈值一致、防重和未登记动作拒绝。选举空业务对全部调用索引保持不可解码。
-
-个人管理员及个人实体基准使用原公开名册和阈值状态准备，实际调用原提案入口；管理员容量覆盖2至64，个人实体覆盖创建及关闭。基准专用可选依赖仅连接原有internalvote/personaladmin，普通特性不启用。链下模块基准只度量已实现的Root费率治理及签名载荷成本；Runtime调用过滤仍禁用其业务。链上发币空基准和挂载已删除，没有把未实现业务登记为成功。
-
-Runtime真实端到端在tests/e2e.rs独立注册，通过所属脚本公开RPC实现验证严格TLS、同一finalized锚点的ChainIdentityApi、实际代码哈希及候选双版本。要求隔离回环HTTPS端口、明确公开证书及准确WASM；默认ignored，完整验收显式执行时缺件失败。原生派发性能在tests/performance.rs度量1000笔并验证守恒，排除交易池/网络/共识成本，必须交付已确认阈值；默认ignored，不冒充已完成系统性能验收。
-
-属性用例固定随机种子以复现同批输入，关闭自动向源码树写失败持久文件；最小失败样本由原测试日志记录，修复时以所属tests内固定回归保留，不建立第二份金标。
-
-原生性能驱动另覆盖1001项地域法律索引读取及实际整链默认配置内存初始化，分别交付CITIZENCHAIN_PERF_LAWS_NS、CITIZENCHAIN_PERF_GENESIS_NS。前者验证超过旧容量仍完整只读，后者复用原49,593机构金标。仅操作隔离内存，不重生成磁盘创世输入；默认ignored留最终固定环境验收，不代表RPC、磁盘或整链吞吐已达标。
-
-本轮16包的97个模型由真实FRAME基准生成，Runtime统一连接各自WeightInfo/SubstrateWeight。普通转账、地址、多签两类遗漏提案、奖励及维护Hook均有对应模型；resolutionissue移除三个已退役方法。onchainissue/offchain保持禁用。
-
-本轮不改变机构岗位、任职业务规则。法律生效队列按批准的区块预算方案轮转，保留原定effective_at；预算不足的条目留待后续区块。
-
-清理权重按快照、Track、对象、终结阶段分别预留，终结依据实际互斥数量计量；读取就绪项前先预留检查成本，预算不足保持任务。到期待办轮转扫描，失败任务先重排下一块，满槽时保留在既有待过期表。
-
-法律待生效队列保存版本号及其原定生效时间，调度只读取该队列和法律元数据，避免为判断日期解码全文；不新增调度表。恢复基准通过所属业务公开入口准备真实提案，计时内验证重试执行成功或合法取消，不以忽略错误作为通过条件。
-
-投票维护类别共享本块预算并轮换优先次序，截止桶先搬入既有待过期表，未处理到期桶按连续区块游标追赶。Runtime为该维护池分配3/4区块预算，法律和广场各1/32，连同既有身份维护1/8后保留余量；广场仍按既有条数配置及当前权重两者取小推进。
+election平铺lib.rs及election.rs；前者为Cargo必需入口，后者承载现有空FRAME定义。该包没有新增选举业务、类型、调用、事件或存储。
 
 ## 本机WASM自动化输入
 
 产品公开describeAction收到WASM release且未指定inputs时，通过scripts/runtime.mjs的automationInputs调用既有readRuntimeTarget读取本机最终块Runtime基线和目标双版本，并读取正式检出的HEAD，交付version、transaction_version、runtime_base、source_sha。已有完整显式inputs原样交付；其它平台仍由各自Workflow准备版本。通用控制台只转发，不计算版本、不增加候选门禁。读取失败原样返回，不派发空参数或替代基线；Workflow继续拥有原冻结链、来源提交与版本规则。
 
-Runtime真实WASM整链验收由scripts/runtime.mjs build在本轮临时源码副本中执行：完成三份WASM校验后，将临时Runtime构建钩子恢复为本仓仅嵌入实现，通过WASM_FILE消费本轮runtime.wasm，关闭SDK额外WASM构建，再以node --lib --features runtime-tests执行原Ethereum专项及两项整链验收，成功后才复制正式产物。临时副本的Runtime双版本与该WASM一致；节点Tauri应用版本取节点自身配置，不使用Runtime整数版本。Ubuntu24.04专项Runner复用节点既有GTK/WebKit等系统链接依赖，无新增Cargo/npm依赖。节点四端默认不启用该feature，不生成、下载或交付测试WASM。专项开启节点测试前仅清理三个SDK生成包（revive-dev-runtime、substrate-test-runtime、frame-storage-access-test-runtime）的本轮release输出，避免部分缓存遗留的Some引用指向缺失wbuild文件；本轮产品runtime.wasm保持，不再生成第二份产品Runtime。
-
-本地GRANDPA覆盖包sc-consensus-grandpa的完整原验收归Runtime专项：节点默认工作区命令仅排除该包的测试，生产依赖仍正常编译；不删除、忽略或改写任何GRANDPA测试。Runtime专项完成产品Ethereum验收后，解除SDK的WASM跳过标记，执行sc-consensus-grandpa --lib，由锁定SDK构建自身测试Runtime并运行原测试客户端。SDK测试WASM只属于该专项输入，不进入节点包或正式Runtime三件产物；产品Runtime仍只编译一次。
+Runtime构建仅在临时源码副本中替换双版本并生成WASM，原Runtime与Node源码不回写；节点Tauri版本继续由节点自身配置提供，不使用Runtime整数版本。产品Runtime只编译一次，测试WASM不进入节点包或正式Runtime三件产物。
 
 ### 充值离线签名动作
 独立host协议工具crates/protocol登记topup动作18及完整审阅字段，类型offchain_sign/offchain_auth、QR_V1 sign_request；禁止hash-only。动作/中文字段唯一源仍为registry/actions.yaml与fields.yaml，由原export_registry生成既有消费表。该host登记不进入runtime wasm，不改变Runtime版本、链上调用或节点；SDK通用opaque签名接口不增加业务分支。
@@ -3460,37 +2439,16 @@ Runtime真实WASM整链验收由scripts/runtime.mjs build在本轮临时源码�
 
 BackfillEvmAccounts 在现有 SingleBlockMigrations 后启动，使用同模块的分步处理器按游标扫描 System.Account、公权与私权 AccountRegisteredCid、有效个人多签账户及公民身份绑定；重复账户由幂等登记跳过。实际创世账户规模超过单区块预算，因此每步最多使用区块预算的四分之一，进度只保存来源阶段与最后一个存储键。续跑接入 System.PostInherents，在正常非空区块中先按预算处理并登记 Mandatory 权重，再接受原生业务交易；不修改挖矿门控或空块共识规则。迁移期间调用过滤器和费用路由拒绝 EVM 写交易，SDK 与节点原生收款解析对缺映射且迁移未完成的以太坊输入拒绝 fallback，避免旧账户被解析成另一个账户。没有普通交易就沿用原规则等待后续非空区块；升级实施需保证有原生交易驱动区块，不能依靠被暂停的EVM交易推进回填。完成标记只在全部来源扫描完成后写入，重启/重复升级继续原游标，完成后重复执行无副作用。正式升级前必须通过 try-runtime 对实际链状态检查冲突；冲突禁止覆写。若预检后实际反向绑定又出现冲突，迁移停在原游标并保留未完成状态，原生业务与治理继续，EVM 写交易保持暂停，修复冲突后再续跑，不以 panic 停链。映射新增读写采用显式保守权重，不宣称已重跑硬件 benchmark。
 
-纯本地未上链账户，以及当前状态已回收且没有业务登记记录的历史地址，还没有可核验的收款映射，首次/再次 SS58 入金或链上登记后自动建立。本次不开放任意账户免费登记接口、不修改金额/费率/签名授权。源码开发不会递增 Runtime 版本；正式升级按实际部署版本规则单独执行。
+纯本地未上链账户，以及当前状态已回收且没有业务登记记录的历史地址，还没有可核验的收款映射，首次/再次 SS58 入金或链上登记后自动建立。不提供任意账户免费登记接口，映射不改变金额、费率或签名授权。源码开发不会递增 Runtime 版本；正式升级按实际部署版本规则单独执行。
 
-地址金标为 `runtime/tests/evm-account-mapping-v1.json`，与 CitizenSDK 相同向量；回归覆盖派生、已有账户回填、零余额登记、映射冲突、重复迁移、账户回收及真实 Ethereum 交易入账。
+#### fallback收款与建户资源预算
 
-本轮本地验证：Runtime库91通过、2项原有性能用例忽略；公权/私权/身份/公民发行155通过；NodeClient28通过；try-runtime与runtime-benchmarks组合编译通过；准确源码快照WASM实际构建通过。正式链升级和生产部署未执行。
-
-Ethereum节点回归5项全部通过；最新准确源码WASM的原生账户别名专项另1项通过。真实HTTPS/WSS、PoW/TLS三节点、费用/nonce/回执、分叉/最终性和同库重启均沿既有断言验证；新增收款账户夹具独立于矿工与费用账户，向其20字节地址转账后，三个节点的原AccountId余额均精确增加500分，数据库重开后回执及原账户余额保持。正式链未升级。
-
-
-#### 最小修复：fallback 预先入金与建户预算
-
-仅在 `runtime/src/evm_accounts.rs` 和 `runtime/src/configs.rs` 修改生产实现。删除“fallback 账户存在即拒绝”的额外判定，保留 OriginalAccount 已绑定另一个 AccountId 的拒绝；先向 fallback 原生转账不再阻断新账户自动映射或历史回填。fallback 原有账面状态保持，不增加旧资金恢复入口或自动搬款。
+收款映射由runtime/src/evm_accounts.rs实现并在runtime/src/configs.rs接线。fallback账户已有原生余额不阻止新账户自动映射或历史回填；OriginalAccount绑定其他AccountId时仍拒绝覆盖。fallback账面状态保留，不自动搬移已有资金。
 
 资源成本仍只定义在 EvmAccountMapping::get()。收费扩展预留三个公共分账收款方，普通转账只追加一个本金收款方，因此两者合计仍为四次映射回调预算。全节点奖励、公民奖励分别追加一次，省储行结算按 CHINA_CH 银行数追加；个人多签与多签异步执行按一个本金收款方和三个内部分账收款方给保守上界，现有多签达标记录读取补偿保留。决议发行按 MaxAllocations 在原回调 proof-size 清零之后追加映射预算，防止新增 proof 被丢弃。广场订阅、换档与每次续费按一个收款方追加预算，其每块处理上限沿既有权重控制。
 
 所有适配保留原 benchmark 表达式，其余方法直接委托原 WeightInfo；不重写生成权重文件，不改收费金额、发行公式、签名/QR 编码或业务权限。异步执行预留覆盖不经过签名收费扩展的后台路径；这些保守预算不作为实际手续费。
 
-本次修复验证：新增 fallback 先入金的新账户与历史回填专项通过；原 F 的完整 System.Account 状态保持，后续 E 收款进入 A。真实反向绑定冲突仍拒绝覆写。新增资源预算断言通过，包含公共分账与普通本金合计4份、多签达标读取保留、决议发行 proof 追加位置以及后台奖励/结算/续费入口。Runtime全量93通过、2项原有性能用例忽略；try-runtime/runtime-benchmarks组合编译通过；当前准确源码WASM构建通过。App复制弹窗与收款解析27项通过，排版清理前后 canonical formatter 输出相同，Dart分析无问题。地址算法金标、签名和QR字节未修改；未执行正式链升级或部署。
+提案编号：提案编号统一为 proposal_id:u128（全局唯一、永不重置）、year:u32（UTC 公历年）、seq_in_year:u64（跨年从0重置），计数溢出拒绝且整笔回滚。既有调用、事件和所有引用同步扩宽；法律ID、区块号、票数、nonce和清理FIFO序号保持原类型。旧布局转换直接位于 configs.rs 现有 AddPrcFeeSweepPermissions::on_runtime_upgrade 内，独立于权限标记，以 VotingEngine 已有 StorageVersion 0→1保证只执行一次。原地重算ID键及关联索引，保留载荷、投票、状态、余额和清理计划；创世宪法版本仅扩宽内部占位ID，不改变正文和内容哈希。迁移不增加存储表或额外标记键；历史区块仍用其原metadata解码。
 
-本次修复最终回归：Ethereum节点5项通过，覆盖真实三节点转账、费用/nonce/回执、分叉/最终性、原AccountId别名入账及同库重启。当前测试WASM blake2_256 为 `0xf50c91bf86b89c0b1cdc924839e7b8ea950e9fe2b5395b801018fbf742760f45`。两处生产文件与构建快照逐字节核对一致。原生/以太坊地址金标、签名及QR编码未改。
-
-本次仅收敛 App 的 onchain_payment_service_test.dart 纯排版差异，保留21行功能新增；前后 canonical formatter 输出一致。验证摘要保留在本文；确认相关构建/测试进程退出后，清理本次专属 work/evm-account-mapping 与 target/test/evm-account-mapping-source，其他 work 内容与共享编译缓存保留。
-
-本次生产文件 SHA-256：`runtime/src/evm_accounts.rs` 为 `da69789860e085c8564896f5dbc5a8dd123696723c51d2febf4964971c86f508`，`runtime/src/configs.rs` 为 `945cd2b1064d3eaefcd7cb4e4df57bd0eaa9385de7515314cb8dafab56949d61`。
-
-
-2026-11-14 提案编号类型调整：提案编号统一为 proposal_id:u128（全局唯一、永不重置）、year:u32（UTC 公历年）、seq_in_year:u64（跨年从0重置），计数溢出拒绝且整笔回滚。既有调用、事件和所有引用同步扩宽；法律ID、区块号、票数、nonce和清理FIFO序号保持原类型。旧布局转换直接位于 configs.rs 现有 AddPrcFeeSweepPermissions::on_runtime_upgrade 内，独立于权限标记，以 VotingEngine 已有 StorageVersion 0→1保证只执行一次。原地重算ID键及关联索引，保留载荷、投票、状态、余额和清理计划；创世宪法版本仅扩宽内部占位ID，不改变正文和内容哈希。不新增文件、模块、pallet、存储表或迁移标记键。升级前须按实际状态演练；历史区块仍用其原metadata解码。
-
-本次验证：区块107的36条旧提案关联键值直接内嵌在既有runtime/tests/cases.rs，原地转换及失败回滚两项通过；覆盖ID0、19个冻结席位、15张已投票据、13/2计票、四张反向索引、清理计划、余额和创世宪法正文不变。引擎及四轨道184项通过；相关业务模块回归通过。App209项、冷钱包签名目录255项、OnChina69项、SDK metadata相关14项、节点提案10项及组成守卫定向用例通过；Wasm无标准库检查、runtime-benchmarks特性编译、前端类型检查通过。额外全量节点守卫检查中的原有地区遍历慢用例已停止，未计为通过。链上仅作只读核验，未提交升级交易。
-
-
-2026-11-14 CID年份u32：CID年份的生成入参与解析结果统一为u32，范围0～4294967295。哈希输入、校验和及输出统一使用至少四位补零的规范十进制；0000～9999的旧文本不变，10000开始自然增位。CID本体继续使用原字符串，最长为5+5+9+3+10=32字节；CID_NUMBER_MAX_BYTES、既有存储键/值布局和签名槽保持不变，无需迁移或重算已有CID及派生账户。创世年份仍固定2026，冻结创世配置与旧号码金标不替换。拒绝溢出、非数字及02026等歧义前导零。
-
-CID年份u32回归记录：原语库86项、原账户派生金标1项、原签名金标1项通过；15组旧CID（含0000、0001、0999、2026、9999）逐字节一致。8个相关pallet共306项通过、1项原有忽略；Runtime创世23项通过、1项原有忽略，忽略项未计为通过。节点CID生命周期7项、OnChina生成5项、SDK签名6项、冷钱包签名目录258项、App头像订阅10项通过。Wasm无标准库检查、runtime-benchmarks特性检查和相关Dart静态检查通过。边界夹具内嵌现有测试文件；原JSON/metadata/账户和签名金标文件保持不变。本次未新增文件、模块或存储表，未提交链上升级交易。
+CID年份u32：CID年份的生成入参与解析结果统一为u32，范围0～4294967295。哈希输入、校验和及输出统一使用至少四位补零的规范十进制；0000～9999的旧文本不变，10000开始自然增位。CID本体继续使用原字符串，最长为5+5+9+3+10=32字节；CID_NUMBER_MAX_BYTES、既有存储键/值布局和签名槽保持不变，无需迁移或重算已有CID及派生账户。创世年份仍固定2026，冻结创世配置不变。拒绝溢出、非数字及02026等歧义前导零。
