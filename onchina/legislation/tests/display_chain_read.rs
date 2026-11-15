@@ -5,18 +5,28 @@ use codec::Encode;
 /// 活跃提案 ID 列表:`BoundedVec<u128>` 与 `Vec<u128>` 同编码,镜像 decode 一致。
 #[test]
 fn active_proposal_ids_decode_from_vec_u128_golden() {
-    let ids: Vec<u128> = vec![7, 12, 99];
+    let ids: Vec<u128> = vec![7, u64::MAX as u128 + 1, u128::MAX];
     let encoded = ids.encode();
-    let decoded = Vec::<u128>::decode(&mut &encoded[..]).expect("decode Vec<u128>");
-    assert_eq!(decoded, vec![7, 12, 99]);
+    let decoded = decode_active_proposal_ids(&encoded).expect("decode Vec<u128>");
+    assert_eq!(decoded, ids);
 }
 
 /// 空列表(点查缺省)解码为空。
 #[test]
 fn active_proposal_ids_decode_empty() {
     let encoded = Vec::<u128>::new().encode();
-    let decoded = Vec::<u128>::decode(&mut &encoded[..]).expect("decode empty");
+    let decoded = decode_active_proposal_ids(&encoded).expect("decode empty");
     assert!(decoded.is_empty());
+}
+
+#[test]
+fn active_proposal_ids_reject_trailing_and_truncated_bytes() {
+    let encoded = vec![u128::MAX].encode();
+    let mut trailing = encoded.clone();
+    trailing.push(0);
+    assert!(decode_active_proposal_ids(&trailing).is_err());
+    assert!(decode_active_proposal_ids(&encoded[..encoded.len() - 1]).is_err());
+    assert!(decode_active_proposal_ids(&[]).is_err());
 }
 
 /// 活跃提案键必须是 ProposalSubject::InstitutionCid(CID),不是机构主账户。
@@ -49,8 +59,19 @@ fn representative_ticket_key_decodes_complete_role_identity() {
         },
     )
         .encode();
-    let mut storage_key = vec![0_u8; 72];
+    // 独立金标：真实 pallet/item 前缀、Blake2_128Concat(1u128)、第二键哈希。
+    let mut storage_key = hex::decode(concat!(
+        "a5cba9989141c780c7f6d6d7614e72a159c12635b4bcb711dcf8e56871ead02f",
+        "3ba80a3778f04ebf45e806d19a052025",
+        "01000000000000000000000000000000",
+        "00bd1a00af752c998a90ace91effb50c",
+    ))
+    .expect("real u128 ticket key prefix");
+    assert_eq!(storage_key.len(), 80);
     storage_key.extend(encoded_ticket);
+    for length in [0, 31, 63, 79, 80, storage_key.len() - 1] {
+        assert!(decode_representative_ticket_storage_key(&storage_key[..length]).is_err());
+    }
     let (body_index, ticket) =
         decode_representative_ticket_storage_key(&storage_key).expect("decode ticket key");
     assert_eq!(body_index, 2);

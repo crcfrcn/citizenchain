@@ -4399,7 +4399,7 @@ fn evm_account_creation_weights_cover_fee_rewards_and_background_payouts() {
 
 /// 最终确认区块 107 的旧提案 0 原始键值；直接内嵌，禁止生成额外夹具文件。
 #[test]
-fn proposal_id_upgrade_preserves_the_existing_executed_proposal_and_constitution() {
+fn proposal_id_upgrade_preserves_existing_proposal_and_migrates_constitution_encoding() {
     use codec::Encode;
     use frame_support::traits::{OnRuntimeUpgrade, StorageVersion};
     new_test_ext().execute_with(|| {
@@ -4411,6 +4411,8 @@ fn proposal_id_upgrade_preserves_the_existing_executed_proposal_and_constitution
         // 创世占位 ID 仍为 0；仅还原旧版尾部编码，正文全部采用真实创世配置。
         let offset = law_new.len() - 32;
         let mut law_old = law_new[..offset].to_vec(); law_old.extend(0u64.encode()); law_old.extend_from_slice(&law_new[offset + 16..]);
+        assert_eq!(law_old.len(), 226_673);
+        assert_eq!(hex::encode(sp_io::hashing::sha2_256(&law_old)), "185dc5e62bd6832ae45c5349717b23336de24184d78a33034ad28115c6ad9602");
         sp_io::storage::set(&law_key, &law_old);
         let accounts_before = frame_system::Account::<Runtime>::iter().collect::<Vec<_>>();
         let issuance_before = Balances::total_issuance();
@@ -4441,6 +4443,13 @@ fn proposal_id_upgrade_preserves_the_existing_executed_proposal_and_constitution
         assert_eq!(voters[0].1.len(), 19);
         assert_eq!(engingcore::InstitutionTicketCountSnapshot::<Runtime>::iter_prefix(0u128).next().unwrap().1, 19);
 
+        let migrated_law = sp_io::storage::get(&law_key).unwrap();
+        assert_eq!(migrated_law.len(), 226_681);
+        assert_eq!(hex::encode(sp_io::hashing::sha2_256(&migrated_law)), "3aa33246151c36fa538e1df3ee5f3fe488f0a39de283600be74cd3e7121529c1");
+        assert_eq!(&migrated_law[..offset], &law_old[..offset]);
+        assert_eq!(&migrated_law[offset..offset + 16], &0u128.encode());
+        assert_eq!(&migrated_law[offset + 16..], &law_old[offset + 8..]);
+        assert_eq!(migrated_law, law_new);
         assert_eq!(legislation::LawVersions::<Runtime>::get(0, 1).unwrap().encode(), law_before.encode());
         assert_eq!(frame_system::Account::<Runtime>::iter().collect::<Vec<_>>(), accounts_before);
         assert_eq!(Balances::total_issuance(), issuance_before);

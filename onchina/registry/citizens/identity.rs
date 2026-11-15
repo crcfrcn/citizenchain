@@ -1,7 +1,7 @@
 //! 公民身份上链准备 handler。
 //!
 //! 本模块只处理公民账户签名与 `identity` call data 构造。
-//! 本地建档不要求链账户；注册局准备推送链上身份时才绑定账户并验签。
+//! 身份授权使用公民既有绑定钱包；办理岗位由后端自动确定，不接受客户端指定。
 
 // 身份准备辅助函数必须原样返回统一 Axum 拒绝响应，禁止不同入口各自改写错误语义。
 #![allow(clippy::result_large_err)]
@@ -65,8 +65,6 @@ impl CitizenOnchainIdentityLevel {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenOnchainInput {
     pub(crate) account_id: String,
-    #[serde(default)]
-    pub(crate) actor_role_code: Option<String>,
     pub(crate) identity_level: CitizenOnchainIdentityLevel,
 }
 
@@ -74,7 +72,6 @@ pub(crate) struct PrepareCitizenOnchainInput {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenOnchainOutput {
     pub(crate) cid_number: String,
-    pub(crate) actor_role_code: String,
     pub(crate) identity_level: CitizenOnchainIdentityLevel,
     pub(crate) account_id: String,
     pub(crate) payload_hex: String,
@@ -88,7 +85,6 @@ pub(crate) struct PrepareCitizenOnchainOutput {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CompleteCitizenOnchainInput {
     pub(crate) account_id: String,
-    pub(crate) actor_role_code: String,
     pub(crate) identity_level: CitizenOnchainIdentityLevel,
     pub(crate) sign_response: String,
 }
@@ -98,7 +94,6 @@ pub(crate) struct CompleteCitizenOnchainInput {
 pub(crate) struct CompleteCitizenOnchainOutput {
     pub(crate) request_id: String,
     pub(crate) cid_number: String,
-    pub(crate) actor_role_code: String,
     pub(crate) identity_level: CitizenOnchainIdentityLevel,
     pub(crate) account_id: String,
     pub(crate) chain_action: u16,
@@ -208,7 +203,7 @@ pub(crate) async fn prepare_citizen_onchain_signature(
         &ctx,
         &cid_number,
         CitizenOperation::for_level(input.identity_level),
-        input.actor_role_code.as_deref(),
+        None,
     )
     .await
     {
@@ -285,7 +280,6 @@ pub(crate) async fn prepare_citizen_onchain_signature(
         message: "ok".to_string(),
         data: PrepareCitizenOnchainOutput {
             cid_number: record.cid_number,
-            actor_role_code,
             identity_level: payload.identity_level,
             account_id: citizen_account.account_id,
             payload_hex: format!("0x{}", hex::encode(authorization_bytes)),
@@ -322,10 +316,6 @@ pub(crate) async fn complete_citizen_onchain_signature(
     };
     let citizen_account = match resolve_citizen_account(input.account_id.as_str()) {
         Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    let actor_role_code = match validate_actor_role_code(input.actor_role_code.as_str()) {
-        Ok(value) => value,
         Err(resp) => return resp,
     };
     let record = match state.db.find_citizen_by_cid(cid_number.as_str()) {
@@ -377,7 +367,6 @@ pub(crate) async fn complete_citizen_onchain_signature(
     };
     if operation.registrar_account_id != ctx.account_id
         || operation.institution_code != ctx.institution_code
-        || operation.actor_role_code != actor_role_code
         || operation.cid_number != cid_number
         || operation.citizen_account_id != citizen_account.account_id
         || operation.identity_level != input.identity_level.as_str()
@@ -389,6 +378,8 @@ pub(crate) async fn complete_citizen_onchain_signature(
             "公民签名响应与当前业务操作不一致",
         );
     }
+    // 只使用准备阶段保存在后端的岗位，不从公民回签请求取办理身份。
+    let actor_role_code = operation.actor_role_code.clone();
     let account_id = sign_response.body.account_id;
     if !same_account_id(account_id.as_str(), citizen_account.account_id.as_str()) {
         return api_error(StatusCode::FORBIDDEN, 1003, "签名钱包与录入钱包不一致");
@@ -515,7 +506,6 @@ pub(crate) async fn complete_citizen_onchain_signature(
         data: CompleteCitizenOnchainOutput {
             request_id,
             cid_number: record.cid_number,
-            actor_role_code,
             identity_level: payload.identity_level,
             account_id: citizen_account.account_id,
             chain_action: action,
@@ -988,16 +978,4 @@ fn encode_citizen_identity_call(
     out.extend(Compact(citizen_signature.len() as u32).encode());
     out.extend_from_slice(citizen_signature);
     out
-}
-
-pub(crate) fn validate_actor_role_code(value: &str) -> Result<String, axum::response::Response> {
-    let value = value.trim();
-    if value.is_empty() || value.len() > 64 {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            1001,
-            "注册局岗位码不能为空且不得超过64字节",
-        ));
-    }
-    Ok(value.to_string())
 }

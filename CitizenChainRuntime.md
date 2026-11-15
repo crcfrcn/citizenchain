@@ -2108,8 +2108,7 @@ legislationvote/
 
 - 核心权重由当前真实调用生成；业务执行另组合回调预算、对象实际字节和 `SystemWeightInfo::set_code()`，不把系统换码成本混入可重生的框架模型。
 - 内部权重沿用既有实测；联合和立法已按资格历史存储重新生成，公民公投写票均真实计入 snapshot 绑定、快照元数据和账户资格版本读取。
-- 选举最后一票按候选人数线性计费。最后一票按候选人数
-  `c` 线性计费：Popular 基础约 `54.4m ps`、Mutual 基础约 `51.1m ps`，两者每候选人
+- 选举最后一票按候选人数`c`线性计费：Popular 基础约 `54.4m ps`、Mutual 基础约 `51.1m ps`，两者每候选人
   约增加 `1.94m ps`；Popular 读为 `12+c`、Mutual 读为 `11+c`，写均为 10。
 - 人口、岗位及签署基准通过既有 provider 和所属公开接口准备状态，计时内调用真实入口；框架、Track、回调和系统换码成本按各自模型显式组合。
 - `ProposalTrackHandler` 同时返回 stage timeout、Track chunk cleanup、Track terminal cleanup 权重；手动终结、自动终结和清理维护均按具体 Track 实际值计账。
@@ -2126,17 +2125,7 @@ legislationvote/
 - 已接入业务为 public/private 本机构治理与关闭、决议销毁、GRANDPA 密钥紧急恢复、机构普通转账、NRC 安全基金转账、费用账户划转主账户和公民链基金会平台调价。每个业务自己校验 `RoleSubject + BusinessActionId + Propose`、枚举拥有 `Vote` 权限的岗位并固定使用内部投票引擎。GRANDPA 正常更换由目标机构单个委员完成旧、新私钥双签后直接延迟调度，不进入投票引擎。
 - public/private治理、Square调价及原清单其余方法均通过完整调用基准生成，不再使用旧的400ms/700KB手工占位；固定席位记录按共享规格准备最大字段，对应PoV模式在基准中明确标注。
 
-### 公民币订阅与税务架构索引
-
-> 状态：原组合草案已拆分；本文件只保留导航，不再承载可执行方案
-
-原文把平台订阅、创作者订阅、外部支付、收入台账和税务分期写在同一份预研方案中，包含已经废弃的双轨付款、弱交易镜像、旧目录和未确认税务设计。为避免它继续成为第二套实现真源，订阅部分已全部收敛到以下当前文件：
-
-- 订阅技术架构：`CitizenChainRuntime.md`
-- 订阅决策：`CitizenChainRuntime.md`
-- 跨端协议：`CitizenChainRuntime.md` 的 P-TX-014 与 P-STORAGE-006
-
-当前订阅边界固定为：
+### 公民币订阅边界
 
 - 平台与创作者订阅统一使用链上公民币；CitizenChain 是价格、扣款、状态和真实公历到期时间的唯一真源。
 - CitizenApp 只对订阅、取消、换套餐和创作者设置套餐分别签名一次；自动续费由 runtime 内部执行。
@@ -2325,13 +2314,12 @@ RenewalIndex<(SubscriberCidNumber, IssuerKey<CidNumber>)> -> due_at
 
 订阅授权由订阅者第一次签名建立，并持续有效到订阅者签名取消。公历到期时间、自动扣款和状态变更由 runtime 唯一决定；CitizenApp 与 Cloudflare 都不能伪造、延长或触发续费。共识时间戳仍受区块生产与 Timestamp pallet 规则约束，但在同一链状态下所有节点执行完全相同的整数公历结果。
 
-#### 13. 重新创世
+#### 13. 存储布局与账户绑定
 
-- 开发期全网重新创世直接生成 CID 键布局，不读取、转换或保留任何 AccountId 旧键。
-- SquarePost 不提供 storage migration、兼容枚举、旧 call 或双轨查询。
-- 新链的边缘投影必须来源于其真实finalized状态。
-- 创世后必须以真实本地链验证：CID A 绑定账户 1 完成订阅，换绑到账户 2 后关系不变，
-  自动续费只扣账户 2；CID 或双向绑定不可用时不得扣账户 1。
+- 订阅使用CID键布局，不读取、转换或保留AccountId旧键。
+- SquarePost不提供storage migration、兼容枚举、旧call或双轨查询。
+- 边缘投影必须来源于对应链的真实finalized状态。
+- 换绑不改变CID对应的订阅关系，自动续费仅使用当前双向有效绑定账户；CID或双向绑定不可用时停止扣款，不回退旧账户。
 
 #### 14. CitizenApp 与签名体验
 
@@ -2427,6 +2415,10 @@ election平铺lib.rs及election.rs；前者为Cargo必需入口，后者承载�
 产品公开describeAction收到WASM release且未指定inputs时，通过scripts/runtime.mjs的automationInputs调用既有readRuntimeTarget读取本机最终块Runtime基线和目标双版本，并读取正式检出的HEAD，交付version、transaction_version、runtime_base、source_sha。已有完整显式inputs原样交付；其它平台仍由各自Workflow准备版本。通用控制台只转发，不计算版本、不增加候选门禁。读取失败原样返回，不派发空参数或替代基线；Workflow继续拥有原冻结链、来源提交与版本规则。
 
 Runtime构建仅在临时源码副本中替换双版本并生成WASM，原Runtime与Node源码不回写；节点Tauri版本继续由节点自身配置提供，不使用Runtime整数版本。产品Runtime只编译一次，测试WASM不进入节点包或正式Runtime三件产物。
+
+node的runtime-tests特性默认关闭，仅由Runtime构建流程显式启用。scripts/runtime.mjs在三份WASM完成版本及内容校验后，恢复临时副本中仅嵌入WASM的构建钩子，通过WASM_FILE复用同版本runtime.wasm，并设置SKIP_WASM_BUILD=1避免额外生成SDK Runtime。旧缓存的嵌入引用不会被跳过开关覆盖，因此先清理revive-dev-runtime、substrate-test-runtime及frame-storage-access-test-runtime的release输出，保留当前产品WASM，再执行节点Ethereum整链校验。
+
+随后解除SKIP_WASM_BUILD，由sc-consensus-grandpa自身构建所需SDK Runtime并完成专属校验；这些SDK WASM只作为构建校验输入，不交付到节点安装包或正式Runtime产物。上述校验失败时停止产物交付。
 
 ### 充值离线签名动作
 独立host协议工具crates/protocol登记topup动作18及完整审阅字段，类型offchain_sign/offchain_auth、QR_V1 sign_request；禁止hash-only。动作/中文字段唯一源仍为registry/actions.yaml与fields.yaml，由原export_registry生成既有消费表。该host登记不进入runtime wasm，不改变Runtime版本、链上调用或节点；SDK通用opaque签名接口不增加业务分支。

@@ -4,7 +4,7 @@
 //! 通用冷签会话由平台 transactions/session.rs 持有，最终提交、确认与恢复由
 //! 平台 transactions/handler.rs 执行，再调用本模块的原有身份目标校验及业务投影。
 
-use super::authorization::{resolve_operation_role, CitizenOperation};
+use super::authorization::{resolve_operation_role, resolve_operation_role_at, CitizenOperation};
 use crate::citizens::admin_entry::CitizenWrites;
 use crate::citizens::chain_identity::IdentityOperations;
 use axum::{
@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::citizens::admin_entry::{
     cid_seed, generate_citizen_cid_candidate, validate_citizen_input, AdminCreateCitizenInput,
 };
-use crate::citizens::chain_identity::{active_registry_cid_number, validate_actor_role_code};
+use crate::citizens::chain_identity::active_registry_cid_number;
 use crate::*;
 use onchina::authentication::actions::require_admin_security_grant;
 use onchina::authentication::login::parse_account_id_bytes;
@@ -556,8 +556,6 @@ pub(crate) struct SubmitCitizenOccupyOutput {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareCitizenRebindInput {
-    #[serde(default)]
-    pub(crate) actor_role_code: Option<String>,
     pub(crate) cid_number: String,
 }
 
@@ -608,10 +606,7 @@ pub(crate) struct PrepareCitizenRevokeOutput {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PrepareCitizenRevokeInput {
-    #[serde(default)]
-    pub(crate) actor_role_code: Option<String>,
-}
+pub(crate) struct PrepareCitizenRevokeInput {}
 
 // ──── handlers ────
 
@@ -629,36 +624,15 @@ pub(crate) async fn prepare_citizen_occupy(
     if let Err(resp) = ensure_registry_admin(&ctx) {
         return resp;
     }
-    let actor_role_code = match validate_actor_role_code(input.actor_role_code.as_str()) {
-        Ok(value) => value,
-        Err(resp) => return resp,
-    };
     let validated = match validate_citizen_input(&ctx, &input) {
         Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    // 链上写(occupy_cid extrinsic)硬规则 = passkey + 冷签:此处强制 passkey 断言(冷签在段3)。
-    let occupy_grant_payload = serde_json::json!({
-        "cidType": validated.cid_type,
-        "actorRoleCode": actor_role_code,
-        "op": "occupy",
-    });
-    let passkey = match require_admin_security_grant(
-        &state,
-        &headers,
-        &ctx,
-        AdminActionType::CitizenOnchainPush,
-        validated.cid_type.as_str(),
-        Some(&occupy_grant_payload),
-    ) {
-        Ok(proof) => proof,
         Err(resp) => return resp,
     };
     let seed = cid_seed(&validated);
 
     // 发号:本地投影查重后，从同一 finalized 快照确认登记、绑定和 revision 都不存在。
     // 链上首次绑定不提供旧证明兼容或同账户续用；任何已登记状态都必须换候选号。
-    let mut chosen: Option<(String, [u8; 32], u64)> = None;
+    let mut chosen: Option<(String, FinalizedCidBinding, u64)> = None;
     for nonce in 0..CID_GENERATE_MAX_RETRY {
         let candidate = match generate_citizen_cid_candidate(&validated, &seed, nonce) {
             Ok(v) => v,
@@ -681,7 +655,7 @@ pub(crate) async fn prepare_citizen_occupy(
                         "链上时间异常,无法签发占号授权",
                     );
                 };
-                chosen = Some((candidate, snapshot.genesis_hash, expires_at));
+                chosen = Some((candidate, snapshot, expires_at));
                 break;
             }
             Ok(_) => continue,
@@ -695,8 +669,40 @@ pub(crate) async fn prepare_citizen_occupy(
             }
         }
     }
-    let Some((cid_number, genesis_hash, authorization_expires_at)) = chosen else {
+    let Some((cid_number, finalized, authorization_expires_at)) = chosen else {
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "发号重试耗尽");
+    };
+
+    // 候选号生成和查重均未写库；先在同一快照核验占号权限，再消费本次唯一Passkey。
+    let actor_role_code = match resolve_operation_role_at(
+        &ctx,
+        CitizenOperation::OccupyCid,
+        finalized.finalized_block_hash,
+        None,
+        None,
+    )
+    .await
+    {
+        Ok(role) => role,
+        Err(response) => return response,
+    };
+    let genesis_hash = finalized.genesis_hash;
+    // 链上写(occupy_cid extrinsic)硬规则 = passkey + 冷签:此处强制 passkey 断言(冷签在段3)。
+    let occupy_grant_payload = serde_json::json!({
+        "cidType": validated.cid_type,
+        "actorRoleCode": actor_role_code,
+        "op": "occupy",
+    });
+    let passkey = match require_admin_security_grant(
+        &state,
+        &headers,
+        &ctx,
+        AdminActionType::CitizenOnchainPush,
+        validated.cid_type.as_str(),
+        Some(&occupy_grant_payload),
+    ) {
+        Ok(proof) => proof,
+        Err(resp) => return resp,
     };
 
     let issued_at = Utc::now();
@@ -883,6 +889,25 @@ pub(crate) async fn submit_citizen_occupy(
             "CID 链上状态已变化,请重新发起占号",
         );
     }
+    if session
+        .context
+        .get("origin_institution_cid")
+        .and_then(|value| value.as_str())
+        != Some(ctx.institution_cid_number.as_str())
+    {
+        return api_error(StatusCode::FORBIDDEN, 1003, "签名会话不属于当前机构");
+    }
+    if let Err(response) = resolve_operation_role_at(
+        &ctx,
+        CitizenOperation::OccupyCid,
+        finalized.finalized_block_hash,
+        None,
+        Some(&actor_role_code),
+    )
+    .await
+    {
+        return response;
+    }
     if !authorization_is_live(finalized.chain_now_seconds, authorization_expires_at) {
         delete_session_best_effort(
             &state,
@@ -1016,7 +1041,7 @@ pub(crate) async fn prepare_citizen_rebind(
         &ctx,
         &cid_number,
         CitizenOperation::RebindWallet,
-        input.actor_role_code.as_deref(),
+        None,
     )
     .await
     {
@@ -1441,7 +1466,7 @@ pub(crate) async fn prepare_citizen_revoke(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(cid_number): Path<String>,
-    Json(input): Json<PrepareCitizenRevokeInput>,
+    Json(_input): Json<PrepareCitizenRevokeInput>,
 ) -> impl IntoResponse {
     let ctx = match require_admin_any(&state, &headers) {
         Ok(v) => v,
@@ -1455,7 +1480,7 @@ pub(crate) async fn prepare_citizen_revoke(
         &ctx,
         &cid_number,
         CitizenOperation::RevokeIdentity,
-        input.actor_role_code.as_deref(),
+        None,
     )
     .await
     {

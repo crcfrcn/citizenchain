@@ -25,5 +25,5 @@ pub(crate) mod occupy;
 #[path = "passport.rs"]
 pub(crate) mod passport_no;
 
-/// 公民详情业务的自动岗位解析与签名前复查。
+/// 公民业务的自动授权、内部岗位确定与签名前复查。
 pub(crate) mod authorization;

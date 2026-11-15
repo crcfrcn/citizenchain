@@ -1,146 +1,108 @@
 import '@gmb/onchina-platform/testing';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect, vi } from 'vitest';
-import { OperationRoleSelect, operationRoleValue } from '../citizens/OperationRoleSelect';
-import type { CitizenOperationRole } from '../citizens/api';
 
-const roles: CitizenOperationRole[] = [
-  { roleCode: 'INTERNAL_ROLE_A', roleName: '公民身份登记员' },
-  { roleCode: 'INTERNAL_ROLE_B', roleName: '登记负责人' },
-];
-function control(options: CitizenOperationRole[], value?: string) {
-  return { roles: options, roleCode: operationRoleValue(options, value), loading: false, error: undefined,
-    ready: !!operationRoleValue(options, value), onChange: vi.fn(), retry: vi.fn() };
-}
-
-describe('公民业务自动办理岗位', () => {
-  it('唯一候选自动使用，页面仅显示中文岗位名称，不需要输入或选择', () => {
-    const selected = control(roles.slice(0, 1));
-    expect(selected.roleCode).toBe('INTERNAL_ROLE_A');
-    expect(selected.ready).toBe(true);
-    const markup = renderToStaticMarkup(createElement(OperationRoleSelect, { control: selected }));
-    expect(markup).toContain('公民身份登记员');
-    expect(markup).not.toContain('INTERNAL_ROLE_A');
-    expect(markup).not.toContain('<input');
-  });
-  it('多个候选必须选择，选择后显示中文名称，不能接受候选外的岗位', () => {
-    expect(control(roles).ready).toBe(false);
-    expect(control(roles, 'FOREIGN_ROLE').ready).toBe(false);
-    const selected = control(roles, 'INTERNAL_ROLE_B');
-    expect(selected.ready).toBe(true);
-    const markup = renderToStaticMarkup(createElement(OperationRoleSelect, { control: selected }));
-    expect(markup).toContain('登记负责人');
-    expect(markup).not.toContain('INTERNAL_ROLE_');
-    expect(markup).toContain('role="combobox"');
-    expect(markup.toLowerCase()).toContain('readonly');
-  });
-  it('没有岗位、加载中、查询失败分别显示对应状态，失败可重试', () => {
-    const empty = control([]);
-    expect(empty.ready).toBe(false);
-    expect(renderToStaticMarkup(createElement(OperationRoleSelect, { control: empty }))).toContain('无此业务办理权限');
-    expect(renderToStaticMarkup(createElement(OperationRoleSelect, { control: { ...empty, loading: true } }))).toContain('正在加载');
-    expect(renderToStaticMarkup(createElement(OperationRoleSelect, { control: { ...empty, error: '办理岗位加载失败' } }))).toMatch(/重\s*试/);
-  });
-  it('每个操作单独查询，CID正确编码，读取不消费Passkey', async () => {
-    const { fetchCitizenOperationRoles } = await import('../citizens/api');
-    const { assertPasskey } = await import('@gmb/onchina-platform/authentication/passkeyClient');
-    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ code: 0, data: { roles, finalizedBlockHash: 'block', finalizedBlockNumber: 1 } })));
+// 设备认证只替换浏览器边界；公民API请求、头部和错误传播使用真实实现。
+describe('公民业务后端自动授权的前端契约', () => {
+  it('五项办理不读取候选、不发送岗位，原Passkey时点和次数保持', async () => {
+    const api = await import('../citizens/api');
+    const { assertPasskey, PASSKEY_ASSERTION_HEADER } = await import('@gmb/onchina-platform/authentication/passkeyClient');
+    const auth = { accessToken: 'fixture-session' } as never;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ code: 0, data: {} })));
     try {
-      vi.mocked(assertPasskey).mockClear();
-      for (const operation of ['register_voting_identity', 'upgrade_candidate_identity', 'rebind_wallet', 'revoke_identity'] as const) {
-        const result = await fetchCitizenOperationRoles({ accessToken: 'session' } as never, 'cid /&', operation);
-        expect(result.roles).toEqual(roles);
-        const [url, init] = fetcher.mock.calls[fetcher.mock.calls.length - 1];
-        expect(url).toBe(`/api/admin/citizens/cid%20%2F%26/operation-roles?operation=${operation}`);
-        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer session');
-        expect(init?.body).toBeUndefined();
+      for (const item of [
+        { run: () => api.prepareCitizenOnchainSignature(auth, 'cid', 'wallet', 'voting'), path: '/api/admin/citizens/cid/onchain/prepare', body: { accountId: 'wallet', identityLevel: 'voting' }, passkey: false },
+        { run: () => api.prepareCitizenOnchainSignature(auth, 'cid', 'wallet', 'candidate'), path: '/api/admin/citizens/cid/onchain/prepare', body: { accountId: 'wallet', identityLevel: 'candidate' }, passkey: false },
+        { run: () => api.completeCitizenOnchainSignature(auth, 'cid', 'wallet', 'voting', 'response'), path: '/api/admin/citizens/cid/onchain/complete', body: { accountId: 'wallet', identityLevel: 'voting', signResponse: 'response' }, passkey: true },
+        { run: () => api.prepareCitizenOccupy(auth, { cidType: 'CTZN' }), path: '/api/admin/citizens', body: { cidType: 'CTZN' }, passkey: true },
+        { run: () => api.prepareCitizenRebind(auth, 'cid'), path: '/api/admin/citizens/rebind/prepare', body: { cidNumber: 'cid' }, passkey: true },
+        { run: () => api.prepareCitizenRevoke(auth, 'cid'), path: '/api/admin/citizens/cid/onchain/revoke/prepare', body: {}, passkey: true },
+      ]) {
+        fetcher.mockClear(); vi.mocked(assertPasskey).mockClear();
+        await item.run();
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        const [path, init] = fetcher.mock.calls[0];
+        expect(path).toBe(item.path);
+        expect(init?.method).toBe('POST');
+        const payload = JSON.parse(String(init?.body));
+        expect(payload).toEqual(item.body);
+        expect(payload).not.toHaveProperty('actorRoleCode');
+        const headers = new Headers(init?.headers);
+        expect(headers.get('authorization')).toBe('Bearer fixture-session');
+        expect(headers.has(PASSKEY_ASSERTION_HEADER)).toBe(item.passkey);
+        expect(assertPasskey).toHaveBeenCalledTimes(item.passkey ? 1 : 0);
       }
-      expect(assertPasskey).not.toHaveBeenCalled();
-    } finally { fetcher.mockRestore(); }
+    } finally { fetcher.mockRestore(); vi.mocked(assertPasskey).mockClear(); }
+  });
+  it('后端拒绝权限时不重试或另查岗位，认证取消不发业务请求', async () => {
+    const api = await import('../citizens/api');
+    const { assertPasskey } = await import('@gmb/onchina-platform/authentication/passkeyClient');
+    const auth = { accessToken: 'fixture-session' } as never;
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+    try {
+      fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ code: 1003, message: '当前管理员无此业务办理权限' }), { status: 403 }));
+      await expect(api.prepareCitizenRebind(auth, 'cid')).rejects.toThrow('当前管理员无此业务办理权限');
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(fetcher.mock.calls[0][0]).not.toContain('operation-roles');
+      fetcher.mockClear();
+      vi.mocked(assertPasskey).mockRejectedValueOnce(new Error('cancelled'));
+      await expect(api.prepareCitizenRevoke(auth, 'cid')).rejects.toThrow('cancelled');
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally { fetcher.mockRestore(); vi.mocked(assertPasskey).mockClear(); }
   });
 });
 
-// 与本仓已有浏览器回归共用显式交付的 JSDOM，不安装或更改工程依赖。
-const domTest = process.env.ONCHINA_TEST_DOM ? it : it.skip;
-domTest('切换公民/业务后丢弃旧请求，唯一岗位自动确定，多岗位选择中文名称，失败重试', async () => {
+const browserTest = process.env.ONCHINA_TEST_DOM ? it : it.skip;
+browserTest('新增公民不显示岗位输入，取消无认证，占号保留公民签名及管理员冷签', async () => {
+  vi.resetModules();
   const { createRequire } = await import('node:module');
   const { JSDOM } = createRequire(import.meta.url)(process.env.ONCHINA_TEST_DOM!);
   const dom = new JSDOM('<div id="root"></div>', { url: 'https://onchina.example.invalid/' });
+  const computed = dom.window.getComputedStyle.bind(dom.window);
+  dom.window.getComputedStyle = (element: Element) => computed(element);
   dom.window.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
-  for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'ShadowRoot', 'SVGElement']) vi.stubGlobal(name, dom.window[name]);
-  vi.stubGlobal('getComputedStyle', (element: Element) => dom.window.getComputedStyle(element));
+  for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLBodyElement', 'Element', 'ShadowRoot', 'SVGElement', 'getComputedStyle']) vi.stubGlobal(name, dom.window[name]);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const React = await import('react');
   const { createRoot } = await import('react-dom/client');
-  const { useCitizenOperationRoles } = await import('../citizens/OperationRoleSelect');
-  const auth = { accessToken: 'session', accountId: 'admin', institutionCidNumber: 'registry' } as never;
-  type Control = ReturnType<typeof useCitizenOperationRoles>;
-  let current: Control | undefined;
-  function Probe({ cid, operation }: { cid: string; operation: 'rebind_wallet' | 'revoke_identity' }) {
-    current = useCitizenOperationRoles(auth, cid, operation, true, 1);
-    return createElement('div', null,
-      createElement(OperationRoleSelect, { control: current }),
-      createElement('button', { id: 'action', disabled: !current.ready }, '办理'),
-    );
-  }
-  const pending: Array<(response: Response) => void> = [];
-  const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((resolve) => pending.push(resolve)));
-  const response = (items: CitizenOperationRole[]) => new Response(JSON.stringify({ code: 0, data: { roles: items, finalizedBlockHash: 'block', finalizedBlockNumber: 1 } }));
+  const assertion = vi.fn(async () => 'fixture-assertion');
+  const citizenSign = vi.fn(async () => ({ accountId: 'fixture-citizen-account', signature: 'fixture-citizen-signature' }));
+  const adminSign = vi.fn(async () => ({ accountId: 'fixture-admin-account', signature: 'fixture-admin-signature' }));
+  const submit = vi.fn(async () => ({ txHash: 'fixture-transaction', citizen: { cidNumber: 'fixture-cid' } }));
+  const onClose = vi.fn(), onCreated = vi.fn(), error = vi.fn();
+  vi.doMock('@gmb/onchina-platform/authentication/passkeyClient', () => ({ assertPasskey: assertion, PASSKEY_ASSERTION_HEADER: 'x-passkey-assertion' }));
+  vi.doMock('@gmb/onchina-platform/qr/useChainSign', () => ({ useChainSign: (title: string) => ({ signChain: title.startsWith('请公民本人') ? citizenSign : adminSign, chainSignModal: null }), submitChainSign: submit }));
+  vi.doMock('@gmb/onchina-platform/controls/notice', () => ({ notice: { success: vi.fn(), error } }));
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+    if (String(url) === '/api/admin/citizens') return new Response(JSON.stringify({ code: 0, data: { requestId: 'fixture-occupy', citizenSignRequest: 'fixture-occupy-code' } }));
+    if (String(url) === '/api/admin/citizens/occupy/submit') return new Response(JSON.stringify({ code: 0, data: { requestId: 'fixture-admin', signRequest: 'fixture-admin-code' } }));
+    throw new Error('unexpected request: ' + url);
+  });
   const root = createRoot(document.getElementById('root')!);
   try {
-    await React.act(async () => root.render(createElement(Probe, { cid: 'first', operation: 'rebind_wallet' })));
-    expect((document.getElementById('action') as HTMLButtonElement).disabled).toBe(true);
-    await React.act(async () => root.render(createElement(Probe, { cid: 'second', operation: 'revoke_identity' })));
-    await React.act(async () => { pending[0](response(roles.slice(0, 1))); });
-    expect(current?.ready).toBe(false);
-    await React.act(async () => { pending[1](response(roles)); });
-    expect(current?.ready).toBe(false);
-    await React.act(async () => { current?.onChange('INTERNAL_ROLE_B'); });
-    expect(current?.ready).toBe(true);
-    expect(document.body.textContent).toContain('登记负责人');
-    expect(document.body.textContent).not.toContain('INTERNAL_ROLE_');
-    expect((document.querySelector('input') as HTMLInputElement).readOnly).toBe(true);
-    await React.act(async () => root.render(createElement(Probe, { cid: 'third', operation: 'rebind_wallet' })));
-    expect(current?.roleCode).toBeUndefined();
-    await React.act(async () => { pending[2](new Response('unavailable', { status: 502 })); });
-    expect(current?.ready).toBe(false);
-    expect(document.body.textContent).toContain('办理岗位加载失败');
-    await React.act(async () => { current?.retry(); });
-    expect(current?.loading).toBe(true);
-    await React.act(async () => { pending[3](response(roles.slice(0, 1))); });
-    expect(current?.ready).toBe(true);
-    expect(current?.roleCode).toBe('INTERNAL_ROLE_A');
-    expect(document.querySelector('input')).toBeNull();
-    expect((document.getElementById('action') as HTMLButtonElement).disabled).toBe(false);
+    const { CitizenCreateModal } = await import('../citizens/CitizenCreateModal');
+    const auth = { accessToken: 'fixture-session', accountId: 'fixture-admin' } as never;
+    await React.act(async () => root.render(React.createElement(CitizenCreateModal, { auth, open: true, provinceName: '测试省', cityName: '测试市', onClose, onCreated })));
+    const click = async (text: string) => { const button = [...document.querySelectorAll('button')].find(node => node.textContent?.replace(/\s/g, '') === text); expect(button).toBeTruthy(); await React.act(async () => button!.click()); };
+    expect(document.body.textContent).not.toContain('岗位');
+    expect(document.querySelector('input[placeholder*=岗位]')).toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+    await click('取消');
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(assertion).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+    await click('发起占号');
+    await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 80)); });
+    expect(assertion).toHaveBeenCalledTimes(1);
+    expect(citizenSign).toHaveBeenCalledTimes(1);
+    expect(adminSign).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(onCreated).toHaveBeenCalledWith('fixture-cid');
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({ cidType: 'CTZN' });
+    expect(error).not.toHaveBeenCalled();
   } finally {
     await React.act(async () => root.unmount());
-    fetcher.mockRestore(); vi.unstubAllGlobals(); dom.window.close();
+    fetcher.mockRestore();
+    for (const path of ['@gmb/onchina-platform/authentication/passkeyClient', '@gmb/onchina-platform/qr/useChainSign', '@gmb/onchina-platform/controls/notice']) vi.doUnmock(path);
+    vi.unstubAllGlobals(); dom.window.close(); vi.resetModules();
   }
-});
-
-it('上链只在创建管理员冷签会话时验证一次Passkey，换绑和吊销在prepare验证', async () => {
-  const api = await import('../citizens/api');
-  const { assertPasskey, PASSKEY_ASSERTION_HEADER } = await import('@gmb/onchina-platform/authentication/passkeyClient');
-  const auth = { accessToken: 'session' } as never;
-  const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ code: 0, data: {} })));
-  try {
-    vi.mocked(assertPasskey).mockClear();
-    await api.prepareCitizenOnchainSignature(auth, 'cid', 'wallet', undefined, 'voting');
-    expect(assertPasskey).not.toHaveBeenCalled();
-    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({ accountId: 'wallet', identityLevel: 'voting' });
-    await api.completeCitizenOnchainSignature(auth, 'cid', 'wallet', 'FROZEN_ROLE', 'voting', 'signature');
-    expect(assertPasskey).toHaveBeenCalledTimes(1);
-    expect(new Headers(fetcher.mock.calls[1][1]?.headers).get(PASSKEY_ASSERTION_HEADER)).toBe('fake-passkey-assertion');
-    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body)).actorRoleCode).toBe('FROZEN_ROLE');
-    for (const prepare of [
-      () => api.prepareCitizenRebind(auth, 'cid', undefined),
-      () => api.prepareCitizenRevoke(auth, 'cid', 'INTERNAL_ROLE_A'),
-    ]) {
-      vi.mocked(assertPasskey).mockClear(); fetcher.mockClear();
-      await prepare();
-      expect(assertPasskey).toHaveBeenCalledTimes(1);
-      expect(new Headers(fetcher.mock.calls[0][1]?.headers).get(PASSKEY_ASSERTION_HEADER)).toBe('fake-passkey-assertion');
-    }
-  } finally { fetcher.mockRestore(); }
-});
+}, 15000);

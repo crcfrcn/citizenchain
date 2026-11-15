@@ -66,11 +66,10 @@ export type PageResult<T> = {
 export type CitizenType = 'CTZN' | 'NATP';
 
 /**
- * 占号 prepare 请求 DTO。占即绑:仅岗位码 + 人主体类型必填,居住省市由办理注册局 scope 派生,
+ * 占号 prepare 请求 DTO。占即绑:仅人主体类型必填，办理权限由后端按当前会话判断,
  * 姓名/性别/出生/护照等档案占号后为空、后续经「编辑资料」补齐(与后端 AdminCreateCitizenInput 对齐)。
  */
 export type CreateCitizenInput = {
-  actorRoleCode: string;
   cidType: CitizenType;
 };
 
@@ -99,7 +98,6 @@ export type CreateCitizenResult = {
 
 export type PrepareCitizenOnchainResult = {
   cidNumber: string;
-  actorRoleCode: string;
   identityLevel: CitizenOnchainIdentityLevel;
   accountId: string;
   payloadHex: string;
@@ -111,7 +109,6 @@ export type PrepareCitizenOnchainResult = {
 export type CompleteCitizenOnchainResult = {
   requestId: string;
   cidNumber: string;
-  actorRoleCode: string;
   identityLevel: CitizenOnchainIdentityLevel;
   accountId: string;
   chainAction: number;
@@ -316,17 +313,6 @@ export async function submitCitizenOccupy(
   });
 }
 
-export type CitizenOperation = 'register_voting_identity' | 'upgrade_candidate_identity' | 'rebind_wallet' | 'revoke_identity';
-export type CitizenOperationRole = { roleCode: string; roleName: string };
-export type CitizenOperationRoles = { roles: CitizenOperationRole[]; finalizedBlockHash: string; finalizedBlockNumber: number };
-
-export async function fetchCitizenOperationRoles(auth: AdminAuth, cidNumber: string, operation: CitizenOperation): Promise<CitizenOperationRoles> {
-  return request<CitizenOperationRoles>(
-    `/api/admin/citizens/${encodeURIComponent(cidNumber)}/operation-roles?operation=${operation}`,
-    { headers: adminHeaders(auth) },
-  );
-}
-
 /**
  * 换绑段1 prepare:直接按链上 finalized 绑定真源发起。
  * 匿名 CID 可由任一在册 CREG/FRG 办理；实名 CID 仅本市 CREG/对应省 FRG，
@@ -335,7 +321,6 @@ export async function fetchCitizenOperationRoles(auth: AdminAuth, cidNumber: str
 export async function prepareCitizenRebind(
   auth: AdminAuth,
   cidNumber: string,
-  actorRoleCode: string | undefined,
 ): Promise<PrepareCitizenRebindResult> {
   // 链上写(admin_rebind_cid_account_id)= passkey + 冷签:prepare 段消费一次 passkey 断言(冷签在段3)。
   const assertion = await assertPasskey(auth);
@@ -343,7 +328,7 @@ export async function prepareCitizenRebind(
   return request<PrepareCitizenRebindResult>('/api/admin/citizens/rebind/prepare', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ actorRoleCode: actorRoleCode, cidNumber: cidNumber }),
+    body: JSON.stringify({ cidNumber: cidNumber }),
   });
 }
 
@@ -391,7 +376,6 @@ export async function fetchFinalizedCitizenBinding(
 export async function prepareCitizenRevoke(
   auth: AdminAuth,
   cidNumber: string,
-  actorRoleCode: string | undefined,
 ): Promise<PrepareCitizenRevokeResult> {
   const assertion = await assertPasskey(auth);
   const headers = { ...jsonAdminHeaders(auth), [PASSKEY_ASSERTION_HEADER]: assertion };
@@ -400,7 +384,7 @@ export async function prepareCitizenRevoke(
     {
       method: 'POST',
       headers,
-      body: JSON.stringify({ actorRoleCode: actorRoleCode }),
+      body: JSON.stringify({}),
     },
   );
 }
@@ -409,7 +393,6 @@ export async function prepareCitizenOnchainSignature(
   auth: AdminAuth,
   cidNumber: string,
   accountId: string,
-  actorRoleCode: string | undefined,
   identityLevel: CitizenOnchainIdentityLevel,
 ): Promise<PrepareCitizenOnchainResult> {
   // 此阶段只准备公民授权，Passkey 留到 complete 创建管理员冷签会话时验证。
@@ -421,7 +404,6 @@ export async function prepareCitizenOnchainSignature(
       headers,
       body: JSON.stringify({
         accountId,
-        actorRoleCode: actorRoleCode,
         identityLevel: identityLevel,
       }),
     },
@@ -432,7 +414,6 @@ export async function completeCitizenOnchainSignature(
   auth: AdminAuth,
   cidNumber: string,
   accountId: string,
-  actorRoleCode: string,
   identityLevel: CitizenOnchainIdentityLevel,
   signResponse: string,
 ): Promise<CompleteCitizenOnchainResult> {
@@ -445,7 +426,6 @@ export async function completeCitizenOnchainSignature(
       headers,
       body: JSON.stringify({
         accountId,
-        actorRoleCode: actorRoleCode,
         identityLevel: identityLevel,
         signResponse: signResponse,
       }),

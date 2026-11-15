@@ -24,6 +24,8 @@ scripts/build.mjs负责Node编译、资源装配、签名和打包；scripts/run
 
 五份既有Workflow各自负责工具准备、版本输入、prepare/build/release/cleanup及GitHub产物。Node版本从本平台最新成功正式Release读取后patch加1，首次使用节点配置版本；构建环境中的TAURI_CONFIG同时保留同值version与build配置，不因覆盖构建选项丢失版本；WASM仍消费当前构建的冻结链快照及双版本各加1的输入，不使用Node的X.Y.Z。五份工作流共用.github/release.mjs完成工具准备、版本核对、产物记录和正式发布。平台编译及历史清理仍由各自工作流调度。
 
+节点四个原生平台默认不启用runtime-tests特性，Cargo校验覆盖工作区全部目标，仅排除sc-consensus-grandpa自身的测试目标，其生产依赖仍正常编译。SKIP_WASM_BUILD=1用于跳过SDK和产品WASM生成；该设置不会覆盖已有嵌入输出，因此缓存恢复后先清理缺少wbuild资源的旧生成输出。需要实际WASM的Ethereum整链校验和GRANDPA专属校验由Runtime构建流程负责，复用同一份产品Runtime，不向节点安装包添加WASM。
+
 ## 正式Tag、Release
 
 build记录实际产物集合、大小和摘要；release只消费同一Run的Artifact，核对字节后由官方gh创建草稿，并通过官方API核对附件、转正式、回读Tag准确源码。保留既有发布元数据格式和WASM双版本字段，控制台开发升级仍可消费既有正式交付。发布Job不调用编译，不代表已升级链或部署服务器。
@@ -108,6 +110,8 @@ Ethereum最佳块处理先沿父哈希收集并校验缺失祖先，要求父哈
 Ethereum RPC通过进程内RpcModule调用既有RpcHandlers，不连接内部网络，不启动
 独立eth-rpc进程或8545端口。Ethereum方法与原生方法合并到原9944端点，只接受
 HTTPS/WSS。公开模块和每个请求均显式使用DenyUnsafe::Yes；原生内部模块不对外开放。
+
+设置CITIZENCHAIN_HEADLESS=1可强制节点进入无界面服务模式并绕过GUI；CLI子命令优先进入工具模式，执行结束后退出。
 
 无界面 CLI 由service::new_full读取两项运行环境配置：
 `CITIZENCHAIN_RPC_TLS_CERTIFICATE`为可信证书链PEM绝对路径，
@@ -1997,7 +2001,7 @@ registry与Git的目录源按原锁准确来源隔离，同名同版本不会混
 
 ## 节点部署离线批准
 
-权威和权益节点实例的部署批准使用本仓独立 `crates/protocol` 的 QR_V1 `node_deploy=16` 链下动作；它不进入 Runtime WASM，不借用软件发布动作或链交易签名。载荷固定包含公民链产品、节点类别与编号、目标服务器 IP、版本、源码提交、产物摘要、控制台任务编号、期限和随机挑战，钱包必须完整解码并显示目标。签名消息使用独立 `GMB\0TATA_NODE_DEPLOY_V1\0` 前缀，控制台只接受受保护的 `rtupg:NRC_PUBLICKEY`；同一个国储会管理员公钥也是开发升级签名者，且只存 Touch ID Keychain，离线私钥不进入产品或控制台。节点部署是使用公民链的实例操作，由控制台节点管理维护，不等同于发布公民链软件。`scripts/build.mjs` 将独立 QR Cargo 锁纳入当前构建的受控资源供给，；本机受控供给使用离线原件，原生CI按原锁准备。失败即不编译。此协议准备阶段不执行节点部署，正式接线仍归控制台三级权限第④步。
+权威和权益节点实例的部署批准使用本仓独立 `crates/protocol` 的 QR_V1 `node_deploy=16` 链下动作；它不进入 Runtime WASM，不借用软件发布动作或链交易签名。载荷固定包含公民链产品、节点类别与编号、目标服务器 IP、版本、源码提交、产物摘要、控制台任务编号、期限和随机挑战，钱包必须完整解码并显示目标。签名消息使用独立 `GMB\0TATA_NODE_DEPLOY_V1\0` 前缀，控制台只接受受保护的 `rtupg:NRC_PUBLICKEY`；同一个国储会管理员公钥也是开发升级签名者，且只存 Touch ID Keychain，离线私钥不进入产品或控制台。节点部署是使用公民链的实例操作，由控制台节点管理维护，不等同于发布公民链软件。`scripts/build.mjs` 将独立 QR Cargo 锁纳入当前构建的受控资源供给；本机受控供给使用离线原件，原生CI按原锁准备。失败即不编译。协议依赖准备不执行节点部署。
 
 ## 独立执行与外部接入边界
 
@@ -2047,7 +2051,7 @@ OnChina管理动作的JSON反序列化通过Serde官方Deserialize接口委托�
 
 OnChina事件交易投影与实体CID收集均使用既有SCALE codec::Decode解码原始Compact<u32>长度前缀，并按实际消费字节计数，禁止把Subxt长度解码错误后的零事件回退当成合法空块。官方空输入与合法零事件向量保持。
 
-两Linux正式编译在原步骤失败后，使用GitHub官方failure()与steps.compile.outcome条件运行独立资源诊断步骤；仅列出当前构建的resources中符号链接的路径和目标，不跟随目录链接、不修改输入、不新建诊断文件。原编译命令及失败退出码、完整产物与发布门禁、既有缓存及终态清理保持；诊断成功不代表编译成功。资源目录尚未生成时不输出链接，
+两Linux正式编译在原步骤失败后，使用GitHub官方failure()与steps.compile.outcome条件运行独立资源诊断步骤；仅列出当前构建的resources中符号链接的路径和目标，不跟随目录链接、不修改输入、不新建诊断文件。原编译命令及失败退出码、完整产物与发布门禁、既有缓存及终态清理保持；诊断成功不代表编译成功。资源目录尚未生成时不输出链接。
 
 macOS和两Linux工作流在PostgreSQL原make install完成后，以系统cp -RL把Runner临时pg-dist复制为pg-runtime普通文件树，CITIZENCHAIN_PG_DIST只交付该物理副本。原安装原件、PostgreSQL/Node锁定版本和依赖保持；坏链接复制失败仍立即终止。此步骤避免Node25.2.1递归cpSync的dereference兼容性问题把绝对库链接带入资源包。
 

@@ -257,17 +257,6 @@
   },
   {
     "group": "admin",
-    "path": "/api/admin/citizens/{cid_number}/operation-roles",
-    "methods": [
-      "get"
-    ],
-    "handlers": [
-      "citizens::authorization::operation_roles"
-    ],
-    "owner": "registry"
-  },
-  {
-    "group": "admin",
     "path": "/api/admin/citizens/{cid_number}/binding",
     "methods": [
       "get"

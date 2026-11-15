@@ -1,44 +1,41 @@
 use super::*;
 
-fn roles() -> Vec<OperationRole> {
-    vec![
-        OperationRole {
-            role_code: "ROLE_A".into(),
-            role_name: "身份登记员".into(),
-        },
-        OperationRole {
-            role_code: "ROLE_B".into(),
-            role_name: "登记负责人".into(),
-        },
-    ]
-}
-
 #[test]
-fn unique_role_is_automatic_and_multiple_require_a_valid_selection() {
-    let options = roles();
-    assert_eq!(choose_role(&options[..1], None).unwrap(), "ROLE_A");
-    assert_eq!(choose_role(&options, Some("ROLE_B")).unwrap(), "ROLE_B");
+fn automatic_role_is_stable_and_frozen_role_never_switches() {
+    let roles = vec!["ROLE_B".to_string(), "ROLE_A".to_string()];
+    assert_eq!(choose_role(&roles[..1], None).unwrap(), "ROLE_B");
+    assert_eq!(choose_role(&roles, None).unwrap(), "ROLE_A");
     assert_eq!(
-        choose_role(&options, None).unwrap_err().status(),
-        StatusCode::BAD_REQUEST
+        choose_role(&[roles[1].clone(), roles[0].clone()], None).unwrap(),
+        "ROLE_A"
     );
-    for selected in ["", "FOREIGN_ROLE", " ROLE_A "] {
-        assert_eq!(
-            choose_role(&options, Some(selected)).unwrap_err().status(),
-            StatusCode::FORBIDDEN
-        );
-    }
+    assert_eq!(choose_role(&roles, Some("ROLE_B")).unwrap(), "ROLE_B");
     assert_eq!(
         choose_role(&[], None).unwrap_err().status(),
         StatusCode::FORBIDDEN
     );
-    // 曾选岗位被撤销后，不能自动切换到剩下的唯一岗位继续原签名。
-    assert!(choose_role(&options[..1], Some("ROLE_B")).is_err());
+    for frozen in ["", "FOREIGN_ROLE", " ROLE_A "] {
+        assert_eq!(
+            choose_role(&roles, Some(frozen)).unwrap_err().status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    // 固定的ROLE_B被撤销时，即使ROLE_A仍有效也不能切换继续原签名。
+    assert_eq!(
+        choose_role(&roles[1..], Some("ROLE_B"))
+            .unwrap_err()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
 }
 
 #[test]
 fn each_operation_uses_its_own_business_permission() {
     for (operation, expected) in [
+        (
+            CitizenOperation::OccupyCid,
+            business_action::ACTION_OCCUPY_CID,
+        ),
         (
             CitizenOperation::RegisterVotingIdentity,
             business_action::ACTION_REGISTER_VOTING_IDENTITY,
@@ -77,27 +74,37 @@ fn frg_named_identity_uses_exact_province_role_but_anonymous_has_no_region() {
 }
 
 #[test]
-fn optional_prepare_role_and_required_frozen_complete_role() {
-    let _: super::super::chain_identity::PrepareCitizenOnchainInput =
-        serde_json::from_value(serde_json::json!({
-            "accountId": "wallet", "identityLevel": "voting"
-        }))
-        .unwrap();
-    let _: super::super::occupy::PrepareCitizenRebindInput =
-        serde_json::from_value(serde_json::json!({
-            "cidNumber": "cid"
-        }))
-        .unwrap();
-    let _: super::super::occupy::PrepareCitizenRevokeInput =
-        serde_json::from_value(serde_json::json!({})).unwrap();
-    assert!(
-        serde_json::from_value::<super::super::chain_identity::CompleteCitizenOnchainInput>(
-            serde_json::json!({
-                "accountId": "wallet", "identityLevel": "voting", "signResponse": "signature"
-            })
-        )
-        .is_err()
+fn public_requests_never_accept_an_actor_role() {
+    use super::super::{
+        admin_entry::AdminCreateCitizenInput,
+        chain_identity::{CompleteCitizenOnchainInput, PrepareCitizenOnchainInput},
+        occupy::{PrepareCitizenRebindInput, PrepareCitizenRevokeInput},
+    };
+    macro_rules! check {
+        ($kind:ty, $value:expr) => {{
+            let mut value = $value;
+            assert!(serde_json::from_value::<$kind>(value.clone()).is_ok());
+            value["actorRoleCode"] = serde_json::json!("FORGED_ROLE");
+            assert!(serde_json::from_value::<$kind>(value).is_err());
+        }};
+    }
+    check!(
+        AdminCreateCitizenInput,
+        serde_json::json!({"cidType":"CTZN"})
     );
+    check!(
+        PrepareCitizenOnchainInput,
+        serde_json::json!({"accountId":"wallet","identityLevel":"voting"})
+    );
+    check!(
+        CompleteCitizenOnchainInput,
+        serde_json::json!({"accountId":"wallet","identityLevel":"voting","signResponse":"signature"})
+    );
+    check!(
+        PrepareCitizenRebindInput,
+        serde_json::json!({"cidNumber":"cid"})
+    );
+    check!(PrepareCitizenRevokeInput, serde_json::json!({}));
 }
 
 #[test]
@@ -122,4 +129,40 @@ fn city_registry_scope_cannot_cross_city_or_province() {
         Some((b"GD", b"018"))
     ));
     assert!(role_in_scope(cid.as_bytes(), b"REGISTRAR", None));
+}
+
+#[tokio::test]
+async fn each_automatic_prepare_keeps_the_real_session_gate() {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    let app = onchina::testing::router_for(std::sync::Arc::new(crate::module::Module::default()));
+    for (path, body) in [
+        ("/api/admin/citizens", serde_json::json!({"cidType":"CTZN"})),
+        (
+            "/api/admin/citizens/rebind/prepare",
+            serde_json::json!({"cidNumber":"fixture"}),
+        ),
+        (
+            "/api/admin/citizens/fixture/onchain/revoke/prepare",
+            serde_json::json!({}),
+        ),
+        (
+            "/api/admin/citizens/fixture/onchain/prepare",
+            serde_json::json!({"accountId":"wallet","identityLevel":"voting"}),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+    }
 }

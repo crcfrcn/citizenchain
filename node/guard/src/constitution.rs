@@ -26,6 +26,17 @@ pub const CONSTITUTION_LAW_ID: u64 = 0;
 /// 创世注入的宪法版本号,作为不可修改条款的内容基准来源。
 const GENESIS_CONSTITUTION_VERSION: u32 = 1;
 
+// 冻结创世宪法记录的完整 SHA-256；仅 proposal_id=0 的 SCALE 编码由 u64 扩为 u128。
+// 正文、其他字段及原有时间戳逐字节保持，迁移后仍冻结完整记录。
+const GENESIS_CONSTITUTION_U64_SHA256: [u8; 32] = [
+    0x18, 0x5d, 0xc5, 0xe6, 0x2b, 0xd6, 0x83, 0x2a, 0xe4, 0x5c, 0x53, 0x49, 0x71, 0x7b, 0x23, 0x33,
+    0x6d, 0xe2, 0x41, 0x84, 0xd7, 0x8a, 0x33, 0x03, 0x4a, 0xd2, 0x81, 0x15, 0xc6, 0xad, 0x96, 0x02,
+];
+const GENESIS_CONSTITUTION_U128_SHA256: [u8; 32] = [
+    0x3a, 0xa3, 0x32, 0x46, 0x15, 0x1c, 0x36, 0xfa, 0x53, 0x8e, 0x1d, 0xf3, 0xee, 0x5f, 0x3f, 0xe4,
+    0x88, 0xf0, 0xa3, 0x9d, 0xe2, 0x83, 0x60, 0x0b, 0xe7, 0x4c, 0xd3, 0xe7, 0x12, 0x15, 0x29, 0xc1,
+];
+
 /// Law 元数据判别值(SCALE 变体索引,与 `legislation::types` 声明序一致:
 /// `Tier{Constitution=0,..}`、`LawStatus{Pending=0,Effective=1,Repealed=2}`)。
 /// 由 legislation 测试 `enum_discriminants_match_node_guard` 交叉钉死,防漂移。
@@ -456,6 +467,7 @@ where
 /// 合法修宪可以在同一区块新增下一个版本及其凭据；记录一旦出现在父状态，后续区块只能原样
 /// 保留，不能修改、删除，也不能为已经存在的历史版本事后补写凭据。这样“历史记录合法”与
 /// “历史记录未被篡改”是两层独立检查，恶意 runtime 无法用另一份仍过阈值的数据替换旧记录。
+/// 唯一格式转换例外为已钉死完整摘要的创世记录 u64 零值提案号扩为 u128；不允许反向转换。
 fn check_frozen_constitution_records<F>(
     delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     read_parent: F,
@@ -469,7 +481,14 @@ where
                 .ok_or_else(|| "宪法历史版本 RAW key 非法".to_string())?;
             if let Some(before) = read_parent(key)? {
                 if after.as_deref() != Some(before.as_slice()) {
-                    return Err(format!("宪法历史版本 {version} 已被冻结，不得修改或删除"));
+                    let proposal_id_widened = version == GENESIS_CONSTITUTION_VERSION
+                        && sp_crypto_hashing::sha2_256(&before) == GENESIS_CONSTITUTION_U64_SHA256
+                        && after.as_deref().is_some_and(|value| {
+                            sp_crypto_hashing::sha2_256(value) == GENESIS_CONSTITUTION_U128_SHA256
+                        });
+                    if !proposal_id_widened {
+                        return Err(format!("宪法历史版本 {version} 已被冻结，不得修改或删除"));
+                    }
                 }
             }
             continue;

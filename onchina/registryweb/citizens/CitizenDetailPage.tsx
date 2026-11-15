@@ -33,7 +33,6 @@ import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import { glassCardHeadStyle, glassCardStyle } from '@gmb/onchina-platform/controls/cardStyles';
 import { CitizenSignatureModal } from '@gmb/onchina-platform/qr/CitizenSignatureModal';
 import { EditCitizenModal } from './EditCitizenModal';
-import { OperationRoleSelect, useCitizenOperationRoles } from './OperationRoleSelect';
 import { submitChainSign, useChainSign } from '@gmb/onchina-platform/qr/useChainSign';
 import { notice } from '@gmb/onchina-platform/controls/notice';
 import {
@@ -174,13 +173,6 @@ export function CitizenDetailPage({
     typeof ageYears === 'number' &&
     ageYears >= 16;
 
-  const identityLevel = Form.useWatch('identityLevel', form) ?? 'voting';
-  const pushRoles = useCitizenOperationRoles(auth, current.cidNumber,
-    identityLevel === 'candidate' ? 'upgrade_candidate_identity' : 'register_voting_identity',
-    canPushOnchain, current.bindingRevision);
-  const rebindRoles = useCitizenOperationRoles(auth, current.cidNumber, 'rebind_wallet', canWrite, current.bindingRevision);
-  const revokeRoles = useCitizenOperationRoles(auth, current.cidNumber, 'revoke_identity', canWrite && current.citizenStatus !== 'REVOKED', current.bindingRevision);
-
   const titleText = provinceName && cityName ? `${provinceName} · ${cityName}` : '公民详情';
 
   const loadDocuments = useCallback(() => {
@@ -225,7 +217,7 @@ export function CitizenDetailPage({
   }, [loadFinalizedBinding]);
 
   const prepareOnchainSignature = async () => {
-    if (!pushRoles.ready || prepareLoading) return;
+    if (!canPushOnchain || prepareLoading || completeLoading || chainSubmitting || rebinding || prepared) return;
     const values = await form.validateFields();
     setPrepareLoading(true);
     setPrepared(null);
@@ -239,13 +231,11 @@ export function CitizenDetailPage({
         auth,
         current.cidNumber,
         binding.accountId,
-        pushRoles.roleCode,
         values.identityLevel,
       );
       setPrepared(output);
       notice.success('公民钱包签名二维码已生成');
     } catch (err) {
-      pushRoles.retry();
       notice.error(err, '生成签名二维码失败');
     } finally {
       setPrepareLoading(false);
@@ -254,14 +244,13 @@ export function CitizenDetailPage({
 
   const completeOnchainSignature = async (raw: string) => {
     if (!prepared) return;
-    const { accountId, actorRoleCode, identityLevel } = prepared;
+    const { accountId, identityLevel } = prepared;
     setCompleteLoading(true);
     try {
       const output = await completeCitizenOnchainSignature(
         auth,
         current.cidNumber,
         accountId,
-        actorRoleCode,
         identityLevel,
         raw,
       );
@@ -285,7 +274,6 @@ export function CitizenDetailPage({
       }
     } catch (err) {
       setPrepared(null);
-      pushRoles.retry();
       notice.error(err, '公民身份上链失败');
     } finally {
       setCompleteLoading(false);
@@ -293,14 +281,13 @@ export function CitizenDetailPage({
   };
 
   const revokeOnchain = async () => {
-    if (!revokeRoles.ready) return;
+    if (!canWrite || current.citizenStatus === 'REVOKED' || chainSubmitting || prepareLoading || completeLoading || rebinding) return;
     setChainSubmitting(true);
     try {
       // 吊销同样只做一次 Passkey 和一次最终链签。
       const prep = await prepareCitizenRevoke(
         auth,
         current.cidNumber,
-        revokeRoles.roleCode,
       );
       const signed = await signChain(prep.requestId, prep.signRequest);
       const submitted = await submitChainSign(
@@ -312,7 +299,6 @@ export function CitizenDetailPage({
       notice.success(`公民身份已吊销,交易哈希：${submitted.txHash}`);
       await loadFinalizedBinding();
     } catch (err) {
-      revokeRoles.retry();
       notice.error(err, '公民身份吊销失败');
     } finally {
       setChainSubmitting(false);
@@ -320,11 +306,11 @@ export function CitizenDetailPage({
   };
 
   const rebindWallet = async () => {
-    if (!rebindRoles.ready) return;
+    if (!canWrite || !current.accountId || rebinding || chainSubmitting || prepareLoading || completeLoading) return;
     setRebinding(true);
     try {
       // 段1:发起换绑,返回给新钱包的域签名 QR。
-      const prep = await prepareCitizenRebind(auth, current.cidNumber, rebindRoles.roleCode);
+      const prep = await prepareCitizenRebind(auth, current.cidNumber);
       // 段1→2:新钱包本人扫码换绑(占即绑,自填本账户)。
       const newWalletSigned = await signNewWallet(prep.requestId, prep.walletSignRequest);
       const admin = await submitCitizenRebind(
@@ -347,7 +333,6 @@ export function CitizenDetailPage({
       // 新钱包签名只证明控制权；显示账户必须重新读取 finalized 链上闭环。
       await loadFinalizedBinding();
     } catch (err) {
-      rebindRoles.retry();
       notice.error(err, '换绑钱包失败');
     } finally {
       setRebinding(false);
@@ -406,7 +391,7 @@ export function CitizenDetailPage({
                   danger
                   icon={<CloudUploadOutlined />}
                   loading={chainSubmitting}
-                  disabled={!revokeRoles.ready || chainSubmitting || prepareLoading || completeLoading || rebinding}
+                  disabled={current.citizenStatus === 'REVOKED' || chainSubmitting || prepareLoading || completeLoading || rebinding}
                   onClick={revokeOnchain}
                 >
                   吊销身份
@@ -449,7 +434,7 @@ export function CitizenDetailPage({
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
                 <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{current.accountId ? encodeSs58(current.accountId) : '-'}</span>
                 {canWrite && <Button type="link" style={{ flexShrink: 0, paddingRight: 0 }} loading={rebinding}
-                  disabled={!rebindRoles.ready || prepareLoading || completeLoading || chainSubmitting}
+                  disabled={!current.accountId || prepareLoading || completeLoading || chainSubmitting}
                   onClick={() => setRebindOpen(true)}>更换</Button>}
               </div>
             </Descriptions.Item>
@@ -500,34 +485,19 @@ export function CitizenDetailPage({
               />
             </Form.Item>
             <Form.Item style={{ marginBottom: 0 }}>
-              <OperationRoleSelect control={pushRoles} disabled={prepareLoading || completeLoading || !!prepared} />
-            </Form.Item>
-            <Form.Item style={{ marginBottom: 0 }}>
               <Button
                 type="primary"
                 icon={<QrcodeOutlined />}
                 loading={prepareLoading}
-                disabled={!canPushOnchain || !pushRoles.ready || completeLoading || !!prepared}
+                disabled={!canPushOnchain || completeLoading || chainSubmitting || rebinding || !!prepared}
                 onClick={prepareOnchainSignature}
               >
                 生成签名二维码
               </Button>
             </Form.Item>
-            <Form.Item style={{ marginBottom: 0 }}>
-              <OperationRoleSelect control={revokeRoles} label="吊销办理岗位" disabled={chainSubmitting} />
-            </Form.Item>
           </Form>
         </div>
 
-        <div style={{ marginTop: 20, borderTop: '1px solid #e5e7eb', paddingTop: 18 }}>
-          <Typography.Title level={5} style={{ marginTop: 0 }}>
-            换绑钱包账户
-          </Typography.Title>
-          <Space wrap>
-            <OperationRoleSelect control={rebindRoles} disabled={rebinding} />
-
-          </Space>
-        </div>
       </Card>
 
       <Card
@@ -638,7 +608,7 @@ export function CitizenDetailPage({
         onCancel={() => setRebindOpen(false)}
         okText="确认更换"
         cancelText="取消"
-        okButtonProps={{ disabled: !rebindRoles.ready || rebinding }}
+        okButtonProps={{ disabled: !current.accountId || rebinding }}
         onOk={() => { setRebindOpen(false); void rebindWallet(); }}
       >
         <Typography.Paragraph>确认更换该公民CID的绑定钱包账户？</Typography.Paragraph>

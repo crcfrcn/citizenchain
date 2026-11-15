@@ -409,3 +409,16 @@ fn verify_current_account_signature_requires_chain_current_account_and_own_domai
         current_account_signature.as_str()
     ));
 }
+
+#[test]
+fn occupy_request_contains_only_subject_type_and_business_permission_stays_exact() {
+    let input: crate::citizens::admin_entry::AdminCreateCitizenInput =
+        serde_json::from_value(serde_json::json!({"cidType":"NATP"})).unwrap();
+    assert_eq!(input.cid_type, "NATP");
+    assert!(
+        serde_json::from_value::<crate::citizens::admin_entry::AdminCreateCitizenInput>(
+            serde_json::json!({"cidType":"CTZN","actorRoleCode":"FORGED"})
+        )
+        .is_err()
+    );
+}

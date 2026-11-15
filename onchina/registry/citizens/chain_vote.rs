@@ -30,6 +30,7 @@ pub(crate) struct AppVoteEligibilityInput {
 #[serde(rename_all = "camelCase")]
 struct AppVoteEligibilityOutput {
     account_id: String,
+    #[serde(serialize_with = "onchina::response::serialize_decimal")]
     proposal_id: u128,
     cid_number: String,
     citizen_status: CitizenStatus,
@@ -39,6 +40,37 @@ struct AppVoteEligibilityOutput {
     province_code: String,
     city_code: String,
     town_code: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vote_eligibility_preserves_u128_proposal_ids_as_decimal_strings() {
+        for proposal_id in [0, 9_007_199_254_740_993, u64::MAX as u128 + 1, u128::MAX] {
+            let output = AppVoteEligibilityOutput {
+                account_id: format!("0x{}", "07".repeat(32)),
+                proposal_id,
+                cid_number: "CN001-CTZN-TEST-2026".into(),
+                citizen_status: CitizenStatus::Normal,
+                identity_status: CitizenStatus::Normal,
+                vote_status: CitizenStatus::Normal,
+                eligible: true,
+                province_code: "001".into(),
+                city_code: "001".into(),
+                town_code: "001".into(),
+            };
+            let json = serde_json::to_value(output).unwrap();
+            assert_eq!(json["proposalId"], proposal_id.to_string());
+            let input: AppVoteEligibilityInput = serde_json::from_value(serde_json::json!({
+                "accountId": json["accountId"],
+                "proposalId": json["proposalId"],
+            }))
+            .unwrap();
+            assert_eq!(input.proposal_id, proposal_id);
+        }
+    }
 }
 
 /// `POST /api/app/vote/eligibility`

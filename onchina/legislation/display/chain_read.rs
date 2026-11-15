@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 use subxt::dynamic;
 
 use onchina::chain_url;
@@ -27,10 +27,10 @@ struct InstitutionVoteTicketMirror {
 fn decode_representative_ticket_storage_key(
     key_bytes: &[u8],
 ) -> Result<(u32, InstitutionVoteTicketMirror), String> {
-    // StorageDoubleMap 固定前缀 32；第一键 Blake2_128Concat 为 16+8；
+    // StorageDoubleMap 固定前缀 32；第一键 Blake2_128Concat 为 16+16(u128)；
     // 第二键哈希 16，之后才是 `(body_index, ticket)` 原始 SCALE 编码。
     let mut input = key_bytes
-        .get(72..)
+        .get(80..)
         .ok_or_else(|| "representative ticket storage key is too short".to_string())?;
     let decoded = <(u32, InstitutionVoteTicketMirror)>::decode(&mut input)
         .map_err(|e| format!("decode RepresentativeVotesByTicket key failed: {e}"))?;
@@ -42,7 +42,7 @@ fn decode_representative_ticket_storage_key(
 
 /// 读取某机构的活跃提案 ID 列表(点查 `ActiveProposalsBySubject`;键不存在=空)。
 ///
-/// 值为 `BoundedVec<u64, MaxActiveProposals>`(ValueQuery),点查缺省返回空。
+/// 值为 `BoundedVec<u128, MaxActiveProposals>`(ValueQuery),点查缺省返回空。
 /// 该列表混合该机构所有种类活跃提案,是否为立法案由上层按 `LegProposalState.kind` 过滤。
 pub(crate) async fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u128>, String> {
     let subject_key = proposal_subject_institution_cid_key(cid_number)?;
@@ -67,8 +67,12 @@ pub(crate) async fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u1
     else {
         return Ok(Vec::new());
     };
-    let mut raw = thunk.encoded();
-    Vec::<u128>::decode(&mut raw).map_err(|e| format!("decode ActiveProposalsBySubject failed: {e}"))
+    decode_active_proposal_ids(thunk.encoded())
+}
+
+fn decode_active_proposal_ids(bytes: &[u8]) -> Result<Vec<u128>, String> {
+    Vec::<u128>::decode_all(&mut &bytes[..])
+        .map_err(|e| format!("decode ActiveProposalsBySubject failed: {e}"))
 }
 
 /// `ProposalSubject::InstitutionCid(CidNumber)` 的 SCALE 键编码。

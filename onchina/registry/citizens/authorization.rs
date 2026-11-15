@@ -1,16 +1,12 @@
-//! 公民详情业务的岗位候选、自动确定与签名前复查；岗位码只在系统内部传递。
+//! 公民业务自动授权：按当前机构、管理员、有效任职、业务权限和辖区判断。
+//! 岗位只在后端确定并固定；公民回签和冷签提交只能复核原岗位，不能自动换岗。
 #![allow(clippy::result_large_err)]
 
 use super::{
     chain_identity::CitizenOnchainIdentityLevel,
     chain_identity::{ensure_record_in_admin_scope, IdentityOperations},
 };
-use axum::{
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
-    Json,
-};
+use axum::{http::StatusCode, response::Response};
 use entitybase::{business_action, BusinessActionId};
 use onchina::{
     api_error,
@@ -20,13 +16,12 @@ use onchina::{
     },
     chain_runtime::identity_from_binding_parts,
     institutions::admins::chain_roles::fetch_authorized_public_roles_at,
-    ApiResponse, AppState,
+    AppState,
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CitizenOperation {
+    OccupyCid,
     RegisterVotingIdentity,
     UpgradeCandidateIdentity,
     RebindWallet,
@@ -45,6 +40,7 @@ impl CitizenOperation {
         BusinessActionId {
             module_tag: business_action::MODULE_CITIZEN_IDENTITY.to_vec(),
             action_code: match self {
+                Self::OccupyCid => business_action::ACTION_OCCUPY_CID,
                 Self::RegisterVotingIdentity => business_action::ACTION_REGISTER_VOTING_IDENTITY,
                 Self::UpgradeCandidateIdentity => {
                     business_action::ACTION_UPGRADE_CANDIDATE_IDENTITY
@@ -54,27 +50,6 @@ impl CitizenOperation {
             },
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct OperationRole {
-    pub(crate) role_code: String,
-    pub(crate) role_name: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct OperationRolesOutput {
-    pub(crate) roles: Vec<OperationRole>,
-    finalized_block_hash: String,
-    finalized_block_number: u32,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct OperationRolesQuery {
-    operation: CitizenOperation,
 }
 
 fn role_in_scope(actor_cid: &[u8], role_code: &[u8], scope: Option<(&[u8], &[u8])>) -> bool {
@@ -102,19 +77,92 @@ fn role_in_scope(actor_cid: &[u8], role_code: &[u8], scope: Option<(&[u8], &[u8]
     })
 }
 
-async fn load_operation_roles(
+/// 所有候选均先通过同一机构、名册、有效任职、业务权限与辖区筛选。
+/// 此处的frozen只允许来自后端操作记录或冷签会话，不接受客户端指定。
+pub(crate) async fn resolve_operation_role_at(
+    ctx: &AdminAuthContext,
+    operation: CitizenOperation,
+    block_hash: [u8; 32],
+    scope: Option<(&[u8], &[u8])>,
+    frozen: Option<&str>,
+) -> Result<String, Response> {
+    onchina::authorization::rules::ensure_registry_admin(ctx)?;
+    let identity =
+        identity_from_binding_parts(&ctx.institution_code, Some(&ctx.institution_cid_number))
+            .map_err(chain_read_error)?;
+    let roles = fetch_authorized_public_roles_at(
+        &identity,
+        &ctx.account_id,
+        &operation.action(),
+        block_hash,
+    )
+    .await
+    .map_err(chain_read_error)?
+    .into_iter()
+    .filter(|assignment| {
+        role_in_scope(
+            identity.cid_number.as_bytes(),
+            assignment.role_code.as_bytes(),
+            scope,
+        )
+    })
+    .map(|assignment| assignment.role_code)
+    .collect::<Vec<_>>();
+    choose_role(&roles, frozen)
+}
+
+fn chain_read_error(error: String) -> Response {
+    tracing::error!(%error, "check citizen business authorization failed");
+    api_error(StatusCode::BAD_GATEWAY, 2004, "业务权限核验失败，请重试")
+}
+
+fn choose_role(roles: &[String], frozen: Option<&str>) -> Result<String, Response> {
+    if let Some(role) = frozen {
+        return roles
+            .iter()
+            .find(|candidate| !candidate.is_empty() && candidate.as_str() == role)
+            .cloned()
+            .ok_or_else(|| {
+                api_error(
+                    StatusCode::FORBIDDEN,
+                    1003,
+                    "本次业务授权已失效，请重新发起",
+                )
+            });
+    }
+    // 多个岗位均满足完整授权时按稳定岗位码自动确定，不能依赖链读取返回顺序。
+    roles
+        .iter()
+        .filter(|role| !role.is_empty())
+        .min()
+        .cloned()
+        .ok_or_else(|| api_error(StatusCode::FORBIDDEN, 1003, "当前管理员无此业务办理权限"))
+}
+
+pub(crate) async fn resolve_operation_role(
     state: &AppState,
     ctx: &AdminAuthContext,
     cid: &str,
     operation: CitizenOperation,
-) -> Result<(OperationRolesOutput, FinalizedCitizenIdentity), Response> {
+    frozen: Option<&str>,
+) -> Result<(String, FinalizedCitizenIdentity), Response> {
     onchina::authorization::rules::ensure_registry_admin(ctx)?;
     onchina::codes::validate_cid_number_format(cid)
         .map_err(|_| api_error(StatusCode::BAD_REQUEST, 1001, "公民CID号格式错误"))?;
     let snapshot = read_finalized_citizen_identity(cid)
         .await
         .map_err(chain_read_error)?;
-    if snapshot.cid_status != FinalizedCidStatus::Active || snapshot.active_binding().is_none() {
+    if operation == CitizenOperation::OccupyCid {
+        if !snapshot.is_unoccupied() {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                1005,
+                "CID链上状态已变化，请重新发起占号",
+            ));
+        }
+    } else if snapshot.cid_status != FinalizedCidStatus::Active
+        || snapshot.active_binding().is_none()
+    {
         return Err(api_error(
             StatusCode::CONFLICT,
             1005,
@@ -127,7 +175,7 @@ async fn load_operation_roles(
                 .db
                 .find_citizen_by_cid(cid)
                 .map_err(|error| {
-                    tracing::error!(%error, "read citizen role scope failed");
+                    tracing::error!(%error, "read citizen authorization scope failed");
                     api_error(StatusCode::INTERNAL_SERVER_ERROR, 1004, "公民档案读取失败")
                 })?
                 .ok_or_else(|| api_error(StatusCode::NOT_FOUND, 1004, "公民档案不存在"))?;
@@ -145,106 +193,19 @@ async fn load_operation_roles(
                 )
             })
         }
+        CitizenOperation::OccupyCid => None,
     };
-    let identity =
-        identity_from_binding_parts(&ctx.institution_code, Some(&ctx.institution_cid_number))
-            .map_err(chain_read_error)?;
-    let assignments = fetch_authorized_public_roles_at(
-        &identity,
-        &ctx.account_id,
-        &operation.action(),
+    let role = resolve_operation_role_at(
+        ctx,
+        operation,
         snapshot.finalized_block_hash,
+        scope
+            .as_ref()
+            .map(|(province, city)| (province.as_slice(), city.as_slice())),
+        frozen,
     )
-    .await
-    .map_err(chain_read_error)?;
-    let roles = assignments
-        .into_iter()
-        .filter(|assignment| {
-            role_in_scope(
-                identity.cid_number.as_bytes(),
-                assignment.role_code.as_bytes(),
-                scope
-                    .as_ref()
-                    .map(|(province, city)| (province.as_slice(), city.as_slice())),
-            )
-        })
-        .map(|assignment| OperationRole {
-            role_code: assignment.role_code,
-            role_name: assignment.role_name,
-        })
-        .collect();
-    Ok((
-        OperationRolesOutput {
-            roles,
-            finalized_block_hash: format!("0x{}", hex::encode(snapshot.finalized_block_hash)),
-            finalized_block_number: snapshot.finalized_block_number,
-        },
-        snapshot,
-    ))
-}
-
-fn chain_read_error(error: String) -> Response {
-    tracing::error!(%error, "read citizen operation roles failed");
-    api_error(StatusCode::BAD_GATEWAY, 2004, "办理岗位加载失败，请重试")
-}
-
-fn choose_role(roles: &[OperationRole], selected: Option<&str>) -> Result<String, Response> {
-    if roles.is_empty() {
-        return Err(api_error(
-            StatusCode::FORBIDDEN,
-            1003,
-            "当前管理员没有办理此业务的有效岗位权限",
-        ));
-    }
-    if let Some(selected) = selected {
-        return roles
-            .iter()
-            .find(|role| role.role_code == selected)
-            .map(|role| role.role_code.clone())
-            .ok_or_else(|| {
-                api_error(
-                    StatusCode::FORBIDDEN,
-                    1003,
-                    "所选办理岗位已失效或无此业务权限，请刷新后重试",
-                )
-            });
-    }
-    if roles.len() == 1 {
-        return Ok(roles[0].role_code.clone());
-    }
-    Err(api_error(StatusCode::BAD_REQUEST, 1001, "请选择办理岗位"))
-}
-
-pub(crate) async fn resolve_operation_role(
-    state: &AppState,
-    ctx: &AdminAuthContext,
-    cid: &str,
-    operation: CitizenOperation,
-    selected: Option<&str>,
-) -> Result<(String, FinalizedCitizenIdentity), Response> {
-    let (options, snapshot) = load_operation_roles(state, ctx, cid, operation).await?;
-    Ok((choose_role(&options.roles, selected)?, snapshot))
-}
-
-pub(crate) async fn operation_roles(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(cid): Path<String>,
-    Query(query): Query<OperationRolesQuery>,
-) -> Response {
-    let ctx = match onchina::require_admin_any(&state, &headers) {
-        Ok(ctx) => ctx,
-        Err(response) => return response,
-    };
-    match load_operation_roles(&state, &ctx, &cid, query.operation).await {
-        Ok((options, _)) => Json(ApiResponse {
-            code: 0,
-            message: "ok".to_string(),
-            data: options,
-        })
-        .into_response(),
-        Err(response) => response,
-    }
+    .await?;
+    Ok((role, snapshot))
 }
 
 /// 只复查尚未提交的业务，已 finalized 的投影恢复不依赖当前岗位权限。
@@ -254,9 +215,11 @@ pub(crate) async fn recheck_submit(
     session: &onchina::transactions::session::ChainSignSession,
 ) -> Result<(), Response> {
     use super::occupy::{
-        PURPOSE_CITIZEN_ADMIN_REBIND, PURPOSE_CITIZEN_IDENTITY_PUSH, PURPOSE_CITIZEN_REVOKE,
+        PURPOSE_CITIZEN_ADMIN_REBIND, PURPOSE_CITIZEN_IDENTITY_PUSH, PURPOSE_CITIZEN_OCCUPY,
+        PURPOSE_CITIZEN_REVOKE,
     };
     let operation = match session.purpose.as_str() {
+        PURPOSE_CITIZEN_OCCUPY => CitizenOperation::OccupyCid,
         PURPOSE_CITIZEN_ADMIN_REBIND => CitizenOperation::RebindWallet,
         PURPOSE_CITIZEN_REVOKE => CitizenOperation::RevokeIdentity,
         PURPOSE_CITIZEN_IDENTITY_PUSH => match session
@@ -297,7 +260,7 @@ pub(crate) async fn recheck_submit(
         return Err(api_error(
             StatusCode::CONFLICT,
             1005,
-            "签名会话办理岗位缺失",
+            "签名会话授权信息缺失",
         ));
     };
     resolve_operation_role(state, ctx, cid, operation, Some(role))

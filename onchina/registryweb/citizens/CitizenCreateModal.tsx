@@ -1,6 +1,6 @@
 // 注册局占号建档弹窗(占即绑,两次扫码)。
 //
-// 极简表单:人主体类型(公民 CTZN / 居民 NATP)+ 岗位码。居住省市由办理注册局 scope 派生;
+// 极简表单只收人主体类型(公民 CTZN / 居民 NATP)，业务授权由后端自动判断。居住省市由办理注册局 scope 派生;
 // 姓名/性别/出生/护照等档案占号后为空,后续在详情页「编辑资料」补齐(D4a 档案选填)。
 //
 // 流程:prepare(发号)→ 公民本人钱包/公民App 扫「占号签名」(占即绑,自填本账户)
@@ -32,7 +32,6 @@ interface Props {
 
 interface FormValues {
   cidType: CitizenType;
-  actorRoleCode: string;
 }
 
 export function CitizenCreateModal({
@@ -65,7 +64,6 @@ export function CitizenCreateModal({
       return;
     }
     const payload: CreateCitizenInput = {
-      actorRoleCode: values.actorRoleCode.trim(),
       cidType: values.cidType,
     };
     setSubmitting(true);
@@ -155,13 +153,6 @@ export function CitizenCreateModal({
                 { value: 'NATP', label: '居民(NATP)' },
               ]}
             />
-          </Form.Item>
-          <Form.Item
-            label="注册局岗位码"
-            name="actorRoleCode"
-            rules={[{ required: true, message: '请输入当前任职岗位码' }]}
-          >
-            <Input placeholder="岗位码" allowClear maxLength={64} />
           </Form.Item>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16 }}>
             <Form.Item label="居住省">

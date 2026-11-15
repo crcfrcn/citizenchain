@@ -383,6 +383,126 @@ fn full_check_required_for_legislation_or_runtime_code_delta() {
 }
 
 #[test]
+fn genesis_proposal_id_widening_accepts_only_the_frozen_record_conversion() {
+    let chapters = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../runtime/public/legislation/src/constitution.scale"
+    ));
+    let mut before = (
+        CONSTITUTION_LAW_ID,
+        GENESIS_CONSTITUTION_VERSION,
+        "公民宪法".as_bytes().to_vec(),
+        Some(b"Citizen Constitution".to_vec()),
+    )
+        .encode();
+    before.extend_from_slice(chapters);
+    before.extend_from_slice(&sp_crypto_hashing::blake2_256(chapters));
+    before.extend((LAW_VOTE_TYPE_SPECIAL, 0u64, 0u64, 0u64).encode());
+    assert_eq!(before.len(), 226_673);
+    assert_eq!(
+        sp_crypto_hashing::sha2_256(&before),
+        GENESIS_CONSTITUTION_U64_SHA256
+    );
+
+    let offset = before.len() - 24;
+    let mut after = before[..offset].to_vec();
+    after.extend(0u128.encode());
+    after.extend_from_slice(&before[offset + 8..]);
+    assert_eq!(after.len(), 226_681);
+    assert_eq!(
+        sp_crypto_hashing::sha2_256(&after),
+        GENESIS_CONSTITUTION_U128_SHA256
+    );
+    let mut input = &after[..];
+    MLawVersionHead::decode(&mut input).expect("宪法正文必须保持可解码");
+    assert_eq!(<(u128, u64, u64)>::decode(&mut input).unwrap(), (0, 0, 0));
+    assert!(input.is_empty());
+
+    let key = crate::constitution::storage_key::law_version(CONSTITUTION_LAW_ID, 1);
+    let parent = BTreeMap::from([(key.clone(), before.clone())]);
+    let read_parent = |key: &[u8]| Ok(parent.get(key).cloned());
+    assert_eq!(
+        check_frozen_constitution_records(
+            &BTreeMap::from([(key.clone(), Some(after.clone()))]),
+            read_parent,
+        ),
+        Ok(())
+    );
+
+    // 不是按新长度放行：正文、编号、两个时间戳中的任意改动都必须拒绝。
+    for index in [
+        0,
+        8,
+        12,
+        offset - 1,
+        offset,
+        offset + 8,
+        offset + 16,
+        offset + 24,
+    ] {
+        let mut changed = after.clone();
+        changed[index] ^= 1;
+        assert!(check_frozen_constitution_records(
+            &BTreeMap::from([(key.clone(), Some(changed))]),
+            read_parent,
+        )
+        .is_err());
+    }
+    for invalid in [None, Some(after[..after.len() - 1].to_vec()), {
+        let mut trailing = after.clone();
+        trailing.push(0);
+        Some(trailing)
+    }] {
+        assert!(check_frozen_constitution_records(
+            &BTreeMap::from([(key.clone(), invalid)]),
+            read_parent,
+        )
+        .is_err());
+    }
+    let mut changed_before = before.clone();
+    changed_before[12] ^= 1;
+    assert!(check_frozen_constitution_records(
+        &BTreeMap::from([(key.clone(), Some(after.clone()))]),
+        |_| Ok(Some(changed_before.clone())),
+    )
+    .is_err());
+
+    // 完整摘要即使匹配，也不能把这个例外应用到其他版本或畸形存储键。
+    let other_key = crate::constitution::storage_key::law_version(CONSTITUTION_LAW_ID, 2);
+    let mut malformed_key = key.clone();
+    malformed_key.push(0);
+    for invalid_key in [other_key, malformed_key] {
+        assert!(check_frozen_constitution_records(
+            &BTreeMap::from([(invalid_key.clone(), Some(after.clone()))]),
+            |_| Ok(Some(before.clone())),
+        )
+        .is_err());
+    }
+
+    // 转换后完整冻结；反向转换、再次扩宽、删除或改写均不得通过。
+    let migrated_parent = BTreeMap::from([(key.clone(), after.clone())]);
+    let read_migrated_parent = |key: &[u8]| Ok(migrated_parent.get(key).cloned());
+    assert_eq!(
+        check_frozen_constitution_records(
+            &BTreeMap::from([(key.clone(), Some(after.clone()))]),
+            read_migrated_parent,
+        ),
+        Ok(())
+    );
+    let mut widened_again = after.clone();
+    widened_again.extend_from_slice(&[0; 8]);
+    let mut changed = after.clone();
+    changed[12] ^= 1;
+    for invalid in [Some(before), Some(widened_again), None, Some(changed)] {
+        assert!(check_frozen_constitution_records(
+            &BTreeMap::from([(key.clone(), invalid)]),
+            read_migrated_parent,
+        )
+        .is_err());
+    }
+}
+
+#[test]
 fn existing_history_and_amendment_proofs_are_frozen_against_runtime_rewrites() {
     let version_key = crate::constitution::storage_key::law_version(CONSTITUTION_LAW_ID, 2);
     let referendum_key = crate::constitution::storage_key::constitution_amendment_proof(2);

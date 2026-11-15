@@ -29,15 +29,13 @@ use onchina::crypto::pubkey::normalize_account_id;
 ///
 /// 居住省市由当前注册局办理上下文校验,前端只负责回传当前选择。
 /// 本地建档不得要求链账户；儿童或暂未开户公民同样能先发放电子护照。
-/// 匿名占号请求(第一段):只需岗位码 + 人主体类型。姓名/出生/居住/性别等档案全部
+/// 匿名占号请求(第一段):只需人主体类型；办理权限由后端按当前会话自动判断。姓名/出生/居住/性别等档案全部
 /// 后期在详情页编辑完善(现有严格逻辑),占号阶段不收。用户钱包账户与签名在第二段
 /// `submit_citizen_occupy` 收集。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AdminCreateCitizenInput {
-    /// 当前注册局内的任职岗位码；与机构 CID、管理员签名钱包共同构成权限主体。
-    pub(crate) actor_role_code: String,
     /// 人主体类型:CTZN(公民)/ NATP(居民)。必填,决定发号机构码,区分公民与居民。
     pub(crate) cid_type: String,
 }

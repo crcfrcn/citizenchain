@@ -89,7 +89,6 @@ describe('公民详情布局与绑定钱包授权', () => {
         return response({ bindingActive: !(reads > 1 && inactiveBinding), accountId: reads === 1 ? account('22') : account('33'), bindingRevision: reads, finalizedBlockNumber: reads, finalizedBlockHash: 'fixture-block' });
       }
       if (path.endsWith('/documents')) return response([]);
-      if (path.includes('/operation-roles?')) return response({ roles: [{ roleCode: 'FIXTURE_ROLE', roleName: '测试办理岗位' }] });
       if (path.endsWith('/onchain/prepare')) return response({ ...JSON.parse(String(init?.body)), signRequest: 'fixture-citizen-request', actionLabelZh: '公民授权' });
       if (path.endsWith('/onchain/complete')) return response({ requestId: 'fixture-admin-request', identitySignRequest: 'fixture-admin-code' });
       if (path.endsWith('/rebind/prepare')) return response({ requestId: 'fixture-rebind-request', walletSignRequest: 'fixture-new-wallet-code' });
@@ -114,7 +113,7 @@ describe('公民详情布局与绑定钱包授权', () => {
       vi.unstubAllGlobals(); dom.window.close(); vi.resetModules();
     } };
   }
-  browserTest('名称列统一120px，按钮各有一个入口，岗位与三组查询保留', async () => {
+  browserTest('名称列统一120px，按钮各有一个入口，无岗位控件和岗位预查询', async () => {
     const c = await mount();
     try {
       const tables = document.querySelectorAll('.ant-descriptions table');
@@ -133,8 +132,10 @@ describe('公民详情布局与绑定钱包授权', () => {
       expect(document.querySelector('input[placeholder*="公民账户"]')).toBeNull();
       expect(c.button('更换')?.closest('tr')?.querySelector('th')?.textContent).toBe('绑定钱包账户');
       expect(c.button('换绑钱包')).toBeUndefined();
-      expect(document.body.textContent?.match(/测试办理岗位/g)).toHaveLength(3);
-      expect(c.fetcher.mock.calls.filter(([url]) => String(url).includes('/operation-roles?'))).toHaveLength(3);
+      expect(document.body.textContent).not.toContain('办理岗位');
+      expect(document.body.textContent).not.toContain('换绑钱包账户');
+      expect(document.querySelector('input[placeholder*="岗位"]')).toBeNull();
+      expect(c.fetcher.mock.calls.filter(([url]) => String(url).includes('/operation-roles?'))).toHaveLength(0);
       expect(c.writes()).toHaveLength(0);
     } finally { await c.dispose(); }
   }, 15000);
@@ -161,22 +162,22 @@ describe('公民详情布局与绑定钱包授权', () => {
       expect(c.adminSign).toHaveBeenCalledTimes(1);
       expect(c.submit).toHaveBeenCalledTimes(1);
       expect(c.writes().map(([url]) => url)).toEqual(['/api/admin/citizens/rebind/prepare', '/api/admin/citizens/rebind/submit']);
-      expect(JSON.parse(String(c.writes()[0][1]?.body))).toEqual({ cidNumber: 'fixture-citizen', actorRoleCode: 'FIXTURE_ROLE' });
+      expect(JSON.parse(String(c.writes()[0][1]?.body))).toEqual({ cidNumber: 'fixture-citizen' });
       expect(c.fetcher.mock.calls.filter(([url]) => String(url).endsWith('/binding'))).toHaveLength(2);
       expect(c.error).not.toHaveBeenCalled();
     } finally { await c.dispose(); }
   }, 15000);
-  browserTest('公民授权采用点击时最新绑定账户，回签仍使用准备阶段账户及原岗位', async () => {
+  browserTest('公民授权采用点击时最新绑定账户，回签仍使用准备阶段账户且不传岗位', async () => {
     const c = await mount();
     try {
       await c.click('生成签名二维码');
       const prepare = c.writes()[0];
       expect(prepare[0]).toBe('/api/admin/citizens/fixture-citizen/onchain/prepare');
-      expect(JSON.parse(String(prepare[1]?.body))).toEqual({ accountId: account('33'), actorRoleCode: 'FIXTURE_ROLE', identityLevel: 'voting' });
+      expect(JSON.parse(String(prepare[1]?.body))).toEqual({ accountId: account('33'), identityLevel: 'voting' });
       expect(c.assertion).not.toHaveBeenCalled();
       await c.click('模拟公民回签');
       expect(c.assertion).toHaveBeenCalledTimes(1);
-      expect(JSON.parse(String(c.writes()[1][1]?.body))).toEqual({ accountId: account('33'), actorRoleCode: 'FIXTURE_ROLE', identityLevel: 'voting', signResponse: 'fixture-citizen-response' });
+      expect(JSON.parse(String(c.writes()[1][1]?.body))).toEqual({ accountId: account('33'), identityLevel: 'voting', signResponse: 'fixture-citizen-response' });
       expect(c.adminSign).toHaveBeenCalledTimes(1);
       expect(c.walletSign).not.toHaveBeenCalled();
       expect(c.submit).toHaveBeenCalledTimes(1);

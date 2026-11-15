@@ -243,12 +243,6 @@ impl ModuleBusiness for Module {
             ),
             modules::model::ModuleRoute::new(
                 "admin",
-                "/api/admin/citizens/{cid_number}/operation-roles",
-                &["GET"],
-                get(crate::citizens::authorization::operation_roles),
-            ),
-            modules::model::ModuleRoute::new(
-                "admin",
                 "/api/admin/citizens/{cid_number}/binding",
                 &["GET"],
                 get(crate::citizens::chain_identity::finalized_citizen_binding),
