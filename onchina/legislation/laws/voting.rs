@@ -28,10 +28,10 @@ pub const OVERRIDE_SIGN_CALL_INDEX: u8 = 4;
 /// `guard_vote` call index(护宪大法官终审)。
 pub const GUARD_VOTE_CALL_INDEX: u8 = 5;
 
-/// 编码 `(proposal_id: Compact<u128>, approve: bool 0x01/0x00)` + `[26, call_index]` 前缀。
+/// 编码 `(proposal_id: u128 小端, approve: bool 0x01/0x00)` + `[26, call_index]` 前缀。
 fn encode_vote(call_index: u8, proposal_id: u128, approve: bool) -> ChainCall {
     let mut out = vec![LEGISLATION_VOTE_PALLET_INDEX, call_index];
-    out.extend(codec::Compact(proposal_id).encode());
+    out.extend(proposal_id.to_le_bytes());
     out.push(if approve { 0x01 } else { 0x00 });
     ChainCall {
         action: chain_action_code(LEGISLATION_VOTE_PALLET_INDEX, call_index),
@@ -51,7 +51,7 @@ pub fn encode_cast_representative_vote(
         LEGISLATION_VOTE_PALLET_INDEX,
         CAST_REPRESENTATIVE_VOTE_CALL_INDEX,
     ];
-    out.extend(codec::Compact(proposal_id).encode());
+    out.extend(proposal_id.to_le_bytes());
     out.extend(role_code.to_vec().encode());
     out.push(if approve { 0x01 } else { 0x00 });
     ChainCall {

@@ -94,7 +94,7 @@ impl<T: Config> Pallet<T> {
             proposal_id,
             voter_cid_number,
             engingcore::CitizenReferendumTicket {
-                voter_account_id: voter_subject.account_id.clone(),
+                voter_subject: voter_subject.clone(),
                 approve,
             },
         );

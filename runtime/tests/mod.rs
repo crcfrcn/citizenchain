@@ -267,7 +267,7 @@ fn setup_frg_citizen_identity_admin(
         primitives::governance_skeleton::province_commissioner_role_code(province_code)
             .try_into()
             .expect("role code fits");
-    publicentity::Pallet::<Runtime>::store_role(
+    publicentity::InstitutionRoles::<Runtime>::insert(
         &cid_number,
         &role_code,
         entitybase::InstitutionRole {
@@ -296,7 +296,7 @@ fn setup_frg_citizen_identity_admin(
         }]
         .try_into()
         .expect("assignment fits");
-    publicentity::Pallet::<Runtime>::store_role_assignments(
+    publicentity::InstitutionRoleAssignments::<Runtime>::insert(
         cid_number.clone(),
         role_code.clone(),
         assignments,
@@ -326,7 +326,7 @@ fn setup_frg_citizen_identity_admin(
         .collect::<Vec<_>>()
         .try_into()
         .expect("fixed permissions fit");
-    publicentity::Pallet::<Runtime>::store_role_permissions(
+    publicentity::InstitutionRolePermissions::<Runtime>::insert(
         cid_number.clone(),
         role_code.clone(),
         permissions,
@@ -356,7 +356,7 @@ fn setup_frg_citizen_identity_admin(
         action_code: entitybase::business_action::ACTION_OCCUPY_CID,
     };
     let stored_permissions =
-        publicentity::Pallet::<Runtime>::institution_role_permissions(&cid_number, &role_code);
+        publicentity::InstitutionRolePermissions::<Runtime>::get(&cid_number, &role_code);
     assert!(
         stored_permissions.iter().any(|permission| {
             permission.role_subject.cid_number.as_slice() == cid_number.as_slice()

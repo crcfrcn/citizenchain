@@ -28,7 +28,7 @@ use nodeclient::signing::QR_V1;
 /// `Personal` 票据声明，机构使用 `InstitutionRole(role_code)` 票据声明。
 /// 由投票引擎按 ProposalData 前缀自动分派到对应 `InternalVoteExecutor`。
 ///
-/// Call 编码: `[0x14][0x00][proposal_id:Compact<u128>][ticket_claim][approve:bool]`。
+/// Call 编码: `[0x14][0x00][proposal_id:u128_le][ticket_claim][approve:bool]`。
 ///
 /// 返回 QR 签名请求 JSON + 请求 ID + 预期审阅 payload hash。
 pub(crate) fn build_vote_sign_request(
@@ -52,7 +52,7 @@ pub(crate) fn build_vote_sign_request(
     let mut call_data = Vec::with_capacity(12 + voter_role_code.map(str::len).unwrap_or_default());
     call_data.push(20u8); // InternalVote sub-pallet index
     call_data.push(0u8); // cast call index
-    call_data.extend_from_slice(&codec::Encode::encode(&codec::Compact(proposal_id)));
+    call_data.extend_from_slice(&proposal_id.to_le_bytes());
     match voter_role_code {
         Some(role_code) => {
             if role_code.is_empty()
@@ -157,7 +157,7 @@ pub(crate) fn build_joint_vote_sign_request(
     let mut call_data = Vec::with_capacity(14 + actor_cid_number.len() + voter_role_code.len());
     call_data.push(21u8); // JointVote sub-pallet index
     call_data.push(0u8); // cast_admin call index
-    call_data.extend_from_slice(&codec::Encode::encode(&codec::Compact(proposal_id)));
+    call_data.extend_from_slice(&proposal_id.to_le_bytes());
     call_data.extend_from_slice(&encode_compact_u32(actor_cid_number.len() as u32));
     call_data.extend_from_slice(actor_cid_number.as_bytes());
     call_data.extend_from_slice(&encode_compact_u32(voter_role_code.len() as u32));

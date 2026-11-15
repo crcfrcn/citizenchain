@@ -135,7 +135,7 @@ impl AddPrcFeeSweepPermissions {
                 institution.cid_number.as_bytes().to_vec(),
             )
             .map_err(|_| "PRC fee sweep migration: invalid institution CID")?;
-            let role = publicentity::Pallet::<Runtime>::institution_role_of(&cid, &role_code)
+            let role = publicentity::InstitutionRoles::<Runtime>::get(&cid, &role_code)
                 .ok_or("PRC fee sweep migration: fixed committee role missing")?;
             if role.cid_number != cid
                 || role.role_code != role_code
@@ -145,7 +145,7 @@ impl AddPrcFeeSweepPermissions {
             }
 
             let mut permissions =
-                publicentity::Pallet::<Runtime>::try_role_permissions(&cid, &role_code)
+                publicentity::InstitutionRolePermissions::<Runtime>::try_get(&cid, &role_code)
                     .map_err(|_| "PRC fee sweep migration: committee permissions missing")?;
             let old_len = permissions.len();
             for operation in [
@@ -374,7 +374,7 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
         };
         let writes = updates.len() as u64 + 1;
         for (cid, permissions) in updates {
-            publicentity::Pallet::<Runtime>::store_role_permissions(
+            publicentity::InstitutionRolePermissions::<Runtime>::insert(
                 cid,
                 &role_code,
                 permissions,

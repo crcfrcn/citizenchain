@@ -2,7 +2,7 @@
 use super::*;
 use codec::Encode;
 
-/// 代表机构表决编码 = `[26,1]` + `(Compact<u128>, voter_role_code, bool)`；动作码 0x1A01。
+/// 代表机构表决编码 = `[26,1]` + `(u128 小端, bool)`；动作码 0x1A01。
 #[test]
 fn cast_representative_vote_matches_codec_golden() {
     let chain = encode_cast_representative_vote(42, "REPRESENTATIVE", true);
@@ -10,7 +10,7 @@ fn cast_representative_vote_matches_codec_golden() {
     assert_eq!(chain.action, 0x1A01);
 
     let mut golden = Vec::new();
-    golden.extend(codec::Compact(42u128).encode());
+    golden.extend(42u128.encode());
     golden.extend(b"REPRESENTATIVE".to_vec().encode());
     golden.extend(true.encode());
     assert_eq!(
@@ -20,7 +20,7 @@ fn cast_representative_vote_matches_codec_golden() {
     );
 }
 
-/// 公投/行政签署/会签/护宪四个调用使用 `(Compact<u128>, bool)`；approve=false → 末字节 0x00，前缀按各自 call index。
+/// 五个表决/签署 call 共用 `(u128, bool)` 形态;approve=false → 末字节 0x00,前缀按各自 call index。
 #[test]
 fn all_vote_calls_share_shape_and_call_index() {
     let cases = [
@@ -35,7 +35,7 @@ fn all_vote_calls_share_shape_and_call_index() {
     for (chain, call_index) in cases {
         assert_eq!(chain.call_data[0], LEGISLATION_VOTE_PALLET_INDEX);
         assert_eq!(chain.call_data[1], call_index);
-        assert_eq!(chain.call_data.len(), 2 + 1 + 1); // 当前夹具 ID 2～5 的 Compact 编码为1字节，加调用头与 bool。
+        assert_eq!(chain.call_data.len(), 2 + 16 + 1); // 前缀 + u128 + bool
         assert_eq!(*chain.call_data.last().unwrap(), 0x00); // approve=false
     }
     let representative = encode_cast_representative_vote(1, "REPRESENTATIVE", false);

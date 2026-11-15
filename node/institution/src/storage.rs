@@ -264,25 +264,6 @@ fn display_source_ref(value: Vec<u8>) -> String {
     }
 }
 
-/// 从精确CID前缀后的第二维键恢复岗位码，并校验其Concat哈希。
-fn role_code_from_key(key: &str, prefix: &str) -> Result<Vec<u8>, String> {
-    use codec::DecodeAll;
-    let tail = key.strip_prefix(prefix).ok_or("岗位key前缀不符")?;
-    let raw = hex::decode(tail).map_err(|_| "岗位key十六进制无效")?;
-    if raw.len() < 17 {
-        return Err("岗位key截断".into());
-    }
-    let role = Vec::<u8>::decode_all(&mut &raw[16..]).map_err(|_| "岗位key编码无效")?;
-    if role.is_empty()
-        || role.len() > 64
-        || role.encode() != raw[16..]
-        || sp_crypto_hashing::blake2_128(&role.encode()) != raw[..16]
-    {
-        return Err("岗位key哈希或长度无效".into());
-    }
-    Ok(role)
-}
-
 fn fetch_role_assignments(
     spec: AdminPalletSpec,
     cid_number: &[u8],
@@ -296,8 +277,7 @@ fn fetch_role_assignments(
     for key in fetch_all_keys_at(&role_prefix, finalized_hash)? {
         let value = nodeclient::query::fetch_storage_at(&key, finalized_hash)?
             .ok_or_else(|| "岗位 key 在同一 finalized 快照中缺少 value".to_string())?;
-        let code = role_code_from_key(&key, &role_prefix)?;
-        let role: RawRole = decode_exact::<entitybase::StoredInstitutionRole<Vec<u8>>>(&value, "InstitutionRoles")?.with_subject(cid_number.to_vec(), code);
+        let role: RawRole = decode_exact(&value, "InstitutionRoles")?;
         if role.cid_number == cid_number && role.role_status == InstitutionRoleStatus::Active {
             roles.insert(role.role_code.clone(), role);
         }
@@ -306,8 +286,7 @@ fn fetch_role_assignments(
     for key in fetch_all_keys_at(&permission_prefix, finalized_hash)? {
         let value = nodeclient::query::fetch_storage_at(&key, finalized_hash)?
             .ok_or_else(|| "岗位权限 key 在同一 finalized 快照中缺少 value".to_string())?;
-        let code = role_code_from_key(&key, &permission_prefix)?;
-        let stored: Vec<RawPermission> = decode_exact::<Vec<entitybase::StoredRoleBusinessPermission<Vec<u8>>>>(&value, "InstitutionRolePermissions")?.into_iter().map(|v| v.with_subject(cid_number.to_vec(), code.clone())).collect();
+        let stored: Vec<RawPermission> = decode_exact(&value, "InstitutionRolePermissions")?;
         for permission in stored {
             if permission.role_subject.cid_number != cid_number {
                 return Err("岗位权限所属 CID 与 storage 前缀不一致".to_string());
@@ -357,8 +336,7 @@ fn fetch_role_assignments(
     for key in fetch_all_keys_at(&assignment_prefix, finalized_hash)? {
         let value = nodeclient::query::fetch_storage_at(&key, finalized_hash)?
             .ok_or_else(|| "任职 key 在同一 finalized 快照中缺少 value".to_string())?;
-        let code = role_code_from_key(&key, &assignment_prefix)?;
-        let assignments: Vec<RawAssignment> = decode_exact::<Vec<entitybase::StoredInstitutionAdminAssignment<[u8;32],Vec<u8>>>>(&value, "InstitutionRoleAssignments")?.into_iter().map(|v| v.with_subject(cid_number.to_vec(), code.clone())).collect();
+        let assignments: Vec<RawAssignment> = decode_exact(&value, "InstitutionRoleAssignments")?;
         for assignment in assignments {
             if assignment.cid_number != cid_number {
                 continue;

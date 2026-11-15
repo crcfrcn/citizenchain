@@ -174,7 +174,7 @@ fn dynamic_role_lifecycle_persists_permissions_and_never_reuses_code() {
             &bounded_code
         ));
         assert_eq!(
-            pallet::Pallet::<Test>::institution_role_permissions(&cid, &bounded_code).len(),
+            pallet::InstitutionRolePermissions::<Test>::get(&cid, &bounded_code).len(),
             2
         );
         let subject = RoleSubject {
@@ -213,7 +213,7 @@ fn dynamic_role_lifecycle_persists_permissions_and_never_reuses_code() {
             }
         ));
         assert_eq!(
-            pallet::Pallet::<Test>::institution_role_of(&cid, &bounded_code)
+            pallet::InstitutionRoles::<Test>::get(&cid, &bounded_code)
                 .expect("role exists")
                 .role_name
                 .as_slice(),
@@ -237,8 +237,8 @@ fn dynamic_role_lifecycle_persists_permissions_and_never_reuses_code() {
             &cid,
             &bounded_code
         ));
-        assert!(pallet::Pallet::<Test>::institution_role_permissions(&cid, &bounded_code).is_empty());
-        assert!(pallet::Pallet::<Test>::institution_role_assignments(&cid, &bounded_code).is_empty());
+        assert!(pallet::InstitutionRolePermissions::<Test>::get(&cid, &bounded_code).is_empty());
+        assert!(pallet::InstitutionRoleAssignments::<Test>::get(&cid, &bounded_code).is_empty());
         assert!(pallet::UsedRoleCodes::<Test>::get(&cid, &bounded_code));
 
         let second_nonce = pallet::InstitutionRoleNonce::<Test>::get(&cid);
@@ -806,7 +806,7 @@ fn duplicate_close_proposal_is_rejected_while_pending() {
 fn fresh_registration_target(tag: &str) -> pallet::CidNumberOf<Test> {
     let cid = create_cgov(tag);
     pallet::InstitutionGovernanceThresholds::<Test>::remove(&cid);
-    let roles = pallet::Pallet::<Test>::roles_for(&cid)
+    let roles = pallet::InstitutionRoles::<Test>::iter_prefix(&cid)
         .map(|(code, _)| code)
         .collect::<Vec<_>>();
     for code in roles {
@@ -850,7 +850,7 @@ fn retained_registration_target(
     role: &crate::RoleCodeOf,
     account: AccountId32,
 ) -> entitybase::InstitutionAssignmentTarget<AccountId32> {
-    let stored = pallet::Pallet::<Test>::institution_role_assignments(cid, role)
+    let stored = pallet::InstitutionRoleAssignments::<Test>::get(cid, role)
         .into_iter()
         .find(|row| row.account_id == account)
         .unwrap();
@@ -948,15 +948,15 @@ fn registration_initializes_then_assigns_new_member_without_replacing_existing_m
                 .len(),
             3
         );
-        let business = pallet::Pallet::<Test>::roles_for(&cid)
+        let business = pallet::InstitutionRoles::<Test>::iter_prefix(&cid)
             .find(|(_, role)| role.role_name.as_slice() == "业务岗位".as_bytes())
             .unwrap()
             .0;
-        for (code, _) in pallet::Pallet::<Test>::roles_for(&cid) {
+        for (code, _) in pallet::InstitutionRoles::<Test>::iter_prefix(&cid) {
             if code.as_slice() == b"LR" {
                 continue;
             }
-            for assignment in pallet::Pallet::<Test>::institution_role_assignments(&cid, &code) {
+            for assignment in pallet::InstitutionRoleAssignments::<Test>::get(&cid, &code) {
                 assert_eq!(
                     assignment.assignment_source,
                     entitybase::InstitutionAssignmentSource::Registry
@@ -975,7 +975,7 @@ fn registration_initializes_then_assigns_new_member_without_replacing_existing_m
             rows[0].assignment_source_ref =
                 b"original-governance-result".to_vec().try_into().unwrap();
         });
-        let previous_assignments = pallet::Pallet::<Test>::institution_role_assignments(&cid, &business);
+        let previous_assignments = pallet::InstitutionRoleAssignments::<Test>::get(&cid, &business);
         let current = PublicManage::registration_state_hash(&cid).unwrap();
         assert_noop!(
             send_registration(&cid, action, current, Some(2)),
@@ -1014,10 +1014,10 @@ fn registration_initializes_then_assigns_new_member_without_replacing_existing_m
             4
         );
         assert_eq!(
-            pallet::Pallet::<Test>::institution_role_assignments(&cid, &business).len(),
+            pallet::InstitutionRoleAssignments::<Test>::get(&cid, &business).len(),
             4
         );
-        let updated_assignments = pallet::Pallet::<Test>::institution_role_assignments(&cid, &business);
+        let updated_assignments = pallet::InstitutionRoleAssignments::<Test>::get(&cid, &business);
         assert!(
             previous_assignments
                 .iter()

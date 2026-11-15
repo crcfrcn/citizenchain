@@ -155,7 +155,7 @@ fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
             let role_code: publicentity::RoleCodeOf =
                 role.to_vec().try_into().expect("role code fits");
             let assignments =
-                publicentity::Pallet::<Runtime>::institution_role_assignments(&cid, &role_code);
+                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code);
             assert!(
                 assignments.iter().any(|a| a.account_id == chengwei
                     && a.assignment_status == publicentity::InstitutionAssignmentStatus::Active),
@@ -2497,12 +2497,12 @@ fn genesis_citizenchain_foundation_is_complete_and_protected() {
                 .to_vec()
                 .try_into()
                 .expect("fixed role code fits");
-            let role = privateentity::Pallet::<Runtime>::institution_role_of(&cid, &role_code)
+            let role = privateentity::InstitutionRoles::<Runtime>::get(&cid, &role_code)
                 .expect("fixed foundation role exists");
             assert_eq!(role.role_name.as_slice(), fixed_role.role_name);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                privateentity::Pallet::<Runtime>::institution_role_assignments(&cid, &role_code);
+                privateentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code);
             assert_eq!(assignments.len(), 1);
             assert_eq!(
                 assignments[0].account_id,
@@ -2512,7 +2512,7 @@ fn genesis_citizenchain_foundation_is_complete_and_protected() {
                 )
             );
             let permissions =
-                privateentity::Pallet::<Runtime>::institution_role_permissions(&cid, &role_code);
+                privateentity::InstitutionRolePermissions::<Runtime>::get(&cid, &role_code);
             let expected = entitybase::fixed_role_permission_specs(
                 *b"SFGY",
                 cid.as_slice(),
@@ -2590,9 +2590,9 @@ fn genesis_national_singletons_exist_and_member_bodies_are_unconstituted() {
                 .to_vec()
                 .try_into()
                 .expect("member role code fits");
-            assert!(publicentity::Pallet::<Runtime>::institution_role_of(&cid, &role_code).is_none());
+            assert!(publicentity::InstitutionRoles::<Runtime>::get(&cid, &role_code).is_none());
             assert!(
-                publicentity::Pallet::<Runtime>::institution_role_assignments(&cid, &role_code)
+                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code)
                     .is_empty()
             );
             assert!(publicadmin::AdminAccounts::<Runtime>::get(cid).is_none());
@@ -2669,7 +2669,7 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
             .to_vec()
             .try_into()
             .expect("member role code fits");
-        publicentity::Pallet::<Runtime>::store_role(
+        publicentity::InstitutionRoles::<Runtime>::insert(
             &cid_number,
             &member_role_code,
             entitybase::InstitutionRole {
@@ -2986,14 +2986,14 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
         for node in primitives::cid::china::china_cb::CHINA_CB.iter() {
             let cid_number = cid(node.cid_number);
             let code = role_code(primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER);
-            let role = publicentity::Pallet::<Runtime>::institution_role_of(&cid_number, &code)
+            let role = publicentity::InstitutionRoles::<Runtime>::get(&cid_number, &code)
                 .expect("committee role exists");
             assert_eq!(role.cid_number, cid_number);
             assert_eq!(role.role_name.as_slice(), "委员".as_bytes());
             assert!(!role.term_required);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                publicentity::Pallet::<Runtime>::institution_role_assignments(&cid_number, &code);
+                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid_number, &code);
             assert_eq!(assignments.len(), node.admins.len());
             assert_eq!(
                 assignments
@@ -3043,13 +3043,13 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
         for node in primitives::cid::china::china_ch::CHINA_CH.iter() {
             let cid_number = cid(node.cid_number);
             let code = role_code(primitives::governance_skeleton::ROLE_CODE_DIRECTOR);
-            let role = publicentity::Pallet::<Runtime>::institution_role_of(&cid_number, &code)
+            let role = publicentity::InstitutionRoles::<Runtime>::get(&cid_number, &code)
                 .expect("director role exists");
             assert_eq!(role.role_name.as_slice(), "董事".as_bytes());
             assert!(!role.term_required);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                publicentity::Pallet::<Runtime>::institution_role_assignments(&cid_number, &code);
+                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid_number, &code);
             assert_eq!(assignments.len(), node.admins.len());
             assert_eq!(
                 assignments
@@ -3116,13 +3116,13 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
                     .into_iter()
                     .find(|spec| spec.role_code == raw_code)
                     .expect("NJD role spec exists");
-            let role = publicentity::Pallet::<Runtime>::institution_role_of(&njd_cid, &code)
+            let role = publicentity::InstitutionRoles::<Runtime>::get(&njd_cid, &code)
                 .expect("NJD role exists");
             assert_eq!(role.role_name.as_slice(), spec.role_name);
             assert!(!role.term_required);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                publicentity::Pallet::<Runtime>::institution_role_assignments(&njd_cid, &code);
+                publicentity::InstitutionRoleAssignments::<Runtime>::get(&njd_cid, &code);
             assert_eq!(assignments.len(), seats);
             assert!(assignments.iter().all(|assignment| {
                 assignment.assignment_source == entitybase::InstitutionAssignmentSource::Genesis
@@ -3143,7 +3143,7 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
         ]
         .into_iter()
         .flat_map(|raw_code| {
-            publicentity::Pallet::<Runtime>::institution_role_assignments(&njd_cid, role_code(raw_code))
+            publicentity::InstitutionRoleAssignments::<Runtime>::get(&njd_cid, role_code(raw_code))
                 .into_iter()
                 .map(|assignment| assignment.account_id)
         })
@@ -3176,7 +3176,7 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
                     province.province_code,
                 ),
             );
-            let role = publicentity::Pallet::<Runtime>::institution_role_of(&frg_cid, &code)
+            let role = publicentity::InstitutionRoles::<Runtime>::get(&frg_cid, &code)
                 .expect("FRG province commissioner role exists");
             assert_eq!(
                 role.role_name.as_slice(),
@@ -3187,7 +3187,7 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
             assert!(!role.term_required);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
             let assignments =
-                publicentity::Pallet::<Runtime>::institution_role_assignments(&frg_cid, &code);
+                publicentity::InstitutionRoleAssignments::<Runtime>::get(&frg_cid, &code);
             assert_eq!(
                 assignments.len(),
                 primitives::count_const::FRG_PROVINCE_GROUP_ADMIN_COUNT as usize
@@ -3262,7 +3262,7 @@ fn genesis_fixed_role_permissions_match_the_shared_catalog() {
             let cid_number = cid(node.cid_number);
             let code = role_code(primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER);
             let permissions =
-                publicentity::Pallet::<Runtime>::institution_role_permissions(&cid_number, &code);
+                publicentity::InstitutionRolePermissions::<Runtime>::get(&cid_number, &code);
             for operation in [
                 RolePermissionOperation::Propose,
                 RolePermissionOperation::Vote,
@@ -3292,7 +3292,7 @@ fn genesis_fixed_role_permissions_match_the_shared_catalog() {
         let prb_cid = cid(prb.cid_number);
         let director = role_code(primitives::governance_skeleton::ROLE_CODE_DIRECTOR);
         let permissions =
-            publicentity::Pallet::<Runtime>::institution_role_permissions(&prb_cid, &director);
+            publicentity::InstitutionRolePermissions::<Runtime>::get(&prb_cid, &director);
         assert!(has(
             &permissions,
             MODULE_RUNTIME_UPGRADE,
@@ -3322,7 +3322,7 @@ fn genesis_fixed_role_permissions_match_the_shared_catalog() {
         let nrc_cid = cid(nrc.cid_number);
         let lr = role_code(primitives::institution_constraints::ROLE_CODE_LEGAL_REPRESENTATIVE);
         assert!(publicentity::InstitutionRolePermissions::<Runtime>::contains_key(&nrc_cid, &lr));
-        assert!(publicentity::Pallet::<Runtime>::institution_role_permissions(&nrc_cid, lr).is_empty());
+        assert!(publicentity::InstitutionRolePermissions::<Runtime>::get(&nrc_cid, lr).is_empty());
     });
 }
 
@@ -3358,12 +3358,12 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
                     .try_into()
                     .expect("PRC CID fits");
                 let mut permissions =
-                    publicentity::Pallet::<Runtime>::institution_role_permissions(&cid, &role_code);
+                    publicentity::InstitutionRolePermissions::<Runtime>::get(&cid, &role_code);
                 // 第一省只缺 Vote，其余省两项均缺，覆盖已有部分权限的状态。
                 permissions.retain(|permission| {
                     !is_sweep(permission) || (index == 0 && permission.operation == Propose)
                 });
-                publicentity::Pallet::<Runtime>::store_role_permissions(
+                publicentity::InstitutionRolePermissions::<Runtime>::insert(
                     &cid,
                     &role_code,
                     &permissions,
@@ -3380,16 +3380,16 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
             .try_into()
             .expect("NRC CID fits");
         let nrc_before =
-            publicentity::Pallet::<Runtime>::institution_role_permissions(&nrc_cid, &role_code);
+            publicentity::InstitutionRolePermissions::<Runtime>::get(&nrc_cid, &role_code);
         let (last_cid, last_permissions) = old_rows.last().unwrap();
         publicentity::InstitutionRolePermissions::<Runtime>::remove(last_cid, &role_code);
         Migrations::on_runtime_upgrade();
         let (first_cid, first_permissions) = &old_rows[0];
         assert_eq!(
-            &publicentity::Pallet::<Runtime>::institution_role_permissions(first_cid, &role_code),
+            &publicentity::InstitutionRolePermissions::<Runtime>::get(first_cid, &role_code),
             first_permissions
         );
-        publicentity::Pallet::<Runtime>::store_role_permissions(
+        publicentity::InstitutionRolePermissions::<Runtime>::insert(
             last_cid,
             &role_code,
             last_permissions,
@@ -3403,7 +3403,7 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
             .iter()
             .map(|(cid, original)| {
                 let permissions =
-                    publicentity::Pallet::<Runtime>::institution_role_permissions(cid, &role_code);
+                    publicentity::InstitutionRolePermissions::<Runtime>::get(cid, &role_code);
                 let added_count = 2 - original.iter().filter(|entry| is_sweep(entry)).count();
                 assert_eq!(permissions.len(), original.len() + added_count);
                 assert_eq!(&permissions[..original.len()], original.as_slice());
@@ -3423,7 +3423,7 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
             })
             .collect();
         assert_eq!(
-            publicentity::Pallet::<Runtime>::institution_role_permissions(&nrc_cid, &role_code),
+            publicentity::InstitutionRolePermissions::<Runtime>::get(&nrc_cid, &role_code),
             nrc_before
         );
 
@@ -3444,7 +3444,7 @@ fn prc_sweep_upgrade_adds_only_missing_permissions_for_all_fixed_provinces() {
         );
         for ((cid, _), expected) in old_rows.iter().zip(migrated_rows) {
             assert_eq!(
-                publicentity::Pallet::<Runtime>::institution_role_permissions(cid, &role_code),
+                publicentity::InstitutionRolePermissions::<Runtime>::get(cid, &role_code),
                 expected
             );
         }
@@ -3600,7 +3600,7 @@ fn runtime_governance_result_router_enforces_fixed_role_seats() {
             .to_vec()
             .try_into()
             .expect("NJD role code fits");
-        let stored = publicentity::Pallet::<Runtime>::institution_role_assignments(
+        let stored = publicentity::InstitutionRoleAssignments::<Runtime>::get(
             njd_cid_number.clone(),
             role_code,
         );
@@ -3917,7 +3917,7 @@ fn creg_business_still_requires_roster_permission_effective_assignment_and_local
         }].try_into().unwrap();
         publicadmin::AdminAccounts::<Runtime>::insert(&cid, adminbase::InstitutionAdmins { institution_code: *b"CREG", admins });
         assert!(!allowed(), "只有管理员名册不授予业务权限");
-        publicentity::Pallet::<Runtime>::store_role(&cid, &role, entitybase::InstitutionRole {
+        publicentity::InstitutionRoles::<Runtime>::insert(&cid, &role, entitybase::InstitutionRole {
             cid_number: cid.clone(), role_code: role.clone(), role_name: "测试动态岗位".as_bytes().to_vec().try_into().unwrap(),
             term_required: true, role_status: entitybase::InstitutionRoleStatus::Active,
         });
@@ -3926,7 +3926,7 @@ fn creg_business_still_requires_roster_permission_effective_assignment_and_local
             term_start: 1, term_end: u32::MAX, assignment_source: entitybase::InstitutionAssignmentSource::InstitutionGovernance,
             assignment_source_ref: vec![18].try_into().unwrap(), assignment_status: entitybase::InstitutionAssignmentStatus::Active,
         }].try_into().unwrap();
-        publicentity::Pallet::<Runtime>::store_role_assignments(&cid, &role, &assignments);
+        publicentity::InstitutionRoleAssignments::<Runtime>::insert(&cid, &role, &assignments);
         assert!(!allowed(), "有效任职仍需具体业务权限");
         let permissions: publicentity::RolePermissionsOf<Runtime> = [
             (MODULE_CITIZEN_IDENTITY, ACTION_REGISTER_VOTING_IDENTITY),
@@ -3940,7 +3940,7 @@ fn creg_business_still_requires_roster_permission_effective_assignment_and_local
             business_action_id: entitybase::BusinessActionId { module_tag: module.to_vec().try_into().unwrap(), action_code: action },
             operation: RolePermissionOperation::Propose,
         }).collect::<Vec<_>>().try_into().unwrap();
-        publicentity::Pallet::<Runtime>::store_role_permissions(&cid, &role, permissions);
+        publicentity::InstitutionRolePermissions::<Runtime>::insert(&cid, &role, permissions);
         assert!(allowed());
         for (province, city) in [(b"GZ".as_slice(), b"013".as_slice()), (b"NX".as_slice(), b"014".as_slice())] {
             assert!(!RuntimeCitizenIdentityAuthority::can_manage_voting_identity(&who, &cid, &role, province, city, identity::CitizenIdentityLevel::Voting, ACTION_REGISTER_VOTING_IDENTITY));
@@ -3955,10 +3955,10 @@ fn creg_business_still_requires_roster_permission_effective_assignment_and_local
         assert!(!<RuntimeRegistryAuthority as entitybase::RegistryAuthority<AccountId>>::can_register_institution_origin(&who, &cid, &role, &cid, *b"CREG"));
         publicentity::InstitutionRoleAssignments::<Runtime>::mutate(&cid, &role, |rows| rows[0].term_end = 1);
         assert!(!allowed(), "过期任职不得继续办理");
-        publicentity::Pallet::<Runtime>::store_role_assignments(&cid, &role, &assignments);
+        publicentity::InstitutionRoleAssignments::<Runtime>::insert(&cid, &role, &assignments);
         publicentity::InstitutionRoleAssignments::<Runtime>::mutate(&cid, &role, |rows| rows[0].assignment_status = entitybase::InstitutionAssignmentStatus::Ended);
         assert!(!allowed(), "已结束任职不得继续办理");
-        publicentity::Pallet::<Runtime>::store_role_assignments(&cid, &role, &assignments);
+        publicentity::InstitutionRoleAssignments::<Runtime>::insert(&cid, &role, &assignments);
         publicentity::InstitutionRoles::<Runtime>::mutate(&cid, &role, |stored| stored.as_mut().unwrap().role_status = entitybase::InstitutionRoleStatus::Inactive);
         assert!(!allowed(), "停用岗位不得继续办理");
         publicentity::InstitutionRoles::<Runtime>::mutate(&cid, &role, |stored| stored.as_mut().unwrap().role_status = entitybase::InstitutionRoleStatus::Active);
@@ -3986,7 +3986,7 @@ fn unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee
             primitives::governance_skeleton::province_commissioner_role_code(*b"NX")
                 .try_into()
                 .unwrap();
-        let signer = publicentity::Pallet::<Runtime>::institution_role_assignments(&actor, &role)[0]
+        let signer = publicentity::InstitutionRoleAssignments::<Runtime>::get(&actor, &role)[0]
             .account_id
             .clone();
         let people = [AccountId::new([91; 32]), AccountId::new([92; 32])];
@@ -4122,7 +4122,7 @@ fn unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee
                 .try_into()
                 .unwrap();
         let other_signer =
-            publicentity::Pallet::<Runtime>::institution_role_assignments(&actor, &other_role)[0]
+            publicentity::InstitutionRoleAssignments::<Runtime>::get(&actor, &other_role)[0]
                 .account_id
                 .clone();
         assert_noop!(
@@ -4146,7 +4146,7 @@ fn unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee
             expected,
             Some(2)
         ));
-        let created = publicentity::Pallet::<Runtime>::roles_for(&target)
+        let created = publicentity::InstitutionRoles::<Runtime>::iter_prefix(&target)
             .find(|(_, item)| item.role_name.as_slice() == "测试动态岗位".as_bytes())
             .unwrap()
             .0;
@@ -4208,7 +4208,7 @@ fn unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee
             primitives::governance_skeleton::province_commissioner_role_code(*b"GZ")
                 .try_into()
                 .unwrap();
-        let gz_actor = publicentity::Pallet::<Runtime>::institution_role_assignments(&actor, &gz_role)
+        let gz_actor = publicentity::InstitutionRoleAssignments::<Runtime>::get(&actor, &gz_role)
             [0]
         .account_id
         .clone();
@@ -4473,28 +4473,4 @@ fn proposal_id_upgrade_rejects_invalid_old_layout_without_partial_writes() {
         assert!(std::panic::catch_unwind(|| AddPrcFeeSweepPermissions::on_runtime_upgrade()).is_err());
         assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
     });
-}
-
-#[test]
-fn p1_compact_vote_calls_preserve_full_id_range_and_export_real_metadata() {
-    use codec::{Encode,DecodeAll,Compact};
-    for id in [0,63,64,16383,16384,(1u128<<30)-1,1u128<<30,u128::MAX] {
-        let call=RuntimeCall::JointVote(jointvote::Call::cast_referendum {proposal_id:id,approve:true});
-        let bytes=call.encode();
-        let mut expected=vec![21,1];expected.extend(Compact(id).encode());expected.push(1);
-        assert_eq!(bytes,expected);
-        assert_eq!(RuntimeCall::decode_all(&mut &bytes[..]).unwrap(),call);
-        let mut bad=vec![21,1,1,0,1];
-        assert!(RuntimeCall::decode_all(&mut &bad[..]).is_err(),"non-minimal compact zero must be rejected");
-        bad=bytes;bad.push(0);
-        assert!(RuntimeCall::decode_all(&mut &bad[..]).is_err());
-    }
-    if let Ok(dir)=std::env::var("P1_METADATA_EXPORT_DIR") {
-        std::fs::create_dir_all(&dir).unwrap();
-        for version in [14,15] {
-            let metadata=Runtime::metadata_at_version(version).unwrap();
-            let hex=metadata.iter().map(|b|format!("{b:02x}")).collect::<String>();
-            std::fs::write(std::path::Path::new(&dir).join(format!("p1-runtime-v{version}-metadata.hex")),format!("0x{hex}\n")).unwrap();
-        }
-    }
 }

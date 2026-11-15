@@ -74,7 +74,7 @@ fn validate<'a, T: Config>(
         .collect();
     ensure!(
         current.len() == seats
-            && Pallet::<T>::institution_role_assignments(cid, role).len() == seats
+            && InstitutionRoleAssignments::<T>::get(cid, role).len() == seats
             && target.len() == seats
             && assignment.assignments.len() == seats,
         Error::<T>::FixedRoleSeatsMismatch
@@ -204,10 +204,10 @@ pub(crate) fn execute<T: Config>(
         Error::<T>::InvalidAssignmentResultAdmins
     );
 
-    let mut assignments = Pallet::<T>::institution_role_assignments(cid, &subject.role_code);
+    let mut assignments = InstitutionRoleAssignments::<T>::get(cid, &subject.role_code);
     let removed: BTreeSet<_> = change.current.difference(&change.target).collect();
     // 保留其他岗位的任职完整性，不能移除同时在其他岗位任职的人。
-    for (role, members) in Pallet::<T>::assignments_for(cid) {
+    for (role, members) in InstitutionRoleAssignments::<T>::iter_prefix(cid) {
         if role != subject.role_code {
             ensure!(
                 !members
@@ -246,7 +246,7 @@ pub(crate) fn execute<T: Config>(
         AdminAccountKind::PublicInstitution,
         change.admins.to_vec(),
     )?;
-    Pallet::<T>::store_role_assignments(cid, &subject.role_code, assignments);
+    InstitutionRoleAssignments::<T>::insert(cid, &subject.role_code, assignments);
     Pallet::<T>::deposit_event(Event::<T>::InstitutionGovernanceApplied {
         cid_number: cid.clone(),
         role_mutations: 0,

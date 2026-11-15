@@ -3140,7 +3140,7 @@ select option:checked {
 
 .home-dual-panel > main.app .home-node-toolbar {
   flex: none;
-  top: 0;
+  top: -5px;
   min-height: 28px;
 }
 
@@ -3282,6 +3282,8 @@ select option:checked {
 }
 
 .transaction-panel-heading {
+  position: relative;
+  top: -5px;
   display: flex;
   align-items: baseline;
   gap: 8px;

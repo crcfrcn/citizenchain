@@ -210,37 +210,40 @@ pub mod pallet {
 
     /// 私权机构自己的动态岗位目录。
     #[pallet::storage]
+    #[pallet::getter(fn institution_role_of)]
     pub type InstitutionRoles<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         CidNumberOf<T>,
         Blake2_128Concat,
         crate::institution::role::RoleCodeOf,
-        crate::institution::role::StoredRoleOf<T>,
+        crate::institution::role::InstitutionRoleOf<T>,
         OptionQuery,
     >;
 
     /// 私权机构岗位上的管理员任职集合。
     #[pallet::storage]
+    #[pallet::getter(fn institution_role_assignments)]
     pub type InstitutionRoleAssignments<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         CidNumberOf<T>,
         Blake2_128Concat,
         crate::institution::role::RoleCodeOf,
-        crate::institution::role::StoredAssignmentsOf<T>,
+        crate::institution::role::RoleAssignmentsOf<T>,
         ValueQuery,
     >;
 
     /// 私权机构岗位不可变业务权限。
     #[pallet::storage]
+    #[pallet::getter(fn institution_role_permissions)]
     pub type InstitutionRolePermissions<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         CidNumberOf<T>,
         Blake2_128Concat,
         crate::institution::role::RoleCodeOf,
-        crate::institution::role::StoredPermissionsOf,
+        crate::institution::role::RolePermissionsOf<T>,
         ValueQuery,
     >;
 

@@ -104,67 +104,6 @@ fn entity_pallet_name(admin_pallet: AdminPallet) -> &'static str {
     }
 }
 
-fn role_code_from_storage_key(
-    raw: &[u8],
-    pallet: &str,
-    entry: &str,
-    cid: &[u8],
-) -> Result<Vec<u8>, String> {
-    let encoded = cid.to_vec().encode();
-    let mut prefix = sp_crypto_hashing::twox_128(pallet.as_bytes()).to_vec();
-    prefix.extend_from_slice(&sp_crypto_hashing::twox_128(entry.as_bytes()));
-    if !raw.starts_with(&prefix) {
-        return Err("institution role key namespace mismatch".into());
-    }
-    let end = 48 + encoded.len();
-    if raw.len() < end + 17
-        || raw[32..48] != sp_crypto_hashing::blake2_128(&encoded)
-        || raw[48..end] != encoded
-    {
-        return Err("institution role key CID mismatch".into());
-    }
-    let role = Vec::<u8>::decode_all(&mut &raw[end + 16..]).map_err(|e| e.to_string())?;
-    if role.is_empty()
-        || role.len() > 64
-        || role.encode() != raw[end + 16..]
-        || raw[end..end + 16] != sp_crypto_hashing::blake2_128(&role.encode())
-    {
-        return Err("institution role key is not canonical".into());
-    }
-    Ok(role)
-}
-fn decode_stored_role(
-    mut raw: &[u8],
-    cid: &[u8],
-    code: Vec<u8>,
-) -> Result<RawInstitutionRole, String> {
-    let v = entitybase::StoredInstitutionRole::<Vec<u8>>::decode_all(&mut raw)
-        .map_err(|e| e.to_string())?;
-    Ok(RawInstitutionRole {
-        cid_number: cid.to_vec(),
-        role_code: code,
-        role_name: v.role_name,
-        term_required: v.term_required,
-        role_status: v.role_status as u8,
-    })
-}
-fn restore_assignment(
-    v: entitybase::StoredInstitutionAdminAssignment<[u8; 32], Vec<u8>>,
-    cid: &[u8],
-    code: &[u8],
-) -> RawInstitutionAssignment {
-    RawInstitutionAssignment {
-        cid_number: cid.to_vec(),
-        account_id: v.account_id,
-        role_code: code.to_vec(),
-        term_start: v.term_start,
-        term_end: v.term_end,
-        assignment_source: v.assignment_source as u8,
-        assignment_source_ref: v.assignment_source_ref,
-        assignment_status: v.assignment_status as u8,
-    }
-}
-
 async fn read_roles_and_assignments(
     finalized: &FinalizedChainView,
     cid_number: &[u8],
@@ -173,7 +112,7 @@ async fn read_roles_and_assignments(
     let storage = finalized.storage();
     let pallet = entity_pallet_name(admin_pallet);
 
-    // 从已核验的Concat存储键恢复完整CID和岗位，不在值中重复保存。
+    // 按完整 CID 前缀读取本机构条目，并核对值内 CID；不解析 storage key 的哈希后缀。
     let mut roles = Vec::new();
     let mut role_iter = storage
         .iter(dynamic::storage(
@@ -185,8 +124,9 @@ async fn read_roles_and_assignments(
         .map_err(|e| format!("iterate {pallet} InstitutionRoles failed: {e}"))?;
     while let Some(item) = role_iter.next().await {
         let item = item.map_err(|e| format!("read {pallet} InstitutionRoles failed: {e}"))?;
-        let code = role_code_from_storage_key(&item.key_bytes,pallet,"InstitutionRoles",cid_number)?;
-        let role = decode_stored_role(item.value.encoded(), cid_number, code)?;
+        let mut encoded = item.value.encoded();
+        let role = RawInstitutionRole::decode(&mut encoded)
+            .map_err(|e| format!("decode {pallet} InstitutionRoles failed: {e}"))?;
         if role.cid_number == cid_number {
             roles.push(role);
         }
@@ -205,10 +145,8 @@ async fn read_roles_and_assignments(
         let item =
             item.map_err(|e| format!("read {pallet} InstitutionRoleAssignments failed: {e}"))?;
         let mut encoded = item.value.encoded();
-        let code = role_code_from_storage_key(&item.key_bytes,pallet,"InstitutionRoleAssignments",cid_number)?;
-        let role_assignments = Vec::<entitybase::StoredInstitutionAdminAssignment<[u8;32],Vec<u8>>>::decode_all(&mut encoded)
-            .map_err(|e| format!("decode {pallet} InstitutionRoleAssignments failed: {e}"))?
-            .into_iter().map(|v| restore_assignment(v,cid_number,&code)).collect::<Vec<_>>();
+        let role_assignments = Vec::<RawInstitutionAssignment>::decode(&mut encoded)
+            .map_err(|e| format!("decode {pallet} InstitutionRoleAssignments failed: {e}"))?;
         assignments.extend(
             role_assignments
                 .into_iter()
@@ -467,9 +405,8 @@ pub async fn fetch_authorized_public_roles_at(
             .map_err(|e| format!("read institution role permissions failed: {e}"))?;
         let Some(value) = value else { continue };
         let mut encoded = value.encoded();
-        let permissions = Vec::<entitybase::StoredRoleBusinessPermission<Vec<u8>>>::decode(&mut encoded)
-            .map_err(|e| format!("decode institution role permissions failed: {e}"))?
-            .into_iter().map(|v| v.with_subject(cid.to_vec(),assignment.role_code.as_bytes().to_vec())).collect::<Vec<_>>();
+        let permissions = Vec::<BusinessPermission>::decode(&mut encoded)
+            .map_err(|e| format!("decode institution role permissions failed: {e}"))?;
         if !encoded.is_empty() {
             return Err("role permissions have trailing bytes".into());
         }
@@ -851,8 +788,8 @@ async fn registration_snapshot_at(
         .map_err(|e| e.to_string())?;
     while let Some(row) = rows.next().await {
         let row = row.map_err(|e| e.to_string())?;
-        let code = role_code_from_storage_key(&row.key_bytes,name,"InstitutionRoles",cid.as_bytes())?;
-        let role = decode_stored_role(row.value.encoded(),cid.as_bytes(),code)?;
+        let role =
+            RawInstitutionRole::decode_all(&mut row.value.encoded()).map_err(|e| e.to_string())?;
         if role.cid_number != cid.as_bytes()
             || role.role_status > 1
             || roles.insert(role.role_code.clone(), role).is_some()
@@ -865,18 +802,20 @@ async fn registration_snapshot_at(
     let mut assignments = Vec::with_capacity(roles.len());
     for code in roles.keys() {
         let keys = [cid.as_bytes(), code.as_slice()];
-        let stored: Vec<entitybase::StoredRoleBusinessPermission<Vec<u8>>> =
-            registration_value(finalized, name, "InstitutionRolePermissions", &keys).await?.unwrap_or_default();
-        let values: Vec<BusinessPermission> = stored.into_iter().map(|v| v.with_subject(cid.as_bytes().to_vec(),code.clone())).collect();
+        let values: Vec<BusinessPermission> =
+            registration_value(finalized, name, "InstitutionRolePermissions", &keys)
+                .await?
+                .unwrap_or_default();
         if values.iter().any(|p| {
             p.role_subject.cid_number != cid.as_bytes() || p.role_subject.role_code != *code
         }) {
             return Err("registration permission subject mismatch".into());
         }
         permissions.push((code.clone(), values));
-        let stored: Vec<entitybase::StoredInstitutionAdminAssignment<[u8;32],Vec<u8>>> =
-            registration_value(finalized, name, "InstitutionRoleAssignments", &keys).await?.unwrap_or_default();
-        let values: Vec<RawInstitutionAssignment> = stored.into_iter().map(|v| restore_assignment(v,cid.as_bytes(),code)).collect();
+        let values: Vec<RawInstitutionAssignment> =
+            registration_value(finalized, name, "InstitutionRoleAssignments", &keys)
+                .await?
+                .unwrap_or_default();
         if values.iter().any(|a| {
             a.cid_number != cid.as_bytes()
                 || a.role_code != *code

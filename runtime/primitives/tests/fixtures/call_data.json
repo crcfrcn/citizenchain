@@ -11,8 +11,8 @@
         "proposal_id": "99",
         "approve": true
       },
-      "expected_call_data_hex": "0x15018d0101",
-      "expected_byte_length": 5
+      "expected_call_data_hex": "0x15016300000000000000000000000000000001",
+      "expected_byte_length": 19
     },
     {
       "name": "propose_issuance",

@@ -543,7 +543,7 @@ fn legislation_referendum_deduplicates_permanent_cid_after_account_id_replacemen
         let subject = test_citizen_subject(&member(100));
         let ticket = crate::pallet::LegReferendumVotesByCid::<Test>::get(pid, &subject.cid_number)
             .expect("complete citizen referendum ticket should exist");
-        assert_eq!(ticket.voter_subject(subject.cid_number.clone()), subject);
+        assert_eq!(ticket.voter_subject, subject);
         assert!(ticket.approve);
         assert_eq!(crate::pallet::LegReferendumTally::<Test>::get(pid).yes, 1);
         assert_eq!(crate::pallet::LegReferendumTally::<Test>::get(pid).no, 0);

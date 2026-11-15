@@ -197,7 +197,15 @@ pub mod pallet {
     #[pallet::getter(fn max_l2_fee_rate_bp)]
     pub type MaxL2FeeRateBp<T: Config> = StorageValue<_, u32, ValueQuery>;
 
-    /// 已处理链下 tx_id 的唯一记录；存在性防重，高度供完整业务查询。
+    /// 已处理链下 tx_id 防重放(按省标识 T2 + tx_id 维度)。
+    ///
+    /// settlement 写入;清算行节点 event_listener 监听 `PaymentSettled` 时
+    /// 以此键为索引。
+    #[pallet::storage]
+    pub type ProcessedOffchainTx<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, [u8; 2], Blake2_128Concat, T::Hash, bool, ValueQuery>;
+
+    /// 已处理链下 tx_id 的写入高度(用于过期窗口控制)。
     #[pallet::storage]
     pub type ProcessedOffchainTxAt<T: Config> = StorageDoubleMap<
         _,

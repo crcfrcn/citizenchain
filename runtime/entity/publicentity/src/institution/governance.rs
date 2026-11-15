@@ -140,7 +140,7 @@ impl<T: Config> Pallet<T> {
                     .clone()
                     .try_into()
                     .map_err(|_| Error::<T>::InvalidRoleCode)?;
-                let previous = Pallet::<T>::institution_role_assignments(&cid_number, &code)
+                let previous = InstitutionRoleAssignments::<T>::get(&cid_number, &code)
                     .into_iter()
                     .map(|assignment| (assignment.account_id.clone(), assignment))
                     .collect::<BTreeMap<_, _>>();
@@ -175,7 +175,7 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        let mut final_roles = Pallet::<T>::roles_for(&cid_number)
+        let mut final_roles = InstitutionRoles::<T>::iter_prefix(&cid_number)
             .collect::<BTreeMap<RoleCodeOf, InstitutionRoleOf<T>>>();
         let mut role_writes = BTreeMap::<RoleCodeOf, InstitutionRoleOf<T>>::new();
         let mut permission_writes = BTreeMap::<RoleCodeOf, RolePermissionsOf<T>>::new();
@@ -379,7 +379,7 @@ impl<T: Config> Pallet<T> {
                 .get(role_code)
                 .or_else(|| created_assignment_writes.get(role_code))
                 .cloned()
-                .unwrap_or_else(|| Pallet::<T>::institution_role_assignments(&cid_number, role_code));
+                .unwrap_or_else(|| InstitutionRoleAssignments::<T>::get(&cid_number, role_code));
             if role.role_status == InstitutionRoleStatus::Inactive {
                 ensure!(
                     assignments.is_empty(),
@@ -444,7 +444,7 @@ impl<T: Config> Pallet<T> {
                 .get(&required_role_code)
                 .cloned()
                 .unwrap_or_else(|| {
-                    Pallet::<T>::institution_role_assignments(&cid_number, &required_role_code)
+                    InstitutionRoleAssignments::<T>::get(&cid_number, &required_role_code)
                 });
             ensure!(
                 required_assignments.len() >= spec.min_members as usize
@@ -517,7 +517,7 @@ impl<T: Config> Pallet<T> {
         let legal_assignments = assignment_changes
             .get(&legal_role_code)
             .cloned()
-            .unwrap_or_else(|| Pallet::<T>::institution_role_assignments(&cid_number, &legal_role_code));
+            .unwrap_or_else(|| InstitutionRoleAssignments::<T>::get(&cid_number, &legal_role_code));
         ensure!(
             match legal_representative_account {
                 Some(account_id) => {
@@ -539,10 +539,10 @@ impl<T: Config> Pallet<T> {
                 InstitutionRoleAssignments::<T>::remove(&cid_number, role_code);
             }
             for (role_code, role) in &role_writes {
-                Pallet::<T>::store_role(&cid_number, role_code, role.clone());
+                InstitutionRoles::<T>::insert(&cid_number, role_code, role.clone());
             }
             for (role_code, permissions) in &permission_writes {
-                Pallet::<T>::store_role_permissions(
+                InstitutionRolePermissions::<T>::insert(
                     &cid_number,
                     role_code,
                     permissions.clone(),
@@ -550,14 +550,14 @@ impl<T: Config> Pallet<T> {
                 UsedRoleCodes::<T>::insert(&cid_number, role_code, true);
             }
             for (role_code, assignments) in &created_assignment_writes {
-                Pallet::<T>::store_role_assignments(
+                InstitutionRoleAssignments::<T>::insert(
                     &cid_number,
                     role_code,
                     assignments.clone(),
                 );
             }
             for (role_code, assignments) in &assignment_changes {
-                Pallet::<T>::store_role_assignments(
+                InstitutionRoleAssignments::<T>::insert(
                     &cid_number,
                     role_code,
                     assignments.clone(),
@@ -610,7 +610,7 @@ impl<T: Config> Pallet<T> {
             institution.institution_code,
             cid.as_slice(),
         );
-        let roles = Pallet::<T>::roles_for(cid)
+        let roles = InstitutionRoles::<T>::iter_prefix(cid)
             .take(T::MaxAdmins::get() as usize + 1)
             .collect::<BTreeMap<_, _>>();
         ensure!(
@@ -622,7 +622,7 @@ impl<T: Config> Pallet<T> {
             .map(|role| {
                 (
                     role.clone(),
-                    Pallet::<T>::institution_role_permissions(cid, role),
+                    InstitutionRolePermissions::<T>::get(cid, role),
                 )
             })
             .collect::<Vec<_>>();
@@ -631,7 +631,7 @@ impl<T: Config> Pallet<T> {
             .map(|role| {
                 (
                     role.clone(),
-                    Pallet::<T>::institution_role_assignments(cid, role),
+                    InstitutionRoleAssignments::<T>::get(cid, role),
                 )
             })
             .collect::<Vec<_>>();
@@ -658,7 +658,7 @@ impl<T: Config> Pallet<T> {
         let (n, mut r, mut p, mut a) = action.registration_work();
         // 只读compact长度估价，避免在入池/报价阶段解码整批任职或权限值。
         for (role, _) in
-            Pallet::<T>::roles_for(cid).take(T::MaxAdmins::get() as usize + 1)
+            InstitutionRoles::<T>::iter_prefix(cid).take(T::MaxAdmins::get() as usize + 1)
         {
             r = r.saturating_add(1);
             p = p.saturating_add(
@@ -809,14 +809,14 @@ impl<T: Config> Pallet<T> {
         let mut voters = 0u32;
         let mut role_count = 0u32;
         for (code, role) in
-            Pallet::<T>::roles_for(cid).take(T::MaxAdmins::get() as usize + 1)
+            InstitutionRoles::<T>::iter_prefix(cid).take(T::MaxAdmins::get() as usize + 1)
         {
             role_count = role_count.saturating_add(1);
             ensure!(
                 role_count <= T::MaxAdmins::get(),
                 Error::<T>::TooManyGovernanceChanges
             );
-            let assignments = Pallet::<T>::institution_role_assignments(cid, &code);
+            let assignments = InstitutionRoleAssignments::<T>::get(cid, &code);
             ensure!(
                 assignments
                     .iter()
@@ -869,7 +869,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::TooManyInstitutionAdmins
         );
         let previous = if registry_ref.is_some() {
-            Pallet::<T>::institution_role_assignments(cid_number, role_code)
+            InstitutionRoleAssignments::<T>::get(cid_number, role_code)
                 .into_iter()
                 .map(|assignment| (assignment.account_id.clone(), assignment))
                 .collect::<BTreeMap<_, _>>()

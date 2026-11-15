@@ -35,7 +35,6 @@ pub use institution_governance::{
     RolePermissionSpec,
 };
 pub use institution_role::{
-    StoredInstitutionRole, StoredInstitutionAdminAssignment, StoredRoleBusinessPermission,
     generate_dynamic_role_code, AuthorizationSubject, BusinessActionId, InstitutionAdminAssignment,
     InstitutionAssignmentSource, InstitutionAssignmentStatus, InstitutionCapabilityPolicy,
     InstitutionRole, InstitutionRoleAuthorizationQuery, InstitutionRoleQuery,

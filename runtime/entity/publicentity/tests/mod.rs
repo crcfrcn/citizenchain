@@ -324,7 +324,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
         term_required: false,
         role_status: entitybase::InstitutionRoleStatus::Active,
     };
-    pallet::Pallet::<Test>::store_role(cid_number, &role_code, role);
+    pallet::InstitutionRoles::<Test>::insert(cid_number, &role_code, role);
     let assignments = institution_admins(3)
         .into_iter()
         .map(|admin| entitybase::InstitutionAdminAssignment {
@@ -338,7 +338,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
             assignment_status: entitybase::InstitutionAssignmentStatus::Active,
         })
         .collect::<Vec<_>>();
-    pallet::Pallet::<Test>::store_role_assignments(
+    pallet::InstitutionRoleAssignments::<Test>::insert(
         cid_number,
         &role_code,
         crate::institution::role::RoleAssignmentsOf::<Test>::try_from(assignments)
@@ -364,7 +364,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
         operation,
     })
     .collect::<Vec<_>>();
-    pallet::Pallet::<Test>::store_role_permissions(
+    pallet::InstitutionRolePermissions::<Test>::insert(
         cid_number,
         &role_code,
         BoundedVec::try_from(permissions).expect("permissions fit"),

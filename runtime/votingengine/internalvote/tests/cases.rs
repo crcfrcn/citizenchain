@@ -1323,7 +1323,7 @@ fn joint_vote_callback_failure_does_not_cleanup_referendum_votes() {
             0,
             voter_subject.cid_number.clone(),
             engingcore::CitizenReferendumTicket {
-                voter_account_id: voter_subject.account_id,
+                voter_subject,
                 approve: true,
             },
         );
@@ -1725,7 +1725,7 @@ fn delayed_cleanup_chunks_cleanup_across_blocks() {
                 proposal_id,
                 voter_subject.cid_number.clone(),
                 engingcore::CitizenReferendumTicket {
-                    voter_account_id: voter_subject.account_id,
+                    voter_subject,
                     approve: true,
                 },
             );

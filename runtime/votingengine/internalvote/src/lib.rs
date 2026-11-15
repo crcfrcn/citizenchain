@@ -207,7 +207,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::cast())]
         pub fn cast(
             origin: OriginFor<T>,
-            #[pallet::compact] proposal_id: u128,
+            proposal_id: u128,
             ticket_claim: InternalVoteTicketClaim,
             approve: bool,
         ) -> DispatchResult {

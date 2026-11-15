@@ -300,7 +300,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::cast_representative_vote())]
         pub fn cast_representative_vote(
             origin: OriginFor<T>,
-            #[pallet::compact] proposal_id: u128,
+            proposal_id: u128,
             voter_role_code: engingcore::types::RoleCode,
             approve: bool,
         ) -> DispatchResult {
@@ -313,7 +313,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::cast_referendum_vote())]
         pub fn cast_referendum_vote(
             origin: OriginFor<T>,
-            #[pallet::compact] proposal_id: u128,
+            proposal_id: u128,
             approve: bool,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -331,7 +331,7 @@ pub mod pallet {
         )]
         pub fn executive_sign(
             origin: OriginFor<T>,
-            #[pallet::compact] proposal_id: u128,
+            proposal_id: u128,
             approve: bool,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -349,7 +349,7 @@ pub mod pallet {
         )]
         pub fn override_sign(
             origin: OriginFor<T>,
-            #[pallet::compact] proposal_id: u128,
+            proposal_id: u128,
             approve: bool,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -364,7 +364,7 @@ pub mod pallet {
                     .saturating_add(T::DbWeight::get().reads_writes(5, 1))
             )
         )]
-        pub fn guard_vote(origin: OriginFor<T>, #[pallet::compact] proposal_id: u128, approve: bool) -> DispatchResult {
+        pub fn guard_vote(origin: OriginFor<T>, proposal_id: u128, approve: bool) -> DispatchResult {
             let who = ensure_signed(origin)?;
             Self::do_guard_vote(who, proposal_id, approve)
         }

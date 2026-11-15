@@ -305,7 +305,7 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
 
 pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCodeOf {
     let role_code: crate::RoleCodeOf = b"TEST_CLOSE_ROLE".to_vec().try_into().expect("role fits");
-    pallet::Pallet::<Test>::store_role(
+    pallet::InstitutionRoles::<Test>::insert(
         cid_number,
         &role_code,
         entitybase::InstitutionRole {
@@ -329,7 +329,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
             assignment_status: entitybase::InstitutionAssignmentStatus::Active,
         })
         .collect::<Vec<_>>();
-    pallet::Pallet::<Test>::store_role_assignments(
+    pallet::InstitutionRoleAssignments::<Test>::insert(
         cid_number,
         &role_code,
         crate::institution::role::RoleAssignmentsOf::<Test>::try_from(assignments)
@@ -355,7 +355,7 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
         operation,
     })
     .collect::<Vec<_>>();
-    pallet::Pallet::<Test>::store_role_permissions(
+    pallet::InstitutionRolePermissions::<Test>::insert(
         cid_number,
         &role_code,
         BoundedVec::try_from(permissions).expect("permissions fit"),

@@ -147,11 +147,8 @@ fn lookup_nonce(client: &FullClient, account: &AccountId32) -> Result<u32, Strin
 pub fn decode_batch_items(
     batch_bytes: &[u8],
 ) -> Result<Vec<OffchainBatchItem<AccountId32, u32>>, String> {
-    use codec::DecodeAll;
-    let batch = <Vec<OffchainBatchItem<AccountId32, u32>>>::decode_all(&mut &batch_bytes[..])
-        .map_err(|e| format!("batch_bytes 解码失败:{e}"))?;
-    if batch.encode() != batch_bytes { return Err("batch_bytes 不是规范 SCALE 编码".into()); }
-    Ok(batch)
+    <Vec<OffchainBatchItem<AccountId32, u32>>>::decode(&mut &batch_bytes[..])
+        .map_err(|e| format!("batch_bytes 解码失败:{e}"))
 }
 
 /// 把 64 字节签名包装为 runtime `BatchSignatureOf<Runtime>`(`BoundedVec<u8, MaxBatchSignatureLength>`)。

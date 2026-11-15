@@ -96,50 +96,6 @@ pub struct SquarePost<AccountId, BlockNumber, PostId, CidNumber, StorageReceiptI
     pub created_block: BlockNumber,
 }
 
-/// 发布索引存储值；post_id只保留在SquarePosts键中。
-#[derive(
-    Clone, Encode, Decode, DecodeWithMemTracking, Eq, PartialEq, Debug, TypeInfo, MaxEncodedLen,
-)]
-pub struct StoredSquarePost<AccountId, BlockNumber, CidNumber, StorageReceiptId> {
-    pub cid_number: CidNumber,
-    pub signer_account_id: AccountId,
-    pub post_type: SquarePostType,
-    pub post_category: SquarePostCategory,
-    pub content_hash: [u8; 32],
-    pub storage_receipt_id: StorageReceiptId,
-    pub storage_until: u64,
-    pub created_block: BlockNumber,
-}
-impl<A, B, P, C, R> From<SquarePost<A, B, P, C, R>> for StoredSquarePost<A, B, C, R> {
-    fn from(v: SquarePost<A, B, P, C, R>) -> Self {
-        Self {
-            cid_number: v.cid_number,
-            signer_account_id: v.signer_account_id,
-            post_type: v.post_type,
-            post_category: v.post_category,
-            content_hash: v.content_hash,
-            storage_receipt_id: v.storage_receipt_id,
-            storage_until: v.storage_until,
-            created_block: v.created_block,
-        }
-    }
-}
-impl<A, B, C, R> StoredSquarePost<A, B, C, R> {
-    pub fn with_post_id<P>(self, post_id: P) -> SquarePost<A, B, P, C, R> {
-        SquarePost {
-            post_id,
-            cid_number: self.cid_number,
-            signer_account_id: self.signer_account_id,
-            post_type: self.post_type,
-            post_category: self.post_category,
-            content_hash: self.content_hash,
-            storage_receipt_id: self.storage_receipt_id,
-            storage_until: self.storage_until,
-            created_block: self.created_block,
-        }
-    }
-}
-
 /// 公民身份读取适配器。
 ///
 /// runtime 负责把它接到 identity；本 pallet 不直接依赖具体身份 pallet。
@@ -193,12 +149,6 @@ pub mod pallet {
     pub type PostIdOf<T> = BoundedVec<u8, <T as Config>::MaxSquarePostIdLen>;
     pub type CidNumberOf<T> = BoundedVec<u8, <T as Config>::MaxSquareCidNumberLen>;
     pub type StorageReceiptIdOf<T> = BoundedVec<u8, <T as Config>::MaxSquareStorageReceiptIdLen>;
-    pub type StoredSquarePostOf<T> = StoredSquarePost<
-        <T as frame_system::Config>::AccountId,
-        BlockNumberFor<T>,
-        CidNumberOf<T>,
-        StorageReceiptIdOf<T>,
-    >;
     pub type SquarePostOf<T> = SquarePost<
         <T as frame_system::Config>::AccountId,
         BlockNumberFor<T>,
@@ -260,7 +210,7 @@ pub mod pallet {
     /// 以 Worker 预生成的 post_id 作为链上发布索引主键。
     #[pallet::storage]
     pub type SquarePosts<T: Config> =
-        StorageMap<_, Blake2_128Concat, PostIdOf<T>, StoredSquarePostOf<T>, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, PostIdOf<T>, SquarePostOf<T>, OptionQuery>;
 
     /// 每个 CID 累计成功发布数量，换绑账户不得重置。
     #[pallet::storage]
@@ -614,8 +564,7 @@ pub mod pallet {
                 created_block,
             };
 
-            let stored: StoredSquarePostOf<T> = square_post.into();
-            SquarePosts::<T>::insert(&post_id, stored);
+            SquarePosts::<T>::insert(&post_id, square_post);
             PublishedPostCountByCid::<T>::mutate(&cid_number, |count| {
                 *count = count.saturating_add(1);
             });

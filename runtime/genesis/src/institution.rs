@@ -528,7 +528,7 @@ where
         let bounded: publicentity::institution::role::RoleAssignmentsOf<T> = list
             .try_into()
             .expect("genesis institution: FSC 单岗任职数量超限");
-        publicentity::Pallet::<T>::store_role_assignments(&cid, &role_code, bounded);
+        publicentity::InstitutionRoleAssignments::<T>::insert(&cid, &role_code, bounded);
     }
 
     // 程伟作为 FSC 公权管理员(四字段:公民 CID + 姓 + 名 + account)。

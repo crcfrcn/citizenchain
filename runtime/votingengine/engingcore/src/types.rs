@@ -53,18 +53,13 @@ pub struct InstitutionVoteTicket<AccountId> {
 /// 公民公投的一张完整票据。
 ///
 /// Storage 必须按 `(proposal_id, cid_number)` 去重；票据值保存投票时
-/// 的签名账户；CID只保留在键中，防止换绑账户后重复投票。
+/// 的完整 CID + 签名账户主体，防止同一永久 CID 更换绑定账户后重复投票。
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
 )]
 pub struct CitizenReferendumTicket<AccountId> {
-    pub voter_account_id: AccountId,
+    pub voter_subject: identity::CitizenSubject<AccountId>,
     pub approve: bool,
-}
-impl<AccountId: Clone> CitizenReferendumTicket<AccountId> {
-    pub fn voter_subject(&self, cid_number: identity::CidNumberBound) -> identity::CitizenSubject<AccountId> {
-        identity::CitizenSubject { cid_number, account_id: self.voter_account_id.clone() }
-    }
 }
 
 /// 投票引擎按提案保存的人口快照。

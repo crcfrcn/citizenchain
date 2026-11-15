@@ -246,7 +246,7 @@ fn same_citizen_cid_cannot_vote_twice_after_account_id_replacement() {
         let subject = referendum_subject(&first_account_id).expect("first voter is eligible");
         let ticket = ReferendumVotesByCid::<Test>::get(proposal_id, &subject.cid_number)
             .expect("complete citizen referendum ticket should exist");
-        assert_eq!(ticket.voter_subject(subject.cid_number.clone()), subject);
+        assert_eq!(ticket.voter_subject, subject);
         assert!(ticket.approve);
         assert_eq!(ReferendumTallies::<Test>::get(proposal_id).yes, 1);
         assert_eq!(ReferendumTallies::<Test>::get(proposal_id).no, 0);

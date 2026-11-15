@@ -225,7 +225,7 @@ pub mod pallet {
         ))]
         pub fn cast_popular_vote(
             origin: OriginFor<T>,
-            #[pallet::compact] proposal_id: u128,
+            proposal_id: u128,
             candidate_subject: CitizenSubjectOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -241,7 +241,7 @@ pub mod pallet {
         ))]
         pub fn cast_mutual_vote(
             origin: OriginFor<T>,
-            #[pallet::compact] proposal_id: u128,
+            proposal_id: u128,
             voter_role_code: engingcore::types::RoleCode,
             candidate_subject: CitizenSubjectOf<T>,
         ) -> DispatchResult {

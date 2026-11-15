@@ -203,7 +203,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::cast_admin())]
         pub fn cast_admin(
             origin: OriginFor<T>,
-            #[pallet::compact] proposal_id: u128,
+            proposal_id: u128,
             cid_number: CidNumber,
             voter_role_code: RoleCode,
             approve: bool,
@@ -218,7 +218,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::cast_referendum())]
         pub fn cast_referendum(
             origin: OriginFor<T>,
-            #[pallet::compact] proposal_id: u128,
+            proposal_id: u128,
             approve: bool,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;

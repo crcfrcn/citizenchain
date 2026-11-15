@@ -90,7 +90,7 @@ fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
     )
     .unwrap();
     InstitutionGovernanceThresholds::<T>::insert(&cid, count / 2 + 1);
-    Pallet::<T>::store_role(
+    InstitutionRoles::<T>::insert(
         &cid,
         &role,
         InstitutionRole {
@@ -116,7 +116,7 @@ fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
-    Pallet::<T>::store_role_assignments(&cid, &role, assignments);
+    InstitutionRoleAssignments::<T>::insert(&cid, &role, assignments);
     let permissions: crate::institution::role::RolePermissionsOf<T> = [
         entitybase::business_action::ACTION_INSTITUTION_CLOSE,
         entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
@@ -142,7 +142,7 @@ fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
     .collect::<Vec<_>>()
     .try_into()
     .unwrap();
-    Pallet::<T>::store_role_permissions(&cid, &role, permissions);
+    InstitutionRolePermissions::<T>::insert(&cid, &role, permissions);
     for admin in admins.iter_mut() {
         admin.family_name = b"F".to_vec().try_into().unwrap();
         admin.given_name = b"G".to_vec().try_into().unwrap();
@@ -280,7 +280,7 @@ fn registration_fixture<T: BenchmarkSetup>(
                 )
                 .try_into()
                 .unwrap();
-            Pallet::<T>::store_role(
+            InstitutionRoles::<T>::insert(
                 &f.cid,
                 &code,
                 InstitutionRole {
@@ -311,7 +311,7 @@ fn registration_fixture<T: BenchmarkSetup>(
                 })
                 .collect::<Vec<_>>();
             let stored: crate::institution::role::RolePermissionsOf<T> = stored.try_into().unwrap();
-            Pallet::<T>::store_role_permissions(&f.cid, &code, stored);
+            InstitutionRolePermissions::<T>::insert(&f.cid, &code, stored);
             let stored: crate::institution::role::RoleAssignmentsOf<T> = targets
                 .iter()
                 .map(|target| InstitutionAdminAssignment {
@@ -327,7 +327,7 @@ fn registration_fixture<T: BenchmarkSetup>(
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap();
-            Pallet::<T>::store_role_assignments(&f.cid, &code, stored);
+            InstitutionRoleAssignments::<T>::insert(&f.cid, &code, stored);
             UsedRoleCodes::<T>::insert(&f.cid, &code, true);
         } else {
             mutations.push(entitybase::InstitutionRoleMutation::Create {
@@ -360,7 +360,7 @@ fn registration_fixture<T: BenchmarkSetup>(
             T::InstitutionAdminQuery::institution_admins_len(*b"SFGY", f.cid.as_slice())
                 .unwrap_or(0),
         );
-        for (code, _) in Pallet::<T>::roles_for(&f.cid) {
+        for (code, _) in InstitutionRoles::<T>::iter_prefix(&f.cid) {
             work.1 += 1;
             work.2 +=
                 InstitutionRolePermissions::<T>::decode_len(&f.cid, &code).unwrap_or(0) as u32;
@@ -391,17 +391,17 @@ fn verify_registration<T: Config>(cid: &CidNumberOf<T>, n: u32, r: u32, p: u32, 
         Some(n.max(a))
     );
     let mut dynamic = 0;
-    for (code, _) in Pallet::<T>::roles_for(cid) {
+    for (code, _) in InstitutionRoles::<T>::iter_prefix(cid) {
         if code.as_slice() == primitives::institution_constraints::ROLE_CODE_LEGAL_REPRESENTATIVE {
             continue;
         }
         dynamic += 1;
         assert_eq!(
-            Pallet::<T>::institution_role_permissions(cid, &code).len(),
+            InstitutionRolePermissions::<T>::get(cid, &code).len(),
             p as usize
         );
         assert_eq!(
-            Pallet::<T>::institution_role_assignments(cid, &code).len(),
+            InstitutionRoleAssignments::<T>::get(cid, &code).len(),
             a as usize
         );
     }

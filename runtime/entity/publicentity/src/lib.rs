@@ -214,37 +214,40 @@ pub mod pallet {
 
     /// 机构岗位目录：同一个 `role_code` 只在本机构 CID 内唯一。
     #[pallet::storage]
+    #[pallet::getter(fn institution_role_of)]
     pub type InstitutionRoles<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         CidNumberOf<T>,
         Blake2_128Concat,
         crate::institution::role::RoleCodeOf,
-        crate::institution::role::StoredRoleOf<T>,
+        crate::institution::role::InstitutionRoleOf<T>,
         OptionQuery,
     >;
 
     /// 机构岗位上的任职集合：岗位负责分组，记录负责绑定管理员账户和任职来源。
     #[pallet::storage]
+    #[pallet::getter(fn institution_role_assignments)]
     pub type InstitutionRoleAssignments<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         CidNumberOf<T>,
         Blake2_128Concat,
         crate::institution::role::RoleCodeOf,
-        crate::institution::role::StoredAssignmentsOf<T>,
+        crate::institution::role::RoleAssignmentsOf<T>,
         ValueQuery,
     >;
 
     /// 机构岗位不可变业务权限；岗位改名不得改写本表。
     #[pallet::storage]
+    #[pallet::getter(fn institution_role_permissions)]
     pub type InstitutionRolePermissions<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         CidNumberOf<T>,
         Blake2_128Concat,
         crate::institution::role::RoleCodeOf,
-        crate::institution::role::StoredPermissionsOf,
+        crate::institution::role::RolePermissionsOf<T>,
         ValueQuery,
     >;
 
@@ -1480,7 +1483,7 @@ impl<T: Config> Pallet<T> {
             .try_into()
             .map_err(|_| sp_runtime::DispatchError::Other("benchmark CID"))?;
         let entries =
-            Pallet::<T>::assignments_for(&cid).collect::<sp_std::vec::Vec<_>>();
+            InstitutionRoleAssignments::<T>::iter_prefix(&cid).collect::<sp_std::vec::Vec<_>>();
         for (role, mut assignments) in entries {
             for assignment in assignments.iter_mut() {
                 assignment.assignment_source_ref =
@@ -1488,7 +1491,7 @@ impl<T: Config> Pallet<T> {
                         .try_into()
                         .unwrap();
             }
-            Pallet::<T>::store_role_assignments(&cid, role, assignments);
+            InstitutionRoleAssignments::<T>::insert(&cid, role, assignments);
         }
         Ok(())
     }
@@ -1533,7 +1536,7 @@ impl<T: Config> Pallet<T> {
             sp_runtime::DispatchError::Other("benchmark vote capability")
         );
         if !InstitutionRoles::<T>::contains_key(&cid, &role) {
-            Pallet::<T>::store_role(
+            InstitutionRoles::<T>::insert(
                 &cid,
                 &role,
                 entitybase::InstitutionRole {
@@ -1569,8 +1572,8 @@ impl<T: Config> Pallet<T> {
             .collect::<sp_std::vec::Vec<_>>()
             .try_into()
             .unwrap();
-        Pallet::<T>::store_role_permissions(&cid, &role, permissions);
-        let info = Pallet::<T>::institution_role_of(&cid, &role)
+        InstitutionRolePermissions::<T>::insert(&cid, &role, permissions);
+        let info = InstitutionRoles::<T>::get(&cid, &role)
             .ok_or(sp_runtime::DispatchError::Other("benchmark role missing"))?;
         ensure!(
             info.role_status == entitybase::InstitutionRoleStatus::Active,
@@ -1618,7 +1621,7 @@ impl<T: Config> Pallet<T> {
         let assignments: crate::institution::role::RoleAssignmentsOf<T> = assignments
             .try_into()
             .map_err(|_| sp_runtime::DispatchError::Other("benchmark capacity"))?;
-        Pallet::<T>::store_role_assignments(cid, role, assignments);
+        InstitutionRoleAssignments::<T>::insert(cid, role, assignments);
         Ok(())
     }
 }

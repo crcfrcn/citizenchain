@@ -848,20 +848,3 @@ fn registration_retains_canonical_roster_cid_and_empty_profile_without_local_def
     assert_eq!(updated.account_id, stored.account_id);
     assert_eq!(updated.cid_number, stored.cid_number);
 }
-
-#[test]
-fn p1_storage_subject_requires_exact_namespace_and_canonical_key() {
-    let cid=b"GZ018-SFGYR-201206100-2026";
-    let role=b"LR".to_vec();
-    let mut key=sp_crypto_hashing::twox_128(b"PublicManage").to_vec();
-    key.extend(sp_crypto_hashing::twox_128(b"InstitutionRoles"));
-    let c=cid.to_vec().encode();key.extend(sp_crypto_hashing::blake2_128(&c));key.extend(c);
-    let r=role.encode();key.extend(sp_crypto_hashing::blake2_128(&r));key.extend(r);
-    assert_eq!(role_code_from_storage_key(&key,"PublicManage","InstitutionRoles",cid).unwrap(),role);
-    assert!(role_code_from_storage_key(&key,"PrivateManage","InstitutionRoles",cid).is_err());
-    assert!(role_code_from_storage_key(&key,"PublicManage","InstitutionRoleAssignments",cid).is_err());
-    let mut bad=key.clone();bad[32]^=1;
-    assert!(role_code_from_storage_key(&bad,"PublicManage","InstitutionRoles",cid).is_err());
-    let mut bad=key;bad.push(0);
-    assert!(role_code_from_storage_key(&bad,"PublicManage","InstitutionRoles",cid).is_err());
-}

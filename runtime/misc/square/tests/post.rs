@@ -103,24 +103,3 @@ fn cancelled_platform_membership_keeps_paid_period_publish_rights() {
         );
     });
 }
-
-#[test]
-fn keyed_post_retains_full_publication_and_rejects_duplicate_id() {
-    use codec::Encode;
-    new_test_ext().execute_with(|| {
-        set_active_platform_member(visitor_account());
-        let raw_id=vec![b'p';32];
-        assert_ok!(SquarePost::publish_post(RuntimeOrigin::signed(visitor_account()),raw_id.clone(),SquarePostType::Article,[7u8;32],vec![b'r';64]));
-        let id=crate::pallet::PostIdOf::<Test>::try_from(raw_id.clone()).unwrap();
-        let stored=crate::pallet::SquarePosts::<Test>::get(&id).unwrap();
-        let full=stored.clone().with_post_id(id.clone());
-        assert_eq!(full.encode().len()-stored.encode().len(),33);
-        assert_eq!(full.post_id,id);
-        assert_eq!(full.signer_account_id,visitor_account());
-        assert_eq!(full.content_hash,[7u8;32]);
-        assert_eq!(full.storage_receipt_id.as_slice(),&vec![b'r';64]);
-        let count=crate::pallet::PublishedPostCountByCid::<Test>::get(&full.cid_number);
-        assert_noop!(SquarePost::publish_post(RuntimeOrigin::signed(visitor_account()),raw_id,SquarePostType::Video,[8u8;32],b"different".to_vec()),Error::<Test>::DuplicatePostId);
-        assert_eq!(crate::pallet::PublishedPostCountByCid::<Test>::get(full.cid_number),count);
-    });
-}

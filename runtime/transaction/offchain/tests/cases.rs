@@ -1408,30 +1408,3 @@ mod fee {
         assert_eq!(RATE_CHANGE_DELAY_BLOCKS, 1_680);
     }
 }
-
-#[test]
-fn compact_batch_preserves_full_payment_intent_and_u128_u64_boundaries() {
-    use codec::{Encode,DecodeAll};
-    let make=|amount,fee,nonce|OffchainBatchItem::<AccountId32,u32> {tx_id:H256::repeat_byte(3),payer_account_id:AccountId32::new([1;32]),payer_bank_cid:bank_cid(),recipient_account_id:AccountId32::new([2;32]),recipient_bank_cid:bank_cid(),transfer_amount:amount,fee_amount:fee,payer_sig:[5;64],payer_nonce:nonce,expires_at:100};
-    let item=make(1_000_000,1_000,1_000);
-    assert_eq!(item.encode().len(),226);
-    let intent=item.to_intent();
-    assert_eq!(intent.amount,1_000_000);
-    assert_eq!(intent.fee,1_000);
-    assert_eq!(intent.nonce,1_000);
-    assert_eq!(intent.encode().len(),194);
-    for (amount,fee,nonce) in [(0,0,0),(63,64,16383),(16384,(1u128<<30)-1,1u64<<30),(u128::MAX,u128::MAX,u64::MAX)] {
-        let item=make(amount,fee,nonce);
-        let decoded=OffchainBatchItem::<AccountId32,u32>::decode_all(&mut &item.encode()[..]).unwrap();
-        assert_eq!(decoded,item);
-        assert_eq!(decoded.to_intent().encode(),item.to_intent().encode());
-        assert_eq!(decoded.to_intent().signing_hash(),item.to_intent().signing_hash());
-    }
-    new_test_ext().execute_with(|| {
-        let tx=H256::repeat_byte(44);
-        assert!(!ProcessedOffchainTxAt::<Test>::contains_key(*b"GD",tx));
-        ProcessedOffchainTxAt::<Test>::insert(*b"GD",tx,0);
-        assert!(ProcessedOffchainTxAt::<Test>::contains_key(*b"GD",tx));
-        assert_eq!(ProcessedOffchainTxAt::<Test>::get(*b"GD",tx),Some(0));
-    });
-}
