@@ -3145,6 +3145,8 @@ select option:checked {
 }
 
 .home-dual-panel > main.app .home-node-toolbar .status-line {
+  position: relative;
+  top: -5px;
   min-height: 28px;
 }
 
