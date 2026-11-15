@@ -18,7 +18,6 @@ use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::Error as ConsensusError;
-use sp_crypto_hashing::blake2_128;
 use sp_runtime::traits::Block as BlockT;
 use sp_runtime::traits::Header as HeaderT;
 use sp_storage::StorageKey;
@@ -94,10 +93,9 @@ fn enforce_genesis_identity<C: HeaderBackend<Block>>(client: &C) {
     }
 }
 
-/// 所有合法 finalize 原生发行按账户汇总后，由 `NodeGuard` 统一核对余额和总发行量。
+/// 合法 finalize 原生发行仅登记金额，由 `NodeGuard` 核对总发行差额。
 #[derive(Debug, Default, Eq, PartialEq)]
 pub(super) struct FinalizeIssuancePlan {
-    accounts: BTreeMap<[u8; 32], u128>,
     total: u128,
 }
 
@@ -159,155 +157,8 @@ fn has_user_transaction(extrinsic_count: usize) -> bool {
     extrinsic_count > 1
 }
 
-fn parse_system_account_key(key: &[u8], prefix: &[u8]) -> Result<[u8; 32], String> {
-    if !key.starts_with(prefix) || key.len() != prefix.len() + 48 {
-        return Err("System::Account RAW key 形态错误".into());
-    }
-    let hash_at = prefix.len();
-    let account_at = hash_at + 16;
-    let account: [u8; 32] = key[account_at..]
-        .try_into()
-        .map_err(|_| "System::Account 账户长度错误")?;
-    if blake2_128(&account) != key[hash_at..account_at] {
-        return Err("System::Account Blake2_128Concat 校验失败".into());
-    }
-    Ok(account)
-}
-
-fn account_info<F>(read: &F, account: &[u8; 32]) -> Result<Option<MAccountInfo>, String>
-where
-    F: Fn(&[u8]) -> Option<Vec<u8>>,
-{
-    read(&crate::guard::fullnode_issuance::storage_key::system_account(account))
-        .map(|raw| decode_exact(&raw, "System::Account"))
-        .transpose()
-}
-
-#[derive(Default)]
-pub(crate) struct ImportedPolicyState {
-    governance: BTreeMap<Vec<u8>, Vec<u8>>,
-    national_body_composition: BTreeMap<Vec<u8>, Vec<u8>>,
-    fullnode_issuance: BTreeMap<Vec<u8>, Vec<u8>>,
-    citizen_issuance: BTreeMap<Vec<u8>, Vec<u8>>,
-    genesis_pallet: BTreeMap<Vec<u8>, Vec<u8>>,
-    provincialbank_interest: BTreeMap<Vec<u8>, Vec<u8>>,
-    runtime_policy: BTreeMap<Vec<u8>, Vec<u8>>,
-    cid: BTreeMap<Vec<u8>, Vec<u8>>,
-    scanned: usize,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ImportedPolicyStats {
-    scanned: usize,
-    governance: usize,
-    national_body_composition: usize,
-    fullnode_issuance: usize,
-    citizen_issuance: usize,
-    genesis_pallet: usize,
-    provincialbank_interest: usize,
-    runtime_policy: usize,
-    cid: usize,
-}
-
-/// 对完整下载态只遍历一次，并把所有内部策略需要的 RAW 状态分流到共享快照。
-fn partition_imported_state<'a, I>(pairs: I) -> ImportedPolicyState
-where
-    I: IntoIterator<Item = (&'a Vec<u8>, &'a Vec<u8>)>,
-{
-    let fullnode_prefix = crate::guard::fullnode_issuance::storage_key::pallet_prefix();
-    let system_prefix = crate::guard::fullnode_issuance::storage_key::system_prefix();
-    let total_issuance_key = crate::guard::fullnode_issuance::storage_key::total_issuance();
-    let citizen_issuance_prefix = crate::guard::citizen_issuance::storage_key::pallet_prefix();
-    let genesis_pallet_prefix = crate::guard::genesis_pallet::storage_key::pallet_prefix();
-    let provincialbank_prefix = crate::guard::provincialbank_interest::storage_key::pallet_prefix();
-    let provincialbank_keys = crate::guard::provincialbank_interest::relevant_import_keys();
-    let cid_prefixes = crate::guard::cid_lifecycle::storage_key::relevant_prefixes();
-    let mut state = crate::guard::ImportedPolicyState::default();
-    for (key, value) in pairs {
-        state.scanned = state.scanned.saturating_add(1);
-        if crate::guard::governance_skeleton::storage_key::is_relevant(key) {
-            state.governance.insert(key.clone(), value.clone());
-        }
-        if crate::guard::national_body_composition::storage_key::is_relevant(key) {
-            state
-                .national_body_composition
-                .insert(key.clone(), value.clone());
-        }
-        if key.starts_with(&fullnode_prefix)
-            || key.starts_with(&system_prefix)
-            || key == &total_issuance_key
-        {
-            state.fullnode_issuance.insert(key.clone(), value.clone());
-        }
-        if crate::guard::cid_lifecycle::matches_relevant_prefixes(key, &cid_prefixes) {
-            state.cid.insert(key.clone(), value.clone());
-        }
-        if key.starts_with(&citizen_issuance_prefix) {
-            state.citizen_issuance.insert(key.clone(), value.clone());
-        }
-        if key.starts_with(&genesis_pallet_prefix) {
-            state.genesis_pallet.insert(key.clone(), value.clone());
-        }
-        if key.starts_with(&provincialbank_prefix) || provincialbank_keys.contains(key) {
-            state
-                .provincialbank_interest
-                .insert(key.clone(), value.clone());
-        }
-        if crate::guard::runtime_policy::storage_key::is_relevant(key) {
-            state.runtime_policy.insert(key.clone(), value.clone());
-        }
-    }
-    state
-}
-
-/// 校验完整下载态中的全部 NodeGuard 策略，并返回单遍扫描统计供日志和回归测试核对。
-fn verify_imported_policy_state<'a, I>(
-    block: u32,
-    pairs: I,
-    cid_reference: &crate::guard::cid_lifecycle::GenesisReference,
-) -> Result<ImportedPolicyStats, String>
-where
-    I: IntoIterator<Item = (&'a Vec<u8>, &'a Vec<u8>)>,
-{
-    crate::guard::cid_lifecycle::check_state_import_height(block)
-        .map_err(|e| format!("CID 生命周期:{e:?}"))?;
-    let state = partition_imported_state(pairs);
-    crate::guard::governance_skeleton::check_catalog_keys(state.governance.keys())
-        .map_err(|e| format!("固定治理岗位目录:{e:?}"))?;
-    crate::guard::governance_skeleton::check_skeleton_invariants(|key| {
-        state.governance.get(key).cloned()
-    })
-    .map_err(|e| format!("固定治理骨架:{e:?}"))?;
-    crate::guard::national_body_composition::check_imported_state(&state.national_body_composition)
-        .map_err(|e| format!("国家机构组成:{e:?}"))?;
-    crate::guard::fullnode_issuance::check_imported_state_key_values(
-        block,
-        state.fullnode_issuance.iter(),
-    )
-    .map_err(|e| format!("全节点发行:{e:?}"))?;
-    crate::guard::citizen_issuance::check_imported_state_key_values(
-        block,
-        state.citizen_issuance.iter(),
-    )
-    .map_err(|e| format!("公民认证发行:{e:?}"))?;
-    crate::guard::genesis_pallet::check_imported_state(state.genesis_pallet.iter())
-        .map_err(|e| format!("创世模块:{e:?}"))?;
-    crate::guard::provincialbank_interest::check_imported_state(
-        block,
-        state.provincialbank_interest.iter(),
-    )
-    .map_err(|e| format!("省储行固定发行:{e:?}"))?;
-    crate::guard::runtime_policy::check_imported_state(state.runtime_policy.iter())
-        .map_err(|e| format!("手续费制度:{e}"))?;
-    crate::guard::cid_lifecycle::check_imported_genesis(state.cid.iter(), cid_reference)
-        .map_err(|e| format!("CID 生命周期:{e:?}"))?;
-    Ok(state.stats())
-}
-
-/// finalize 阶段只允许已注册发行计划改变账户和 `TotalIssuance`，其余变化一律 fail-closed。
+/// finalize 总发行增量必须等于各合法发行来源登记的金额。
 fn verify_finalize_issuance<FPre, FPost>(
-    pre_delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
-    post_delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     pre: &FPre,
     post: &FPost,
     plan: &FinalizeIssuancePlan,
@@ -334,126 +185,7 @@ where
         ));
     }
 
-    let account_prefix = crate::guard::fullnode_issuance::storage_key::system_account_prefix();
-    let mut changed_accounts = BTreeMap::<[u8; 32], ()>::new();
-    for key in pre_delta.keys().chain(post_delta.keys()) {
-        if key.starts_with(&account_prefix) && pre(key) != post(key) {
-            changed_accounts.insert(parse_system_account_key(key, &account_prefix)?, ());
-        }
-    }
-    for account in changed_accounts.keys() {
-        if !plan.accounts.contains_key(account) {
-            return Err(format!(
-                "finalize 出现未登记账户变化:0x{}",
-                hex::encode(account)
-            ));
-        }
-    }
-
-    const NEW_BALANCES_FLAGS: u128 = 0x80000000_00000000_00000000_00000000;
-    for (account, expected) in &plan.accounts {
-        let before = account_info(pre, account)?;
-        let after = account_info(post, account)?
-            .ok_or_else(|| format!("finalize 收款账户缺失:0x{}", hex::encode(account)))?;
-        let before_free = before
-            .as_ref()
-            .map(|info| info.data.free)
-            .unwrap_or_default();
-        let balance_delta = signed_delta(before_free, after.data.free);
-        let expected_delta = i128::try_from(*expected).unwrap_or(i128::MAX);
-        if balance_delta != expected_delta {
-            return Err(format!(
-                "finalize 收款差额错误:账户 0x{},期望 {expected},实际 {balance_delta}",
-                hex::encode(account)
-            ));
-        }
-        if let Some(before) = before {
-            if before.nonce != after.nonce
-                || before.consumers != after.consumers
-                || before.providers != after.providers
-                || before.sufficients != after.sufficients
-                || before.data.reserved != after.data.reserved
-                || before.data.frozen != after.data.frozen
-                || before.data.flags != after.data.flags
-            {
-                return Err(format!(
-                    "finalize 非 free 账户字段被改写:0x{}",
-                    hex::encode(account)
-                ));
-            }
-        } else if after.nonce != 0
-            || after.consumers != 0
-            || after.providers != 1
-            || after.sufficients != 0
-            || after.data.reserved != 0
-            || after.data.frozen != 0
-            || after.data.flags != NEW_BALANCES_FLAGS
-        {
-            return Err(format!(
-                "finalize 新建收款账户形态错误:0x{}",
-                hex::encode(account)
-            ));
-        }
-    }
     Ok(())
-}
-
-/// 对普通块导入方携带的预计算 storage changes 做自证一致性校验。
-///
-/// 本链 CPU/GPU 矿工会沿用 Substrate PoW worker 的 `ApplyChanges(Changes)` 快路径，
-/// 但该字段来自导入方本地构块产物，不能被节点守卫信任。守卫已经用本节点 runtime
-/// 只读重放同一块；若导入方携带的预计算变更与重放结果不一致，即使 header/state_root
-/// 自洽，也必须在委派内层 import 前 fail-closed。
-fn verify_precomputed_changes(
-    params: &BlockImportParams<Block>,
-    executed: &sp_state_machine::StorageChanges<sp_runtime::traits::HashingFor<Block>>,
-) -> Result<(), String> {
-    let StateAction::ApplyChanges(StorageChanges::Changes(precomputed)) = &params.state_action
-    else {
-        return Ok(());
-    };
-
-    if precomputed.transaction_storage_root != executed.transaction_storage_root {
-        return Err("普通块预计算 state root 与本节点重放结果不一致".into());
-    }
-    if precomputed.main_storage_changes != executed.main_storage_changes {
-        return Err("普通块预计算主存储变更与本节点重放结果不一致".into());
-    }
-    if precomputed.child_storage_changes != executed.child_storage_changes {
-        return Err("普通块预计算子存储变更与本节点重放结果不一致".into());
-    }
-    if precomputed.offchain_storage_changes != executed.offchain_storage_changes {
-        return Err("普通块预计算 offchain 存储变更与本节点重放结果不一致".into());
-    }
-    Ok(())
-}
-
-/// 校验导入队列/warp 携带的完整状态包，并返回共享单遍扫描统计。
-///
-/// 该函数不读取节点数据库，方便测试直接构造 `BlockImportParams::state_action` 证明
-/// 完整状态导入路径会在委派内层导入前执行永久规则。
-fn verify_imported_state_params(
-    params: &BlockImportParams<Block>,
-    cid_reference: Option<&crate::guard::cid_lifecycle::GenesisReference>,
-) -> Result<ImportedPolicyStats, String> {
-    let imported = match &params.state_action {
-        StateAction::ApplyChanges(StorageChanges::Import(imported)) => imported,
-        _ => return Err("warp 状态非 ApplyChanges(Import) 形态,无法提交前校验".into()),
-    };
-    let cid_reference = cid_reference.ok_or("CID 生命周期启动基准不可用，拒绝完整状态导入")?;
-    // 与 SDK 实际写入 storage.top 的条件一致；子 trie 的同名键不能替代主状态。
-    // 所有策略仍复用同一遍主状态扫描，完整原始状态包继续交给 SDK 校验状态根。
-    verify_imported_policy_state(
-        *params.header.number(),
-        imported
-            .state
-            .0
-            .iter()
-            .filter(|level| level.parent_storage_keys.is_empty() && level.state_root.is_empty())
-            .flat_map(|level| level.key_values.iter())
-            .map(|(key, value)| (key, value)),
-        cid_reference,
-    )
 }
 
 #[path = "lifecycle.rs"]
@@ -467,9 +199,6 @@ pub mod fullnode_issuance;
 
 #[path = "phase.rs"]
 pub mod genesis_pallet;
-
-#[path = "governance.rs"]
-pub mod governance_skeleton;
 
 #[path = "composition.rs"]
 pub mod national_body_composition;
@@ -492,33 +221,9 @@ mod finalize_issuance_tests;
 pub mod testing;
 
 impl FinalizeIssuancePlan {
-    pub(super) fn add(&mut self, account: [u8; 32], amount: u128) -> Result<(), ()> {
-        let next = self
-            .accounts
-            .get(&account)
-            .copied()
-            .unwrap_or_default()
-            .checked_add(amount)
-            .ok_or(())?;
+    pub(super) fn add(&mut self, amount: u128) -> Result<(), ()> {
         self.total = self.total.checked_add(amount).ok_or(())?;
-        self.accounts.insert(account, next);
         Ok(())
-    }
-}
-
-impl ImportedPolicyState {
-    fn stats(&self) -> ImportedPolicyStats {
-        ImportedPolicyStats {
-            scanned: self.scanned,
-            governance: self.governance.len(),
-            national_body_composition: self.national_body_composition.len(),
-            fullnode_issuance: self.fullnode_issuance.len(),
-            citizen_issuance: self.citizen_issuance.len(),
-            genesis_pallet: self.genesis_pallet.len(),
-            provincialbank_interest: self.provincialbank_interest.len(),
-            runtime_policy: self.runtime_policy.len(),
-            cid: self.cid.len(),
-        }
     }
 }
 
@@ -526,7 +231,7 @@ impl<I> NodeGuard<I> {
     /// 装配节点守卫。
     ///
     /// 首先强制校验唯一合法的创世哈希与状态根，失败立即中止节点启动。
-    /// 其他本机状态自检仍只报告警告；后续区块、状态包和候选 runtime 导入保持
+    /// 其他本机状态自检仍只报告警告；后续执行块及候选 runtime 校验保持
     /// fail-closed，坏输入一律不委派内层导入器。
     ///
     /// # Panics
@@ -540,31 +245,6 @@ impl<I> NodeGuard<I> {
         let genesis_hash = client.info().genesis_hash;
         let mut startup_issues = Vec::<String>::new();
 
-        let governance_catalog_keys = match Self::state_keys_for_prefixes(
-            &client,
-            genesis_hash,
-            crate::guard::governance_skeleton::storage_key::fixed_catalog_prefixes(),
-        ) {
-            Ok(keys) => keys,
-            Err(reason) => {
-                startup_issues.push(format!("固定治理岗位目录枚举失败:{reason}"));
-                Vec::new()
-            }
-        };
-        if let Err(reason) =
-            crate::guard::governance_skeleton::check_catalog_keys(&governance_catalog_keys)
-        {
-            startup_issues.push(format!("固定治理岗位目录校验失败:{reason:?}"));
-        }
-        if let Err(reason) = crate::guard::governance_skeleton::check_skeleton_invariants(|key| {
-            client
-                .storage(genesis_hash, &StorageKey(key.to_vec()))
-                .ok()
-                .flatten()
-                .map(|data| data.0)
-        }) {
-            startup_issues.push(format!("固定治理骨架校验失败:{reason:?}"));
-        }
         if let Err(reason) = crate::guard::national_body_composition::check_full_state(|key| {
             client
                 .storage(genesis_hash, &StorageKey(key.to_vec()))
@@ -633,7 +313,7 @@ impl<I> NodeGuard<I> {
                 Err(reason) => startup_issues.push(format!("读取省储行质押本金失败:{reason}")),
             }
         }
-        if let Err(reason) = crate::guard::provincialbank_interest::check_imported_state(
+        if let Err(reason) = crate::guard::provincialbank_interest::check_recorded_state(
             0,
             provincialbank_state.iter(),
         ) {
@@ -743,7 +423,7 @@ impl<I> NodeGuard<I> {
         Ok(keys.into_keys().collect())
     }
 
-    /// 枚举若干精确 storage 子树；固定治理岗位只扫描固定机构 CID，不扫描全部机构。
+    /// 枚举保留的费率、提案和阈值存储子树。
     fn state_keys_for_prefixes(
         client: &Arc<FullClient>,
         at: <Block as BlockT>::Hash,
@@ -762,7 +442,7 @@ impl<I> NodeGuard<I> {
         Ok(keys.into_keys().collect())
     }
 
-    /// 枚举指定 pallet 的全部 RAW key/value；只用于启动与 block#0 完整导入基准。
+    /// 枚举指定 pallet 的 RAW key/value，用于启动基准检查。
     fn pallet_state(
         client: &Arc<FullClient>,
         at: <Block as BlockT>::Hash,
@@ -783,31 +463,12 @@ impl<I> NodeGuard<I> {
         Ok(state)
     }
 
-    /// 提交前校验 warp/状态导入携带的完整下载态；无法抽取或不满足策略时一律拒绝导入。
-    fn verify_imported_state(&self, params: &BlockImportParams<Block>) -> Result<(), String> {
-        let stats = verify_imported_state_params(params, self.cid_lifecycle.as_ref())?;
-        log::debug!(
-            target: "node-guard",
-            "完整状态单遍扫描:总键 {},治理 {},国家组成/固定阈值 {},全节点发行/账户 {},公民发行 {},创世模块 {},省储行固定发行 {},手续费制度 {},CID {}",
-            stats.scanned,
-            stats.governance,
-            stats.national_body_composition,
-            stats.fullnode_issuance,
-            stats.citizen_issuance,
-            stats.genesis_pallet,
-            stats.provincialbank_interest,
-            stats.runtime_policy,
-            stats.cid,
-        );
-        Ok(())
-    }
-
     /// 对正常执行型区块统一预执行一次，并检查当前已注册的全部节点永久策略。
-    fn detect_violation(&self, params: &BlockImportParams<Block>) -> Result<bool, String> {
+    fn detect_violation(&self, params: &mut BlockImportParams<Block>) -> Result<bool, String> {
         let body = params
             .body
             .clone()
-            .ok_or_else(|| "普通区块缺少 body,无法复算 finalize 前后发行状态".to_string())?;
+            .ok_or_else(|| "普通执行块缺少 body，无法验证状态".to_string())?;
         let extrinsic_count = body.len();
         if !has_user_transaction(extrinsic_count) {
             log::error!(
@@ -851,9 +512,8 @@ impl<I> NodeGuard<I> {
         let changes = api
             .into_storage_changes(&parent_state, parent_hash)
             .map_err(|e| format!("提取存储变更失败:{e}"))?;
-        verify_precomputed_changes(params, &changes)?;
         let post_delta: BTreeMap<Vec<u8>, Option<Vec<u8>>> =
-            changes.main_storage_changes.into_iter().collect();
+            changes.main_storage_changes.iter().cloned().collect();
 
         let read_parent = |key: &[u8]| -> Option<Vec<u8>> {
             self.client
@@ -907,13 +567,7 @@ impl<I> NodeGuard<I> {
         if let Err(reason) =
             crate::guard::genesis_pallet::check_transition(&post_delta, &read_parent, &read_post)
         {
-            log::error!(
-                target: "node-guard",
-                "拒绝区块 #{} ({:?}):创世模块永久规则被破坏 —— {:?}",
-                params.header.number(),
-                params.post_hash(),
-                reason,
-            );
+            log::error!(target: "node-guard", "创世固定事实校验失败:{reason:?}");
             return Ok(true);
         }
 
@@ -936,8 +590,6 @@ impl<I> NodeGuard<I> {
         }
 
         if let Err(reason) = crate::guard::citizen_issuance::check_transition(
-            extrinsic_count,
-            &pre_delta,
             &post_delta,
             &read_parent,
             &read_pre,
@@ -973,13 +625,7 @@ impl<I> NodeGuard<I> {
             return Ok(true);
         }
 
-        if let Err(reason) = verify_finalize_issuance(
-            &pre_delta,
-            &post_delta,
-            &read_pre,
-            &read_post,
-            &issuance_plan,
-        ) {
+        if let Err(reason) = verify_finalize_issuance(&read_pre, &read_post, &issuance_plan) {
             log::error!(
                 target: "node-guard",
                 "拒绝区块 #{} ({:?}):finalize 统一发行核算失败 —— {reason}",
@@ -1093,15 +739,12 @@ impl<I> NodeGuard<I> {
             if let Err(reason) = crate::guard::runtime_policy::check_candidate_runtime(
                 &parent_state,
                 parent_hash,
-                params.post_hash(),
-                *params.header.number(),
                 &post_delta,
                 &candidate_code,
-                self.client.info().genesis_hash,
             ) {
                 log::error!(
                     target: "node-guard",
-                    "拒绝区块 #{} ({:?}):候选 runtime 手续费行为非法 —— {reason}",
+                    "拒绝区块 #{} ({:?}):候选 runtime 接口策略非法 —— {reason}",
                     params.header.number(),
                     params.post_hash(),
                 );
@@ -1132,34 +775,6 @@ impl<I> NodeGuard<I> {
             }
         }
 
-        // 治理骨架只在受保护机构精确 key 变化时按机构复核；`:code` 变化才全量复核。
-        if crate::guard::governance_skeleton::needs_full_check(&post_delta) {
-            if let Err(reason) =
-                crate::guard::governance_skeleton::check_catalog_keys(post_delta.keys())
-            {
-                log::error!(
-                    target: "node-guard",
-                    "拒绝区块 #{} ({:?}):固定治理岗位目录被破坏 —— {:?}",
-                    params.header.number(),
-                    params.post_hash(),
-                    reason,
-                );
-                return Ok(true);
-            }
-            if let Err(reason) = crate::guard::governance_skeleton::check_affected_institutions(
-                &post_delta,
-                read_post,
-            ) {
-                log::error!(
-                    target: "node-guard",
-                    "拒绝区块 #{} ({:?}):固定治理骨架不变式被破坏 —— {:?}",
-                    params.header.number(),
-                    params.post_hash(),
-                    reason,
-                );
-                return Ok(true);
-            }
-        }
         // runtime 升级必须复核升级前已存在、升级后仍存在以及本块新增/删除的全部内部
         // 提案和阈值快照，防止新 WASM 通过移走旧 storage 绕过五类固定治理阈值语义。
         let runtime_upgrade_vote_keys =
@@ -1203,6 +818,10 @@ impl<I> NodeGuard<I> {
             );
             return Ok(true);
         }
+        // 普通执行块只导入本节点已验证的执行结果，不消费外来预计算变更。
+        if !matches!(&params.state_action, StateAction::Skip) {
+            params.state_action = StateAction::ApplyChanges(StorageChanges::Changes(changes));
+        }
         Ok(false)
     }
 }
@@ -1223,21 +842,13 @@ where
 
     async fn import_block(
         &self,
-        params: BlockImportParams<Block>,
+        mut params: BlockImportParams<Block>,
     ) -> Result<ImportResult, Self::Error> {
         if params.with_state() {
-            let verdict = self.verify_imported_state(&params);
-            if let Err(reason) = &verdict {
-                log::error!(
-                    target: "node-guard",
-                    "拒绝 warp/状态导入 ({:?}):节点永久规则校验未通过 —— {reason}",
-                    params.post_hash(),
-                );
-            }
-            return import_if_verified(&self.inner, params, verdict).await;
+            return self.inner.import_block(params).await;
         }
 
-        let verdict = match self.detect_violation(&params) {
+        let verdict = match self.detect_violation(&mut params) {
             Ok(true) => Err("节点永久规则明确判定为违规".to_string()),
             Ok(false) => Ok(()),
             // 沿用现有 fail-closed 口径：无法完成节点规则检查时不导入未经验证的区块。

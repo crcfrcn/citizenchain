@@ -74,11 +74,13 @@ Total output lines: 12501
 
 正式NodeGuard启动入口只接受冻结的GENESIS_HASH与GENESIS_STATE_ROOT；客户端创世哈希、块0索引、实际区块头高度、状态根及区块头重算哈希必须全部一致，缺失或读取失败均拒绝启动。正式构建没有可替换主网身份的配置或环境开关。
 
-NodeGuard完整状态导入按目标区块高度检查现有永久制度。块0公民认证发行继续要求规范空状态；非零高度允许已完成奖励的永久CID及账户防重记录，累计发行数须与两表记录数一致且不超过原上限，键和值必须使用规范编码，CID键复用现有公开CidNumberBound类型，临时队列及临时防重记录必须清空。永久领奖事实独立于当前身份绑定。省储行启动、完整导入和升级全检共用check_full_state，启动创世检查显式使用高度0；删除不再使用的旧创世包装函数。
+NodeGuard 只执行约定保留的23项：冻结创世身份、非空块、真实区块执行、创世固定声明、正常交易收费与费率、三类发行及总发行差额、质押本金、CID格式与命名空间、身份依赖、创世机构身份与协议账户、机构组成及固定治理阈值、候选Runtime接口策略，以及这些保留项的升级复核和失败关闭。机构岗位权限表、固定岗位与名册模板、基金会创始人岗位身份、开发/运营阶段转换、CID登记吊销历史及换绑修订号不在NodeGuard职责中。
 
-NodeGuard和宪法守卫只读取parent_storage_keys与state_root同时为空的主状态层，与固定SDK实际写入storage.top的条件一致；子状态不能覆盖或补足主状态规则。原完整状态包继续交给SDK导入并核验整体状态根，网络同步、Runtime业务及创世身份守卫保持原合同。
+普通执行块的唯一导入状态来自本节点验证通过的重放结果；不接收外来预计算变更作为可信状态，也不保留独立预计算比较器。NodeGuard不再执行独立完整状态业务审计；完整状态仍由最外层宪法守卫检查宪法记录，再由SDK验证状态根和共识证明。宪法守卫全部18项保持。
 
-NodeGuard对普通区块的`System::Events`使用父块哈希处的Runtime元数据定位事件存储类型，完整解码并拒绝坏元数据、截断或尾随字节。升级块事件由升级前Runtime编码，因此不使用节点内置的新版`RuntimeEvent`解释整份事件列表；这使旧链无字段的`System::CodeUpdated`与新版带`hash`的同名事件都走同一条按实际Runtime解码的路径。只从完整解码结果提取准确`FeePaid`与`PaymentSettled`字段，原有固定链上费用、投票费、收款行费率及结算金额判断不变；`:code`变化后的候选WASM真实收费探针与其他永久守卫继续执行。未知元数据版本或费用事件字段结构失败即拒块，不根据升级调用跳过费用检查。
+公民认证发行从永久领取事实与首次身份依据计算资格、人数、奖励档位和总发行计划，防止重复领取；不读取或审计Runtime内部临时工作队列。finalize仅检查合法发行计划对应的总发行差额，不再做逐账户余额、非free字段或新账户形态检查；省储行质押账户保护独立保留。
+
+NodeGuard对普通区块的`System::Events`使用父块哈希处的Runtime元数据定位事件存储类型，完整解码并拒绝坏元数据、截断或尾随字节。升级块事件由升级前Runtime编码，因此不使用节点内置的新版`RuntimeEvent`解释整份事件列表；这使旧链无字段的`System::CodeUpdated`与新版带`hash`的同名事件都走同一条按实际Runtime解码的路径。只从完整解码结果提取准确`FeePaid`与`PaymentSettled`字段，原有固定链上费用、投票费、收款行费率及结算金额判断不变；`:code`变化时仅复核保留的费率存量和候选Runtime接口策略，不执行合成业务交易。未知元数据版本或费用事件字段结构失败即拒块，不根据升级调用跳过费用检查。
 
 节点TLS RPC以最终确定块的实际Runtime元数据决定是否装配Ethereum方法。含Revive时必须成功初始化官方Ethereum客户端与同步任务，否则节点必要任务退出；无Revive仅允许创世旧版`spec_version=0`，此时原生RPC继续经同一TLS和Safe约束提供读链与交易提交，其他版本缺Revive均拒绝启动。正式Runtime升级最终确定后须重启节点，使Ethereum方法按新Runtime重新装配；该阶段不关闭NodeGuard、PoW或最终性，也不把缺Revive错误当作TLS证书失败。
 
@@ -1659,7 +1661,7 @@ RoleSubject = (cid_number, role_code)
 - 所有机构必须永久存在唯一 `LR / 法定代表人` 岗位；岗位允许空缺，但岗位码和岗位名不可修改或删除。
 - `LR` 岗位任职人数只能为 0 或 1；法定代表人姓名、个人 CID、账户三字段必须与 `LR` 任职在同一治理结果中一起设置或一起清空。
 - 所有创世固定岗位的岗位码、岗位名和岗位权限永久固定。非营利法人“公民链技术发展基金会”固定包含 `LR`、`GENESIS_PRODUCT_MANAGER`、`GENESIS_PROGRAMMER`，并允许同一账户分别任职三岗。
-- 创世机构可以依法增加、改名和删除普通动态岗位；NodeGuard 只保护固定岗位，不禁止额外动态岗位。
+- 创世机构岗位与权限的业务规则由 runtime 实施；NodeGuard 不冻结岗位或权限目录。
 - 动态岗位码由 runtime 生成，机构内唯一、不可修改，删除后永不复用；调用方不得指定岗位码。
 - 动态岗位码格式：`R_<32 位大写十六进制>`。
 - 生成材料：`blake2_256(SCALE(MODULE_TAG, cid_number, institution_role_nonce, proposal_id))`，取前 16 字节并转为大写十六进制。
@@ -1684,7 +1686,7 @@ RoleSubject = (cid_number, role_code)
 - CID 顶层能力、创世固定岗位与权限：runtime 共享常量与创世规范。
 - 业务动作权限要求、指定投票引擎、VotePlan 和通过后执行：对应业务模块。
 - 机构治理阈值：`runtime/entity/publicentity` / `privateentity`；提案阈值快照、资格快照、票据、计票和终态：`runtime/votingengine`。
-- 永久固定岗位保护：NodeGuard；不得扩大为一般机构业务授权真源。
+- 固定岗位与权限的业务约束由 runtime 负责；NodeGuard 只保留机构组成及固定治理阈值检查。
 
 #### 后果
 
@@ -2209,3 +2211,11 @@ macOS、Windows、LinuxARM、LinuxAMD各自独立发行，工作流从本平台�
 提案编号：提案ID内部使用u128，年份u32，年内序号u64；Tauri/HTTP/JSON中的提案ID及年内序号统一传十进制字符串。分页运算使用BigInt，不经JavaScript number；提案键/调用ID槽为16字节，展示号为12字节。节点组成守卫按完整长度及哈希校验旧8字节、新16字节ID键，并以同一编码配对提案与阈值，覆盖升级前后状态。
 
 CID年份u32：CID生成器调用中的year同步为u32，组成和生命周期守卫继续执行原有职责。生命周期守卫对新年份号码仍核对地域、机构码、盈利属性与原始文本校验和，不增加年份或随机号段的独立政策。既有CID和派生账户无迁移；runtime-benchmarks工厂仅同步年份字面量类型。
+
+### ML-DSA-65 原生账户交易
+
+核心统一为 `runtime/transaction/mldsa`：开发期 sr 账户用 sr 签名、PQ 账户用 PQ 签名。sr AccountId 为 sr 公钥32字节，PQ AccountId 为 `blake2_256("GMB/account/ml-dsa-65/v1" || public_key)`；现有 AccountId 不变，无跨算法绑定或转换。
+Mldsa pallet index 36 仅有 `PqPublicKey` 存储。PQ 首次普通交易用官方 V5 General/pipeline1 的 `Mldsa65Auth` 校验账户哈希和签名后，在 prepare 存完整1952字节公钥一次；后续只带账户和3309字节签名。缺公钥的 Stored 交易拒绝；nonce、扣费和业务派发沿用原 pipeline0。sr V4 字节保持。
+`node scripts/runtime.mjs build-operation` 在原候选构建流程启用 operation 特性；一次 runtime 升级的 hook 把既有 Phase 切至 Operation 并关闭 DeveloperUpgradeEnabled，不扫描或改写账户。运行期在 sr 密码学验签前拒绝 sr 交易。
+钱包与SDK通过主清单直接引用同一核心，源码构建优先复用同级公民链，缺少时仅在本轮临时目录浅克隆源码并直接引用；默认sr、提供PQ选项，今后 operation 客户端构建只保留PQ派生。首次认证随正常交易自动完成。
+认证权重目前是保守预算，尚非目标节点硬件的 FRAME 生成基准。

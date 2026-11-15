@@ -204,13 +204,14 @@ where
         );
     }
 
-    let public = chain_signing::parse_sr25519_public_key(account_id)?;
-    let signature = chain_signing::parse_sr25519_signature_hex(signature_hex)?;
-    if !chain_signing::verify_signature(&material, &signature, &public) {
-        return Err("sr25519 本地验签失败,拒绝提交".to_string().into());
-    }
-
-    let extrinsic = chain_signing::assemble_signed_extrinsic(material, public, signature);
+    let account = chain_signing::parse_sr25519_public_key(account_id)?.0;
+    let signature = hex::decode(signature_hex.strip_prefix("0x").unwrap_or(signature_hex)).map_err(|e| e.to_string())?;
+    let registered = if chain_signing::mldsa::signature_parts(&signature)?.0.is_some() {
+        let key = chain_signing::mldsa::PqPublicKey::<runtime::Runtime>::hashed_key_for(runtime::AccountId::new(account));
+        let head = rpc_post("chain_getFinalizedHead", Value::Array(vec![])).await?;
+        !rpc_post("state_getStorage", serde_json::json!([format!("0x{}", hex::encode(key)), head])).await?.is_null()
+    } else { false };
+    let extrinsic = chain_signing::assemble_account_signed_extrinsic(material, account, &signature, registered)?;
     let extrinsic_hex = chain_signing::signed_extrinsic_hex(&extrinsic);
     let extrinsic_bytes = extrinsic.encode();
 

@@ -97,12 +97,14 @@ election = { path = "public/election", default-features = false }
 destroy = { path = "governance/destroy", default-features = false }
 multisig = { path = "transaction/multisig", default-features = false }
 offchain = { path = "transaction/offchain", default-features = false }
+mldsa = { path = "transaction/mldsa", default-features = false, features = ["runtime"] }
 genesis = { path = "genesis", default-features = false }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
 [features]
+operation = ["mldsa/operation"]
 default = ["std"]
 std = [
 	"codec/std",
@@ -148,6 +150,7 @@ std = [
 	"destroy/std",
 	"multisig/std",
 	"offchain/std",
+	"mldsa/std",
 	"genesis/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
@@ -211,6 +214,7 @@ runtime-benchmarks = [
 	"destroy/runtime-benchmarks",
 	"multisig/runtime-benchmarks",
 	"offchain/runtime-benchmarks",
+	"mldsa/runtime-benchmarks",
 	"genesis/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
@@ -251,6 +255,7 @@ try-runtime = [
 	"destroy/try-runtime",
 	"multisig/try-runtime",
 	"offchain/try-runtime",
+	"mldsa/try-runtime",
 	"genesis/try-runtime",
 	"sp-runtime/try-runtime",
 ]

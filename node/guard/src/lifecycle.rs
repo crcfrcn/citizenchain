@@ -166,10 +166,6 @@ pub(crate) enum GuardError {
     InvalidCid,
     InvalidCidNamespace,
     CrossNamespaceDuplicate,
-    CitizenCidDeleted,
-    CitizenCidIdentityChanged,
-    CitizenCidStatusInvalid,
-    CitizenCidRevocationHeightInvalid,
     CitizenIdentityDeleted,
     CitizenIdentityWithoutCid,
     CitizenCandidateIdentityDeleted,
@@ -177,11 +173,6 @@ pub(crate) enum GuardError {
     CitizenCandidateIdentityInvalidStatus,
     CitizenCandidateIdentityLockedFieldChanged,
     CitizenCandidateIdentityUpdateHeightInvalid,
-    CitizenAccountIdBindingMissing,
-    CitizenAccountIdBindingMismatch,
-    CitizenBindingRevisionMissing,
-    CitizenBindingRevisionInvalid,
-    CitizenBindingRevisionTransitionInvalid,
     GenesisInstitutionDeleted,
     GenesisInstitutionChanged,
     InstitutionIdentityChanged,
@@ -414,25 +405,9 @@ fn validate_cid_namespace(cid: &[u8], namespace: Namespace) -> Result<Institutio
     Ok(code)
 }
 
-fn validate_citizen_record(
-    cid: &[u8],
-    record: &CitizenCidRecord,
-    block: Option<u32>,
-) -> Result<(), GuardError> {
-    // 人主体 CID(公民 CTZN / 居民 NATP / 智能人 SMTP)统一放行:占号入口接受 CTZN|NATP
-    // (自助/注册局占即绑),与 `valid_province_city` 的 is_person_code 去地域化判定一致。
-    if !is_person_code(&parse_cid(cid)?) || record.registrar_cid_number.is_empty() {
-        return Err(crate::guard::cid_lifecycle::GuardError::InvalidCidNamespace);
-    }
-    match record.status {
-        crate::guard::cid_lifecycle::CitizenCidStatus::Active if record.revoked_at.is_none() => {}
-        crate::guard::cid_lifecycle::CitizenCidStatus::Revoked if record.revoked_at.is_some() => {}
-        _ => return Err(crate::guard::cid_lifecycle::GuardError::CitizenCidStatusInvalid),
-    }
-    if let Some(block) = block {
-        if record.registered_at > block || record.revoked_at.is_some_and(|at| at > block) {
-            return Err(crate::guard::cid_lifecycle::GuardError::CitizenCidRevocationHeightInvalid);
-        }
+fn validate_citizen_record(cid: &[u8]) -> Result<(), GuardError> {
+    if !is_person_code(&parse_cid(cid)?) {
+        return Err(GuardError::InvalidCidNamespace);
     }
     Ok(())
 }
@@ -523,49 +498,18 @@ where
     Ok(())
 }
 
-fn check_citizen_transition(
-    block: u32,
-    cid: &[u8],
-    parent_raw: Option<Vec<u8>>,
-    post_raw: Option<Vec<u8>>,
-) -> Result<(), GuardError> {
-    let post_raw = post_raw.ok_or(crate::guard::cid_lifecycle::GuardError::CitizenCidDeleted)?;
-    let post: CitizenCidRecord = decode_exact(&post_raw, "CidRegistry")?;
-    validate_citizen_record(cid, &post, Some(block))?;
-    let Some(parent_raw) = parent_raw else {
-        if post.registered_at != block
-            || (post.status == crate::guard::cid_lifecycle::CitizenCidStatus::Revoked
-                && post.revoked_at != Some(block))
-        {
-            return Err(crate::guard::cid_lifecycle::GuardError::CitizenCidRevocationHeightInvalid);
-        }
-        return Ok(());
-    };
-    let parent: CitizenCidRecord = decode_exact(&parent_raw, "CidRegistry")?;
-    validate_citizen_record(cid, &parent, None)?;
-    if parent.registrar_cid_number != post.registrar_cid_number
-        || parent.commitment != post.commitment
-        || parent.residence_province_code != post.residence_province_code
-        || parent.residence_city_code != post.residence_city_code
-        || parent.registered_at != post.registered_at
-    {
-        return Err(crate::guard::cid_lifecycle::GuardError::CitizenCidIdentityChanged);
+fn validate_identity_dependency<F>(cid: &[u8], read: &F) -> Result<(), GuardError>
+where
+    F: Fn(&[u8]) -> Option<Vec<u8>>,
+{
+    validate_citizen_record(cid)?;
+    if read(&storage_key::citizen_registry(cid)).is_none() {
+        return Err(GuardError::CitizenIdentityWithoutCid);
     }
-    match (parent.status, post.status) {
-        (
-            crate::guard::cid_lifecycle::CitizenCidStatus::Active,
-            crate::guard::cid_lifecycle::CitizenCidStatus::Active,
-        ) if parent_raw == post_raw => Ok(()),
-        (
-            crate::guard::cid_lifecycle::CitizenCidStatus::Active,
-            crate::guard::cid_lifecycle::CitizenCidStatus::Revoked,
-        ) if post.revoked_at == Some(block) => Ok(()),
-        (
-            crate::guard::cid_lifecycle::CitizenCidStatus::Revoked,
-            crate::guard::cid_lifecycle::CitizenCidStatus::Revoked,
-        ) if parent_raw == post_raw => Ok(()),
-        _ => Err(crate::guard::cid_lifecycle::GuardError::CitizenCidStatusInvalid),
+    if let Some(raw) = read(&storage_key::voting_identity(cid)) {
+        let _: CitizenVotingIdentity = decode_exact(&raw, "VotingIdentityByCid")?;
     }
+    validate_candidate_identity(cid, read)
 }
 
 fn validate_candidate_identity<F>(cid: &[u8], read: &F) -> Result<(), GuardError>
@@ -660,46 +604,6 @@ where
     }
 }
 
-fn validate_citizen_identity_binding<F>(cid: &[u8], read: &F) -> Result<(), GuardError>
-where
-    F: Fn(&[u8]) -> Option<Vec<u8>>,
-{
-    let registry_raw = read(&crate::guard::cid_lifecycle::storage_key::citizen_registry(
-        cid,
-    ))
-    .ok_or(crate::guard::cid_lifecycle::GuardError::CitizenIdentityWithoutCid)?;
-    let registry: CitizenCidRecord = decode_exact(&registry_raw, "CidRegistry")?;
-    validate_citizen_record(cid, &registry, None)?;
-
-    // 投票身份、竞选身份是用户可选项,不是必须:匿名 CID(占号即绑账户、无投票身份)
-    // 合法。存在则校验可解码,不存在则放行——守卫不强制任何身份信息,用户只凭钱包账户
-    // 即可占号绑定。投票身份一旦创建不得删除的单调性由 `check_transition` 单独兜底。
-    if let Some(identity_raw) = read(&crate::guard::cid_lifecycle::storage_key::voting_identity(
-        cid,
-    )) {
-        let _: CitizenVotingIdentity = decode_exact(&identity_raw, "VotingIdentityByCid")?;
-    }
-    validate_candidate_identity(cid, read)?;
-
-    let account_raw = read(&crate::guard::cid_lifecycle::storage_key::account_id_by_cid(cid))
-        .ok_or(crate::guard::cid_lifecycle::GuardError::CitizenAccountIdBindingMissing)?;
-    let account: [u8; 32] = decode_exact(&account_raw, "AccountIdByCid")?;
-    let reverse_raw = read(&crate::guard::cid_lifecycle::storage_key::cid_by_account_id(&account))
-        .ok_or(crate::guard::cid_lifecycle::GuardError::CitizenAccountIdBindingMissing)?;
-    let reverse_cid: Vec<u8> = decode_exact(&reverse_raw, "CidByAccountId")?;
-    if reverse_cid != cid {
-        return Err(crate::guard::cid_lifecycle::GuardError::CitizenAccountIdBindingMismatch);
-    }
-    let revision_raw =
-        read(&crate::guard::cid_lifecycle::storage_key::binding_revision_by_cid(cid))
-            .ok_or(crate::guard::cid_lifecycle::GuardError::CitizenBindingRevisionMissing)?;
-    let revision: u64 = decode_exact(&revision_raw, "BindingRevisionByCid")?;
-    if revision == 0 {
-        return Err(crate::guard::cid_lifecycle::GuardError::CitizenBindingRevisionInvalid);
-    }
-    Ok(())
-}
-
 /// 普通区块只对本块触及的 CID、机构和账户执行单调性与正反索引校验。
 pub(crate) fn check_transition<FParent, FPost>(
     block: u32,
@@ -712,127 +616,37 @@ where
     FParent: Fn(&[u8]) -> Option<Vec<u8>>,
     FPost: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    let citizen_prefix = crate::guard::cid_lifecycle::storage_key::citizen_registry_prefix();
-    let mut required_revision_changes = BTreeSet::<Vec<u8>>::new();
-    let mut touched_citizens = BTreeSet::<Vec<u8>>::new();
-    for key in delta.keys().filter(|key| key.starts_with(&citizen_prefix)) {
-        let cid = parse_vec_map_key(key, &citizen_prefix, "CidRegistry")?;
-        let before = parent(key);
-        let after = post(key);
-        check_citizen_transition(block, &cid, before.clone(), after.clone())?;
-        touched_citizens.insert(cid.clone());
-        if let (Some(before), Some(after)) = (before, after) {
-            let before: CitizenCidRecord = decode_exact(&before, "CidRegistry")?;
-            let after: CitizenCidRecord = decode_exact(&after, "CidRegistry")?;
-            if before.status == crate::guard::cid_lifecycle::CitizenCidStatus::Active
-                && after.status == crate::guard::cid_lifecycle::CitizenCidStatus::Revoked
+    let citizen_prefix = storage_key::citizen_registry_prefix();
+    let identity_prefix = storage_key::voting_identity_prefix();
+    let candidate_prefix = storage_key::candidate_identity_prefix();
+    for key in delta.keys() {
+        if key.starts_with(&citizen_prefix) {
+            let cid = parse_vec_map_key(key, &citizen_prefix, "CidRegistry")?;
+            validate_citizen_record(&cid)?;
+            if post(key).is_some() {
+                for ns in [Namespace::Public, Namespace::Private] {
+                    if post(&storage_key::institution(ns, &cid)).is_some() {
+                        return Err(GuardError::CrossNamespaceDuplicate);
+                    }
+                }
+            }
+            if post(&storage_key::voting_identity(&cid)).is_some()
+                || post(&storage_key::candidate_identity(&cid)).is_some()
             {
-                required_revision_changes.insert(cid);
+                validate_identity_dependency(&cid, &post)?;
             }
         }
-    }
-
-    let identity_prefix = crate::guard::cid_lifecycle::storage_key::voting_identity_prefix();
-    let candidate_prefix = crate::guard::cid_lifecycle::storage_key::candidate_identity_prefix();
-    let forward_prefix = crate::guard::cid_lifecycle::storage_key::account_id_by_cid_prefix();
-    let reverse_prefix = crate::guard::cid_lifecycle::storage_key::cid_by_account_id_prefix();
-    let revision_prefix =
-        crate::guard::cid_lifecycle::storage_key::binding_revision_by_cid_prefix();
-    let mut forward_touched = BTreeSet::<Vec<u8>>::new();
-    for key in delta.keys() {
         if key.starts_with(&identity_prefix) {
             let cid = parse_vec_map_key(key, &identity_prefix, "VotingIdentityByCid")?;
             if post(key).is_none() {
-                return Err(crate::guard::cid_lifecycle::GuardError::CitizenIdentityDeleted);
+                return Err(GuardError::CitizenIdentityDeleted);
             }
-            touched_citizens.insert(cid);
+            validate_identity_dependency(&cid, &post)?;
         }
         if key.starts_with(&candidate_prefix) {
             let cid = parse_vec_map_key(key, &candidate_prefix, "CandidateIdentityByCid")?;
             check_candidate_transition(block, &cid, parent(key), post(key), &post)?;
-            touched_citizens.insert(cid);
         }
-        if key.starts_with(&forward_prefix) {
-            let cid = parse_vec_map_key(key, &forward_prefix, "AccountIdByCid")?;
-            // 净值变化必须同步推进 revision；仅触及但净值相同还可能是合法的
-            // self_occupy 幂等重试，也可能是同块 A→B→A，需结合 revision delta 判定。
-            if parent(key) != post(key) {
-                required_revision_changes.insert(cid.clone());
-            }
-            forward_touched.insert(cid.clone());
-            touched_citizens.insert(cid);
-        }
-        if key.starts_with(&reverse_prefix) {
-            let account = parse_account_map_key(key, &reverse_prefix, "CidByAccountId")?;
-            if let Some(raw) = post(key) {
-                let cid: Vec<u8> = decode_exact(&raw, "CidByAccountId")?;
-                let forward_raw =
-                    post(&crate::guard::cid_lifecycle::storage_key::account_id_by_cid(&cid))
-                        .ok_or(
-                            crate::guard::cid_lifecycle::GuardError::CitizenAccountIdBindingMissing,
-                        )?;
-                let forward: [u8; 32] = decode_exact(&forward_raw, "AccountIdByCid")?;
-                if forward != account {
-                    return Err(
-                        crate::guard::cid_lifecycle::GuardError::CitizenAccountIdBindingMismatch,
-                    );
-                }
-                touched_citizens.insert(cid);
-            } else if let Some(raw) = parent(key) {
-                let cid: Vec<u8> = decode_exact(&raw, "CidByAccountId")?;
-                if post(&crate::guard::cid_lifecycle::storage_key::account_id_by_cid(&cid))
-                    .is_some_and(|raw| {
-                        crate::guard::cid_lifecycle::decode_exact::<[u8; 32]>(
-                            &raw,
-                            "AccountIdByCid",
-                        ) == Ok(account)
-                    })
-                {
-                    return Err(
-                        crate::guard::cid_lifecycle::GuardError::CitizenAccountIdBindingMismatch,
-                    );
-                }
-                touched_citizens.insert(cid);
-            }
-        }
-    }
-    for key in delta.keys().filter(|key| key.starts_with(&revision_prefix)) {
-        let cid = parse_vec_map_key(key, &revision_prefix, "BindingRevisionByCid")?;
-        let after_raw = post(key)
-            .ok_or(crate::guard::cid_lifecycle::GuardError::CitizenBindingRevisionMissing)?;
-        let after: u64 = decode_exact(&after_raw, "BindingRevisionByCid")?;
-        let valid = match parent(key) {
-            None => {
-                after == 1
-                    && parent(&crate::guard::cid_lifecycle::storage_key::account_id_by_cid(&cid))
-                        .is_none()
-                    && post(&crate::guard::cid_lifecycle::storage_key::account_id_by_cid(&cid))
-                        .is_some()
-            }
-            Some(before_raw) => {
-                let before: u64 = decode_exact(&before_raw, "BindingRevisionByCid")?;
-                // NodeGuard 只观察块前/块后：同块可合法发生 A→B→C 或换绑后吊销，
-                // 也可发生 A→B→A；因此要求严格单调并有 forward 触及或吊销证据。
-                // 每次调用恰好 +1 由 runtime 单测锁定。
-                after > before
-                    && (forward_touched.contains(&cid) || required_revision_changes.contains(&cid))
-            }
-        };
-        if !valid {
-            return Err(
-                crate::guard::cid_lifecycle::GuardError::CitizenBindingRevisionTransitionInvalid,
-            );
-        }
-        required_revision_changes.remove(&cid);
-        touched_citizens.insert(cid);
-    }
-    if !required_revision_changes.is_empty() {
-        return Err(
-            crate::guard::cid_lifecycle::GuardError::CitizenBindingRevisionTransitionInvalid,
-        );
-    }
-    for cid in touched_citizens {
-        validate_citizen_identity_binding(&cid, &post)?;
     }
 
     let mut touched_institutions = BTreeSet::<(u8, Vec<u8>)>::new();
@@ -1026,62 +840,23 @@ fn validate_full_state<F>(
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    let citizen_prefix = crate::guard::cid_lifecycle::storage_key::citizen_registry_prefix();
-    for key in keys.iter().filter(|key| key.starts_with(&citizen_prefix)) {
-        let Some(raw) = read(key) else { continue };
-        let cid = parse_vec_map_key(key, &citizen_prefix, "CidRegistry")?;
-        let record: CitizenCidRecord = decode_exact(&raw, "CidRegistry")?;
-        validate_citizen_record(&cid, &record, None)?;
-        // 每个 Active/Revoked CID 都必须存在唯一账户正反绑定和非零 revision；
-        // 仅有登记表记录的半状态同样拒绝。
-        validate_citizen_identity_binding(&cid, read)?;
-    }
-
-    let identity_prefix = crate::guard::cid_lifecycle::storage_key::voting_identity_prefix();
-    for key in keys.iter().filter(|key| key.starts_with(&identity_prefix)) {
-        let Some(_) = read(key) else { continue };
-        let cid = parse_vec_map_key(key, &identity_prefix, "VotingIdentityByCid")?;
-        validate_citizen_identity_binding(&cid, read)?;
-    }
-
-    let candidate_prefix = crate::guard::cid_lifecycle::storage_key::candidate_identity_prefix();
-    for key in keys.iter().filter(|key| key.starts_with(&candidate_prefix)) {
-        let Some(_) = read(key) else { continue };
-        let cid = parse_vec_map_key(key, &candidate_prefix, "CandidateIdentityByCid")?;
-        validate_citizen_identity_binding(&cid, read)?;
-    }
-
-    let forward_prefix = crate::guard::cid_lifecycle::storage_key::account_id_by_cid_prefix();
-    for key in keys.iter().filter(|key| key.starts_with(&forward_prefix)) {
-        let Some(_) = read(key) else { continue };
-        let cid = parse_vec_map_key(key, &forward_prefix, "AccountIdByCid")?;
-        validate_citizen_identity_binding(&cid, read)?;
-    }
-
-    let reverse_prefix = crate::guard::cid_lifecycle::storage_key::cid_by_account_id_prefix();
-    for key in keys.iter().filter(|key| key.starts_with(&reverse_prefix)) {
-        let Some(raw) = read(key) else { continue };
-        let account = parse_account_map_key(key, &reverse_prefix, "CidByAccountId")?;
-        let cid: Vec<u8> = decode_exact(&raw, "CidByAccountId")?;
-        let forward_raw = read(&crate::guard::cid_lifecycle::storage_key::account_id_by_cid(&cid))
-            .ok_or(crate::guard::cid_lifecycle::GuardError::CitizenAccountIdBindingMissing)?;
-        let forward: [u8; 32] = decode_exact(&forward_raw, "AccountIdByCid")?;
-        if forward != account {
-            return Err(crate::guard::cid_lifecycle::GuardError::CitizenAccountIdBindingMismatch);
+    let citizen_prefix = storage_key::citizen_registry_prefix();
+    for key in keys.iter().filter(|k| k.starts_with(&citizen_prefix)) {
+        if read(key).is_some() {
+            let cid = parse_vec_map_key(key, &citizen_prefix, "CidRegistry")?;
+            validate_citizen_record(&cid)?;
         }
-        validate_citizen_identity_binding(&cid, read)?;
     }
-
-    let revision_prefix =
-        crate::guard::cid_lifecycle::storage_key::binding_revision_by_cid_prefix();
-    for key in keys.iter().filter(|key| key.starts_with(&revision_prefix)) {
-        let Some(raw) = read(key) else { continue };
-        let cid = parse_vec_map_key(key, &revision_prefix, "BindingRevisionByCid")?;
-        let revision: u64 = decode_exact(&raw, "BindingRevisionByCid")?;
-        if revision == 0 {
-            return Err(crate::guard::cid_lifecycle::GuardError::CitizenBindingRevisionInvalid);
+    for prefix in [
+        storage_key::voting_identity_prefix(),
+        storage_key::candidate_identity_prefix(),
+    ] {
+        for key in keys.iter().filter(|k| k.starts_with(&prefix)) {
+            if read(key).is_some() {
+                let cid = parse_vec_map_key(key, &prefix, "citizen identity")?;
+                validate_identity_dependency(&cid, read)?;
+            }
         }
-        validate_citizen_identity_binding(&cid, read)?;
     }
 
     let mut occupied_public = BTreeSet::new();
@@ -1271,29 +1046,6 @@ where
     validate_full_state(keys, &read, Some(reference))
 }
 
-pub(crate) fn check_imported_genesis<'a, I>(
-    pairs: I,
-    reference: &GenesisReference,
-) -> Result<(), GuardError>
-where
-    I: IntoIterator<Item = (&'a Vec<u8>, &'a Vec<u8>)>,
-{
-    let prefixes = crate::guard::cid_lifecycle::storage_key::relevant_prefixes();
-    let map: BTreeMap<Vec<u8>, Vec<u8>> = pairs
-        .into_iter()
-        .filter(|(key, _)| matches_relevant_prefixes(key, &prefixes))
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect();
-    let keys: Vec<Vec<u8>> = map.keys().cloned().collect();
-    check_full_state(&keys, |key| map.get(key).cloned(), reference)
-}
-
-/// 当前规则只保护 block#0 精确机构集合与导入态完整性，不再把普通机构生命周期
-/// 误当作永久单调历史，因此任意高度的完整状态都可以独立验证。
-pub(crate) fn check_state_import_height(_block: u32) -> Result<(), GuardError> {
-    Ok(())
-}
-
 pub(crate) fn needs_full_check(delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>) -> bool {
     if delta.contains_key(CODE_KEY) {
         return true;
@@ -1372,30 +1124,6 @@ pub mod storage_key {
         map_vec(CITIZEN_IDENTITY_PALLET, b"CandidateIdentityByCid", cid)
     }
 
-    pub fn account_id_by_cid_prefix() -> Vec<u8> {
-        storage_prefix(CITIZEN_IDENTITY_PALLET, b"AccountIdByCid")
-    }
-
-    pub fn account_id_by_cid(cid: &[u8]) -> Vec<u8> {
-        map_vec(CITIZEN_IDENTITY_PALLET, b"AccountIdByCid", cid)
-    }
-
-    pub fn cid_by_account_id_prefix() -> Vec<u8> {
-        storage_prefix(CITIZEN_IDENTITY_PALLET, b"CidByAccountId")
-    }
-
-    pub fn cid_by_account_id(account: &[u8; 32]) -> Vec<u8> {
-        map_account(CITIZEN_IDENTITY_PALLET, b"CidByAccountId", account)
-    }
-
-    pub fn binding_revision_by_cid_prefix() -> Vec<u8> {
-        storage_prefix(CITIZEN_IDENTITY_PALLET, b"BindingRevisionByCid")
-    }
-
-    pub fn binding_revision_by_cid(cid: &[u8]) -> Vec<u8> {
-        map_vec(CITIZEN_IDENTITY_PALLET, b"BindingRevisionByCid", cid)
-    }
-
     pub fn institution_prefix(namespace: Namespace) -> Vec<u8> {
         storage_prefix(namespace.pallet(), b"Institutions")
     }
@@ -1426,9 +1154,6 @@ pub mod storage_key {
             citizen_registry_prefix(),
             voting_identity_prefix(),
             candidate_identity_prefix(),
-            account_id_by_cid_prefix(),
-            cid_by_account_id_prefix(),
-            binding_revision_by_cid_prefix(),
             institution_prefix(crate::guard::cid_lifecycle::Namespace::Public),
             institution_prefix(crate::guard::cid_lifecycle::Namespace::Private),
             institution_account_prefix(crate::guard::cid_lifecycle::Namespace::Public),

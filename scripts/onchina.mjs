@@ -320,7 +320,7 @@ export async function frontendConfiguration(frontend, {command = 'build', descri
   },
   server: {
     ...listener,
-    fs: { allow: [frontend, platform, join(project, 'icons'), join(project, 'crates/scanner')] },
+    fs: { allow: [frontend, platform, join(project, 'icons'), join(project, 'crates/scanner'), join(project, 'runtime/transaction/mldsa')] },
     hmr: { protocol: 'wss', clientPort: listener.port },
   },
   preview: listener,

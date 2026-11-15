@@ -1,7 +1,6 @@
 use super::*;
 
 use crate::guard::national_body_composition::check_full_state;
-use crate::guard::national_body_composition::check_imported_state;
 use crate::guard::national_body_composition::check_transition;
 use crate::guard::national_body_composition::check_vote_state_keys;
 use crate::guard::national_body_composition::composition_state;
@@ -10,14 +9,14 @@ use crate::guard::national_body_composition::DecodedAdminAccount;
 use crate::guard::national_body_composition::DecodedAssignment;
 use crate::guard::national_body_composition::DecodedRole;
 use adminbase::Admin;
-use entitybase::InstitutionAssignmentSource;
-use primitives::institution_constraints::member_composition_specs;
-use primitives::institution_constraints::MemberCompositionSpec;
-use std::collections::BTreeMap;
 use engingcore::types::ProposalSubjectCidNumbers;
 use engingcore::types::PROPOSAL_KIND_INTERNAL;
 use engingcore::types::STAGE_INTERNAL;
 use engingcore::Proposal;
+use entitybase::InstitutionAssignmentSource;
+use primitives::institution_constraints::member_composition_specs;
+use primitives::institution_constraints::MemberCompositionSpec;
+use std::collections::BTreeMap;
 
 fn account(index: u32) -> [u8; 32] {
     let mut account = [0u8; 32];
@@ -208,7 +207,7 @@ fn fixed_governance_threshold_snapshot_is_enforced() {
         )
     );
     assert_eq!(
-        check_imported_state(&state),
+        check_vote_state_keys(state.keys(), |key| state.get(key).cloned()),
         Err(
             crate::guard::national_body_composition::GuardError::FixedThresholdChanged {
                 code: fixed.code,
@@ -306,35 +305,6 @@ fn runtime_upgrade_rechecks_existing_fixed_threshold_snapshots() {
 }
 
 #[test]
-fn non_member_singletons_do_not_enter_composition_guard() {
-    for code in [
-        primitives::cid::code::NLG,
-        primitives::cid::code::NSP,
-        primitives::cid::code::PRS,
-    ] {
-        let singleton = primitives::institution_constraints::singleton_institutions()
-            .into_iter()
-            .find(|item| item.code == code)
-            .expect("singleton exists");
-        assert!(
-            !crate::guard::national_body_composition::storage_key::is_relevant(
-                &crate::guard::governance_skeleton::storage_key::account_id(
-                    singleton.cid_number.as_bytes(),
-                )
-            )
-        );
-        assert!(
-            !crate::guard::national_body_composition::storage_key::is_relevant(
-                &crate::guard::governance_skeleton::storage_key::institution_role(
-                    singleton.cid_number.as_bytes(),
-                    b"RUNTIME_ROLE",
-                )
-            )
-        );
-    }
-}
-
-#[test]
 fn six_singleton_threshold_snapshots_are_not_frozen_by_node_guard() {
     for (index, singleton) in primitives::institution_constraints::singleton_institutions()
         .into_iter()
@@ -422,25 +392,29 @@ fn fixed_proposal_without_canonical_threshold_is_rejected() {
     );
 }
 
-
 #[test]
-fn proposal_key_width_keeps_old_and_new_threshold_guards_strict() {
+fn exact_hashed_suffix_pairs_proposal_and_threshold_without_id_decoding() {
     let fixed = primitives::governance_skeleton::fixed_institutions()[0];
     let expected = primitives::cid::code::fixed_governance_pass_threshold(&fixed.code).unwrap();
-    for id in [7u64.encode(), u128::MAX.encode()] {
-        let suffix = [sp_crypto_hashing::blake2_128(&id).as_slice(), &id].concat();
-        let proposal_key = [storage_key::proposal_prefix(), suffix.clone()].concat();
-        let threshold_key = [storage_key::threshold_prefix(), suffix].concat();
-        let mut state = BTreeMap::from([
-            (proposal_key.clone(), (0u8, 0u8, 0u8, Some(fixed.code)).encode()),
-            (threshold_key.clone(), (expected - 1).encode()),
-        ]);
-        assert!(check_proposal(&proposal_key, &|key| state.get(key).cloned()).is_err());
-        state.remove(&threshold_key);
-        assert!(check_proposal(&proposal_key, &|key| state.get(key).cloned()).is_err());
-        state.insert(threshold_key, expected.encode());
-        assert_eq!(check_proposal(&proposal_key, &|key| state.get(key).cloned()), Ok(()));
-        let mut tampered = proposal_key; *tampered.last_mut().unwrap() ^= 1;
-        assert!(storage_key::proposal_id(&tampered).is_err());
-    }
+    let proposal = storage_key::proposal(u128::MAX);
+    let threshold = storage_key::threshold(u128::MAX);
+    assert_eq!(
+        storage_key::proposal_for_threshold(&threshold).unwrap(),
+        proposal
+    );
+    assert_eq!(
+        storage_key::threshold_for_proposal(&proposal).unwrap(),
+        threshold
+    );
+    let raw = (0u8, 0u8, 0u8, Some(fixed.code)).encode();
+    let mut state = BTreeMap::from([
+        (proposal.clone(), raw),
+        (threshold.clone(), (expected - 1).encode()),
+    ]);
+    assert!(check_vote_state_keys([&proposal, &threshold], |k| state.get(k).cloned()).is_err());
+    state.insert(threshold.clone(), expected.encode());
+    check_vote_state_keys([&proposal, &threshold], |k| state.get(k).cloned()).unwrap();
+    let mut bad = proposal;
+    bad[32] ^= 1;
+    assert!(storage_key::threshold_for_proposal(&bad).is_err());
 }

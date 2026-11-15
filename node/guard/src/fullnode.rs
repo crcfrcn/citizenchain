@@ -1,5 +1,4 @@
 use crate::guard::FinalizeIssuancePlan;
-use crate::guard::MAccountInfo;
 use codec::Decode;
 use primitives::pow_const::FULLNODE_BLOCK_REWARD;
 use primitives::pow_const::FULLNODE_REWARD_END_BLOCK;
@@ -7,13 +6,10 @@ use primitives::pow_const::FULLNODE_REWARD_START_BLOCK;
 use runtime::opaque::Header;
 
 use sp_runtime::traits::Header as HeaderT;
-use std::collections::BTreeMap;
 
 const FULLNODE_PALLET: &[u8] = b"FullnodeIssuance";
 
 const BALANCES_PALLET: &[u8] = b"Balances";
-
-const SYSTEM_PALLET: &[u8] = b"System";
 
 /// 节点镜像的 `frame_system::AccountInfo<u32, pallet_balances::AccountData<u128>>`。
 /// 节点只读取 free；其余字段占位保持 SCALE 顺序。
@@ -26,7 +22,6 @@ pub(crate) enum GuardError {
     RewardAuditUnexpected,
     RewardAuditInvalid,
     LastAuthoredBlockInvalid,
-    TotalIssuanceMissing,
     RewardAccountDecodeFailed,
     FinalizeIssuanceOverflow,
     CounterChangedBeforeFinalize,
@@ -51,25 +46,8 @@ fn decode_or_zero<T: Decode + Default>(raw: Option<Vec<u8>>) -> Result<T, ()> {
     }
 }
 
-fn decode_required<T: Decode>(raw: Option<Vec<u8>>) -> Result<T, ()> {
-    let bytes = raw.ok_or(())?;
-    decode_exact(&bytes)
-}
-
 fn decode_audit(raw: Option<Vec<u8>>) -> Result<Option<RewardAudit>, ()> {
     raw.map(|bytes| decode_exact(&bytes)).transpose()
-}
-
-fn free_balance<F>(read: &F, account: &[u8; 32]) -> Result<u128, GuardError>
-where
-    F: Fn(&[u8]) -> Option<Vec<u8>>,
-{
-    match read(&crate::guard::fullnode_issuance::storage_key::system_account(account)) {
-        Some(bytes) => crate::guard::fullnode_issuance::decode_exact::<MAccountInfo>(&bytes)
-            .map(|info| info.data.free)
-            .map_err(|_| crate::guard::fullnode_issuance::GuardError::RewardAccountDecodeFailed),
-        None => Ok(0),
-    }
 }
 
 pub(crate) fn expected_rewarded_blocks(block: u32) -> u32 {
@@ -225,105 +203,8 @@ where
     }
 
     issuance_plan
-        .add(recipient_account_id, FULLNODE_BLOCK_REWARD)
+        .add(FULLNODE_BLOCK_REWARD)
         .map_err(|_| crate::guard::fullnode_issuance::GuardError::FinalizeIssuanceOverflow)?;
-    Ok(())
-}
-
-/// warp/完整状态导入只能验证目标态累计公式；历史逐块实际到账由提供该 finalized 状态的守卫节点背书。
-pub(crate) fn check_imported_state_key_values<'a, I>(block: u32, pairs: I) -> Result<(), GuardError>
-where
-    I: IntoIterator<Item = (&'a Vec<u8>, &'a Vec<u8>)>,
-{
-    let mut map = BTreeMap::new();
-    let fullnode_prefix = crate::guard::fullnode_issuance::storage_key::pallet_prefix();
-    let system_prefix = crate::guard::fullnode_issuance::storage_key::system_prefix();
-    let total_issuance = crate::guard::fullnode_issuance::storage_key::total_issuance();
-    for (key, value) in pairs {
-        if key.starts_with(&fullnode_prefix)
-            || key.starts_with(&system_prefix)
-            || key == &total_issuance
-        {
-            map.insert(key.clone(), value.clone());
-        }
-    }
-    let read = |key: &[u8]| map.get(key).cloned();
-    let expected_count = expected_rewarded_blocks(block);
-    let count: u32 = decode_or_zero(read(
-        &crate::guard::fullnode_issuance::storage_key::rewarded_block_count(),
-    ))
-    .map_err(
-        |_| crate::guard::fullnode_issuance::GuardError::RewardedBlockCountInvalid {
-            expected: expected_count,
-            found: u32::MAX,
-        },
-    )?;
-    if count != expected_count {
-        return Err(
-            crate::guard::fullnode_issuance::GuardError::RewardedBlockCountInvalid {
-                expected: expected_count,
-                found: count,
-            },
-        );
-    }
-    let expected_issued = expected_total(block);
-    let issued: u128 = decode_or_zero(read(
-        &crate::guard::fullnode_issuance::storage_key::total_fullnode_issued(),
-    ))
-    .map_err(
-        |_| crate::guard::fullnode_issuance::GuardError::TotalFullnodeIssuedInvalid {
-            expected: expected_issued,
-            found: u128::MAX,
-        },
-    )?;
-    if issued != expected_issued {
-        return Err(
-            crate::guard::fullnode_issuance::GuardError::TotalFullnodeIssuedInvalid {
-                expected: expected_issued,
-                found: issued,
-            },
-        );
-    }
-    let audit = decode_audit(read(
-        &crate::guard::fullnode_issuance::storage_key::last_reward_audit(),
-    ))
-    .map_err(|_| crate::guard::fullnode_issuance::GuardError::RewardAuditInvalid)?;
-    let _: u128 = decode_required(read(
-        &crate::guard::fullnode_issuance::storage_key::total_issuance(),
-    ))
-    .map_err(|_| crate::guard::fullnode_issuance::GuardError::TotalIssuanceMissing)?;
-    if expected_count == 0 {
-        return if audit.is_none() {
-            Ok(())
-        } else {
-            Err(crate::guard::fullnode_issuance::GuardError::RewardAuditUnexpected)
-        };
-    }
-    let (audit_block, miner, reward_account_id, amount) =
-        audit.ok_or(crate::guard::fullnode_issuance::GuardError::RewardAuditMissing)?;
-    let expected_last_block = block.min(FULLNODE_REWARD_END_BLOCK);
-    if audit_block != expected_last_block || amount != FULLNODE_BLOCK_REWARD {
-        return Err(crate::guard::fullnode_issuance::GuardError::RewardAuditInvalid);
-    }
-    let last_authored: u32 = decode_or_zero(read(
-        &crate::guard::fullnode_issuance::storage_key::last_authored(&miner),
-    ))
-    .map_err(|_| crate::guard::fullnode_issuance::GuardError::LastAuthoredBlockInvalid)?;
-    if last_authored != expected_last_block {
-        return Err(crate::guard::fullnode_issuance::GuardError::LastAuthoredBlockInvalid);
-    }
-    if block <= FULLNODE_REWARD_END_BLOCK {
-        let bound: Option<[u8; 32]> =
-            read(&crate::guard::fullnode_issuance::storage_key::reward_account_id(&miner))
-                .map(|bytes| crate::guard::fullnode_issuance::decode_exact::<[u8; 32]>(&bytes))
-                .transpose()
-                .map_err(|_| crate::guard::fullnode_issuance::GuardError::RewardAuditInvalid)?;
-        if bound.unwrap_or(miner) != reward_account_id
-            || free_balance(&read, &reward_account_id)? < FULLNODE_BLOCK_REWARD
-        {
-            return Err(crate::guard::fullnode_issuance::GuardError::RewardAuditInvalid);
-        }
-    }
     Ok(())
 }
 
@@ -378,10 +259,8 @@ where
 }
 
 pub mod storage_key {
-    use super::*;
     use crate::guard::fullnode_issuance::BALANCES_PALLET;
     use crate::guard::fullnode_issuance::FULLNODE_PALLET;
-    use crate::guard::fullnode_issuance::SYSTEM_PALLET;
     use sp_crypto_hashing::twox_128;
 
     // `nodedesktop::storage` 单源的薄委托;blake2_map 传裸 32 字节账户(AccountId32 无长度前缀)。
@@ -395,14 +274,6 @@ pub mod storage_key {
 
     pub fn pallet_prefix() -> [u8; 16] {
         twox_128(FULLNODE_PALLET)
-    }
-
-    pub fn system_prefix() -> [u8; 16] {
-        twox_128(SYSTEM_PALLET)
-    }
-
-    pub fn system_account_prefix() -> Vec<u8> {
-        storage_value(SYSTEM_PALLET, b"Account")
     }
 
     pub fn rewarded_block_count() -> Vec<u8> {
@@ -427,10 +298,6 @@ pub mod storage_key {
 
     pub fn total_issuance() -> Vec<u8> {
         storage_value(BALANCES_PALLET, b"TotalIssuance")
-    }
-
-    pub fn system_account(account: &[u8; 32]) -> Vec<u8> {
-        blake2_map(SYSTEM_PALLET, b"Account", account)
     }
 }
 #[cfg(test)]

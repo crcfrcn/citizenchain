@@ -21,3 +21,9 @@ pub use extrinsic::{
 
 mod preflight;
 pub use preflight::{classify_invalid_tx, dry_run_reject_message, preflight_reject_message};
+
+pub use extrinsic::build_pq_signed_extrinsic;
+
+pub use mldsa;
+
+pub use extrinsic::assemble_account_signed_extrinsic;

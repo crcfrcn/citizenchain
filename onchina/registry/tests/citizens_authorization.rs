@@ -166,3 +166,47 @@ async fn each_automatic_prepare_keeps_the_real_session_gate() {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
     }
 }
+
+#[test]
+fn identity_levels_allow_first_registration_and_only_voting_to_candidate_upgrade() {
+    for operation in [
+        CitizenOperation::RegisterVotingIdentity,
+        CitizenOperation::UpgradeCandidateIdentity,
+    ] {
+        assert!(ensure_identity_transition(operation, false, false).is_ok());
+    }
+    assert!(
+        ensure_identity_transition(CitizenOperation::UpgradeCandidateIdentity, true, false).is_ok()
+    );
+    assert_eq!(
+        ensure_identity_transition(CitizenOperation::RegisterVotingIdentity, true, false)
+            .unwrap_err()
+            .status(),
+        StatusCode::CONFLICT
+    );
+    // 竞选同时具有投票记录，必须优先锁定竞选；即使收到异常缺少投票记录的快照也不能降级。
+    for voting in [false, true] {
+        for operation in [
+            CitizenOperation::RegisterVotingIdentity,
+            CitizenOperation::UpgradeCandidateIdentity,
+        ] {
+            assert_eq!(
+                ensure_identity_transition(operation, voting, true)
+                    .unwrap_err()
+                    .status(),
+                StatusCode::CONFLICT
+            );
+        }
+    }
+}
+
+#[test]
+fn identity_level_lock_does_not_block_wallet_rebind_or_legal_revocation() {
+    for operation in [
+        CitizenOperation::OccupyCid,
+        CitizenOperation::RebindWallet,
+        CitizenOperation::RevokeIdentity,
+    ] {
+        assert!(ensure_identity_transition(operation, true, true).is_ok());
+    }
+}

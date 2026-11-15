@@ -17,6 +17,7 @@ workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+mldsa = { path = "../../runtime/transaction/mldsa", features = ["runtime", "signing", "std"] }
 runtime = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true }
 frame-metadata-hash-extension = { workspace = true, default-features = true }

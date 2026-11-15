@@ -5,11 +5,10 @@ use crate::guard::runtime_policy::check_max_rate;
 use crate::guard::runtime_policy::check_rate_value;
 use crate::guard::runtime_policy::decode_events;
 use crate::guard::runtime_policy::offchain_fee;
-use crate::guard::runtime_policy::variant;
 use crate::guard::runtime_policy::OFFCHAIN_MAX_RATE_UNITS;
 use frame_system::EventRecord;
 use runtime::RuntimeEvent;
-use sp_runtime::traits::Header as _;
+use sp_core::{sr25519, Pair as _};
 use sp_runtime::AccountId32;
 
 fn local_metadata() -> Vec<u8> {
@@ -283,37 +282,4 @@ fn upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks() 
         &old_metadata,
     )
     .is_err());
-}
-
-/// 字节锁:清算体系 CID 存储键必须 = twox_128(pallet) || twox_128(item)
-/// || blake2_128(SCALE(cid)) || SCALE(cid),其中 SCALE(cid) = Compact(len)||bytes
-/// (与 runtime `StorageMap<_, Blake2_128Concat, InstitutionCidNumber, _>` 逐字节一致)。
-/// 若回退成旧的定长 32B 账户编码(节点会静默读空),本测试必红。
-#[test]
-fn cid_storage_keys_use_compact_len_prefix() {
-    let cid: Vec<u8> = b"AH001-SCB05-000000002-2026".to_vec();
-    let encoded = cid.encode(); // Compact(26)=0x68 || 26 bytes
-    assert_eq!(encoded[0], 0x68, "26<<2 = 0x68 单字节 compact 前缀");
-    assert_eq!(&encoded[1..], &cid[..]);
-
-    let mut want = Vec::new();
-    want.extend_from_slice(&sp_io::hashing::twox_128(b"OffchainTransaction"));
-    want.extend_from_slice(&sp_io::hashing::twox_128(b"LastClearingBatchSeq"));
-    want.extend_from_slice(&sp_io::hashing::blake2_128(&encoded));
-    want.extend_from_slice(&encoded);
-    assert_eq!(
-        crate::guard::runtime_policy::storage_key::last_batch(&cid),
-        want
-    );
-
-    // BankTotalDeposits 键尾同为 Compact(len)||bytes CID。
-    assert!(crate::guard::runtime_policy::storage_key::bank_total(&cid).ends_with(&encoded));
-
-    // DepositBalance 双 map:一级 CID 段(变长)必现于键内,证明非定长 32B 账户编码。
-    let acc = AccountId32::new([0x09; 32]);
-    assert!(
-        crate::guard::runtime_policy::storage_key::deposit(&cid, &acc)
-            .windows(encoded.len())
-            .any(|w| w == encoded.as_slice())
-    );
 }

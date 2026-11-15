@@ -2,14 +2,12 @@ use super::*;
 
 use crate::guard::fullnode_issuance::author_from_header;
 use crate::guard::fullnode_issuance::check_genesis;
-use crate::guard::fullnode_issuance::check_imported_state_key_values;
 use crate::guard::fullnode_issuance::expected_rewarded_blocks;
 use crate::guard::fullnode_issuance::expected_total;
 use crate::guard::fullnode_issuance::GuardError;
 use codec::Encode;
 use primitives::pow_const::FULLNODE_BLOCK_REWARD;
 use primitives::pow_const::FULLNODE_REWARD_END_BLOCK;
-use sp_crypto_hashing::twox_128;
 use std::collections::BTreeMap;
 
 fn check_transition<FParent, FPre, FPost>(
@@ -60,82 +58,44 @@ fn raw_storage_keys_match_runtime_contract() {
     );
 }
 
-fn account(free: u128) -> Vec<u8> {
-    (0u32, 0u32, 1u32, 0u32, (free, 0u128, 0u128, 0u128)).encode()
-}
-
-#[allow(clippy::type_complexity)]
 fn valid_transition(
     block: u32,
     author: [u8; 32],
-    recipient_account_id: [u8; 32],
+    recipient: [u8; 32],
 ) -> (
     BTreeMap<Vec<u8>, Vec<u8>>,
     BTreeMap<Vec<u8>, Vec<u8>>,
     BTreeMap<Vec<u8>, Vec<u8>>,
 ) {
-    let before_count = expected_rewarded_blocks(block - 1);
-    let after_count = expected_rewarded_blocks(block);
-    let mut parent = BTreeMap::new();
-    let mut pre = BTreeMap::new();
-    let mut post = BTreeMap::new();
-    for map in [&mut parent, &mut pre] {
-        put(
-            map,
-            crate::guard::fullnode_issuance::storage_key::rewarded_block_count(),
-            before_count,
-        );
-        put(
-            map,
-            crate::guard::fullnode_issuance::storage_key::total_fullnode_issued(),
-            expected_total(block - 1),
-        );
-        put(
-            map,
-            crate::guard::fullnode_issuance::storage_key::total_issuance(),
-            10_000_000u128,
-        );
-        map.insert(
-            crate::guard::fullnode_issuance::storage_key::system_account(&recipient_account_id),
-            account(1_000),
-        );
-        if recipient_account_id != author {
-            put(
-                map,
-                crate::guard::fullnode_issuance::storage_key::reward_account_id(&author),
-                recipient_account_id,
-            );
-        }
+    let parent = BTreeMap::from([
+        (
+            storage_key::rewarded_block_count(),
+            expected_rewarded_blocks(block - 1).encode(),
+        ),
+        (
+            storage_key::total_fullnode_issued(),
+            expected_total(block - 1).encode(),
+        ),
+    ]);
+    let mut pre = parent.clone();
+    if recipient != author {
+        pre.insert(storage_key::reward_account_id(&author), recipient.encode());
     }
-    put(
-        &mut post,
-        crate::guard::fullnode_issuance::storage_key::rewarded_block_count(),
-        after_count,
-    );
-    put(
-        &mut post,
-        crate::guard::fullnode_issuance::storage_key::total_fullnode_issued(),
-        expected_total(block),
-    );
-    put(
-        &mut post,
-        crate::guard::fullnode_issuance::storage_key::total_issuance(),
-        10_000_000u128 + FULLNODE_BLOCK_REWARD,
-    );
-    post.insert(
-        crate::guard::fullnode_issuance::storage_key::system_account(&recipient_account_id),
-        account(1_000 + FULLNODE_BLOCK_REWARD),
-    );
-    put(
-        &mut post,
-        crate::guard::fullnode_issuance::storage_key::last_authored(&author),
-        block,
-    );
-    put(
-        &mut post,
-        crate::guard::fullnode_issuance::storage_key::last_reward_audit(),
-        (block, author, recipient_account_id, FULLNODE_BLOCK_REWARD),
-    );
+    let post = BTreeMap::from([
+        (
+            storage_key::rewarded_block_count(),
+            expected_rewarded_blocks(block).encode(),
+        ),
+        (
+            storage_key::total_fullnode_issued(),
+            expected_total(block).encode(),
+        ),
+        (
+            storage_key::last_reward_audit(),
+            (block, author, recipient, FULLNODE_BLOCK_REWARD).encode(),
+        ),
+        (storage_key::last_authored(&author), block.encode()),
+    ]);
     (parent, pre, post)
 }
 
@@ -269,19 +229,7 @@ fn reward_is_registered_in_shared_finalize_issuance_plan() {
         ),
         Ok(())
     );
-    assert_eq!(plan.accounts.get(&author), Some(&FULLNODE_BLOCK_REWARD));
     assert_eq!(plan.total, FULLNODE_BLOCK_REWARD);
-}
-
-#[test]
-fn imported_state_missing_balances_total_issuance_is_rejected() {
-    let author = [11u8; 32];
-    let (_parent, _pre, mut post) = valid_transition(1, author, author);
-    post.remove(&crate::guard::fullnode_issuance::storage_key::total_issuance());
-    assert_eq!(
-        check_imported_state_key_values(1, post.iter()),
-        Err(crate::guard::fullnode_issuance::GuardError::TotalIssuanceMissing)
-    );
 }
 
 #[test]
@@ -376,86 +324,6 @@ fn missing_author_and_pre_finalize_counter_tamper_are_rejected() {
         ),
         Err(crate::guard::fullnode_issuance::GuardError::CounterChangedBeforeFinalize)
     );
-}
-
-#[test]
-fn warp_state_rejects_wrong_cumulative_issuance() {
-    let author = [6u8; 32];
-    let mut state = BTreeMap::new();
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::rewarded_block_count(),
-        1u32,
-    );
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::total_fullnode_issued(),
-        FULLNODE_BLOCK_REWARD - 1,
-    );
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::last_authored(&author),
-        1u32,
-    );
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::last_reward_audit(),
-        (1u32, author, author, FULLNODE_BLOCK_REWARD),
-    );
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::total_issuance(),
-        10_000_000u128 + FULLNODE_BLOCK_REWARD,
-    );
-    state.insert(
-        crate::guard::fullnode_issuance::storage_key::system_account(&author),
-        account(FULLNODE_BLOCK_REWARD),
-    );
-    assert_eq!(
-        check_imported_state_key_values(1, state.iter()),
-        Err(
-            crate::guard::fullnode_issuance::GuardError::TotalFullnodeIssuedInvalid {
-                expected: FULLNODE_BLOCK_REWARD,
-                found: FULLNODE_BLOCK_REWARD - 1,
-            }
-        )
-    );
-}
-
-#[test]
-fn warp_state_accepts_exact_first_reward_state() {
-    let author = [10u8; 32];
-    let mut state = BTreeMap::new();
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::rewarded_block_count(),
-        1u32,
-    );
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::total_fullnode_issued(),
-        FULLNODE_BLOCK_REWARD,
-    );
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::last_authored(&author),
-        1u32,
-    );
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::last_reward_audit(),
-        (1u32, author, author, FULLNODE_BLOCK_REWARD),
-    );
-    put(
-        &mut state,
-        crate::guard::fullnode_issuance::storage_key::total_issuance(),
-        10_000_000u128 + FULLNODE_BLOCK_REWARD,
-    );
-    state.insert(
-        crate::guard::fullnode_issuance::storage_key::system_account(&author),
-        account(FULLNODE_BLOCK_REWARD),
-    );
-    assert_eq!(check_imported_state_key_values(1, state.iter()), Ok(()));
 }
 
 #[test]

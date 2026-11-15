@@ -1,12 +1,9 @@
-use super::*;
-
-use crate::guard::provincialbank_interest::check_imported_state;
+use crate::guard::provincialbank_interest::check_recorded_state;
 use crate::guard::provincialbank_interest::check_transition;
 use crate::guard::provincialbank_interest::expected_annual_audit;
 use crate::guard::provincialbank_interest::expected_total;
 use crate::guard::provincialbank_interest::expected_year;
 use crate::guard::provincialbank_interest::interest_bp;
-use crate::guard::provincialbank_interest::interest_for_principal;
 use crate::guard::provincialbank_interest::NEW_BALANCES_FLAGS;
 use codec::Encode;
 use primitives::cid::china::china_ch::CHINA_CH;
@@ -65,7 +62,7 @@ fn raw_keys_match_runtime_contract() {
 #[test]
 fn genesis_allows_stake_topup_but_rejects_principal_spend() {
     let state = genesis_state();
-    assert_eq!(check_imported_state(0, state.iter()), Ok(()));
+    assert_eq!(check_recorded_state(0, state.iter()), Ok(()));
 
     let first = &CHINA_CH[0];
 
@@ -75,7 +72,7 @@ fn genesis_allows_stake_topup_but_rejects_principal_spend() {
         crate::guard::provincialbank_interest::storage_key::system_account(&first.stake_account),
         account(first.stake_amount + 1),
     );
-    assert_eq!(check_imported_state(0, topped_up.iter()), Ok(()));
+    assert_eq!(check_recorded_state(0, topped_up.iter()), Ok(()));
 
     // 支出/减少（free < 本金）拒绝:本金被动用即违规。
     let mut spent = state.clone();
@@ -84,7 +81,7 @@ fn genesis_allows_stake_topup_but_rejects_principal_spend() {
         account(first.stake_amount - 1),
     );
     assert_eq!(
-        check_imported_state(0, spent.iter()),
+        check_recorded_state(0, spent.iter()),
         Err(
             crate::guard::provincialbank_interest::GuardError::StakeAccountChanged(
                 first.stake_account
@@ -100,7 +97,7 @@ fn genesis_rejects_unknown_interest_storage() {
     unknown.extend_from_slice(&twox_128(b"ShadowInterest"));
     state.insert(unknown.clone(), 1u32.encode());
     assert_eq!(
-        check_imported_state(0, state.iter()),
+        check_recorded_state(0, state.iter()),
         Err(crate::guard::provincialbank_interest::GuardError::UnknownStorageKey(unknown))
     );
 }
@@ -138,7 +135,7 @@ fn settled_state(year: u32) -> BTreeMap<Vec<u8>, Vec<u8>> {
 }
 
 #[test]
-fn imported_state_uses_actual_height_at_annual_boundaries_and_final_year() {
+fn recorded_state_uses_actual_height_at_annual_boundaries_and_final_year() {
     let year = BLOCKS_PER_YEAR as u32;
     for (block, settled) in [
         (0, 0),
@@ -153,7 +150,7 @@ fn imported_state_uses_actual_height_at_annual_boundaries_and_final_year() {
         (u32::MAX, 100),
     ] {
         assert_eq!(
-            check_imported_state(block, settled_state(settled).iter()),
+            check_recorded_state(block, settled_state(settled).iter()),
             Ok(()),
             "block {block}"
         );
@@ -161,14 +158,14 @@ fn imported_state_uses_actual_height_at_annual_boundaries_and_final_year() {
     let state = settled_state(1);
     for block in [0, year - 1, 2 * year] {
         assert!(matches!(
-            check_imported_state(block, state.iter()),
+            check_recorded_state(block, state.iter()),
             Err(crate::guard::provincialbank_interest::GuardError::LastSettledYearInvalid { .. })
         ));
     }
 }
 
 #[test]
-fn imported_running_state_rejects_wrong_audit_principal_and_unknown_key() {
+fn recorded_interest_rejects_wrong_audit_principal_and_unknown_key() {
     let block = BLOCKS_PER_YEAR as u32;
     let valid = settled_state(1);
     let mut state = valid.clone();
@@ -177,13 +174,13 @@ fn imported_running_state_rejects_wrong_audit_principal_and_unknown_key() {
         (expected_total(1).unwrap() + 1).encode(),
     );
     assert!(matches!(
-        check_imported_state(block, state.iter()),
+        check_recorded_state(block, state.iter()),
         Err(crate::guard::provincialbank_interest::GuardError::TotalInterestIssuedInvalid { .. })
     ));
     let mut state = valid.clone();
     state.remove(&crate::guard::provincialbank_interest::storage_key::last_interest_audit());
     assert_eq!(
-        check_imported_state(block, state.iter()),
+        check_recorded_state(block, state.iter()),
         Err(crate::guard::provincialbank_interest::GuardError::LastAuditMissing)
     );
     let mut state = valid.clone();
@@ -194,7 +191,7 @@ fn imported_running_state_rejects_wrong_audit_principal_and_unknown_key() {
         audit.encode(),
     );
     assert_eq!(
-        check_imported_state(block, state.iter()),
+        check_recorded_state(block, state.iter()),
         Err(crate::guard::provincialbank_interest::GuardError::LastAuditInvalid)
     );
     let first = &CHINA_CH[0];
@@ -204,7 +201,7 @@ fn imported_running_state_rejects_wrong_audit_principal_and_unknown_key() {
         account(first.stake_amount - 1),
     );
     assert_eq!(
-        check_imported_state(block, state.iter()),
+        check_recorded_state(block, state.iter()),
         Err(
             crate::guard::provincialbank_interest::GuardError::StakeAccountChanged(
                 first.stake_account
@@ -216,13 +213,13 @@ fn imported_running_state_rejects_wrong_audit_principal_and_unknown_key() {
     unknown.extend_from_slice(&twox_128(b"ShadowInterest"));
     state.insert(unknown.clone(), 1u32.encode());
     assert_eq!(
-        check_imported_state(block, state.iter()),
+        check_recorded_state(block, state.iter()),
         Err(crate::guard::provincialbank_interest::GuardError::UnknownStorageKey(unknown))
     );
 }
 
 #[test]
-fn annual_transition_registers_exact_forty_three_account_plan() {
+fn annual_transition_registers_exact_interest_total() {
     let parent = genesis_state();
     let pre = parent.clone();
     let mut post = parent.clone();
@@ -258,18 +255,11 @@ fn annual_transition_registers_exact_forty_three_account_plan() {
         ),
         Ok(())
     );
-    assert_eq!(plan.accounts.len(), CHINA_CH.len());
     assert_eq!(plan.total, audit.total_interest);
-    for bank in CHINA_CH.iter() {
-        assert_eq!(
-            plan.accounts.get(&bank.main_account),
-            Some(&interest_for_principal(bank.stake_amount, 1).unwrap())
-        );
-    }
 }
 
 #[test]
-fn annual_plan_closes_with_balances_and_total_issuance() {
+fn annual_plan_closes_with_total_issuance() {
     let total_key = crate::guard::fullnode_issuance::storage_key::total_issuance();
     let mut pre = genesis_state();
     pre.insert(total_key.clone(), 1_000_000u128.encode());
@@ -288,12 +278,6 @@ fn annual_plan_closes_with_balances_and_total_issuance() {
         audit.encode(),
     );
     post.insert(total_key, (1_000_000u128 + audit.total_interest).encode());
-    for bank in CHINA_CH.iter() {
-        post.insert(
-            crate::guard::provincialbank_interest::storage_key::system_account(&bank.main_account),
-            account(interest_for_principal(bank.stake_amount, 1).unwrap()),
-        );
-    }
     let post_delta: BTreeMap<Vec<u8>, Option<Vec<u8>>> = post
         .iter()
         .filter(|(key, value)| pre.get(key.as_slice()) != Some(*value))
@@ -312,13 +296,11 @@ fn annual_plan_closes_with_balances_and_total_issuance() {
     .expect("年度固定发行策略应生成精确计划");
 
     crate::guard::verify_finalize_issuance(
-        &BTreeMap::new(),
-        &post_delta,
         &|key| pre.get(key).cloned(),
         &|key| post.get(key).cloned(),
         &plan,
     )
-    .expect("43 家余额增量与总发行量应和固定发行计划完全闭环");
+    .expect("年度总发行增量必须与固定发行计划一致");
 }
 
 #[test]

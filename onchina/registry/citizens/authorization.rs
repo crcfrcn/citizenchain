@@ -139,6 +139,27 @@ fn choose_role(roles: &[String], frozen: Option<&str>) -> Result<String, Respons
         .ok_or_else(|| api_error(StatusCode::FORBIDDEN, 1003, "当前管理员无此业务办理权限"))
 }
 
+/// 身份等级只允许首次登记或投票升级竞选；其它业务不受本控件等级锁定影响。
+fn ensure_identity_transition(
+    operation: CitizenOperation,
+    voting: bool,
+    candidate: bool,
+) -> Result<(), Response> {
+    match operation {
+        CitizenOperation::RegisterVotingIdentity if voting || candidate => Err(api_error(
+            StatusCode::CONFLICT,
+            1005,
+            "链上身份已存在，不能重复登记投票身份",
+        )),
+        CitizenOperation::UpgradeCandidateIdentity if candidate => Err(api_error(
+            StatusCode::CONFLICT,
+            1005,
+            "已是竞选身份，不能再次更换或签名",
+        )),
+        _ => Ok(()),
+    }
+}
+
 pub(crate) async fn resolve_operation_role(
     state: &AppState,
     ctx: &AdminAuthContext,
@@ -169,6 +190,12 @@ pub(crate) async fn resolve_operation_role(
             "公民CID号未有效绑定或已吊销，不能办理",
         ));
     }
+    // prepare、complete和首次实际提交均复用该快照，不增加额外RPC；finalized恢复沿用原路径。
+    ensure_identity_transition(
+        operation,
+        snapshot.voting.is_some(),
+        snapshot.candidate.is_some(),
+    )?;
     let scope = match operation {
         CitizenOperation::RegisterVotingIdentity | CitizenOperation::UpgradeCandidateIdentity => {
             let record = state

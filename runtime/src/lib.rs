@@ -20,11 +20,11 @@ use scale_info::TypeInfo;
 use sp_runtime::{
     generic,
     traits::{
-        AsSystemOriginSigner, BlakeTwo256, DispatchInfoOf, Dispatchable, IdentifyAccount,
-        PostDispatchInfoOf, TransactionExtension, ValidateResult, Verify,
+        AsSystemOriginSigner, BlakeTwo256, DispatchInfoOf, Dispatchable,
+        PostDispatchInfoOf, TransactionExtension, ValidateResult,
     },
     transaction_validity::{InvalidTransaction, TransactionValidityError},
-    DispatchResult, MultiAddress, MultiSignature,
+    DispatchResult, MultiAddress,
 };
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -115,12 +115,11 @@ pub fn native_version() -> NativeVersion {
     }
 }
 
-/// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-pub type Signature = MultiSignature;
+/// 保留既有 sr 签名交易编码的阶段校验适配类型；PQ 使用独立认证管线。
+pub type Signature = mldsa::LegacySignature<Runtime>;
 
-/// Some way of identifying an account on the chain. We intentionally make it equivalent
-/// to the public key of our transaction signing scheme.
-pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+/// 唯一链上账户标识：sr 公钥、PQ 公钥域隔离哈希或协议派生标识均为 32 字节。
+pub type AccountId = sp_runtime::AccountId32;
 
 /// Balance of an account.
 pub type Balance = u128;
@@ -231,6 +230,9 @@ where
 pub type UncheckedExtrinsic =
     pallet_revive::evm::runtime::UncheckedExtrinsic<Address, Signature, EthExtraImpl>;
 
+/// PQ 使用独立的官方交易管线，保留既有 V4 签名交易的编码。
+pub type PqTxExtension = (mldsa::Authenticate<Runtime>, TxExtension);
+
 /// Ethereum 验签转换复用全部既有交易扩展，不引入另一套收费规则。
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct EthExtraImpl;
@@ -238,7 +240,7 @@ pub struct EthExtraImpl;
 impl pallet_revive::evm::runtime::EthExtra for EthExtraImpl {
     type Config = Runtime;
     type ExtensionV0 = TxExtension;
-    type ExtensionOtherVersions = sp_runtime::traits::InvalidVersion;
+    type ExtensionOtherVersions = sp_runtime::traits::PipelineAtVers<1, PqTxExtension>;
 
     fn get_eth_extension(nonce: Nonce, tip: Balance) -> TxExtension {
         (
@@ -436,6 +438,9 @@ mod runtime {
     // 广场动态发布索引模块：只记录 post_id/content_hash/storage_receipt_id 等链上索引。
     #[runtime::pallet_index(34)]
     pub type SquarePost = square;
+
+    #[runtime::pallet_index(36)]
+    pub type Mldsa = mldsa;
 
     // 官方 Ethereum 执行模块。
     #[runtime::pallet_index(35)]

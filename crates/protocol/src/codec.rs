@@ -373,6 +373,10 @@ fn validate_body(kind: &QrKindEntry, body: &Map<String, Value>) -> Result<(), Co
             }
         }
     }
+    if kind.kind_code == 2 {
+        let signature = body.get("s").and_then(Value::as_str).ok_or_else(|| schema_error("signature is required"))?;
+        validate_b64u(signature, Some(if body.contains_key("q") { 3309 } else { 64 }), None, "sign_response.b.s")?;
+    }
     Ok(())
 }
 

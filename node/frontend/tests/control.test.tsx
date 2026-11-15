@@ -62,7 +62,7 @@ it.each([
   expect(within(cards[2] as HTMLElement).getByRole('button', {name:'全链冻结金额说明'}).textContent).toBe('说明');
 });
 
-it('冻结金额说明显示三条原文及达标表格，保留原说明并可点击外部关闭', () => {
+it('冻结说明保留原文及达标表格，发行和永久质押说明可打开并显示第5条利息规则', () => {
   const prototype = HTMLDialogElement.prototype;
   const show = Object.getOwnPropertyDescriptor(prototype, 'showModal');
   const close = Object.getOwnPropertyDescriptor(prototype, 'close');
@@ -92,6 +92,15 @@ it('冻结金额说明显示三条原文及达标表格，保留原说明并可�
     fireEvent.click(screen.getByRole('button', {name:'全链发行总额说明'}));
     expect(screen.getByRole('dialog', {name:'全链发行总额说明'})).toBeTruthy();
     expect(screen.getByText('新增发行统一由公民协议「即公民链的Runtime」的发行模组执行。')).toBeTruthy();
+    fireEvent.click(screen.getByRole('dialog', {name:'全链发行总额说明'}));
+    fireEvent.click(screen.getByRole('button', {name:'永久质押金额说明'}));
+    const stakeDialog = screen.getByRole('dialog', {name:'永久质押金额说明'});
+    const stakeItems = within(stakeDialog).getAllByRole('listitem');
+    expect(stakeItems).toHaveLength(5);
+    expect(stakeItems[4].textContent).toContain('按创世本金计息');
+    expect(stakeItems[4].textContent).toContain('第1年按1%的年利率');
+    expect(stakeItems[4].textContent).toContain('每年线性减少0.01个百分点');
+    expect(stakeItems[4].textContent).toContain('利息由质押利息模块发行并汇入省储行主账户');
   } finally {
     view.unmount();
     if (show) Object.defineProperty(prototype, 'showModal', show);

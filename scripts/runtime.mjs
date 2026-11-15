@@ -377,7 +377,8 @@ export function copyRuntimeSource(project, destination, files) {
 }
 
 async function runtime(action) {
-  if (action !== 'build') fail('Runtime入口仅接受build');
+  const operation = action === 'build-operation';
+  if (action !== 'build' && !operation) fail('Runtime入口仅接受build或build-operation');
   const platform = 'wasm', work = join(root, 'target/build/wasm');
   assertRuntimeWork(work);
   const declared = cfg.product.platforms[platform];
@@ -415,7 +416,7 @@ fn main() { substrate_wasm_builder::WasmBuilder::build_using_defaults(); }
 fn main() {}
 `);
       env.CITIZENCHAIN_SOURCE_ROOT = source;
-      await cargo(source, ['build', '--locked', '--release', '-p', 'runtime', '--no-default-features', '--features', 'std']);
+      await cargo(source, ['build', '--locked', '--release', '-p', 'runtime', '--no-default-features', '--features', operation ? 'std,operation' : 'std']);
       const filesToPublish = cfg.product.platforms.wasm.files;
       for (const name of filesToPublish) {
         const path = join(env.CARGO_TARGET_DIR, 'release/wbuild/runtime', name);

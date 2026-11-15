@@ -283,3 +283,8 @@ pub async fn submit_hot_transfer(
 
     result
 }
+
+#[tauri::command]
+pub fn join_qr_frames(frames: Vec<String>) -> Result<Option<String>, String> {
+    nodeclient::signing::join_qr_frames(frames)
+}

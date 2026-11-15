@@ -1,6 +1,7 @@
 // 平台只登记公共路由；业务路由由独立模块提供。
 fn platform_routes() -> Vec<modules::model::ModuleRoute> {
     vec![
+        modules::model::ModuleRoute::new("public", "/api/qr/join", &["POST"], post(qr::join_frames)),
         modules::model::ModuleRoute::new(
             "auth",
             "/api/admin/auth/check",
@@ -242,6 +243,7 @@ fn build_routes(state: AppState) -> Router {
                 matches!(
                     r.description.path.as_str(),
                     "/api/health"
+                        | "/api/qr/join"
                         | "/api/admin/actions/prepare"
                         | "/api/admin/actions/commit"
                         | "/api/admin/chain/submit"

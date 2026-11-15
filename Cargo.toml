@@ -55,6 +55,7 @@ members = [
     "runtime/genesis",                           # 创世模块 pallet
 
     "runtime/transaction/offchain", # 交易-链下交易手续费模块 pallet
+    "runtime/transaction/mldsa",   # 统一ML-DSA-65密码学与交易认证
     "runtime/transaction/onchain",  # 交易-链上交易手续费模块 pallet
     "runtime/entity/entitybase",          # 实体模组-生命周期共用类型与 trait
     "runtime/entity/publicentity",              # 实体模组-公权机构生命周期

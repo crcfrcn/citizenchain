@@ -2911,6 +2911,7 @@ dependencies = [
  "frame-metadata-hash-extension",
  "frame-system",
  "hex",
+ "mldsa",
  "pallet-transaction-payment",
  "parity-scale-codec",
  "primitives",
@@ -5411,6 +5412,18 @@ checksum = "2384245d85162258a14b43567a9ee3598f5ae746a1581fb5d3d2cb780f0dbf95"
 dependencies = [
  "futures-timer",
  "pin-project",
+]
+
+[[package]]
+name = "fips204"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9fb5a367b9846933e271a3c2a992930743f82ae5e8cb7faa780715a80fa0b15"
+dependencies = [
+ "rand_core 0.6.4",
+ "sha2 0.10.9",
+ "sha3 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -9397,6 +9410,36 @@ dependencies = [
  "rand_distr",
  "subtle 2.6.1",
  "thiserror 1.0.69",
+ "zeroize",
+]
+
+[[package]]
+name = "mldsa"
+version = "1.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "blake2 0.10.6",
+ "chain-signing",
+ "fips204",
+ "frame-metadata-hash-extension",
+ "frame-support",
+ "frame-system",
+ "genesis",
+ "hex",
+ "hkdf",
+ "identity",
+ "onchain",
+ "pallet-timestamp",
+ "pallet-transaction-payment",
+ "parity-scale-codec",
+ "primitives",
+ "runtime",
+ "scale-info",
+ "serde_json",
+ "sha2 0.10.9",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
  "zeroize",
 ]
 
@@ -16335,6 +16378,7 @@ dependencies = [
  "jointvote",
  "legislation",
  "legislationvote",
+ "mldsa",
  "multisig",
  "offchain",
  "onchain",

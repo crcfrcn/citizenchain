@@ -8,18 +8,6 @@ use std::collections::BTreeMap;
 
 const PALLET_NAME: &[u8] = b"GenesisPallet";
 
-#[derive(Clone, Copy, Debug, Decode, Encode, Eq, PartialEq)]
-pub(crate) enum MChainPhase {
-    Genesis,
-    Operation,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum CanonicalState {
-    Genesis,
-    Operation,
-}
-
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum GuardError {
     UnknownStorageKey(Vec<u8>),
@@ -31,11 +19,7 @@ pub(crate) enum GuardError {
     CountryDeclarationChanged,
     CitizenMaxMissing,
     CitizenMaxChanged(u64),
-    PhaseStateInvalid,
     ImmutableStorageTouched(Vec<u8>),
-    PartialPhaseTransition,
-    PhaseTransitionWithoutRuntimeUpgrade,
-    PhaseTransitionInvalid,
 }
 
 fn decode_exact<T: Decode>(raw: &[u8], label: &'static str) -> Result<T, GuardError> {
@@ -101,78 +85,22 @@ where
     Ok(())
 }
 
-fn canonical_state<F>(read: &F) -> Result<CanonicalState, GuardError>
-where
-    F: Fn(&[u8]) -> Option<Vec<u8>>,
-{
-    let phase = read(&crate::guard::genesis_pallet::storage_key::phase())
-        .map(|raw| {
-            crate::guard::genesis_pallet::decode_exact::<MChainPhase>(&raw, "GenesisPallet::Phase")
-        })
-        .transpose()?;
-    let developer = read(&crate::guard::genesis_pallet::storage_key::developer_upgrade_enabled())
-        .map(|raw| {
-            crate::guard::genesis_pallet::decode_exact::<bool>(
-                &raw,
-                "GenesisPallet::DeveloperUpgradeEnabled",
-            )
-        })
-        .transpose()?;
-    match (phase, developer) {
-        // ValueQuery 的创世默认值不写 RAW key；显式写回默认值也属于非法状态改写。
-        (None, None) => Ok(crate::guard::genesis_pallet::CanonicalState::Genesis),
-        (Some(crate::guard::genesis_pallet::MChainPhase::Operation), Some(false)) => {
-            Ok(crate::guard::genesis_pallet::CanonicalState::Operation)
-        }
-        _ => Err(crate::guard::genesis_pallet::GuardError::PhaseStateInvalid),
-    }
-}
-
-fn check_state<F>(read: &F) -> Result<CanonicalState, GuardError>
-where
-    F: Fn(&[u8]) -> Option<Vec<u8>>,
-{
-    check_fixed_facts(read)?;
-    canonical_state(read)
-}
-
-pub(crate) fn check_imported_state<'a, I>(pairs: I) -> Result<(), GuardError>
-where
-    I: IntoIterator<Item = (&'a Vec<u8>, &'a Vec<u8>)>,
-{
-    let known = known_keys();
-    let mut state = BTreeMap::new();
-    for (key, value) in pairs {
-        if !known.contains(key) {
-            return Err(crate::guard::genesis_pallet::GuardError::UnknownStorageKey(
-                key.clone(),
-            ));
-        }
-        state.insert(key.clone(), value.clone());
-    }
-    check_state(&|key| state.get(key).cloned()).map(|_| ())
-}
-
 pub(crate) fn check_genesis<F>(read: F) -> Result<(), GuardError>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    check_fixed_facts(&read)?;
-    if canonical_state(&read)? != crate::guard::genesis_pallet::CanonicalState::Genesis {
-        return Err(crate::guard::genesis_pallet::GuardError::PhaseStateInvalid);
-    }
-    Ok(())
+    check_fixed_facts(&read)
 }
 
 pub(crate) fn check_full_state<F>(read: F) -> Result<(), GuardError>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    check_state(&read).map(|_| ())
+    check_fixed_facts(&read)
 }
 
 pub(crate) fn check_transition<FParent, FPost>(
-    post_delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     parent: &FParent,
     post: &FPost,
 ) -> Result<(), GuardError>
@@ -180,61 +108,30 @@ where
     FParent: Fn(&[u8]) -> Option<Vec<u8>>,
     FPost: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    let prefix = crate::guard::genesis_pallet::storage_key::pallet_prefix();
     let known = known_keys();
-    for key in post_delta.keys().filter(|key| key.starts_with(&prefix)) {
-        if !known.contains(key) {
-            return Err(crate::guard::genesis_pallet::GuardError::UnknownStorageKey(
-                key.clone(),
-            ));
-        }
-    }
-
-    for immutable in [
-        crate::guard::genesis_pallet::storage_key::storage_version(),
-        crate::guard::genesis_pallet::storage_key::citizens_declaration(),
-        crate::guard::genesis_pallet::storage_key::country_declaration(),
-        crate::guard::genesis_pallet::storage_key::citizen_max(),
-    ] {
-        if post_delta.contains_key(&immutable) {
-            return Err(
-                crate::guard::genesis_pallet::GuardError::ImmutableStorageTouched(immutable),
-            );
-        }
-    }
-
-    check_fixed_facts(parent)?;
-    check_fixed_facts(post)?;
-    let before = canonical_state(parent)?;
-    let after = canonical_state(post)?;
-    let phase_touched =
-        post_delta.contains_key(&crate::guard::genesis_pallet::storage_key::phase());
-    let developer_touched = post_delta
-        .contains_key(&crate::guard::genesis_pallet::storage_key::developer_upgrade_enabled());
-
-    if !phase_touched && !developer_touched {
-        return if before == after {
-            Ok(())
-        } else {
-            Err(crate::guard::genesis_pallet::GuardError::PhaseTransitionInvalid)
-        };
-    }
-    if phase_touched != developer_touched {
-        return Err(crate::guard::genesis_pallet::GuardError::PartialPhaseTransition);
-    }
-    if !post_delta.contains_key(sp_storage::well_known_keys::CODE) {
-        return Err(crate::guard::genesis_pallet::GuardError::PhaseTransitionWithoutRuntimeUpgrade);
-    }
-    if before != crate::guard::genesis_pallet::CanonicalState::Genesis
-        || after != crate::guard::genesis_pallet::CanonicalState::Operation
+    for key in delta
+        .keys()
+        .filter(|k| k.starts_with(&storage_key::pallet_prefix()))
     {
-        return Err(crate::guard::genesis_pallet::GuardError::PhaseTransitionInvalid);
+        if !known.contains(key) {
+            return Err(GuardError::UnknownStorageKey(key.clone()));
+        }
     }
-    Ok(())
+    for key in [
+        storage_key::storage_version(),
+        storage_key::citizens_declaration(),
+        storage_key::country_declaration(),
+        storage_key::citizen_max(),
+    ] {
+        if delta.contains_key(&key) {
+            return Err(GuardError::ImmutableStorageTouched(key));
+        }
+    }
+    check_fixed_facts(parent)?;
+    check_fixed_facts(post)
 }
 
 pub mod storage_key {
-    use super::*;
     use crate::guard::genesis_pallet::PALLET_NAME;
     use sp_crypto_hashing::twox_128;
 

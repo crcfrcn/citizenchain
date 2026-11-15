@@ -12,6 +12,7 @@ pub use generated::QrKind;
 pub(crate) use sign_request::build_sign_request;
 pub use sign_request::{build_domain_sign_request_bytes, build_sign_request_bytes};
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -77,10 +78,10 @@ pub struct SignRequestBody {
     /// a:动作码。登录=1,公民绑定=2,链上中国平台管理员动作=3。
     #[serde(rename = "a")]
     pub action: u16,
-    /// g:签名算法。1 固定为 sr25519。
+    /// g:算法提示。0 按账户选择，1 为 sr25519，2 为 ML-DSA-65。
     #[serde(rename = "g")]
     pub sig_alg: u8,
-    /// u:目标/实际签名者公钥,32B base64url(no padding)。
+    /// u:目标或实际签名账户的 AccountId，32 字节 base64url 无填充编码。
     #[serde(rename = "u")]
     pub account_id: String,
     /// d:待签 payload bytes 的 base64url(no padding)。
@@ -90,9 +91,9 @@ pub struct SignRequestBody {
 
 #[derive(Debug, Clone)]
 pub struct SignResponseBody {
-    /// 0x + 32B hex 公钥。parse 时由 b.u 解码得到。
+    /// 32 字节 AccountId 的规范十六进制，由 b.u 解码得到。
     pub account_id: String,
-    /// 0x + 64B hex 签名。parse 时由 b.s 解码得到。
+    /// 规范十六进制签名信封：sr 为 64 字节，PQ 为公钥与签名共 5261 字节。
     pub signature: String,
     /// 换绑数据交接的当前账户签名；注册局授权换绑本身不依赖这两个可选字段。
     #[allow(dead_code)]
@@ -146,7 +147,7 @@ pub fn login_request_body(
         .ok_or_else(|| QrParseError::BadField("目标 account_id 必须为 32 字节规范账户".into()))?;
     Ok(SignRequestBody {
         action: action_login(),
-        sig_alg: 1,
+        sig_alg: 0,
         account_id,
         payload: bytes_to_b64(system.as_bytes()),
     })
@@ -202,6 +203,7 @@ impl std::error::Error for QrParseError {}
 struct CompactResponseBody {
     u: String,
     s: String,
+    q: Option<String>,
     o: Option<String>,
     r: Option<String>,
 }
@@ -300,7 +302,16 @@ pub fn parse_sign_response(raw: &str) -> Result<SignResponseEnvelope, QrParseErr
     let body: CompactResponseBody = serde_json::from_value(body_val.clone())
         .map_err(|e| QrParseError::BadField(format!("b: {}", e)))?;
     let account_id = b64_to_prefixed_hex(&body.u, 32, "b.u")?;
-    let signature = b64_to_prefixed_hex(&body.s, 64, "b.s")?;
+    let decode = |value: &str| {
+        URL_SAFE_NO_PAD
+            .decode(value)
+            .map_err(|error| QrParseError::BadField(format!("签名字段 base64url 无效: {error}")))
+    };
+    let public = body.q.as_deref().map(decode).transpose()?;
+    let raw_signature = decode(&body.s)?;
+    let signature = chain_signing::mldsa::join_signature_parts(public.as_deref(), &raw_signature)
+        .map_err(|error| QrParseError::BadField(error.into()))?;
+    let signature = format!("0x{}", hex::encode(signature));
     if body.o.is_some() != body.r.is_some() {
         return Err(QrParseError::BadField(
             "b.o / b.r 必须同时出现或同时省略".into(),
@@ -360,3 +371,25 @@ fn normalize_hex_no_prefix(value: &str) -> String {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 #[path = "../tests/qr.rs"]
 mod tests;
+
+/// 此入口仅解析公开传输内容，不接收认证凭据或链状态。
+pub(crate) async fn join_frames(
+    axum::Json(frames): axum::Json<Vec<String>>,
+) -> impl axum::response::IntoResponse {
+    if frames.len() > 64 {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({"code":1,"message":"too many QR frames"})),
+        );
+    }
+    match chain_signing::mldsa::qr_join(&frames.join("\n")) {
+        Ok(value) => (
+            axum::http::StatusCode::OK,
+            axum::Json(serde_json::json!({"code":0,"data":value})),
+        ),
+        Err(error) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({"code":1,"message":error})),
+        ),
+    }
+}

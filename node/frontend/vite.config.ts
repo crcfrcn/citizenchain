@@ -26,7 +26,7 @@ export default defineConfig(({ command }): UserConfig => {
   clearScreen: false,
   preview: { https, host: host ?? "127.0.0.1", port: 5173, strictPort: true },
   server: {
-    fs: {allow: [fileURLToPath(new URL('.',import.meta.url)),fileURLToPath(new URL('../../icons',import.meta.url)),fileURLToPath(new URL('../../crates/scanner',import.meta.url))]},
+    fs: {allow: [fileURLToPath(new URL('.',import.meta.url)),fileURLToPath(new URL('../../icons',import.meta.url)),fileURLToPath(new URL('../../crates/scanner',import.meta.url)),fileURLToPath(new URL('../../runtime/transaction/mldsa',import.meta.url))]},
     https,
     host: host ?? '127.0.0.1',
     port: 5173,

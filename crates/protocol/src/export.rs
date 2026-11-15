@@ -84,6 +84,9 @@ class GeneratedQrBodySchema {{
       if (!body.containsKey(key)) continue;
       _validateField(body[key], field, body);
     }}
+    if (kindCode == 2 && decodeBase64Url(body['s'] as String, 's').length != (body.containsKey('q') ? 3309 : 64)) {{
+      throw const FormatException('signature length does not match algorithm');
+    }}
   }}
 
   static Uint8List decodeBase64Url(String input, String field) {{
@@ -221,6 +224,7 @@ function validateBody(kind: (typeof QR_BODY_SCHEMA)[number], body: Record<string
     if (!(field.wire_key in body)) continue;
     validateField(body[field.wire_key], field, body);
   }}
+  if (kind.kind_code === 2 && (decodeGeneratedBase64Url(body.s as string, 's').length - 2) / 2 !== ('q' in body ? 3309 : 64)) throw new Error('signature length does not match algorithm');
 }}
 
 function validateField(value: unknown, field: (typeof QR_BODY_SCHEMA)[number]['fields'][number], body: Record<string, unknown>): void {{

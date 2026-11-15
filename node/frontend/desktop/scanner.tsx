@@ -1,6 +1,9 @@
 import { ScannerView } from "@gmb/scanner-react";
 import { parseAddressQr, type AddressScanResult } from "../client/parseAddressQr";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
+
+import { invoke } from '../client/tauri';
+import { createQrAssembler } from '../../../runtime/transaction/mldsa/scan';
 
 // 节点产品扫码外壳：视觉遮罩留在产品内，设备识别统一交给仓库共享适配器。
 
@@ -14,12 +17,17 @@ export function QrScanner({ onScan, onError }: ScannerProps) {
   const [ready, setReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
+  const assemble = useMemo(() => createQrAssembler(frames => invoke<string | null>('join_qr_frames', {frames})), []);
+  const detected = async (raw: string) => {
+    try { const complete = await assemble(raw); if (complete !== null) onScan(complete); }
+    catch (error) { onError(String(error)); }
+  };
   return (
     <div className="qr-scanner-wrapper">
       {!cameraError && (
         <ScannerView
           className="qr-scanner-video"
-          onRawValue={onScan}
+          onRawValue={(raw) => { void detected(raw); }}
           onReady={() => setReady(true)}
           onFailure={(failure) => {
             if (failure.kind === 'camera-unavailable' || failure.kind === 'operation-failed') {

@@ -56,7 +56,7 @@ pub fn build_sign_request_bytes(
         "e": expires_at,
         "b": {
             "a": action,
-            "g": 1,
+            "g": 0,
             "u": public_key_b64,
             "d": bytes_to_b64(payload_bytes),
         }
@@ -92,7 +92,7 @@ pub fn build_domain_sign_request_bytes(
         "e": expires_at,
         "b": {
             "a": action,
-            "g": 1,
+            "g": 0,
             "u": "",
             "d": bytes_to_b64(authorization_template),
         }

@@ -2,7 +2,7 @@
 // 左侧展示待签名二维码,右侧开启摄像头扫描签名响应;登录、扫码签名、
 // 管理员重要操作都复用这一套视觉和扫码生命周期。
 
-import { useState, type ReactNode } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { ScannerView } from '@gmb/scanner-react';
 import { Button, QRCode, Typography } from 'antd';
 import { ScanOutlined } from '@ant-design/icons';
@@ -26,6 +26,9 @@ export interface CitizenSignaturePanelProps {
   onScannerError?: (message: string) => void;
 }
 
+import { createQrAssembler } from '../../../runtime/transaction/mldsa/scan';
+import { request } from '../workspace/http';
+
 const cornerColor = '#0d9488';
 
 export function CitizenSignaturePanel({
@@ -46,6 +49,7 @@ export function CitizenSignaturePanel({
   onDetected,
   onScannerError,
 }: CitizenSignaturePanelProps) {
+  const assemble = useMemo(() => createQrAssembler(frames => request<string | null>('/api/qr/join', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(frames)})), []);
   const [scannerActive, setScannerActive] = useState(false);
   const [scannerReady, setScannerReady] = useState(false);
 
@@ -161,9 +165,12 @@ export function CitizenSignaturePanel({
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onReady={() => setScannerReady(true)}
             onRawValue={(raw) => {
-              setScannerReady(false);
-              setScannerActive(false);
-              void onDetected(raw);
+              void assemble(raw).then(complete => {
+                if (complete === null) return;
+                setScannerReady(false);
+                setScannerActive(false);
+                void onDetected(complete);
+              }).catch(error => onScannerError?.(String(error)));
             }}
             onFailure={(failure) => {
               setScannerReady(false);

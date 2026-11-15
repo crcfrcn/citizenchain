@@ -10,8 +10,6 @@ use primitives::institution_constraints::member_composition_specs;
 use primitives::institution_constraints::MemberCompositionSpec;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-#[cfg(test)]
-use engingcore::Proposal;
 
 const INTERNAL_VOTE_PALLET: &[u8] = b"InternalVote";
 
@@ -203,11 +201,7 @@ fn check_threshold<F>(key: &[u8], read: &F) -> Result<(), GuardError>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    let id = crate::guard::national_body_composition::storage_key::threshold_id(key)?;
-    let proposal_key = if key.len() == 56 {
-        let mut paired = crate::guard::national_body_composition::storage_key::proposal_prefix();
-        paired.extend_from_slice(&key[32..]); paired
-    } else { crate::guard::national_body_composition::storage_key::proposal(id) };
+    let proposal_key = storage_key::proposal_for_threshold(key)?;
     let Some(raw_proposal) = read(&proposal_key) else {
         // 没有提案就无法归类为固定治理事项；普通投票的清理由 runtime 负责。
         return Ok(());
@@ -241,7 +235,7 @@ fn check_proposal<F>(key: &[u8], read: &F) -> Result<(), GuardError>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    let id = crate::guard::national_body_composition::storage_key::proposal_id(key)?;
+    let threshold_key = storage_key::threshold_for_proposal(key)?;
     let Some(raw_proposal) = read(key) else {
         // 删除后的提案不再属于可分类的固定治理事项；终态清理由 runtime 负责。
         return Ok(());
@@ -250,16 +244,12 @@ where
         .and_then(|code| primitives::cid::code::fixed_governance_pass_threshold(&code))
         .is_some()
     {
-        let threshold_key = if key.len() == 56 {
-            let mut paired = crate::guard::national_body_composition::storage_key::threshold_prefix();
-            paired.extend_from_slice(&key[32..]); paired
-        } else { crate::guard::national_body_composition::storage_key::threshold(id) };
         check_threshold(&threshold_key, read)?;
     }
     Ok(())
 }
 
-/// 启动和 block#0 完整导入允许三个机构尚未组成，但不允许半组成或非法组成。
+/// 启动允许三个机构尚未组成，但不允许半组成或非法组成。
 pub(crate) fn check_full_state<F>(read: F) -> Result<(), GuardError>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
@@ -320,13 +310,7 @@ where
     Ok(())
 }
 
-/// block#0 导入态复用完整状态校验；阈值表在创世为空。
-pub(crate) fn check_imported_state(state: &BTreeMap<Vec<u8>, Vec<u8>>) -> Result<(), GuardError> {
-    check_full_state(|key| state.get(key).cloned())?;
-    check_vote_state_keys(state.keys(), |key| state.get(key).cloned())
-}
-
-/// 启动、完整状态导入和 runtime 升级时同时复核提案与快照，防止只移除一侧绕过。
+/// 启动和 runtime 升级时同时复核提案与快照，防止只移除一侧绕过。
 pub(crate) fn check_vote_state_keys<I, K, F>(keys: I, read: F) -> Result<(), GuardError>
 where
     I: IntoIterator<Item = K>,
@@ -353,7 +337,6 @@ pub mod storage_key {
     use crate::guard::national_body_composition::GuardError;
     use crate::guard::national_body_composition::INTERNAL_VOTE_PALLET;
     use crate::guard::national_body_composition::VOTING_ENGINE_PALLET;
-    use primitives::institution_constraints::member_composition_specs;
     use primitives::institution_constraints::MemberCompositionSpec;
     use sp_crypto_hashing::blake2_128;
 
@@ -361,7 +344,7 @@ pub mod storage_key {
         nodedesktop::storage::prefix(pallet, storage)
     }
 
-    fn map_u64(pallet: &[u8], storage: &[u8], id: u128) -> Vec<u8> {
+    fn map_proposal(pallet: &[u8], storage: &[u8], id: u128) -> Vec<u8> {
         nodedesktop::storage::blake2_map(pallet, storage, &id.encode())
     }
 
@@ -374,61 +357,64 @@ pub mod storage_key {
     }
 
     pub fn proposal(id: u128) -> Vec<u8> {
-        map_u64(VOTING_ENGINE_PALLET, b"Proposals", id)
+        map_proposal(VOTING_ENGINE_PALLET, b"Proposals", id)
     }
 
     pub fn threshold(id: u128) -> Vec<u8> {
-        map_u64(INTERNAL_VOTE_PALLET, b"InternalThresholdSnapshot", id)
+        map_proposal(INTERNAL_VOTE_PALLET, b"InternalThresholdSnapshot", id)
+    }
+
+    pub fn account_id(cid: &[u8]) -> Vec<u8> {
+        nodedesktop::storage::blake2_map(b"PublicAdmins", b"AdminAccounts", &cid.to_vec().encode())
+    }
+    pub fn institution_role(cid: &[u8], role: &[u8]) -> Vec<u8> {
+        role_key(b"InstitutionRoles", cid, role)
+    }
+    pub fn institution_role_assignments(cid: &[u8], role: &[u8]) -> Vec<u8> {
+        role_key(b"InstitutionRoleAssignments", cid, role)
+    }
+    fn role_key(table: &[u8], cid: &[u8], role: &[u8]) -> Vec<u8> {
+        let mut key = nodedesktop::storage::prefix(b"PublicManage", table);
+        for value in [cid, role] {
+            key.extend(nodedesktop::storage::blake2_128_concat(
+                &value.to_vec().encode(),
+            ));
+        }
+        key
     }
 
     pub fn composition_keys(spec: &MemberCompositionSpec) -> [Vec<u8>; 3] {
         let institution = spec.institution;
         [
-            crate::guard::governance_skeleton::storage_key::account_id(
+            crate::guard::national_body_composition::storage_key::account_id(
                 institution.cid_number.as_bytes(),
             ),
-            crate::guard::governance_skeleton::storage_key::institution_role(
+            crate::guard::national_body_composition::storage_key::institution_role(
                 institution.cid_number.as_bytes(),
                 spec.role_code,
             ),
-            crate::guard::governance_skeleton::storage_key::institution_role_assignments(
+            crate::guard::national_body_composition::storage_key::institution_role_assignments(
                 institution.cid_number.as_bytes(),
                 spec.role_code,
             ),
         ]
     }
 
-    fn parse_map_id(key: &[u8], prefix: &[u8]) -> Result<u128, ()> {
-        let encoded = key.strip_prefix(prefix).ok_or(())?;
-        if !matches!(encoded.len(), 24 | 32) || blake2_128(&encoded[16..]) != encoded[..16] {
+    // 只关联相同哈希后缀，不解析或冻结 runtime 的业务编号字段类型。
+    fn paired_key(key: &[u8], from: &[u8], to: Vec<u8>) -> Result<Vec<u8>, ()> {
+        let suffix = key.strip_prefix(from).ok_or(())?;
+        if suffix.len() <= 16 || blake2_128(&suffix[16..]) != suffix[..16] {
             return Err(());
         }
-        let mut input = &encoded[16..];
-        let id = if encoded.len() == 24 { u128::from(u64::decode(&mut input).map_err(|_| ())?) } else { u128::decode(&mut input).map_err(|_| ())? };
-        if !input.is_empty() {
-            return Err(());
-        }
-        Ok(id)
+        Ok([to, suffix.to_vec()].concat())
     }
-
-    /// 完整状态导入分区所需的 key：三个组成机构的精确 key，加内部阈值及提案表。
-    pub fn is_relevant(key: &[u8]) -> bool {
-        member_composition_specs()
-            .iter()
-            .flat_map(composition_keys)
-            .any(|expected| expected == key)
-            || key.starts_with(&threshold_prefix())
-            || key.starts_with(&proposal_prefix())
+    pub(super) fn proposal_for_threshold(key: &[u8]) -> Result<Vec<u8>, GuardError> {
+        paired_key(key, &threshold_prefix(), proposal_prefix())
+            .map_err(|_| GuardError::ThresholdKeyMalformed)
     }
-
-    pub(super) fn threshold_id(key: &[u8]) -> Result<u128, GuardError> {
-        parse_map_id(key, &threshold_prefix())
-            .map_err(|_| crate::guard::national_body_composition::GuardError::ThresholdKeyMalformed)
-    }
-
-    pub(super) fn proposal_id(key: &[u8]) -> Result<u128, GuardError> {
-        parse_map_id(key, &proposal_prefix())
-            .map_err(|_| crate::guard::national_body_composition::GuardError::ProposalKeyMalformed)
+    pub(super) fn threshold_for_proposal(key: &[u8]) -> Result<Vec<u8>, GuardError> {
+        paired_key(key, &proposal_prefix(), threshold_prefix())
+            .map_err(|_| GuardError::ProposalKeyMalformed)
     }
 }
 #[cfg(test)]

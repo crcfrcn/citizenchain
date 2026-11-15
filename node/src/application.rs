@@ -88,6 +88,7 @@ pub fn run_desktop() {
             nodeproposal::commands::submit_vote,
             nodeproposal::commands::check_vote_status,
             nodeonchain::commands::get_wallets,
+            nodeonchain::commands::join_qr_frames,
             nodeonchain::commands::add_wallet,
             nodeonchain::commands::remove_wallet,
             nodeonchain::commands::set_active_wallet,

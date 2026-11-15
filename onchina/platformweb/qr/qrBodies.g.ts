@@ -14,7 +14,9 @@ export const QR_BODY_SCHEMA = [
       },
       {
         "allowed_ints": [
-          1
+          0,
+          1,
+          2
         ],
         "constraint": "enum_int",
         "empty_for_action_codes": [],
@@ -69,11 +71,21 @@ export const QR_BODY_SCHEMA = [
         "allowed_ints": [],
         "constraint": "b64u_bytes",
         "empty_for_action_codes": [],
-        "exact_bytes": 64,
+        "exact_bytes": null,
         "field_key": "signature",
-        "min_bytes": null,
+        "min_bytes": 64,
         "required": true,
         "wire_key": "s"
+      },
+      {
+        "allowed_ints": [],
+        "constraint": "b64u_bytes",
+        "empty_for_action_codes": [],
+        "exact_bytes": 1952,
+        "field_key": "pq_public_key",
+        "min_bytes": null,
+        "required": false,
+        "wire_key": "q"
       },
       {
         "allowed_ints": [],
@@ -273,6 +285,7 @@ function validateBody(kind: (typeof QR_BODY_SCHEMA)[number], body: Record<string
     if (!(field.wire_key in body)) continue;
     validateField(body[field.wire_key], field, body);
   }
+  if (kind.kind_code === 2 && (decodeGeneratedBase64Url(body.s as string, 's').length - 2) / 2 !== ('q' in body ? 3309 : 64)) throw new Error('signature length does not match algorithm');
 }
 
 function validateField(value: unknown, field: (typeof QR_BODY_SCHEMA)[number]['fields'][number], body: Record<string, unknown>): void {

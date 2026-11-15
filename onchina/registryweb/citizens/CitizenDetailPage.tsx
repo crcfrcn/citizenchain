@@ -8,7 +8,6 @@ import {
   Button,
   Card,
   Descriptions,
-  Form,
   Modal,
   Popconfirm,
   Select,
@@ -24,7 +23,6 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
-  QrcodeOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
@@ -65,9 +63,15 @@ type Props = {
   onUpdated: (next: CitizenRow) => void;
 };
 
-type OnchainForm = {
-  identityLevel: CitizenOnchainIdentityLevel;
+type IdentityChoice = {
+  source: 'none' | CitizenOnchainIdentityLevel;
+  level?: CitizenOnchainIdentityLevel;
+  editing: boolean;
 };
+
+function aborted(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
 
 function makeCitizenName(row: Pick<CitizenRow, 'familyName' | 'givenName'>) {
   return `${row.familyName ?? ''}${row.givenName ?? ''}`.trim() || '-';
@@ -134,7 +138,12 @@ function calculateAgeYears(birthDate?: string) {
   return age;
 }
 
-export function CitizenDetailPage({
+// 更换公民或登录会话时销毁旧选择、二维码与迟到的读取，不能跨上下文沿用草稿。
+export function CitizenDetailPage(props: Props) {
+  return <CitizenDetailContent key={`${props.auth.accessToken}|${props.auth.accountId}|${props.auth.institutionCidNumber}|${props.citizen.cidNumber}`} {...props} />;
+}
+
+function CitizenDetailContent({
   auth,
   citizen,
   canWrite,
@@ -143,8 +152,15 @@ export function CitizenDetailPage({
   onBack,
   onUpdated,
 }: Props) {
-  const [form] = Form.useForm<OnchainForm>();
   const [current, setCurrent] = useState(citizen);
+  const [binding, setBinding] = useState<FinalizedCitizenBinding | null>(null);
+  const [bindingLoading, setBindingLoading] = useState(true);
+  const [bindingError, setBindingError] = useState<string | null>(null);
+  const [identityChoice, setIdentityChoice] = useState<IdentityChoice | null>(null);
+  const alive = useRef(true);
+  const bindingSequence = useRef(0);
+  const onUpdatedRef = useRef(onUpdated);
+  onUpdatedRef.current = onUpdated;
   const currentRef = useRef(current);
   currentRef.current = current;
   const [editOpen, setEditOpen] = useState(false);
@@ -173,6 +189,24 @@ export function CitizenDetailPage({
     typeof ageYears === 'number' &&
     ageYears >= 16;
 
+  // 竞选身份同时持有投票身份，必须优先按竞选处理；钱包版本不是身份等级版本。
+  const actualIdentity = binding?.candidateIdentity ? 'candidate' : binding?.votingIdentity ? 'voting' : null;
+  const choice = identityChoice?.source === (actualIdentity ?? 'none') ? identityChoice : null;
+  const editingIdentity = actualIdentity === 'voting' && !!choice?.editing;
+  const selectedIdentity = choice?.level;
+  const identityValue = actualIdentity === 'candidate' ? 'candidate'
+    : actualIdentity === 'voting' ? editingIdentity ? selectedIdentity ?? 'voting' : 'voting' : selectedIdentity;
+  const changingIdentity = actualIdentity === 'voting' && !editingIdentity;
+  const busy = prepareLoading || completeLoading || chainSubmitting || rebinding || !!prepared;
+  const bindingReady = !!binding && !bindingLoading && !bindingError && binding.bindingActive
+    && binding.cidStatus === 'ACTIVE' && !!binding.accountId;
+  const identityEditable = bindingReady && canPushOnchain && !busy
+    && (actualIdentity === null || editingIdentity);
+  const canSignIdentity = bindingReady && canPushOnchain && !busy
+    && (actualIdentity === null && !!selectedIdentity
+      || actualIdentity === 'voting' && editingIdentity && selectedIdentity === 'candidate');
+  const canChangeIdentity = bindingReady && canPushOnchain && !busy && changingIdentity;
+
   const titleText = provinceName && cityName ? `${provinceName} · ${cityName}` : '公民详情';
 
   const loadDocuments = useCallback(() => {
@@ -197,48 +231,66 @@ export function CitizenDetailPage({
         bindingBlockNumber: binding.finalizedBlockNumber,
         bindingBlockHash: binding.finalizedBlockHash,
       };
+      setBinding(binding);
       currentRef.current = next;
       setCurrent(next);
-      onUpdated(next);
+      onUpdatedRef.current(next);
     },
-    [onUpdated],
+    [],
   );
 
   const loadFinalizedBinding = useCallback(async () => {
-    const binding = await fetchFinalizedCitizenBinding(auth, current.cidNumber);
-    applyFinalizedBinding(binding);
-    return binding;
-  }, [applyFinalizedBinding, auth, current.cidNumber]);
+    const sequence = ++bindingSequence.current;
+    setBindingLoading(true);
+    setBindingError(null);
+    try {
+      const next = await fetchFinalizedCitizenBinding(auth, currentRef.current.cidNumber);
+      if (!alive.current || sequence !== bindingSequence.current) throw new DOMException('stale binding response', 'AbortError');
+      applyFinalizedBinding(next);
+      return next;
+    } catch (error) {
+      if (alive.current && sequence === bindingSequence.current && !aborted(error)) {
+        setBindingError(error instanceof Error ? error.message : String(error));
+      }
+      throw error;
+    } finally {
+      if (alive.current && sequence === bindingSequence.current) setBindingLoading(false);
+    }
+  }, [applyFinalizedBinding, auth.accessToken, auth.accountId, auth.institutionCidNumber]);
 
   useEffect(() => {
-    void loadFinalizedBinding().catch((err) =>
-      notice.error(err, 'finalized 钱包绑定加载失败'),
-    );
+    alive.current = true;
+    void loadFinalizedBinding().catch(error => {
+      if (!aborted(error)) notice.error(error, '链上身份和钱包绑定加载失败');
+    });
+    return () => { alive.current = false; bindingSequence.current++; };
   }, [loadFinalizedBinding]);
 
   const prepareOnchainSignature = async () => {
-    if (!canPushOnchain || prepareLoading || completeLoading || chainSubmitting || rebinding || prepared) return;
-    const values = await form.validateFields();
+    if (!canSignIdentity || !selectedIdentity) return;
+    const target = selectedIdentity;
+    let requested = false;
     setPrepareLoading(true);
     setPrepared(null);
     try {
-      // 准备授权前刷新链上真源，不使用档案缓存中的旧绑定或可编辑表单值。
-      const binding = await loadFinalizedBinding();
-      if (!binding.bindingActive || !binding.accountId) {
-        throw new Error('公民当前没有有效绑定钱包，不能生成身份授权');
+      // 准备前重读：别人可能已经登记或升级，不能用旧选择生成重复授权。
+      const next = await loadFinalizedBinding();
+      if (!next.bindingActive || !next.accountId) throw new Error('公民当前没有有效绑定钱包，不能生成身份授权');
+      if (next.candidateIdentity || next.votingIdentity && target !== 'candidate') {
+        throw new Error('链上身份已变化，请按当前身份重新操作');
       }
-      const output = await prepareCitizenOnchainSignature(
-        auth,
-        current.cidNumber,
-        binding.accountId,
-        values.identityLevel,
-      );
+      requested = true;
+      const output = await prepareCitizenOnchainSignature(auth, currentRef.current.cidNumber, next.accountId, target);
+      if (!alive.current) return;
       setPrepared(output);
       notice.success('公民钱包签名二维码已生成');
-    } catch (err) {
-      notice.error(err, '生成签名二维码失败');
+    } catch (error) {
+      if (!aborted(error) && alive.current) {
+        notice.error(error, '生成签名二维码失败');
+        if (requested) await loadFinalizedBinding().catch(() => {});
+      }
     } finally {
-      setPrepareLoading(false);
+      if (alive.current) setPrepareLoading(false);
     }
   };
 
@@ -254,10 +306,12 @@ export function CitizenDetailPage({
         identityLevel,
         raw,
       );
+      if (!alive.current) return;
       setPrepared(null);
       notice.success('公民钱包签名已验证，请用注册局管理员公民钱包签名并提交上链');
       // D7：身份上链交易由 OnChina 组装提交，注册局管理员 CitizenWallet 只签名一次并显示响应二维码。
       const signed = await signChain(output.requestId, output.identitySignRequest);
+      if (!alive.current) return;
       setChainSubmitting(true);
       try {
         const submitted = await submitChainSign(
@@ -274,7 +328,11 @@ export function CitizenDetailPage({
       }
     } catch (err) {
       setPrepared(null);
-      notice.error(err, '公民身份上链失败');
+      if (alive.current && !aborted(err)) {
+        notice.error(err, '公民身份上链失败');
+        // 冲突、冷签取消或回执丢失后也以真实链上结果收敛，不能保留可编辑的旧身份。
+        await loadFinalizedBinding().catch(() => {});
+      }
     } finally {
       setCompleteLoading(false);
     }
@@ -438,6 +496,34 @@ export function CitizenDetailPage({
                   onClick={() => setRebindOpen(true)}>更换</Button>}
               </div>
             </Descriptions.Item>
+            <Descriptions.Item label="身份上链">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Select<CitizenOnchainIdentityLevel>
+                    aria-label="链上身份"
+                    placeholder="选择身份"
+                    value={identityValue}
+                    disabled={!identityEditable}
+                    style={{ width: '100%', maxWidth: 180 }}
+                    onChange={level => setIdentityChoice({ source: actualIdentity ?? 'none', level, editing: editingIdentity })}
+                    options={[
+                      { value: 'voting', label: '投票身份', disabled: actualIdentity === 'voting' },
+                      { value: 'candidate', label: '竞选身份' },
+                    ]}
+                  />
+                </div>
+                <Button type="link" danger={changingIdentity}
+                  style={{ flexShrink: 0, paddingRight: 0, ...(!changingIdentity && canSignIdentity ? { color: '#1677ff' } : {}) }}
+                  disabled={changingIdentity ? !canChangeIdentity : !canSignIdentity}
+                  loading={prepareLoading || completeLoading || chainSubmitting}
+                  onClick={() => {
+                    if (changingIdentity) setIdentityChoice({ source: 'voting', editing: true });
+                    else void prepareOnchainSignature();
+                  }}>{changingIdentity ? '更换' : '签名'}</Button>
+              </div>
+              {bindingError && <Space style={{ marginTop: 8 }}><Typography.Text type="danger">链上身份读取失败</Typography.Text><Button type="link" size="small" onClick={() => { void loadFinalizedBinding().catch(() => {}); }}>重试</Button></Space>}
+              {!canPushOnchain && <Alert type="warning" showIcon style={{ marginTop: 8 }} message="当前档案或登录权限不满足身份上链条件" description="公民必须年满16周岁、档案正常且具有选举资格。" />}
+            </Descriptions.Item>
             <Descriptions.Item label="绑定版本">{current.bindingRevision || '-'}</Descriptions.Item>
             <Descriptions.Item label="绑定区块号">
               {current.bindingBlockNumber ?? '-'}
@@ -450,53 +536,6 @@ export function CitizenDetailPage({
           </Descriptions>
         </div>
 
-        <div style={{ marginTop: 20, borderTop: '1px solid #e5e7eb', paddingTop: 18 }}>
-          <Typography.Title level={5} style={{ marginTop: 0 }}>
-            链上身份上链
-          </Typography.Title>
-          {!canPushOnchain && (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="当前档案不能推送链上身份"
-              description="公民必须年满16周岁、档案正常且具有选举资格。"
-            />
-          )}
-          <Form
-            form={form}
-            layout="inline"
-            initialValues={{
-              identityLevel: 'voting',
-            }}
-            style={{ rowGap: 12 }}
-          >
-            <Form.Item
-              name="identityLevel"
-              rules={[{ required: canPushOnchain, message: '请选择身份类型' }]}
-              style={{ minWidth: 180, marginBottom: 0 }}
-            >
-              <Select<CitizenOnchainIdentityLevel>
-                disabled={!canPushOnchain || prepareLoading || completeLoading || !!prepared}
-                options={[
-                  { value: 'voting', label: '投票身份' },
-                  { value: 'candidate', label: '参选身份' },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item style={{ marginBottom: 0 }}>
-              <Button
-                type="primary"
-                icon={<QrcodeOutlined />}
-                loading={prepareLoading}
-                disabled={!canPushOnchain || completeLoading || chainSubmitting || rebinding || !!prepared}
-                onClick={prepareOnchainSignature}
-              >
-                生成签名二维码
-              </Button>
-            </Form.Item>
-          </Form>
-        </div>
 
       </Card>
 

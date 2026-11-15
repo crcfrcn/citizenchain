@@ -50,9 +50,9 @@ use frame_support::{
 use frame_system::limits::{BlockLength, BlockWeights};
 use onchain::NrcAccountProvider as _;
 use pallet_transaction_payment::{ConstFeeMultiplier, Multiplier};
+#[cfg(feature = "runtime-benchmarks")]
 use sp_core::sr25519;
 use sp_core::Void;
-use sp_io::crypto::sr25519_verify;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_runtime::{traits::IdentifyAccount, MultiSigner};
 use sp_runtime::{traits::One, Perbill};
@@ -1628,34 +1628,18 @@ impl address::Config for Runtime {
     type MaxAddressDetailLen = ConstU32<128>;
 }
 
-fn sr25519_signature_from_bytes(signature: &[u8]) -> Option<sr25519::Signature> {
-    if signature.len() != 64 {
-        return None;
-    }
-    let mut sig_raw = [0u8; 64];
-    sig_raw.copy_from_slice(signature);
-    Some(sr25519::Signature::from_raw(sig_raw))
-}
-
-/// 公民身份四个签名域共用的唯一 sr25519 验签实现。
+/// 公民身份四个签名域共用的账户验签实现。
 ///
 /// benchmark 与生产 runtime 必须执行同一函数；feature 只能改变 benchmark 夹具，
 /// 绝不能改变密码学验证结果。
-fn verify_citizen_identity_sr25519_signature(
+fn verify_citizen_identity_account_signature(
     account_id: &AccountId,
     payload: &[u8],
     signature: &identity::pallet::SignatureOf<Runtime>,
     op_tag: u8,
 ) -> bool {
-    let Ok(raw_account) = <[u8; 32]>::try_from(account_id.as_ref()) else {
-        return false;
-    };
-    let Some(signature) = sr25519_signature_from_bytes(signature.as_slice()) else {
-        return false;
-    };
-    let public = sr25519::Public::from_raw(raw_account);
     let message = primitives::sign::signing_message(op_tag, payload);
-    sr25519_verify(&signature, &message, &public)
+    mldsa::verify_account::<Runtime>(account_id, &message, signature.as_slice())
 }
 
 /// FRAME benchmark 的临时 sr25519 签名夹具。
@@ -1903,7 +1887,7 @@ impl identity::CitizenIdentityAuthority<AccountId, identity::pallet::SignatureOf
         payload: &[u8],
         signature: &identity::pallet::SignatureOf<Runtime>,
     ) -> bool {
-        verify_citizen_identity_sr25519_signature(
+        verify_citizen_identity_account_signature(
             account_id,
             payload,
             signature,
@@ -1916,7 +1900,7 @@ impl identity::CitizenIdentityAuthority<AccountId, identity::pallet::SignatureOf
         payload: &[u8],
         signature: &identity::pallet::SignatureOf<Runtime>,
     ) -> bool {
-        verify_citizen_identity_sr25519_signature(
+        verify_citizen_identity_account_signature(
             account_id,
             payload,
             signature,
@@ -1964,7 +1948,7 @@ impl identity::CitizenIdentityAuthority<AccountId, identity::pallet::SignatureOf
         payload: &[u8],
         signature: &identity::pallet::SignatureOf<Runtime>,
     ) -> bool {
-        verify_citizen_identity_sr25519_signature(
+        verify_citizen_identity_account_signature(
             account_id,
             payload,
             signature,
@@ -1977,7 +1961,7 @@ impl identity::CitizenIdentityAuthority<AccountId, identity::pallet::SignatureOf
         payload: &[u8],
         signature: &identity::pallet::SignatureOf<Runtime>,
     ) -> bool {
-        verify_citizen_identity_sr25519_signature(
+        verify_citizen_identity_account_signature(
             account_id,
             payload,
             signature,
@@ -2021,7 +2005,7 @@ impl identity::CitizenIdentityAuthority<AccountId, identity::pallet::SignatureOf
 impl identity::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type OnAccountRegistered = crate::evm_accounts::EvmAccountMapping;
-    type MaxCitizenSignatureLength = ConstU32<64>;
+    type MaxCitizenSignatureLength = ConstU32<{ mldsa::SIGNATURE_BYTES as u32 }>;
     type CitizenIdentityAuthority = RuntimeCitizenIdentityAuthority;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = RuntimeCitizenIdentityBenchmarkHelper;
@@ -3918,4 +3902,9 @@ impl engingcore::benchmarks::BenchmarkSetup for Runtime {
             (id, proposer)
         }
     }
+}
+
+impl mldsa::Config for Runtime {
+    type ChainPhase = mldsa::GenesisChainPhase<Runtime>;
+    type WeightInfo = mldsa::weights::SubstrateWeight<Runtime>;
 }

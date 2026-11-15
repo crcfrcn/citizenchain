@@ -314,10 +314,7 @@ where
         let year = expected_year(block);
         for bank in CHINA_CH.iter() {
             issuance_plan
-                .add(
-                    bank.main_account,
-                    interest_for_principal(bank.stake_amount, year)?,
-                )
+                .add(interest_for_principal(bank.stake_amount, year)?)
                 .map_err(|_| {
                     crate::guard::provincialbank_interest::GuardError::FinalizeIssuanceOverflow
                 })?;
@@ -326,7 +323,7 @@ where
     Ok(())
 }
 
-/// 创世启动、完整状态导入及 runtime 升级全检共用实际高度的固定本金和年度审计检查。
+/// 创世启动、年度审计状态及 runtime 升级全检共用实际高度的固定本金和年度审计检查。
 pub(crate) fn check_full_state<F>(block: u32, read: &F) -> Result<(), GuardError>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
@@ -336,7 +333,7 @@ where
 }
 
 /// 按导入区块的实际高度核对年度审计和固定本金；启动创世检查显式传入 0。
-pub(crate) fn check_imported_state<'a, I>(block: u32, pairs: I) -> Result<(), GuardError>
+pub(crate) fn check_recorded_state<'a, I>(block: u32, pairs: I) -> Result<(), GuardError>
 where
     I: IntoIterator<Item = (&'a Vec<u8>, &'a Vec<u8>)>,
 {
@@ -348,7 +345,7 @@ where
     check_full_state(block, &|key| state.get(key).cloned())
 }
 
-/// 完整状态单遍分区只保留本 pallet 和 43 个永久质押账户。
+/// 审计状态单遍分区只保留本 pallet 和 43 个永久质押账户。
 pub(crate) fn relevant_import_keys() -> BTreeSet<Vec<u8>> {
     let mut keys = known_pallet_keys();
     keys.extend(CHINA_CH.iter().map(|bank| {
@@ -358,7 +355,6 @@ pub(crate) fn relevant_import_keys() -> BTreeSet<Vec<u8>> {
 }
 
 pub mod storage_key {
-    use super::*;
     use crate::guard::provincialbank_interest::PALLET_NAME;
     use crate::guard::provincialbank_interest::SYSTEM_PALLET;
     use sp_crypto_hashing::twox_128;

@@ -63,7 +63,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let value = String::deserialize(deserializer)?;
-    qr_protocol::b64_to_prefixed_hex(&value, qr_protocol::SIGNATURE_BYTES, "b.s")
+    qr_protocol::b64_to_prefixed_hex(&value, if value.len() == 4412 { 3309 } else { qr_protocol::SIGNATURE_BYTES }, "b.s")
         .map_err(serde::de::Error::custom)
 }
 
@@ -156,6 +156,8 @@ pub struct SignResponseBody {
     pub signer_public_key: String,
     #[serde(rename = "s", deserialize_with = "deserialize_b64_signature")]
     pub signature: String,
+    #[serde(rename = "q", default)]
+    pub pq_public_key: Option<String>,
 }
 
 /// QR_V1/k=2 sign_response envelope。
@@ -410,7 +412,12 @@ pub fn verify_and_submit(
     }
 
     let public = chain_signing::parse_sr25519_public_key(&expected_public_key)?;
-    let signature = chain_signing::parse_sr25519_signature_hex(&response.body.signature)?;
+    let pq_public_key = response.body.pq_public_key.as_ref().map(|encoded| {
+        let encoded = qr_protocol::b64_to_prefixed_hex(encoded, chain_signing::mldsa::PUBLIC_KEY_BYTES, "b.q").map_err(|error| error.to_string())?;
+        hex::decode(encoded.trim_start_matches("0x")).map_err(|error| error.to_string())
+    }).transpose()?;
+    let signature = hex::decode(response.body.signature.trim_start_matches("0x")).map_err(|error| error.to_string())?;
+    let signature_wire = chain_signing::mldsa::join_signature_parts(pq_public_key.as_deref(), &signature)?;
 
     let (spec_version, tx_version) = fetch_runtime_version()?;
     let genesis_hash = fetch_genesis_hash()?;
@@ -430,13 +437,12 @@ pub fn verify_and_submit(
         ));
     }
 
-    if !chain_signing::verify_signature(&material, &signature, &public) {
-        return Err("sr25519 本地验签失败，拒绝提交到链".to_string());
-    }
-
-    let _ = sign_block_number; // immortal era 不再使用区块号，字段只保留给前端会话结构。
-    eprintln!("[签名提交] sign_nonce={sign_nonce}, era=immortal, runtime_typed=true");
-    let extrinsic = chain_signing::assemble_signed_extrinsic(material, public, signature);
+    let registered = if chain_signing::mldsa::signature_parts(&signature_wire)?.0.is_some() {
+        let key = chain_signing::mldsa::PqPublicKey::<runtime::Runtime>::hashed_key_for(runtime::AccountId::new(public.0));
+        crate::query::fetch_finalized_storage(&format!("0x{}", hex::encode(key)))?.is_some()
+    } else { false };
+    let _ = sign_block_number;
+    let extrinsic = chain_signing::assemble_account_signed_extrinsic(material, public.0, &signature_wire, registered)?;
     let full_extrinsic = extrinsic.encode();
 
     // 先 dry-run 验证，避免提交错误交易导致链卡住
@@ -749,7 +755,7 @@ pub fn build_sign_request_from_call_data(
         expires_at,
         body: SignRequestBody {
             action: chain_action_code(call_data)?,
-            sig_alg: 1,
+            sig_alg: 0,
             signer_public_key: public_key_b64(public_key_bytes)?,
             payload: payload_b64(&payload),
         },
@@ -781,3 +787,9 @@ pub fn build_sign_request_from_call_data(
 #[cfg(test)]
 #[path = "../tests/signing.rs"]
 mod tests;
+
+/// 帧合并交给链端统一模块中的有界传输实现。
+pub fn join_qr_frames(frames: Vec<String>) -> Result<Option<String>, String> {
+    if frames.len() > 64 { return Err("too many QR frames".into()) }
+    chain_signing::mldsa::qr_join(&frames.join("\n")).map_err(str::to_owned)
+}

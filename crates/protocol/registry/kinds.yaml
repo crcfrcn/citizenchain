@@ -8,7 +8,7 @@
     - wire_key: g
       field_key: sig_alg
       constraint: enum_int
-      allowed_ints: [1]
+      allowed_ints: [0, 1, 2]
     - wire_key: u
       field_key: signer_public_key
       constraint: signer_public_key
@@ -29,7 +29,12 @@
     - wire_key: s
       field_key: signature
       constraint: b64u_bytes
-      exact_bytes: 64
+      min_bytes: 64
+    - wire_key: q
+      field_key: pq_public_key
+      constraint: b64u_bytes
+      exact_bytes: 1952
+      required: false
     - wire_key: o
       field_key: current_account_id
       constraint: b64u_bytes
