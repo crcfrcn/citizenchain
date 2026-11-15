@@ -1,6 +1,17 @@
 {
   "routes": [
     {
+      "group": "public",
+      "path": "/api/qr/join",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "qr::join_frames"
+      ],
+      "owner": "platform"
+    },
+    {
       "group": "auth",
       "path": "/api/admin/auth/check",
       "methods": [

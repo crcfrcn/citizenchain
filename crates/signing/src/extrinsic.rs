@@ -1,25 +1,25 @@
 //! 已签名交易组装，复用所属签名材料。
 use crate::{
-    account_id_from_public, build_signing_material_from_call, sign_material_with_pair,
+    build_signing_material_from_call, sign_material_with_pair,
     SigningMaterial,
 };
 use codec::Encode;
 use sp_core::{sr25519, Pair, H256};
-use sp_runtime::MultiAddress;
 
-/// 组装 signed extrinsic。
+/// 两种账户共用 V5 通用交易编码，sr 证明不包含独立外层签名。
 pub fn assemble_signed_extrinsic(
     material: SigningMaterial,
     public: sr25519::Public,
     signature: sr25519::Signature,
 ) -> runtime::UncheckedExtrinsic {
-    sp_runtime::generic::UncheckedExtrinsic::new_signed(
-        material.call,
-        MultiAddress::Id(account_id_from_public(public)),
-        runtime::Signature::Sr25519(signature),
-        material.tx_ext,
-    )
-    .into()
+    use codec::Decode;
+    let proof = mldsa::Proof::Sr25519 {
+        account: public.0,
+        signature: signature.0,
+    };
+    let bytes =
+        mldsa::encode_transaction(&proof, &material.tx_ext.encode(), &material.call.encode());
+    runtime::UncheckedExtrinsic::decode(&mut &bytes[..]).expect("统一 V5 编码器必须产出规范交易")
 }
 
 /// signed extrinsic 的 0x-prefixed SCALE hex。

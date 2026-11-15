@@ -49,11 +49,15 @@ pub(crate) enum ProtectedFee {
 
 fn signed_account(xt: &UncheckedExtrinsic) -> Option<[u8; 32]> {
     match &xt.0.preamble {
+        // 旧高度区块按其父 Runtime 执行；此处仅从已执行区块提取实际收费账户。
         Preamble::Signed(MultiAddress::Id(account), _, _) => Some(account.clone().into()),
-        Preamble::General(sp_runtime::traits::ExtensionVariant::Other(pipeline)) => match &pipeline.extension.0.0 {
-            chain_signing::mldsa::Proof::First { account, .. } | chain_signing::mldsa::Proof::Stored { account, .. } => Some(*account),
-            chain_signing::mldsa::Proof::None => None,
-        },
+        Preamble::General(sp_runtime::traits::ExtensionVariant::Other(pipeline)) => {
+            match &pipeline.extension.0 .0 {
+                chain_signing::mldsa::Proof::Sr25519 { account, .. }
+                | chain_signing::mldsa::Proof::First { account, .. }
+                | chain_signing::mldsa::Proof::Stored { account, .. } => Some(*account),
+            }
+        }
         _ => None,
     }
 }

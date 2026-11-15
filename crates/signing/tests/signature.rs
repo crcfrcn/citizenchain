@@ -25,7 +25,7 @@ fn real_signatures_reject_wrong_key_modified_payload_and_corruption() {
         assert!(verify_signature(&material, &signature, &signer.public()));
         assert!(!verify_signature(&material, &signature, &other.public()));
         let mut modified = material;
-        modified.signing_bytes.push(1);
+        modified.payload.push(1);
         assert!(!verify_signature(&modified, &signature, &signer.public()));
     }
 }

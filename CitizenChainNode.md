@@ -2215,7 +2215,12 @@ CID年份u32：CID生成器调用中的year同步为u32，组成和生命周期�
 ### ML-DSA-65 原生账户交易
 
 核心统一为 `runtime/transaction/mldsa`：开发期 sr 账户用 sr 签名、PQ 账户用 PQ 签名。sr AccountId 为 sr 公钥32字节，PQ AccountId 为 `blake2_256("GMB/account/ml-dsa-65/v1" || public_key)`；现有 AccountId 不变，无跨算法绑定或转换。
-Mldsa pallet index 36 仅有 `PqPublicKey` 存储。PQ 首次普通交易用官方 V5 General/pipeline1 的 `Mldsa65Auth` 校验账户哈希和签名后，在 prepare 存完整1952字节公钥一次；后续只带账户和3309字节签名。缺公钥的 Stored 交易拒绝；nonce、扣费和业务派发沿用原 pipeline0。sr V4 字节保持。
+原生交易统一为V5 General、认证管线1，认证扩展为AccountAuth；证明仅有sr25519、ML首次公钥、ML已登记公钥三种分支。sr账户仍是原公钥32字节，ML账户派生及PqPublicKey存储保持；不转换账户、不迁移余额。两种算法共用账户绑定的签名约束：blake2_256(TRANSACTION_DOMAIN || AccountId || SCALE(ImplicationParts))；ImplicationParts覆盖管线版本、call及全部后续扩展的explicit/implicit，审阅端保留完整业务字段。nonce、权限、费用、质押保护、资源检查及上限保持；运行阶段仍拒绝sr。
+Mldsa pallet index36仍仅保存PqPublicKey。ML首次在正常交易校验通过后写公钥一次；Stored缺公钥拒绝。SDK要求的FRAME交易构造合同同样只生成V5；runtime在检查入口拒绝外层签名格式及未注册原生管线。Ethereum专用交易和固有交易沿用SDK检查。
 `node scripts/runtime.mjs build-operation` 在原候选构建流程启用 operation 特性；一次 runtime 升级的 hook 把既有 Phase 切至 Operation 并关闭 DeveloperUpgradeEnabled，不扫描或改写账户。运行期在 sr 密码学验签前拒绝 sr 交易。
 钱包与SDK通过主清单直接引用同一核心，源码构建优先复用同级公民链，缺少时仅在本轮临时目录浅克隆源码并直接引用；默认sr、提供PQ选项，今后 operation 客户端构建只保留PQ派生。首次认证随正常交易自动完成。
 认证权重目前是保守预算，尚非目标节点硬件的 FRAME 生成基准。
+
+### 统一V5的交付边界
+
+节点热签、冷签、投票、节点内协议升级和链上中国提交均使用同一完整审阅材料与账户绑定摘要。节点守卫从V5认证证明读取实际付款账户，继续核对原手续费公式；旧高度区块按其父Runtime执行，不重写历史。默认Metadata_metadata公开完整V16认证管线。冻结chainspec、创世WASM、块0、创世写入源码及哈希常量逐字节不变，不重新创世；新代码仅通过另行获准的既有链升级生效。已签原升级交易不改字节、不换WASM、不重签或重发。

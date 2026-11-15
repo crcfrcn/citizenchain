@@ -169,7 +169,9 @@ pub async fn prepare_signing(
     )?;
     Ok(PreparedChainSign {
         nonce,
-        signing_hash_hex: chain_signing::sha256_hex(&material.signing_bytes),
+        signing_hash_hex: chain_signing::sha256_hex(
+            &material.signing_message(&chain_signing::parse_sr25519_public_key(account_id)?.0),
+        ),
         payload: material.payload,
     })
 }
@@ -196,7 +198,10 @@ where
         tx_version,
     )?;
     // 会话期间 runtime 版本/创世哈希不得漂移,否则签名对不上载荷。
-    if chain_signing::sha256_hex(&material.signing_bytes) != expected_signing_hash {
+    if chain_signing::sha256_hex(
+        &material.signing_message(&chain_signing::parse_sr25519_public_key(account_id)?.0),
+    ) != expected_signing_hash
+    {
         return Err(
             "签名载荷与会话不一致(runtime 版本或创世哈希已变化),请重新发起"
                 .to_string()
@@ -205,13 +210,28 @@ where
     }
 
     let account = chain_signing::parse_sr25519_public_key(account_id)?.0;
-    let signature = hex::decode(signature_hex.strip_prefix("0x").unwrap_or(signature_hex)).map_err(|e| e.to_string())?;
-    let registered = if chain_signing::mldsa::signature_parts(&signature)?.0.is_some() {
-        let key = chain_signing::mldsa::PqPublicKey::<runtime::Runtime>::hashed_key_for(runtime::AccountId::new(account));
+    let signature = hex::decode(signature_hex.strip_prefix("0x").unwrap_or(signature_hex))
+        .map_err(|e| e.to_string())?;
+    let registered = if chain_signing::mldsa::signature_parts(&signature).map_err(str::to_string)?
+        .0
+        .is_some()
+    {
+        let key = chain_signing::mldsa::PqPublicKey::<runtime::Runtime>::hashed_key_for(
+            runtime::AccountId::new(account),
+        );
         let head = rpc_post("chain_getFinalizedHead", Value::Array(vec![])).await?;
-        !rpc_post("state_getStorage", serde_json::json!([format!("0x{}", hex::encode(key)), head])).await?.is_null()
-    } else { false };
-    let extrinsic = chain_signing::assemble_account_signed_extrinsic(material, account, &signature, registered)?;
+        !rpc_post(
+            "state_getStorage",
+            serde_json::json!([format!("0x{}", hex::encode(key)), head]),
+        )
+        .await?
+        .is_null()
+    } else {
+        false
+    };
+    let extrinsic = chain_signing::assemble_account_signed_extrinsic(
+        material, account, &signature, registered,
+    )?;
     let extrinsic_hex = chain_signing::signed_extrinsic_hex(&extrinsic);
     let extrinsic_bytes = extrinsic.encode();
 

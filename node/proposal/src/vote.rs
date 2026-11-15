@@ -70,8 +70,17 @@ pub(crate) fn build_vote_sign_request(
 
     // 链交易签名材料只能由 runtime 类型构造，避免 node 冷签与热钱包
     // 交易路径在 TxExtension 或 additional_signed 字节上分叉。
-    let (payload, signing_bytes) =
-        build_signing_payloads(&call_data, &genesis_hash, nonce, spec_version, tx_version)?;
+    let (payload, signing_bytes) = build_signing_payloads(
+        &public_key_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "签名账户必须32字节")?,
+        &call_data,
+        &genesis_hash,
+        nonce,
+        spec_version,
+        tx_version,
+    )?;
 
     // 计算审阅 payload hash 与实际签名字节 hash，分别用于 QR 会话和提交校验。
     let payload_hash = sha256_hash(&payload);
@@ -164,8 +173,17 @@ pub(crate) fn build_joint_vote_sign_request(
     call_data.extend_from_slice(voter_role_code.as_bytes());
     call_data.push(if approve { 1u8 } else { 0u8 });
 
-    let (payload, signing_bytes) =
-        build_signing_payloads(&call_data, &genesis_hash, nonce, spec_version, tx_version)?;
+    let (payload, signing_bytes) = build_signing_payloads(
+        &public_key_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "签名账户必须32字节")?,
+        &call_data,
+        &genesis_hash,
+        nonce,
+        spec_version,
+        tx_version,
+    )?;
     let payload_hash = sha256_hash(&payload);
     let payload_hash_hex = hex::encode(payload_hash);
     let payload_hash = hex::encode(sha256_hash(&signing_bytes));

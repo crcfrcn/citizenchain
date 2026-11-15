@@ -5,10 +5,10 @@ use codec::Encode;
 use sp_core::H256;
 use sp_runtime::generic::Era;
 
-/// 与接入前十二项扩展逐字节比较，兼容既有钱包/QR原生交易。
+/// V5账户认证之外的十二项业务扩展编码保持。
 #[test]
-fn ethereum_origin_marker_keeps_native_extension_bytes_unchanged() {
-    let legacy = (
+fn v5_keeps_all_existing_business_extension_bytes() {
+    let business = (
         frame_system::AuthorizeCall::<runtime::Runtime>::new(),
         frame_system::CheckNonZeroSender::<runtime::Runtime>::new(),
         runtime::CheckNonStakeSender,
@@ -22,7 +22,7 @@ fn ethereum_origin_marker_keeps_native_extension_bytes_unchanged() {
         frame_metadata_hash_extension::CheckMetadataHash::<runtime::Runtime>::new(false),
         frame_system::WeightReclaim::<runtime::Runtime>::new(),
     );
-    assert_eq!(build_tx_extension(5).encode(), legacy.encode());
+    assert_eq!(build_tx_extension(5).encode(), business.encode());
     let call = runtime::RuntimeCall::System(frame_system::Call::remark { remark: vec![7; 8] });
     let additional = (
         (),
@@ -38,10 +38,13 @@ fn ethereum_origin_marker_keeps_native_extension_bytes_unchanged() {
         None::<[u8; 32]>,
         (),
     );
-    let legacy_payload = (call.clone(), legacy, additional).encode();
+    let review = (call.clone(), business, additional).encode();
     let material = build_signing_material_from_call(call, H256::repeat_byte(9), 5, 1, 1);
-    assert_eq!(material.payload, legacy_payload);
-    assert_eq!(material.signing_bytes, legacy_payload);
+    assert_eq!(material.payload, review);
+    assert_eq!(
+        material.signing_message(&[4; 32]),
+        mldsa::review_message(&[4; 32], &review)
+    );
 }
 
 #[test]
@@ -64,5 +67,12 @@ fn signed_extrinsic_roundtrips_using_the_runtime_decoder() {
         let decoded = runtime::UncheckedExtrinsic::decode(&mut input).expect("真实Runtime可解码");
         assert!(input.is_empty());
         assert_eq!(decoded.encode(), bytes);
+        let mut body = bytes.as_slice();
+        let _ = codec::Compact::<u32>::decode(&mut body).unwrap();
+        assert_eq!(&body[..2], &[0x45, 1]);
+        let proof = mldsa::Proof::decode(&mut &body[2..]).unwrap();
+        assert!(
+            matches!(proof, mldsa::Proof::Sr25519 { account, .. } if account == pair.public().0)
+        );
     }
 }

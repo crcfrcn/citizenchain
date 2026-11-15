@@ -42,9 +42,8 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-    AccountId, Balance, Block, BlockNumber, Executive, Grandpa, InherentDataExt,
-    LegislationYuan, Nonce, Runtime, RuntimeCall, RuntimeGenesisConfig, System,
-    TransactionPayment, VERSION,
+    AccountId, Balance, Block, BlockNumber, Executive, Grandpa, InherentDataExt, LegislationYuan,
+    Nonce, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
 };
 
 pallet_revive::impl_runtime_apis_plus_revive_traits!(Runtime, Revive, Executive, crate::EthExtraImpl,
@@ -64,7 +63,7 @@ pallet_revive::impl_runtime_apis_plus_revive_traits!(Runtime, Revive, Executive,
 
     impl sp_api::Metadata<Block> for Runtime {
         fn metadata() -> OpaqueMetadata {
-            OpaqueMetadata::new(Runtime::metadata().into())
+            Runtime::metadata_at_version(16).expect("统一V5认证必须提供完整V16 metadata")
         }
 
         fn metadata_at_version(version: u32) -> Option<OpaqueMetadata> {

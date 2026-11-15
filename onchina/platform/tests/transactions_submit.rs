@@ -11,9 +11,12 @@ fn signing_material_roundtrip_and_hash_rule() {
     let genesis = [9u8; 32];
     let m = chain_signing::build_signing_material(&call_data, &genesis, 5, 1, 1).expect("material");
     assert_eq!(m.call.encode(), call_data);
-    // 小载荷:签名输入 == 审阅 payload 本体。
+    // 小载荷也签署账户绑定的 V5 摘要，QR 保留完整审阅材料。
     assert!(m.payload.len() <= 256);
-    assert_eq!(m.signing_bytes, m.payload);
+    assert_eq!(
+        m.signing_message(&[1; 32]),
+        chain_signing::mldsa::review_message(&[1; 32], &m.payload)
+    );
 
     let big_call = runtime::RuntimeCall::System(frame_system::Call::remark {
         remark: vec![7u8; 400],
@@ -22,8 +25,11 @@ fn signing_material_roundtrip_and_hash_rule() {
         .expect("material");
     // 大载荷:QR 仍必须拿到完整审阅 payload；只有实际签名输入是 32 字节 blake2_256。
     assert!(big.payload.len() > 256);
-    assert_eq!(big.signing_bytes.len(), 32);
-    assert_ne!(big.payload, big.signing_bytes);
+    assert_eq!(big.signing_message(&[1; 32]).len(), 32);
+    assert_ne!(
+        big.payload.as_slice(),
+        big.signing_message(&[1; 32]).as_slice()
+    );
 }
 
 #[test]

@@ -283,3 +283,21 @@ fn upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks() 
     )
     .is_err());
 }
+
+#[test]
+fn both_ml_proofs_keep_the_actual_fixed_transfer_fee_guard() {
+    let child = [9; 32];
+    let payer = AccountId32::new(chain_signing::mldsa::account_id(&chain_signing::mldsa::public_key(&child)));
+    let metadata = local_metadata();
+    for first in [true, false] {
+        let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+            beneficiary_account_id: AccountId32::new([8; 32]), amount: 50_000, remark: Vec::new().try_into().unwrap(),
+        });
+        let xt = chain_signing::build_pq_signed_extrinsic(call, sp_core::H256::repeat_byte(1), 0, runtime::VERSION.spec_version, runtime::VERSION.transaction_version, &child, first);
+        let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord { phase: Phase::ApplyExtrinsic(0), topics: vec![],
+            event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid { account_id: payer.clone(), fee: 50 }) }];
+        let key = storage_key::events(); let body = vec![xt.into()];
+        assert!(check_block(&body, |at| (at == key).then(|| events.encode()), &metadata).is_ok());
+        assert!(check_block(&body, |at| (at == key).then(|| Vec::<EventRecord<RuntimeEvent, sp_core::H256>>::new().encode()), &metadata).is_err());
+    }
+}

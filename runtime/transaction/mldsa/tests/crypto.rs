@@ -103,3 +103,20 @@ fn development_and_operation_derivation_rules_are_explicit() {
         assert!(AccountAlgorithm::from_option(1).is_err());
     }
 }
+
+#[test]
+fn sr_and_ml_use_the_same_account_bound_v5_implication() {
+    let review = b"call+nonce+genesis+runtime+business-checks";
+    let message = mldsa::review_message(&[7; 32], review);
+    assert_eq!(
+        message,
+        mldsa::transaction_message(&[7; 32], &[vec![1], review.to_vec()].concat())
+    );
+    assert_ne!(message, mldsa::review_message(&[8; 32], review));
+    assert_ne!(message, mldsa::review_message(&[7; 32], b"changed-call"));
+    let proof = Proof::Sr25519 {
+        account: [7; 32],
+        signature: [9; 64],
+    };
+    assert_eq!(Proof::decode(&mut &proof.encode()[..]).unwrap(), proof);
+}

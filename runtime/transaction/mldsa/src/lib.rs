@@ -220,7 +220,10 @@ pub fn sign_with_public(
 #[derive(Clone, Debug, Eq, PartialEq, Encode, Decode, DecodeWithMemTracking, TypeInfo)]
 pub enum Proof {
     #[codec(index = 0)]
-    None,
+    Sr25519 {
+        account: [u8; 32],
+        signature: [u8; SR25519_SIGNATURE_BYTES],
+    },
     #[codec(index = 1)]
     First {
         account: [u8; 32],
@@ -232,11 +235,6 @@ pub enum Proof {
         account: [u8; 32],
         signature: Signature,
     },
-}
-impl Default for Proof {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 /// 统一签名信封边界，返回公钥与签名字节的借用切片。
@@ -739,11 +737,11 @@ mod runtime {
     };
     use sp_runtime::{
         traits::{
-            AsTransactionAuthorizedOrigin, DispatchInfoOf, Dispatchable, Lazy, PostDispatchInfoOf,
-            TransactionExtension, ValidateResult, Verify,
+            AsTransactionAuthorizedOrigin, DispatchInfoOf, Dispatchable, PostDispatchInfoOf,
+            TransactionExtension, ValidateResult,
         },
         transaction_validity::{InvalidTransaction, TransactionValidityError},
-        AccountId32, DispatchResult, MultiSignature, MultiSigner,
+        AccountId32, DispatchResult,
     };
 
     pub trait ChainPhase {
@@ -796,43 +794,6 @@ mod runtime {
     }
     pub use pallet::*;
 
-    /// 保留既有 SCALE 编码，并允许运行时在密码学验签前拒绝 sr 交易。
-    #[derive(
-        Encode, Decode, DecodeWithMemTracking, CloneNoBound, EqNoBound, PartialEqNoBound, TypeInfo,
-    )]
-    #[scale_info(skip_type_params(T))]
-    pub struct LegacySignature<T>(pub MultiSignature, #[codec(skip)] PhantomData<fn() -> T>);
-    impl<T> core::fmt::Debug for LegacySignature<T> {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            self.0.fmt(f)
-        }
-    }
-    impl<T> From<sp_core::sr25519::Signature> for LegacySignature<T> {
-        fn from(signature: sp_core::sr25519::Signature) -> Self {
-            Self(MultiSignature::Sr25519(signature), PhantomData)
-        }
-    }
-    impl<T> From<MultiSignature> for LegacySignature<T> {
-        fn from(signature: MultiSignature) -> Self {
-            Self(signature, PhantomData)
-        }
-    }
-    impl<T> LegacySignature<T> {
-        #[allow(non_snake_case)]
-        pub fn Sr25519(signature: sp_core::sr25519::Signature) -> Self {
-            signature.into()
-        }
-    }
-    impl<T: Config> Verify for LegacySignature<T> {
-        type Signer = MultiSigner;
-        fn verify<L: Lazy<[u8]>>(&self, message: L, account: &AccountId32) -> bool {
-            !T::ChainPhase::is_operation()
-                && !PqPublicKey::<T>::contains_key(account)
-                && matches!(self.0, MultiSignature::Sr25519(_))
-                && self.0.verify(message, account)
-        }
-    }
-
     /// 交易外层证明与既有身份凭证钩子共用账户验签实现。
     pub fn verify_account<T: Config>(
         account: &AccountId32,
@@ -865,11 +826,6 @@ mod runtime {
             self.0.fmt(f)
         }
     }
-    impl<T> Default for Authenticate<T> {
-        fn default() -> Self {
-            Self(Proof::None, PhantomData)
-        }
-    }
     impl<T> From<Proof> for Authenticate<T> {
         fn from(proof: Proof) -> Self {
             Self(proof, PhantomData)
@@ -880,14 +836,14 @@ mod runtime {
     where
         <T::RuntimeCall as Dispatchable>::RuntimeOrigin: AsTransactionAuthorizedOrigin,
     {
-        const IDENTIFIER: &'static str = "Mldsa65Auth";
+        const IDENTIFIER: &'static str = "AccountAuth";
         type Implicit = ();
         type Val = Option<(AccountId32, PublicKey)>;
         type Pre = ();
         fn weight(&self, _: &T::RuntimeCall) -> Weight {
             use crate::weights::WeightInfo;
             match &self.0 {
-                Proof::None => T::WeightInfo::legacy(),
+                Proof::Sr25519 { .. } => T::WeightInfo::sr(),
                 Proof::First { .. } => T::WeightInfo::first(),
                 Proof::Stored { .. } => T::WeightInfo::stored(),
             }
@@ -902,11 +858,24 @@ mod runtime {
             implication: &impl Encode,
             _: TransactionSource,
         ) -> ValidateResult<Self::Val, T::RuntimeCall> {
+            if origin.is_transaction_authorized() {
+                return Err(InvalidTransaction::BadSigner.into());
+            }
             let (account, signature, public, pending) = match &self.0 {
-                Proof::None => {
-                    if origin.is_transaction_authorized() && T::ChainPhase::is_operation() {
+                Proof::Sr25519 { account, signature } => {
+                    let id = AccountId32::new(*account);
+                    if T::ChainPhase::is_operation() || PqPublicKey::<T>::contains_key(&id) {
                         return Err(InvalidTransaction::BadSigner.into());
                     }
+                    let message = crate::transaction_message(account, &implication.encode());
+                    if !sp_io::crypto::sr25519_verify(
+                        &sp_core::sr25519::Signature::from_raw(*signature),
+                        &message,
+                        &sp_core::sr25519::Public::from_raw(*account),
+                    ) {
+                        return Err(InvalidTransaction::BadProof.into());
+                    }
+                    origin.set_caller_from_signed(id);
                     return Ok((Default::default(), None, origin));
                 }
                 Proof::First {
@@ -939,9 +908,6 @@ mod runtime {
                     (*account, signature, public, None)
                 }
             };
-            if origin.is_transaction_authorized() {
-                return Err(InvalidTransaction::BadSigner.into());
-            }
             let message = crate::transaction_message(&account, &implication.encode());
             if !crate::verify(&public, &message, signature) {
                 return Err(InvalidTransaction::BadProof.into());

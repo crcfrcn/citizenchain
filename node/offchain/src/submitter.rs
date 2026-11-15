@@ -31,7 +31,7 @@ pub(crate) struct PoolBatchSubmitter {
     /// substrate TransactionPool,调 `submit_one` 提交 extrinsic。
     pool: Arc<TxPool>,
     /// 同一把清算行管理员 sr25519 私钥:既是 batch 内部 `batch_signature` 的
-    /// 签名者,也是 extrinsic 外层 `SignedPayload` 的签名者。
+    /// 签名者,也是 V5 交易账户绑定摘要的签名者。
     signing_key: Arc<RwLock<Option<SigningKey>>>,
 }
 
@@ -205,7 +205,7 @@ where
 ///
 /// 本函数是 **本步单测的重点**:
 /// - 参数确定性输入 → extrinsic 可 SCALE roundtrip
-/// - SignedPayload 可被 `sr25519_verify` 验证
+/// - V5 账户绑定摘要可被 `sr25519_verify` 验证
 /// - TxExtension 顺序由 `chain-signing` 统一维护
 pub fn build_signed_extrinsic(
     client: &FullClient,

@@ -5,7 +5,7 @@ use codec::Encode;
 use sp_core::H256;
 
 #[test]
-fn signing_material_roundtrip_and_hash_rule() {
+fn signing_material_keeps_full_review_and_binds_v5_account() {
     let call = runtime::RuntimeCall::System(frame_system::Call::remark {
         remark: vec![7u8; 8],
     });
@@ -13,18 +13,22 @@ fn signing_material_roundtrip_and_hash_rule() {
     let genesis = [9u8; 32];
     let m = build_signing_material(&call_data, &genesis, 5, 1, 1).expect("material");
     assert_eq!(m.call.encode(), call_data);
-    // 小载荷:签名输入 == 审阅 payload 本体。
+    // 完整审阅材料不受长度分界改变；实际签名始终绑定账户。
     assert!(m.payload.len() <= 256);
-    assert_eq!(m.signing_bytes, m.payload);
+    assert_eq!(
+        m.signing_message(&[1; 32]),
+        mldsa::review_message(&[1; 32], &m.payload)
+    );
+    assert_ne!(m.signing_message(&[1; 32]), m.signing_message(&[2; 32]));
 
     let big_call = runtime::RuntimeCall::System(frame_system::Call::remark {
         remark: vec![7u8; 400],
     });
     let big = build_signing_material(&big_call.encode(), &genesis, 5, 1, 1).expect("material");
-    // 大载荷:QR 仍必须拿到完整审阅 payload；只有实际签名输入是 32 字节 blake2_256。
+    // 大载荷仍完整审阅，两种算法均签署同一账户绑定摘要。
     assert!(big.payload.len() > 256);
-    assert_eq!(big.signing_bytes.len(), 32);
-    assert_ne!(big.payload, big.signing_bytes);
+    assert_eq!(big.signing_message(&[1; 32]).len(), 32);
+    assert_ne!(big.payload, big.signing_message(&[1; 32]));
 }
 
 #[test]
@@ -35,7 +39,7 @@ fn tail_data_in_call_is_rejected() {
     assert!(decode_runtime_call(&data).is_err());
 }
 
-/// 精确覆盖SDK的256字节分界，输入由真实RuntimeCall生产。
+/// 覆盖原长度分界两侧，保证统一V5摘要不丢失完整审阅材料。
 #[test]
 fn exact_payload_boundary_and_large_review_bytes_are_preserved() {
     for size in [256usize, 257] {
@@ -48,14 +52,10 @@ fn exact_payload_boundary_and_large_review_bytes_are_preserved() {
             })
             .find(|material| material.payload.len() == size)
             .expect("真实载荷可覆盖边界");
-        if size == 256 {
-            assert_eq!(material.signing_bytes, material.payload);
-        } else {
-            let expected = <sp_runtime::traits::BlakeTwo256 as sp_runtime::traits::Hash>::hash(
-                &material.payload,
-            );
-            assert_eq!(material.signing_bytes.as_slice(), expected.as_bytes());
-        }
+        assert_eq!(
+            material.signing_message(&[3; 32]),
+            mldsa::review_message(&[3; 32], &material.payload)
+        );
         assert_eq!(material.payload.len(), size);
     }
 }

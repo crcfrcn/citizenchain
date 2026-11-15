@@ -185,6 +185,10 @@ fn remark_extrinsic(
     )
     .expect("build signed remark extrinsic");
     let raw = hex::decode(hex.trim_start_matches("0x")).expect("decode remark extrinsic hex");
+    let mut body = raw.as_slice();
+    let length = <codec::Compact<u32> as codec::Decode>::decode(&mut body).unwrap();
+    assert_eq!(length.0 as usize, body.len());
+    assert_eq!(&body[..2], &[0x45, chain_signing::mldsa::EXTENSION_VERSION]);
     sp_runtime::OpaqueExtrinsic::try_from_encoded_extrinsic(&raw)
         .expect("decode opaque remark extrinsic")
 }

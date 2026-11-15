@@ -2,14 +2,16 @@
 //! 这些权重不是由 FRAME 基准测试生成的结果。
 use frame_support::{traits::Get, weights::Weight};
 pub trait WeightInfo {
-    fn legacy() -> Weight;
+    fn sr() -> Weight;
     fn first() -> Weight;
     fn stored() -> Weight;
 }
 pub struct SubstrateWeight<T>(core::marker::PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-    fn legacy() -> Weight {
-        T::DbWeight::get().reads(1)
+    fn sr() -> Weight {
+        frame_support::weights::constants::ExtrinsicBaseWeight::get()
+            .saturating_add(T::DbWeight::get().reads(2))
+            .saturating_add(Weight::from_parts(0, 8_000))
     }
     fn first() -> Weight {
         Weight::from_parts(10_000_000_000, 8_000)
@@ -20,7 +22,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     }
 }
 impl WeightInfo for () {
-    fn legacy() -> Weight {
+    fn sr() -> Weight {
         Weight::zero()
     }
     fn first() -> Weight {

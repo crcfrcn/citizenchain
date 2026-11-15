@@ -18,10 +18,19 @@ fn main() {
     let metadata = runtime::Runtime::metadata_at_version(16).expect("V16 metadata");
     let metadata_bytes =
         Vec::<u8>::decode(&mut &metadata.encode()[..]).expect("opaque metadata bytes");
+    let transfer_call = runtime::RuntimeCall::OnchainTransaction(onchain::pallet::Call::<runtime::Runtime>::transfer_with_remark {
+        beneficiary_account_id: runtime::AccountId::new([0x22;32]), amount: 123456,
+        remark: b"CitizenSDK".to_vec().try_into().unwrap(),
+    });
+    let transfer_material = build_signing_material_from_call(transfer_call, genesis, 7, 0, 0);
+    let transfer_signature = sign_material_with_pair(&transfer_material, &sr);
+    let transfer_extrinsic = assemble_signed_extrinsic(build_signing_material_from_call(transfer_material.call.clone(), genesis, 7, 0, 0), sr.public(), transfer_signature);
     println!(
         "{}",
         serde_json::json!({
             "metadata": hex::encode(metadata_bytes),
+            "transfer": {"call": hex::encode(transfer_material.call.encode()), "review": hex::encode(&transfer_material.payload),
+                "message":hex::encode(transfer_material.signing_message(&sr_account)), "signature":hex::encode(transfer_signature.0), "extrinsic":hex::encode(transfer_extrinsic.encode())},
             "genesis": hex::encode(genesis), "account": hex::encode(account), "child": hex::encode(child),
             "call": hex::encode(call.encode()), "review": hex::encode(&material.payload),
             "extensions": hex::encode(material.tx_ext.encode()),

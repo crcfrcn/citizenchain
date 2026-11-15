@@ -4,7 +4,7 @@
 
 Runtime 账户类型必须使用 `AccountId`；账户、公钥和 SS58 的字段与文本合同统一见 `CitizenChainNode.md` 的“账户标识目标契约”。国家名称的基础字段仅为 `country_full_name`、`country_short_name`；既有语言字段由 `runtime/primitives/src/cid/code.rs` 的真实接口定义，不另建字段真源。行政区、机构名称和管理员集合字段的消费边界见 `CitizenChainOnChina.md` 的“行政区数据”和“CID 号”。
 
-哈希域签名仅使用 `runtime/primitives/src/sign.rs` 的 `primitives::sign::signing_message(op_tag, scale_payload)`，结果为 `blake2_256(GMB ‖ op_tag ‖ SCALE)`；既有 `0x18/0x19` 二进制前缀域按同文件定义执行，不改为哈希域。Pallet 的非签名业务哈希必须使用所属 Pallet 的 `MODULE_TAG` 作域；提案数据归属按本文“MODULE_TAG 注册表”核验。
+业务凭证的哈希域签名仅使用 `runtime/primitives/src/sign.rs` 的 `primitives::sign::signing_message(op_tag, scale_payload)`，结果为 `blake2_256(GMB ‖ op_tag ‖ SCALE)`；既有 `0x18/0x19` 二进制前缀域按同文件定义执行，不改为哈希域。Pallet 的非签名业务哈希必须使用所属 Pallet 的 `MODULE_TAG` 作域；提案数据归属按本文“MODULE_TAG 注册表”核验。
 
 ## Runtime 工程名称
 
@@ -2444,3 +2444,9 @@ BackfillEvmAccounts 在现有 SingleBlockMigrations 后启动，使用同模块�
 提案编号：提案编号统一为 proposal_id:u128（全局唯一、永不重置）、year:u32（UTC 公历年）、seq_in_year:u64（跨年从0重置），计数溢出拒绝且整笔回滚。既有调用、事件和所有引用同步扩宽；法律ID、区块号、票数、nonce和清理FIFO序号保持原类型。旧布局转换直接位于 configs.rs 现有 AddPrcFeeSweepPermissions::on_runtime_upgrade 内，独立于权限标记，以 VotingEngine 已有 StorageVersion 0→1保证只执行一次。原地重算ID键及关联索引，保留载荷、投票、状态、余额和清理计划；创世宪法版本仅扩宽内部占位ID，不改变正文和内容哈希。迁移不增加存储表或额外标记键；历史区块仍用其原metadata解码。
 
 CID年份u32：CID年份的生成入参与解析结果统一为u32，范围0～4294967295。哈希输入、校验和及输出统一使用至少四位补零的规范十进制；0000～9999的旧文本不变，10000开始自然增位。CID本体继续使用原字符串，最长为5+5+9+3+10=32字节；CID_NUMBER_MAX_BYTES、既有存储键/值布局和签名槽保持不变，无需迁移或重算已有CID及派生账户。创世年份仍固定2026，冻结创世配置不变。拒绝溢出、非数字及02026等歧义前导零。
+
+## 原生交易统一V5
+
+原生交易统一为V5 General、认证管线1，认证扩展为AccountAuth；证明仅有sr25519、ML首次公钥、ML已登记公钥三种分支。sr账户仍是原公钥32字节，ML账户派生及PqPublicKey存储保持；不转换账户、不迁移余额。两种算法共用账户绑定的签名约束：blake2_256(TRANSACTION_DOMAIN || AccountId || SCALE(ImplicationParts))；ImplicationParts覆盖管线版本、call及全部后续扩展的explicit/implicit，审阅端保留完整业务字段。nonce、权限、费用、质押保护、资源检查及上限保持；运行阶段仍拒绝sr。
+
+认证先确定Signed(account)，之后执行既有业务检查与派发；认证扩展的validate只读，ML首次公钥仅在prepare写入一次。FRAME元数据只声明交易格式5，默认元数据API输出V16。SDK所需外层类型参数不构成旧交易入口。原生生产端不再构造或提交外层签名交易；升级生效后对其明确拒绝。此次不改变存储布局和已有创世，不生成替代链。

@@ -20,8 +20,8 @@ use scale_info::TypeInfo;
 use sp_runtime::{
     generic,
     traits::{
-        AsSystemOriginSigner, BlakeTwo256, DispatchInfoOf, Dispatchable,
-        PostDispatchInfoOf, TransactionExtension, ValidateResult,
+        AsSystemOriginSigner, BlakeTwo256, DispatchInfoOf, Dispatchable, PostDispatchInfoOf,
+        TransactionExtension, ValidateResult,
     },
     transaction_validity::{InvalidTransaction, TransactionValidityError},
     DispatchResult, MultiAddress,
@@ -115,8 +115,8 @@ pub fn native_version() -> NativeVersion {
     }
 }
 
-/// 保留既有 sr 签名交易编码的阶段校验适配类型；PQ 使用独立认证管线。
-pub type Signature = mldsa::LegacySignature<Runtime>;
+/// SDK 外层类型参数；原生交易的认证只由 V5 认证扩展执行。
+pub type Signature = sp_runtime::MultiSignature;
 
 /// 唯一链上账户标识：sr 公钥、PQ 公钥域隔离哈希或协议派生标识均为 32 字节。
 pub type AccountId = sp_runtime::AccountId32;
@@ -226,12 +226,155 @@ where
     }
 }
 
-/// Unchecked extrinsic type as expected by this runtime.
-pub type UncheckedExtrinsic =
+/// 原生交易统一采用 V5；SDK 的 Ethereum 检查与固有交易保持原执行路径。
+#[derive(
+    codec::Encode,
+    codec::Decode,
+    codec::DecodeWithMemTracking,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    sp_runtime::serde::Serialize,
+    sp_runtime::serde::Deserialize,
+)]
+#[serde(crate = "sp_runtime::serde", transparent)]
+pub struct UncheckedExtrinsic(
+    pub  generic::UncheckedExtrinsic<
+        Address,
+        RuntimeCall,
+        Signature,
+        TxExtension,
+        sp_runtime::traits::PipelineAtVers<1, NativeTxExtension>,
+    >,
+);
+
+type SdkExtrinsic =
     pallet_revive::evm::runtime::UncheckedExtrinsic<Address, Signature, EthExtraImpl>;
 
-/// PQ 使用独立的官方交易管线，保留既有 V4 签名交易的编码。
-pub type PqTxExtension = (mldsa::Authenticate<Runtime>, TxExtension);
+impl
+    From<
+        generic::UncheckedExtrinsic<
+            Address,
+            RuntimeCall,
+            Signature,
+            TxExtension,
+            sp_runtime::traits::PipelineAtVers<1, NativeTxExtension>,
+        >,
+    > for UncheckedExtrinsic
+{
+    fn from(
+        value: generic::UncheckedExtrinsic<
+            Address,
+            RuntimeCall,
+            Signature,
+            TxExtension,
+            sp_runtime::traits::PipelineAtVers<1, NativeTxExtension>,
+        >,
+    ) -> Self {
+        Self(value)
+    }
+}
+impl From<UncheckedExtrinsic> for sp_runtime::OpaqueExtrinsic {
+    fn from(value: UncheckedExtrinsic) -> Self {
+        value.0.into()
+    }
+}
+impl TypeInfo for UncheckedExtrinsic {
+    type Identity = <SdkExtrinsic as TypeInfo>::Identity;
+    fn type_info() -> scale_info::Type {
+        SdkExtrinsic::type_info()
+    }
+}
+impl sp_runtime::traits::ExtrinsicMetadata for UncheckedExtrinsic {
+    const VERSIONS: &'static [u8] = &[5];
+    type TransactionExtensionPipelines =
+        <SdkExtrinsic as sp_runtime::traits::ExtrinsicMetadata>::TransactionExtensionPipelines;
+}
+impl sp_runtime::traits::ExtrinsicLike for UncheckedExtrinsic {
+    fn is_bare(&self) -> bool {
+        sp_runtime::traits::ExtrinsicLike::is_bare(&self.0)
+    }
+}
+impl sp_runtime::traits::ExtrinsicCall for UncheckedExtrinsic {
+    type Call = RuntimeCall;
+    fn call(&self) -> &RuntimeCall {
+        &self.0.function
+    }
+    fn into_call(self) -> RuntimeCall {
+        self.0.function
+    }
+}
+impl sp_runtime::traits::LazyExtrinsic for UncheckedExtrinsic {
+    fn decode_unprefixed(data: &[u8]) -> Result<Self, codec::Error> {
+        sp_runtime::traits::LazyExtrinsic::decode_unprefixed(data).map(Self)
+    }
+}
+impl frame_support::dispatch::GetDispatchInfo for UncheckedExtrinsic {
+    fn get_dispatch_info(&self) -> frame_support::dispatch::DispatchInfo {
+        frame_support::dispatch::GetDispatchInfo::get_dispatch_info(&SdkExtrinsic::from(
+            self.0.clone(),
+        ))
+    }
+}
+impl frame_support::traits::InherentBuilder for UncheckedExtrinsic {
+    fn new_inherent(call: RuntimeCall) -> Self {
+        generic::UncheckedExtrinsic::new_bare(call).into()
+    }
+}
+/// FRAME 的交易构造合同同样只生成 V5，认证账户包含在唯一证明中。
+impl frame_support::traits::SignedTransactionBuilder for UncheckedExtrinsic {
+    type Address = ();
+    type Signature = mldsa::Proof;
+    type Extension = TxExtension;
+    fn new_signed_transaction(
+        call: RuntimeCall,
+        _: (),
+        proof: mldsa::Proof,
+        checks: TxExtension,
+    ) -> Self {
+        generic::UncheckedExtrinsic::from_parts(
+            call,
+            generic::Preamble::General(sp_runtime::traits::ExtensionVariant::Other(
+                sp_runtime::traits::PipelineAtVers::<1, _>::new((
+                    mldsa::Authenticate::<Runtime>::from(proof),
+                    checks,
+                )),
+            )),
+        )
+        .into()
+    }
+}
+impl<Lookup> sp_runtime::traits::Checkable<Lookup> for UncheckedExtrinsic
+where
+    SdkExtrinsic: sp_runtime::traits::Checkable<Lookup>,
+{
+    type Checked = <SdkExtrinsic as sp_runtime::traits::Checkable<Lookup>>::Checked;
+    fn check(self, lookup: &Lookup) -> Result<Self::Checked, TransactionValidityError> {
+        use sp_runtime::generic::Preamble;
+        use sp_runtime::traits::ExtensionVariant;
+        match &self.0.preamble {
+            Preamble::Bare(5) | Preamble::General(ExtensionVariant::Other(_)) => {}
+            Preamble::General(ExtensionVariant::V0(_))
+                if matches!(
+                    &self.0.function,
+                    RuntimeCall::Revive(pallet_revive::Call::eth_transact { .. })
+                ) => {}
+            _ => return Err(InvalidTransaction::BadSigner.into()),
+        }
+        SdkExtrinsic::from(self.0).check(lookup)
+    }
+    #[cfg(feature = "try-runtime")]
+    fn unchecked_into_checked_i_know_what_i_am_doing(
+        self,
+        lookup: &Lookup,
+    ) -> Result<Self::Checked, TransactionValidityError> {
+        self.check(lookup)
+    }
+}
+
+/// 两种账户共用同一认证管线，业务检查的顺序与参数保持。
+pub type NativeTxExtension = (mldsa::Authenticate<Runtime>, TxExtension);
 
 /// Ethereum 验签转换复用全部既有交易扩展，不引入另一套收费规则。
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -240,7 +383,7 @@ pub struct EthExtraImpl;
 impl pallet_revive::evm::runtime::EthExtra for EthExtraImpl {
     type Config = Runtime;
     type ExtensionV0 = TxExtension;
-    type ExtensionOtherVersions = sp_runtime::traits::PipelineAtVers<1, PqTxExtension>;
+    type ExtensionOtherVersions = sp_runtime::traits::PipelineAtVers<1, NativeTxExtension>;
 
     fn get_eth_extension(nonce: Nonce, tip: Balance) -> TxExtension {
         (
@@ -263,9 +406,6 @@ impl pallet_revive::evm::runtime::EthExtra for EthExtraImpl {
         )
     }
 }
-
-/// The payload being signed in transactions.
-pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
 
 /// Runtime upgrade migrations 集合；元组按执行顺序排列。
 pub type Migrations = ();

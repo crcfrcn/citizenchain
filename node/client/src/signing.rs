@@ -63,8 +63,16 @@ where
     D: serde::Deserializer<'de>,
 {
     let value = String::deserialize(deserializer)?;
-    qr_protocol::b64_to_prefixed_hex(&value, if value.len() == 4412 { 3309 } else { qr_protocol::SIGNATURE_BYTES }, "b.s")
-        .map_err(serde::de::Error::custom)
+    qr_protocol::b64_to_prefixed_hex(
+        &value,
+        if value.len() == 4412 {
+            3309
+        } else {
+            qr_protocol::SIGNATURE_BYTES
+        },
+        "b.s",
+    )
+    .map_err(serde::de::Error::custom)
 }
 
 fn take_chain_sign_session(request_id: &str) -> Result<ChainSignSession, String> {
@@ -119,7 +127,7 @@ pub struct SignRequestBody {
     /// a:链交易动作码,固定为 `(pallet_index << 8) | call_index`。
     #[serde(rename = "a")]
     pub action: u16,
-    /// g:签名算法,1 固定为 sr25519。
+    /// g:算法提示；原生交易两种算法统一使用 V5。
     #[serde(rename = "g")]
     pub sig_alg: u8,
     /// u:签名账户 32B 公钥,base64url(no padding)。
@@ -327,9 +335,16 @@ fn resolve_recipient_account_id_with_rpc(
             // During backfill, a missing mapping may be an old native account.
             // Never turn it into a different fallback recipient while native
             // business transactions continue to advance the migration.
-            let progress = rpc("state_getStorage", serde_json::json!([
-                format!("0x{}", hex::encode(b":citizenchain:evm-account-mapping:progress:v1")), head
-            ]))?;
+            let progress = rpc(
+                "state_getStorage",
+                serde_json::json!([
+                    format!(
+                        "0x{}",
+                        hex::encode(b":citizenchain:evm-account-mapping:progress:v1")
+                    ),
+                    head
+                ]),
+            )?;
             if !progress.is_null() {
                 return Err("以太坊地址映射正在更新，请稍后重试".into());
             }
@@ -412,12 +427,24 @@ pub fn verify_and_submit(
     }
 
     let public = chain_signing::parse_sr25519_public_key(&expected_public_key)?;
-    let pq_public_key = response.body.pq_public_key.as_ref().map(|encoded| {
-        let encoded = qr_protocol::b64_to_prefixed_hex(encoded, chain_signing::mldsa::PUBLIC_KEY_BYTES, "b.q").map_err(|error| error.to_string())?;
-        hex::decode(encoded.trim_start_matches("0x")).map_err(|error| error.to_string())
-    }).transpose()?;
-    let signature = hex::decode(response.body.signature.trim_start_matches("0x")).map_err(|error| error.to_string())?;
-    let signature_wire = chain_signing::mldsa::join_signature_parts(pq_public_key.as_deref(), &signature)?;
+    let pq_public_key = response
+        .body
+        .pq_public_key
+        .as_ref()
+        .map(|encoded| {
+            let encoded = qr_protocol::b64_to_prefixed_hex(
+                encoded,
+                chain_signing::mldsa::PUBLIC_KEY_BYTES,
+                "b.q",
+            )
+            .map_err(|error| error.to_string())?;
+            hex::decode(encoded.trim_start_matches("0x")).map_err(|error| error.to_string())
+        })
+        .transpose()?;
+    let signature = hex::decode(response.body.signature.trim_start_matches("0x"))
+        .map_err(|error| error.to_string())?;
+    let signature_wire =
+        chain_signing::mldsa::join_signature_parts(pq_public_key.as_deref(), &signature)?;
 
     let (spec_version, tx_version) = fetch_runtime_version()?;
     let genesis_hash = fetch_genesis_hash()?;
@@ -429,7 +456,7 @@ pub fn verify_and_submit(
         tx_version,
     )?;
     let payload_hash = hex::encode(sha256_hash(&material.payload));
-    let signing_payload_hash = hex::encode(sha256_hash(&material.signing_bytes));
+    let signing_payload_hash = hex::encode(sha256_hash(&material.signing_message(&public.0)));
     if session.payload_hash_hex != payload_hash || session.payload_hash != signing_payload_hash {
         return Err(format!(
             "本地签名 session payload hash 不匹配：expected={}, runtime_payload={}, signing_payload={}",
@@ -437,12 +464,24 @@ pub fn verify_and_submit(
         ));
     }
 
-    let registered = if chain_signing::mldsa::signature_parts(&signature_wire)?.0.is_some() {
-        let key = chain_signing::mldsa::PqPublicKey::<runtime::Runtime>::hashed_key_for(runtime::AccountId::new(public.0));
+    let registered = if chain_signing::mldsa::signature_parts(&signature_wire)?
+        .0
+        .is_some()
+    {
+        let key = chain_signing::mldsa::PqPublicKey::<runtime::Runtime>::hashed_key_for(
+            runtime::AccountId::new(public.0),
+        );
         crate::query::fetch_finalized_storage(&format!("0x{}", hex::encode(key)))?.is_some()
-    } else { false };
+    } else {
+        false
+    };
     let _ = sign_block_number;
-    let extrinsic = chain_signing::assemble_account_signed_extrinsic(material, public.0, &signature_wire, registered)?;
+    let extrinsic = chain_signing::assemble_account_signed_extrinsic(
+        material,
+        public.0,
+        &signature_wire,
+        registered,
+    )?;
     let full_extrinsic = extrinsic.encode();
 
     // 先 dry-run 验证，避免提交错误交易导致链卡住
@@ -583,13 +622,21 @@ pub fn fetch_runtime_version() -> Result<(u32, u32), String> {
 
 /// 构建链交易冷签审阅 payload 与实际签名字节。
 pub fn build_signing_payloads(
+    account: &[u8; 32],
     call_data: &[u8],
     genesis_hash: &[u8; 32],
     nonce: u32,
     spec_version: u32,
     tx_version: u32,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
-    chain_signing::build_signing_payloads(call_data, genesis_hash, nonce, spec_version, tx_version)
+    chain_signing::build_signing_payloads(
+        account,
+        call_data,
+        genesis_hash,
+        nonce,
+        spec_version,
+        tx_version,
+    )
 }
 
 pub fn fetch_genesis_hash() -> Result<[u8; 32], String> {
@@ -739,8 +786,14 @@ pub fn build_sign_request_from_call_data(
     let genesis_hash = fetch_genesis_hash()?;
     let nonce = fetch_nonce(&signer_account_id)?;
 
-    let (payload, signing_bytes) =
-        build_signing_payloads(call_data, &genesis_hash, nonce, spec_version, tx_version)?;
+    let (payload, signing_bytes) = build_signing_payloads(
+        &chain_signing::parse_sr25519_public_key(&signer_public_key)?.0,
+        call_data,
+        &genesis_hash,
+        nonce,
+        spec_version,
+        tx_version,
+    )?;
     let payload_hash = sha256_hash(&payload);
     let payload_hash_hex = hex::encode(payload_hash);
     let payload_hash = hex::encode(sha256_hash(&signing_bytes));
@@ -790,6 +843,8 @@ mod tests;
 
 /// 帧合并交给链端统一模块中的有界传输实现。
 pub fn join_qr_frames(frames: Vec<String>) -> Result<Option<String>, String> {
-    if frames.len() > 64 { return Err("too many QR frames".into()) }
+    if frames.len() > 64 {
+        return Err("too many QR frames".into());
+    }
     chain_signing::mldsa::qr_join(&frames.join("\n")).map_err(str::to_owned)
 }

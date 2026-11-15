@@ -38,7 +38,7 @@ pub fn verify_signature(
     signature: &sr25519::Signature,
     public: &sr25519::Public,
 ) -> bool {
-    sr25519::Pair::verify(signature, &material.signing_bytes, public)
+    sr25519::Pair::verify(signature, &material.signing_message(&public.0), public)
 }
 
 /// sr25519 公钥对应的 AccountId。
@@ -51,5 +51,5 @@ pub fn sign_material_with_pair(
     material: &SigningMaterial,
     sender: &sr25519::Pair,
 ) -> sr25519::Signature {
-    sender.sign(&material.signing_bytes)
+    sender.sign(&material.signing_message(&sender.public().0))
 }

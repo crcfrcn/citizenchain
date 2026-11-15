@@ -188,7 +188,11 @@ where
         on_chain_version.spec_version,
         on_chain_version.transaction_version,
     );
-    let signature = keystore.sr25519_sign(POW_AUTHOR_KEY_TYPE, &public, &material.signing_bytes);
+    let signature = keystore.sr25519_sign(
+        POW_AUTHOR_KEY_TYPE,
+        &public,
+        &material.signing_message(&public.0),
+    );
     let signature = signature
         .map_err(|e| ErrorObject::owned(-1, format!("keystore 签名失败: {e}"), None::<()>))?
         .ok_or_else(|| ErrorObject::owned(-1, "keystore 未返回签名", None::<()>))?;

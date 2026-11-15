@@ -9,12 +9,8 @@ pub struct SigningMaterial {
     pub tx_ext: runtime::TxExtension,
     /// QR `b.d` 必须携带的完整审阅载荷。
     ///
-    /// 这里不能调用 `SignedPayload::encode()` 取值：Substrate 在 payload
-    /// 超过 256 字节时会把 Encode/using_encoded 结果替换成 32 字节
-    /// blake2_256。QR 展示需要完整 payload，签名才使用下方 `signing_bytes`。
+    /// 审阅使用完整调用与扩展字节；两种算法均对绑定账户的 V5 摘要签名。
     pub payload: Vec<u8>,
-    /// sr25519 实际签名输入，严格复用 Substrate `SignedPayload::using_encoded` 规则。
-    pub signing_bytes: Vec<u8>,
 }
 
 /// 解码 runtime call，并拒绝尾随字节。
@@ -91,25 +87,27 @@ pub fn build_signing_material_from_call(
         (),
         (),
         (),
-        None,
+        None::<[u8; 32]>,
         ((), ()),
     );
-    // 审阅载荷是 SignedPayload 的原始三元组 SCALE 字节，用于钱包完整解码和中文展示。
-    // 签名字节另走 `using_encoded`，保留 Substrate 对 >256B payload 签 hash 的规则。
+    // 完整审阅材料保留业务字段；实际签名统一绑定账户及认证管线版本。
     let review_payload = (call.clone(), tx_ext.clone(), additional_signed).encode();
-    let raw_payload =
-        runtime::SignedPayload::from_raw(call.clone(), tx_ext.clone(), additional_signed);
-
     SigningMaterial {
         call,
         tx_ext,
         payload: review_payload,
-        signing_bytes: raw_payload.using_encoded(|payload| payload.to_vec()),
     }
 }
 
-/// 构建 QR 冷签需要的完整审阅 payload 和实际 sr25519 签名字节。
+impl SigningMaterial {
+    pub fn signing_message(&self, account: &[u8; 32]) -> [u8; 32] {
+        mldsa::review_message(account, &self.payload)
+    }
+}
+
+/// 构建 QR 冷签需要的完整审阅 payload 和账户绑定的 V5 签名摘要。
 pub fn build_signing_payloads(
+    account: &[u8; 32],
     call_data: &[u8],
     genesis_hash: &[u8; 32],
     nonce: u32,
@@ -118,5 +116,6 @@ pub fn build_signing_payloads(
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
     let material =
         build_signing_material(call_data, genesis_hash, nonce, spec_version, tx_version)?;
-    Ok((material.payload, material.signing_bytes))
+    let message = material.signing_message(account).to_vec();
+    Ok((material.payload, message))
 }
