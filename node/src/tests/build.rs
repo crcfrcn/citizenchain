@@ -1,6 +1,104 @@
 use super::{comparison_path, local_build_work, path_within, same_path};
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "macos")]
+const MACOS_RELEASE_TEST: &str = r#"
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {createHash} from 'node:crypto';
+import childProcess, {execFileSync} from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
+import {mock} from 'node:test';
+const root=process.cwd();
+const {recordAssets,publish}=await import(pathToFileURL(join(root,'.github/release.mjs')));
+const {product}=await import(pathToFileURL(join(root,'scripts/config.mjs')));
+const parent=join(root,'target/test');fs.mkdirSync(parent,{recursive:true});
+const work=fs.mkdtempSync(join(parent,'macos-release-'));
+const context={sha:'a'.repeat(40),ref:'refs/heads/main',runId:7};
+const outputs={};const core={setOutput:(name,value)=>{outputs[name]=value;}};
+let count=0;
+try{
+ Object.assign(process.env,{GITHUB_WORKSPACE:work,CITIZENCHAIN_RELEASE_VERSION:'1.2.3',CITIZENCHAIN_SOURCE_SHA:context.sha,PLATFORM:'macos'});
+ const artifact=join(work,'target/build/macos/artifact'),app=join(artifact,'公民链.app');
+ const contents=join(app,'Contents'),resources=join(contents,'Resources'),executable=join(contents,'MacOS/check');
+ fs.mkdirSync(resources,{recursive:true});fs.mkdirSync(join(contents,'MacOS'));
+ fs.writeFileSync(join(contents,'Info.plist'),'<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>org.citizenchain.release-test</string><key>CFBundleExecutable</key><string>check</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>');
+ const c=join(work,'check.c');fs.writeFileSync(c,'int main(void){return 0;}\n');
+ execFileSync('/usr/bin/cc',[c,'-o',executable]);fs.chmodSync(executable,0o751);
+ fs.writeFileSync(join(resources,'payload'),'original payload');fs.writeFileSync(join(resources,'empty'),'');
+ fs.symlinkSync('payload',join(resources,'alias'));
+ execFileSync('/usr/bin/codesign',['--force','--sign','-',app],{stdio:['ignore','pipe','pipe']});
+ await recordAssets({context,core});
+ assert.deepEqual(fs.readdirSync(artifact),['公民链.zip']);
+ const archive=join(artifact,'公民链.zip'),bytes=fs.readFileSync(archive),assets=JSON.parse(outputs.assets);
+ assert.deepEqual(assets,[{name:'citizenchain-macOS-v1.2.3.zip',label:'公民链·macOS·v1.2.3.zip',size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}]);count++;
+ const extracted=join(work,'round-trip');fs.mkdirSync(extracted);
+ execFileSync('/usr/bin/ditto',['-x','-k',archive,extracted]);
+ const restored=join(extracted,'公民链.app');
+ execFileSync('/usr/bin/codesign',['--verify','--deep','--strict',restored],{stdio:['ignore','pipe','pipe']});
+ assert.equal(fs.statSync(join(restored,'Contents/MacOS/check')).mode&0o7777,0o751);
+ assert.equal(fs.readlinkSync(join(restored,'Contents/Resources/alias')),'payload');
+ assert.equal(fs.readFileSync(join(restored,'Contents/Resources/payload'),'utf8'),'original payload');
+ assert.equal(fs.statSync(join(restored,'Contents/Resources/empty')).size,0);count++;
+ const releaseWork=join(work,'runner');fs.mkdirSync(join(releaseWork,'artifact'),{recursive:true});
+ fs.copyFileSync(archive,join(releaseWork,'artifact/公民链.zip'));fs.appendFileSync(join(releaseWork,'artifact/公民链.zip'),'tampered');
+ Object.assign(process.env,{RUNNER_TEMP:releaseWork,SOURCE_ASSETS:outputs.assets});
+ let ghCalls=0;const actualExec=childProcess.execFileSync;
+ mock.method(childProcess,'execFileSync',(command,...args)=>{if(command==='gh'){ghCalls++;throw Error('测试禁止访问GitHub');}return actualExec(command,...args);});
+ syncBuiltinESMExports();
+ await assert.rejects(publish({context,github:{},core}),/正式产物字节不符/);
+ assert.equal(ghCalls,0);mock.restoreAll();syncBuiltinESMExports();count++;
+ fs.rmSync(archive);execFileSync('/usr/bin/ditto',[restored,app]);
+ fs.writeFileSync(join(app,'Contents/Resources/payload'),'changed after signing');
+ await assert.rejects(recordAssets({context,core}),/codesign/);
+ assert.ok(!fs.existsSync(archive));count++;
+ for(const [platform,output,name,extension]of [
+  ['windows','公民链.exe','citizenchain-Windows-v1.2.3.exe','.exe'],
+  ['linux-arm','公民链.deb','citizenchain-LinuxARM-v1.2.3.deb','.deb'],
+  ['linux-amd','公民链.deb','citizenchain-LinuxAMD-v1.2.3.deb','.deb'],
+ ]){
+  process.env.PLATFORM=platform;const dir=join(work,'target/build',platform,'artifact');fs.mkdirSync(dir,{recursive:true});
+  fs.writeFileSync(join(dir,output),'asset');await recordAssets({context,core});
+  const [asset]=JSON.parse(outputs.assets);assert.equal(asset.name,name);assert.equal(asset.label,'公民链·'+product.platforms[platform].name+'·v1.2.3'+extension);count++;
+ }
+ Object.assign(process.env,{PLATFORM:'wasm',CITIZENCHAIN_RELEASE_VERSION:'4',CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION:'3',CITIZENCHAIN_RUNTIME_BASE:JSON.stringify({genesisHash:'fixture-genesis',blockHash:'fixture-block',specName:'citizenchain',specVersion:3,transactionVersion:2})});
+ const wasmDir=join(work,'target/build/wasm/artifact');fs.mkdirSync(wasmDir,{recursive:true});
+ const names=['runtime.wasm','runtime.compact.wasm','runtime.compact.compressed.wasm'];
+ for(const name of names)fs.writeFileSync(join(wasmDir,name),'fixture bytes');
+ await recordAssets({context,core});assert.deepEqual(JSON.parse(outputs.assets).map(a=>a.name),names);assert.equal(outputs.version,'4');
+ const runtime=JSON.parse(outputs.runtime);assert.equal(runtime.spec_version,4);assert.equal(runtime.transaction_version,3);count++;
+ const workflow=fs.readFileSync(join(root,'.github/workflows/macos.yml'),'utf8');
+ assert.ok(workflow.includes('steps.assets.outputs.assets'));assert.ok(workflow.includes('needs.build.outputs.assets'));
+ assert.ok(workflow.includes('actions/upload-artifact@'));assert.ok(workflow.includes('actions/download-artifact@'));
+ assert.ok(workflow.indexOf('await recordAssets({context,core})')<workflow.indexOf('上传已验收的唯一附件'));
+ assert.ok(workflow.indexOf('上传已验收的唯一附件')<workflow.indexOf('清理本轮编译现场'));
+ assert.ok(workflow.includes('await publish({context,github,core})'));assert.ok(!workflow.includes('检查正式附件交付能力'));count++;
+ console.log('macOS发布定向回归通过：'+count+'组');
+}finally{mock.restoreAll();syncBuiltinESMExports();fs.rmSync(work,{recursive:true,force:true});}
+"#;
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_release_archive_preserves_signed_app_and_rejects_corruption() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("node package belongs to repository");
+    let output =
+        std::process::Command::new(std::env::var_os("NODE").unwrap_or_else(|| "node".into()))
+            .args(["--input-type=module", "-e", MACOS_RELEASE_TEST])
+            .current_dir(root)
+            .output()
+            .expect("execute declared Node");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
 // 同一夹具既可由Rust测试调用，也可从控制台直接交给官方Node定向验收。
 const POSTGRES_TEST: &str = r#"
 import assert from 'node:assert/strict';

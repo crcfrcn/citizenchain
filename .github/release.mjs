@@ -1,6 +1,6 @@
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {appendFileSync, createReadStream, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync} from 'node:fs';
+import {appendFileSync, createReadStream, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {product} from '../scripts/config.mjs';
 import {nodeTools, npmCLI, runBuildProcess} from '../scripts/build.mjs';
@@ -16,10 +16,52 @@ async function artifactBytes(path) {
   return {size: info.size, sha256: hash.digest('hex')};
 }
 
-function releaseFiles(declared, version) {
+function releaseFiles(platform, version) {
+  const declared = product.platforms[platform];
   if (declared.files) return declared.files.map(name => ({output: name, name}));
-  if (!declared.artifact) throw Error('GitHub Release 只接收普通文件，不能上传 macOS 应用包目录');
-  return [{output: declared.output, name: declared.artifact.replace('{version}', version)}];
+  if (!declared.artifact) throw Error('平台缺少正式附件声明');
+  const output = platform === 'macos' ? declared.releaseOutput : declared.output;
+  return [{output, name: declared.artifact.replace('{version}', version)}];
+}
+
+async function macAppFiles(app) {
+  const entries = [];
+  async function visit(path, name) {
+    const info = lstatSync(path), mode = info.mode & 0o7777;
+    if (info.isSymbolicLink()) entries.push({name, mode, link: readlinkSync(path)});
+    else if (info.isDirectory()) {
+      entries.push({name, mode, directory: true});
+      for (const child of readdirSync(path).sort()) await visit(join(path, child), name + '/' + child);
+    } else if (info.isFile()) {
+      const hash = createHash('sha256');
+      for await (const chunk of createReadStream(path)) hash.update(chunk);
+      entries.push({name, mode, size: info.size, sha256: hash.digest('hex')});
+    }
+    else throw Error('macOS 安装包包含不支持的文件类型');
+  }
+  await visit(app, '');
+  return entries;
+}
+
+async function archiveMacRelease(directory, declared) {
+  if (process.platform !== 'darwin') throw Error('macOS 安装包只能在 macOS 上归档验收');
+  if (JSON.stringify(readdirSync(directory)) !== JSON.stringify([declared.output])) throw Error('macOS 原生安装包集合不符');
+  const app = join(directory, declared.output);
+  if (!lstatSync(app).isDirectory() || lstatSync(app).isSymbolicLink()) throw Error('macOS 安装包必须为真实 app 目录');
+  execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', app], {stdio: ['ignore', 'pipe', 'pipe']});
+  const before = await macAppFiles(app), work = mkdtempSync(join(dirname(directory), 'release-archive-'));
+  try {
+    const archive = join(work, declared.releaseOutput), extracted = join(work, 'unpacked');
+    execFileSync('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', app, archive]);
+    mkdirSync(extracted);
+    execFileSync('/usr/bin/ditto', ['-x', '-k', archive, extracted]);
+    if (JSON.stringify(readdirSync(extracted)) !== JSON.stringify([declared.output])) throw Error('macOS 归档解压后的安装包集合不符');
+    const unpackedApp = join(extracted, declared.output);
+    execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', unpackedApp], {stdio: ['ignore', 'pipe', 'pipe']});
+    if (JSON.stringify(await macAppFiles(unpackedApp)) !== JSON.stringify(before)) throw Error('macOS 归档改变了安装包字节、权限或符号链接');
+    renameSync(archive, join(directory, declared.releaseOutput));
+    rmSync(app, {recursive: true});
+  } finally { rmSync(work, {recursive: true, force: true}); }
 }
 
 // 发布作业在写入 GitHub 前校验本轮下载的实际产物。
@@ -28,7 +70,7 @@ export async function publish({context, github, core}) {
   const version = process.env.CITIZENCHAIN_RELEASE_VERSION;
   const declared = product.platforms[platform];
   const tag = product.title + '·' + declared.name + '·v' + version;
-  const files = releaseFiles(declared, version);
+  const files = releaseFiles(platform, version);
   const assets = JSON.parse(process.env.SOURCE_ASSETS);
   const names = files.map(file => file.name);
   const source = join(process.env.RUNNER_TEMP, 'artifact');
@@ -149,12 +191,13 @@ export async function wasmVersion({context,github,core}) {
 
 export async function recordAssets({context,core}) {
   const p=process.env.PLATFORM,version=process.env.CITIZENCHAIN_RELEASE_VERSION,declared=product.platforms[p];
-  const files=releaseFiles(declared,version);
+  const files=releaseFiles(p,version);
   const tag=product.title+'·'+declared.name+'·v'+version,directory=process.env.GITHUB_WORKSPACE+'/target/build/'+p+'/artifact';
+  if(p==='macos')await archiveMacRelease(directory,declared);
   if(JSON.stringify(readdirSync(directory).sort())!==JSON.stringify(files.map(file=>file.output).sort()))throw Error('完整产物集合不符');
   const assets=[];
   for(const {name,output} of files){
-    const label=tag+(p==='wasm'?name.slice('runtime'.length):declared.extension);
+    const label=tag+(p==='wasm'?name.slice('runtime'.length):p==='macos'?declared.releaseExtension:declared.extension);
     assets.push({name,label,...await artifactBytes(join(directory,output))});
   }
   core.setOutput('assets',JSON.stringify(assets));
