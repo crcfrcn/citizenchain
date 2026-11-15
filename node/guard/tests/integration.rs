@@ -831,6 +831,190 @@ fn current_wasm_passes_candidate_runtime_policy_behavior_probes() {
 }
 
 #[test]
+#[ignore = "requires an explicitly supplied candidate WASM_FILE"]
+fn candidate_wasm_identity_probe_environment_regression() {
+    use codec::Decode;
+    use sp_runtime::traits::BlakeTwo256;
+    use sp_state_machine::{InMemoryBackend, OverlayedChanges, StateMachine};
+    use std::borrow::Cow;
+
+    let wasm = runtime::WASM_BINARY.expect("本回归必须通过 WASM_FILE 提供真实候选 WASM，禁止跳过");
+    let fetcher = sp_core::traits::WrappedRuntimeCode(Cow::Borrowed(wasm));
+    let code = sp_core::traits::RuntimeCode {
+        code_fetcher: &fetcher,
+        heap_pages: None,
+        hash: sp_crypto_hashing::blake2_256(wasm).to_vec(),
+    };
+    let executor = sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::default();
+    let genesis_hash = sp_core::H256::repeat_byte(0x71);
+    let mut storage = full_runtime_genesis_storage();
+    storage
+        .top
+        .insert(sp_storage::well_known_keys::CODE.to_vec(), wasm.to_vec());
+    storage.top.insert(
+        frame_system::BlockHash::<runtime::Runtime>::hashed_key_for(0),
+        genesis_hash.encode(),
+    );
+    // 当前布局的独立夹具只触发升级初始化与账户回填，不把当前布局冒充旧提案编码。
+    storage.top.insert(
+        sp_crypto_hashing::twox_128(b"VotingEngine")
+            .into_iter()
+            .chain(sp_crypto_hashing::twox_128(b":__STORAGE_VERSION__:"))
+            .collect(),
+        1u16.encode(),
+    );
+    let mut previous_upgrade = frame_system::LastRuntimeUpgradeInfo::from(runtime::VERSION);
+    previous_upgrade.spec_version = 0u32.into();
+    storage.top.insert(
+        frame_system::LastRuntimeUpgrade::<runtime::Runtime>::hashed_key().to_vec(),
+        previous_upgrade.encode(),
+    );
+    storage
+        .top
+        .remove(b":citizenchain:evm-account-mapping:v1".as_slice());
+    storage
+        .top
+        .remove(b":citizenchain:evm-account-mapping:progress:v1".as_slice());
+    // 足够的账户确保升级初始化、首笔普通交易前各执行一批有界回填。
+    for index in 0..400u32 {
+        let account = sp_runtime::AccountId32::new(sp_crypto_hashing::blake2_256(&index.encode()));
+        storage.top.insert(
+            frame_system::Account::<runtime::Runtime>::hashed_key_for(account),
+            MAccountInfo {
+                nonce: 0,
+                consumers: 0,
+                providers: 1,
+                sufficients: 0,
+                data: MAccountData {
+                    free: 1_000_000_000,
+                    reserved: 0,
+                    frozen: 0,
+                    flags: 1u128 << 127,
+                },
+            }
+            .encode(),
+        );
+    }
+    storage.top.insert(
+        pallet_timestamp::Now::<runtime::Runtime>::hashed_key().to_vec(),
+        1_790_000_000_000u64.encode(),
+    );
+    let mut future_renewals = Vec::new();
+    for (index, due) in [1_795_802_840_916u64, 1_796_784_560_621]
+        .into_iter()
+        .enumerate()
+    {
+        let sub_key = (format!("future-subscription-{index}").into_bytes(), 0u8).encode();
+        let mut key = sp_crypto_hashing::twox_128(b"SquarePost").to_vec();
+        key.extend(sp_crypto_hashing::twox_128(b"RenewalSchedule"));
+        key.extend(due.to_be_bytes());
+        key.extend(sp_crypto_hashing::blake2_128(&sub_key));
+        key.extend(sub_key);
+        // 即使订阅真源已被移除，错误的未来初始化也会提前清理这些调度键。
+        storage.top.insert(key.clone(), ().encode());
+        future_renewals.push(key);
+    }
+    let backend: InMemoryBackend<BlakeTwo256> =
+        (storage, sp_core::storage::StateVersion::V1).into();
+    let call = |overlay: &mut OverlayedChanges<BlakeTwo256>, method: &str, data: &[u8]| {
+        StateMachine::new(
+            &backend,
+            overlay,
+            &executor,
+            method,
+            data,
+            &mut Default::default(),
+            &code,
+            sp_core::traits::CallContext::Onchain { import: false },
+        )
+        .set_parent_hash(genesis_hash)
+        .execute()
+        .expect("候选 WASM 调用必须成功")
+    };
+    let version: sc_executor::RuntimeVersion =
+        Decode::decode(&mut &call(&mut OverlayedChanges::default(), "Core_version", &[])[..])
+            .expect("decode candidate version");
+    let header = runtime::Header::new(
+        1,
+        Default::default(),
+        Default::default(),
+        genesis_hash,
+        Default::default(),
+    );
+    let registrar = sr25519::Pair::from_seed(&[0xA5; 32]);
+    let (mut initialized, _, _) = crate::guard::runtime_policy::citizen_identity_probe_environment(
+        &backend,
+        &executor,
+        &code,
+        genesis_hash,
+        &header,
+        &BTreeMap::new(),
+        &registrar,
+    )
+    .expect("升级初始化必须成功且保留正常资源占用");
+    for key in &future_renewals {
+        let value = initialized
+            .storage(key)
+            .map(|v| v.map(ToOwned::to_owned))
+            .unwrap_or_else(|| backend.storage(key).expect("read subscription schedule"));
+        assert_eq!(
+            value,
+            Some(Vec::new()),
+            "身份样本的未来时间不得提前清理订阅调度"
+        );
+    }
+    let weight_key = frame_system::BlockWeight::<runtime::Runtime>::hashed_key();
+    let weight: frame_system::ConsumedWeight = Decode::decode(
+        &mut initialized
+            .storage(&weight_key)
+            .flatten()
+            .expect("初始化必须记录区块权重"),
+    )
+    .expect("decode initialized weight");
+    assert!(
+        weight.total().proof_size() >= 2_089_024,
+        "不得清零或跳过迁移资源占用"
+    );
+    crate::guard::runtime_policy::check_candidate_citizen_identity_signatures(
+        &backend,
+        &executor,
+        &code,
+        genesis_hash,
+        &header,
+        &BTreeMap::new(),
+        &version,
+        &registrar,
+        genesis_hash,
+    )
+    .expect("四组全部八笔探针及状态安全断言必须通过，不能累计消耗同一模拟块预算");
+
+    // 同一个真实 WASM 仍必须拒绝资源不足的普通交易，不能把资源错误当作验签通过。
+    let exhausted =
+        frame_system::ConsumedWeight::new(|_| sp_runtime::Weight::from_parts(0, 8 * 1024 * 1024));
+    initialized.set_storage(weight_key.to_vec(), Some(exhausted.encode()));
+    let extrinsic = chain_signing::build_signed_extrinsic_with_pair(
+        runtime::RuntimeCall::System(frame_system::Call::remark { remark: Vec::new() }),
+        genesis_hash,
+        0,
+        version.spec_version,
+        version.transaction_version,
+        &registrar,
+    );
+    let result: sp_runtime::ApplyExtrinsicResult = Decode::decode(
+        &mut &call(
+            &mut initialized,
+            "BlockBuilder_apply_extrinsic",
+            &extrinsic.encode(),
+        )[..],
+    )
+    .expect("decode resource rejection");
+    assert_eq!(
+        result,
+        Err(sp_runtime::transaction_validity::InvalidTransaction::ExhaustsResources.into())
+    );
+}
+
+#[test]
 fn self_consistent_bad_precomputed_block_is_known_bad_before_inner_import() {
     if skip_without_wasm_binary(
         "self_consistent_bad_precomputed_block_is_known_bad_before_inner_import",

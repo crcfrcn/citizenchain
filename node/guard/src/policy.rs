@@ -1090,17 +1090,22 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn check_candidate_citizen_identity_signatures<B>(
+pub(super) fn citizen_identity_probe_environment<B>(
     backend: &B,
     executor: &sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
     runtime_code: &sp_core::traits::RuntimeCode<'_>,
     parent_hash: sp_core::H256,
     next_header: &runtime::Header,
     post_delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
-    version: &sc_executor::RuntimeVersion,
     registrar_pair: &sr25519::Pair,
-    genesis_hash: sp_core::H256,
-) -> Result<(), String>
+) -> Result<
+    (
+        OverlayedChanges<BlakeTwo256>,
+        identity::CidNumberBound,
+        identity::RoleCodeBound,
+    ),
+    String,
+>
 where
     B: Backend<BlakeTwo256>,
 {
@@ -1127,6 +1132,18 @@ where
             },
         },
     );
+    let (actor_cid_number, actor_role_code) = seed_candidate_registrar(&mut overlay, &registrar)?;
+    call_candidate(
+        backend,
+        &mut overlay,
+        executor,
+        runtime_code,
+        parent_hash,
+        "Core_initialize_block",
+        &next_header.encode(),
+    )?;
+
+    // 初始化使用候选块的真实时间；身份样本的未来时间不能提前触发订阅等业务钩子。
     set_overlay_value(
         &mut overlay,
         pallet_timestamp::Now::<runtime::Runtime>::hashed_key().to_vec(),
@@ -1141,17 +1158,37 @@ where
         identity::PopulationMaintenanceFault::<runtime::Runtime>::hashed_key().to_vec(),
         None,
     );
-    let (actor_cid_number, actor_role_code) = seed_candidate_registrar(&mut overlay, &registrar)?;
-    call_candidate(
+    Ok((overlay, actor_cid_number, actor_role_code))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn check_candidate_citizen_identity_signatures<B>(
+    backend: &B,
+    executor: &sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
+    runtime_code: &sp_core::traits::RuntimeCode<'_>,
+    parent_hash: sp_core::H256,
+    next_header: &runtime::Header,
+    post_delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    version: &sc_executor::RuntimeVersion,
+    registrar_pair: &sr25519::Pair,
+    genesis_hash: sp_core::H256,
+) -> Result<(), String>
+where
+    B: Backend<BlakeTwo256>,
+{
+    let (mut overlay, actor_cid_number, actor_role_code) = citizen_identity_probe_environment(
         backend,
-        &mut overlay,
         executor,
         runtime_code,
         parent_hash,
-        "Core_initialize_block",
-        &next_header.encode(),
+        next_header,
+        post_delta,
+        registrar_pair,
     )?;
-
+    let registrar = AccountId32::new(registrar_pair.public().0);
+    // 四组独立用例共用初始化基线；每组内部仍连续检查伪造签名、状态不变和合法签名。
+    // 基线保留初始化与迁移的实际资源占用，不清零计数或放宽候选 runtime 的资源限制。
+    let initialized = overlay.clone();
     let expires_at = 1_800_000_300u64;
     let forged = forged_citizen_signature()?;
     let mut nonce = 0u32;
@@ -1219,9 +1256,9 @@ where
         None,
         "occupy_cid/valid",
     )?;
-    nonce = nonce.saturating_add(1);
-
     // 公民投票身份登记：先种入占号绑定，伪造签名必须在正式 citizen 域被拒绝。
+    let mut overlay = initialized.clone();
+    let mut nonce = 0u32;
     let citizen_pair = sr25519::Pair::from_seed(&[0x42; 32]);
     let citizen_account_id = AccountId32::new(citizen_pair.public().0);
     let citizen_cid_number = citizen_probe_cid("node-guard-citizen")?;
@@ -1312,9 +1349,9 @@ where
         None,
         "register_voting_identity/valid",
     )?;
-    nonce = nonce.saturating_add(1);
-
     // 注册局换绑：新账户的 admin-rebind 域签名必须真实有效。
+    let mut overlay = initialized.clone();
+    let mut nonce = 0u32;
     let admin_current_pair = sr25519::Pair::from_seed(&[0x43; 32]);
     let admin_current_account_id = AccountId32::new(admin_current_pair.public().0);
     let admin_new_pair = sr25519::Pair::from_seed(&[0x44; 32]);
@@ -1393,9 +1430,9 @@ where
         None,
         "admin_rebind_cid_account_id/valid",
     )?;
-    nonce = nonce.saturating_add(1);
-
     // 自主换绑：当前绑定账户签名，交易由新账户（本探针 registrar_pair）提交。
+    let mut overlay = initialized;
+    let mut nonce = 0u32;
     let self_current_pair = sr25519::Pair::from_seed(&[0x45; 32]);
     let self_current_account_id = AccountId32::new(self_current_pair.public().0);
     let self_cid_number = citizen_probe_cid("node-guard-self-rebind")?;
