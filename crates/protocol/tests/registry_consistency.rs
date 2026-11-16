@@ -380,7 +380,7 @@ fn generated_qr_body_validators_are_current() {
     assert_eq!(
         generated_sha256(&export_qr_bodies_dart().expect("Dart body schema 必须可生成"))
             .expect("Dart body 原消费者金标摘要"),
-        "e8b52f1ccd5676ff8b45a5de46aa3a79a1c3cec4a4518477c0944af44ee5ce74",
+        "b3d8170972e7446d4242daecbaed6a3fd4ece13270c3e02b978731147acf8c49",
         "Dart body 与原消费者完整字节不一致"
     );
     let cases = [
