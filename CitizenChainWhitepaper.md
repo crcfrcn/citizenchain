@@ -73,7 +73,7 @@
   [5.9. 交易模组](#59交易模组)
   [5.9.1. 链上交易](#591链上交易)
   [5.9.2. 链下交易](#592链下交易)
-  [5.9.3. 链上多签交易](#593链上多签交易)
+  [5.9.3. 多签交易](#593多签交易)
   [5.9.4. 量子签名](#594量子签名)
   [5.10. 其他模组](#510其他模组)
   [5.10.1. 公民身份](#5101公民身份)
@@ -621,7 +621,7 @@ crcfrcn/
 * 同行支付由同一清算行内部轧差，本金在存款账本内转移，手续费从清算账户转入本行费用账户；跨行支付由收款方清算行主导 settlement，本金从付款方清算账户转入收款方清算账户，手续费从付款方清算账户转入收款方费用账户；<br><span class="whitepaper-en">Same-bank payments move principal within the bank’s deposit ledger, while fees move from its clearing account to its fee account. For cross-bank payments, the recipient-side bank leads settlement: principal moves from the payer-side clearing account to the recipient-side clearing account, and fees move from the payer-side clearing account to the recipient-side fee account.</span>
 * 链下交易手续费由付款用户承担，费率范围为0.01%至0.1%，单笔最低0.01元；手续费归实际执行 settlement 的收款方清算行，不进入链上80%:10%:10%分账。<br><span class="whitepaper-en">The payer bears the off-chain transaction fee. The fee-rate range is 0.01% to 0.1%, with a minimum of 0.01 yuan per transaction. The fee belongs to the recipient-side clearing bank that actually executes settlement and does not enter the on-chain 80%:10%:10% fee split.</span>
 
-### 5.9.3.链上多签交易<br><span class="whitepaper-heading-en">5.9.3. multisig</span>
+### 5.9.3.多签交易<br><span class="whitepaper-heading-en">5.9.3. multisig</span>
 
 * 链上多签交易是机构多签账户、个人多签账户共用的转账交易子模块，只处理多签账户授权后的链上转账，不处理链下清算流程；<br><span class="whitepaper-en">Multisignature on-chain transaction is the transfer submodule shared by institutional multisig accounts and personal multisig accounts. It handles on-chain transfers after multisig-account authorization and does not process off-chain clearing flows.</span>
 * 链上多签转账按链上金额交易规则收取手续费，并进入全节点、国家储委会费用账户和安全基金账户的80%:10%:10%分账。<br><span class="whitepaper-en">Multisignature on-chain transfers are charged under the on-chain amount-transaction fee rule and enter the 80%:10%:10% split among full nodes, the National Reserve Committee fee account, and the safety fund account.</span>

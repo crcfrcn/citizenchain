@@ -162,6 +162,24 @@ describe('公民身份行、绑定钱包与不可逆升级', () => {
       expect(c.row('绑定钱包账户').nextElementSibling).toBe(c.row('身份上链'));
       expect(document.querySelectorAll('.ant-descriptions table')).toHaveLength(2);
       for (const label of document.querySelectorAll<HTMLElement>('.ant-descriptions-item-label')) expect(label.style.width).toBe('120px');
+      // 检查布局合同；jsdom不进行像素排版，不将DOM样式断言冒充实屏测量。
+      expect(document.querySelectorAll('.citizen-details .ant-descriptions-row')).toHaveLength(18);
+      for (const cell of document.querySelectorAll<HTMLElement>('.citizen-details th, .citizen-details td')) {
+        expect(cell.style.height).toBe('40px'); expect(cell.style.boxSizing).toBe('border-box');
+        expect(cell.style.lineHeight).toBe('20px'); expect(cell.style.padding).toBe('8px 16px');
+      }
+      const select = c.row('身份上链').querySelector<HTMLElement>('.ant-select')!;
+      expect(select.style.height).toBe('20px'); expect(select.style.width).toBe('100px');
+      expect(select.className).toContain('ant-select-borderless');
+      for (const label of ['绑定钱包账户', '身份上链']) {
+        const action = c.row(label).querySelector<HTMLButtonElement>('button')!;
+        expect(action.style.height).toBe('20px'); expect(action.style.padding).toBe('0px');
+        expect(action.style.borderWidth).toBe('0px'); expect(action.querySelector('svg')).toBeNull();
+      }
+      const address = c.row('绑定钱包账户').querySelector<HTMLElement>('[title]')!;
+      expect(address.title).toBe(address.textContent);
+      expect(address.style.whiteSpace).toBe('nowrap'); expect(address.style.textOverflow).toBe('ellipsis');
+
       expect(c.row('身份上链').textContent).toContain('选择身份');
       expect(c.input().disabled).toBe(false); expect(c.action().disabled).toBe(true); expect(c.action().textContent).toContain('签名');
       expect([...document.querySelectorAll('.ant-card-head-title button')].map(node => node.textContent?.replace(/\s/g, ''))).toEqual(['返回', '吊销身份', '编辑资料']);
@@ -279,7 +297,9 @@ describe('公民身份行、绑定钱包与不可逆升级', () => {
     const c = await mount({ initialFailure: true });
     try {
       expect(c.action().disabled).toBe(true); expect(c.input().disabled).toBe(true);
-      expect(c.row('身份上链').textContent).toContain('读取失败');
+      expect(document.body.textContent).toContain('读取失败');
+      expect(c.row('身份上链').textContent).not.toContain('读取失败');
+      expect(c.button('重试')!.closest('.citizen-details')).toBeNull();
       await c.click('重试');
       expect(c.input().disabled).toBe(false); expect(c.action().disabled).toBe(true); expect(c.row('身份上链').textContent).toContain('选择身份');
     } finally { await c.dispose(); }
@@ -320,7 +340,10 @@ describe('公民身份行、绑定钱包与不可逆升级', () => {
   for (const options of [{ canWrite: false }, { underAge: true }]) {
     browserTest(`${options.underAge ? '未满16岁' : '没有写权限'}时不因空选身份控件开放而获得签名能力`, async () => {
       const c = await mount(options);
-      try { expect(c.input().disabled).toBe(true); expect(c.action().disabled).toBe(true); expect(c.writes()).toHaveLength(0); }
+      try {
+        expect(c.input().disabled).toBe(true); expect(c.action().disabled).toBe(true); expect(c.writes()).toHaveLength(0);
+        expect(document.querySelector('.ant-alert')!.closest('.citizen-details')).toBeNull();
+      }
       finally { await c.dispose(); }
     }, 15000);
   }

@@ -2,11 +2,12 @@ import { encodeSs58 } from '@gmb/onchina-platform/codes/ss58';
 // 公民详情页承接单个公民档案展示与链上身份推送。
 // 身份授权直接使用最新finalized绑定钱包；本页不再重复录入或扫描账户。
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   Alert,
   Button,
   Card,
+  ConfigProvider,
   Descriptions,
   Modal,
   Popconfirm,
@@ -95,10 +96,20 @@ function sexText(sex?: string) {
   return '-';
 }
 
+// 只限定详情属性表的尺寸，不能让长值、标签或控件把40px行撑开。
+const detailCell: CSSProperties = { height: 40, boxSizing: 'border-box', padding: '8px 16px', fontSize: 14, lineHeight: '20px', verticalAlign: 'middle' };
+const textAction: CSSProperties = { height: 20, minHeight: 0, minWidth: 0, lineHeight: '20px', fontSize: 14, padding: 0, margin: 0, border: 0, background: 'transparent', boxShadow: 'none', flexShrink: 0 };
+const identityTheme = { token: { controlHeight: 20 }, components: { Select: { optionHeight: 40, optionPadding: '9px 12px' } } };
+
+function DetailValue({ value }: { value: string | number | null | undefined }) {
+  const text = value === null || value === undefined || value === '' ? '-' : String(value);
+  return <span title={text} style={{ display: 'block', height: 20, lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>;
+}
+
 function statusTag(status?: string) {
-  if (status === 'NORMAL') return <Tag color="green">正常</Tag>;
-  if (status === 'REVOKED') return <Tag color="red">注销</Tag>;
-  return <Tag>-</Tag>;
+  const text = status === 'NORMAL' ? '正常' : status === 'REVOKED' ? '注销' : '-';
+  return <div style={{ display: 'flex', alignItems: 'center', height: 20 }}><Tag title={text} color={status === 'NORMAL' ? 'green' : status === 'REVOKED' ? 'red' : undefined}
+    style={{ height: 20, lineHeight: '18px', margin: 0, verticalAlign: 'top' }}>{text}</Tag></div>;
 }
 
 function statusText(status?: string) {
@@ -469,73 +480,77 @@ function CitizenDetailContent({
           公民详情
         </Typography.Title>
 
+        <style>{`.citizen-details.ant-descriptions-bordered > .ant-descriptions-view > table { table-layout: fixed; } .citizen-details .ant-descriptions-row { height: 40px; }`}</style>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 24, alignItems: 'start' }}>
-          <Descriptions column={1} size="small" bordered style={{ minWidth: 0 }} styles={{ label: { width: 120, minWidth: 120, maxWidth: 120, boxSizing: 'border-box' }, content: { overflowWrap: 'anywhere' } }}>
-            <Descriptions.Item label="护照号">{current.passportNo || '-'}</Descriptions.Item>
-            <Descriptions.Item label="公民CID号">{current.cidNumber || '-'}</Descriptions.Item>
-            <Descriptions.Item label="姓名">{makeCitizenName(current)}</Descriptions.Item>
-            <Descriptions.Item label="性别">{sexText(current.citizenSex)}</Descriptions.Item>
-            <Descriptions.Item label="出生日期">{formatDate(current.citizenBirthDate)}</Descriptions.Item>
-            <Descriptions.Item label="年龄">{typeof ageYears === 'number' ? `${ageYears}周岁` : '-'}</Descriptions.Item>
+          <Descriptions className="citizen-details" column={1} size="small" bordered style={{ minWidth: 0 }} styles={{ label: { ...detailCell, width: 120, minWidth: 120, maxWidth: 120 }, content: { ...detailCell, overflow: 'hidden' } }}>
+            <Descriptions.Item label="护照号"><DetailValue value={current.passportNo} /></Descriptions.Item>
+            <Descriptions.Item label="公民CID号"><DetailValue value={current.cidNumber} /></Descriptions.Item>
+            <Descriptions.Item label="姓名"><DetailValue value={makeCitizenName(current)} /></Descriptions.Item>
+            <Descriptions.Item label="性别"><DetailValue value={sexText(current.citizenSex)} /></Descriptions.Item>
+            <Descriptions.Item label="出生日期"><DetailValue value={formatDate(current.citizenBirthDate)} /></Descriptions.Item>
+            <Descriptions.Item label="年龄"><DetailValue value={typeof ageYears === 'number' ? `${ageYears}周岁` : '-'} /></Descriptions.Item>
             <Descriptions.Item label="居住地">
-              {areaText(current.provinceName, current.cityName, current.townName)}
+              <DetailValue value={areaText(current.provinceName, current.cityName, current.townName)} />
             </Descriptions.Item>
             <Descriptions.Item label="出生地">
-              {areaText(current.birthProvinceName, current.birthCityName, current.birthTownName)}
+              <DetailValue value={areaText(current.birthProvinceName, current.birthCityName, current.birthTownName)} />
             </Descriptions.Item>
             <Descriptions.Item label="有效期">
-              {formatDateRange(current.passportValidFrom, current.passportValidUntil)}
+              <DetailValue value={formatDateRange(current.passportValidFrom, current.passportValidUntil)} />
             </Descriptions.Item>
           </Descriptions>
-          <Descriptions column={1} size="small" bordered style={{ minWidth: 0 }} styles={{ label: { width: 120, minWidth: 120, maxWidth: 120, boxSizing: 'border-box' }, content: { overflowWrap: 'anywhere' } }}>
+          <Descriptions className="citizen-details" column={1} size="small" bordered style={{ minWidth: 0 }} styles={{ label: { ...detailCell, width: 120, minWidth: 120, maxWidth: 120 }, content: { ...detailCell, overflow: 'hidden' } }}>
             <Descriptions.Item label="绑定钱包账户">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
-                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{current.accountId ? encodeSs58(current.accountId) : '-'}</span>
-                {canWrite && <Button type="link" style={{ flexShrink: 0, paddingRight: 0 }} loading={rebinding}
-                  disabled={!current.accountId || prepareLoading || completeLoading || chainSubmitting}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', height: 20 }}>
+                <div style={{ flex: 1, minWidth: 0 }}><DetailValue value={current.accountId ? encodeSs58(current.accountId) : '-'} /></div>
+                {canWrite && <Button type="link" style={textAction} aria-busy={rebinding}
+                  disabled={rebinding || !current.accountId || prepareLoading || completeLoading || chainSubmitting}
                   onClick={() => setRebindOpen(true)}>更换</Button>}
               </div>
             </Descriptions.Item>
             <Descriptions.Item label="身份上链">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', height: 20 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
+                  <ConfigProvider theme={identityTheme}>
                   <Select<CitizenOnchainIdentityLevel>
                     aria-label="链上身份"
+                    size="middle"
+                    variant="borderless"
                     placeholder="选择身份"
                     value={identityValue}
                     disabled={!identityEditable}
-                    style={{ width: '100%', maxWidth: 180 }}
+                    style={{ width: 100, maxWidth: '100%', height: 20 }}
                     onChange={level => setIdentityChoice({ source: actualIdentity ?? 'none', level, editing: editingIdentity })}
                     options={[
                       { value: 'voting', label: '投票身份', disabled: actualIdentity === 'voting' },
                       { value: 'candidate', label: '竞选身份' },
                     ]}
                   />
+                  </ConfigProvider>
                 </div>
                 <Button type="link" danger={changingIdentity}
-                  style={{ flexShrink: 0, paddingRight: 0, ...(!changingIdentity && canSignIdentity ? { color: '#1677ff' } : {}) }}
+                  style={{ ...textAction, ...(!changingIdentity && canSignIdentity ? { color: '#1677ff' } : {}) }}
                   disabled={changingIdentity ? !canChangeIdentity : !canSignIdentity}
-                  loading={prepareLoading || completeLoading || chainSubmitting}
+                  aria-busy={prepareLoading || completeLoading || chainSubmitting}
                   onClick={() => {
                     if (changingIdentity) setIdentityChoice({ source: 'voting', editing: true });
                     else void prepareOnchainSignature();
                   }}>{changingIdentity ? '更换' : '签名'}</Button>
               </div>
-              {bindingError && <Space style={{ marginTop: 8 }}><Typography.Text type="danger">链上身份读取失败</Typography.Text><Button type="link" size="small" onClick={() => { void loadFinalizedBinding().catch(() => {}); }}>重试</Button></Space>}
-              {!canPushOnchain && <Alert type="warning" showIcon style={{ marginTop: 8 }} message="当前档案或登录权限不满足身份上链条件" description="公民必须年满16周岁、档案正常且具有选举资格。" />}
             </Descriptions.Item>
-            <Descriptions.Item label="绑定版本">{current.bindingRevision || '-'}</Descriptions.Item>
+            <Descriptions.Item label="绑定版本"><DetailValue value={current.bindingRevision || '-'} /></Descriptions.Item>
             <Descriptions.Item label="绑定区块号">
-              {current.bindingBlockNumber ?? '-'}
+              <DetailValue value={current.bindingBlockNumber} />
             </Descriptions.Item>
-            <Descriptions.Item label="选举权利">{current.votingEligible ? '有' : '无'}</Descriptions.Item>
+            <Descriptions.Item label="选举权利"><DetailValue value={current.votingEligible ? '有' : '无'} /></Descriptions.Item>
             <Descriptions.Item label="公民状态">{statusTag(current.citizenStatus)}</Descriptions.Item>
-            <Descriptions.Item label="投票身份状态">{statusText(current.identityStatus)}</Descriptions.Item>
-            <Descriptions.Item label="档案哈希">{current.archiveHash || '-'}</Descriptions.Item>
-            <Descriptions.Item label="链上交易">{current.onchainTxHash || '-'}</Descriptions.Item>
+            <Descriptions.Item label="投票身份状态"><DetailValue value={statusText(current.identityStatus)} /></Descriptions.Item>
+            <Descriptions.Item label="档案哈希"><DetailValue value={current.archiveHash} /></Descriptions.Item>
+            <Descriptions.Item label="链上交易"><DetailValue value={current.onchainTxHash} /></Descriptions.Item>
           </Descriptions>
         </div>
-
+        {bindingError && <Space style={{ marginTop: 8 }}><Typography.Text type="danger">链上身份读取失败</Typography.Text><Button type="link" style={textAction} onClick={() => { void loadFinalizedBinding().catch(() => {}); }}>重试</Button></Space>}
+        {!canPushOnchain && <Alert type="warning" showIcon style={{ marginTop: 8 }} message="当前档案或登录权限不满足身份上链条件" description="公民必须年满16周岁、档案正常且具有选举资格。" />}
 
       </Card>
 
