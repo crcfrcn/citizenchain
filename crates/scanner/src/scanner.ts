@@ -34,7 +34,8 @@ export class ScannerFailure extends Error {
 }
 
 export interface ScannerCallbacks {
-  onRawValue: (raw: string) => void;
+  /** false 表示尚未收齐、继续扫描；void 表示结束。异步处理期间不识别下一帧。 */
+  onRawValue: (raw: string) => void | false | Promise<void | false>;
   onReady?: () => void;
   onFailure?: (failure: ScannerFailure) => void;
 }
@@ -63,7 +64,7 @@ export interface ScannerControllerLike {
  * 浏览器扫码设备控制器。
  *
  * 摄像头和图片识别都严格使用 `canvas -> ImageData -> jsQR`。本类不引用
- * 浏览器原生检测 API，只负责设备生命周期、首次结果门控和统一错误。
+ * 浏览器原生检测 API，只负责设备生命周期、串行结果门控和统一错误。
  */
 export class ScannerController implements ScannerControllerLike {
   private readonly decode: QrDecoder;
@@ -197,9 +198,10 @@ export class ScannerController implements ScannerControllerLike {
       this.running = true;
       let lastScanAt = Number.NEGATIVE_INFINITY;
       const scanFrame = (timestamp: number) => {
-        if (!this.running || generation !== this.generation) return;
+        if (!this.running || generation !== this.generation || this.claimed) return;
         if (timestamp - lastScanAt >= scanIntervalMs) {
           lastScanAt = timestamp;
+          let raw: string | null = null;
           try {
             const frame = this.readVideoFrame(video, canvas, context);
             if (frame !== null && !hasFrame) {
@@ -208,15 +210,37 @@ export class ScannerController implements ScannerControllerLike {
               callbacks.onReady?.();
             }
             if (!this.running || generation !== this.generation) return;
-            const raw = frame === null ? null : this.decodeRaw(frame)?.trim() || null;
-            if (raw !== null && !this.claimed) {
-              this.claimed = true;
-              this.stop();
-              callbacks.onRawValue(raw);
-              return;
-            }
+            raw = frame === null ? null : this.decodeRaw(frame)?.trim() || null;
           } catch {
             // 单帧读取失败不终止摄像头；下一帧继续识别。
+          }
+          if (raw !== null) {
+            this.claimed = true;
+            const complete = (result: void | false) => {
+              if (!this.running || generation !== this.generation) return;
+              if (result !== false) {
+                this.stop();
+                return;
+              }
+              this.claimed = false;
+              this.frameHandle = this.requestFrame(scanFrame);
+            };
+            const failed = (error: unknown) => {
+              if (!this.running || generation !== this.generation) return;
+              this.stop();
+              callbacks.onFailure?.(new ScannerFailure('operation-failed', '处理二维码失败', error));
+            };
+            try {
+              const result = callbacks.onRawValue(raw);
+              if (result && typeof result === 'object') {
+                void result.then(complete, failed);
+              } else {
+                complete(result);
+              }
+            } catch (error) {
+              failed(error);
+            }
+            return;
           }
         }
         if (this.running && generation === this.generation) {

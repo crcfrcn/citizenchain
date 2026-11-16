@@ -2,8 +2,8 @@
 // 左侧展示待签名二维码,右侧开启摄像头扫描签名响应;登录、扫码签名、
 // 管理员重要操作都复用这一套视觉和扫码生命周期。
 
-import { useState, useMemo, type ReactNode } from 'react';
-import { ScannerView } from '@gmb/scanner-react';
+import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
+import { ScannerView, createQrAssembler } from '@gmb/scanner-react';
 import { Button, QRCode, Typography } from 'antd';
 import { ScanOutlined } from '@ant-design/icons';
 
@@ -26,7 +26,6 @@ export interface CitizenSignaturePanelProps {
   onScannerError?: (message: string) => void;
 }
 
-import { createQrAssembler } from '../../../runtime/transaction/mldsa/scan';
 import { request } from '../workspace/http';
 
 const cornerColor = '#0d9488';
@@ -49,9 +48,11 @@ export function CitizenSignaturePanel({
   onDetected,
   onScannerError,
 }: CitizenSignaturePanelProps) {
-  const assemble = useMemo(() => createQrAssembler(frames => request<string | null>('/api/qr/join', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(frames)})), []);
   const [scannerActive, setScannerActive] = useState(false);
   const [scannerReady, setScannerReady] = useState(false);
+  const session = useRef(0);
+  useEffect(() => () => { session.current += 1; }, []);
+  const assemble = useMemo(() => createQrAssembler(frames => request<string | null>('/api/qr/join', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(frames)})), [scannerActive]);
 
   const currentQrValue = qrValue || qrPlaceholderValue;
 
@@ -164,15 +165,24 @@ export function CitizenSignaturePanel({
             active={scannerActive}
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onReady={() => setScannerReady(true)}
-            onRawValue={(raw) => {
-              void assemble(raw).then(complete => {
-                if (complete === null) return;
+            onRawValue={async (raw): Promise<void | false> => {
+              const current = session.current;
+              try {
+                const complete = await assemble(raw);
+                if (current !== session.current) return;
+                if (complete === null) return false;
                 setScannerReady(false);
                 setScannerActive(false);
                 void onDetected(complete);
-              }).catch(error => onScannerError?.(String(error)));
+              } catch (error) {
+                if (current !== session.current) return;
+                setScannerReady(false);
+                setScannerActive(false);
+                onScannerError?.(String(error));
+              }
             }}
             onFailure={(failure) => {
+              session.current += 1;
               setScannerReady(false);
               setScannerActive(false);
               onScannerError?.(failure.message);
@@ -204,6 +214,7 @@ export function CitizenSignaturePanel({
           <Button
             size="large"
             onClick={() => {
+              session.current += 1;
               setScannerReady(false);
               setScannerActive((value) => !value);
             }}

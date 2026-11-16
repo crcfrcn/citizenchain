@@ -1,9 +1,8 @@
-import { ScannerView } from "@gmb/scanner-react";
+import { ScannerView, createQrAssembler } from "@gmb/scanner-react";
 import { parseAddressQr, type AddressScanResult } from "../client/parseAddressQr";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { invoke } from '../client/tauri';
-import { createQrAssembler } from '../../../runtime/transaction/mldsa/scan';
 
 // 节点产品扫码外壳：视觉遮罩留在产品内，设备识别统一交给仓库共享适配器。
 
@@ -17,19 +16,29 @@ export function QrScanner({ onScan, onError }: ScannerProps) {
   const [ready, setReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
-  const assemble = useMemo(() => createQrAssembler(frames => invoke<string | null>('join_qr_frames', {frames})), []);
-  const detected = async (raw: string) => {
-    try { const complete = await assemble(raw); if (complete !== null) onScan(complete); }
-    catch (error) { onError(String(error)); }
+  const session = useRef(0);
+  useEffect(() => () => { session.current += 1; }, []);
+  const assemble = useMemo(() => createQrAssembler(frames => invoke<string | null>('join_qr_frames', {frames})), [cameraError]);
+  const detected = async (raw: string): Promise<void | false> => {
+    const current = session.current;
+    try {
+      const complete = await assemble(raw);
+      if (current !== session.current) return;
+      if (complete === null) return false;
+      onScan(complete);
+    } catch (error) {
+      if (current === session.current) onError(String(error));
+    }
   };
   return (
     <div className="qr-scanner-wrapper">
       {!cameraError && (
         <ScannerView
           className="qr-scanner-video"
-          onRawValue={(raw) => { void detected(raw); }}
+          onRawValue={detected}
           onReady={() => setReady(true)}
           onFailure={(failure) => {
+            session.current += 1;
             if (failure.kind === 'camera-unavailable' || failure.kind === 'operation-failed') {
               setReady(false);
               setCameraError(failure.message);
@@ -44,7 +53,7 @@ export function QrScanner({ onScan, onError }: ScannerProps) {
           <div className="qr-scanner-notice">
             <p role="status">{cameraError ?? '正在准备摄像头'}</p>
             {cameraError && (
-              <button type="button" className="cancel-button" onClick={() => setCameraError(null)}>
+              <button type="button" className="cancel-button" onClick={() => { session.current += 1; setCameraError(null); }}>
                 重新打开相机
               </button>
             )}

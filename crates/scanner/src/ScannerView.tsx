@@ -9,6 +9,7 @@ import {
   ScannerController,
   ScannerFailure,
   type ScannerControllerLike,
+  type ScannerCallbacks,
 } from './scanner';
 
 export interface ScannerViewProps {
@@ -16,7 +17,7 @@ export interface ScannerViewProps {
   controller?: ScannerControllerLike;
   className?: string;
   style?: CSSProperties;
-  onRawValue: (raw: string) => void;
+  onRawValue: ScannerCallbacks['onRawValue'];
   onReady?: () => void;
   onFailure?: (failure: ScannerFailure) => void;
 }

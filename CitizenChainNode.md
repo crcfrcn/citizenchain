@@ -2154,9 +2154,9 @@ nodedesktop与node共用node/build.rs，按真实Cargo包名分派：前者只�
 
 ## 共享包源码归属
 
-chain-signing的src按material、signature、extrinsic、preflight组织，lib登记公开入口。qr-protocol具有独立workspace与锁文件，registry的四份YAML是生产协议声明；scanner通过自身src与npm入口提供实现。
+chain-signing的src按material、signature、extrinsic、preflight组织，lib登记公开入口。qr-protocol具有独立workspace与锁文件，registry的四份YAML是生产协议声明；scanner通过自身src与npm入口提供实现。组帧助手createQrAssembler只在crates/scanner/src/index.ts公开，由节点和OnChina通过既有@gmb/scanner-react依赖消费；不跨目录读取Runtime前端源码。
 
-共享扫码控制器开始新会话时清理已取流但尚未完成播放的旧会话；过期play完成只退出，不停止新会话。停止/释放的generation规则保持，控制器与ScannerView公开接口、扫码间隔、画布到jsQR路径、UI及码型业务职责不变。
+共享扫码控制器开始新会话时清理已取流但尚未完成播放的旧会话；过期play完成只退出，不停止新会话。停止/释放的generation规则保持；控制器与ScannerView沿用原设备入口，结果回调以false表示继续、void表示结束，并允许异步等待。扫码间隔、画布到jsQR路径、UI及码型业务职责保持。
 
 节点签名弹层和面板统一归node/frontend/desktop/signing.tsx；扫码设备外壳与地址扫码弹层统一归同目录scanner.tsx。原组件名、Props字段、样式、交互与共享ScannerView保持。开发TLS配置通过本仓scripts/build.mjs公开实现读取，开发证书路径、校验和TLS1.3保持；节点已有工程、创世、Runtime及资源位置保持。
 
@@ -2224,3 +2224,5 @@ Mldsa pallet index36仍仅保存PqPublicKey。ML首次在正常交易校验通�
 ### 统一V5的交付边界
 
 节点热签、冷签、投票、节点内协议升级和链上中国提交均使用同一完整审阅材料与账户绑定摘要。节点守卫从V5认证证明读取实际付款账户，继续核对原手续费公式；旧高度区块按其父Runtime执行，不重写历史。默认Metadata_metadata公开完整V16认证管线。冻结chainspec、创世WASM、块0、创世写入源码及哈希常量逐字节不变，不重新创世；新代码仅通过另行获准的既有链升级生效。已签原升级交易不改字节、不换WASM、不重签或重发。
+
+扫码结果处理只在明确返回false时继续同一摄像头；void结束，异步处理串行等待。单码仍只交付一次；多帧完整后才交付业务页面。帧数、大小、超时和Rust核心校验保持；取消、错误及旧会话迟到结果不能重启或停止新会话设备，也不再触发已关闭页面的扫码提交。

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from 'vitest';
+import { createQrAssembler } from '../src/index';
 
 import {
   ScannerController,
@@ -15,7 +16,7 @@ describe('ScannerController', () => {
     let readyCount = 0;
 
     await harness.controller.start(harness.video, {
-      onRawValue: (raw) => detected.push(raw),
+      onRawValue: (raw) => { detected.push(raw); },
       onReady: () => readyCount += 1,
     });
     expect(readyCount).toBe(0);
@@ -340,4 +341,122 @@ it.each([[false, false], [false, true], [true, true]])('半启动重启(stop=%s�
   expect(oldTrack.stop).toHaveBeenCalledOnce(); finish(); await pending;
   expect(nextTrack.stop).not.toHaveBeenCalled(); expect(newVideo.srcObject).toBe(nextStream);
   c.dispose(); expect(nextTrack.stop).toHaveBeenCalledOnce();
+});
+
+// 多帧只改变设备结果门控；仍使用同一摄像头与原250毫秒扫描间隔。
+describe('连续扫码与异步会话', () => {
+  it('明确未收齐继续同一设备，完成只交付一次并停止', async () => {
+    const h = createHarness(() => ({ data: 'frame' }));
+    const found = vi.fn().mockReturnValueOnce(false);
+    await h.controller.start(h.video, { onRawValue: found });
+    h.frames[0]?.(0);
+    expect(h.track.stop).not.toHaveBeenCalled(); expect(h.frames).toHaveLength(2);
+    h.frames[1]?.(250);
+    expect(found).toHaveBeenCalledTimes(2); expect(h.track.stop).toHaveBeenCalledOnce();
+    h.frames[1]?.(500); expect(found).toHaveBeenCalledTimes(2);
+    expect(h.video.play).toHaveBeenCalledOnce();
+  });
+
+  it('等待组帧期间不重入，缺帧返回后才继续扫描', async () => {
+    const h = createHarness(() => ({ data: 'frame' }));
+    let finish!: (result: void | false) => void;
+    const found = vi.fn(() => new Promise<void | false>(resolve => { finish = resolve; }));
+    await h.controller.start(h.video, { onRawValue: found });
+    h.frames[0]?.(0); h.frames[0]?.(250);
+    expect(found).toHaveBeenCalledOnce(); expect(h.frames).toHaveLength(1);
+    expect(h.track.stop).not.toHaveBeenCalled();
+    finish(false); await Promise.resolve();
+    expect(h.frames).toHaveLength(2);
+    h.frames[1]?.(500); expect(found).toHaveBeenCalledTimes(2);
+    finish(); await Promise.resolve(); expect(h.track.stop).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, undefined] as const)('取消后的迟到结果%s不会恢复摄像头', async result => {
+    const h = createHarness(() => ({ data: 'frame' }));
+    let finish!: (result: void | false) => void;
+    const found = vi.fn(() => new Promise<void | false>(resolve => { finish = resolve; }));
+    await h.controller.start(h.video, { onRawValue: found }); h.frames[0]?.(0);
+    h.controller.stop(); finish(result); await Promise.resolve();
+    expect(h.track.stop).toHaveBeenCalledOnce(); expect(h.frames).toHaveLength(1);
+    h.frames[0]?.(500); expect(found).toHaveBeenCalledOnce();
+  });
+
+  it('旧异步失败不能停止新会话或向新会话报告错误', async () => {
+    const oldTrack = { stop: vi.fn() }, nextTrack = { stop: vi.fn() };
+    const media = vi.fn().mockResolvedValueOnce({ getTracks: () => [oldTrack] }).mockResolvedValueOnce({ getTracks: () => [nextTrack] });
+    const frames: FrameRequestCallback[] = []; const failed = vi.fn();
+    let reject!: (error: Error) => void;
+    const controller = new ScannerController({ getUserMedia: media, isSecureContext: () => true, createCanvas: () => fakeCanvas(fakeContext()),
+      requestFrame: callback => { frames.push(callback); return frames.length; }, cancelFrame: vi.fn(), decode: () => ({ data: 'frame' }) });
+    await controller.start(fakeVideo(), { onRawValue: () => new Promise<void>((_, fail) => { reject = fail; }), onFailure: failed });
+    frames[0]?.(0); controller.stop();
+    await controller.start(fakeVideo(), { onRawValue: vi.fn(), onFailure: failed });
+    reject(new Error('old request failed')); await Promise.resolve();
+    expect(failed).not.toHaveBeenCalled(); expect(nextTrack.stop).not.toHaveBeenCalled();
+    frames[1]?.(250); expect(nextTrack.stop).toHaveBeenCalledOnce();
+    expect(oldTrack.stop).toHaveBeenCalledOnce();
+  });
+
+  it.each(['sync', 'async'])('%s处理失败只报告一次且释放摄像头', async mode => {
+    const h = createHarness(() => ({ data: 'frame' })); const failed = vi.fn();
+    const error = new Error('invalid frame');
+    await h.controller.start(h.video, { onRawValue: () => { if (mode === 'sync') throw error; return Promise.reject(error); }, onFailure: failed });
+    h.frames[0]?.(0); await Promise.resolve();
+    expect(failed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ kind: 'operation-failed', cause: error }));
+    expect(h.track.stop).toHaveBeenCalledOnce(); expect(h.frames).toHaveLength(1);
+    h.frames[0]?.(500); expect(failed).toHaveBeenCalledOnce();
+  });
+
+  it('通过公开组帧助手收齐后才交付业务结果', async () => {
+    const raws = ['GMBQR1:a:0:2:first', 'GMBQR1:a:1:2:second']; let index = 0;
+    const h = createHarness(() => ({ data: raws[index++]! })); const delivered = vi.fn();
+    const join = vi.fn(async (frames: string[]) => frames.length === 2 ? 'complete payload' : null);
+    const assemble = createQrAssembler(join);
+    await h.controller.start(h.video, { onRawValue: async (raw): Promise<void | false> => {
+      const complete = await assemble(raw); if (complete === null) return false; delivered(complete);
+    } });
+    h.frames[0]?.(0); await vi.waitFor(() => expect(h.frames).toHaveLength(2));
+    expect(delivered).not.toHaveBeenCalled(); expect(h.track.stop).not.toHaveBeenCalled();
+    h.frames[1]?.(250); await vi.waitFor(() => expect(h.track.stop).toHaveBeenCalledOnce());
+    expect(delivered).toHaveBeenCalledExactlyOnceWith('complete payload'); expect(h.video.play).toHaveBeenCalledOnce();
+  });
+});
+
+describe('公开传输帧助手', () => {
+  const frame = (id: string, n: number) => `GMBQR1:${id}:${n}:64:payload`;
+  it('普通码原样交付，重复帧不重复请求，完成后清理缓存', async () => {
+    const join = vi.fn(async (frames: string[]) => frames.length === 2 ? 'complete' : null);
+    const assemble = createQrAssembler(join);
+    expect(await assemble('ordinary QR')).toBe('ordinary QR'); expect(join).not.toHaveBeenCalled();
+    const a = frame('a', 1), b = frame('a', 0);
+    expect(await assemble(a)).toBeNull(); expect(await assemble(a)).toBeNull(); expect(join).toHaveBeenCalledOnce();
+    expect(await assemble(b)).toBe('complete'); expect(join).toHaveBeenLastCalledWith([a, b]);
+    expect(await assemble(a)).toBeNull(); expect(join).toHaveBeenLastCalledWith([a]);
+  });
+  it('批次切换与五分钟超时清理旧帧', async () => {
+    const now = vi.spyOn(Date, 'now'); now.mockReturnValue(0);
+    try {
+      const join = vi.fn(async () => null); const assemble = createQrAssembler(join);
+      await assemble(frame('a', 0)); await assemble(frame('b', 0));
+      expect(join).toHaveBeenLastCalledWith([frame('b', 0)]);
+      now.mockReturnValue(300_001); await assemble(frame('b', 1));
+      expect(join).toHaveBeenLastCalledWith([frame('b', 1)]);
+    } finally { now.mockRestore(); }
+  });
+  it('组帧失败清理缓存后重新收集', async () => {
+    const join = vi.fn(async () => null).mockRejectedValueOnce(new Error('bad frame'));
+    const assemble = createQrAssembler(join);
+    await expect(assemble(frame('a', 0))).rejects.toThrow('bad frame');
+    await assemble(frame('a', 1)); expect(join).toHaveBeenLastCalledWith([frame('a', 1)]);
+  });
+  it('保留64帧和2331字符边界，越界不交给Rust入口', async () => {
+    const join = vi.fn(async () => null), assemble = createQrAssembler(join);
+    for (let n = 0; n < 64; n++) expect(await assemble(frame('a', n))).toBeNull();
+    expect(join).toHaveBeenCalledTimes(64);
+    await expect(assemble(frame('a', 64))).rejects.toThrow('Too many QR frames');
+    expect(join).toHaveBeenCalledTimes(64);
+    const sized = createQrAssembler(join), max = 'GMBQR1:b:' + 'x'.repeat(2331 - 'GMBQR1:b:'.length);
+    await sized(max); expect(join).toHaveBeenCalledTimes(65);
+    await expect(sized(max + 'x')).rejects.toThrow('QR frame too large'); expect(join).toHaveBeenCalledTimes(65);
+  });
 });

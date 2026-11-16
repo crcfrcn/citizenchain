@@ -89,3 +89,15 @@ it('未知启动错误转为统一错误对象，active=false不请求启动', a
   await waitFor(() => expect(onFailure).toHaveBeenCalledWith(expect.objectContaining({ kind: 'operation-failed', cause: failure })));
   view.unmount();
 });
+
+it('异步未收齐结果原样传给控制器，不重启或重建设备', async () => {
+  const controller = new FakeController(); let finish!: (result: false) => void;
+  const pending = new Promise<false>(resolve => { finish = resolve; });
+  const onRawValue = vi.fn(() => pending);
+  const view = render(<ScannerView controller={controller} onRawValue={onRawValue} />);
+  await waitFor(() => expect(controller.start).toHaveBeenCalledOnce());
+  const returned = controller.callbacks?.onRawValue('partial frame');
+  expect(returned).toBe(pending); finish(false); await expect(returned).resolves.toBe(false);
+  expect(controller.start).toHaveBeenCalledOnce(); expect(controller.stop).not.toHaveBeenCalled();
+  view.unmount(); expect(controller.stop).toHaveBeenCalledOnce();
+});

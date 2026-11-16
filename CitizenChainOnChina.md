@@ -383,6 +383,8 @@ OnChina 管理端只承认当前节点 active binding 绑定机构的链上 acti
 
 扫码协议只有 `QR_V1`。OnChina 的登录、管理员集合变更、机构登记链写动作和其它需要冷钱包确认的动作，都必须使用统一 QR 组件。
 
+共享组帧助手由既有@gmb/scanner-react包公开提供，平台作为npm依赖被注册局等消费时也只读取包内源码。帧不完整时继续同一摄像头，异步处理串行执行；完整、失败或取消时停止。取消或重新开启会话会清理帧缓存，迟到响应不能触发原会话业务。HTTP /api/qr/join与Rust完整性校验保持原规则，不在前端新增密码或业务校验实现。
+
 OnChina 的 `Session / Passkey / PasskeyColdSign` 是网站业务鉴权等级，不是钱包
 账户 `SignMode`。`PasskeyColdSign` 中的冷签和未登录场景的单独冷签都由
 CitizenWallet 执行，统一归为 `Cold`；Passkey 本身绝不进入 `SignMode`。强制冷签业务
