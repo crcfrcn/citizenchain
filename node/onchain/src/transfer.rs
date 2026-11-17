@@ -13,7 +13,7 @@ use std::collections::HashSet;
 
 const TRANSFER_RPC_TIMEOUT: Duration = Duration::from_secs(45);
 
-const EXISTENTIAL_DEPOSIT_FEN: u128 = 111;
+const EXISTENTIAL_DEPOSIT_FEN: u128 = primitives::core_const::ACCOUNT_EXISTENTIAL_DEPOSIT;
 
 // 1.11 元
 const ONCHAIN_TRANSACTION_PALLET_INDEX: u8 = 4;
@@ -69,22 +69,20 @@ pub(crate) fn ensure_spendable_balance(
     let total_needed = amount_fen
         .checked_add(fee_fen)
         .ok_or("转账金额与手续费之和超出范围")?;
-    let minimum_balance = total_needed
+    total_needed
         .checked_add(EXISTENTIAL_DEPOSIT_FEN)
         .ok_or("转账所需余额超出范围")?;
-    // 桌面端金额显示统一以 finalized 为准；余额不足文案也使用同一口径，
-    // 真正能否入块仍由 runtime 在交易执行时最终校验。
-    let balance_fen = nodeinstitution::balance::fetch_balance(sender_account_id)?
+    // finalized 总余额用于展示；这里扣除保留金及冻结限制后校验，链上执行最终裁决。
+    let available = nodeinstitution::balance::fetch_spendable_balance(sender_account_id)?
         .ok_or("发送方账户不存在或余额为零")?;
-    if balance_fen < minimum_balance {
-        let available = if balance_fen > EXISTENTIAL_DEPOSIT_FEN {
-            (balance_fen - EXISTENTIAL_DEPOSIT_FEN) as f64 / 100.0
-        } else {
-            0.0
-        };
+    ensure_balance(available, total_needed, fee_fen)
+}
+
+fn ensure_balance(available: u128, total_needed: u128, fee_fen: u128) -> Result<(), String> {
+    if available < total_needed {
         return Err(format!(
             "余额不足：可用 {} 元，需要 {} 元（含手续费 {} 元）",
-            nodeclient::signing::format_amount(available),
+            nodeclient::signing::format_amount(available as f64 / 100.0),
             nodeclient::signing::format_amount(total_needed as f64 / 100.0),
             nodeclient::signing::format_amount(fee_fen as f64 / 100.0),
         ));

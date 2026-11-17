@@ -207,3 +207,13 @@ fn transfer_remark_rejects_more_than_99_bytes() {
         .expect_err("overlong remark should be rejected");
     assert!(err.contains("99"));
 }
+
+#[test]
+fn transfer_checks_spendable_amount_including_fee_instead_of_display_total() {
+    // 总资产1200分，其中200分reserved、800分frozen；实际只能再支出400分。
+    assert!(crate::transfer::ensure_balance(400, 400, 11).is_ok());
+    let error = crate::transfer::ensure_balance(400, 401, 11).unwrap_err();
+    assert!(error.contains("可用 4.00 元"));
+    assert!(error.contains("需要 4.01 元"));
+    assert!(crate::transfer::ensure_balance(0, 1, 0).is_err());
+}

@@ -131,6 +131,7 @@ pub fn set_active_wallet(app: tauri::AppHandle, account_id: String) -> Result<Wa
 
 #[tauri::command]
 pub fn get_wallet_balance(account_id: String) -> Result<Option<String>, String> {
+    // 所有钱包展示链上总余额；转账可支配金额由独立预检查及链上执行校验。
     let account_id = normalize_account_id(&account_id)?;
     match nodeinstitution::balance::fetch_balance(&account_id)? {
         Some(fen) => Ok(Some(fen.to_string())),

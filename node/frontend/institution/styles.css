@@ -25,6 +25,30 @@
   font-weight: 700;
 }
 
+/* 三个入口共用卡片布局；保留原方形序号及操作控件。 */
+.institution-assignment-top {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color, #334155);
+}
+
+.institution-assignment-person {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.institution-assignment-dot {
+  flex: 0 0 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.institution-assignment-name { min-width: 0; }
+
 .institution-assignment-top-action {
   display: inline-flex;
   min-height: 28px;
@@ -639,11 +663,28 @@ body:has(.institution-transfer-dialog[open]) {
   }
 }
 
-.proposal-detail-page .proposal-detail-heading {
+/* 四类机构入口的返回按钮与提案顶栏保持相同的顶部位置和行高。 */
+.institution-pages .back-button {
+  display: flex;
+  align-items: center;
+  margin: 0 0 16px;
+}
+
+.institution-pages .institution-overview:has(> .back-button) {
+  margin-top: 0;
+}
+
+.proposal-detail-page .proposal-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 16px;
 }
 
-.proposal-detail-page .proposal-detail-heading-row,
+.proposal-detail-page .proposal-detail-toolbar .back-button {
+  margin: 0;
+}
+
 .proposal-detail-page .proposal-detail-tally-heading,
 .proposal-detail-page .proposal-transfer-card-heading {
   display: flex;
@@ -652,18 +693,16 @@ body:has(.institution-transfer-dialog[open]) {
   gap: 8px 16px;
 }
 
-.proposal-detail-page .proposal-detail-heading-row h2 {
+.proposal-detail-page .proposal-detail-heading h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0 12px;
-  margin: 0;
-  font-size: 23px;
 }
 
 .proposal-detail-page .proposal-detail-number {
   color: var(--text-secondary);
-  font-size: 19px;
+  font-size: inherit;
   font-variant-numeric: tabular-nums;
 }
 
@@ -790,26 +829,12 @@ body:has(.institution-transfer-dialog[open]) {
 }
 
 .proposal-detail-page .institution-assignment-compact-vote .institution-assignment-label,
-.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-value,
-.proposal-detail-page .institution-assignment-compact-term {
+.proposal-detail-page .institution-assignment-compact-vote .institution-assignment-value {
   line-height: 18px;
 }
 
 .proposal-detail-page .institution-assignment-compact-vote .vote-result-tag {
   white-space: nowrap;
-}
-
-.proposal-detail-page .institution-assignment-name-term {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 12px;
-}
-
-.proposal-detail-page .institution-assignment-compact-term {
-  color: var(--text-secondary);
-  font-size: 12px;
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 640px) {

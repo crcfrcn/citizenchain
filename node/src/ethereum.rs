@@ -60,18 +60,19 @@ async fn native_request(
 }
 
 /// OriginalAccount 使用官方 Identity 存储键；通过真实链后端读取，禁止在宿主线程调用 Runtime 存储。
-async fn pending_account(
+async fn account_at(
     native: &RpcModule<()>,
     address: H160,
+    at: Option<H256>,
 ) -> Result<sp_runtime::AccountId32, ErrorObjectOwned> {
     let mut key = frame_support::storage::storage_prefix(b"Revive", b"OriginalAccount").to_vec();
     key.extend_from_slice(address.as_bytes());
-    let result = native_request(
-        native,
-        "state_getStorage",
-        serde_json::json!([format!("0x{}", hex::encode(key))]),
-    )
-    .await?;
+    let mut params = vec![serde_json::json!(format!("0x{}", hex::encode(key)))];
+    if let Some(hash) = at {
+        params.push(serde_json::json!(hash));
+    }
+    let result = native_request(native, "state_getStorage", serde_json::Value::Array(params))
+        .await?;
     let mapped: Option<sp_core::Bytes> = serde_json::from_value(result).map_err(|_| {
         ErrorObjectOwned::owned(-32603, "Ethereum 地址映射存储响应无效", None::<()>)
     })?;
@@ -694,10 +695,23 @@ impl EthRpcServer for Ethereum {
             .await?)
     }
     async fn get_balance(&self, address: H160, at: BlockNumberOrTagOrHash) -> RpcResult<U256> {
-        Ok(self
-            .native
-            .runtime(self.resolve_hash(at).await?, "balance", address.encode())
-            .await?)
+        // 映射及账户必须读取同一请求块；仅展示总余额，不改变 Runtime 的可支配余额 API。
+        let at = self.resolve_hash(at).await?;
+        let account = account_at(&self.native.0, address, Some(at)).await?;
+        let key = nodeclient::query::system_account_key(&format!("0x{}", hex::encode(account)))
+            .map_err(failure)?;
+        let raw = native_request(&self.native.0, "state_getStorage", serde_json::json!([key, at]))
+            .await?;
+        let raw: Option<sp_core::Bytes> = serde_json::from_value(raw)
+            .map_err(|error| failure(format!("账户总余额存储响应无效: {error}")))?;
+        let total = match raw {
+            Some(bytes) => {
+                let account = nodeclient::codec::decode_account(&bytes.0).map_err(failure)?;
+                nodeclient::codec::account_total(&account).map_err(failure)?
+            }
+            None => 0,
+        };
+        Ok(U256::from(total) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO))
     }
     async fn get_code(&self, address: H160, at: BlockNumberOrTagOrHash) -> RpcResult<Bytes> {
         let code: Vec<u8> = self
@@ -712,7 +726,7 @@ impl EthRpcServer for Ethereum {
         at: BlockNumberOrTagOrHash,
     ) -> RpcResult<U256> {
         if matches!(at, BlockNumberOrTagOrHash::BlockTag(BlockTag::Pending)) {
-            let account = pending_account(&self.native.0, address).await?;
+            let account = account_at(&self.native.0, address, None).await?;
             let value = self
                 .native
                 .request("system_accountNextIndex", serde_json::json!([account]))

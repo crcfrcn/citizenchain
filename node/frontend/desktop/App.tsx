@@ -142,7 +142,7 @@ export default function App() {
         <HomePanels />
       ) : (
         <main className="app">
-          <section className="content">
+          <section className={`content${['nrc', 'prc', 'prb', 'clearing-bank'].includes(tab) ? ' institution-pages' : ''}`}>
             {tab === 'onchina' ? <OnChinaPlatformSection /> : null}
 
             {tab === 'settings' ? (

@@ -145,6 +145,20 @@ describe('现有四档金额和费用', () => {
 });
 
 describe('钱包余额查询状态', () => {
+  it('当前钱包与钱包管理原样显示后端总余额，不扣减保留金或保留资金', async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_wallets') return { wallets: [wallet], activeAccountId: wallet.accountId };
+      if (command === 'get_wallet_balance') return '300311';
+      throw new Error(`非预期调用：${command}`);
+    });
+    const view = render(<TransactionPanel nodeReady />);
+    await waitFor(() => expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('3,003.11 元'));
+    cleanup();
+    const list = render(<WalletManagerModal wallets={[wallet]} activeAccountId={wallet.accountId}
+      onSelect={vi.fn()} onClose={vi.fn()} onUpdate={vi.fn()} />);
+    await waitFor(() => expect(list.container.querySelector('.wallet-row-balance')?.textContent).toBe('3,003.11 元'));
+  });
+
   it('未另选钱包时显示后端默认的矿工热钱包名称和对应余额', async () => {
     const miner: Wallet = { name: '矿工热钱包', signMode: 'hot', accountId: `0x${'55'.repeat(32)}` };
     mocks.invoke.mockImplementation(async (command: string) => {

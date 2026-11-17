@@ -85,14 +85,6 @@ pub(crate) struct OnChainInstitutionAccount {
     created_at: u32,
 }
 
-/// `frame_system::AccountInfo` 头部 16 字节(nonce/consumers/providers/sufficients
-/// 4 个 u32),紧接 16 字节 `data.free` u128。
-const ACCOUNT_INFO_HEADER_LEN: usize = 16;
-
-const ACCOUNT_INFO_FREE_LEN: usize = 16;
-
-/// 把"分"格式化成 `xxx.xx`(沿用 chain/balance/handler.rs 同款约定)。
-
 /// 按 GMB 协议确定性派生机构主账户 32 字节地址。
 fn derive_main_account(cid_number: &str) -> AccountId32 {
     AccountId32::new(
@@ -111,50 +103,6 @@ fn derive_fee_account(cid_number: &str) -> AccountId32 {
         }
         .derive(SS58_FORMAT),
     )
-}
-
-/// 用 RPC `state_getStorage` 拉单账户的 free 余额(分)。
-/// 不存在 → 返回 0。
-fn fetch_account_free_balance(account: &AccountId32, finalized_hash: &str) -> Result<u128, String> {
-    let raw: [u8; 32] = (*account).clone().into();
-    // System.Account 用 Blake2_128Concat 哈希器,key = blake2_128(account) ++ account
-    let mut hashed = Vec::with_capacity(48);
-    hashed.extend_from_slice(&sp_crypto_hashing::blake2_128(&raw));
-    hashed.extend_from_slice(&raw);
-    let key = format!(
-        "0x{}{}{}",
-        hex::encode(sp_crypto_hashing::twox_128(b"System")),
-        hex::encode(sp_crypto_hashing::twox_128(b"Account")),
-        hex::encode(hashed)
-    );
-    let result = rpc_post(
-        "state_getStorage",
-        Value::Array(vec![
-            Value::String(key),
-            Value::String(finalized_hash.to_string()),
-        ]),
-    )?;
-    match result {
-        Value::Null => Ok(0),
-        Value::String(hex_data) => {
-            let clean = hex_data.strip_prefix("0x").unwrap_or(&hex_data);
-            let bytes =
-                hex::decode(clean).map_err(|e| format!("System.Account hex 解码失败:{e}"))?;
-            let need = ACCOUNT_INFO_HEADER_LEN + ACCOUNT_INFO_FREE_LEN;
-            if bytes.len() < need {
-                return Err(format!(
-                    "AccountInfo bytes too short: got {}, need >= {need}",
-                    bytes.len()
-                ));
-            }
-            let mut buf = [0u8; 16];
-            buf.copy_from_slice(
-                &bytes[ACCOUNT_INFO_HEADER_LEN..ACCOUNT_INFO_HEADER_LEN + ACCOUNT_INFO_FREE_LEN],
-            );
-            Ok(u128::from_le_bytes(buf))
-        }
-        _ => Err("state_getStorage 返回格式无效".to_string()),
-    }
 }
 
 /// 读取机构管理员账户集合（岗位/任职需另查 entity）及人数。
@@ -231,7 +179,7 @@ fn institution_manage_pallet(cid_number: &str) -> &'static str {
 /// 数据来源:
 /// 1. `PublicManage/PrivateManage::Institutions[cid_number]` 取机构身份最小集(按机构码路由 pallet)
 /// 2. `state_getKeysPaged` + `…::InstitutionAccounts[cid_number, *]` 取账户列表
-/// 3. 每个账户的 `System::Account[address].data.free` 取链上余额
+/// 3. 每个账户的 `System::Account[address].data.free + reserved` 取链上总余额
 /// 4. 主/费账户由 GMB 协议派生地址定位；管理员集合取 admins，阈值取 entity
 pub(crate) fn fetch_institution_detail(
     cid_number: &str,
@@ -405,7 +353,12 @@ fn fetch_institution_accounts(
         };
         let acc_name = decode_account_name_from_key(&key, &prefix_hex).unwrap_or_default();
         let account_id_bytes: [u8; 32] = acc.address.clone().into();
-        let bal = fetch_account_free_balance(&acc.address, finalized_hash).unwrap_or(0);
+        // 机构账户列表复用同块总余额入口；读取失败保留错误，只有账户不存在才为零。
+        let bal = crate::balance::fetch_balance_at(
+            &format!("0x{}", hex::encode(account_id_bytes)),
+            Some(finalized_hash),
+        )?
+        .unwrap_or(0);
         let account_kind = institution_kind_by_name(cid_number.as_bytes(), acc_name.as_bytes())
             .ok_or_else(|| "机构账户名为空".to_string())?;
         let account_kind_label = match account_kind.institution_protocol_kind() {

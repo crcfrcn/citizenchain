@@ -93,7 +93,7 @@ export function TransferForm({ activeWallet, nodeReady = true, balance, balanceE
     <div className="transfer-form">
       {/* 余额 */}
       <div className="transfer-form-balance-row">
-        {/* 名称和 finalized free 余额来自同一当前钱包；不能把账户保留金也称为可用金额。 */}
+        {/* 名称和 finalized 总余额来自同一当前钱包；实际可支配余额由后端独立校验。 */}
         <span className="transfer-form-balance-label">{activeWallet?.name ?? '-'}</span>
         <span className="transfer-form-balance-value">
           {!activeWallet || !nodeReady ? '-' : balanceError != null ? '查询失败' : balance != null

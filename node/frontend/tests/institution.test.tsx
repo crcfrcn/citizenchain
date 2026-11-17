@@ -19,6 +19,30 @@ it('IPC失败保留拒绝状态且不自动重放', async()=>{const failure=new 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { InstitutionDetailPage } from '../institution/InstitutionDetailPage';
 import { accountIdToSs58 } from '../client/ss58';
+import { InstitutionAssignmentCard } from '../institution/InstitutionAssignmentCard';
+
+it.each([false, true])('管理员卡片普通/提案模式=%s统一字段顺序，保留序号与操作', (compactVote) => {
+  const click = vi.fn();
+  const {container, unmount} = render(<InstitutionAssignmentCard compactVote={compactVote} index={3}
+    balanceFen="12345" action={<button onClick={click}>原操作</button>}
+    admin={{accountId:accountId('01'),familyName:'合成',givenName:'人员',assignments:[{
+      roleCode:'MEMBER',roleName:'委员',termRequired:true,termStart:1,termEnd:2,
+      assignmentSource:0,assignmentSourceLabel:'创世',assignmentSourceRef:'TEST',
+    }]}} />);
+  const top = container.querySelector('.institution-assignment-top')!;
+  expect(top.textContent).toBe('3委员合成人员原操作');
+  expect(top.querySelector('.admin-card-index')?.textContent).toBe('3');
+  expect(top.querySelector('.institution-assignment-dot')?.getAttribute('aria-hidden')).toBe('true');
+  const body = container.querySelector('.institution-assignment-account')!;
+  expect([...body.querySelectorAll('.institution-assignment-label')].map(node=>node.textContent))
+    .toEqual(['来源:','任期:','账户余额:','管理员账户:']);
+  expect(body.textContent).toContain('1970/01/02-1970/01/03');
+  expect(body.textContent).toContain('创世（依据：TEST）');
+  expect(body.textContent).toContain(accountIdToSs58(accountId('01')));
+  fireEvent.click(within(container).getByRole('button',{name:'原操作'}));
+  expect(click).toHaveBeenCalledOnce();
+  unmount();
+});
 
 vi.mock('../desktop/signing', () => ({
   CitizenSignaturePanel: ({ onScan }: { onScan: (result: string) => void }) => (

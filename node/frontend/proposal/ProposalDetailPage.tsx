@@ -180,22 +180,26 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
   const { meta } = info;
   const displayId = formatProposalId(meta.proposalId, displayMeta);
 
+  // 分类、展示号和机构名称共用同一标题，随业务详情进入卡片。
+  const heading = (
+    <div className="proposal-detail-heading">
+      <h3>
+        <span>{kindLabel(meta.kind)}</span>
+        <span className="proposal-detail-number">{displayId}</span>
+      </h3>
+      {info.cidFullName && (
+        <p className="proposal-institution-name">{info.cidFullName}</p>
+      )}
+    </div>
+  );
+
   return (
     <div className="governance-section proposal-detail-page">
-      <button className="back-button" onClick={onBack}>← 返回</button>
-      <header className="proposal-detail-heading">
-        <div className="proposal-detail-heading-row">
-          <h2>
-            <span>{kindLabel(meta.kind)}</span>{' '}
-            <span className="proposal-detail-number">{displayId}</span>
-          </h2>
-          <span className="proposal-detail-status" data-status={meta.status}>
-            {statusLabel(meta.status)}
-          </span>
-        </div>
-        {info.cidFullName && (
-          <p className="proposal-institution-name">{info.cidFullName}</p>
-        )}
+      <header className="proposal-detail-toolbar">
+        <button className="back-button" onClick={onBack}>← 返回</button>
+        <span className="proposal-detail-status" data-status={meta.status}>
+          {statusLabel(meta.status)}
+        </span>
       </header>
 
       {votingSigner && (
@@ -209,12 +213,15 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
         />
       )}
 
-      <MultisigTransferProposalDetailSection info={info} />
+      <MultisigTransferProposalDetailSection info={info} heading={heading} />
+      {!info.transferDetail && !info.safetyFundDetail && !info.sweepDetail && !info.runtimeUpgradeDetail && (
+        <div className="institution-info-section">{heading}</div>
+      )}
 
       {/* 协议升级提案详情 */}
       {info.runtimeUpgradeDetail && (
         <div className="institution-info-section">
-          <h3>协议升级详情</h3>
+          {heading}
           <div className="proposal-detail-table">
             <div className="detail-row">
               <span className="detail-label">原因</span>

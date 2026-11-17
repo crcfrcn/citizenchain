@@ -28,7 +28,7 @@ pub struct AccountWithBalance {
     pub account_name: String,
     /// 唯一账户 ID，固定为小写 `0x` + 64 位十六进制。
     pub account_id: String,
-    /// `frame_system::Account[address].data.free`,最小单位"分"。
+    /// `System::Account[address].data.free + reserved` 总余额，最小单位"分"。
     pub balance_fen: String,
     /// 协议账户类别：main/fee/stake/safety_fund/he/named。
     pub account_kind: String,

@@ -19,7 +19,7 @@ function formatDay(day: number): string {
   const year = date.getUTCFullYear();
   const month = `${date.getUTCMonth() + 1}`.padStart(2, '0');
   const dayOfMonth = `${date.getUTCDate()}`.padStart(2, '0');
-  return `${year}-${month}-${dayOfMonth}`;
+  return `${year}/${month}/${dayOfMonth}`;
 }
 
 function termText(assignment: InstitutionRoleAssignmentInfo): string {
@@ -27,7 +27,7 @@ function termText(assignment: InstitutionRoleAssignmentInfo): string {
   const start = formatDay(assignment.termStart);
   const end = formatDay(assignment.termEnd);
   if (!start && !end) return '待写入';
-  return `${start || '—'} ~ ${end || '—'}`;
+  return `${start || '—'}-${end || '—'}`;
 }
 
 function assignmentSummary(
@@ -61,6 +61,7 @@ export function InstitutionAssignmentCard({
   const topAction = action ?? status;
   const accountText = admin.accountId ? accountIdToSs58(admin.accountId) : '';
   const personName = `${admin.familyName}${admin.givenName}`;
+  const nameText = compactVote ? personName.trim() || '未填写' : personName;
   const balanceText = balanceFen != null ? formatBalance(balanceFen) : '';
   const assignments = admin.assignments;
   const term = assignmentSummary(assignments, termText);
@@ -69,38 +70,27 @@ export function InstitutionAssignmentCard({
     <div className={`metric-card institution-assignment-card ${compactVote ? 'institution-assignment-compact-vote' : ''} ${className ?? ''}`}>
       <div className="institution-assignment-top">
         {index != null ? <span className="admin-card-index">{index}</span> : null}
-        <span className="institution-assignment-role">
-          {assignments.map((assignment) => assignment.roleName).join('、') || '暂无岗位'}
-        </span>
+        <div className="institution-assignment-person">
+          <span className="institution-assignment-role">
+            {assignments.map((assignment) => assignment.roleName).join('、') || '暂无岗位'}
+          </span>
+          {nameText && <><span className="institution-assignment-dot" aria-hidden="true" /><span className="institution-assignment-name">{nameText}</span></>}
+        </div>
         <div className="institution-assignment-top-action">{topAction}</div>
       </div>
 
-      {compactVote ? (
-        <div className="institution-assignment-account">
-          <div className="institution-assignment-name-term">
-            <AssignmentField label="管理员姓名" value={personName.trim() || '未填写'} />
-            <span className="institution-assignment-compact-term">任期：{term.replace(/ ~ /g, '–')}</span>
-          </div>
-          <AssignmentField label="账户余额" value={balanceText} />
-          <AssignmentField label="管理员账户" value={accountText} />
+      <div className="institution-assignment-account">
+        <div className="institution-assignment-list-row">
+          <AssignmentField label="来源" value={assignmentSummary(assignments, (assignment) =>
+            assignment.assignmentSourceRef
+              ? `${assignment.assignmentSourceLabel}（依据：${assignment.assignmentSourceRef}）`
+              : assignment.assignmentSourceLabel
+          )} />
+          <AssignmentField label="任期" value={term} />
         </div>
-      ) : (
-        <div className="institution-assignment-account">
-          <div className="institution-assignment-list-row">
-            <AssignmentField label="管理员姓名" value={personName} />
-            <AssignmentField label="任期" value={term} />
-          </div>
-          <div className="institution-assignment-list-row">
-            <AssignmentField label="账户余额" value={balanceText} />
-            <AssignmentField label="来源" value={assignmentSummary(assignments, (assignment) =>
-              assignment.assignmentSourceRef
-                ? `${assignment.assignmentSourceLabel}（依据：${assignment.assignmentSourceRef}）`
-                : assignment.assignmentSourceLabel
-            )} />
-          </div>
-          <AssignmentField label="管理员账户" value={accountText} />
-        </div>
-      )}
+        <AssignmentField label="账户余额" value={balanceText} />
+        <AssignmentField label="管理员账户" value={accountText} />
+      </div>
     </div>
   );
 }

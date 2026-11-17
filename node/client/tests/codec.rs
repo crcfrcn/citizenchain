@@ -81,3 +81,27 @@ fn unicode_truncation_keeps_zero_exact_and_multi_byte_boundaries() {
         assert_eq!(truncate_chars(input, maximum), expected);
     }
 }
+
+// 总额由真实 AccountInfo 编码回读，不能把冻结额重复算入资产。
+#[test]
+fn account_balance_decodes_total_and_rejects_invalid_storage() {
+    let mut account = AccountInfo::default();
+    account.data.free = 300_111;
+    account.data.reserved = 200;
+    account.data.frozen = 500;
+    let bytes = account.encode();
+    let decoded = decode_account(&bytes).unwrap();
+    assert_eq!(decoded.data.free, 300_111);
+    assert_eq!(decoded.data.reserved, 200);
+    assert_eq!(decoded.data.frozen, 500);
+    assert_eq!(account_total(&decoded).unwrap(), 300_311);
+    for end in 0..bytes.len() {
+        assert!(decode_account(&bytes[..end]).is_err());
+    }
+    let mut trailing = bytes;
+    trailing.push(0);
+    assert!(decode_account(&trailing).is_err());
+    assert_eq!(account_total(&AccountInfo::default()).unwrap(), 0);
+    account.data.free = u128::MAX;
+    assert!(account_total(&account).is_err());
+}

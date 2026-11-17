@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::ethereum::initialize;
-use crate::ethereum::pending_account;
+use crate::ethereum::account_at;
 use crate::ethereum::subscription_request;
 use codec::Encode;
 use jsonrpsee::core::client::SubscriptionClientT;
@@ -201,7 +201,7 @@ fn reader_model(unavailable: bool) -> (RpcModule<()>, Arc<std::sync::Mutex<Vec<H
                 .encode(),
                 "ReviveApi_eth_block_hash" => Some(H256::from_low_u64_be(n as u64 + 1000)).encode(),
                 "ReviveApi_eth_receipt_data" => Vec::<ReceiptGasInfo>::new().encode(),
-                "ReviveApi_balance" => U256::from(42).encode(),
+                "ReviveApi_balance" => panic!("展示总余额不得调用执行侧可支配余额 API"),
                 "ReviveApi_nonce" => 7u32.encode(),
                 "ReviveApi_gas_price" => U256::from(3).encode(),
                 "ReviveApi_code" => vec![0x60u8, 0].encode(),
@@ -227,6 +227,12 @@ fn reader_model(unavailable: bool) -> (RpcModule<()>, Arc<std::sync::Mutex<Vec<H
             Ok::<_, jsonrpsee::types::ErrorObjectOwned>(
                 if key.ends_with("80d41e5e16056765bc8461851072c9d7") {
                     Some(sp_core::Bytes(vec![0]))
+                } else if key.starts_with(&format!("0x{}", hex::encode(frame_support::storage::storage_prefix(b"System", b"Account")))) {
+                    let mut account = nodeclient::codec::AccountInfo::default();
+                    account.data.free = 300_111;
+                    account.data.reserved = 200;
+                    account.data.frozen = 500;
+                    Some(sp_core::Bytes(account.encode()))
                 } else {
                     None
                 },
@@ -461,6 +467,137 @@ fn ethereum_reader_preserves_raw_json_error_data_and_large_numbers() {
     assert!(error.to_string().contains("denied"));
 }
 
+/// 地址映射与账户快照共同钉块；缺失账户才为零，错误不得伪装成零余额。
+#[tokio::test]
+async fn ethereum_balance_uses_total_at_same_block_and_propagates_errors() {
+    let (mut native, _) = reader_model(false);
+    native.remove_method("state_getStorage").unwrap();
+    let reads = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = reads.clone();
+    native
+        .register_method("state_getStorage", move |params, _, _| {
+            let values: Vec<serde_json::Value> = params.parse()?;
+            let key = values[0].as_str().unwrap();
+            let mapping = format!(
+                "0x{}",
+                hex::encode(frame_support::storage::storage_prefix(
+                    b"Revive",
+                    b"OriginalAccount"
+                ))
+            );
+            let accounts = format!(
+                "0x{}",
+                hex::encode(frame_support::storage::storage_prefix(
+                    b"System", b"Account"
+                ))
+            );
+            let error = || {
+                jsonrpsee::types::ErrorObjectOwned::owned(
+                    4003,
+                    "balance storage denied",
+                    None::<()>,
+                )
+            };
+            if !key.starts_with(&mapping) && !key.starts_with(&accounts) {
+                return Ok(Some(sp_core::Bytes(vec![0])));
+            }
+            assert_eq!(values.len(), 2, "映射与余额都必须显式指定块");
+            let at: H256 = serde_json::from_value(values[1].clone()).unwrap();
+            observed.lock().unwrap().push((key.to_string(), at));
+            if key.starts_with(&mapping) {
+                let address = hex::decode(&key[mapping.len()..]).unwrap();
+                return match address[0] {
+                    1 => Ok(Some(sp_core::Bytes(
+                        sp_runtime::AccountId32::new(
+                            [if at.to_low_u64_be() == 81 { 8 } else { 7 }; 32],
+                        )
+                        .encode(),
+                    ))),
+                    4 => Ok(Some(sp_core::Bytes(vec![0]))),
+                    5 => Err(error()),
+                    _ => Ok(None),
+                };
+            }
+            let account = hex::decode(&key[key.len() - 64..]).unwrap();
+            match account[0] {
+                3 => return Ok(None),
+                6 => return Ok(Some(sp_core::Bytes(vec![0; 32]))),
+                9 => return Err(error()),
+                _ => {}
+            }
+            let mut info = nodeclient::codec::AccountInfo::default();
+            info.data.free = match account[0] {
+                7 => 1_000,
+                8 => 2_000,
+                10 => u128::MAX,
+                _ => 300_111,
+            };
+            info.data.reserved = 200;
+            info.data.frozen = 800;
+            Ok(Some(sp_core::Bytes(info.encode())))
+        })
+        .unwrap();
+    let (module, task) = initialize(native).await.unwrap();
+    let ratio = U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO);
+    for (block, number, total) in [
+        (serde_json::json!("latest"), 80, 1_200),
+        (serde_json::json!("pending"), 80, 1_200),
+        (serde_json::json!("safe"), 80, 1_200),
+        (serde_json::json!("finalized"), 80, 1_200),
+        (serde_json::json!("0x51"), 81, 2_200),
+        (serde_json::json!(H256::from_low_u64_be(1080)), 80, 1_200),
+    ] {
+        reads.lock().unwrap().clear();
+        let balance: U256 = module
+            .call(
+                "eth_getBalance",
+                jsonrpsee::rpc_params![H160::repeat_byte(1), block],
+            )
+            .await
+            .unwrap();
+        assert_eq!(balance, U256::from(total as u128) * ratio);
+        let snapshot = reads.lock().unwrap();
+        assert_eq!(snapshot.len(), 2);
+        assert!(snapshot
+            .iter()
+            .all(|(_, at)| *at == H256::from_low_u64_be(number)));
+    }
+    let fallback: U256 = module
+        .call(
+            "eth_getBalance",
+            jsonrpsee::rpc_params![H160::repeat_byte(2), "finalized"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(fallback, U256::from(300_311u128) * ratio);
+    let absent: U256 = module
+        .call(
+            "eth_getBalance",
+            jsonrpsee::rpc_params![H160::repeat_byte(3), "finalized"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(absent, U256::zero());
+    for address in [4, 5, 6, 9, 10] {
+        let error = module
+            .call::<_, U256>(
+                "eth_getBalance",
+                jsonrpsee::rpc_params![H160::repeat_byte(address), "finalized"],
+            )
+            .await
+            .unwrap_err();
+        if address == 5 || address == 9 {
+            match error {
+                jsonrpsee::core::server::MethodsError::JsonRpc(error) => {
+                    assert_eq!(error.code(), 4003)
+                }
+                other => panic!("原生错误码必须保留: {other:?}"),
+            }
+        }
+    }
+    drop(task);
+}
+
 #[tokio::test]
 async fn ethereum_reader_keeps_all_rpc_methods_and_standard_newheads_subscription() {
     let (native, _) = reader_model(false);
@@ -518,7 +655,7 @@ async fn ethereum_reader_keeps_all_rpc_methods_and_standard_newheads_subscriptio
             )
             .await
             .unwrap(),
-        U256::from(42)
+        U256::from(300_311u128) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO)
     );
     let storage: Bytes = module
         .call(
@@ -539,7 +676,7 @@ async fn ethereum_reader_keeps_all_rpc_methods_and_standard_newheads_subscriptio
         )
         .await
         .unwrap();
-    assert_eq!(balance, U256::from(42), "Ethereum哈希必须先映射到原生块");
+    assert_eq!(balance, U256::from(300_311u128) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO), "Ethereum哈希必须先映射到原生块");
     assert!(module
         .call::<_, U256>(
             "eth_getBalance",
@@ -1618,7 +1755,7 @@ async fn session_receipt(
     .expect("交易池中的签名交易必须经真实出块取得成功回执")
 }
 
-/// 独立读取同一原生账本；Ethereum 可用余额另扣账户保留金，不能混为总余额。
+/// 独立读取同一原生账本总余额，与 Ethereum 展示核对；实际可支配金额另行校验。
 fn session_native_balance(client: &FullClient, account: &sp_runtime::AccountId32) -> u128 {
     use sc_client_api::StorageProvider;
     let key = frame_system::Account::<runtime::Runtime>::hashed_key_for(account);
@@ -1630,7 +1767,8 @@ fn session_native_balance(client: &FullClient, account: &sp_runtime::AccountId32
         runtime::Nonce,
         <runtime::Runtime as frame_system::Config>::AccountData,
     >;
-    AccountInfo::decode_all(&mut &data.0[..]).unwrap().data.free
+    let account = AccountInfo::decode_all(&mut &data.0[..]).unwrap();
+    account.data.free.checked_add(account.data.reserved).unwrap()
 }
 
 // Runtime专项消费自身已生成的WASM；节点默认测试不创建整链会话。
@@ -1767,7 +1905,7 @@ async fn metamask_three_node_session_uses_pool_pow_tls_and_grandpa() {
         peers.push(peer);
     }
     primary.start_finality();
-    println!("三节点会话：TLS P2P 已连接，核对原生总余额与 Ethereum 可用余额");
+    println!("三节点会话：TLS P2P 已连接，核对原生与 Ethereum 同一账户总余额");
     for (node, endpoint) in urls.iter().enumerate() {
         let endpoint_client = if node == 0 {
             &client
@@ -1795,7 +1933,7 @@ async fn metamask_three_node_session_uses_pool_pow_tls_and_grandpa() {
             .unwrap();
             assert_eq!(
                 balance,
-                U256::from(initial - runtime::EXISTENTIAL_DEPOSIT)
+                U256::from(initial)
                     * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO)
             );
             assert_eq!(
@@ -2088,7 +2226,7 @@ async fn metamask_three_node_session_uses_pool_pow_tls_and_grandpa() {
             .unwrap();
             assert_eq!(
                 balance,
-                U256::from(expected[index] - runtime::EXISTENTIAL_DEPOSIT)
+                U256::from(expected[index])
                     * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO)
             );
             assert_eq!(
@@ -2121,7 +2259,7 @@ async fn metamask_three_node_session_uses_pool_pow_tls_and_grandpa() {
             "accounts":accounts.iter().enumerate().map(|(index, account)| serde_json::json!({
                 "address":account.address(),"account_id":format!("0x{}", hex::encode(account.substrate_account())),
                 "initial_fen":initial,"balance_fen":expected[index],
-                "ethereum_balance_fen":expected[index] - runtime::EXISTENTIAL_DEPOSIT,
+                "ethereum_balance_fen":expected[index],
                 "existential_deposit_fen":runtime::EXISTENTIAL_DEPOSIT,"fee_fen":fees[index],"nonce":nonces[index]
             })).collect::<Vec<_>>(),"transactions":transactions,"hold_seconds":seconds});
     std::fs::write(
@@ -2232,14 +2370,14 @@ async fn pending_mapping_reads_native_storage_and_rejects_corrupt_accounts() {
                 raw.clone().map(sp_core::Bytes)
             })
             .unwrap();
-        let actual = pending_account(&native, address).await;
+        let actual = account_at(&native, address, None).await;
         match expected {
             Some(expected) => assert_eq!(actual.unwrap(), expected),
             None => assert!(actual.is_err(), "损坏映射不能回退到另一账户"),
         }
     }
     assert!(
-        pending_account(&RpcModule::new(()), address).await.is_err(),
+        account_at(&RpcModule::new(()), address, None).await.is_err(),
         "存储读取失败不能视为无映射"
     );
 }

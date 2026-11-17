@@ -22,7 +22,7 @@ export type AccountWithBalance = {
   /** 唯一账户 ID（小写 0x + 64 位十六进制）。 */
   accountId: string;
   /** 仅用于展示的 SS58 地址（GMB prefix=2027）。 */
-  /** `frame_system::Account[address].data.free`,最小单位"分"。 */
+  /** `System::Account[address].data.free + reserved` 总余额，最小单位"分"。 */
   balanceFen: string;
   /** 友好元字符串 `xxx.xx`。 */
   accountKind: 'main' | 'fee' | 'stake' | 'safety_fund' | 'he' | 'named';

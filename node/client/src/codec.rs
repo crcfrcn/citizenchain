@@ -35,6 +35,27 @@ pub fn decode_runtime_metadata(raw: &[u8]) -> Result<RuntimeMetadata, String> {
 
 // ──── SCALE 解码 ────
 
+/// 使用本链真实 AccountInfo 类型，拒绝截断及尾随数据，不以固定偏移猜测余额。
+pub type AccountInfo = frame_system::AccountInfo<
+    runtime::Nonce,
+    <runtime::Runtime as frame_system::Config>::AccountData,
+>;
+
+pub fn decode_account(data: &[u8]) -> Result<AccountInfo, String> {
+    use codec::DecodeAll;
+    AccountInfo::decode_all(&mut &data[..])
+        .map_err(|e| format!("System::Account 解码失败: {e}"))
+}
+
+/// 总余额包含保留资金及账户保留金；冻结额限制支出，不重复计入资产。
+pub fn account_total(account: &AccountInfo) -> Result<u128, String> {
+    account
+        .data
+        .free
+        .checked_add(account.data.reserved)
+        .ok_or_else(|| "System::Account 总余额溢出".to_string())
+}
+
 pub fn decode_hex_storage(hex_str: &str) -> Result<Vec<u8>, String> {
     let clean = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     hex::decode(clean).map_err(|e| format!("hex 解码失败: {e}"))

@@ -1,5 +1,5 @@
 import {beforeEach, expect, it, vi} from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { accountIdToSs58 } from '../client/ss58';
 import {proposalApi} from '../proposal/api';
 import { ProposalDetailPage } from '../proposal/ProposalDetailPage';
@@ -59,3 +59,48 @@ it.each([0, 1])('提案类型 %i 只允许链上确认未投票的管理员岗�
   expect(card(unvoted).getByRole('button', { name: '投票' })).toBeTruthy();
   expect(screen.getAllByRole('button', { name: '投票' })).toHaveLength(1);
 });
+
+// 四类业务详情共用元数据标题，顶部只保留返回与原状态。
+it.each(['transferDetail', 'safetyFundDetail', 'sweepDetail', 'runtimeUpgradeDetail'])(
+  '%s 将提案信息放入详情卡片且保留返回与状态', async (detailKey) => {
+    const accountId = '0x' + '01'.repeat(32);
+    const info = {
+      meta: { proposalId: '7', kind: 0, stage: 0, status: 1, subjectCidNumbers: [] },
+      cidFullName: '测试机构全称', voterRoleSubjects: [],
+      transferDetail: null, safetyFundDetail: null, sweepDetail: null, runtimeUpgradeDetail: null,
+      [detailKey]: {
+        fundingAccountId: accountId, institutionAccountId: accountId,
+        beneficiaryAccountId: accountId, proposerAccountId: accountId,
+        amountFen: '100', remark: '测试备注', reason: '测试原因', codeHashHex: 'abcd',
+      },
+    };
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_proposal_detail') return info;
+      if (command === 'get_proposal_display') return null;
+      throw new Error(`意外调用 ${command}`);
+    });
+    const onBack = vi.fn();
+    render(<ProposalDetailPage proposalId="7" adminSigners={[]} onBack={onBack} />);
+    const title = await screen.findByRole('heading', { name: /内部投票/ });
+    const heading = title.closest<HTMLElement>('.proposal-detail-heading')!;
+    expect(within(heading).getByText('测试机构全称')).toBeTruthy();
+    expect(heading.parentElement!.classList.contains(
+      detailKey === 'runtimeUpgradeDetail' ? 'institution-info-section' : 'proposal-transfer-card-heading',
+    )).toBe(true);
+    expect(title.querySelector('.proposal-detail-number')!.textContent).toBeTruthy();
+    expect(screen.getAllByText('测试机构全称')).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: /详情$/ })).toBeNull();
+    const back = screen.getByRole('button', { name: '← 返回' });
+    const toolbar = back.closest<HTMLElement>('.proposal-detail-toolbar')!;
+    expect(within(toolbar).getByText('已通过').getAttribute('data-status')).toBe('1');
+    expect(toolbar.querySelector('.proposal-detail-heading')).toBeNull();
+    if (detailKey !== 'runtimeUpgradeDetail') {
+      expect(screen.getByText('转账金额')).toBeTruthy();
+      expect(screen.getByText('转出账户')).toBeTruthy();
+    } else {
+      expect(screen.getByText('测试原因')).toBeTruthy();
+    }
+    fireEvent.click(back);
+    expect(onBack).toHaveBeenCalledOnce();
+  },
+);

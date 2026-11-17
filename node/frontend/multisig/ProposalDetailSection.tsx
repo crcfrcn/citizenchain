@@ -1,9 +1,10 @@
+import type { ReactNode } from "react";
 import { formatBalance } from "../client/format";
 import { accountIdToSs58 } from "../client/ss58";
 import type { MultisigTransferProposalDetails } from "./types";
 
 type TransferDetailCardProps = {
-  title: string;
+  heading: ReactNode;
   fundingAccountId: string;
   amountFen: string;
   beneficiaryAccountId?: string;
@@ -12,12 +13,12 @@ type TransferDetailCardProps = {
 };
 
 function TransferDetailCard({
-  title, fundingAccountId, amountFen, beneficiaryAccountId, remark, proposerAccountId,
+  heading, fundingAccountId, amountFen, beneficiaryAccountId, remark, proposerAccountId,
 }: TransferDetailCardProps) {
   return (
     <section className="institution-info-section proposal-transfer-card">
       <header className="proposal-transfer-card-heading">
-        <h3>{title}</h3>
+        {heading}
         <p className="proposal-transfer-amount">
           <span className="proposal-transfer-label">转账金额</span>
           <strong>{formatBalance(amountFen)}</strong>
@@ -52,14 +53,14 @@ function TransferDetailCard({
 }
 
 // 多签转账详情展示归 multisig 模块维护，治理详情页只负责挂载。
-export function MultisigTransferProposalDetailSection({ info }: { info: MultisigTransferProposalDetails }) {
+export function MultisigTransferProposalDetailSection({ info, heading }: { info: MultisigTransferProposalDetails; heading: ReactNode }) {
   const { transferDetail, safetyFundDetail, sweepDetail } = info;
 
   return (
     <>
       {transferDetail && (
         <TransferDetailCard
-          title="转账详情"
+          heading={heading}
           fundingAccountId={transferDetail.fundingAccountId}
           amountFen={transferDetail.amountFen}
           beneficiaryAccountId={transferDetail.beneficiaryAccountId}
@@ -69,7 +70,7 @@ export function MultisigTransferProposalDetailSection({ info }: { info: Multisig
       )}
       {safetyFundDetail && (
         <TransferDetailCard
-          title="安全基金转账详情"
+          heading={heading}
           fundingAccountId={safetyFundDetail.institutionAccountId}
           amountFen={safetyFundDetail.amountFen}
           beneficiaryAccountId={safetyFundDetail.beneficiaryAccountId}
@@ -78,7 +79,7 @@ export function MultisigTransferProposalDetailSection({ info }: { info: Multisig
       )}
       {sweepDetail && (
         <TransferDetailCard
-          title="手续费划转详情"
+          heading={heading}
           fundingAccountId={sweepDetail.institutionAccountId}
           amountFen={sweepDetail.amountFen}
         />

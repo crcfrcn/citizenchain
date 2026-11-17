@@ -854,6 +854,25 @@ select option:checked {
   color: #fbbf24;
 }
 
+/* 挖矿页固定统计、收益与标题，仅出块记录内部滚动。 */
+.app:has(.mining-records-section) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app:has(.mining-records-section) > .content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app:has(.mining-records-section) > .content > :not(.mining-records-section) {
+  flex: none;
+}
+
 .mining-section,
 .mining-records-section {
   margin-top: 0;
@@ -861,7 +880,22 @@ select option:checked {
 }
 
 .mining-records-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   margin-top: 8px;
+}
+
+.mining-records-section > h2 {
+  flex: none;
+}
+
+.mining-records-section > .table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .mining-income-grid {
@@ -1059,6 +1093,10 @@ select option:checked {
 }
 
 .mining-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-app);
   color: var(--text-secondary);
   font-weight: 600;
 }
