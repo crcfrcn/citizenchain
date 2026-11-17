@@ -12,7 +12,8 @@ use nodeclient::types::Service;
 use pallet_revive::evm::Account;
 use pallet_revive::evm::Bytes;
 use pallet_revive::evm::GenericTransaction;
-use runtime::opaque::Block;
+use ::runtime;
+use ::runtime::opaque::Block;
 use sc_chain_spec::ChainType;
 use sc_chain_spec::Properties;
 use sc_consensus::BlockImport;
@@ -58,6 +59,593 @@ use std::time::Duration;
 
 fn chain_spec() -> crate::chain::ChainSpec {
     chain_spec_with_accounts(&[])
+}
+
+/// Ethereum接入回归：仅公开RPC模型和元数据，不生产区块、不提交交易。
+fn reader_model(unavailable: bool) -> (RpcModule<()>, Arc<std::sync::Mutex<Vec<H256>>>) {
+    let old: Vec<u8> = runtime::Runtime::metadata().into();
+    let current: Vec<u8> = runtime::Runtime::metadata_at_version(16).unwrap().to_vec();
+    let reads = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut module = RpcModule::new(());
+    let genesis = H256::from(primitives::genesis::GENESIS_HASH);
+    let hash = move |n: u32| {
+        if n == 0 {
+            genesis
+        } else {
+            H256::from_low_u64_be(n as u64)
+        }
+    };
+    let number = move |h: H256| {
+        if h == genesis {
+            0
+        } else {
+            h.to_low_u64_be() as u32
+        }
+    };
+    let header = move |n: u32| {
+        serde_json::json!({
+            "number":format!("0x{n:x}"),"parentHash":if n==0 {H256::zero()} else {hash(n-1)},
+            "stateRoot":H256::repeat_byte(2),"extrinsicsRoot":H256::repeat_byte(3),"digest":{"logs":[]},
+        })
+    };
+    module
+        .register_method("chain_getBlockHash", move |params, _, _| {
+            let n: u32 = params.one()?;
+            Ok::<_, jsonrpsee::types::ErrorObjectOwned>(hash(n))
+        })
+        .unwrap();
+    module
+        .register_method("chain_getFinalizedHead", move |_, _, _| {
+            Ok::<_, jsonrpsee::types::ErrorObjectOwned>(hash(80))
+        })
+        .unwrap();
+    module
+        .register_method("chain_getHeader", move |params, _, _| {
+            let values: Vec<serde_json::Value> = params.parse()?;
+            let n = values
+                .first()
+                .filter(|v| !v.is_null())
+                .map(|v| number(serde_json::from_value(v.clone()).unwrap()))
+                .unwrap_or(80);
+            Ok::<_, jsonrpsee::types::ErrorObjectOwned>(if n <= 81 {
+                header(n)
+            } else {
+                serde_json::Value::Null
+            })
+        })
+        .unwrap();
+    module.register_method("state_getRuntimeVersion", move |params,_,_| {
+        let values: Vec<serde_json::Value> = params.parse()?;
+        let n=values.first().filter(|v| !v.is_null()).map(|v| number(serde_json::from_value(v.clone()).unwrap())).unwrap_or(80);
+        Ok::<_, jsonrpsee::types::ErrorObjectOwned>(serde_json::json!({"specVersion":if n<80 {1}else{5},"transactionVersion":4,
+            "specName":"citizenchain","implName":"citizenchain","authoringVersion":1,"implVersion":1,"apis":[],"stateVersion":1}))
+    }).unwrap();
+    let selected = reads.clone();
+    module
+        .register_method("state_getMetadata", move |params, _, _| {
+            let at: H256 = params.one()?;
+            selected.lock().unwrap().push(at);
+            if unavailable && number(at) == 79 {
+                return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+                    -32000,
+                    "metadata unavailable",
+                    None::<()>,
+                ));
+            }
+            Ok(sp_core::Bytes(if number(at) < 80 {
+                old.clone()
+            } else {
+                current.clone()
+            }))
+        })
+        .unwrap();
+    module.register_method("chain_getBlock", move |params,_,_| {
+        let values: Vec<serde_json::Value> = params.parse()?;
+        let n=values.first().filter(|v| !v.is_null()).map(|v| number(serde_json::from_value(v.clone()).unwrap())).unwrap_or(80);
+        // 读取向量保留实测旧签名边界及末字节0x8f；固定测试备注，不宣称是真实交易hash。
+        let historical = concat!(
+            "650384002837cdcbf8876af4cbea8bd2a2025cf978a10cd82d7c2abf1dc75ed7",
+            "530467020184ba17c706d7e2d120d1fc2728446e83a847bbae22742982320d6d",
+            "d1aeb14b5bb5954a9fe9d5e1d08881895ee835d9aa49721b779d14ed827f2117",
+            "8ccc20288f004400000400faa94fdcba2e0f194d6c3c18c666014b108f97f8f0",
+            "d7a864a9033b523130386940420f00000000000000000000000000fc",
+            "e8bda6e7aa97e5a496e4b88be79d80e5a4a7e69ab4e99ba8efbc8ce68993e59ca8e8bda6e9a1b6e599bce9878ce595aae595a6e79a84e5938de280a62e2e2e"
+        );
+        let mut body=vec!["0x280501000b42c14765a101".to_owned()];
+        if n==80 {body.push(format!("0x{historical}"));}
+        if n==81 {
+            let call=runtime::RuntimeCall::System(frame_system::Call::remark{remark:b"reader".to_vec()});
+            let xt=chain_signing::build_signed_extrinsic_with_pair(call.clone(),genesis,0,5,4,&Sr25519Keyring::Alice.pair());
+            body.push(format!("0x{}",hex::encode(xt.encode())));
+            // 公开固定测试种子；只验证读取First/Stored布局，不触达链上状态。
+            for (nonce,first) in [(0,true),(1,false)] {
+                let xt=chain_signing::build_pq_signed_extrinsic(call.clone(),genesis,nonce,5,4,&[7;32],first);
+                body.push(format!("0x{}",hex::encode(xt.encode())));
+            }
+        }
+        Ok::<_, jsonrpsee::types::ErrorObjectOwned>(serde_json::json!({"block":{"header":header(n),"extrinsics":body},"justifications":null}))
+    }).unwrap();
+    let current: Vec<u8> = runtime::Runtime::metadata_at_version(16).unwrap().to_vec();
+    module
+        .register_method("state_call", move |params, _, _| {
+            let values: Vec<serde_json::Value> = params.parse()?;
+            let method = values[0].as_str().unwrap();
+            let n = values
+                .get(2)
+                .map(|v| number(serde_json::from_value(v.clone()).unwrap()))
+                .unwrap_or(80);
+            if n > 81 {
+                return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+                    4003,
+                    "unknown block",
+                    None::<()>,
+                ));
+            }
+            let bytes = match method {
+                "Metadata_metadata_at_version" => {
+                    Some(sp_core::OpaqueMetadata::new(current.clone())).encode()
+                }
+                "ReviveApi_eth_block" if n < 80 => {
+                    return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+                        4003,
+                        "Exported method ReviveApi_eth_block is not found",
+                        None::<()>,
+                    ))
+                }
+                "ReviveApi_eth_block" => pallet_revive::evm::Block {
+                    number: n.into(),
+                    hash: H256::from_low_u64_be(n as u64 + 1000),
+                    gas_limit: 1_000_000u64.into(),
+                    ..Default::default()
+                }
+                .encode(),
+                "ReviveApi_eth_block_hash" => Some(H256::from_low_u64_be(n as u64 + 1000)).encode(),
+                "ReviveApi_eth_receipt_data" => Vec::<ReceiptGasInfo>::new().encode(),
+                "ReviveApi_balance" => U256::from(42).encode(),
+                "ReviveApi_nonce" => 7u32.encode(),
+                "ReviveApi_gas_price" => U256::from(3).encode(),
+                "ReviveApi_code" => vec![0x60u8, 0].encode(),
+                "ReviveApi_get_storage" => pallet_revive::GetStorageResult::Ok(None).encode(),
+                "ReviveApi_eth_estimate_gas" => {
+                    Result::<U256, pallet_revive::EthTransactError>::Ok(21000u32.into()).encode()
+                }
+                _ => {
+                    return Err(jsonrpsee::types::ErrorObjectOwned::owned(
+                        -32601,
+                        method.to_owned(),
+                        None::<()>,
+                    ))
+                }
+            };
+            Ok(sp_core::Bytes(bytes))
+        })
+        .unwrap();
+    module
+        .register_method("state_getStorage", |params, _, _| {
+            let values: Vec<serde_json::Value> = params.parse()?;
+            let key = values[0].as_str().unwrap();
+            Ok::<_, jsonrpsee::types::ErrorObjectOwned>(
+                if key.ends_with("80d41e5e16056765bc8461851072c9d7") {
+                    Some(sp_core::Bytes(vec![0]))
+                } else {
+                    None
+                },
+            )
+        })
+        .unwrap();
+    module
+        .register_method(
+            "system_health",
+            |_, _, _| serde_json::json!({"isSyncing":false,"peers":0,"shouldHavePeers":true}),
+        )
+        .unwrap();
+    module
+        .register_method("system_accountNextIndex", |_, _, _| 8u32)
+        .unwrap();
+    for (subscribe, unsubscribe) in [
+        ("chain_subscribeNewHeads", "chain_unsubscribeNewHeads"),
+        (
+            "chain_subscribeFinalizedHeads",
+            "chain_unsubscribeFinalizedHeads",
+        ),
+    ] {
+        module
+            .register_subscription(
+                subscribe,
+                "header",
+                unsubscribe,
+                |_, pending, _, _| async move {
+                    if let Ok(sink) = pending.accept().await {
+                        sink.closed().await;
+                    }
+                },
+            )
+            .unwrap();
+    }
+    (module, reads)
+}
+
+#[tokio::test]
+async fn ethereum_reader_binds_history_to_parent_and_keeps_contexts_independent() {
+    let (module, reads) = reader_model(false);
+    let rpc = RpcClient::new(Native(Arc::new(module)));
+    let genesis = H256::from(primitives::genesis::GENESIS_HASH);
+    let old = Blocks::bind(&rpc, genesis, H256::from_low_u64_be(80))
+        .await
+        .unwrap();
+    let old_extrinsics = old.extrinsics().await.unwrap();
+    assert_eq!(old_extrinsics.len(), 2);
+    assert_eq!(
+        old_extrinsics.iter().nth(1).unwrap().pallet_name().unwrap(),
+        "OnchainTransaction"
+    );
+    let current = Blocks::bind(&rpc, genesis, H256::from_low_u64_be(81))
+        .await
+        .unwrap();
+    assert_eq!(
+        current.extrinsics().await.unwrap().len(),
+        4,
+        "sr与ML First/Stored均可解码"
+    );
+    assert_eq!(
+        old.extrinsics().await.unwrap().len(),
+        2,
+        "新上下文不得改变旧上下文"
+    );
+    assert_eq!(
+        *reads.lock().unwrap(),
+        vec![H256::from_low_u64_be(79), H256::from_low_u64_be(80)]
+    );
+    let metadata: Vec<u8> = runtime::Runtime::metadata_at_version(16).unwrap().to_vec();
+    let wrong = OnlineClient::<SrcChainConfig>::from_rpc_client_with(
+        genesis,
+        subxt::client::RuntimeVersion {
+            spec_version: 5,
+            transaction_version: 4,
+        },
+        Metadata::decode_all(&mut metadata.as_slice()).unwrap(),
+        rpc,
+    )
+    .unwrap();
+    let block = wrong.blocks().at(H256::from_low_u64_be(80)).await.unwrap();
+    let error = block
+        .extrinsics()
+        .await
+        .err()
+        .expect("新版全局metadata必须复现历史错位");
+    assert!(
+        error.to_string().contains("VariantNotFound(143)"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn ethereum_reader_decodes_extension_one_without_stale_global_metadata() {
+    let (module, _) = reader_model(false);
+    let rpc = RpcClient::new(Native(Arc::new(module)));
+    let genesis = H256::from(primitives::genesis::GENESIS_HASH);
+    // V15只有扩展版本0；长驻旧上下文必须准确复现现网的版本1解码错误。
+    let old: Vec<u8> = runtime::Runtime::metadata().into();
+    let stale = OnlineClient::<SrcChainConfig>::from_rpc_client_with(
+        genesis,
+        subxt::client::RuntimeVersion { spec_version: 1, transaction_version: 4 },
+        Metadata::decode_all(&mut old.as_slice()).unwrap(),
+        rpc.clone(),
+    ).unwrap();
+    let block = stale.blocks().at(H256::from_low_u64_be(81)).await.unwrap();
+    let error = block.extrinsics().await.err().expect("旧metadata必须拒绝版本1");
+    let diagnostic = format!("{error:?}");
+    assert!(diagnostic.contains("ExtrinsicExtensionVersionNotFound"), "{diagnostic}");
+    assert!(diagnostic.contains("extension_version: 1"), "{diagnostic}");
+
+    let bound = Blocks::bind(&rpc, genesis, H256::from_low_u64_be(81)).await.unwrap();
+    let body = bound.extrinsics().await.unwrap();
+    assert_eq!(body.len(), 4);
+    for item in body.iter() {
+        assert!(item.pallet_name().is_ok(), "V5普通签名和ML First/Stored均须正常解码");
+    }
+}
+
+#[tokio::test]
+async fn ethereum_reader_advances_finality_and_default_estimation_together() {
+    let (mut module, _) = reader_model(false);
+    let original = Native(Arc::new(module.clone()));
+    let estimates = Arc::new(std::sync::Mutex::new(Vec::<H256>::new()));
+    let selected = estimates.clone();
+    module.remove_method("state_call");
+    module.register_async_method("state_call", move |params, _, _| {
+        let original = original.clone();
+        let selected = selected.clone();
+        async move {
+            let values: Vec<serde_json::Value> = params.parse()?;
+            if values[0] == "ReviveApi_eth_estimate_gas" {
+                selected.lock().unwrap().push(serde_json::from_value(values[2].clone()).unwrap());
+            }
+            original.request("state_call", serde_json::Value::Array(values)).await
+                .map_err(|error| match error {
+                    ClientError::Jsonrpsee(jsonrpsee::core::ClientError::Call(error)) => error,
+                    other => jsonrpsee::types::ErrorObjectOwned::from(other),
+                })
+        }
+    }).unwrap();
+    let native = Native(Arc::new(module));
+    let blocks = Blocks::new(&native).await.unwrap();
+    let api = OnlineClient::<SrcChainConfig>::from_rpc_client(blocks.rpc.clone()).await.unwrap();
+    let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+        .connect("sqlite::memory:").await.unwrap();
+    let receipts = ReceiptProvider::new(
+        DbContext::new(pool, DbContext::DEFAULT_MAX_VARIABLE_NUMBER),
+        blocks.clone(), ReceiptExtractor::new(api).await.unwrap(), Some(RETAINED_BLOCKS),
+    ).await.unwrap();
+    let ethereum = Ethereum {
+        native, blocks, receipts, fees: FeeHistoryProvider::default(),
+        prefix: Arc::new(Mutex::new(None)),
+        heads: broadcast::channel(16).0, logs: broadcast::channel(16).0,
+    };
+    ethereum.rebuild().await.unwrap();
+    let next = ethereum.blocks.block_by_hash(&H256::from_low_u64_be(81))
+        .await.unwrap().unwrap();
+    ethereum.finalized(next.clone()).await.unwrap();
+    // 重复最终性通知幂等；较旧通知不能把指针退回历史迁移状态。
+    ethereum.finalized(next).await.unwrap();
+    let old = ethereum.blocks.block_by_hash(&H256::from_low_u64_be(80))
+        .await.unwrap().unwrap();
+    ethereum.finalized(old).await.unwrap();
+    for tag in [BlockTag::Latest, BlockTag::Pending, BlockTag::Safe, BlockTag::Finalized] {
+        assert_eq!(ethereum.resolve_hash(tag.into()).await.unwrap(), H256::from_low_u64_be(81));
+    }
+    let rpc = ethereum.into_rpc();
+    let default_gas: U256 = rpc.call("eth_estimateGas", jsonrpsee::rpc_params![GenericTransaction::default()])
+        .await.unwrap();
+    let explicit_gas: U256 = rpc.call("eth_estimateGas", jsonrpsee::rpc_params![GenericTransaction::default(), "0x51"])
+        .await.unwrap();
+    assert_eq!(default_gas, explicit_gas);
+    assert_eq!(default_gas, U256::from(21000));
+    assert_eq!(*estimates.lock().unwrap(), vec![H256::from_low_u64_be(81); 2],
+        "默认和显式估算必须实际调用同一最新状态，不能只比较碰巧相同的报价");
+}
+
+#[tokio::test]
+async fn ethereum_reader_rejects_missing_parent_metadata_without_retrying_latest() {
+    let (module, reads) = reader_model(true);
+    let rpc = RpcClient::new(Native(Arc::new(module)));
+    assert!(Blocks::bind(
+        &rpc,
+        H256::from(primitives::genesis::GENESIS_HASH),
+        H256::from_low_u64_be(80)
+    )
+    .await
+    .is_err());
+    assert_eq!(*reads.lock().unwrap(), vec![H256::from_low_u64_be(79)]);
+}
+
+#[test]
+fn ethereum_reader_checks_block_identity_and_pending_first_block() {
+    assert_eq!(
+        execution_hash(0, H256::repeat_byte(1), H256::zero()),
+        H256::repeat_byte(1)
+    );
+    assert_eq!(
+        execution_hash(80, H256::repeat_byte(2), H256::repeat_byte(1)),
+        H256::repeat_byte(1)
+    );
+    assert!(checked_block(Default::default(), 80, None, true)
+        .unwrap()
+        .is_none());
+    let block = pallet_revive::evm::Block {
+        number: 80.into(),
+        hash: H256::repeat_byte(3),
+        ..Default::default()
+    };
+    assert!(checked_block(block.clone(), 80, Some(block.hash), false)
+        .unwrap()
+        .is_some());
+    assert!(checked_block(block.clone(), 81, Some(block.hash), false).is_err());
+    assert!(checked_block(block.clone(), 80, None, false).is_err());
+    assert!(checked_block(block.clone(), 80, Some(block.hash), true).is_err());
+}
+
+#[test]
+fn ethereum_reader_preserves_raw_json_error_data_and_large_numbers() {
+    let value =
+        raw_result(r#"{"jsonrpc":"2.0","id":1,"result":340282366920938463463374607431768211455}"#)
+            .unwrap();
+    assert_eq!(value.get(), "340282366920938463463374607431768211455");
+    assert_eq!(
+        raw_result(r#"{"jsonrpc":"2.0","id":1,"result":null}"#)
+            .unwrap()
+            .get(),
+        "null"
+    );
+    let error=raw_result(r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"denied","data":{"reason":"fixed"}}}"#).unwrap_err();
+    assert!(error.to_string().contains("denied"));
+}
+
+#[tokio::test]
+async fn ethereum_reader_keeps_all_rpc_methods_and_standard_newheads_subscription() {
+    let (native, _) = reader_model(false);
+    let (module, task) = initialize(native).await.unwrap();
+    let methods = module
+        .method_names()
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected = [
+        "eth_accounts",
+        "eth_blockNumber",
+        "eth_call",
+        "eth_chainId",
+        "eth_estimateGas",
+        "eth_gasPrice",
+        "eth_getBalance",
+        "eth_getBlockByHash",
+        "eth_getBlockByNumber",
+        "eth_getBlockTransactionCountByHash",
+        "eth_getBlockTransactionCountByNumber",
+        "eth_getCode",
+        "eth_getLogs",
+        "eth_getStorageAt",
+        "eth_getTransactionByBlockHashAndIndex",
+        "eth_getTransactionByBlockNumberAndIndex",
+        "eth_getTransactionByHash",
+        "eth_getTransactionCount",
+        "eth_getTransactionReceipt",
+        "eth_maxPriorityFeePerGas",
+        "eth_sendRawTransaction",
+        "eth_sendTransaction",
+        "eth_syncing",
+        "net_listening",
+        "net_version",
+        "web3_clientVersion",
+        "eth_feeHistory",
+        "eth_subscribe",
+        "eth_unsubscribe",
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(methods, expected);
+    assert!(module.call::<_,bool>("net_listening",Vec::<()>::new()).await.unwrap());
+    assert_eq!(
+        module
+            .call::<_, U256>("eth_chainId", Vec::<()>::new())
+            .await
+            .unwrap(),
+        U256::from(2027)
+    );
+    assert_eq!(
+        module
+            .call::<_, U256>(
+                "eth_getBalance",
+                jsonrpsee::rpc_params![H160::zero(), "latest"]
+            )
+            .await
+            .unwrap(),
+        U256::from(42)
+    );
+    let storage: Bytes = module
+        .call(
+            "eth_getStorageAt",
+            jsonrpsee::rpc_params![H160::zero(), U256::zero(), "latest"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(storage.0, vec![0; 32]);
+    let ethereum_hash = H256::from_low_u64_be(1080);
+    let balance: U256 = module
+        .call(
+            "eth_getBalance",
+            jsonrpsee::rpc_params![
+                H160::zero(),
+                BlockNumberOrTagOrHash::BlockHash(ethereum_hash)
+            ],
+        )
+        .await
+        .unwrap();
+    assert_eq!(balance, U256::from(42), "Ethereum哈希必须先映射到原生块");
+    assert!(module
+        .call::<_, U256>(
+            "eth_getBalance",
+            jsonrpsee::rpc_params![
+                H160::zero(),
+                BlockNumberOrTagOrHash::BlockHash(H256::from_low_u64_be(9999))
+            ]
+        )
+        .await
+        .is_err());
+    assert_eq!(
+        module
+            .call::<_, U256>(
+                "eth_getTransactionCount",
+                jsonrpsee::rpc_params![H160::zero(), "latest"]
+            )
+            .await
+            .unwrap(),
+        U256::from(7)
+    );
+    assert_eq!(
+        module
+            .call::<_, U256>(
+                "eth_getTransactionCount",
+                jsonrpsee::rpc_params![H160::zero(), "pending"]
+            )
+            .await
+            .unwrap(),
+        U256::from(8)
+    );
+    let block: Option<pallet_revive::evm::Block> = module
+        .call(
+            "eth_getBlockByHash",
+            jsonrpsee::rpc_params![ethereum_hash, false],
+        )
+        .await
+        .unwrap();
+    assert_eq!(block.unwrap().hash, ethereum_hash);
+    let code: Bytes = module
+        .call(
+            "eth_getCode",
+            jsonrpsee::rpc_params![H160::zero(), "latest"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(code.0, vec![0x60, 0]);
+    let gas: U256 = module
+        .call(
+            "eth_estimateGas",
+            jsonrpsee::rpc_params![GenericTransaction::default(), "latest"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(gas, U256::from(21000));
+    let error = module
+        .call::<_, H256>(
+            "eth_sendRawTransaction",
+            jsonrpsee::rpc_params![Bytes(vec![0])],
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("Invalid transaction"),
+        "错误载荷不得进入提交路径: {error}"
+    );
+    let subscription = module
+        .subscribe("eth_subscribe", jsonrpsee::rpc_params!["newHeads"], 16)
+        .await
+        .unwrap();
+    drop(subscription);
+    assert!(module
+        .subscribe(
+            "eth_subscribe",
+            jsonrpsee::rpc_params!["newBlockHeaders"],
+            16
+        )
+        .await
+        .is_err());
+    drop(task);
+    // 同一Native会话若在初始化途中换链，必须拒绝；冻结身份仍由原NodeGuard负责。
+    let (mut native, _) = reader_model(false);
+    native.remove_method("chain_getBlockHash");
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    native
+        .register_method("chain_getBlockHash", move |params, _, _| {
+            let n: u32 = params.one()?;
+            let hash = if n == 0 {
+                if reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    H256::from(primitives::genesis::GENESIS_HASH)
+                } else {
+                    H256::repeat_byte(8)
+                }
+            } else {
+                H256::from_low_u64_be(n as u64)
+            };
+            Ok::<_, jsonrpsee::types::ErrorObjectOwned>(hash)
+        })
+        .unwrap();
+    let error = initialize(native)
+        .await
+        .err()
+        .expect("同一读取会话的链身份不得改变");
+    assert!(
+        error.to_string().contains("Genesis hash mismatch"),
+        "{error}"
+    );
 }
 
 /// 只在测试创世中预置公开签名夹具；原生账户继续使用官方 Revive 映射。
@@ -223,6 +811,7 @@ fn native(partial: &Service) -> RpcModule<()> {
                 client: partial.client.clone(),
                 pool: partial.transaction_pool.clone(),
                 keystore: partial.keystore_container.keystore(),
+                miner_signing: Arc::new(std::sync::Mutex::new(())),
                 cpu_hashrate_fn: || 0.0,
                 gpu_hashrate_fn: None,
                 offchain_clearing_rpc: None,
@@ -476,6 +1065,75 @@ fn native_remark(client: &Arc<FullClient>, nonce: u32) -> OpaqueExtrinsic {
     .unwrap();
     OpaqueExtrinsic::try_from_encoded_extrinsic(&hex::decode(hex.trim_start_matches("0x")).unwrap())
         .unwrap()
+}
+
+/// 同一矿工的维护与热钱包提交共用锁，真实V5验证和交易池nonce不得互相覆盖。
+#[cfg(feature = "runtime-tests")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mapping_backfill_v5_pool_nonce_and_signing_are_shared() {
+    use codec::Decode;
+    use sc_transaction_pool_api::{InPoolTransaction, TransactionPool};
+    use sp_keystore::Keystore;
+    use sp_runtime::{generic::Preamble, traits::ExtensionVariant};
+
+    let config = test_config("mapping-backfill", tokio::runtime::Handle::current());
+    let root = config.base_path.path().to_path_buf();
+    let partial = crate::service::testing::new_partial_for_test(&config).unwrap();
+    let keystore = partial.keystore_container.keystore();
+    keystore
+        .sr25519_generate_new(nodemining::pow::POW_AUTHOR_KEY_TYPE, Some("//Alice"))
+        .unwrap();
+    let signing = Arc::new(std::sync::Mutex::new(()));
+    let mut submissions = Vec::new();
+    for remark in [
+        b"mapping maintenance".to_vec(),
+        b"ordinary miner remark".to_vec(),
+    ] {
+        let client = partial.client.clone();
+        let pool = partial.transaction_pool.clone();
+        let keystore = keystore.clone();
+        let signing = signing.clone();
+        submissions.push(tokio::task::spawn_blocking(move || {
+            crate::rpc::submit_powr_signed_tx(
+                &client,
+                &pool,
+                &keystore,
+                &signing,
+                runtime::RuntimeCall::System(frame_system::Call::remark { remark }),
+            )
+            .unwrap()
+            .0
+        }));
+    }
+    let first = submissions.remove(0).await.unwrap();
+    let second = submissions.remove(0).await.unwrap();
+    assert_ne!(first, second);
+    assert_eq!(partial.transaction_pool.status().ready, 2);
+    assert_eq!(partial.transaction_pool.status().future, 0);
+    let mut nonces = Vec::new();
+    for transaction in partial.transaction_pool.ready() {
+        let encoded = transaction.data().encode();
+        let extrinsic = runtime::UncheckedExtrinsic::decode(&mut encoded.as_slice()).unwrap();
+        let Preamble::General(ExtensionVariant::Other(pipeline)) = extrinsic.0.preamble else {
+            panic!("矿工交易必须是V5认证管线1");
+        };
+        nonces.push(pipeline.extension.1 .7 .0);
+    }
+    nonces.sort();
+    assert_eq!(nonces, vec![0, 1]);
+    // 仅本测试现场；不触碰任何正式链数据库。
+    drop(keystore);
+    let backend = Arc::downgrade(&partial.backend);
+    let tasks = stop_partial(partial);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !tasks.running_tasks().is_empty() || backend.upgrade().is_some() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("回填定向测试任务和数据库必须先释放");
+    drop(config);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 fn proposal(

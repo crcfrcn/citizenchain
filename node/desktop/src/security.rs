@@ -139,10 +139,6 @@ fn now_unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
-fn audit_log_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_data_dir(app)?.join(AUDIT_LOG_FILE_NAME))
-}
-
 fn audit_log_backup_path(path: &Path, index: usize) -> PathBuf {
     let mut backup = path.as_os_str().to_os_string();
     backup.push(format!(".{index}"));
@@ -204,7 +200,13 @@ fn rotate_audit_log_if_needed(path: &Path) -> Result<(), String> {
 }
 
 pub fn append_audit_log(app: &AppHandle, action: &str, status: &str) -> Result<(), String> {
-    let path = audit_log_path(app)?;
+    append_audit_log_at(&app_data_dir(app)?, action, status)
+}
+
+/// 节点后台任务使用其已核对的数据根目录，复用同一审计文件、锁和轮转实现。
+/// 此接口不创建目录、不改变权限，不接受外部 RPC 提供的路径。
+pub fn append_audit_log_at(base: &Path, action: &str, status: &str) -> Result<(), String> {
+    let path = base.join(AUDIT_LOG_FILE_NAME);
     let lock = AUDIT_LOG_LOCK.get_or_init(|| Mutex::new(()));
     let _guard = lock
         .lock()

@@ -122,7 +122,7 @@ describe('现有四档金额和费用', () => {
       expect(calculateTransferFeeYuan(amount)).toBe(fee);
       const submit = vi.fn();
       const view = render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={submit} />);
-      expect(view.container.querySelector('.transfer-form-balance-label')?.textContent).toBe('钱包余额');
+      expect(view.container.querySelector('.transfer-form-balance-label')?.textContent).toBe(wallet.name);
       fireEvent.change(screen.getByPlaceholderText('请输入公民链或以太坊地址'), { target: { value: destination } });
       fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: String(amount) } });
       expect(view.container.querySelector('.transfer-form-summary-line')?.textContent)
@@ -145,6 +145,19 @@ describe('现有四档金额和费用', () => {
 });
 
 describe('钱包余额查询状态', () => {
+  it('未另选钱包时显示后端默认的矿工热钱包名称和对应余额', async () => {
+    const miner: Wallet = { name: '矿工热钱包', signMode: 'hot', accountId: `0x${'55'.repeat(32)}` };
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_wallets') return { wallets: [miner, wallet], activeAccountId: miner.accountId };
+      if (command === 'get_wallet_balance') return '56789';
+      throw new Error(`非预期调用：${command}`);
+    });
+    const view = render(<TransactionPanel nodeReady />);
+    await waitFor(() => expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('567.89 元'));
+    expect(view.container.querySelector('.transfer-form-balance-label')?.textContent).toBe(miner.name);
+    expect(mocks.invoke).toHaveBeenCalledWith('get_wallet_balance', { accountId: miner.accountId });
+  });
+
   it('节点启动期间不查余额，就绪后自动查询', async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === 'get_wallets') return { wallets: [wallet], activeAccountId: wallet.accountId };
@@ -228,12 +241,15 @@ describe('钱包余额查询状态', () => {
     });
     const view = render(<TransactionPanel nodeReady />);
     await waitFor(() => expect(oldRequests).toBe(1));
+    expect(view.container.querySelector('.transfer-form-balance-label')?.textContent).toBe(wallet.name);
     fireEvent.click(screen.getByRole('button', { name: '钱包管理' }));
     await screen.findByText('另一钱包');
     fireEvent.click(screen.getByText('另一钱包'));
     await waitFor(() => expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('200.00 元'));
+    expect(view.container.querySelector('.transfer-form-balance-label')?.textContent).toBe(otherWallet.name);
     await act(async () => oldRequest.resolve('999999'));
     expect(view.container.querySelector('.transfer-form-balance-value')?.textContent).toBe('200.00 元');
+    expect(view.container.querySelector('.transfer-form-balance-label')?.textContent).toBe(otherWallet.name);
   });
 });
 

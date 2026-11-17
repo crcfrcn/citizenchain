@@ -151,6 +151,264 @@ fn mining_ready_transactions(ready: usize, is_major_syncing: bool) -> usize {
     }
 }
 
+const MAPPING_PROGRESS: &[u8] = b":citizenchain:evm-account-mapping:progress:v1";
+const MAPPING_COMPLETE: &[u8] = b":citizenchain:evm-account-mapping:v1";
+
+/// 只记录维护任务的事实，不参与等待、超时、验签、提交或退出判断。
+struct MappingAudit {
+    base: std::path::PathBuf,
+    phase: &'static str,
+    tx: Option<String>,
+    last_status: Option<String>,
+    last_wait: Option<serde_json::Value>,
+    finished: bool,
+}
+
+impl MappingAudit {
+    fn new(base: std::path::PathBuf) -> Self {
+        let audit = Self {
+            base,
+            phase: "started",
+            tx: None,
+            last_status: None,
+            last_wait: None,
+            finished: false,
+        };
+        audit.record("started", serde_json::json!({}));
+        audit
+    }
+
+    fn record(&self, phase: &str, details: serde_json::Value) {
+        // JSON 转义换行，保证一个状态只有一条审计行；不记录密钥、签名或原始交易。
+        let status = serde_json::json!({
+            "pid": std::process::id(), "phase": phase, "at": self.phase,
+            "tx": self.tx, "lastStatus": self.last_status, "details": details,
+        })
+        .to_string();
+        if let Err(error) =
+            nodedesktop::security::append_audit_log_at(&self.base, "evm_mapping", &status)
+        {
+            // 日志写入失败不改变原有维护任务的返回值和退出规则。
+            log::error!("EVM维护审计写入失败: {error}");
+        }
+    }
+
+    fn step(&mut self, phase: &'static str, details: serde_json::Value) {
+        self.phase = phase;
+        self.record(phase, details);
+    }
+
+    fn wait(&mut self, details: serde_json::Value) {
+        // 未变化的等待快照不重复落盘；不按等待时长判断异常。
+        if self.last_wait.as_ref() != Some(&details) {
+            self.step("waiting_idle", details.clone());
+            self.last_wait = Some(details);
+        }
+    }
+
+    fn transaction_status(&mut self, status: &str) {
+        self.last_status = Some(status.to_owned());
+        self.record("transaction_status", serde_json::json!({}));
+    }
+
+    fn finish(&mut self, result: &Result<(), String>) {
+        self.finished = true;
+        match result {
+            Ok(()) => self.record("complete", serde_json::json!({})),
+            Err(error) => self.record("failed", serde_json::json!({"reason": error})),
+        }
+    }
+}
+
+impl Drop for MappingAudit {
+    fn drop(&mut self) {
+        if !self.finished {
+            // TaskManager 关闭会取消 Future；取消与维护函数主动报错分别记录。
+            let phase = if std::thread::panicking() {
+                "panicked"
+            } else {
+                "cancelled"
+            };
+            self.record(phase, serde_json::json!({}));
+        }
+    }
+}
+
+/// 游标只按原字节比较，不复制 Runtime 私有的阶段或账户迭代实现。
+fn mapping_cursor(
+    progress: Option<Vec<u8>>,
+    complete: Option<Vec<u8>>,
+) -> Result<Option<Vec<u8>>, String> {
+    match (progress, complete.as_deref()) {
+        (None, Some([1])) => Ok(None),
+        (Some(cursor), None) if !cursor.is_empty() => Ok(Some(cursor)),
+        _ => Err("EVM回填游标或完成标记异常，维护任务停止".into()),
+    }
+}
+
+fn mapping_idle(syncing: bool, best_is_finalized: bool, ready: usize, future: usize) -> bool {
+    !syncing && best_is_finalized && ready == 0 && future == 0
+}
+
+fn mapping_progressed(before: &[u8], after: Option<Vec<u8>>) -> Result<bool, String> {
+    match after {
+        None => Ok(true),
+        Some(after) if after != before => Ok(false),
+        Some(_) => Err("EVM回填游标未推进，可能存在映射冲突，停止且不重发".into()),
+    }
+}
+
+fn mapping_succeeded(events: &[u8], index: usize) -> Result<(), String> {
+    let mut input = events;
+    let records =
+        Vec::<frame_system::EventRecord<runtime::RuntimeEvent, runtime::Hash>>::decode(&mut input)
+            .map_err(|error| format!("维护备注最终块事件解码失败: {error}"))?;
+    if !input.is_empty()
+        || !records.iter().any(|record| {
+            record.phase == frame_system::Phase::ApplyExtrinsic(index as u32)
+                && matches!(
+                    record.event,
+                    runtime::RuntimeEvent::System(frame_system::Event::ExtrinsicSuccess { .. })
+                )
+        })
+    {
+        return Err("维护备注未执行成功，停止且不重发".into());
+    }
+    Ok(())
+}
+
+fn read_mapping_cursor(
+    client: &nodeclient::types::FullClient,
+    at: runtime::Hash,
+) -> Result<Option<Vec<u8>>, String> {
+    let read = |key: &[u8]| {
+        client
+            .storage(at, &StorageKey(key.to_vec()))
+            .map(|value| value.map(|value| value.0))
+            .map_err(|error| format!("读取EVM回填状态失败: {error}"))
+    };
+    mapping_cursor(read(MAPPING_PROGRESS)?, read(MAPPING_COMPLETE)?)
+}
+
+/// 普通 V5 备注仍经过完整签名、资源、权限与交易池检查。
+fn mapping_remark(cursor: &[u8]) -> runtime::RuntimeCall {
+    let mut remark = b"evm-account-mapping:".to_vec();
+    remark.extend_from_slice(&blake2_256(cursor));
+    runtime::RuntimeCall::System(frame_system::Call::remark { remark })
+}
+
+async fn mapping_finalized(
+    mut status: std::pin::Pin<
+        Box<sc_transaction_pool_api::TransactionStatusStream<runtime::Hash, runtime::Hash>>,
+    >,
+    audit: &mut MappingAudit,
+) -> Result<(runtime::Hash, usize), String> {
+    use futures::StreamExt;
+    use sc_transaction_pool_api::TransactionStatus;
+
+    while let Some(event) = status.next().await {
+        audit.transaction_status(&format!("{event:?}"));
+        match event {
+            TransactionStatus::Future
+            | TransactionStatus::Ready
+            | TransactionStatus::Broadcast(_)
+            | TransactionStatus::InBlock(_)
+            | TransactionStatus::Retracted(_) => {}
+            TransactionStatus::Finalized(location) => return Ok(location),
+            // 撤块后继续观察同一交易；终止状态仍退出，不重新签名或提交。
+            event => return Err(format!("维护备注未最终确认: {event:?}")),
+        }
+    }
+    Err("维护备注状态流结束，结果不明，停止且不重发".into())
+}
+
+/// 仅桌面进程接线；CLI服务器不启动该任务。每次仅等待一笔真实备注最终确定。
+async fn run_mapping_backfill(
+    client: Arc<nodeclient::types::FullClient>,
+    pool: Arc<sc_transaction_pool::TransactionPoolHandle<Block, nodeclient::types::FullClient>>,
+    keystore: sp_keystore::KeystorePtr,
+    miner_signing: Arc<Mutex<()>>,
+    syncing: Arc<dyn Fn() -> bool + Send + Sync>,
+    audit: &mut MappingAudit,
+) -> Result<(), String> {
+    use sc_transaction_pool_api::TransactionPool;
+
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        interval.tick().await;
+        let info = client.info();
+        let status = pool.status();
+        let syncing = syncing();
+        let snapshot = serde_json::json!({
+            "syncing": syncing, "best": info.best_hash, "finalized": info.finalized_hash,
+            "bestHeight": info.best_number, "finalizedHeight": info.finalized_number,
+            "ready": status.ready, "future": status.future,
+        });
+        if !mapping_idle(
+            syncing,
+            info.best_hash == info.finalized_hash,
+            status.ready,
+            status.future,
+        ) {
+            audit.wait(snapshot);
+            continue;
+        }
+        audit.last_wait = None;
+        audit.step("checking_cursor", snapshot);
+        let Some(before) = read_mapping_cursor(&client, info.finalized_hash)? else {
+            log::info!("EVM回填无需继续，桌面维护任务结束");
+            return Ok(());
+        };
+        audit.tx = None;
+        audit.last_status = None;
+        audit.step(
+            "submitting",
+            serde_json::json!({
+                "cursor": hex::encode(blake2_256(&before)),
+            }),
+        );
+        let (hash, status) = crate::rpc::submit_powr_signed_tx(
+            &client,
+            &pool,
+            &keystore,
+            &miner_signing,
+            mapping_remark(&before),
+        )
+        .map_err(|error| format!("维护备注入池失败，停止且不重发: {error}"))?;
+        log::info!("桌面EVM回填维护备注已提交: {hash}");
+        audit.tx = Some(hash);
+        audit.step("waiting_finality", serde_json::json!({}));
+        let (finalized, index) =
+            tokio::time::timeout(Duration::from_secs(3_600), mapping_finalized(status, audit))
+                .await
+                .map_err(|_| "维护备注一小时内未最终确认，结果不明，停止且不重发".to_string())??;
+
+        audit.step(
+            "checking_result",
+            serde_json::json!({"block": finalized, "index": index}),
+        );
+        let mut key = twox_128(b"System").to_vec();
+        key.extend_from_slice(&twox_128(b"Events"));
+        let events = client
+            .storage(finalized, &StorageKey(key))
+            .map_err(|error| format!("读取维护备注执行结果失败: {error}"))?
+            .ok_or("维护备注最终块缺少事件")?;
+        mapping_succeeded(&events.0, index)?;
+        audit.step("checking_progress", serde_json::json!({"block": finalized}));
+        let after = read_mapping_cursor(&client, finalized)?;
+        let cursor = after.as_deref().map(|bytes| hex::encode(blake2_256(bytes)));
+        let complete = mapping_progressed(&before, after)?;
+        audit.step(
+            "progress",
+            serde_json::json!({"cursor": cursor, "complete": complete}),
+        );
+        if complete {
+            log::info!("EVM映射回填已全部完成，桌面维护任务结束");
+            return Ok(());
+        }
+    }
+}
+
 pub(crate) fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     #[cfg(any(test, feature = "test-support"))]
     return new_partial_inner(config, None);
@@ -318,6 +576,9 @@ pub(crate) fn new_full_with_network_reader(
     reserve_interval_secs: Option<u64>,
     local_network: Option<LocalNetworkReader>,
 ) -> Result<TaskManager, ServiceError> {
+    // 复用现有桌面接线识别本机任务，不增加服务器或外部RPC入口。
+    let desktop_mapping = local_network.is_some();
+    let mapping_base = config.base_path.path().to_path_buf();
     // 先装载可信 RPC 证书并取走端点，禁止上游 spawn_tasks 同时开启明文监听。
     // 进程内 RpcHandlers 仍正常创建，CLI 和桌面共用本服务入口。
     let rpc_endpoints = config.rpc.addr.take().unwrap_or_default();
@@ -456,17 +717,20 @@ pub(crate) fn new_full_with_network_reader(
         &task_manager,
     );
 
+    let miner_signing = Arc::new(Mutex::new(()));
     let rpc_extensions_builder = {
         let client = client.clone();
         let pool = transaction_pool.clone();
         let keystore = keystore_container.keystore();
         let clearing_rpc_impl = clearing_rpc_impl.clone();
+        let miner_signing = miner_signing.clone();
 
         Box::new(move |_| {
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),
                 pool: pool.clone(),
                 keystore: keystore.clone(),
+                miner_signing: miner_signing.clone(),
                 cpu_hashrate_fn: cpu_hashrate as fn() -> f64,
                 gpu_hashrate_fn,
                 // 清算行 RPC 命名空间(None 时跳过注入)
@@ -587,6 +851,32 @@ pub(crate) fn new_full_with_network_reader(
 
     // 本链制度要求"安装全节点软件即可参与挖矿"，不再依赖 authority 角色开关。
     ensure_powr_key(&keystore)?;
+
+    if desktop_mapping {
+        let client = client.clone();
+        let pool = transaction_pool.clone();
+        let keystore = keystore.clone();
+        let sync = sync_service.clone();
+        task_manager
+            .spawn_handle()
+            .spawn("evm-mapping-backfill", None, async move {
+                let mut audit = MappingAudit::new(mapping_base);
+                let result = run_mapping_backfill(
+                    client,
+                    pool,
+                    keystore,
+                    miner_signing,
+                    Arc::new(move || sync.is_major_syncing()),
+                    &mut audit,
+                )
+                .await;
+                audit.finish(&result);
+                if let Err(error) = result {
+                    // 维护失败只停止此任务，保留正常节点与全部共识安全检查。
+                    log::error!("桌面EVM回填维护停止: {error}");
+                }
+            });
+    }
 
     let proposer_factory = sc_basic_authorship::ProposerFactory::new(
         task_manager.spawn_handle(),

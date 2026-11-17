@@ -93,8 +93,8 @@ export function TransferForm({ activeWallet, nodeReady = true, balance, balanceE
     <div className="transfer-form">
       {/* 余额 */}
       <div className="transfer-form-balance-row">
-        {/* 后端返回 finalized 的 free 余额，不能把账户保留金也称为可用金额。 */}
-        <span className="transfer-form-balance-label">钱包余额</span>
+        {/* 名称和 finalized free 余额来自同一当前钱包；不能把账户保留金也称为可用金额。 */}
+        <span className="transfer-form-balance-label">{activeWallet?.name ?? '-'}</span>
         <span className="transfer-form-balance-value">
           {!activeWallet || !nodeReady ? '-' : balanceError != null ? '查询失败' : balance != null
             ? `${fenToYuan(balance)} 元`

@@ -26,6 +26,7 @@ use sp_keystore::Keystore;
 use sp_runtime::OpaqueExtrinsic;
 
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use substrate_frame_rpc_system::AccountNonceApi;
 
@@ -125,6 +126,8 @@ pub(crate) struct FullDeps<C, P> {
     pub pool: Arc<P>,
     /// Keystore（用于签名奖励账户绑定交易和矿工热账户交易）。
     pub keystore: sp_keystore::KeystorePtr,
+    /// 同一矿工的 nonce 查询、签名和入池共用一把锁。
+    pub miner_signing: Arc<Mutex<()>>,
     /// CPU 哈希率查询函数（hashes/sec）。
     pub cpu_hashrate_fn: fn() -> f64,
     /// GPU 哈希率查询函数（仅在 gpu-mining feature 启用且有 GPU 时为 Some）。
@@ -134,20 +137,33 @@ pub(crate) struct FullDeps<C, P> {
     pub offchain_clearing_rpc: Option<Arc<nodeoffchain::rpc::OffchainClearingRpcImpl>>,
 }
 
-/// 构造并签名一笔 powr 矿工交易，提交到交易池。
-fn submit_powr_signed_tx<C, P>(
+/// 矿工 RPC 与桌面维护共用 V5 签名及正常入池路径；返回官方交易状态流。
+pub(crate) fn submit_powr_signed_tx<C, P>(
     client: &Arc<C>,
     pool: &Arc<P>,
     keystore: &sp_keystore::KeystorePtr,
+    miner_signing: &Mutex<()>,
     call: runtime::RuntimeCall,
-) -> Result<String, jsonrpsee::types::ErrorObjectOwned>
+) -> Result<
+    (
+        String,
+        std::pin::Pin<Box<sc_transaction_pool_api::TransactionStatusStreamFor<P>>>,
+    ),
+    jsonrpsee::types::ErrorObjectOwned,
+>
 where
-    C: ProvideRuntimeApi<Block>,
+    C: ProvideRuntimeApi<Block> + Send + Sync,
     C: HeaderBackend<Block> + 'static,
-    C::Api: AccountNonceApi<Block, AccountId, Nonce> + CoreApi<Block>,
+    C::Api: AccountNonceApi<Block, AccountId, Nonce> + CoreApi<Block> + BlockBuilder<Block>,
     P: TransactionPool<Block = Block> + 'static,
 {
     use jsonrpsee::types::error::ErrorObject;
+    use substrate_frame_rpc_system::{System, SystemApiServer};
+
+    // 持锁直到正常交易池确认接收，防止热钱包与维护备注同时取得同一 nonce。
+    let _signing = miner_signing
+        .lock()
+        .map_err(|_| ErrorObject::owned(-1, "矿工签名锁异常", None::<()>))?;
 
     // 1. 从 keystore 取 powr 公钥
     let keys = keystore.sr25519_public_keys(POW_AUTHOR_KEY_TYPE);
@@ -167,11 +183,10 @@ where
         .map_err(|e| ErrorObject::owned(-1, format!("查询创世块哈希失败: {e}"), None::<()>))?
         .ok_or_else(|| ErrorObject::owned(-1, "创世块不存在", None::<()>))?;
 
-    // 4. 查询 nonce
-    let nonce = client
-        .runtime_api()
-        .account_nonce(best_hash, miner_account_id.clone())
-        .map_err(|e| ErrorObject::owned(-1, format!("查询账户 nonce 失败: {e}"), None::<()>))?;
+    // 4. 使用官方 System 接口，计入本账户在交易池中的连续 nonce。
+    let nonce = futures::executor::block_on(
+        System::new(client.clone(), pool.clone()).nonce(miner_account_id),
+    )?;
 
     // 4b. 查询链上 WASM 运行时的版本号（不使用 native 编译时常量，
     //     避免 spec_version 升级后 native 与链上 WASM 不一致导致 BadProof）
@@ -205,12 +220,16 @@ where
     let opaque = OpaqueExtrinsic::try_from_encoded_extrinsic(&encoded)
         .map_err(|_| ErrorObject::owned(-1, "交易编码失败", None::<()>))?;
 
-    // submit_one 是 async，但我们在同步上下文中，使用 futures::executor::block_on
-    let tx_hash =
-        futures::executor::block_on(pool.submit_one(best_hash, TransactionSource::Local, opaque))
-            .map_err(|e| ErrorObject::owned(-1, format!("提交交易到交易池失败: {e}"), None::<()>))?;
+    let tx_hash = pool.hash_of(&opaque);
+    // 官方状态流用于维护任务等待最终性；普通 RPC 返回后即可释放其观察者。
+    let status = futures::executor::block_on(pool.submit_and_watch(
+        best_hash,
+        TransactionSource::Local,
+        opaque,
+    ))
+    .map_err(|e| ErrorObject::owned(-1, format!("提交交易到交易池失败: {e}"), None::<()>))?;
 
-    Ok(format!("{tx_hash:?}"))
+    Ok((format!("{tx_hash:?}"), status))
 }
 
 /// 从 SS58 地址解析 AccountId。
@@ -356,6 +375,7 @@ where
         client,
         pool,
         keystore,
+        miner_signing,
         cpu_hashrate_fn,
         gpu_hashrate_fn,
         offchain_clearing_rpc,
@@ -513,13 +533,15 @@ where
         let client = client.clone();
         let pool = pool.clone();
         let keystore = keystore.clone();
+        let miner_signing = miner_signing.clone();
         module.register_method("reward_bindAccount", move |params, _, _| {
             let reward_account_id: String = params.one()?;
             let reward_account_id = parse_account_id(&reward_account_id)?;
             let call = runtime::RuntimeCall::FullnodeIssuance(
                 fullnodeissue::pallet::Call::bind_reward_account { reward_account_id },
             );
-            let _tx_hash = submit_powr_signed_tx(&client, &pool, &keystore, call)?;
+            let _submission =
+                submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call)?;
             Ok::<&str, jsonrpsee::types::ErrorObjectOwned>("ok")
         })?;
     }
@@ -530,6 +552,7 @@ where
         let client = client.clone();
         let pool = pool.clone();
         let keystore = keystore.clone();
+        let miner_signing = miner_signing.clone();
         module.register_method("reward_rebindAccount", move |params, _, _| {
             let new_reward_account_id: String = params.one()?;
             let new_reward_account_id = parse_account_id(&new_reward_account_id)?;
@@ -538,7 +561,8 @@ where
                     new_reward_account_id,
                 },
             );
-            let _tx_hash = submit_powr_signed_tx(&client, &pool, &keystore, call)?;
+            let _submission =
+                submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call)?;
             Ok::<&str, jsonrpsee::types::ErrorObjectOwned>("ok")
         })?;
     }
@@ -549,6 +573,7 @@ where
         let client = client.clone();
         let pool = pool.clone();
         let keystore = keystore.clone();
+        let miner_signing = miner_signing.clone();
         module.register_method("transaction_submitMinerTransfer", move |params, _, _| {
             use jsonrpsee::types::error::ErrorObject;
 
@@ -591,7 +616,8 @@ where
                     remark,
                 },
             );
-            let tx_hash = submit_powr_signed_tx(&client, &pool, &keystore, call)?;
+            let (tx_hash, _) =
+                submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call)?;
             Ok::<String, jsonrpsee::types::ErrorObjectOwned>(tx_hash)
         })?;
     }

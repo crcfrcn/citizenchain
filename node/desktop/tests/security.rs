@@ -3,6 +3,119 @@ use crate::validation::normalize_grandpa_key;
 use crate::validation::normalize_node_key;
 use crate::validation::normalize_public_key;
 
+/// 审计回归只使用本用例独占的临时目录。
+struct AuditDirectory(std::path::PathBuf);
+
+impl AuditDirectory {
+    fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let base = std::env::temp_dir().join(format!(
+            "gmb-mapping-audit-desktop-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ));
+        std::fs::create_dir(&base).unwrap();
+        Self(base)
+    }
+}
+
+impl Drop for AuditDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn mapping_audit_appends_to_the_existing_file() {
+    let directory = AuditDirectory::new();
+    let path = directory.0.join("security-audit.log");
+    std::fs::write(&path, "既有审计记录\n").unwrap();
+    crate::security::append_audit_log_at(&directory.0, "evm_mapping", "waiting_idle").unwrap();
+    crate::security::append_audit_log_at(&directory.0, "evm_mapping", "complete").unwrap();
+    let text = std::fs::read_to_string(path).unwrap();
+    let lines = text.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0], "既有审计记录");
+    assert!(lines[1].ends_with("\taction=evm_mapping\tstatus=waiting_idle"));
+    assert!(lines[2].ends_with("\taction=evm_mapping\tstatus=complete"));
+}
+
+#[test]
+fn mapping_audit_serializes_concurrent_appends() {
+    let directory = AuditDirectory::new();
+    let threads = (0..4)
+        .map(|worker| {
+            let base = directory.0.clone();
+            std::thread::spawn(move || {
+                for seq in 0..8 {
+                    let status = serde_json::json!({"worker": worker, "seq": seq}).to_string();
+                    crate::security::append_audit_log_at(&base, "evm_mapping", &status).unwrap();
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    let text = std::fs::read_to_string(directory.0.join("security-audit.log")).unwrap();
+    let mut seen = std::collections::HashSet::new();
+    for line in text.lines() {
+        let (prefix, status) = line.split_once("\tstatus=").unwrap();
+        assert!(prefix.ends_with("\taction=evm_mapping"));
+        let value: serde_json::Value = serde_json::from_str(status).unwrap();
+        assert!(seen.insert((
+            value["worker"].as_u64().unwrap(),
+            value["seq"].as_u64().unwrap()
+        )));
+    }
+    assert_eq!(seen.len(), 32);
+}
+
+#[test]
+fn mapping_audit_preserves_the_existing_rotation_limit() {
+    let directory = AuditDirectory::new();
+    let path = directory.0.join("security-audit.log");
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(5 * 1024 * 1024).unwrap();
+    drop(file);
+    for i in 1..=5 {
+        std::fs::write(
+            directory.0.join(format!("security-audit.log.{i}")),
+            format!("历史{i}"),
+        )
+        .unwrap();
+    }
+    crate::security::append_audit_log_at(&directory.0, "evm_mapping", "started").unwrap();
+    assert_eq!(
+        std::fs::metadata(directory.0.join("security-audit.log.1"))
+            .unwrap()
+            .len(),
+        5 * 1024 * 1024
+    );
+    for i in 2..=5 {
+        assert_eq!(
+            std::fs::read_to_string(directory.0.join(format!("security-audit.log.{i}"))).unwrap(),
+            format!("历史{}", i - 1)
+        );
+    }
+    assert!(!directory.0.join("security-audit.log.6").exists());
+    assert!(std::fs::read_to_string(path)
+        .unwrap()
+        .ends_with("\taction=evm_mapping\tstatus=started\n"));
+}
+
+#[test]
+fn mapping_audit_reports_write_failure_without_creating_a_parent() {
+    let directory = AuditDirectory::new();
+    let missing = directory.0.join("missing");
+    assert!(crate::security::append_audit_log_at(&missing, "evm_mapping", "started").is_err());
+    assert!(!missing.exists());
+}
+
 #[test]
 fn miner_transfer_capability_is_single_use_and_can_be_revoked() {
     use crate::security::{
