@@ -30,9 +30,99 @@ pub struct NodeGuard<I> {
     client: Arc<FullClient>,
     backend: Arc<FullBackend>,
     cid_lifecycle: Option<crate::guard::cid_lifecycle::GenesisReference>,
+    genesis: Result<Arc<GenesisState>, String>,
+    expected_hash: sp_core::H256,
+    expected_root: sp_core::H256,
+}
+
+/// 两类守卫共用的只读创世输入；字段私有，验证后不能改写存储内容。
+pub struct GenesisState {
+    storage: sp_storage::Storage,
+    hash: sp_core::H256,
+    state_root: sp_core::H256,
+}
+
+impl GenesisState {
+    /// 按冻结输入自身的状态版本计算全部主/子trie；只分配内存，不打开链库。
+    fn from_storage(storage: sp_storage::Storage, version: sp_storage::StateVersion) -> Self {
+        use sp_runtime::traits::{BlakeTwo256, Hash as _};
+        let (state_root, _) = Self::memory_state(&storage, version);
+        let header = runtime::opaque::Header::new(
+            0,
+            BlakeTwo256::trie_root(Vec::new(), version),
+            state_root,
+            Default::default(),
+            Default::default(),
+        );
+        Self {
+            storage,
+            hash: header.hash(),
+            state_root,
+        }
+    }
+
+    fn memory_state(
+        storage: &sp_storage::Storage,
+        version: sp_storage::StateVersion,
+    ) -> (
+        sp_core::H256,
+        impl sp_state_machine::Backend<sp_runtime::traits::BlakeTwo256> + 'static,
+    ) {
+        use sp_runtime::traits::BlakeTwo256;
+        let mut changes = vec![(
+            None,
+            storage
+                .top
+                .iter()
+                .map(|(key, value)| (key.clone(), Some(value.clone())))
+                .collect::<Vec<_>>(),
+        )];
+        changes.extend(storage.children_default.values().map(|child| {
+            (
+                Some(child.child_info.clone()),
+                child
+                    .data
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Some(value.clone())))
+                    .collect::<Vec<_>>(),
+            )
+        }));
+        let mut state = sp_state_machine::new_in_mem::<BlakeTwo256>();
+        state.insert(changes, version);
+        (*state.root(), state)
+    }
+
+    /// 正式基准必须同时匹配冻结状态根和完整块0哈希。
+    pub fn new(
+        storage: sp_storage::Storage,
+        version: sp_storage::StateVersion,
+    ) -> Result<Self, String> {
+        let state = Self::from_storage(storage, version);
+        state.verify(
+            primitives::genesis::GENESIS_HASH.into(),
+            primitives::genesis::GENESIS_STATE_ROOT.into(),
+        )?;
+        Ok(state)
+    }
+
+    fn verify(&self, hash: sp_core::H256, root: sp_core::H256) -> Result<(), String> {
+        if self.hash != hash || self.state_root != root {
+            return Err("守卫创世输入与声明的状态根或区块哈希不匹配".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn read(&self, key: &[u8]) -> Option<Vec<u8>> {
+        self.storage.top.get(key).cloned()
+    }
+
+    pub(crate) fn keys(&self) -> Vec<Vec<u8>> {
+        self.storage.top.keys().cloned().collect()
+    }
 }
 
 /// 只读取数据库中的真实块 0 头，不使用创世 storage 中的 BlockHash(0) 占位值。
+#[cfg(test)]
 fn verify_genesis_identity<C: HeaderBackend<Block>>(client: &C) -> Result<(), String> {
     let expected_hash = sp_core::H256::from(primitives::genesis::GENESIS_HASH);
     let expected_root = sp_core::H256::from(primitives::genesis::GENESIS_STATE_ROOT);
@@ -83,14 +173,6 @@ fn verify_genesis_identity_against<C: HeaderBackend<Block>>(
         ));
     }
     Ok(())
-}
-
-/// 保持现有构造接口；创世身份失败立即中止装配，不能降级为启动警告。
-fn enforce_genesis_identity<C: HeaderBackend<Block>>(client: &C) {
-    if let Err(reason) = verify_genesis_identity(client) {
-        log::error!(target: "node-guard", "创世身份校验失败，拒绝启动节点：{reason}");
-        panic!("NodeGuard 拒绝启动：{reason}");
-    }
 }
 
 /// 合法 finalize 原生发行仅登记金额，由 `NodeGuard` 核对总发行差额。
@@ -228,184 +310,222 @@ impl FinalizeIssuancePlan {
 }
 
 impl<I> NodeGuard<I> {
-    /// 装配节点守卫。
-    ///
-    /// 首先强制校验唯一合法的创世哈希与状态根，失败立即中止节点启动。
-    /// 其他本机状态自检仍只报告警告；后续执行块及候选 runtime 校验保持
-    /// fail-closed，坏输入一律不委派内层导入器。
-    ///
-    /// # Panics
-    /// 创世身份不匹配、缺失或无法读取时拒绝构造守卫，保持现有调用接口不变。
-    pub fn new(inner: I, client: Arc<FullClient>, backend: Arc<FullBackend>) -> Self {
-        enforce_genesis_identity(client.as_ref());
-        Self::assemble(inner, client, backend)
+    /// 启动自检只报告诊断；创世身份与规则校验在入链前继续严格执行。
+    pub fn new(
+        inner: I,
+        client: Arc<FullClient>,
+        backend: Arc<FullBackend>,
+        genesis: Result<Arc<GenesisState>, String>,
+    ) -> Self {
+        Self::assemble(
+            inner,
+            client,
+            backend,
+            genesis,
+            primitives::genesis::GENESIS_HASH.into(),
+            primitives::genesis::GENESIS_STATE_ROOT.into(),
+        )
     }
 
-    fn assemble(inner: I, client: Arc<FullClient>, backend: Arc<FullBackend>) -> Self {
-        let genesis_hash = client.info().genesis_hash;
-        let mut startup_issues = Vec::<String>::new();
-
-        if let Err(reason) = crate::guard::national_body_composition::check_full_state(|key| {
-            client
-                .storage(genesis_hash, &StorageKey(key.to_vec()))
-                .ok()
-                .flatten()
-                .map(|data| data.0)
-        }) {
-            startup_issues.push(format!("国家机构组成校验失败:{reason:?}"));
-        }
-        let vote_state_keys = match Self::state_keys_for_prefixes(
-            &client,
-            genesis_hash,
-            vec![
-                crate::guard::national_body_composition::storage_key::threshold_prefix(),
-                crate::guard::national_body_composition::storage_key::proposal_prefix(),
-            ],
-        ) {
-            Ok(keys) => keys,
-            Err(reason) => {
-                startup_issues.push(format!("固定治理阈值枚举失败:{reason}"));
-                Vec::new()
-            }
-        };
-        if let Err(reason) = crate::guard::national_body_composition::check_vote_state_keys(
-            &vote_state_keys,
-            |key| {
-                client
-                    .storage(genesis_hash, &StorageKey(key.to_vec()))
-                    .ok()
-                    .flatten()
-                    .map(|data| data.0)
-            },
-        ) {
-            startup_issues.push(format!("固定治理阈值校验失败:{reason:?}"));
-        }
-        if let Err(reason) = crate::guard::fullnode_issuance::check_genesis(|key| {
-            client
-                .storage(genesis_hash, &StorageKey(key.to_vec()))
-                .ok()
-                .flatten()
-                .map(|data| data.0)
-        }) {
-            startup_issues.push(format!("全节点发行审计状态校验失败:{reason:?}"));
-        }
-        let mut provincialbank_state = match Self::pallet_state(
-            &client,
-            genesis_hash,
-            crate::guard::provincialbank_interest::storage_key::pallet_prefix(),
-        ) {
-            Ok(state) => state,
-            Err(reason) => {
-                startup_issues.push(format!("省储行固定发行状态枚举失败:{reason}"));
-                BTreeMap::new()
-            }
-        };
-        for key in crate::guard::provincialbank_interest::relevant_import_keys() {
-            if key.starts_with(&crate::guard::provincialbank_interest::storage_key::pallet_prefix())
-            {
-                continue;
-            }
-            match client.storage(genesis_hash, &StorageKey(key.clone())) {
-                Ok(Some(value)) => {
-                    provincialbank_state.insert(key, value.0);
-                }
-                Ok(None) => {}
-                Err(reason) => startup_issues.push(format!("读取省储行质押本金失败:{reason}")),
-            }
-        }
-        if let Err(reason) = crate::guard::provincialbank_interest::check_recorded_state(
-            0,
-            provincialbank_state.iter(),
-        ) {
-            startup_issues.push(format!("省储行固定发行校验失败:{reason:?}"));
-        }
-        let citizen_issuance_state = match Self::pallet_state(
-            &client,
-            genesis_hash,
-            crate::guard::citizen_issuance::storage_key::pallet_prefix(),
-        ) {
-            Ok(state) => state,
-            Err(reason) => {
-                startup_issues.push(format!("公民认证发行状态枚举失败:{reason}"));
-                BTreeMap::new()
-            }
-        };
+    fn assemble(
+        inner: I,
+        client: Arc<FullClient>,
+        backend: Arc<FullBackend>,
+        genesis: Result<Arc<GenesisState>, String>,
+        expected_hash: sp_core::H256,
+        expected_root: sp_core::H256,
+    ) -> Self {
+        let genesis = genesis.and_then(|state| {
+            state.verify(expected_hash, expected_root)?;
+            Ok(state)
+        });
+        let mut startup_issues = Vec::new();
         if let Err(reason) =
-            crate::guard::citizen_issuance::check_genesis_key_values(citizen_issuance_state.iter())
+            verify_genesis_identity_against(client.as_ref(), expected_hash, expected_root)
         {
-            startup_issues.push(format!("公民认证发行状态校验失败:{reason:?}"));
+            startup_issues.push(reason);
         }
-        let genesis_pallet_state = match Self::pallet_state(
-            &client,
-            genesis_hash,
-            crate::guard::genesis_pallet::storage_key::pallet_prefix(),
-        ) {
-            Ok(state) => state,
+        let cid_lifecycle = match &genesis {
             Err(reason) => {
-                startup_issues.push(format!("GenesisPallet 状态枚举失败:{reason}"));
-                BTreeMap::new()
-            }
-        };
-        if let Err(reason) = crate::guard::genesis_pallet::check_genesis(|key| {
-            genesis_pallet_state.get(key).cloned()
-        }) {
-            startup_issues.push(format!("GenesisPallet 事实校验失败:{reason:?}"));
-        }
-        let runtime_policy_state = match Self::pallet_state(
-            &client,
-            genesis_hash,
-            sp_crypto_hashing::twox_128(b"OffchainTransaction"),
-        ) {
-            Ok(state) => state,
-            Err(reason) => {
-                startup_issues.push(format!("手续费制度状态枚举失败:{reason}"));
-                BTreeMap::new()
-            }
-        };
-        if let Err(reason) =
-            crate::guard::runtime_policy::check_imported_state(runtime_policy_state.iter())
-        {
-            startup_issues.push(format!("手续费制度校验失败:{reason}"));
-        }
-        let cid_lifecycle = match Self::cid_state_keys(&client, genesis_hash)
-            .map_err(|reason| format!("CID 生命周期基准枚举失败:{reason}"))
-            .and_then(|cid_keys| {
-                crate::guard::cid_lifecycle::GenesisReference::from_genesis(&cid_keys, |key| {
-                    client
-                        .storage(genesis_hash, &StorageKey(key.to_vec()))
-                        .ok()
-                        .flatten()
-                        .map(|data| data.0)
-                })
-                .map_err(|reason| format!("CID 生命周期基准校验失败:{reason:?}"))
-            }) {
-            Ok(reference) => Some(reference),
-            Err(reason) => {
-                startup_issues.push(reason);
+                startup_issues.push(reason.clone());
                 None
             }
+            Ok(state) => {
+                let read = |key: &[u8]| state.read(key);
+                let keys = state.keys();
+                if let Err(reason) =
+                    crate::guard::national_body_composition::check_full_state(&read)
+                {
+                    startup_issues.push(format!("国家机构组成校验失败:{reason:?}"));
+                }
+                if let Err(reason) =
+                    crate::guard::national_body_composition::check_vote_state_keys(&keys, &read)
+                {
+                    startup_issues.push(format!("固定治理阈值校验失败:{reason:?}"));
+                }
+                if let Err(reason) = crate::guard::fullnode_issuance::check_genesis(&read) {
+                    startup_issues.push(format!("全节点发行校验失败:{reason:?}"));
+                }
+                let bank_keys = crate::guard::provincialbank_interest::relevant_import_keys();
+                let bank_prefix =
+                    crate::guard::provincialbank_interest::storage_key::pallet_prefix();
+                let bank =
+                    state.storage.top.iter().filter(|(key, _)| {
+                        key.starts_with(&bank_prefix) || bank_keys.contains(*key)
+                    });
+                if let Err(reason) =
+                    crate::guard::provincialbank_interest::check_recorded_state(0, bank)
+                {
+                    startup_issues.push(format!("省储行固定发行校验失败:{reason:?}"));
+                }
+                let citizen_prefix = crate::guard::citizen_issuance::storage_key::pallet_prefix();
+                if let Err(reason) = crate::guard::citizen_issuance::check_genesis_key_values(
+                    state
+                        .storage
+                        .top
+                        .iter()
+                        .filter(|(key, _)| key.starts_with(&citizen_prefix)),
+                ) {
+                    startup_issues.push(format!("公民认证发行校验失败:{reason:?}"));
+                }
+                if let Err(reason) = crate::guard::genesis_pallet::check_genesis(&read) {
+                    startup_issues.push(format!("创世固定事实校验失败:{reason:?}"));
+                }
+                let fee_prefix = sp_crypto_hashing::twox_128(b"OffchainTransaction");
+                if let Err(reason) = crate::guard::runtime_policy::check_imported_state(
+                    state
+                        .storage
+                        .top
+                        .iter()
+                        .filter(|(key, _)| key.starts_with(&fee_prefix)),
+                ) {
+                    startup_issues.push(format!("手续费制度校验失败:{reason}"));
+                }
+                match crate::guard::cid_lifecycle::GenesisReference::from_genesis(&keys, &read) {
+                    Ok(reference) => Some(reference),
+                    Err(reason) => {
+                        startup_issues.push(format!("CID创世基准校验失败:{reason:?}"));
+                        None
+                    }
+                }
+            }
         };
-
         if startup_issues.is_empty() {
             log::info!(target: "node-guard", "节点守卫启动自检通过");
         } else {
-            // 启动自检只报告本机现有状态风险；导入新块和候选 runtime 时仍由守卫 fail-closed。
-            log::error!(
-                target: "node-guard",
-                "节点守卫启动自检未通过，节点继续启动并保持导入守卫: {}",
-                startup_issues.join("；")
-            );
+            log::error!(target: "node-guard", "节点守卫启动自检诊断，服务继续运行，入链校验保持严格: {}", startup_issues.join("；"));
         }
-
         Self {
             inner,
             client,
             backend,
             cid_lifecycle,
+            genesis,
+            expected_hash,
+            expected_root,
         }
     }
 
-    /// 枚举节点原生 CID 策略承认的全部规范 RAW 表；只用于启动与 runtime 升级全检。
+    fn check_identity(&self) -> Result<(), String> {
+        self.genesis.as_ref().map_err(Clone::clone)?;
+        verify_genesis_identity_against(
+            self.client.as_ref(),
+            self.expected_hash,
+            self.expected_root,
+        )
+    }
+
+    fn verify_imported_state(&self, params: &BlockImportParams<Block>) -> Result<(), String> {
+        use sc_executor::RuntimeVersionOf;
+        let imported = match &params.state_action {
+            StateAction::ApplyChanges(StorageChanges::Import(imported)) => imported,
+            _ => return Err("完整状态形态无效".into()),
+        };
+        if imported.block != params.post_hash() {
+            return Err("完整状态的目标区块不匹配".into());
+        }
+        let mut storage = sp_storage::Storage::default();
+        for level in &imported.state.0 {
+            if level.parent_storage_keys.is_empty() && level.state_root.is_empty() {
+                for (key, value) in &level.key_values {
+                    if storage.top.insert(key.clone(), value.clone()).is_some() {
+                        return Err("完整状态包含重复主存储键".into());
+                    }
+                }
+            } else {
+                if level.parent_storage_keys.is_empty() {
+                    return Err("子状态缺少所属存储键".into());
+                }
+                for parent in &level.parent_storage_keys {
+                    let (_, id) = sp_storage::ChildType::from_prefixed_key(
+                        sp_storage::PrefixedStorageKey::new_ref(parent),
+                    )
+                    .ok_or("子状态所属存储键无效")?;
+                    let child = storage
+                        .children_default
+                        .entry(id.to_vec())
+                        .or_insert_with(|| sp_storage::StorageChild {
+                            data: Default::default(),
+                            child_info: sp_storage::ChildInfo::new_default(id),
+                        });
+                    for (key, value) in &level.key_values {
+                        if child.data.insert(key.clone(), value.clone()).is_some() {
+                            return Err("完整状态包含重复子存储键".into());
+                        }
+                    }
+                }
+            }
+        }
+        let code = storage
+            .top
+            .get(sp_storage::well_known_keys::CODE)
+            .ok_or("完整状态缺少runtime代码")?;
+        let fetcher = sp_core::traits::WrappedRuntimeCode(code.as_slice().into());
+        let runtime_code = sp_core::traits::RuntimeCode {
+            code_fetcher: &fetcher,
+            heap_pages: None,
+            hash: sp_crypto_hashing::blake2_256(code).to_vec(),
+        };
+        let executor = sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::default();
+        let version = executor
+            .runtime_version(
+                &mut sp_state_machine::BasicExternalities::new_empty(),
+                &runtime_code,
+            )
+            .map_err(|error| format!("完整状态runtime版本不可读:{error}"))?
+            .state_version();
+        let (root, memory) = GenesisState::memory_state(&storage, version);
+        if root != *params.header.state_root() {
+            return Err("完整状态根与区块头不匹配".into());
+        }
+        let read = |key: &[u8]| storage.top.get(key).cloned();
+        let keys = storage.top.keys().cloned().collect::<Vec<_>>();
+        crate::guard::national_body_composition::check_full_state(&read)
+            .map_err(|e| format!("完整状态机构组成非法:{e:?}"))?;
+        crate::guard::national_body_composition::check_vote_state_keys(&keys, &read)
+            .map_err(|e| format!("完整状态治理阈值非法:{e:?}"))?;
+        crate::guard::genesis_pallet::check_full_state(&read)
+            .map_err(|e| format!("完整状态创世事实非法:{e:?}"))?;
+        crate::guard::provincialbank_interest::check_full_state(*params.header.number(), &read)
+            .map_err(|e| format!("完整状态省储行规则非法:{e:?}"))?;
+        crate::guard::runtime_policy::check_imported_state(storage.top.iter())?;
+        crate::guard::cid_lifecycle::check_full_state(
+            &keys,
+            &read,
+            self.cid_lifecycle.as_ref().ok_or("CID创世基准不可验证")?,
+        )
+        .map_err(|e| format!("完整状态CID规则非法:{e:?}"))?;
+        // 与普通升级块复用同一候选runtime检查；内存状态精确来自下载态，不混入父状态。
+        crate::guard::runtime_policy::check_candidate_runtime(
+            &memory,
+            *params.header.parent_hash(),
+            &BTreeMap::new(),
+            code,
+        )?;
+        Ok(())
+    }
+
+    /// 枚举运行态CID规范表供runtime升级全检；创世基准仅由已验证的内存输入提供。
     fn cid_state_keys(
         client: &Arc<FullClient>,
         at: <Block as BlockT>::Hash,
@@ -440,27 +560,6 @@ impl<I> NodeGuard<I> {
             }
         }
         Ok(keys.into_keys().collect())
-    }
-
-    /// 枚举指定 pallet 的 RAW key/value，用于启动基准检查。
-    fn pallet_state(
-        client: &Arc<FullClient>,
-        at: <Block as BlockT>::Hash,
-        pallet_prefix: [u8; 16],
-    ) -> Result<BTreeMap<Vec<u8>, Vec<u8>>, String> {
-        let prefix = StorageKey(pallet_prefix.to_vec());
-        let keys = client
-            .storage_keys(at, Some(&prefix), None)
-            .map_err(|e| format!("枚举节点永久策略 pallet 失败:{e}"))?;
-        let mut state = BTreeMap::new();
-        for key in keys {
-            let value = client
-                .storage(at, &key)
-                .map_err(|e| format!("读取节点永久策略 RAW 状态失败:{e}"))?
-                .ok_or_else(|| "枚举到的节点永久策略 RAW key 缺少值".to_string())?;
-            state.insert(key.0, value.0);
-        }
-        Ok(state)
     }
 
     /// 对正常执行型区块统一预执行一次，并检查当前已注册的全部节点永久策略。
@@ -837,6 +936,10 @@ where
         &self,
         block: BlockCheckParams<Block>,
     ) -> Result<ImportResult, Self::Error> {
+        if let Err(reason) = self.check_identity() {
+            log::error!(target: "node-guard", "拒绝区块预检:{reason}");
+            return Ok(ImportResult::KnownBad);
+        }
         self.inner.check_block(block).await
     }
 
@@ -844,8 +947,16 @@ where
         &self,
         mut params: BlockImportParams<Block>,
     ) -> Result<ImportResult, Self::Error> {
+        if let Err(reason) = self.check_identity() {
+            log::error!(target: "node-guard", "拒绝区块导入:{reason}");
+            return Ok(ImportResult::KnownBad);
+        }
         if params.with_state() {
-            return self.inner.import_block(params).await;
+            let verdict = self.verify_imported_state(&params);
+            if let Err(reason) = &verdict {
+                log::error!(target: "node-guard", "拒绝完整状态导入:{reason}");
+            }
+            return import_if_verified(&self.inner, params, verdict).await;
         }
 
         let verdict = match self.detect_violation(&mut params) {

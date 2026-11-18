@@ -12,7 +12,10 @@ use sp_core::{sr25519, Pair as _};
 use sp_runtime::AccountId32;
 
 fn local_metadata() -> Vec<u8> {
-    runtime::Runtime::metadata().into()
+    // 与正式 Metadata Runtime API 相同；V14 不包含版本1认证管线。
+    runtime::Runtime::metadata_at_version(16)
+        .expect("V16 metadata exists")
+        .to_vec()
 }
 
 fn unit_code_updated_metadata() -> Vec<u8> {
@@ -287,17 +290,351 @@ fn upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks() 
 #[test]
 fn both_ml_proofs_keep_the_actual_fixed_transfer_fee_guard() {
     let child = [9; 32];
-    let payer = AccountId32::new(chain_signing::mldsa::account_id(&chain_signing::mldsa::public_key(&child)));
+    let payer = AccountId32::new(chain_signing::mldsa::account_id(
+        &chain_signing::mldsa::public_key(&child),
+    ));
     let metadata = local_metadata();
     for first in [true, false] {
         let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
-            beneficiary_account_id: AccountId32::new([8; 32]), amount: 50_000, remark: Vec::new().try_into().unwrap(),
+            beneficiary_account_id: AccountId32::new([8; 32]),
+            amount: 50_000,
+            remark: Vec::new().try_into().unwrap(),
         });
-        let xt = chain_signing::build_pq_signed_extrinsic(call, sp_core::H256::repeat_byte(1), 0, runtime::VERSION.spec_version, runtime::VERSION.transaction_version, &child, first);
-        let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord { phase: Phase::ApplyExtrinsic(0), topics: vec![],
-            event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid { account_id: payer.clone(), fee: 50 }) }];
-        let key = storage_key::events(); let body = vec![xt.into()];
+        let xt = chain_signing::build_pq_signed_extrinsic(
+            call,
+            sp_core::H256::repeat_byte(1),
+            0,
+            runtime::VERSION.spec_version,
+            runtime::VERSION.transaction_version,
+            &child,
+            first,
+        );
+        let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
+            phase: Phase::ApplyExtrinsic(0),
+            topics: vec![],
+            event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+                account_id: payer.clone(),
+                fee: 50,
+            }),
+        }];
+        let key = storage_key::events();
+        let body = vec![xt.into()];
         assert!(check_block(&body, |at| (at == key).then(|| events.encode()), &metadata).is_ok());
-        assert!(check_block(&body, |at| (at == key).then(|| Vec::<EventRecord<RuntimeEvent, sp_core::H256>>::new().encode()), &metadata).is_err());
+        assert!(check_block(
+            &body,
+            |at| (at == key)
+                .then(|| Vec::<EventRecord<RuntimeEvent, sp_core::H256>>::new().encode()),
+            &metadata
+        )
+        .is_err());
     }
+}
+
+fn legacy_metadata() -> [Vec<u8>; 2] {
+    use frame_metadata::{v14, v15};
+    use scale_info::meta_type;
+    type Legacy = sp_runtime::generic::UncheckedExtrinsic<
+        runtime::Address,
+        RuntimeCall,
+        runtime::Signature,
+        runtime::TxExtension,
+    >;
+    // 旧Runtime的地址/签名合同与现行V5构造器的()/Proof不同，必须独立声明。
+    let pallets = vec![
+        v14::PalletMetadata {
+            name: "System",
+            storage: Some(v14::PalletStorageMetadata {
+                prefix: "System",
+                entries: vec![v14::StorageEntryMetadata {
+                    name: "Events",
+                    modifier: v14::StorageEntryModifier::Default,
+                    ty: v14::StorageEntryType::Plain(meta_type::<
+                        Vec<EventRecord<RuntimeEvent, sp_core::H256>>,
+                    >()),
+                    default: vec![0],
+                    docs: vec![],
+                }],
+            }),
+            calls: None,
+            event: None,
+            constants: vec![],
+            error: None,
+            index: 0,
+        },
+        v14::PalletMetadata {
+            name: "OnchainTransaction",
+            storage: None,
+            calls: Some(v14::PalletCallMetadata {
+                ty: meta_type::<onchain::pallet::Call<runtime::Runtime>>(),
+            }),
+            event: Some(v14::PalletEventMetadata {
+                ty: meta_type::<onchain::pallet::Event<runtime::Runtime>>(),
+            }),
+            constants: vec![],
+            error: None,
+            index: 4,
+        },
+    ];
+    let extensions: Vec<_> =
+        <runtime::TxExtension as sp_runtime::traits::TransactionExtension<RuntimeCall>>::metadata()
+            .into_iter()
+            .map(|ext| v14::SignedExtensionMetadata {
+                identifier: ext.identifier,
+                ty: ext.ty,
+                additional_signed: ext.implicit,
+            })
+            .collect();
+    let old14 = v14::RuntimeMetadataV14::new(
+        pallets.clone(),
+        v14::ExtrinsicMetadata {
+            ty: meta_type::<Legacy>(),
+            version: 4,
+            signed_extensions: extensions.clone(),
+        },
+        meta_type::<runtime::Runtime>(),
+    );
+    let old15 = v15::RuntimeMetadataV15::new(
+        pallets
+            .into_iter()
+            .map(|p| v15::PalletMetadata {
+                name: p.name,
+                storage: p.storage,
+                calls: p.calls,
+                event: p.event,
+                constants: p.constants,
+                error: p.error,
+                index: p.index,
+                docs: vec![],
+            })
+            .collect(),
+        v15::ExtrinsicMetadata {
+            version: 4,
+            address_ty: meta_type::<runtime::Address>(),
+            call_ty: meta_type::<RuntimeCall>(),
+            signature_ty: meta_type::<runtime::Signature>(),
+            extra_ty: meta_type::<runtime::TxExtension>(),
+            signed_extensions: extensions
+                .into_iter()
+                .map(|ext| v15::SignedExtensionMetadata {
+                    identifier: ext.identifier,
+                    ty: ext.ty,
+                    additional_signed: ext.additional_signed,
+                })
+                .collect(),
+        },
+        meta_type::<runtime::Runtime>(),
+        vec![],
+        v15::OuterEnums {
+            call_enum_ty: meta_type::<RuntimeCall>(),
+            event_enum_ty: meta_type::<RuntimeEvent>(),
+            error_enum_ty: meta_type::<runtime::RuntimeError>(),
+        },
+        v15::CustomMetadata {
+            map: BTreeMap::new(),
+        },
+    );
+    [
+        RuntimeMetadataPrefixed(frame_metadata::META_RESERVED, RuntimeMetadata::V14(old14))
+            .encode(),
+        RuntimeMetadataPrefixed(frame_metadata::META_RESERVED, RuntimeMetadata::V15(old15))
+            .encode(),
+    ]
+}
+
+#[test]
+fn historical_v4_uses_parent_metadata_and_keeps_every_fee_constraint() {
+    let pair = sr25519::Pair::from_seed(&[7; 32]);
+    let payer = chain_signing::account_id_from_public(pair.public());
+    let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+        beneficiary_account_id: AccountId32::new([8; 32]),
+        amount: 50_000,
+        remark: b"historical-v4".to_vec().try_into().unwrap(),
+    });
+    let material = chain_signing::build_signing_material_from_call(
+        call,
+        sp_core::H256::repeat_byte(1),
+        0,
+        3,
+        2,
+    );
+    let signature = chain_signing::sign_material_with_pair(&material, &pair);
+    let call_bytes = material.call.encode();
+    let legacy = sp_runtime::generic::UncheckedExtrinsic::<
+        runtime::Address,
+        RuntimeCall,
+        runtime::Signature,
+        runtime::TxExtension,
+    >::new_signed(
+        material.call,
+        sp_runtime::MultiAddress::Id(payer.clone()),
+        signature.into(),
+        material.tx_ext,
+    );
+    let opaque = sp_runtime::OpaqueExtrinsic::try_from_encoded_extrinsic(&legacy.encode()).unwrap();
+    assert_eq!(opaque.inner()[0], 0x84);
+    // 合成旧Runtime的不同pallet索引，证明不能借用当前Rust枚举解释历史字节。
+    let mut raw = opaque.inner().to_vec();
+    let call_offset = raw.len() - call_bytes.len();
+    assert_eq!(&raw[call_offset..], call_bytes);
+    assert_eq!(raw[call_offset], 4);
+    raw[call_offset] = 254;
+    let opaque = sp_runtime::OpaqueExtrinsic::from_blob(raw);
+    assert!(UncheckedExtrinsic::decode_unprefixed(opaque.inner()).is_err());
+    let timestamp: UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic::new_bare(
+        RuntimeCall::Timestamp(pallet_timestamp::Call::set { now: 1 }),
+    )
+    .into();
+    let body = vec![timestamp.into(), opaque];
+    let key = storage_key::events();
+    for metadata in legacy_metadata() {
+        let mut prefixed = RuntimeMetadataPrefixed::decode(&mut metadata.as_slice()).unwrap();
+        let types = match &mut prefixed.1 {
+            RuntimeMetadata::V14(meta) => {
+                meta.extrinsic.version = 4;
+                meta.pallets
+                    .iter_mut()
+                    .find(|pallet| pallet.name == "OnchainTransaction")
+                    .unwrap()
+                    .index = 254;
+                &mut meta.types
+            }
+            RuntimeMetadata::V15(meta) => {
+                meta.extrinsic.version = 4;
+                meta.pallets
+                    .iter_mut()
+                    .find(|pallet| pallet.name == "OnchainTransaction")
+                    .unwrap()
+                    .index = 254;
+                &mut meta.types
+            }
+            _ => panic!("legacy metadata required"),
+        };
+        for ty in &mut types.types {
+            if matches!(
+                ty.ty.path.segments.last().map(String::as_str),
+                Some("RuntimeCall" | "RuntimeEvent")
+            ) {
+                let scale_info::TypeDef::Variant(variants) = &mut ty.ty.type_def else {
+                    panic!("outer enum required")
+                };
+                variants
+                    .variants
+                    .iter_mut()
+                    .find(|variant| variant.name == "OnchainTransaction")
+                    .unwrap()
+                    .index = 254;
+            }
+        }
+        let metadata = prefixed.encode();
+        let event = |account_id, fee, index| {
+            let mut encoded = vec![EventRecord {
+                phase: Phase::ApplyExtrinsic(index),
+                topics: Vec::<sp_core::H256>::new(),
+                event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+                    account_id,
+                    fee,
+                }),
+            }]
+            .encode();
+            assert_eq!(encoded[6], 4);
+            encoded[6] = 254;
+            encoded
+        };
+        let good = event(payer.clone(), 50, 1);
+        check_block(&body, |at| (at == key).then(|| good.clone()), &metadata)
+            .expect("历史V4须按父schema验证费用");
+        for wrong in [
+            event(payer.clone(), 49, 1),
+            event(AccountId32::new([0; 32]), 50, 1),
+            event(payer.clone(), 50, 0),
+            Vec::<EventRecord<RuntimeEvent, sp_core::H256>>::new().encode(),
+        ] {
+            assert!(
+                check_block(&body, |at| (at == key).then(|| wrong.clone()), &metadata).is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn transaction_envelopes_and_metadata_fail_closed() {
+    let metadata = local_metadata();
+    let (body, _) = signed_transfer(50_000);
+    let raw = body[0].inner();
+    assert_eq!(&raw[..2], &[0x45, 1]);
+    assert!(decode_body(&body, &metadata).is_ok());
+    let mut trailing = raw.to_vec();
+    trailing.push(0);
+    let mut unknown_extension = raw.to_vec();
+    unknown_extension[1] = 255;
+    let mut bad_format = raw.to_vec();
+    bad_format[0] = 0x46;
+    let mut bad_kind = raw.to_vec();
+    bad_kind[0] = 0xc5;
+    for invalid in [
+        Vec::new(),
+        raw[..1].to_vec(),
+        raw[..raw.len() - 1].to_vec(),
+        trailing,
+        unknown_extension,
+        bad_format,
+        bad_kind,
+    ] {
+        assert!(decode_body(
+            &[sp_runtime::OpaqueExtrinsic::from_blob(invalid)],
+            &metadata
+        )
+        .is_err());
+    }
+    let mut trailing_metadata = metadata.clone();
+    trailing_metadata.push(0);
+    for invalid in [
+        Vec::new(),
+        metadata[..metadata.len() - 1].to_vec(),
+        trailing_metadata,
+    ] {
+        assert!(decode_body(&body, &invalid).is_err());
+    }
+    let mut prefixed = RuntimeMetadataPrefixed::decode(&mut metadata.as_slice()).unwrap();
+    let RuntimeMetadata::V16(meta) = &mut prefixed.1 else {
+        panic!("V16 required")
+    };
+    meta.extrinsic
+        .transaction_extensions_by_version
+        .insert(1, vec![codec::Compact(u32::MAX)]);
+    assert!(decode_body(&body, &prefixed.encode()).is_err());
+}
+
+#[test]
+fn protected_call_cannot_omit_payer_or_use_undeclared_authentication() {
+    let metadata = local_metadata();
+    let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+        beneficiary_account_id: AccountId32::new([8; 32]),
+        amount: 50_000,
+        remark: Vec::new().try_into().unwrap(),
+    });
+    let bare: UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic::new_bare(call).into();
+    assert!(decode_body(&[bare.into()], &metadata).is_err());
+    let (body, _) = signed_transfer(50_000);
+    let mut prefixed = RuntimeMetadataPrefixed::decode(&mut metadata.as_slice()).unwrap();
+    let RuntimeMetadata::V16(meta) = &mut prefixed.1 else {
+        panic!("V16 required")
+    };
+    let auth = meta
+        .extrinsic
+        .transaction_extensions
+        .iter_mut()
+        .find(|ext| ext.identifier == "AccountAuth")
+        .unwrap();
+    auth.identifier = "UnknownAuth".into();
+    assert!(decode_body(&body, &prefixed.encode()).is_err());
+    let mut legacy = runtime::Runtime::metadata();
+    let RuntimeMetadata::V14(meta) = &mut legacy.1 else {
+        panic!("V14 required")
+    };
+    meta.types.types[meta.extrinsic.ty.id as usize]
+        .ty
+        .type_params
+        .retain(|param| param.name != "Call");
+    assert!(decode_body(&body, &legacy.encode()).is_err());
 }

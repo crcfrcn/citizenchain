@@ -1762,7 +1762,7 @@ fn session_native_balance(client: &FullClient, account: &sp_runtime::AccountId32
     let data = client
         .storage(client.info().best_hash, &sp_storage::StorageKey(key))
         .unwrap()
-        .expect("预置测试账户必须存在于真实原生账本");
+        .expect("测试账户必须存在于真实原生账本");
     type AccountInfo = frame_system::AccountInfo<
         runtime::Nonce,
         <runtime::Runtime as frame_system::Config>::AccountData,
@@ -1854,18 +1854,22 @@ async fn metamask_three_node_session_uses_pool_pow_tls_and_grandpa() {
         partial.select_chain.clone(),
         |_, ()| async { Ok((sp_timestamp::InherentDataProvider::from_system_time(),)) },
     );
+    let genesis = nodeguard::guard::testing::TestGenesisIdentity::genesis_state(
+        configs[0].chain_spec.as_ref(),
+    );
     let guarded = nodeguard::guard::NodeGuard::new_for_test(
         raw_import,
         client.clone(),
         partial.backend.clone(),
         identity,
+        genesis.clone(),
     );
     let importer = nodeguard::constitution::guard::ConstitutionGuard::new(
         guarded,
         client.clone(),
         partial.backend.clone(),
-    )
-    .unwrap();
+        genesis,
+    );
     let credentials = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     // 只导出公开测试证书。RPC 私钥始终保留内存，浏览器信任在后续步骤配置。
     let mut builder = reqwest::Client::builder().https_only(true).no_proxy();
@@ -2400,18 +2404,21 @@ async fn signed_transactions_receipts_logs_finality_reorg_and_restart_over_real_
         partial.select_chain.clone(),
         |_, ()| async { Ok((sp_timestamp::InherentDataProvider::from_system_time(),)) },
     );
+    let genesis =
+        nodeguard::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref());
     let guarded = nodeguard::guard::NodeGuard::new_for_test(
         raw_import,
         partial.client.clone(),
         partial.backend.clone(),
         identity,
+        genesis.clone(),
     );
     let importer = nodeguard::constitution::guard::ConstitutionGuard::new(
         guarded,
         partial.client.clone(),
         partial.backend.clone(),
-    )
-    .unwrap();
+        genesis,
+    );
     let credentials = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let http = reqwest::Client::builder()
         .https_only(true)
@@ -2571,8 +2578,36 @@ async fn signed_transactions_receipts_logs_finality_reorg_and_restart_over_real_
             .await
         )
         .unwrap(),
+        U256::from(200 + runtime::EXISTENTIAL_DEPOSIT)
+            * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO),
+        "合约展示总余额包含转入金额和原生账户保留金"
+    );
+    let native_contract =
+        pallet_revive::AccountId32Mapper::<runtime::Runtime>::to_fallback_account_id(&contract);
+    assert_eq!(
+        session_native_balance(&partial.client, &native_contract),
+        200 + runtime::EXISTENTIAL_DEPOSIT
+    );
+    // 保留原2.00 GMB可支出额断言，直接核对未改动的执行API；总额展示不释放ED。
+    let execution: sp_core::Bytes = serde_json::from_value(
+        rpc(
+            &http,
+            &url,
+            "state_call",
+            serde_json::json!([
+                "ReviveApi_balance",
+                format!("0x{}", hex::encode(contract.encode())),
+                hash1
+            ]),
+        )
+        .await,
+    )
+    .unwrap();
+    let spendable = U256::decode_all(&mut execution.0.as_slice()).unwrap();
+    assert_eq!(
+        spendable,
         U256::from(200) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO),
-        "合约 Ethereum 余额保留转入金额，ED 单独由原生账本承载"
+        "合约执行余额仍排除账户保留金"
     );
     let storage = rpc(
         &http,

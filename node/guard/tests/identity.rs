@@ -1,6 +1,5 @@
 use super::*;
 
-use crate::guard::enforce_genesis_identity;
 use crate::guard::testing::TestGenesisIdentity;
 use crate::guard::verify_genesis_identity;
 use crate::guard::verify_genesis_identity_against;
@@ -86,7 +85,6 @@ impl HeaderBackend<Block> for TestClient {
 fn canonical_genesis_passes_recomputed_header_and_startup_guard() {
     let client = crate::guard::genesis_identity_tests::TestClient::canonical();
     assert_eq!(verify_genesis_identity(&client), Ok(()));
-    enforce_genesis_identity(&client);
 }
 
 #[test]
@@ -119,7 +117,7 @@ fn declared_test_identity_does_not_change_frozen_production_identity() {
 }
 
 #[test]
-fn invalid_or_unreadable_genesis_always_stops_startup() {
+fn invalid_or_unreadable_genesis_is_rejected_at_import_gate() {
     let canonical = crate::guard::genesis_identity_tests::TestClient::canonical();
     let mut cases = Vec::new();
     let mut client = canonical.clone();
@@ -165,12 +163,14 @@ fn invalid_or_unreadable_genesis_always_stops_startup() {
     for (label, client) in cases {
         let error = verify_genesis_identity(&client).expect_err(label);
         assert!(error.contains(label), "{label}: {error}");
-        let mut startup_continued = false;
-        let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            enforce_genesis_identity(&client);
-            startup_continued = true;
-        }));
-        assert!(rejected.is_err(), "{label} must stop startup");
-        assert!(!startup_continued, "{label} must not continue assembly");
+        let inner = super::finalize_issuance_tests::CountingImport::default();
+        let result = futures::executor::block_on(crate::guard::import_if_verified(
+            &inner,
+            super::finalize_issuance_tests::import_params(0),
+            Err(error),
+        ))
+        .unwrap();
+        assert_eq!(result, sc_consensus::ImportResult::KnownBad);
+        assert_eq!(inner.imports.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 }

@@ -476,3 +476,188 @@ async fn mapping_backfill_audit_write_failure_preserves_original_result() {
     audit.finish(&result.map(|_| ()));
     assert!(!base.exists(), "审计接口不能创建节点数据目录");
 }
+
+#[test]
+fn archive_service_rejects_pruning_before_opening_database() {
+    use sc_cli::CliConfiguration;
+    let cli = crate::cli::Cli::parse_archive_from(["node", "--tmp"]).unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let mut config = cli
+        .run
+        .create_configuration(&cli, runtime.handle().clone())
+        .unwrap();
+    assert!(crate::service::check_archive(&config).is_ok());
+    config.state_pruning = Some(sc_service::PruningMode::blocks_pruning(256));
+    assert!(crate::service::check_archive(&config).is_err());
+    config.state_pruning = Some(sc_service::PruningMode::ArchiveAll);
+    config.blocks_pruning = sc_service::BlocksPruning::KeepFinalized;
+    assert!(crate::service::check_archive(&config).is_err());
+}
+
+#[test]
+fn archive_frozen_genesis_is_verified_once_without_chain_database() {
+    let first =
+        crate::chain::guard_genesis().unwrap_or_else(|error| panic!("冻结输入校验失败:{error}"));
+    let second = crate::chain::guard_genesis().unwrap();
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &second),
+        "网络和挖矿必须共享同一只读输入"
+    );
+}
+
+#[cfg(feature = "runtime-tests")]
+#[test]
+fn guard_startup_failure_keeps_service_rpc_alive_and_imports_closed() {
+    use sc_client_api::StorageProvider;
+    use sc_consensus::{BlockImport, ImportResult};
+    use sc_rpc_api::chain::ChainApiServer;
+    use sp_blockchain::HeaderBackend;
+    use std::sync::Arc;
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let mut config = super::p2p_bad_block_tests::test_config(
+        "guard-startup-diagnostics",
+        runtime.handle().clone(),
+    );
+    let root = config.base_path.path().to_path_buf();
+    // 只在隔离声明的测试创世中删除宪法记录，验证原先导致整项启动失败的实际分支。
+    let mut storage = config
+        .chain_spec
+        .as_storage_builder()
+        .build_storage()
+        .unwrap();
+    storage
+        .top
+        .remove(&nodeguard::constitution::storage_key::law(0));
+    config.chain_spec.set_storage(storage);
+    let partial = {
+        let _entered = runtime.enter();
+        crate::service::testing::new_partial_for_test(&config).unwrap()
+    };
+    let genesis = partial.client.info().genesis_hash;
+    assert!(partial
+        .client
+        .storage(
+            genesis,
+            &sp_storage::StorageKey(nodeguard::constitution::storage_key::law(0))
+        )
+        .unwrap()
+        .is_none());
+    let spawn: Arc<dyn sp_core::traits::SpawnNamed> = Arc::new(partial.task_manager.spawn_handle());
+    let rpc = sc_rpc::chain::new_full(partial.client.clone(), spawn).into_rpc();
+    let header: serde_json::Value = runtime
+        .block_on(rpc.call("chain_getHeader", jsonrpsee::rpc_params![genesis]))
+        .unwrap();
+    assert_eq!(header["number"], "0x0");
+    let identity =
+        nodeguard::guard::testing::TestGenesisIdentity::from_chain_spec(config.chain_spec.as_ref())
+            .unwrap();
+    let inner = super::p2p_bad_block_tests::CountingImport::default();
+    let imports = inner.imports.clone();
+    let guard = nodeguard::guard::NodeGuard::new_for_test(
+        inner,
+        partial.client.clone(),
+        partial.backend.clone(),
+        identity,
+        Err("固定基准读取故障".into()),
+    );
+    let params = super::p2p_bad_block_tests::legal_remark_block_params(&partial.client);
+    assert_eq!(
+        runtime.block_on(guard.import_block(params)).unwrap(),
+        ImportResult::KnownBad
+    );
+    assert_eq!(imports.load(std::sync::atomic::Ordering::SeqCst), 0);
+    drop(guard);
+    let inner = super::p2p_bad_block_tests::CountingImport::default();
+    let imports = inner.imports.clone();
+    assert_ne!(
+        partial.client.info().genesis_hash,
+        sp_core::H256::from(primitives::genesis::GENESIS_HASH)
+    );
+    // 直接覆盖旧生产构造器的身份硬拒绝分支：输入是真正冻结基准，客户端属于隔离测试链。
+    let guard = nodeguard::guard::NodeGuard::new(
+        inner,
+        partial.client.clone(),
+        partial.backend.clone(),
+        Ok(crate::chain::guard_genesis().expect("冻结基准必须真实有效")),
+    );
+    let params = super::p2p_bad_block_tests::legal_remark_block_params(&partial.client);
+    assert_eq!(
+        runtime.block_on(guard.import_block(params)).unwrap(),
+        ImportResult::KnownBad
+    );
+    assert_eq!(imports.load(std::sync::atomic::Ordering::SeqCst), 0);
+    drop(guard);
+
+    let inner = super::p2p_bad_block_tests::CountingImport::default();
+    let imports = inner.imports.clone();
+    let guard = nodeguard::constitution::guard::ConstitutionGuard::new(
+        inner,
+        partial.client.clone(),
+        partial.backend.clone(),
+        nodeguard::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref()),
+    );
+    let params = super::p2p_bad_block_tests::legal_remark_block_params(&partial.client);
+    assert_eq!(
+        runtime.block_on(guard.import_block(params)).unwrap(),
+        ImportResult::KnownBad
+    );
+    assert_eq!(imports.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(partial.client.info().best_number, 0);
+    let header: serde_json::Value = runtime
+        .block_on(rpc.call("chain_getHeader", jsonrpsee::rpc_params![genesis]))
+        .unwrap();
+    assert_eq!(header["number"], "0x0", "连续拒绝后RPC仍须响应");
+    drop((rpc, guard));
+    crate::service::testing::stop_partial(partial, &runtime);
+    drop(config);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn archive_old_constrained_database_is_not_silently_relabelled() {
+    use sc_cli::CliConfiguration;
+    use std::sync::Arc;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let cli = crate::cli::Cli::parse_archive_from(["node", "--tmp"]).unwrap();
+    let mut config = cli
+        .run
+        .create_configuration(&cli, rt.handle().clone())
+        .unwrap();
+    // 仅底层隔离夹具建立已有块0的旧式库，产品启动入口始终固定归档。
+    config.state_pruning = Some(sc_service::PruningMode::blocks_pruning(256));
+    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
+    let (client, backend, keys, manager) = {
+        let _enter = rt.enter();
+        sc_service::new_full_parts::<runtime::opaque::Block, runtime::apis::RuntimeApi, _>(
+            &config,
+            None,
+            executor,
+            Vec::new(),
+        )
+        .unwrap()
+    };
+    let released = Arc::downgrade(&backend);
+    let tasks = manager.into_task_registry();
+    drop((client, backend, keys));
+    rt.block_on(async {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while released.upgrade().is_some() || !tasks.running_tasks().is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    });
+    config.state_pruning = Some(sc_service::PruningMode::ArchiveAll);
+    let error = sc_service::new_db_backend::<runtime::opaque::Block>(config.db_config())
+        .err()
+        .expect("旧式模式必须被明确拒绝");
+    assert!(error.to_string().contains("pruning"), "{error}");
+    let mut old = config.db_config();
+    old.state_pruning = Some(sc_service::PruningMode::blocks_pruning(256));
+    drop(sc_service::new_db_backend::<runtime::opaque::Block>(old).unwrap());
+    assert!(
+        sc_service::new_db_backend::<runtime::opaque::Block>(config.db_config()).is_err(),
+        "不得偷偷改写旧库模式"
+    );
+}

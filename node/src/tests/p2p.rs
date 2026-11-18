@@ -60,8 +60,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Default)]
-struct CountingImport {
-    imports: Arc<AtomicUsize>,
+pub(super) struct CountingImport {
+    pub(super) imports: Arc<AtomicUsize>,
 }
 
 #[async_trait::async_trait]
@@ -210,10 +210,13 @@ pub(super) fn test_config(node_name: &str, tokio_handle: tokio::runtime::Handle)
     }
 }
 
-fn remark_extrinsic(genesis_hash: <Block as BlockT>::Hash) -> <Block as BlockT>::Extrinsic {
+fn remark_extrinsic(
+    genesis_hash: <Block as BlockT>::Hash,
+    nonce: u32,
+) -> <Block as BlockT>::Extrinsic {
     let hex = blockchain_harness::alice_system_remark_extrinsic_hex(
         &format!("{genesis_hash:?}"),
-        0,
+        nonce,
         runtime::VERSION.spec_version,
         runtime::VERSION.transaction_version,
         b"node-guard-p2p-bad-block",
@@ -235,8 +238,19 @@ fn storage_value_key(pallet: &[u8], item: &[u8]) -> Vec<u8> {
     [twox_128(pallet).as_slice(), twox_128(item).as_slice()].concat()
 }
 
-fn legal_remark_block_params(client: &Arc<FullClient>) -> BlockImportParams<Block> {
-    let parent_hash = client.info().genesis_hash;
+pub(super) fn legal_remark_block_params(client: &Arc<FullClient>) -> BlockImportParams<Block> {
+    let parent_hash = client.info().best_hash;
+    let parent_number = client.info().best_number;
+    let account = client
+        .storage(
+            parent_hash,
+            &sp_storage::StorageKey(frame_system::Account::<runtime::Runtime>::hashed_key_for(
+                Sr25519Keyring::Alice.to_account_id(),
+            )),
+        )
+        .unwrap()
+        .unwrap();
+    let nonce = nodeclient::codec::decode_account(&account.0).unwrap().nonce;
     let pow_author =
         sr25519::Pair::from_string("//Alice//pow", None).expect("derive test pow author");
     let mut digest = Digest::default();
@@ -253,10 +267,13 @@ fn legal_remark_block_params(client: &Arc<FullClient>) -> BlockImportParams<Bloc
         .expect("create block builder");
 
     builder
-        .push(timestamp_extrinsic(1_782_950_406_000))
+        .push(timestamp_extrinsic(
+            1_782_950_406_000
+                + u64::from(parent_number) * primitives::pow_const::POW_TARGET_BLOCK_TIME_MS,
+        ))
         .expect("push timestamp inherent");
     builder
-        .push(remark_extrinsic(parent_hash))
+        .push(remark_extrinsic(client.info().genesis_hash, nonce))
         .expect("push signed remark");
 
     let built = builder.build().expect("build legal remark block");
@@ -564,9 +581,12 @@ fn constitution_guard_rejects_manifest_delta_and_then_accepts_legal_delta() {
     let inner = crate::service::p2p_bad_block_tests::CountingImport::default();
     let imports = inner.imports.clone();
     let backend_released = Arc::downgrade(&backend);
-    let guard =
-        nodeguard::constitution::guard::ConstitutionGuard::new(inner, client.clone(), backend)
-            .expect("create constitution guard from valid block zero");
+    let guard = nodeguard::constitution::guard::ConstitutionGuard::new(
+        inner,
+        client.clone(),
+        backend,
+        nodeguard::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref()),
+    );
 
     let mut malicious = legal_remark_block_params(&client);
     mutate_precomputed_manifest(&mut malicious, &client);
@@ -690,4 +710,126 @@ fn p2p_sync_rejects_self_consistent_bad_node_guard_block() {
         std::fs::remove_dir_all(honest_base).expect("remove honest test temp base");
         std::fs::remove_dir_all(malicious_base).expect("remove malicious test temp base");
     });
+}
+
+/// 使用产品参数入口而非手写归档配置，真实执行257个含用户交易的最终块后重开同库。
+#[cfg(feature = "runtime-tests")]
+#[test]
+fn archive_default_survives_257_finalized_blocks_and_restart() {
+    use sc_cli::CliConfiguration;
+    use sc_client_api::backend::Finalizer;
+    use sc_client_api::BlockBackend;
+    assert!(
+        runtime::WASM_BINARY.is_some(),
+        "归档整链回归必须内置本轮测试WASM"
+    );
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut config = test_config("archive-restart", rt.handle().clone());
+    let root = config.base_path.path().to_path_buf();
+    let cli = crate::cli::Cli::parse_archive_from(["node", "--tmp"]).unwrap();
+    let defaults = cli
+        .run
+        .create_configuration(&cli, rt.handle().clone())
+        .unwrap();
+    config.state_pruning = defaults.state_pruning;
+    config.blocks_pruning = defaults.blocks_pruning;
+    // 仅隔离夹具降低PoW工作量，全部签名、执行、两类守卫及真实数据库导入保持。
+    let mut storage = config
+        .chain_spec
+        .as_storage_builder()
+        .build_storage()
+        .unwrap();
+    storage.top.insert(
+        storage_value_key(b"PowDifficulty", b"CurrentDifficulty"),
+        1u64.encode(),
+    );
+    config.chain_spec.set_storage(storage);
+    let mut partial = {
+        let _enter = rt.enter();
+        new_partial_for_test(&config).unwrap()
+    };
+    assert_eq!(
+        nodemining::pow::SimplePow::new(partial.client.clone())
+            .difficulty(partial.client.info().genesis_hash)
+            .unwrap(),
+        U256::one(),
+        "隔离夹具必须实际设置低PoW难度，不能仅写入无效存储键"
+    );
+    let identity =
+        nodeguard::guard::testing::TestGenesisIdentity::from_chain_spec(config.chain_spec.as_ref())
+            .unwrap();
+    let genesis =
+        nodeguard::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref());
+    let raw = PowBlockImport::new(
+        partial.other.0.clone(),
+        partial.client.clone(),
+        nodemining::pow::SimplePow::new(partial.client.clone()),
+        0,
+        partial.select_chain.clone(),
+        |_, ()| async { Ok((sp_timestamp::InherentDataProvider::from_system_time(),)) },
+    );
+    let inner = nodeguard::guard::NodeGuard::new_for_test(
+        raw,
+        partial.client.clone(),
+        partial.backend.clone(),
+        identity,
+        genesis.clone(),
+    );
+    let importer = nodeguard::constitution::guard::ConstitutionGuard::new(
+        inner,
+        partial.client.clone(),
+        partial.backend.clone(),
+        genesis,
+    );
+    let initial_hash = partial.client.info().genesis_hash;
+    let law = sp_storage::StorageKey(nodeguard::constitution::storage_key::law(0));
+    let initial_law = partial.client.storage(initial_hash, &law).unwrap().unwrap();
+    let mut first = initial_hash;
+    println!("归档重启：产品默认配置已装配，开始257个真实执行块");
+    for number in 1..=257 {
+        let mut params = legal_remark_block_params(&partial.client);
+        seal_with_valid_pow(&mut params, &partial.client);
+        let hash = params.post_hash();
+        params.post_hash = Some(hash);
+        params.insert_intermediate(
+            sc_consensus_pow::INTERMEDIATE_KEY,
+            sc_consensus_pow::PowIntermediate::<U256> { difficulty: None },
+        );
+        let result = rt.block_on(importer.import_block(params)).unwrap();
+        assert!(
+            matches!(result, ImportResult::Imported(_)),
+            "合法归档块{number}导入失败:{result:?}"
+        );
+        partial.client.finalize_block(hash, None, true).unwrap();
+        assert_eq!(partial.client.info().finalized_number, number);
+        if number == 1 {
+            first = hash;
+        }
+        if number % 64 == 0 {
+            println!("归档重启：已最终确定{number}块");
+        }
+    }
+    assert_eq!(
+        partial.client.storage(initial_hash, &law).unwrap(),
+        Some(initial_law.clone())
+    );
+    assert!(partial.client.block_body(first).unwrap().is_some());
+    drop(importer);
+    crate::service::testing::stop_partial(partial, &rt);
+    partial = {
+        let _enter = rt.enter();
+        new_partial_for_test(&config).unwrap()
+    };
+    assert_eq!(partial.client.info().finalized_number, 257);
+    assert_eq!(partial.client.info().genesis_hash, initial_hash);
+    assert_eq!(
+        partial.client.storage(initial_hash, &law).unwrap(),
+        Some(initial_law)
+    );
+    assert!(partial.client.storage(first, &law).unwrap().is_some());
+    assert!(partial.client.block_body(first).unwrap().is_some());
+    crate::service::testing::stop_partial(partial, &rt);
+    drop(config);
+    std::fs::remove_dir_all(root).unwrap();
+    println!("归档重启：257个最终块、早期状态和正文、同库重启及清场全部通过");
 }

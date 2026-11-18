@@ -30,54 +30,53 @@ pub struct ConstitutionGuard<I> {
     inner: I,
     client: Arc<FullClient>,
     backend: Arc<FullBackend>,
-    reference: ImmutableReference,
+    reference: Result<ImmutableReference, String>,
 }
 
 impl<I> ConstitutionGuard<I> {
-    /// 从 block#0 派生不可修改基准并执行完整创世校验；任何异常都拒绝启动。
+    /// 自检失败保留诊断，仍装配导入器；基准不能验证时严格拒绝入链。
     pub fn new(
         inner: I,
         client: Arc<FullClient>,
         backend: Arc<FullBackend>,
-    ) -> Result<Self, String> {
-        let genesis_hash = client.info().genesis_hash;
-        let read_genesis = |key: &[u8]| {
-            client
-                .storage(genesis_hash, &StorageKey(key.to_vec()))
-                .ok()
-                .flatten()
-                .map(|data| data.0)
-        };
-        let reference = crate::constitution::ImmutableReference::from_raw_reader(read_genesis)
-            .map_err(|e| format!("护宪守卫:创世不可修改条款基准派生失败:{e:?}"))?;
-        verify_manifest_from_reader(&read_genesis, &reference)
-            .map_err(|e| format!("护宪守卫:启动 manifest 交叉校验失败:{e}"))?;
-        check_immutable_articles(read_genesis, &reference)
-            .map_err(|e| format!("护宪守卫:创世完整不变式校验失败:{e:?}"))?;
-        let law_bytes = read_genesis(&crate::constitution::storage_key::law(CONSTITUTION_LAW_ID))
-            .ok_or_else(|| "护宪守卫:创世缺宪法 Law(0)".to_string())?;
-        let law =
-            decode_law_head(&law_bytes).map_err(|e| format!("护宪守卫:创世 Law 解码失败:{e:?}"))?;
-        let versions_prefix =
-            StorageKey(crate::constitution::storage_key::constitution_versions_prefix());
-        let version_keys: Vec<Vec<u8>> = client
-            .storage_keys(genesis_hash, Some(&versions_prefix), None)
-            .map_err(|e| format!("护宪守卫:枚举创世宪法版本失败:{e}"))?
-            .map(|key| key.0)
-            .collect();
-        let versions = declared_constitution_versions(version_keys.iter(), law.latest_version)
-            .map_err(|e| format!("护宪守卫:创世宪法版本集合非法:{e:?}"))?;
-        for version in versions {
-            check_immutable_version(&read_genesis, &reference, version)
-                .map_err(|e| format!("护宪守卫:创世历史版本 {version} 非法:{e:?}"))?;
+        genesis: Result<Arc<crate::guard::GenesisState>, String>,
+    ) -> Self {
+        let reference = Self::build_reference(genesis);
+        if let Err(reason) = &reference {
+            log::error!(target: "constitution-guard", "宪法守卫启动自检诊断，服务继续运行，入链校验保持严格:{reason}");
         }
-
-        Ok(Self {
+        Self {
             inner,
             client,
             backend,
             reference,
-        })
+        }
+    }
+
+    fn build_reference(
+        genesis: Result<Arc<crate::guard::GenesisState>, String>,
+    ) -> Result<ImmutableReference, String> {
+        let state = genesis?;
+        let read = |key: &[u8]| state.read(key);
+        let reference = ImmutableReference::from_raw_reader(&read)
+            .map_err(|error| format!("宪法创世基准无效:{error:?}"))?;
+        verify_manifest_from_reader(&read, &reference)
+            .map_err(|error| format!("宪法manifest交叉校验失败:{error}"))?;
+        check_immutable_articles(&read, &reference)
+            .map_err(|error| format!("创世宪法不变式校验失败:{error:?}"))?;
+        let law = decode_law_head(
+            &read(&crate::constitution::storage_key::law(CONSTITUTION_LAW_ID))
+                .ok_or("创世输入缺少宪法Law(0)")?,
+        )
+        .map_err(|error| format!("创世Law解码失败:{error:?}"))?;
+        let keys = state.keys();
+        let versions = declared_constitution_versions(keys.iter(), law.latest_version)
+            .map_err(|error| format!("创世宪法版本集合非法:{error:?}"))?;
+        for version in versions {
+            check_immutable_version(&read, &reference, version)
+                .map_err(|error| format!("创世宪法历史版本{version}非法:{error:?}"))?;
+        }
+        Ok(reference)
     }
 
     /// 提交前校验 warp/状态导入携带的完整下载态。
@@ -86,7 +85,7 @@ impl<I> ConstitutionGuard<I> {
             StateAction::ApplyChanges(StorageChanges::Import(imported)) => imported,
             _ => return Err("warp 状态非 ApplyChanges(Import) 形态,无法提交前校验".into()),
         };
-        check_imported_state_immutable(imported, &self.reference)
+        check_imported_state_immutable(imported, self.reference.as_ref().map_err(Clone::clone)?)
     }
 
     /// 读取父状态并把 delta 覆盖为目标后置状态，再执行全部宪法不变式。
@@ -95,6 +94,7 @@ impl<I> ConstitutionGuard<I> {
         parent_hash: <Block as BlockT>::Hash,
         delta: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     ) -> Result<(), String> {
+        let reference = self.reference.as_ref().map_err(Clone::clone)?;
         if !needs_full_invariant_check(&delta) {
             return Ok(());
         }
@@ -143,7 +143,7 @@ impl<I> ConstitutionGuard<I> {
                 parent_law.latest_version, law.latest_version
             ));
         }
-        check_immutable_articles(read_post, &self.reference)
+        check_immutable_articles(read_post, reference)
             .map_err(|reason| format!("宪法不变式被破坏:{reason:?}"))?;
         // 任一历史版本 RAW key 被新增、修改或删除时，都按目标后置状态单独复核该版本。
         for key in delta.keys() {
@@ -152,7 +152,7 @@ impl<I> ConstitutionGuard<I> {
                     crate::constitution::storage_key::constitution_proof_version_from_key(key)
                 })
             {
-                check_immutable_version(&read_post, &self.reference, version)
+                check_immutable_version(&read_post, reference, version)
                     .map_err(|reason| format!("宪法历史版本 {version} 非法:{reason:?}"))?;
             }
         }
@@ -161,6 +161,7 @@ impl<I> ConstitutionGuard<I> {
 
     /// 对普通导入形态取得可验证的后置 storage delta；`Ok` 为合法，任何 `Err` 都拒块。
     fn verify_block(&self, params: &BlockImportParams<Block>) -> Result<(), String> {
+        self.reference.as_ref().map_err(Clone::clone)?;
         let parent_hash = *params.header.parent_hash();
         if let Some(body) = &params.body {
             let block = Block::new(params.header.clone(), body.clone());
@@ -207,6 +208,9 @@ where
         &self,
         block: BlockCheckParams<Block>,
     ) -> Result<ImportResult, Self::Error> {
+        if self.reference.is_err() {
+            return Ok(ImportResult::KnownBad);
+        }
         self.inner.check_block(block).await
     }
 
@@ -214,6 +218,10 @@ where
         &self,
         params: BlockImportParams<Block>,
     ) -> Result<ImportResult, Self::Error> {
+        if let Err(reason) = &self.reference {
+            log::error!(target: "constitution-guard", "拒绝区块导入，创世基准不可验证:{reason}");
+            return Ok(ImportResult::KnownBad);
+        }
         if params.with_state() {
             let verdict = self.verify_imported_state(&params);
             if let Err(reason) = &verdict {

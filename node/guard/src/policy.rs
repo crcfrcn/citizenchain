@@ -7,17 +7,15 @@ use frame_metadata::RuntimeMetadata;
 use frame_metadata::RuntimeMetadataPrefixed;
 #[cfg(test)]
 use frame_system::Phase;
-use runtime::RuntimeCall;
-use runtime::UncheckedExtrinsic;
+#[cfg(test)]
+use runtime::{RuntimeCall, UncheckedExtrinsic};
 use scale_value::Composite;
 use scale_value::Value;
 use scale_value::ValueDef;
 
-use sp_runtime::generic::Preamble;
 use sp_runtime::traits::BlakeTwo256;
-use sp_runtime::traits::ExtrinsicCall;
+#[cfg(test)]
 use sp_runtime::traits::LazyExtrinsic;
-use sp_runtime::MultiAddress;
 use sp_state_machine::Backend;
 use sp_state_machine::OverlayedChanges;
 use sp_state_machine::StateMachine;
@@ -47,47 +45,42 @@ pub(crate) enum ProtectedFee {
     },
 }
 
-fn signed_account(xt: &UncheckedExtrinsic) -> Option<[u8; 32]> {
-    match &xt.0.preamble {
-        // 旧高度区块按其父 Runtime 执行；此处仅从已执行区块提取实际收费账户。
-        Preamble::Signed(MultiAddress::Id(account), _, _) => Some(account.clone().into()),
-        Preamble::General(sp_runtime::traits::ExtensionVariant::Other(pipeline)) => {
-            match &pipeline.extension.0 .0 {
-                chain_signing::mldsa::Proof::Sr25519 { account, .. }
-                | chain_signing::mldsa::Proof::First { account, .. }
-                | chain_signing::mldsa::Proof::Stored { account, .. } => Some(*account),
-            }
-        }
-        _ => None,
+fn protected_fee(
+    call: &Value<()>,
+    payer: Option<[u8; 32]>,
+) -> Result<Option<ProtectedFee>, String> {
+    let (pallet, fields) = variant(call).ok_or("交易缺少 RuntimeCall 类型")?;
+    let call = only_field(fields).ok_or("交易 pallet 调用结构非法")?;
+    let (name, fields) = variant(call).ok_or("交易缺少 pallet Call 类型")?;
+    let transfer = pallet == "OnchainTransaction" && name == "transfer_with_remark";
+    let vote = matches!(
+        (pallet, name),
+        ("InternalVote", "cast")
+            | ("JointVote", "cast_admin" | "cast_referendum")
+            | (
+                "LegislationVote",
+                "cast_representative_vote"
+                    | "cast_referendum_vote"
+                    | "executive_sign"
+                    | "override_sign"
+                    | "guard_vote"
+            )
+            | ("ElectionVote", "cast_popular_vote" | "cast_mutual_vote")
+    );
+    if !transfer && !vote {
+        return Ok(None);
     }
-}
-
-fn protected_fee(xt: &UncheckedExtrinsic) -> Option<ProtectedFee> {
-    let payer_account_id = signed_account(xt)?;
-    match xt.call() {
-        RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
-            amount,
-            ..
-        }) => Some(crate::guard::runtime_policy::ProtectedFee::Onchain {
+    let payer_account_id = payer.ok_or("受保护收费调用缺少可验证的付款账户")?;
+    Ok(Some(if transfer {
+        ProtectedFee::Onchain {
             payer_account_id,
-            amount: *amount,
-        }),
-        RuntimeCall::InternalVote(internalvote::pallet::Call::cast { .. })
-        | RuntimeCall::JointVote(jointvote::pallet::Call::cast_admin { .. })
-        | RuntimeCall::JointVote(jointvote::pallet::Call::cast_referendum { .. })
-        | RuntimeCall::LegislationVote(
-            legislationvote::pallet::Call::cast_representative_vote { .. }
-            | legislationvote::pallet::Call::cast_referendum_vote { .. }
-            | legislationvote::pallet::Call::executive_sign { .. }
-            | legislationvote::pallet::Call::override_sign { .. }
-            | legislationvote::pallet::Call::guard_vote { .. },
-        )
-        | RuntimeCall::ElectionVote(
-            electionvote::pallet::Call::cast_popular_vote { .. }
-            | electionvote::pallet::Call::cast_mutual_vote { .. },
-        ) => Some(crate::guard::runtime_policy::ProtectedFee::Vote { payer_account_id }),
-        _ => None,
-    }
+            amount: composite_field(fields, "amount")
+                .and_then(integer)
+                .ok_or("链上转账 amount 类型非法")?,
+        }
+    } else {
+        ProtectedFee::Vote { payer_account_id }
+    }))
 }
 
 fn expected_fee(rule: ProtectedFee) -> ([u8; 32], u128) {
@@ -314,13 +307,195 @@ where
     Ok(fees)
 }
 
-fn decode_body(body: &[sp_runtime::OpaqueExtrinsic]) -> Result<Vec<UncheckedExtrinsic>, String> {
-    body.iter()
-        .map(|opaque| {
-            UncheckedExtrinsic::decode_unprefixed(opaque.inner())
-                .map_err(|_| "区块 extrinsic 无法按节点固定 runtime 类型解码".to_string())
+/// 交易与事件共用父 Runtime 的真实类型；历史 V4 不能交给现行 V5 包装类型解码。
+struct ExtrinsicSchema {
+    types: scale_info::PortableRegistry,
+    address: u32,
+    signature: u32,
+    call: u32,
+    versions: Vec<u8>,
+    extensions: BTreeMap<u8, Vec<(String, u32)>>,
+}
+
+impl ExtrinsicSchema {
+    fn new(raw: &[u8]) -> Result<Self, String> {
+        let (types, address, signature, call, versions, extensions) =
+            match nodeclient::codec::decode_runtime_metadata(raw)? {
+                RuntimeMetadata::V14(meta) => {
+                    if !matches!(meta.extrinsic.version, 4 | 5) {
+                        return Err("父 Runtime 声明的交易格式非法".into());
+                    }
+                    let xt = meta
+                        .types
+                        .resolve(meta.extrinsic.ty.id)
+                        .ok_or("父 Runtime 缺少 extrinsic 类型")?;
+                    let param = |name: &str| {
+                        xt.type_params
+                            .iter()
+                            .find(|param| param.name == name)
+                            .and_then(|param| param.ty)
+                            .map(|ty| ty.id)
+                            .ok_or_else(|| format!("extrinsic 缺少 {name} 类型"))
+                    };
+                    let (address, signature, call) =
+                        (param("Address")?, param("Signature")?, param("Call")?);
+                    let extensions = meta
+                        .extrinsic
+                        .signed_extensions
+                        .into_iter()
+                        .map(|ext| (ext.identifier, ext.ty.id))
+                        .collect();
+                    (
+                        meta.types,
+                        address,
+                        signature,
+                        call,
+                        Vec::new(),
+                        BTreeMap::from([(0, extensions)]),
+                    )
+                }
+                RuntimeMetadata::V15(meta) => {
+                    if !matches!(meta.extrinsic.version, 4 | 5) {
+                        return Err("父 Runtime 声明的交易格式非法".into());
+                    }
+                    let extensions = meta
+                        .extrinsic
+                        .signed_extensions
+                        .into_iter()
+                        .map(|ext| (ext.identifier, ext.ty.id))
+                        .collect();
+                    (
+                        meta.types,
+                        meta.extrinsic.address_ty.id,
+                        meta.extrinsic.signature_ty.id,
+                        meta.extrinsic.call_ty.id,
+                        Vec::new(),
+                        BTreeMap::from([(0, extensions)]),
+                    )
+                }
+                RuntimeMetadata::V16(meta) => {
+                    if meta.extrinsic.versions.is_empty() {
+                        return Err("父 Runtime 缺少交易格式声明".into());
+                    }
+                    let mut extensions = BTreeMap::new();
+                    for (version, indexes) in meta.extrinsic.transaction_extensions_by_version {
+                        let mut pipeline = Vec::new();
+                        for index in indexes {
+                            let ext = meta
+                                .extrinsic
+                                .transaction_extensions
+                                .get(index.0 as usize)
+                                .ok_or("交易扩展元数据索引越界")?;
+                            pipeline.push((ext.identifier.clone(), ext.ty.id));
+                        }
+                        extensions.insert(version, pipeline);
+                    }
+                    (
+                        meta.types,
+                        meta.extrinsic.address_ty.id,
+                        meta.extrinsic.signature_ty.id,
+                        meta.extrinsic.call_ty.id,
+                        meta.extrinsic.versions,
+                        extensions,
+                    )
+                }
+                _ => unreachable!("元数据版本已校验"),
+            };
+        Ok(Self {
+            types,
+            address,
+            signature,
+            call,
+            versions,
+            extensions,
         })
-        .collect()
+    }
+
+    fn decode(&self, input: &mut &[u8], ty: u32) -> Result<Value<()>, String> {
+        scale_value::scale::decode_as_type(input, ty, &self.types)
+            .map(Value::remove_context)
+            .map_err(|error| format!("父 Runtime 交易类型解码失败:{error}"))
+    }
+
+    fn account(value: &Value<()>) -> Result<[u8; 32], String> {
+        bytes(value)
+            .and_then(|value| value.try_into().ok())
+            .ok_or_else(|| "交易付款账户不是完整的32字节账户".into())
+    }
+
+    fn proof_account(value: &Value<()>) -> Result<[u8; 32], String> {
+        // Authenticate 的透明组合包装只允许逐层唯一字段，不按字节偏移猜测账户。
+        let mut value = value;
+        while let ValueDef::Composite(fields) = &value.value {
+            value = only_field(fields).ok_or("AccountAuth 包装字段非法")?;
+        }
+        let (name, fields) = variant(value).ok_or("AccountAuth 缺少认证证明")?;
+        if !matches!(name, "Sr25519" | "First" | "Stored") {
+            return Err("AccountAuth 认证证明类型非法".into());
+        }
+        Self::account(composite_field(fields, "account").ok_or("认证证明缺少 account")?)
+    }
+
+    fn fee(&self, opaque: &sp_runtime::OpaqueExtrinsic) -> Result<Option<ProtectedFee>, String> {
+        let (&tag, mut input) = opaque.inner().split_first().ok_or("交易信封为空")?;
+        if !matches!(tag, 0x04 | 0x05 | 0x84 | 0x45) {
+            return Err("交易信封版本或类型非法".into());
+        }
+        // V14/V15 只记录单个格式号；V16 的完整版本表按原样约束。
+        if !self.versions.is_empty() && !self.versions.contains(&(tag & 0x3f)) {
+            return Err("父 Runtime 未声明该交易格式".into());
+        }
+        let mut payer = None;
+        let extension_version = match tag {
+            0x84 => {
+                let address = self.decode(&mut input, self.address)?;
+                let ("Id", fields) = variant(&address).ok_or("签名交易地址类型非法")?
+                else {
+                    return Err("签名交易必须提供完整账户地址".into());
+                };
+                payer = Some(Self::account(
+                    only_field(fields).ok_or("签名账户字段非法")?,
+                )?);
+                self.decode(&mut input, self.signature)?;
+                Some(0)
+            }
+            0x45 => {
+                let (&version, remaining) = input.split_first().ok_or("交易缺少扩展版本")?;
+                input = remaining;
+                Some(version)
+            }
+            _ => None,
+        };
+        if let Some(version) = extension_version {
+            let pipeline = self
+                .extensions
+                .get(&version)
+                .ok_or("父 Runtime 未声明该交易扩展版本")?;
+            for (identifier, ty) in pipeline {
+                let value = self.decode(&mut input, *ty)?;
+                if identifier == <chain_signing::mldsa::Authenticate<runtime::Runtime> as
+                    sp_runtime::traits::TransactionExtension<runtime::RuntimeCall>>::IDENTIFIER {
+                    if payer.is_some() {
+                        return Err("交易重复声明付款认证".into());
+                    }
+                    payer = Some(Self::proof_account(&value)?);
+                }
+            }
+        }
+        let call = self.decode(&mut input, self.call)?;
+        if !input.is_empty() {
+            return Err("交易包含尾随字节".into());
+        }
+        protected_fee(&call, payer)
+    }
+}
+
+fn decode_body(
+    body: &[sp_runtime::OpaqueExtrinsic],
+    metadata: &[u8],
+) -> Result<Vec<Option<ProtectedFee>>, String> {
+    let schema = ExtrinsicSchema::new(metadata)?;
+    body.iter().map(|opaque| schema.fee(opaque)).collect()
 }
 
 fn offchain_fee(amount: u128, rate_units: u32) -> u128 {
@@ -362,11 +537,11 @@ pub(crate) fn check_block<F>(
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    let extrinsics = decode_body(body)?;
+    let extrinsics = decode_body(body, parent_metadata)?;
     let events = decode_events(&read_post, parent_metadata)?;
 
-    for (index, xt) in extrinsics.iter().enumerate() {
-        let Some(rule) = protected_fee(xt) else {
+    for (index, rule) in extrinsics.into_iter().enumerate() {
+        let Some(rule) = rule else {
             continue;
         };
         let (expected_payer, expected_amount) = expected_fee(rule);

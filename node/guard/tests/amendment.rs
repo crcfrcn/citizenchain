@@ -78,3 +78,37 @@ fn four_constitution_tamper_classes_return_known_bad_without_stopping_next_impor
     assert_eq!(accepted, ImportResult::AlreadyInChain);
     assert_eq!(inner.imports.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn genesis_input_errors_are_retained_as_diagnostics() {
+    let error =
+        ConstitutionGuard::<CountingImport>::build_reference(Err("固定输入验证失败".into()))
+            .err()
+            .unwrap();
+    assert_eq!(error, "固定输入验证失败");
+}
+
+#[test]
+fn frozen_chainspec_builds_verified_constitution_reference_without_block_zero_database() {
+    use sc_service::ChainSpec;
+    let spec =
+        node::chain::ChainSpec::from_json_bytes(include_bytes!("../../citizenchain.json").to_vec())
+            .unwrap();
+    let mut storage = spec.as_storage_builder().build_storage().unwrap();
+    let executor = sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::default();
+    let version =
+        sc_service::resolve_state_version_from_wasm::<_, sp_runtime::traits::BlakeTwo256>(
+            &storage, &executor,
+        )
+        .unwrap();
+    let genesis = crate::guard::GenesisState::new(storage.clone(), version).unwrap();
+    assert!(
+        ConstitutionGuard::<CountingImport>::build_reference(Ok(std::sync::Arc::new(genesis)))
+            .is_ok()
+    );
+    storage.top.insert(b"tampered-genesis".to_vec(), vec![1]);
+    assert!(
+        crate::guard::GenesisState::new(storage, version).is_err(),
+        "改动输入不能冒用冻结信任锚"
+    );
+}

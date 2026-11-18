@@ -146,6 +146,11 @@ pub(crate) fn start_node_in_process(
         "/ip4/0.0.0.0/tcp/30333/wss".into(),
         "--listen-addr".into(),
         "/ip6/::/tcp/30333/wss".into(),
+        // 参数与CLI共同固定为归档；服务层还会在打开数据库前复核实际配置。
+        "--state-pruning".into(),
+        "archive".into(),
+        "--blocks-pruning".into(),
+        "archive".into(),
         "--rpc-port".into(),
         rpc_port.to_string(),
         "--rpc-methods".into(),
@@ -186,7 +191,6 @@ pub(crate) fn start_node_in_process(
             // 存活标记必须在线程最终退出时才清除，确保 panic 原因先写入通道。
             let _alive_guard = NodeThreadAliveGuard(thread_alive, thread_network.clone());
             let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                use clap::Parser;
                 use sc_cli::CliConfiguration;
 
                 // 设置 SS58 地址前缀。
@@ -194,7 +198,7 @@ pub(crate) fn start_node_in_process(
                     sp_core::crypto::Ss58AddressFormat::custom(primitives::core_const::SS58_FORMAT),
                 );
 
-                let mut cli = match crate::cli::Cli::try_parse_from(&args) {
+                let mut cli = match crate::cli::Cli::parse_archive_from(&args) {
                     Ok(c) => c,
                     Err(e) => {
                         let _ = startup_tx.send(Err(format!("解析节点参数失败: {e}")));

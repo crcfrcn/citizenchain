@@ -409,6 +409,20 @@ async fn run_mapping_backfill(
     }
 }
 
+/// 在打开链库之前验证归档配置；不修改既有库的模式或历史数据。
+pub(crate) fn check_archive(config: &Configuration) -> Result<(), ServiceError> {
+    if !matches!(
+        config.state_pruning,
+        Some(sc_service::PruningMode::ArchiveAll)
+    ) || config.blocks_pruning != sc_service::BlocksPruning::KeepAll
+    {
+        return Err(ServiceError::Other(
+            "归档全节点要求保存全部状态和区块，拒绝裁剪配置".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     #[cfg(any(test, feature = "test-support"))]
     return new_partial_inner(config, None);
@@ -422,6 +436,17 @@ fn new_partial_inner(
         nodeguard::guard::testing::TestGenesisIdentity,
     >,
 ) -> Result<Service, ServiceError> {
+    check_archive(config)?;
+    // 失败作为守卫诊断交付，不以 ? 传播成服务构造失败。
+    #[cfg(any(test, feature = "test-support"))]
+    let genesis = match test_genesis_identity {
+        Some(_) => nodeguard::guard::testing::TestGenesisIdentity::genesis_state(
+            config.chain_spec.as_ref(),
+        ),
+        None => crate::chain::guard_genesis(),
+    };
+    #[cfg(not(any(test, feature = "test-support")))]
+    let genesis = crate::chain::guard_genesis();
     let telemetry = config
         .telemetry_endpoints
         .clone()
@@ -484,7 +509,7 @@ fn new_partial_inner(
         },
     );
 
-    // 节点守卫统一承载宪法以外的节点级死规则。创世身份必须通过，其他本机自检沿用警戒状态；
+    // 节点守卫统一承载宪法以外的节点级死规则。启动自检只产生诊断；
     // 后续区块、完整状态和候选 runtime 导入仍由守卫强拒绝。
     // 测试链只替换声明的创世信任输入，所有身份和导入规则仍完整核验。
     #[cfg(any(test, feature = "test-support"))]
@@ -494,12 +519,22 @@ fn new_partial_inner(
             client.clone(),
             backend.clone(),
             identity,
+            genesis.clone(),
         ),
-        None => nodeguard::guard::NodeGuard::new(pow_block_import, client.clone(), backend.clone()),
+        None => nodeguard::guard::NodeGuard::new(
+            pow_block_import,
+            client.clone(),
+            backend.clone(),
+            genesis.clone(),
+        ),
     };
     #[cfg(not(any(test, feature = "test-support")))]
-    let node_guard =
-        nodeguard::guard::NodeGuard::new(pow_block_import, client.clone(), backend.clone());
+    let node_guard = nodeguard::guard::NodeGuard::new(
+        pow_block_import,
+        client.clone(),
+        backend.clone(),
+        genesis.clone(),
+    );
 
     // 宪法守卫保持独立且位于最外层(ADR-027 §7)：先执行整条链最高优先级的
     // 不可修改条款校验，再进入节点守卫及 PoW 导入；runtime 升级无法绕过两层执法。
@@ -507,8 +542,8 @@ fn new_partial_inner(
         node_guard,
         client.clone(),
         backend.clone(),
-    )
-    .map_err(ServiceError::Other)?;
+        genesis,
+    );
 
     let import_queue = sc_consensus_pow::import_queue(
         Box::new(guarded_import),
@@ -949,8 +984,13 @@ pub(crate) fn new_full_with_network_reader(
     };
     // 本地挖矿导入路径与网络导入路径使用相同的节点守卫；启动自检不杀节点，
     // 挖出的坏块仍必须在委派 PoW/GRANDPA 前被拒绝。
-    let mining_node_guard =
-        nodeguard::guard::NodeGuard::new(pow_block_import, client.clone(), backend.clone());
+    let genesis = crate::chain::guard_genesis();
+    let mining_node_guard = nodeguard::guard::NodeGuard::new(
+        pow_block_import,
+        client.clone(),
+        backend.clone(),
+        genesis.clone(),
+    );
 
     // 宪法守卫在挖矿路径同样保持独立最外层，确保最高规则不会被普通节点守卫
     // 的后续扩展、重排或 runtime 升级稀释。
@@ -958,8 +998,8 @@ pub(crate) fn new_full_with_network_reader(
         mining_node_guard,
         client.clone(),
         backend.clone(),
-    )
-    .map_err(ServiceError::Other)?;
+        genesis,
+    );
 
     let (worker, worker_task) = sc_consensus_pow::start_mining_worker(
         Box::new(guarded_mining_import),

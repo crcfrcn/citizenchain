@@ -67,7 +67,8 @@ pub fn run() -> sc_cli::Result<()> {
     // 统一 CLI/chain-spec 序列化时的地址显示前缀，避免默认回落到 42。
     set_default_ss58_version(Ss58AddressFormat::custom(SS58_FORMAT));
 
-    let mut cli = crate::cli::Cli::from_args();
+    let mut cli = crate::cli::Cli::parse_archive_from(std::env::args_os())
+        .unwrap_or_else(|error| error.exit());
     let pool_type_explicit =
         std::env::args().any(|arg| arg == "--pool-type" || arg.starts_with("--pool-type="));
     if !pool_type_explicit {

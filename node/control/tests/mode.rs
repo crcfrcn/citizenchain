@@ -59,3 +59,16 @@ fn stored_communication_mode_is_cleaned_to_archive() {
 
     assert_eq!(mode, crate::mode::NodeMode::Archive);
 }
+
+#[test]
+fn archive_mode_description_does_not_claim_pruned_history_is_restored() {
+    let state = build_node_mode_state(crate::mode::NodeMode::Archive);
+    let archive = state
+        .options
+        .iter()
+        .find(|option| option.mode == crate::mode::NodeMode::Archive)
+        .unwrap();
+    assert!(archive.enabled);
+    assert!(archive.description.contains("全部历史状态和区块"));
+    assert!(archive.description.contains("不会"));
+}

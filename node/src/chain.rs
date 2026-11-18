@@ -1,3 +1,4 @@
+use sc_chain_spec::ChainSpec as _;
 use sc_chain_spec::ChainType;
 use sc_chain_spec::NoExtension;
 use sc_chain_spec::Properties;
@@ -60,4 +61,25 @@ pub fn fresh_genesis_config() -> Result<ChainSpec, String> {
         .with_boot_nodes(boot_nodes)
         .with_genesis_config_patch(genesis_patch)
         .build())
+}
+
+/// 正式守卫唯一基准：冻结chainspec在内存构建并验证，不读取链库块0或生成新创世。
+pub(crate) fn guard_genesis() -> Result<std::sync::Arc<nodeguard::guard::GenesisState>, String> {
+    static GENESIS: std::sync::OnceLock<
+        Result<std::sync::Arc<nodeguard::guard::GenesisState>, String>,
+    > = std::sync::OnceLock::new();
+    GENESIS
+        .get_or_init(|| {
+            let storage = chain_config()?.as_storage_builder().build_storage()?;
+            let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(
+                &sc_service::config::ExecutorConfiguration::default(),
+            );
+            let version = sc_service::resolve_state_version_from_wasm::<
+                _,
+                sp_runtime::traits::BlakeTwo256,
+            >(&storage, &executor)
+            .map_err(|error| format!("读取冻结创世状态版本失败:{error}"))?;
+            nodeguard::guard::GenesisState::new(storage, version).map(std::sync::Arc::new)
+        })
+        .clone()
 }

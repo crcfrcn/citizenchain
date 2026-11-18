@@ -47,8 +47,8 @@ fn block_requires_timestamp_and_at_least_one_user_transaction() {
 }
 
 #[derive(Default)]
-struct CountingImport {
-    imports: AtomicUsize,
+pub(super) struct CountingImport {
+    pub(super) imports: AtomicUsize,
 }
 
 #[async_trait::async_trait]
@@ -246,7 +246,7 @@ fn legal_remark_block_params(client: &Arc<FullClient>) -> BlockImportParams<Bloc
     params
 }
 
-fn import_params(number: u32) -> BlockImportParams<Block> {
+pub(super) fn import_params(number: u32) -> BlockImportParams<Block> {
     use sp_consensus::BlockOrigin;
     use sp_core::H256;
     use sp_runtime::Digest;
@@ -392,8 +392,98 @@ fn normal_import_uses_only_its_verified_execution_result() {
         client,
         backend,
         identity,
+        crate::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref()),
     );
     let result = rt.block_on(guard.import_block(p)).unwrap();
     assert!(matches!(result, ImportResult::Imported(_)));
     assert_eq!(*changes.lock().unwrap(), expected);
+}
+
+#[test]
+fn complete_state_import_checks_root_rules_and_runtime_before_delegating() {
+    use sc_consensus::{ImportedState, StateAction, StorageChanges};
+    use sp_blockchain::HeaderBackend;
+    use sp_runtime::traits::Header as _;
+    assert!(
+        runtime::WASM_BINARY.is_some(),
+        "完整状态回归必须内置本轮测试WASM"
+    );
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let config = test_config(rt.handle().clone());
+    let root = config.base_path.path().to_path_buf();
+    let partial = {
+        let _enter = rt.enter();
+        node::service::testing::new_partial_for_test(&config).unwrap()
+    };
+    let identity =
+        crate::guard::testing::TestGenesisIdentity::from_chain_spec(config.chain_spec.as_ref())
+            .unwrap();
+    let genesis =
+        crate::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref());
+    let guard = NodeGuard::new_for_test(
+        CountingImport::default(),
+        partial.client.clone(),
+        partial.backend.clone(),
+        identity,
+        genesis,
+    );
+    let original = config
+        .chain_spec
+        .as_storage_builder()
+        .build_storage()
+        .unwrap();
+    for case in ["fee", "runtime", "root", "valid"] {
+        let mut storage = original.clone();
+        match case {
+            "fee" => {
+                storage.top.insert(
+                    crate::guard::runtime_policy::storage_key::max_rate(),
+                    11u32.encode(),
+                );
+            }
+            "runtime" => {
+                storage
+                    .top
+                    .insert(sp_storage::well_known_keys::CODE.to_vec(), vec![0]);
+            }
+            "root" => {
+                storage
+                    .top
+                    .insert(b"invalid-root-fixture".to_vec(), vec![1]);
+            }
+            _ => {}
+        }
+        let declared = if case == "root" {
+            original.clone()
+        } else {
+            storage.clone()
+        };
+        let memory =
+            crate::guard::GenesisState::from_storage(declared, runtime::VERSION.state_version());
+        let mut params = import_params(1);
+        params
+            .header
+            .set_parent_hash(partial.client.info().genesis_hash);
+        params.header.set_state_root(memory.state_root);
+        params.state_action = StateAction::ApplyChanges(StorageChanges::Import(ImportedState {
+            block: params.post_hash(),
+            state: sc_client_api::KeyValueStates::from([(
+                Vec::new(),
+                (storage.top.into_iter().collect::<Vec<_>>(), Vec::new()),
+            )]),
+        }));
+        let result = rt.block_on(guard.import_block(params)).unwrap();
+        if case == "valid" {
+            assert_eq!(result, ImportResult::AlreadyInChain);
+            assert_eq!(guard.inner.imports.load(Ordering::SeqCst), 1);
+        } else {
+            assert_eq!(result, ImportResult::KnownBad, "{case}");
+            assert_eq!(guard.inner.imports.load(Ordering::SeqCst), 0, "{case}");
+        }
+        assert_eq!(partial.client.info().best_number, 0);
+    }
+    drop(guard);
+    node::service::testing::stop_partial(partial, &rt);
+    drop(config);
+    std::fs::remove_dir_all(root).unwrap();
 }

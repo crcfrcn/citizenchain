@@ -78,3 +78,36 @@ pub(crate) enum Subcommand {
     /// Db meta columns information.
     ChainInfo(sc_cli::ChainInfoCmd),
 }
+
+impl Cli {
+    /// 桌面和独立CLI使用同一参数合同；上游裁剪参数只允许完整归档值。
+    pub(crate) fn parse_archive_from<I, T>(args: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        use clap::{CommandFactory, FromArgMatches};
+        use sc_cli::SubstrateCli;
+        fn archive_options(mut command: clap::Command) -> clap::Command {
+            for id in ["state_pruning", "blocks_pruning"] {
+                if command.get_arguments().any(|arg| arg.get_id() == id) {
+                    command = command.mut_arg(id, |arg| {
+                        arg.default_value("archive")
+                            .value_parser(clap::builder::ValueParser::new(|value: &str| {
+                                if value == "archive" {
+                                    Ok(sc_cli::DatabasePruningMode::Archive)
+                                } else {
+                                    Err("公民链归档全节点只允许 archive，禁止裁剪状态或区块"
+                                        .to_string())
+                                }
+                            }))
+                    });
+                }
+            }
+            command.mut_subcommands(archive_options)
+        }
+        let command = archive_options(Self::setup_command(Self::command()));
+        let matches = command.try_get_matches_from(args)?;
+        Self::from_arg_matches(&matches)
+    }
+}

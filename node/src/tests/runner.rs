@@ -74,7 +74,6 @@ fn lifecycle_runtime() -> tokio::runtime::Runtime {
 
 #[test]
 fn task_manager_runtime_shutdown_releases_database_before_reopen() {
-    use clap::Parser;
     use sc_cli::CliConfiguration;
     let runtime = lifecycle_runtime();
     // 只取普通绝对路径，不把canonicalize产生的Windows扩展路径交给RocksDB。
@@ -88,7 +87,7 @@ fn task_manager_runtime_shutdown_releases_database_before_reopen() {
         .as_nanos();
     let path = work.join(format!("node-lifecycle-db-{}-{unique}", std::process::id()));
     std::fs::create_dir(&path).unwrap();
-    let cli = crate::cli::Cli::try_parse_from([
+    let cli = crate::cli::Cli::parse_archive_from([
         "node",
         "--base-path",
         path.to_str().unwrap(),
@@ -174,4 +173,73 @@ fn cleanup_panic_is_appended_without_overwriting_first_error() {
         missing.lock().unwrap().as_deref(),
         Some("节点后台线程 panic: 独立panic")
     );
+}
+
+#[test]
+fn archive_cli_defaults_and_aliases_cannot_enable_pruning() {
+    use sc_cli::CliConfiguration;
+    let runtime = lifecycle_runtime();
+    for args in [
+        vec!["node", "--tmp"],
+        vec![
+            "node",
+            "--tmp",
+            "--state-pruning",
+            "archive",
+            "--blocks-pruning=archive",
+        ],
+        vec![
+            "node",
+            "--tmp",
+            "--pruning=archive",
+            "--keep-blocks",
+            "archive",
+        ],
+    ] {
+        let cli = crate::cli::Cli::parse_archive_from(args).unwrap();
+        let config = cli
+            .run
+            .create_configuration(&cli, runtime.handle().clone())
+            .unwrap();
+        assert!(matches!(
+            config.state_pruning,
+            Some(sc_service::PruningMode::ArchiveAll)
+        ));
+        assert_eq!(config.blocks_pruning, sc_service::BlocksPruning::KeepAll);
+    }
+    for flag in [
+        "--state-pruning=256",
+        "--pruning=256",
+        "--state-pruning=archive-canonical",
+        "--blocks-pruning=256",
+        "--keep-blocks=256",
+        "--blocks-pruning=archive-canonical",
+    ] {
+        assert!(
+            crate::cli::Cli::parse_archive_from(["node", flag]).is_err(),
+            "{flag}"
+        );
+    }
+    for command in ["check-block", "export-state", "import-blocks", "chain-info"] {
+        let mut args = vec!["node", command];
+        if command == "check-block" {
+            args.push("0");
+        }
+        let cli = crate::cli::Cli::parse_archive_from(args.clone()).expect("合法工具命令必须保留");
+        let pruning = match cli.subcommand.as_ref().unwrap() {
+            crate::cli::Subcommand::CheckBlock(cmd) => &cmd.import_params.pruning_params,
+            crate::cli::Subcommand::ExportState(cmd) => &cmd.pruning_params,
+            crate::cli::Subcommand::ImportBlocks(cmd) => &cmd.import_params.pruning_params,
+            crate::cli::Subcommand::ChainInfo(cmd) => &cmd.pruning_params,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            pruning.state_pruning,
+            Some(sc_cli::DatabasePruningMode::Archive)
+        );
+        assert_eq!(pruning.blocks_pruning, sc_cli::DatabasePruningMode::Archive);
+        args.push("--state-pruning=256");
+        let error = crate::cli::Cli::parse_archive_from(args).unwrap_err();
+        assert!(error.to_string().contains("只允许 archive"), "{error}");
+    }
 }

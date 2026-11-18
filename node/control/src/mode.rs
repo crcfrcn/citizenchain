@@ -132,7 +132,7 @@ fn node_mode_options() -> Vec<NodeModeOption> {
             label: "归档全节点",
             implementation_status: crate::mode::NodeModeStatus::Active,
             enabled: true,
-            description: "保存完整链数据，当前版本实际按此模式运行。",
+            description: "从初始化起保留全部历史状态和区块；已裁剪历史不会因选择归档模式而恢复。",
         },
         NodeModeOption {
             mode: crate::mode::NodeMode::Normal,

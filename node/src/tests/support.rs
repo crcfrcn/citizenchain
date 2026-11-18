@@ -1,5 +1,4 @@
 //! 仅开发测试目标挂载的原有夹具，不进入正式构建。
-use super::*;
 use crate::service::new_partial_inner;
 use nodeclient::types::Service;
 
@@ -11,5 +10,40 @@ pub fn new_partial_for_test(config: &Configuration) -> Result<Service, ServiceEr
     let identity =
         nodeguard::guard::testing::TestGenesisIdentity::from_chain_spec(config.chain_spec.as_ref())
             .map_err(ServiceError::Other)?;
+    // 两类守卫共享由此声明构建的内存基准，测试入口不打开生产数据。
     new_partial_inner(config, Some(identity))
+}
+
+/// 所有隔离服务先释放后台任务和数据库，再允许同库重开或清场。
+pub fn stop_partial(partial: Service, runtime: &tokio::runtime::Runtime) {
+    let released = std::sync::Arc::downgrade(&partial.backend);
+    let sc_service::PartialComponents {
+        client,
+        backend,
+        task_manager,
+        keystore_container,
+        select_chain,
+        import_queue,
+        transaction_pool,
+        other,
+    } = partial;
+    let tasks = task_manager.into_task_registry();
+    drop((
+        client,
+        backend,
+        keystore_container,
+        select_chain,
+        import_queue,
+        transaction_pool,
+        other,
+    ));
+    runtime.block_on(async {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while released.upgrade().is_some() || !tasks.running_tasks().is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("隔离服务退出必须释放全部任务及数据库");
+    });
 }
