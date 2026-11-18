@@ -13,6 +13,7 @@ type Props = {
   amountYuan: number;
   remark: string;
   onClose: () => void;
+  // 提交成功返回交易哈希时通知一次，与用户如何关闭弹窗无关。
   onSuccess: (txHash: string) => void;
 };
 
@@ -106,6 +107,7 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
           setTxHash(result.txHash);
           setStep('done');
           submitted = true;
+          onSuccess(result.txHash);
           return;
         }
         case 'cold': {
@@ -131,7 +133,7 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
       inFlight.current = submitted;
       setBusy(false);
     }
-  }, [wallet.accountId, wallet.signMode, toAddress, amountYuan, remark, unlockPassword]);
+  }, [wallet.accountId, wallet.signMode, toAddress, amountYuan, remark, unlockPassword, onSuccess]);
 
   const handleScanResult = useCallback(async (responseText: string) => {
     if (inFlight.current) return;
@@ -160,12 +162,13 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
       );
       setTxHash(result.txHash);
       setStep('done');
+      onSuccess(result.txHash);
     } catch (e) {
       inFlight.current = false;
       setError(sanitizeError(e));
       setStep('error');
     }
-  }, [wallet.accountId, wallet.signMode]);
+  }, [wallet.accountId, wallet.signMode, onSuccess]);
 
   return (
     <div className="transfer-signing-overlay">
@@ -257,7 +260,7 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
             </div>
             <button
               className="transfer-signing-confirm"
-              onClick={() => { if (txHash) onSuccess(txHash); onClose(); }}
+              onClick={onClose}
             >
               完成
             </button>

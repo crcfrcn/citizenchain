@@ -4,7 +4,7 @@ import { calculateTransferFeeYuan } from "./fee";
 import type { Wallet } from "./types";
 import scanIcon from "../../../icons/scan.svg?url";
 import citizenCoinLogo from "../../../icons/gmb.png?url";
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type Props = {
   activeWallet: Wallet | null;
@@ -14,6 +14,7 @@ type Props = {
   onRetryBalance?: () => void;
   onSubmit: (toAddress: string, amountYuan: number, remark: string) => void;
   disabled?: boolean;
+  resetVersion?: number;
 };
 
 const MAX_TRANSFER_REMARK_BYTES = 99;
@@ -61,12 +62,18 @@ function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
-export function TransferForm({ activeWallet, nodeReady = true, balance, balanceError, onRetryBalance, onSubmit, disabled }: Props) {
+export function TransferForm({ activeWallet, nodeReady = true, balance, balanceError, onRetryBalance, onSubmit, disabled, resetVersion = 0 }: Props) {
   const [toAddress, setToAddress] = useState('');
   // 金额用字符串存储，显示带千分位
   const [amountText, setAmountText] = useState('');
   const [remark, setRemark] = useState('');
   const [showScan, setShowScan] = useState(false);
+
+  // 只有提交成功返回哈希才重置金额和备注，保留地址供下一笔转账使用。
+  useEffect(() => {
+    setAmountText('');
+    setRemark('');
+  }, [resetVersion]);
 
   const amount = parseAmount(amountText);
   const fee = calculateTransferFeeYuan(amount);

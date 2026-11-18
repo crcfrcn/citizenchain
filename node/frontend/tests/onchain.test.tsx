@@ -292,17 +292,20 @@ describe('现有确认、扫码与提交', () => {
   it('热签异步提交在同一事件批次内也只能发起一次', async () => {
     const pending = deferred<{ txHash: string }>();
     mocks.invoke.mockReturnValue(pending.promise);
-    flow('hot');
+    const callbacks = flow('hot');
     fireEvent.change(screen.getByPlaceholderText('请输入设备开机密码'), { target: { value: '合成测试口令' } });
     const button = screen.getByRole('button', { name: '确认并提交' });
     act(() => { button.click(); button.click(); });
     expect(mocks.invoke).toHaveBeenCalledTimes(1);
     await act(async () => pending.resolve({ txHash }));
     expect(screen.getByText('转账已提交')).toBeTruthy();
+    expect(callbacks.onSuccess).toHaveBeenCalledExactlyOnceWith(txHash);
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    expect(callbacks.onSuccess).toHaveBeenCalledTimes(1);
   });
 
   it('扫码重复回调只提交一次且完整保留同一签名会话字段', async () => {
-    flow();
+    const callbacks = flow();
     fireEvent.click(screen.getByRole('button', { name: '确认转账' }));
     await screen.findByText('合成扫码界面');
     const pending = deferred<{ txHash: string }>();
@@ -320,6 +323,7 @@ describe('现有确认、扫码与提交', () => {
     // 已排队的摄像头回调即使在提交完成后到达，也不能再次提交同一会话。
     await act(async () => scan('合成响应'));
     expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(callbacks.onSuccess).toHaveBeenCalledExactlyOnceWith(txHash);
   });
 
   it('请求失败可重试，失败不会产生成功回调', async () => {
@@ -374,6 +378,104 @@ describe('现有确认、扫码与提交', () => {
     await waitFor(() => expect(view.container.querySelector('.transfer-success-msg')?.textContent)
       .toContain('转账已提交'));
     expect(view.container.textContent).not.toContain('转账成功');
+  });
+});
+
+// 用真实父子组件验证表单清空时点，仅替换IPC和设备签名边界。
+describe('提交成功后的表单输入', () => {
+  async function draft(signMode: Wallet['signMode'] = 'cold') {
+    mocks.invoke.mockResolvedValueOnce({ wallets: [{ ...wallet, signMode }], activeAccountId: wallet.accountId });
+    const view = render(<TransactionPanel nodeReady />);
+    await screen.findByText('1,000.00 元');
+    const address = screen.getByPlaceholderText('请输入公民链或以太坊地址') as HTMLInputElement;
+    const amount = screen.getByPlaceholderText('0.00') as HTMLInputElement;
+    const remark = screen.getByPlaceholderText('选填，最多 99 字节') as HTMLTextAreaElement;
+    fireEvent.change(address, { target: { value: destination } });
+    fireEvent.change(amount, { target: { value: '105' } });
+    fireEvent.change(remark, { target: { value: '合成备注' } });
+    fireEvent.click(screen.getByRole('button', { name: '签名交易' }));
+    return { view, address, amount, remark };
+  }
+
+  async function submit(signMode: Wallet['signMode']) {
+    if (signMode === 'hot') {
+      fireEvent.change(screen.getByPlaceholderText('请输入设备开机密码'), { target: { value: '合成测试口令' } });
+      fireEvent.click(screen.getByRole('button', { name: '确认并提交' }));
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: '确认转账' }));
+      await screen.findByText('合成扫码界面');
+      act(() => { void mocks.scan!('合成响应'); });
+    }
+  }
+
+  for (const signMode of ['hot', 'cold'] as const) {
+    for (const close of ['完成', '关闭'] as const) {
+      it(`${signMode}成功返回哈希立即清空金额备注、保留地址，${close}后可以继续填写`, async () => {
+        const c = await draft(signMode);
+        const pending = deferred<{ txHash: string }>();
+        const original = mocks.invoke.getMockImplementation()!;
+        mocks.invoke.mockImplementation((command: string, ...args: unknown[]) =>
+          command === `submit_${signMode}_transfer` ? pending.promise : original(command, ...args));
+        await submit(signMode);
+        await screen.findByText('提交中...');
+        expect(c.amount.value).toBe('105'); expect(c.remark.value).toBe('合成备注');
+        await act(async () => pending.resolve({ txHash }));
+        await waitFor(() => expect(c.amount.value).toBe(''));
+        expect(c.address.value).toBe(destination); expect(c.remark.value).toBe('');
+        expect(c.view.container.querySelector('.transfer-form-remark-counter')?.textContent).toBe('0/99 字节');
+        for (const line of c.view.container.querySelectorAll('.transfer-form-summary-line')) expect(line.textContent).toContain('0.00 元');
+        // 成功弹窗尚未关闭，表单已经清空；完成/关闭不应再次触发成功。
+        expect(screen.getByRole('button', { name: '完成' })).toBeTruthy();
+        if (close === '完成') fireEvent.click(screen.getByRole('button', { name: '完成' }));
+        else fireEvent.click(c.view.container.querySelector('.transfer-signing-close')!);
+        const sign = screen.getByRole('button', { name: '签名交易' }) as HTMLButtonElement;
+        expect(sign.disabled).toBe(true);
+        fireEvent.change(c.amount, { target: { value: '2' } });
+        fireEvent.change(c.remark, { target: { value: '下一笔' } });
+        expect(sign.disabled).toBe(false);
+        expect(c.address.value).toBe(destination); expect(c.amount.value).toBe('2'); expect(c.remark.value).toBe('下一笔');
+        expect(c.view.container.querySelector('.transfer-success-msg')?.textContent).toContain('转账已提交');
+      });
+    }
+  }
+
+  it.each(['确认前', '扫码中'])('%s取消不清空任何输入', async (phase) => {
+    const c = await draft();
+    if (phase === '扫码中') {
+      fireEvent.click(screen.getByRole('button', { name: '确认转账' }));
+      await screen.findByText('合成扫码界面');
+      fireEvent.click(c.view.container.querySelector('.transfer-signing-close')!);
+    } else fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(c.address.value).toBe(destination); expect(c.amount.value).toBe('105'); expect(c.remark.value).toBe('合成备注');
+    expect(c.view.container.querySelector('.transfer-success-msg')).toBeNull();
+  });
+
+  it.each(['request', 'cold', 'hot'] as const)('%s失败时不清空输入', async (phase) => {
+    const mode = phase === 'hot' ? 'hot' : 'cold';
+    const c = await draft(mode);
+    const original = mocks.invoke.getMockImplementation()!;
+    const failing = phase === 'request' ? 'build_cold_transfer_request' : `submit_${mode}_transfer`;
+    mocks.invoke.mockImplementation((command: string, ...args: unknown[]) =>
+      command === failing ? Promise.reject(new Error('合成转账失败')) : original(command, ...args));
+    if (phase === 'request') fireEvent.click(screen.getByRole('button', { name: '确认转账' }));
+    else await submit(mode);
+    await screen.findByText('合成转账失败');
+    fireEvent.click(c.view.container.querySelector('.transfer-signing-close')!);
+    expect(c.address.value).toBe(destination); expect(c.amount.value).toBe('105'); expect(c.remark.value).toBe('合成备注');
+    expect(c.view.container.querySelector('.transfer-success-msg')).toBeNull();
+  });
+
+  it('二维码过期保留金额备注和地址', async () => {
+    const c = await draft();
+    // 必须在二维码倒计时首次创建前接管时钟，避免残留真实定时器。
+    vi.useFakeTimers();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '确认转账' })));
+    expect(screen.getByText('合成扫码界面')).toBeTruthy();
+    for (let second = 0; second <= 90; second++) await act(async () => vi.advanceTimersByTime(1000));
+    expect(screen.getByText('签名请求已过期，请重新操作')).toBeTruthy();
+    fireEvent.click(c.view.container.querySelector('.transfer-signing-close')!);
+    expect(c.address.value).toBe(destination); expect(c.amount.value).toBe('105'); expect(c.remark.value).toBe('合成备注');
+    expect(c.view.container.querySelector('.transfer-success-msg')).toBeNull();
   });
 });
 

@@ -925,9 +925,8 @@ select option:checked {
   overflow-wrap: anywhere;
 }
 
+/* 顶部节点统计保持正常位置，避免越过内容区边界被裁切。 */
 .network-node-grid {
-  position: relative;
-  top: -6px;
   display: grid;
   grid-template-columns: repeat(6, minmax(110px, 1fr));
   gap: 12px;
@@ -1012,15 +1011,15 @@ select option:checked {
   background: rgba(15, 23, 42, 0.72);
 }
 
-/* 首页说明的基础宽度；窄窗口仍保留两侧留白。 */
-.home-metric-help-dialog {
+/* 首页说明与机构账户说明共用宽度；窄窗口仍保留两侧留白。 */
+.home-metric-help-dialog,
+.institution-account-help-dialog {
   width: 492px;
   max-width: calc(100% - 32px);
 }
 
-/* 公民链第2、3条及永久质押第4条在常规窗口内单行显示。 */
-.chain-help-dialog,
-.stake-help-dialog {
+/* 公民链第2、3条在常规窗口内单行显示。 */
+.chain-help-dialog {
   width: 540px;
 }
 
@@ -3307,7 +3306,7 @@ select option:checked {
 
 .transfer-principle-note p {
   margin: 0;
-  text-wrap: balance;
+  white-space: nowrap;
 }
 
 .transaction-panel-header {

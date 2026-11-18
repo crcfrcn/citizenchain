@@ -40,7 +40,7 @@ export function IssuanceSection({ issuance, stake, frozen }: Props) {
         <div className="metric-card">
           <div className="metric-label metric-label-with-help">
             <span>永久质押金额</span>
-            <MetricHelp title="永久质押金额说明" dialogClassName="home-metric-help-dialog stake-help-dialog" items={[
+            <MetricHelp title="永久质押金额说明" dialogClassName="home-metric-help-dialog" items={[
               '显示 43 个创世成立的省储行永久质押账户中的余额合计。',
               '这笔资金在公民链创世时发行，分别存入各省储行的永久质押地址，不可转出。',
               '各省储行的永久质押地址可接收公民币，并由公民协议和节点守卫同时限制转出。',

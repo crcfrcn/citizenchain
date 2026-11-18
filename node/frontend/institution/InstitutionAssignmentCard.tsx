@@ -60,8 +60,8 @@ export function InstitutionAssignmentCard({
 }: Props) {
   const topAction = action ?? status;
   const accountText = admin.accountId ? accountIdToSs58(admin.accountId) : '';
-  const personName = `${admin.familyName}${admin.givenName}`;
-  const nameText = compactVote ? personName.trim() || '未填写' : personName;
+  // 管理员列表和投票详情统一展示姓名，空值或纯空白一律显示未填写。
+  const nameText = `${admin.familyName}${admin.givenName}`.trim() || '未填写';
   const balanceText = balanceFen != null ? formatBalance(balanceFen) : '';
   const assignments = admin.assignments;
   const term = assignmentSummary(assignments, termText);
@@ -74,7 +74,8 @@ export function InstitutionAssignmentCard({
           <span className="institution-assignment-role">
             {assignments.map((assignment) => assignment.roleName).join('、') || '暂无岗位'}
           </span>
-          {nameText && <><span className="institution-assignment-dot" aria-hidden="true" /><span className="institution-assignment-name">{nameText}</span></>}
+          <span className="institution-assignment-dot" aria-hidden="true" />
+          <span className="institution-assignment-name">{nameText}</span>
         </div>
         <div className="institution-assignment-top-action">{topAction}</div>
       </div>

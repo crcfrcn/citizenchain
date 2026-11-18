@@ -450,7 +450,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
       <section className="institution-overview-accounts" aria-labelledby="institution-overview-accounts-title">
         <div className="institution-overview-account-heading">
           <h3 id="institution-overview-accounts-title">账户列表</h3>
-          <MetricHelp title="机构账户说明" items={[
+          <MetricHelp title="机构账户说明" dialogClassName="institution-account-help-dialog" items={[
             ...INSTITUTION_ACCOUNT_HELP,
             ...(detail.orgType === 0 ? NRC_ACCOUNT_HELP : detail.orgType === 2 ? [PRB_ACCOUNT_HELP] : []),
           ]} />

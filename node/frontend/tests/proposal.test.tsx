@@ -50,6 +50,9 @@ it.each([0, 1])('提案类型 %i 只允许链上确认未投票的管理员岗�
     adminSigners={accounts.map((accountId) => ({ accountId, accountLabel: '' }))}
     onBack={() => {}} />);
   await screen.findByRole('heading', { name: '管理员投票状态（4 人）' });
+  // 空姓名的管理员仍有分隔点及未填写，投票资格和状态继续使用原逻辑。
+  expect(screen.getAllByText('未填写')).toHaveLength(4);
+  expect(document.querySelectorAll('.institution-assignment-person .institution-assignment-dot')).toHaveLength(4);
 
   const card = (accountId: string) =>
     within(screen.getByText(accountIdToSs58(accountId)).closest<HTMLElement>('.institution-assignment-card')!);

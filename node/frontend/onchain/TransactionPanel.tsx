@@ -17,6 +17,7 @@ export function TransactionPanel({ nodeReady }: { nodeReady: boolean }) {
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [signingFlow, setSigningFlow] = useState<TransferDraft | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [resetVersion, setResetVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,7 +73,8 @@ export function TransactionPanel({ nodeReady }: { nodeReady: boolean }) {
   }, []);
 
   const handleTransferSuccess = useCallback((txHash: string) => {
-    setSigningFlow(null);
+    // 成功即清空本次金额和备注；成功弹窗仍由完成或关闭退出。
+    setResetVersion((value) => value + 1);
     // 此处只有交易池提交哈希，不能把提交成功显示为已上链成功。
     setSuccessMsg(`转账已提交，哈希: ${txHash.slice(0, 16)}...`);
     if (successTimer.current) clearTimeout(successTimer.current);
@@ -108,11 +110,15 @@ export function TransactionPanel({ nodeReady }: { nodeReady: boolean }) {
         onRetryBalance={() => setBalanceRetry((value) => value + 1)}
         onSubmit={handleTransferSubmit}
         disabled={signingFlow != null}
+        resetVersion={resetVersion}
       />
 
       <div className="transfer-principle-note">
+        {/* 含标点按33、32、31个字符固定分三行。 */}
         <p>
-          先有人类后有国家，是公民建立国家，国家是公民的国家，是公民治理国家，而不是国家统治公民。遵守公民宪法，加入公民链网络、使用公民币、做自由公民。
+          先有人类后有国家，是公民建立国家，国家是公民的国家，是公民治理国家<br />
+          ，而不是国家统治公民。遵守公民宪法，加入公民链网络、使用公民币、<br />
+          做自由公民。让我们共同努力共建一个公开、公平、公正的公民社会。
         </p>
       </div>
 

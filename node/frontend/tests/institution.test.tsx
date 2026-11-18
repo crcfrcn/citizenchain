@@ -21,16 +21,25 @@ import { InstitutionDetailPage } from '../institution/InstitutionDetailPage';
 import { accountIdToSs58 } from '../client/ss58';
 import { InstitutionAssignmentCard } from '../institution/InstitutionAssignmentCard';
 
-it.each([false, true])('管理员卡片普通/提案模式=%s统一字段顺序，保留序号与操作', (compactVote) => {
+// 共用卡片的两种模式覆盖真实姓名、空姓名和空白边界，保留原字段及操作回归。
+it.each([false, true].flatMap((compactVote) => [
+  { familyName: '合成', givenName: '人员', expectedName: '合成人员' },
+  { familyName: '', givenName: '', expectedName: '未填写' },
+  { familyName: '  ', givenName: '\t ', expectedName: '未填写' },
+  { familyName: ' 合成', givenName: '人员 ', expectedName: '合成人员' },
+].map((person) => ({ compactVote, ...person }))))(
+  '管理员卡片模式=$compactVote、姓名=$expectedName统一岗位与姓名，保留序号与操作',
+  ({compactVote, familyName, givenName, expectedName}) => {
   const click = vi.fn();
   const {container, unmount} = render(<InstitutionAssignmentCard compactVote={compactVote} index={3}
     balanceFen="12345" action={<button onClick={click}>原操作</button>}
-    admin={{accountId:accountId('01'),familyName:'合成',givenName:'人员',assignments:[{
+    admin={{accountId:accountId('01'),familyName,givenName,assignments:[{
       roleCode:'MEMBER',roleName:'委员',termRequired:true,termStart:1,termEnd:2,
       assignmentSource:0,assignmentSourceLabel:'创世',assignmentSourceRef:'TEST',
     }]}} />);
   const top = container.querySelector('.institution-assignment-top')!;
-  expect(top.textContent).toBe('3委员合成人员原操作');
+  expect(top.textContent).toBe(`3委员${expectedName}原操作`);
+  expect(top.querySelector('.institution-assignment-name')?.textContent).toBe(expectedName);
   expect(top.querySelector('.admin-card-index')?.textContent).toBe('3');
   expect(top.querySelector('.institution-assignment-dot')?.getAttribute('aria-hidden')).toBe('true');
   const body = container.querySelector('.institution-assignment-account')!;
