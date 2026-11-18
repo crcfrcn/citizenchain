@@ -350,3 +350,150 @@ fn non_windows_paths_keep_the_original_representation() {
     assert_eq!(comparison_path(path), path);
     assert!(!same_path(path, Path::new(r"C:\repo\out")));
 }
+
+const CI_TEST: &str = r#"
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import childProcess,{execFileSync} from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
+import {mock} from 'node:test';
+const root=process.cwd(),originalRuntime=fs.readFileSync(join(root,'runtime/src/lib.rs'),'utf8');
+const originalHook=fs.readFileSync(join(root,'runtime/build.rs'),'utf8');
+const sha=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+const platform=process.platform==='darwin'?'macos':process.platform==='win32'?'windows':process.arch==='arm64'?'linux-arm':'linux-amd';
+const {product}=await import(pathToFileURL(join(root,'scripts/config.mjs')));
+const {prepareTestRuntime,readRuntimeWasmVersion}=await import(pathToFileURL(join(root,'scripts/runtime.mjs')));
+const {test:ciTest,confirmRunDeleted}=await import(pathToFileURL(join(root,'.github/release.mjs')));
+const {platformCargoEnvironment}=await import(pathToFileURL(join(root,'scripts/build.mjs')));
+const parent=join(root,'target/test');fs.mkdirSync(parent,{recursive:true});
+const work=fs.mkdtempSync(join(parent,'ci-wasm-'));
+const sourceVersion=originalRuntime.match(/pub const VERSION:[\s\S]*?\n\};/u)[0];
+const spec=Number(sourceVersion.match(/\bspec_version:\s*(\d+)/u)[1]);
+const transaction=Number(sourceVersion.match(/\btransaction_version:\s*(\d+)/u)[1]);
+const u32=n=>{const b=Buffer.alloc(4);b.writeUInt32LE(n);return b;};
+const leb=n=>{const b=[];do{const v=n&127;n>>>=7;b.push(v|(n?128:0));}while(n);return Buffer.from(b);};
+const text=s=>Buffer.concat([Buffer.from([s.length*4]),Buffer.from(s)]);
+function wasm(s=spec,t=transaction){
+ const v=Buffer.concat([text('citizenchain'),text('fixture'),u32(0),u32(s),u32(0),Buffer.from([0]),u32(t),Buffer.from([0])]);
+ const payload=Buffer.concat([leb(15),Buffer.from('runtime_version'),v]);
+ return Buffer.concat([Buffer.from([0,97,115,109,1,0,0,0]),Buffer.from([0]),leb(payload.length),payload]);
+}
+const files=['runtime/src/lib.rs','runtime/build.rs','Cargo.toml','Cargo.lock','config.toml'];
+const saved={...process.env};let count=0;
+try{
+ // GET确认只接收404；有界等待不重复DELETE，不吞掉权限、服务或网络错误。
+ for(const readable of [0,2,99]){
+  let calls=0;const delays=[];
+  const github={rest:{actions:{getWorkflowRun:async params=>{assert.equal(params.run_id,7);calls++;if(calls>readable)throw Object.assign(Error('gone'),{status:404});return {};},deleteWorkflowRun:()=>{throw Error('不得重删');}}}};
+  const action=confirmRunDeleted({github,repo:{owner:'fixture',repo:'fixture'},run_id:7,wait:async ms=>{delays.push(ms);}});
+  if(readable===99){await assert.rejects(action,/旧Run删除未确认/);assert.equal(calls,6);assert.deepEqual(delays,[250,500,1000,2000,4000]);}
+  else {await action;assert.equal(calls,readable+1);assert.deepEqual(delays,[250,500].slice(0,readable));}count++;
+ }
+ for(const status of [403,500,undefined]){
+  let calls=0;const error=Object.assign(Error('failure'),{status});
+  await assert.rejects(confirmRunDeleted({github:{rest:{actions:{getWorkflowRun:async()=>{calls++;throw error;}}}},repo:{},run_id:7,wait:()=>{throw Error('不得等待非404错误');}}),e=>e===error);
+  assert.equal(calls,1);count++;
+ }
+ // 实际执行四份Workflow原脚本的成功/失败分支，保护活动任务和其它平台。
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ for(const p of ['macos','windows','linux-arm','linux-amd'])for(const success of [true,false]){
+  const workflow=product.platforms[p].workflow,path='.github/workflows/'+workflow;
+  const current={id:100,run_number:3,path,event:'workflow_dispatch',head_branch:'main',head_sha:sha,run_attempt:1,status:'in_progress'};
+  const previous=[{...current,id:10,run_number:1,status:'completed',conclusion:'success'},
+   {...current,id:20,run_number:2,status:'completed',conclusion:'failure'},
+   {...current,id:200,run_number:4,status:'queued'},
+   {...current,id:300,run_number:1,path:'.github/workflows/other.yml',status:'completed',conclusion:'failure'}];
+  const removed=new Set(),pending=new Map(),deleted=[];
+  const listWorkflowRuns=()=>{},listReleases=()=>{};
+  const github={paginate:async fn=>fn===listWorkflowRuns?[current,...previous.filter(r=>!removed.has(r.id))]:fn===listReleases?[]:assert.fail('未知集合'),rest:{actions:{listWorkflowRuns,
+   getWorkflowRun:async({run_id})=>{if(removed.has(run_id)){const n=pending.get(run_id)||0;if(n){pending.set(run_id,n-1);return {data:previous.find(r=>r.id===run_id)};}throw Object.assign(Error('gone'),{status:404});}return {data:run_id===100?current:previous.find(r=>r.id===run_id)};},
+   deleteWorkflowRun:async({run_id})=>{assert.equal(run_id,success?10:20);assert.ok(!removed.has(run_id));deleted.push(run_id);removed.add(run_id);pending.set(run_id,1);}},repos:{listReleases}}};
+  Object.assign(process.env,{GITHUB_WORKSPACE:root,PLATFORM:p,GITHUB_RUN_ATTEMPT:'1',JOB_RESULTS:JSON.stringify({prepare:'success',build:success?'success':'failure',release:success?'success':'skipped'})});
+  const yaml=fs.readFileSync(join(root,path),'utf8'),start=yaml.indexOf('name: 清理本平台已完成历史');assert.ok(start>=0);
+  const marker=yaml.indexOf('script: |',start);assert.ok(marker>start);
+  const code=yaml.slice(yaml.indexOf('\n',marker)+1).split('\n').map(line=>line.replace(/^ {10}/u,'')).join('\n');
+  const summary={addHeading(){return this;},addRaw(){return this;},async write(){}};
+  await new AsyncFunction('github','context','core',code)(github,{repo:{owner:'fixture',repo:'fixture'},runId:100,sha},{summary});
+  assert.deepEqual(deleted,[success?10:20]);assert.ok(!removed.has(200)&&!removed.has(300));count++;
+ }
+ const environment={...saved,PLATFORM:platform,CITIZENCHAIN_SOURCE_SHA:sha,NODE:process.execPath,CARGO:'cargo',PROTOC:saved.PROTOC||'protoc',CARGO_TARGET_DIR:join(work,'cache'),WASM_FILE:join(work,'untrusted.wasm'),SKIP_WASM_BUILD:'1'};
+ function runner(mode,events){return async(command,args,env,cwd)=>{
+  if(args[0]==='--version')return {stdout:command===env.CARGO?'cargo '+product.tools.rust+' fixture':'libprotoc '+product.tools.protoc};
+  if(command==='git'){
+   if(args[0]==='rev-parse')return {stdout:mode==='sha'?'b'.repeat(40):sha};
+   if(args[0]==='diff'){if(mode==='dirty')throw Error('Runtime input changed');return {};}
+   assert.deepEqual(args,['ls-files','-z']);return {stdout:files.join('\0')+'\0'};
+  }
+  assert.equal(command,env.CARGO);assert.ok(args.includes('build'));events.push('build');
+  assert.equal(env.WASM_FILE,undefined);assert.equal(env.SKIP_WASM_BUILD,undefined);
+  assert.equal(fs.readFileSync(join(cwd,'runtime/src/lib.rs'),'utf8'),originalRuntime);
+  assert.match(fs.readFileSync(join(cwd,'runtime/build.rs'),'utf8'),/WasmBuilder::build_using_defaults/);
+  if(mode==='retain')throw Object.assign(Error('tool active'),{retainWork:true});
+  const output=join(env.CARGO_TARGET_DIR,'release/wbuild/runtime');fs.mkdirSync(output,{recursive:true});
+  fs.writeFileSync(join(output,'runtime.wasm'),mode==='invalid'?Buffer.from([0]):wasm(mode==='version'?spec+1:spec));return {};
+ };}
+ for(const mode of ['ok','sha','dirty','version','invalid','retain']){
+  const directory=join(work,mode);fs.mkdirSync(directory);const events=[];
+  const result=prepareTestRuntime({platform,work:directory,environment,run:runner(mode,events)});
+  if(mode==='ok'){
+   const path=await result;assert.deepEqual(readRuntimeWasmVersion(fs.readFileSync(path)),{specName:'citizenchain',specVersion:spec,transactionVersion:transaction});
+   assert.ok(!fs.existsSync(join(directory,'runtime/source')));
+   await assert.rejects(prepareTestRuntime({platform,work:directory,environment,run:runner(mode,[])}),/EEXIST/);
+   assert.ok(fs.existsSync(path));
+   const native=platformCargoEnvironment(platform,directory,{...environment,WASM_FILE:path});assert.equal(native.WASM_FILE,undefined);assert.equal(native.SKIP_WASM_BUILD,'1');
+  }else {
+   await assert.rejects(result);
+   if(mode==='retain'){assert.ok(fs.existsSync(join(directory,'.retain-runtime-work')));assert.ok(fs.existsSync(join(directory,'runtime/source')));}
+   else assert.ok(!fs.existsSync(join(directory,'runtime')));
+  }
+  if(['sha','dirty'].includes(mode))assert.equal(events.length,0);count++;
+ }
+ // 真实test()接线的前端→fixture→Rust顺序；所有外部命令仅为本子进程内的模拟。
+ for(const failFrontend of [false,true]){
+  const directory=join(work,failFrontend?'frontend-failure':'pipeline');fs.mkdirSync(directory);const events=[];
+  Object.assign(process.env,environment,{PLATFORM:platform,CITIZENCHAIN_WORK_DIR:directory,GITHUB_WORKSPACE:root,CITIZENCHAIN_RELEASE_VERSION:'1.2.3'});
+  mock.method(childProcess,'spawnSync',(command,args,options)=>{
+   const ok=stdout=>({status:0,signal:null,stdout,stderr:''});
+   if(args[0]==='--version')return ok(command===process.execPath?'v'+product.tools.node:command==='cargo'?'cargo '+product.tools.rust+' fixture':'libprotoc '+product.tools.protoc);
+   if(command==='git')return ok(args[0]==='rev-parse'?sha:args[0]==='ls-files'?files.join('\0')+'\0':'');
+   if(command==='cargo'){events.push('fixture');const out=join(options.env.CARGO_TARGET_DIR,'release/wbuild/runtime');fs.mkdirSync(out,{recursive:true});fs.writeFileSync(join(out,'runtime.wasm'),wasm());return ok('');}
+   if(command==='bash'){
+    const script=args[args.length-1];
+    if(script.includes('--workspace')){
+     events.push('rust');assert.equal(options.env.SKIP_WASM_BUILD,'1');assert.ok(fs.existsSync(options.env.WASM_FILE));
+     assert.ok(!options.env.WASM_FILE.startsWith(options.env.CARGO_TARGET_DIR));
+     assert.match(script,/-p nodeguard --features test-support --lib -- --ignored/u);assert.ok(!script.includes('unset SKIP_WASM_BUILD WASM_FILE'));return ok('');
+    }
+    events.push('frontend');assert.match(script,/unset SKIP_WASM_BUILD WASM_FILE DOCS_RS/u);return failFrontend?{...ok(''),status:1}:ok('');
+   }
+   return ok('');
+  });syncBuiltinESMExports();
+  try {if(failFrontend)await assert.rejects(ciTest());else await ciTest();}
+  finally {mock.restoreAll();syncBuiltinESMExports();}
+  assert.deepEqual(events,failFrontend?['frontend']:['frontend','fixture','rust']);count++;
+ }
+ assert.equal(fs.readFileSync(join(root,'runtime/src/lib.rs'),'utf8'),originalRuntime);
+ assert.equal(fs.readFileSync(join(root,'runtime/build.rs'),'utf8'),originalHook);
+ console.log('CI测试WASM与删除回读回归通过：'+count+'组');
+}finally{mock.restoreAll();syncBuiltinESMExports();for(const k of Object.keys(process.env))if(!(k in saved))delete process.env[k];Object.assign(process.env,saved);fs.rmSync(work,{recursive:true,force:true});}
+"#;
+
+#[test]
+fn ci_test_wasm_and_history_readback_preserve_contracts() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("node package belongs to repository");
+    let output =
+        std::process::Command::new(std::env::var_os("NODE").unwrap_or_else(|| "node".into()))
+            .args(["--input-type=module", "-e", CI_TEST])
+            .current_dir(root)
+            .output()
+            .expect("execute declared Node");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

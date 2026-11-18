@@ -2049,7 +2049,11 @@ Runtime候选WASM编译由scripts/runtime.mjs负责，节点安装包由scripts/
 
 WASM塔塔自动化的编译实现仅归scripts/runtime.mjs，唯一工作流为.github/workflows/wasm.yml。runtime/build.rs仅嵌入既有WASM或生成空常量；SDK源码编译钩子由runtime.mjs仅在当前构建的临时源码中生成，退出后按原现场规则清理。Cargo依赖声明沿用原锁。
 
+节点四平台CI在前端回归通过后，由同一Runtime脚本在本轮target临时输入中构建当前提交、原spec/transaction版本的测试WASM；不读取链上版本、不递增版本、不创建正式Runtime候选。Runtime与第一方依赖必须与该提交相同，实际WASM双版本复核后保存为本轮runtime/runtime.wasm，避免后续cargo clean删除输入。workspace测试显式设置WASM_FILE并执行完整状态回归，原两项WASM专项另行显式执行，断言与失败关闭保持；SDK测试WASM继续按原规则跳过。fixture不写入GITHUB_ENV，正式编译环境继续清除WASM_FILE，安装包不携带测试Runtime。工具未确认退出时沿用.retain-runtime-work保留现场。
+
 五端历史维护直接归各自Workflow的cleanup；已完成历史与当前Run已结束的前置作业共同决定保留名额，避免排除当前Run而多留第三条。只删除已完成旧Run，不调用配置中的清理计划或包装函数，也不把当前构建的名额判定写成GitHub最终conclusion。
+
+节点四端保留资格、DELETE、分组和成功/失败各一条仍由原Workflow在原cleanup阶段执行。共享release模块仅提供删除确认：一次GET返回404即完成；仍可读时按250/500/1000/2000/4000毫秒间隔重查，最多6次，耗尽仍失败；权限、网络及其它HTTP错误立即传播，不重复DELETE、不吞错、不扩删活动或其它平台Run。最终集合回读和保留数量断言原样保持。Windows缓存的5分钟时限及非阻断策略本轮不变。
 
 节点四端版本由各自Workflow准备阶段读取本平台最新成功正式Release的版本并patch加1，首次使用节点配置基准版本；候选冲突必须失败，不在配置或控制台复制版本推算函数。WASM保持其当前构建的冻结基线及双版本输入。
 

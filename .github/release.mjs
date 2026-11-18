@@ -1,10 +1,10 @@
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {appendFileSync, createReadStream, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
-import {dirname, join} from 'node:path';
+import {dirname, join, resolve} from 'node:path';
 import {product} from '../scripts/config.mjs';
-import {nodeTools, npmCLI, runBuildProcess} from '../scripts/build.mjs';
-import {assertRuntimeTarget, parseRuntimeBase} from '../scripts/runtime.mjs';
+import {nodeTools, npmCLI, platformCargoEnvironment, runBuildProcess} from '../scripts/build.mjs';
+import {assertRuntimeTarget, parseRuntimeBase, prepareTestRuntime} from '../scripts/runtime.mjs';
 
 const root = dirname(import.meta.dirname);
 
@@ -209,8 +209,20 @@ export async function recordAssets({context,core}) {
     spec_version:Number(version),transaction_version:Number(process.env.CITIZENCHAIN_RUNTIME_TRANSACTION_VERSION)}));
 }
 
-function runShell(script) {
-  return runBuildProcess('bash',['-euo','pipefail','-c',script],process.env,root);
+function runShell(script, environment = process.env) {
+  return runBuildProcess('bash',['-euo','pipefail','-c',script],environment,root);
+}
+
+// 删除资格、DELETE及成功/失败各一条仍归原Workflow；这里只确认已删除的Run。
+export async function confirmRunDeleted({github, repo, run_id, wait = ms => new Promise(resolve => setTimeout(resolve, ms))}) {
+  if (!Number.isSafeInteger(run_id) || run_id <= 0) throw Error('旧Run编号无效');
+  const delays = [250, 500, 1000, 2000, 4000];
+  for (let attempt = 0;; attempt++) {
+    try { await github.rest.actions.getWorkflowRun({...repo, run_id}); }
+    catch (error) { if (error.status === 404) return; throw error; }
+    if (attempt === delays.length) throw Error('旧Run删除未确认');
+    await wait(delays[attempt]);
+  }
 }
 
 const testEnvironment = `export NODE="$(node -p process.execPath)" CITIZENCHAIN_BUILD_PLATFORM="$PLATFORM"
@@ -227,7 +239,7 @@ cargo --config config.toml test --locked --release -p runtime --all-targets`);
   for (const lock of product.locks.filter(file=>file.endsWith('/package-lock.json'))) {
     await runBuildProcess(node,[npm,'ci','--include=dev'],process.env,join(root,dirname(lock)));
   }
-  return runShell(testEnvironment+'\n'+`node --test --test-concurrency=1 onchina/platform/tests/structure.test.mjs node/frontend/tests/metamask.test.mjs
+  await runShell(testEnvironment+'\n'+`node --test --test-concurrency=1 onchina/platform/tests/structure.test.mjs node/frontend/tests/metamask.test.mjs
 cargo test --manifest-path crates/protocol/Cargo.toml --locked
 npm run check --prefix crates/scanner
 npm test --prefix crates/scanner
@@ -243,15 +255,19 @@ npm test --prefix onchina/platformweb
 npm test --prefix onchina/registryweb
 npm test --prefix onchina/legislationweb
 npm test --prefix onchina/private/frontend
-npm test --prefix onchina/judicial/frontend
-export TAURI_CONFIG="$(node -e 'console.log(JSON.stringify({version:process.env.CITIZENCHAIN_RELEASE_VERSION,build:{beforeBuildCommand:null,frontendDist:process.env.GITHUB_WORKSPACE+"/node/frontend"}}))')"
-# 节点默认测试不生成SDK或产品WASM；真实整链验收归Runtime专项。
-export SKIP_WASM_BUILD=1
+npm test --prefix onchina/judicial/frontend`);
+  const work = resolve(process.env.CITIZENCHAIN_WORK_DIR);
+  const wasm = await prepareTestRuntime({platform: process.env.PLATFORM, work});
+  // 原版本fixture只交给本次测试子进程，不写GITHUB_ENV，也不进入正式打包环境。
+  const environment = platformCargoEnvironment(process.env.PLATFORM, work, process.env);
+  environment.WASM_FILE = wasm;
+  return runShell(`export TAURI_CONFIG="$(node -e 'console.log(JSON.stringify({version:process.env.CITIZENCHAIN_RELEASE_VERSION,build:{beforeBuildCommand:null,frontendDist:process.env.GITHUB_WORKSPACE+"/node/frontend"}}))')"
 if [ "$PLATFORM" = macos ]; then export CARGO_PROFILE_RELEASE_STRIP=none; fi
 if [ "$PLATFORM" = windows ]; then export PATH="$(cygpath -u "$OPENSSL_DIR")/bin:$PATH"; fi
-# SDK跳过构建时不会覆盖旧嵌入文件；先清理缺少wbuild资源的旧生成输出。
+# 继续跳过SDK测试Runtime；产品fixture已独立保存，clean后显式重新嵌入。
 cargo --config config.toml clean --release -p runtime -p revive-dev-runtime -p substrate-test-runtime -p frame-storage-access-test-runtime --locked
-cargo --config config.toml test --locked --release --workspace --exclude sc-consensus-grandpa --all-targets`);
+cargo --config config.toml test --locked --release --workspace --exclude sc-consensus-grandpa --all-targets
+cargo --config config.toml test --locked --release -p nodeguard --features test-support --lib -- --ignored`, environment);
 }
 
 export async function testModules() {

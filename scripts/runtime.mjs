@@ -17,6 +17,12 @@ const maximumVersion = 0xffffffff;
 const maximumWasm = 50 * 1024 * 1024; // 沿用 SDK 解压边界，不增加生产链业务限制。
 const compressedPrefix = Buffer.from([82, 188, 83, 118, 70, 219, 142, 5]);
 const fail = message => { throw Error(message); };
+// 编译钩子唯一实现，只写入本轮临时输入，不修改Runtime源码。
+const runtimeBuildHook = `#[cfg(feature = "std")]
+fn main() { substrate_wasm_builder::WasmBuilder::build_using_defaults(); }
+#[cfg(not(feature = "std"))]
+fn main() {}
+`;
 const hash = value => typeof value === 'string' && value.length === 66 && /^0x[0-9a-f]{64}$/u.test(value);
 function version(value) {
   if (!Number.isInteger(value) || value < 0 || value > maximumVersion) fail('Runtime版本必须是u32整数');
@@ -376,6 +382,68 @@ export function copyRuntimeSource(project, destination, files) {
   }
 }
 
+// 节点CI的测试夹具保持当前提交及原版本；不取链上基线、不生成升级候选。
+export async function prepareTestRuntime({platform, work, environment = process.env, run = runBuildProcess}) {
+  const declared = cfg.product.platforms[platform];
+  if (!declared || platform === 'wasm' || process.platform !== declared.host || process.arch !== declared.arch) fail('测试Runtime构建宿主不符');
+  checkWork(work);
+  if (existsSync(join(work, '.retain-runtime-work'))) fail('Runtime工具退出未确认，保留现场');
+  const directory = join(work, 'runtime'), source = join(directory, 'source');
+  const env = platformCargoEnvironment(platform, directory, environment);
+  if (environment.CARGO_TARGET_DIR) env.CARGO_TARGET_DIR = checkWork(resolve(environment.CARGO_TARGET_DIR));
+  delete env.SKIP_WASM_BUILD;
+  mkdirSync(directory); // 本轮唯一现场；存在时失败，不覆盖其它构建。
+  let complete = false, retain = false;
+  const invoke = async (command, args, cwd = root, options) => {
+    try { return await run(command, args, env, cwd, options); }
+    catch (error) {
+      if (error.retainWork) {
+        retain = true;
+        writeFileSync(join(work, '.retain-runtime-work'), '工具退出未确认，保留本轮现场\n');
+      }
+      throw error;
+    }
+  };
+  try {
+    await checkTools(env, (command, args) => invoke(command, args, root, {capture: true}));
+    const revision = (await invoke('git', ['rev-parse', 'HEAD'], root, {capture: true})).stdout.trim();
+    if (!/^[0-9a-f]{40}$/u.test(revision) || environment.CITIZENCHAIN_SOURCE_SHA && revision !== environment.CITIZENCHAIN_SOURCE_SHA) fail('测试Runtime源码提交不符');
+    // Runtime及其第一方依赖必须与提交相同；CI接线和本测试文件本身不影响WASM输入。
+    await invoke('git', ['diff', '--quiet', 'HEAD', '--', 'runtime', 'crates', 'Cargo.toml', 'Cargo.lock', 'config.toml']);
+    const files = (await invoke('git', ['ls-files', '-z'], root, {capture: true})).stdout.split('\0').filter(Boolean);
+    copyRuntimeSource(root, source, files);
+    const original = readFileSync(join(source, 'runtime/src/lib.rs'), 'utf8');
+    const body = original.match(/pub const VERSION:\s*RuntimeVersion\s*=\s*RuntimeVersion\s*\{[\s\S]*?\n\};/gu);
+    if (body?.length !== 1) fail('测试Runtime原版本声明必须唯一');
+    const target = {};
+    for (const [field, name] of [['spec_version', 'specVersion'], ['transaction_version', 'transactionVersion']]) {
+      const values = [...body[0].matchAll(new RegExp('\\b' + field + '\\s*:\\s*([0-9]+)\\s*,', 'gu'))];
+      if (values.length !== 1) fail('测试Runtime原版本字段非法');
+      target[name] = version(Number(values[0][1]));
+    }
+    writeFileSync(join(source, 'runtime/build.rs'), runtimeBuildHook);
+    env.CITIZENCHAIN_SOURCE_ROOT = source;
+    await invoke(env.CARGO, ['--config', join(source, 'config.toml'), 'build', '--locked', '--release', '-p', 'runtime', '--no-default-features', '--features', 'std'], source);
+    const input = join(env.CARGO_TARGET_DIR, 'release/wbuild/runtime/runtime.wasm');
+    if (!lstatSync(input).isFile()) fail('测试Runtime产物不是普通文件');
+    const bytes = readFileSync(input);
+    if (!WebAssembly.validate(bytes)) fail('测试Runtime不是有效WASM');
+    verifyRuntimeWasm(bytes, target);
+    if (readFileSync(join(source, 'runtime/src/lib.rs'), 'utf8') !== original) fail('测试Runtime版本或源码被改写');
+    if ((await invoke('git', ['rev-parse', 'HEAD'], root, {capture: true})).stdout.trim() !== revision) fail('测试Runtime构建期间提交已变化');
+    await invoke('git', ['diff', '--quiet', 'HEAD', '--', 'runtime', 'crates', 'Cargo.toml', 'Cargo.lock', 'config.toml']);
+    const output = join(directory, 'runtime.wasm');
+    copyFileSync(input, output); // fixture独立于Cargo输出，随后clean不能删除测试输入。
+    complete = true;
+    return output;
+  } finally {
+    if (!retain) {
+      if (existsSync(source)) rmSync(source, {recursive: true, force: true});
+      if (!complete) rmSync(directory, {recursive: true, force: true});
+    }
+  }
+}
+
 async function runtime(action) {
   const operation = action === 'build-operation';
   if (action !== 'build' && !operation) fail('Runtime入口仅接受build或build-operation');
@@ -410,11 +478,7 @@ async function runtime(action) {
       writeFileSync(input, patchRuntimeVersion(readFileSync(input, 'utf8'), target));
       // SDK需要Cargo构建钩子；其实现只归本文件，仅写入本轮临时源码。
       // 正式Runtime的build.rs只负责嵌入已有WASM，不启动源码编译。
-      writeFileSync(join(source, 'runtime/build.rs'), `#[cfg(feature = "std")]
-fn main() { substrate_wasm_builder::WasmBuilder::build_using_defaults(); }
-#[cfg(not(feature = "std"))]
-fn main() {}
-`);
+      writeFileSync(join(source, 'runtime/build.rs'), runtimeBuildHook);
       env.CITIZENCHAIN_SOURCE_ROOT = source;
       await cargo(source, ['build', '--locked', '--release', '-p', 'runtime', '--no-default-features', '--features', operation ? 'std,operation' : 'std']);
       const filesToPublish = cfg.product.platforms.wasm.files;

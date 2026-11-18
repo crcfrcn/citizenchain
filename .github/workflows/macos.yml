@@ -163,6 +163,7 @@ jobs:
         script: |
           const {pathToFileURL}=await import('node:url');
           const {product}=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/scripts/config.mjs').href);
+          const {confirmRunDeleted}=await import(pathToFileURL(process.env.GITHUB_WORKSPACE+'/.github/release.mjs').href);
           const p=process.env.PLATFORM,repo=context.repo,workflow=product.platforms[p].workflow;
           const prefix=product.title+'·'+product.platforms[p].name+'·v';
           const rows=()=>github.paginate(github.rest.actions.listWorkflowRuns,{...repo,workflow_id:workflow,branch:'main',per_page:100});
@@ -198,7 +199,7 @@ jobs:
               await github.rest.repos.deleteRelease({...repo,release_id:release.id});
             }
             await github.rest.actions.deleteWorkflowRun({...repo,run_id:old.id});
-            try{await github.rest.actions.getWorkflowRun({...repo,run_id:old.id});throw Error('旧Run删除未确认');}catch(error){if(error.status!==404)throw error;}
+            await confirmRunDeleted({github,repo,run_id:old.id});
           }
           const remaining=await rows();
           if(obsolete.some(old=>remaining.some(run=>run.id===old.id)))throw Error('历史删除回读未通过');
