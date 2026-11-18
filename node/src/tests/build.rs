@@ -418,6 +418,38 @@ try{
   await new AsyncFunction('github','context','core',code)(github,{repo:{owner:'fixture',repo:'fixture'},runId:100,sha},{summary});
   assert.deepEqual(deleted,[success?10:20]);assert.ok(!removed.has(200)&&!removed.has(300));count++;
  }
+ // macOS真实脚本：单项已404但列表延迟，必须有界回读且不重删；原保留断言继续裁决。
+ for(const success of [true,false])for(const mode of [2,99,'403','500','network']){
+  const path='.github/workflows/macos.yml',oldId=success?10:20;
+  const current={id:100,run_number:3,path,event:'workflow_dispatch',head_branch:'main',head_sha:sha,run_attempt:1,status:'in_progress'};
+  const previous=[{...current,id:10,run_number:1,status:'completed',conclusion:'success'},
+   {...current,id:20,run_number:2,status:'completed',conclusion:'failure'},
+   {...current,id:200,run_number:4,status:'queued'},
+   {...current,id:300,run_number:1,path:'.github/workflows/other.yml',status:'completed',conclusion:'failure'}];
+  const removed=new Set(),deleted=[],delays=[];let reads=0,confirmed=0,written=false;
+  const failure=Object.assign(Error('list failure'),{status:mode==='network'?undefined:Number(mode)});
+  const listWorkflowRuns=()=>{},listReleases=()=>{};
+  const github={paginate:async fn=>{
+   if(fn===listReleases)return [];
+   assert.equal(fn,listWorkflowRuns);
+   if(!removed.size)return [current,...previous];
+   reads++;if(typeof mode==='string'&&reads===2)throw failure;
+   const stale=typeof mode==='string'||reads<=mode;
+   return [current,...previous.filter(r=>stale||!removed.has(r.id))];
+  },rest:{actions:{listWorkflowRuns,
+   getWorkflowRun:async({run_id})=>{if(removed.has(run_id)){confirmed++;throw Object.assign(Error('gone'),{status:404});}return {data:run_id===100?current:previous.find(r=>r.id===run_id)};},
+   deleteWorkflowRun:async({run_id})=>{assert.equal(run_id,oldId);assert.ok(!removed.has(run_id));deleted.push(run_id);removed.add(run_id);}},repos:{listReleases}}};
+  Object.assign(process.env,{GITHUB_WORKSPACE:root,PLATFORM:'macos',GITHUB_RUN_ATTEMPT:'1',JOB_RESULTS:JSON.stringify({prepare:'success',build:success?'success':'failure',release:success?'success':'skipped'})});
+  const yaml=fs.readFileSync(join(root,path),'utf8'),marker=yaml.indexOf('script: |',yaml.indexOf('name: 清理本平台已完成历史'));
+  assert.ok(marker>=0);
+  const code=yaml.slice(yaml.indexOf('\n',marker)+1).split('\n').map(line=>line.replace(/^ {10}/u,'')).join('\n');
+  const summary={addHeading(){return this;},addRaw(){return this;},async write(){written=true;}};
+  const action=new AsyncFunction('github','context','core','setTimeout',code)(github,{repo:{owner:'fixture',repo:'fixture'},runId:100,sha},{summary},(fn,ms)=>{delays.push(ms);fn();return 0;});
+  if(mode===2){await action;assert.equal(reads,3);assert.deepEqual(delays,[250,500]);assert.equal(written,true);}
+  else if(mode===99){await assert.rejects(action,/历史删除回读未通过/);assert.equal(reads,6);assert.deepEqual(delays,[250,500,1000,2000,4000]);assert.equal(written,false);}
+  else {await assert.rejects(action,error=>error===failure);assert.equal(reads,2);assert.deepEqual(delays,[250]);assert.equal(written,false);}
+  assert.equal(confirmed,1);assert.deepEqual(deleted,[oldId]);assert.ok(!removed.has(200)&&!removed.has(300));count++;
+ }
  const environment={...saved,PLATFORM:platform,CITIZENCHAIN_SOURCE_SHA:sha,NODE:process.execPath,CARGO:'cargo',PROTOC:saved.PROTOC||'protoc',CARGO_TARGET_DIR:join(work,'cache'),WASM_FILE:join(work,'untrusted.wasm'),SKIP_WASM_BUILD:'1'};
  function runner(mode,events){return async(command,args,env,cwd)=>{
   if(args[0]==='--version')return {stdout:command===env.CARGO?'cargo '+product.tools.rust+' fixture':'libprotoc '+product.tools.protoc};
