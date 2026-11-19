@@ -190,7 +190,13 @@ jobs:
             await github.rest.actions.deleteWorkflowRun({...repo,run_id:old.id});
             await confirmRunDeleted({github,repo,run_id:old.id});
           }
-          const remaining=await rows();
+          // 单项404之后列表仍可能短暂可见；只重读集合，原删除和最终断言保持。
+          let remaining=await rows();
+          const delays=[250,500,1000,2000,4000];
+          for(let attempt=0;obsolete.some(old=>remaining.some(run=>run.id===old.id))&&attempt<delays.length;attempt++){
+            await new Promise(resolve=>setTimeout(resolve,delays[attempt]));
+            remaining=await rows();
+          }
           if(obsolete.some(old=>remaining.some(run=>run.id===old.id)))throw Error('历史删除回读未通过');
           const retained=remaining.filter(run=>run.path==='.github/workflows/'+workflow&&run.event==='workflow_dispatch'
             &&(run.status==='completed'||run.id===context.runId));
