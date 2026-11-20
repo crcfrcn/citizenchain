@@ -1,5 +1,7 @@
 # CitizenChain Runtime 技术文档
 
+Host端QR注册表补齐公民号自助换绑两阶段：cid_rebind=19登记原绑定账户的完整授权审阅，signing_category=offchain_auth；self_rebind_cid_account_id=0x0a09登记现有CitizenIdentity/call9完整交易，signing_category=chain_tx。两者hash_only_allowed=false。Runtime已有CidRebindAuthorization字段顺序、GMB+0x11域、原账户验签、新账户origin和finalized绑定行为均不变；注册局代办动作11/GMB+0x1f仍独立。所有展示字段复用既有fields.yaml，不新增协议键或Runtime调用。
+
 ## Runtime 修改与链协议边界
 
 Runtime 账户类型必须使用 `AccountId`；账户、公钥和 SS58 的字段与文本合同统一见 `CitizenChainNode.md` 的“账户标识目标契约”。国家名称的基础字段仅为 `country_full_name`、`country_short_name`；既有语言字段由 `runtime/primitives/src/cid/code.rs` 的真实接口定义，不另建字段真源。行政区、机构名称和管理员集合字段的消费边界见 `CitizenChainOnChina.md` 的“行政区数据”和“CID 号”。

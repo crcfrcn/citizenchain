@@ -148,6 +148,78 @@ fn self_occupy_cid_is_a_full_chain_transaction() {
     assert_eq!(action.required_fields, vec!["cid_number"]);
 }
 
+/// 两阶段自助换绑与注册局动作、发布动作严格区分。
+#[test]
+fn self_rebind_has_distinct_authorization_and_chain_transaction() {
+    let entries = actions().expect("动作登记可解析");
+    let authorization = entries
+        .iter()
+        .find(|row| row.action_key == "cid_rebind")
+        .expect("原账户授权存在");
+    assert_eq!(authorization.action_code, 19);
+    assert_eq!(
+        authorization.kind,
+        qr_protocol::registry::ActionKind::OffchainSign
+    );
+    assert_eq!(
+        authorization.signing_category,
+        SigningCategory::OffchainAuth
+    );
+    assert!(!authorization.hash_only_allowed);
+    assert_eq!(
+        authorization.required_fields,
+        vec![
+            "genesis_hash",
+            "cid_number",
+            "current_account_id",
+            "new_account_id",
+            "expected_binding_revision",
+            "expires_at"
+        ]
+    );
+    let transaction = entries
+        .iter()
+        .find(|row| row.action_key == "self_rebind_cid_account_id")
+        .expect("新账户交易存在");
+    assert_eq!(transaction.action_code, 0x0a09);
+    assert_eq!(
+        transaction.kind,
+        qr_protocol::registry::ActionKind::ChainCall
+    );
+    assert_eq!(transaction.pallet.as_deref(), Some("CitizenIdentity"));
+    assert_eq!(
+        transaction.call.as_deref(),
+        Some("self_rebind_cid_account_id")
+    );
+    assert_eq!(transaction.signing_category, SigningCategory::ChainTx);
+    assert!(!transaction.hash_only_allowed);
+    assert_eq!(
+        transaction.required_fields,
+        vec![
+            "cid_number",
+            "new_account_id",
+            "expected_binding_revision",
+            "expires_at"
+        ]
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .find(|row| row.action_key == "citizen_rebind")
+            .expect("注册局动作保留")
+            .action_code,
+        11
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .find(|row| row.action_key == "citizenserve_cloudflare_publish")
+            .expect("发布动作保留")
+            .action_code,
+        17
+    );
+}
+
 #[test]
 fn required_fields_all_have_chinese_labels() {
     let actions = actions().expect("actions.yaml 必须可解析");
@@ -301,7 +373,7 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "72cc5662764a3ddfc97b0f7255e82d86acdc0aba457015b3479be828ede617f3",
+        "93806d74ea685fed2ed472a5146a0a964669bee7ed76c73c5a32c18b9b330a5d",
         "Dart registry 与包含统一机构登记状态锁的正式导出金标不一致"
     );
 }

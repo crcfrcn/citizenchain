@@ -91,6 +91,25 @@
     - expected_binding_revision
     - expires_at
 
+# 自助换绑——原绑定账户审阅完整授权，签名域保持GMB+0x11，不复用注册局新账户授权。
+- action_key: cid_rebind
+  action_code: 19
+  action_label_zh: 公民号自助换绑授权
+  kind: offchain_sign
+  qr_kind: sign_request
+  pallet:
+  call:
+  decoder: cid_rebind
+  hash_only_allowed: false
+  signing_category: offchain_auth
+  required_fields:
+    - genesis_hash
+    - cid_number
+    - current_account_id
+    - new_account_id
+    - expected_binding_revision
+    - expires_at
+
 # 本机默认账户切换——变化前的原默认账户签署完整目标账户顺序。
 # 该动作只授权本机用户切换，不包含 CID 或绑定版本，也不得进入任何换绑流程。
 - action_key: switch_default_account
@@ -1204,6 +1223,23 @@
     - actor_cid_number
     - actor_role_code
     - cid_number
+
+# 自助换绑第二阶段由新账户签完整交易，call9保持Runtime既有ABI。
+- action_key: self_rebind_cid_account_id
+  action_code: 0x0a09
+  action_label_zh: 公民号自助换绑交易
+  kind: chain_call
+  qr_kind: sign_request
+  pallet: CitizenIdentity
+  call: self_rebind_cid_account_id
+  decoder: self_rebind_cid_account_id
+  hash_only_allowed: false
+  signing_category: chain_tx
+  required_fields:
+    - cid_number
+    - new_account_id
+    - expected_binding_revision
+    - expires_at
 
 - action_key: bind_clearing_bank
   action_code: 0x131e
