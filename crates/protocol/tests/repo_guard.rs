@@ -151,8 +151,10 @@ impl RepositoryFixture {
 impl Drop for RepositoryFixture {
     fn drop(&mut self) {
         let result = fs::remove_dir_all(&self.0);
-        if !std::thread::panicking() {
-            result.expect("隔离Git夹具清理失败");
+        if let Err(error) = result {
+            if !std::thread::panicking() {
+                panic!("隔离Git夹具清理失败：{error}");
+            }
         }
     }
 }
@@ -437,7 +439,7 @@ fn github_platform_workflows_keep_product_owned_stages() -> Result<(), Box<dyn E
         missing["jobs"]
             .as_mapping_mut()
             .ok_or("缺少jobs映射")?
-            .remove(&serde_yaml::Value::String("build".into()));
+            .remove(serde_yaml::Value::String("build".into()));
         assert!(validate_workflow(&missing, platform).is_err());
         let mut bypass = document.clone();
         bypass["jobs"]["release"]["needs"] = serde_yaml::Value::String("prepare".into());

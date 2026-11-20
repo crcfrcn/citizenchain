@@ -23,7 +23,8 @@ use crate::{
     AreaCodeBound, BenchmarkHelper, Call, CandidateIdentityPayload, CidNumberBound,
     CidOccupyAuthorization, CidRebindAuthorization, CidRecord, CidRecordStatus,
     CitizenIdentityAuthority, CitizenIdentityAuthorization, CitizenSex, CitizenStatus, FamilyName,
-    GivenName, Pallet, RoleCodeBound, VotingIdentityPayload, MAX_CID_AUTHORIZATION_LIFETIME_SECS,
+    GivenName, Pallet, RoleCodeBound, SelfRebindAuthorization, VotingIdentityPayload,
+    MAX_CID_AUTHORIZATION_LIFETIME_SECS,
 };
 
 const BENCHMARK_TIMESTAMP_MILLIS: u64 = 1_800_000_000_000;
@@ -437,16 +438,12 @@ mod benchmarks {
             cid_number.clone(),
         )
         .expect("self occupy sets up the binding");
-        let expires_at = <T::TimeProvider as frame_support::traits::UnixTime>::now()
-            .as_secs()
-            .saturating_add(MAX_CID_AUTHORIZATION_LIFETIME_SECS);
-        let authorization = CidRebindAuthorization {
+        let authorization = SelfRebindAuthorization {
             genesis_hash: genesis_hash::<T>(),
             cid_number: cid_number.clone(),
             current_account_id,
             new_account_id: new_account_id.clone(),
             expected_binding_revision: 1,
-            expires_at,
         };
         let signature = signature::<T>(
             &current_signer,
@@ -459,7 +456,6 @@ mod benchmarks {
             RawOrigin::Signed(new_account_id.clone()),
             cid_number.clone(),
             1,
-            expires_at,
             signature,
         );
 

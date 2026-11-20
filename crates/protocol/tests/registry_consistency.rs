@@ -174,7 +174,6 @@ fn self_rebind_has_distinct_authorization_and_chain_transaction() {
             "current_account_id",
             "new_account_id",
             "expected_binding_revision",
-            "expires_at"
         ]
     );
     let transaction = entries
@@ -195,12 +194,7 @@ fn self_rebind_has_distinct_authorization_and_chain_transaction() {
     assert!(!transaction.hash_only_allowed);
     assert_eq!(
         transaction.required_fields,
-        vec![
-            "cid_number",
-            "new_account_id",
-            "expected_binding_revision",
-            "expires_at"
-        ]
+        vec!["cid_number", "new_account_id", "expected_binding_revision",]
     );
     assert_eq!(
         entries

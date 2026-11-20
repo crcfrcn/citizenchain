@@ -108,7 +108,6 @@
     - current_account_id
     - new_account_id
     - expected_binding_revision
-    - expires_at
 
 # 本机默认账户切换——变化前的原默认账户签署完整目标账户顺序。
 # 该动作只授权本机用户切换，不包含 CID 或绑定版本，也不得进入任何换绑流程。
@@ -1239,7 +1238,6 @@
     - cid_number
     - new_account_id
     - expected_binding_revision
-    - expires_at
 
 - action_key: bind_clearing_bank
   action_code: 0x131e

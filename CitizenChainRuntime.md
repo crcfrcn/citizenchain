@@ -1,6 +1,6 @@
 # CitizenChain Runtime 技术文档
 
-Host端QR注册表补齐公民号自助换绑两阶段：cid_rebind=19登记原绑定账户的完整授权审阅，signing_category=offchain_auth；self_rebind_cid_account_id=0x0a09登记现有CitizenIdentity/call9完整交易，signing_category=chain_tx。两者hash_only_allowed=false。Runtime已有CidRebindAuthorization字段顺序、GMB+0x11域、原账户验签、新账户origin和finalized绑定行为均不变；注册局代办动作11/GMB+0x1f仍独立。所有展示字段复用既有fields.yaml，不新增协议键或Runtime调用。
+自助换绑call9的SelfRebindAuthorization只含genesis_hash、cid_number、current_account_id、new_account_id、expected_binding_revision；删除自助路径expires_at参数及链上时间检查。原账户仍使用GMB+0x11域，目标账户仍使用原交易CheckNonce、签名和finalized执行。成功后绑定版本递增，旧授权失效；二维码300秒只限制扫码会话，已签出的授权在版本变化前不会因扫码超时自动撤销。注册局CidRebindAuthorization与0x1f期限协议独立保留。
 
 ## Runtime 修改与链协议边界
 

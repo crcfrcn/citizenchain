@@ -28,10 +28,10 @@ pub type CidNumberBound = BoundedVec<u8, ConstU32<32>>;
 pub type AreaCodeBound = BoundedVec<u8, ConstU32<16>>;
 pub type RoleCodeBound = BoundedVec<u8, ConstU32<64>>;
 
-/// CID 首次绑定或换绑授权自签发起后允许提交上链的最长时间（Unix 秒）。
+/// 注册局代办及身份写入授权允许提交上链的最长时间；自助换绑不使用该期限。
 pub const MAX_CID_AUTHORIZATION_LIFETIME_SECS: u64 = 600;
 
-/// CID 换绑离线授权的唯一 SCALE 载荷。
+/// 注册局代办换绑由目标账户签署的 SCALE 授权载荷。
 ///
 /// 字段顺序是公民、冷钱包、OnChina 与 runtime 的共同协议；绑定创世哈希、当前账户和
 /// 当前 revision，确保授权不能跨链、跨绑定轮次或在账户再次轮换后重放。
@@ -46,6 +46,18 @@ pub struct CidRebindAuthorization<Hash, AccountId> {
     pub expected_binding_revision: u64,
     /// Unix 秒；必须晚于当前链上时间，且不得超过当前时间 600 秒。
     pub expires_at: u64,
+}
+
+/// 自助换绑授权只绑定创世、CID、原/新账户和当前绑定版本；二维码会话期限不进入链协议。
+#[derive(
+    Clone, Encode, Decode, DecodeWithMemTracking, Eq, PartialEq, Debug, TypeInfo, MaxEncodedLen,
+)]
+pub struct SelfRebindAuthorization<Hash, AccountId> {
+    pub genesis_hash: Hash,
+    pub cid_number: CidNumberBound,
+    pub current_account_id: AccountId,
+    pub new_account_id: AccountId,
+    pub expected_binding_revision: u64,
 }
 
 /// 注册局首次占号时由新账户签署的唯一 SCALE 载荷。
@@ -630,8 +642,7 @@ pub mod pallet {
         type CitizenIdentityAuthority: CitizenIdentityAuthority<Self::AccountId, SignatureOf<Self>>;
 
         /// Binding may declare an unfunded account; register its receive alias.
-        type OnAccountRegistered: frame_support::traits::OnNewAccount<Self::AccountId>
-            + Get<Weight>;
+        type OnAccountRegistered: frame_support::traits::OnNewAccount<Self::AccountId> + Get<Weight>;
 
         /// 只负责为 FRAME benchmark 生成真实账户和签名，不参与生产鉴权。
         #[cfg(feature = "runtime-benchmarks")]
@@ -1340,7 +1351,7 @@ pub mod pallet {
 
         /// 匿名 CID 自助换绑(轮换):把 CID 从当前绑定账户换绑到新账户,CID 与业务数据不变。
         /// origin = 新账户(自签即证新账户受控 + 自付费);`current_account_signature` = 当前绑定账户
-        /// 对 [`CidRebindAuthorization`] 的 op-tag 授权签名。
+        /// 对 [`SelfRebindAuthorization`] 的 op-tag 授权签名。
         /// 当前账户从 `AccountIdByCid[cid]` 反查、不用传;已升级投票/竞选公民的 CID 只能经注册局
         /// 换绑。CTZN 匿名 + NATP 均可自助换绑。新账户任意(能签即可),但不得已绑另一 CID。
         #[pallet::call_index(9)]
@@ -1349,7 +1360,6 @@ pub mod pallet {
             origin: OriginFor<T>,
             cid_number: CidNumberBound,
             expected_binding_revision: u64,
-            expires_at: u64,
             current_account_signature: SignatureOf<T>,
         ) -> DispatchResult {
             let new_account_id = ensure_signed(origin)?;
@@ -1367,14 +1377,12 @@ pub mod pallet {
                 Error::<T>::RebindAccountIdUnchanged
             );
             Self::ensure_expected_binding_revision(&cid_number, expected_binding_revision)?;
-            Self::ensure_cid_authorization_window(expires_at)?;
-            // 创世哈希 + 当前账户 + revision + 过期时间共同锁死本次授权，禁止跨链/跨轮次重放。
-            let payload = Self::rebind_authorization(
+            // 创世哈希 + 当前/目标账户 + revision共同锁死本次授权，禁止跨链/跨轮次重放。
+            let payload = Self::self_rebind_authorization(
                 cid_number.clone(),
                 current_account_id.clone(),
                 new_account_id.clone(),
                 expected_binding_revision,
-                expires_at,
             )
             .encode();
             Self::ensure_rebind_signature(
@@ -1954,7 +1962,23 @@ pub mod pallet {
             Ok(binding_revision)
         }
 
-        /// 构造四端共用换绑载荷；字段声明顺序即 SCALE 协议顺序。
+        /// 原账户自助换绑使用独立结构，不改变注册局新账户授权的期限协议。
+        fn self_rebind_authorization(
+            cid_number: CidNumberBound,
+            current_account_id: T::AccountId,
+            new_account_id: T::AccountId,
+            expected_binding_revision: u64,
+        ) -> SelfRebindAuthorization<T::Hash, T::AccountId> {
+            SelfRebindAuthorization {
+                genesis_hash: frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::default()),
+                cid_number,
+                current_account_id,
+                new_account_id,
+                expected_binding_revision,
+            }
+        }
+
+        /// 构造注册局代办换绑载荷；字段声明顺序即 SCALE 协议顺序。
         fn rebind_authorization(
             cid_number: CidNumberBound,
             current_account_id: T::AccountId,

@@ -32,6 +32,25 @@ fn cid_authorization_scale_contract_keeps_canonical_field_order() {
             .encode()
     );
 
+    let self_rebind = SelfRebindAuthorization {
+        genesis_hash,
+        cid_number: cid_number.clone(),
+        current_account_id,
+        new_account_id,
+        expected_binding_revision: 7,
+    };
+    assert_eq!(
+        self_rebind.encode(),
+        (
+            genesis_hash,
+            cid_number.clone(),
+            current_account_id,
+            new_account_id,
+            7u64
+        )
+            .encode()
+    );
+
     let occupy = CidOccupyAuthorization {
         genesis_hash,
         cid_number: cid_number.clone(),
@@ -53,14 +72,12 @@ fn self_rebind_cid_account_id_moves_binding_to_new_account_id() {
             RuntimeOrigin::signed(1),
             cid(&cid_bytes),
         ));
-        let expires_at = rebind_expires_at();
         // 新账户 2 作 origin(证新账户受控)，当前账户 1 授权签名。
         assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
             RuntimeOrigin::signed(2),
             cid(&cid_bytes),
             1,
-            expires_at,
-            rebind_signature(1, &cid_bytes, 1, 2, 1, expires_at),
+            self_rebind_signature(1, &cid_bytes, 1, 2, 1,),
         ));
         // 换绑后：CID 绑定新账户 2，此前账户 1 的反向索引清除。
         assert_eq!(AccountIdByCid::<Test>::get(cid(&cid_bytes)), Some(2));
@@ -78,7 +95,6 @@ fn self_rebind_cid_account_id_rejects_unoccupied_cid() {
                 RuntimeOrigin::signed(2),
                 cid(&citizen_cid_number("rebind_none")),
                 1,
-                rebind_expires_at(),
                 valid_signature(),
             ),
             Error::<Test>::NotBoundToAnyCid
@@ -95,13 +111,11 @@ fn self_rebind_cid_account_id_rejects_invalid_current_account_signature() {
             cid(&cid_bytes),
         ));
         let bad_sig: pallet::SignatureOf<Test> = b"nope".to_vec().try_into().expect("sig fits");
-        let expires_at = rebind_expires_at();
         assert_noop!(
             CitizenIdentity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&cid_bytes),
                 1,
-                expires_at,
                 bad_sig,
             ),
             Error::<Test>::InvalidRebindSignature
@@ -123,14 +137,12 @@ fn self_rebind_cid_account_id_rejects_new_account_bound_to_another_cid() {
             RuntimeOrigin::signed(2),
             cid(&cid_b),
         ));
-        let expires_at = rebind_expires_at();
         assert_noop!(
             CitizenIdentity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&cid_a),
                 1,
-                expires_at,
-                rebind_signature(1, &cid_a, 1, 2, 1, expires_at),
+                self_rebind_signature(1, &cid_a, 1, 2, 1,),
             ),
             Error::<Test>::AccountIdAlreadyBoundToAnotherCid
         );
@@ -156,7 +168,6 @@ fn self_rebind_cid_account_id_rejects_civic_cid() {
                 RuntimeOrigin::signed(2),
                 cid(&citizen_cid_number("0001")),
                 1,
-                rebind_expires_at(),
                 valid_signature(),
             ),
             Error::<Test>::CivicRebindRequiresRegistrar
@@ -165,53 +176,31 @@ fn self_rebind_cid_account_id_rejects_civic_cid() {
 }
 
 #[test]
-fn self_rebind_rejects_wrong_revision_expiry_same_account_and_cross_chain_signature() {
+fn self_rebind_rejects_wrong_revision_same_account_and_cross_chain_signature() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("rebind-guards");
         assert_ok!(CitizenIdentity::self_occupy_cid(
             RuntimeOrigin::signed(1),
             cid(&cid_bytes),
         ));
-        let expires_at = rebind_expires_at();
-        let signature = rebind_signature(1, &cid_bytes, 1, 2, 1, expires_at);
+        let signature = self_rebind_signature(1, &cid_bytes, 1, 2, 1);
 
         assert_noop!(
             CitizenIdentity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&cid_bytes),
                 2,
-                expires_at,
                 signature.clone(),
             ),
             Error::<Test>::BindingRevisionMismatch
         );
-        assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
-                RuntimeOrigin::signed(2),
-                cid(&cid_bytes),
-                1,
-                test_time_secs(),
-                signature.clone(),
-            ),
-            Error::<Test>::CidAuthorizationExpired
-        );
-        assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
-                RuntimeOrigin::signed(2),
-                cid(&cid_bytes),
-                1,
-                test_time_secs() + MAX_CID_AUTHORIZATION_LIFETIME_SECS + 1,
-                signature.clone(),
-            ),
-            Error::<Test>::CidAuthorizationLifetimeTooLong
-        );
+
         assert_noop!(
             CitizenIdentity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(1),
                 cid(&cid_bytes),
                 1,
-                expires_at,
-                rebind_signature(1, &cid_bytes, 1, 1, 1, expires_at),
+                self_rebind_signature(1, &cid_bytes, 1, 1, 1,),
             ),
             Error::<Test>::RebindAccountIdUnchanged
         );
@@ -222,7 +211,6 @@ fn self_rebind_rejects_wrong_revision_expiry_same_account_and_cross_chain_signat
                 RuntimeOrigin::signed(2),
                 cid(&cid_bytes),
                 1,
-                expires_at,
                 signature,
             ),
             Error::<Test>::InvalidRebindSignature
@@ -238,21 +226,18 @@ fn self_rebind_rejects_a_historical_authorization_after_two_later_rotations() {
             RuntimeOrigin::signed(1),
             cid(&cid_bytes),
         ));
-        let expires_at = rebind_expires_at();
-        let historical = rebind_signature(1, &cid_bytes, 1, 2, 1, expires_at);
+        let historical = self_rebind_signature(1, &cid_bytes, 1, 2, 1);
         assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
             RuntimeOrigin::signed(2),
             cid(&cid_bytes),
             1,
-            expires_at,
             historical.clone(),
         ));
         assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
             RuntimeOrigin::signed(1),
             cid(&cid_bytes),
             2,
-            expires_at,
-            rebind_signature(2, &cid_bytes, 2, 1, 2, expires_at),
+            self_rebind_signature(2, &cid_bytes, 2, 1, 2,),
         ));
         assert_eq!(BindingRevisionByCid::<Test>::get(cid(&cid_bytes)), Some(3));
 
@@ -261,7 +246,6 @@ fn self_rebind_rejects_a_historical_authorization_after_two_later_rotations() {
                 RuntimeOrigin::signed(2),
                 cid(&cid_bytes),
                 1,
-                expires_at,
                 historical,
             ),
             Error::<Test>::BindingRevisionMismatch
@@ -605,7 +589,7 @@ fn revoked_cid_rejects_self_and_admin_rebind_without_state_changes() {
         let cid_bytes = citizen_cid_number("RV-REBIND");
         occupy_tag_as("RV-REBIND", 1);
         let expires_at = rebind_expires_at();
-        let previous_self_authorization = rebind_signature(1, &cid_bytes, 1, 2, 1, expires_at);
+        let previous_self_authorization = self_rebind_signature(1, &cid_bytes, 1, 2, 1);
         let previous_admin_authorization = rebind_signature(2, &cid_bytes, 1, 2, 1, expires_at);
 
         assert_ok!(CitizenIdentity::revoke_cid(
@@ -623,7 +607,6 @@ fn revoked_cid_rejects_self_and_admin_rebind_without_state_changes() {
                 RuntimeOrigin::signed(2),
                 cid_number.clone(),
                 1,
-                expires_at,
                 previous_self_authorization,
             ),
             Error::<Test>::CidAlreadyRevoked
@@ -709,5 +692,27 @@ fn citizen_identity_authorization_scale_contract_is_stable() {
         expected.extend_from_slice(&7u64.encode());
         expected.extend_from_slice(&1_700_000_000u64.encode());
         assert_eq!(authorization.encode(), expected);
+    });
+}
+
+/// 内层授权不受链时间推进影响，二维码到期由签名会话处理。
+#[test]
+fn self_rebind_authorization_has_no_chain_clock_deadline() {
+    new_test_ext().execute_with(|| {
+        let id = citizen_cid_number("no-clock");
+        assert_ok!(CitizenIdentity::self_occupy_cid(
+            RuntimeOrigin::signed(1),
+            cid(&id)
+        ));
+        let proof = self_rebind_signature(1, &id, 1, 2, 1);
+        TEST_TIME_SECS.with(|clock| clock.set(test_time_secs() + 3600));
+        System::set_block_number(10000);
+        assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
+            RuntimeOrigin::signed(2),
+            cid(&id),
+            1,
+            proof
+        ));
+        assert_eq!(BindingRevisionByCid::<Test>::get(cid(&id)), Some(2));
     });
 }

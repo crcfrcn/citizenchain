@@ -165,11 +165,16 @@ impl BenchmarkHelper<u64, pallet::SignatureOf<Test>> for TestBenchmarkHelper {
 pub struct RecordAccountRegistration;
 impl frame_support::traits::OnNewAccount<u64> for RecordAccountRegistration {
     fn on_new_account(account: &u64) {
-        sp_io::storage::set(&codec::Encode::encode(&(b"evm-receive-registration", account)), &[1]);
+        sp_io::storage::set(
+            &codec::Encode::encode(&(b"evm-receive-registration", account)),
+            &[1],
+        );
     }
 }
 impl frame_support::traits::Get<frame_support::weights::Weight> for RecordAccountRegistration {
-    fn get() -> frame_support::weights::Weight { frame_support::weights::Weight::zero() }
+    fn get() -> frame_support::weights::Weight {
+        frame_support::weights::Weight::zero()
+    }
 }
 
 impl Config for Test {
@@ -303,6 +308,28 @@ fn public_cid_number(tag: &str) -> alloc::vec::Vec<u8> {
 
 fn valid_signature() -> pallet::SignatureOf<Test> {
     b"valid".to_vec().try_into().expect("signature should fit")
+}
+
+// 自助换绑与注册局换绑分别编码，只有注册局保留expires_at。
+fn self_rebind_signature(
+    signer_account_id: u64,
+    cid_number: &[u8],
+    current_account_id: u64,
+    new_account_id: u64,
+    expected_binding_revision: u64,
+) -> pallet::SignatureOf<Test> {
+    let payload = SelfRebindAuthorization {
+        genesis_hash: System::block_hash(0),
+        cid_number: cid(cid_number),
+        current_account_id,
+        new_account_id,
+        expected_binding_revision,
+    }
+    .encode();
+    rebind_signature_bytes(&signer_account_id, &payload)
+        .to_vec()
+        .try_into()
+        .expect("self rebind signature fits")
 }
 
 fn rebind_signature_bytes(account_id: &u64, payload: &[u8]) -> [u8; 32] {

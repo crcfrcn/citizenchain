@@ -10,6 +10,7 @@ use super::*;
 use crate::configs::is_nrc_admin;
 use crate::configs::*;
 use crate::ResolutionDestroy;
+use engingcore::{CitizenIdentityReader, InternalAdminProvider, JointVoteResultCallback};
 use entitybase::InstitutionRoleAuthorizationQuery;
 use frame_support::traits::{Contains, Currency, EnsureOrigin, FindAuthor};
 use frame_support::{assert_noop, assert_ok};
@@ -20,7 +21,6 @@ use sp_core::{sr25519, Pair};
 #[cfg(not(feature = "runtime-benchmarks"))]
 use sp_runtime::traits::Hash as HashT;
 use sp_runtime::{traits::IdentifyAccount, BuildStorage, MultiSigner};
-use engingcore::{CitizenIdentityReader, InternalAdminProvider, JointVoteResultCallback};
 
 fn new_test_ext() -> sp_io::TestExternalities {
     let storage = crate::RuntimeGenesisConfig::default()
@@ -553,3 +553,88 @@ mod unit;
 
 // 原独立金标从cases迁为共享测试常量，数值保持，不按生产实现推导。
 const EXPECTED_PUBLIC_INSTITUTIONS: usize = 49_593;
+
+/// 当前Runtime公开metadata直接导出给SDK测试；不手工改写call9布局。
+#[test]
+fn export_self_rebind_runtime_metadata() {
+    let metadata = Runtime::metadata_at_version(15).expect("Runtime supports metadata v15");
+    assert_eq!(&metadata[..5], b"meta\x0f");
+    if let Some(path) = std::env::var_os("CITIZENSDK_METADATA_OUTPUT") {
+        std::fs::write(path, format!("0x{}\n", hex::encode(metadata.as_slice())))
+            .expect("write current SDK metadata fixture");
+    }
+}
+
+/// 复用交易扩展实际使用的nonce校验/准备实现，旧nonce不得再次接纳或改写状态。
+#[test]
+fn unified_transaction_nonce_rejects_repeated_execution() {
+    use sp_runtime::transaction_validity::{InvalidTransaction, TransactionValidityError};
+    new_test_ext().execute_with(|| {
+        let who = AccountId::new([0x57; 32]);
+        System::inc_providers(&who);
+        assert!(frame_system::CheckNonce::<Runtime>::validate_nonce_for_account(&who, 0).is_ok());
+        assert_ok!(frame_system::CheckNonce::<Runtime>::prepare_nonce_for_account(&who, 0));
+        assert_eq!(System::account_nonce(&who), 1);
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(matches!(
+            frame_system::CheckNonce::<Runtime>::validate_nonce_for_account(&who, 0),
+            Err(TransactionValidityError::Invalid(InvalidTransaction::Stale))
+        ));
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+    });
+}
+
+/// 真实Runtime和sr25519校验无期限授权，A→B→A后仍以绑定版本拒绝旧证明。
+#[test]
+fn unified_self_rebind_real_signatures_survive_clock_gap_but_not_binding_revision() {
+    new_test_ext().execute_with(|| {
+        let first = sr25519::Pair::from_seed(&[0x61; 32]);
+        let second = sr25519::Pair::from_seed(&[0x62; 32]);
+        let a = AccountId::new(first.public().0);
+        let b = AccountId::new(second.public().0);
+        let cid = test_cid_number(&real_cid_number("unified-clock", "CTZN", "CN"));
+        assert_ok!(CitizenIdentity::self_occupy_cid(
+            RuntimeOrigin::signed(a.clone()),
+            cid.clone()
+        ));
+        let authorization =
+            |old: AccountId, target: AccountId, revision| identity::SelfRebindAuthorization {
+                genesis_hash: System::block_hash(0),
+                cid_number: cid.clone(),
+                current_account_id: old,
+                new_account_id: target,
+                expected_binding_revision: revision,
+            };
+        let old = sign_citizen_identity_message(
+            &first,
+            primitives::sign::OP_SIGN_CID_REBIND,
+            &codec::Encode::encode(&authorization(a.clone(), b.clone(), 1)),
+        );
+        Timestamp::set_timestamp(Timestamp::get() + 3_600_000);
+        assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
+            RuntimeOrigin::signed(b.clone()),
+            cid.clone(),
+            1,
+            old.clone()
+        ));
+        let back = sign_citizen_identity_message(
+            &second,
+            primitives::sign::OP_SIGN_CID_REBIND,
+            &codec::Encode::encode(&authorization(b.clone(), a.clone(), 2)),
+        );
+        assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
+            RuntimeOrigin::signed(a.clone()),
+            cid.clone(),
+            2,
+            back
+        ));
+        assert_eq!(
+            identity::BindingRevisionByCid::<Runtime>::get(&cid),
+            Some(3)
+        );
+        assert_noop!(
+            CitizenIdentity::self_rebind_cid_account_id(RuntimeOrigin::signed(b), cid, 1, old),
+            identity::Error::<Runtime>::BindingRevisionMismatch
+        );
+    });
+}
