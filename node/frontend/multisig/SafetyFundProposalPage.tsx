@@ -206,11 +206,11 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
           </div>
 
           <div className="wallet-form-field">
-            <label htmlFor="transfer-remark">备注（可选，最长 256 字节）</label>
+            <label htmlFor="transfer-remark">转账备注（选填）</label>
             <textarea id="transfer-remark" className="institution-transfer-remark"
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
-              placeholder="转账备注" disabled={submitting}
+              placeholder="输入备注收1.00元备注手续费。" disabled={submitting}
             />
           </div>
         </div>

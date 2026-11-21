@@ -5,12 +5,13 @@ use sp_runtime::{Debug, Perbill};
 /// 链上交易费执行接口。
 ///
 /// 本接口不是第二套费用分类：调用方只能提交已经由业务规则确定的付款账户和
-/// 交易金额；具体实现统一使用本文件费率计算、完整扣款并进入链上分账。
+/// 交易金额和备注是否非空；具体实现统一收费、完整扣款并进入链上分账。
 pub trait OnchainFeeCharger<AccountId, Balance> {
     /// 从 `payer_account_id` 收取 `transaction_amount` 对应的链上交易费并返回实收金额。
     fn charge(
         payer_account_id: &AccountId,
         transaction_amount: Balance,
+        has_remark: bool,
     ) -> Result<Balance, sp_runtime::DispatchError>;
 }
 
@@ -18,6 +19,7 @@ impl<AccountId, Balance> OnchainFeeCharger<AccountId, Balance> for () {
     fn charge(
         _payer: &AccountId,
         _transaction_amount: Balance,
+        _has_remark: bool,
     ) -> Result<Balance, sp_runtime::DispatchError> {
         Err(sp_runtime::DispatchError::Other(
             "OnchainFeeChargerNotConfigured",
@@ -68,7 +70,7 @@ pub const ONCHAIN_FEE_RATE: Perbill = Perbill::from_parts(1_000_000);
 /// 链上交易单笔最小手续费:10 FEN = 0.1 元。
 pub const ONCHAIN_MIN_FEE: u128 = 10;
 
-/// 投票定额费及普通链上转账非空备注附加费，单位为分：100 分 = 1 元。
+/// 投票定额费及普通、多签转账非空备注附加费，单位为分：100 分 = 1 元。
 pub const FLAT_FEE: u128 = 100;
 
 // 链上交易手续费分账。

@@ -3,35 +3,190 @@
 use super::*;
 
 #[test]
-fn nrc_transfer_executes_when_internal_vote_reaches_threshold() {
+fn nonempty_remark_fee_rolls_back_after_withdrawal_then_charges_once_on_retry() {
+    use frame_support::traits::LockableCurrency;
     new_test_ext().execute_with(|| {
-        let funding_account_id = nrc_main_account();
+        let funding = nrc_main_account();
+        let payer = nrc_fee_account();
         let dest = beneficiary_account_id();
-
         assert_ok!(propose_transfer(
             RuntimeOrigin::signed(nrc_admin(0)),
             Some(nrc_actor_cid()),
-            funding_account_id.clone(),
+            funding.clone(),
             dest.clone(),
             1_000,
-            BoundedVec::default(),
+            b" memo ".to_vec().try_into().unwrap()
         ));
         let pid = last_proposal_id();
-
-        let vote_pairs = nrc_pass_pairs();
+        <Balances as LockableCurrency<_>>::set_lock(
+            *b"memofail",
+            &funding,
+            10_000,
+            WithdrawReasons::TRANSFER,
+        );
+        let issuance = Balances::total_issuance();
+        let votes = nrc_pass_pairs();
         assert_ok!(cast_transfer_votes_n(
-            &vote_pairs[1..],
-            nrc_pass_count().saturating_sub(1),
-            pid,
+            &votes[1..],
+            nrc_pass_count() - 1,
+            pid
         ));
-
-        // 本金只从主账户支出，链上费只从同一 CID 的费用账户支出。
-        assert_eq!(Balances::free_balance(&funding_account_id), 9_000);
-        assert_eq!(Balances::free_balance(nrc_fee_account()), 9_990);
+        assert_eq!(VotingEngine::proposals(pid).unwrap().status, STATUS_PASSED);
+        assert_eq!(Balances::free_balance(&payer), 10_000);
+        assert_eq!(Balances::free_balance(&funding), 10_000);
+        assert_eq!(Balances::free_balance(&dest), 0);
+        assert_eq!(Balances::total_issuance(), issuance);
+        <Balances as LockableCurrency<_>>::remove_lock(*b"memofail", &funding);
+        assert_ok!(VotingEngine::retry_passed_proposal(
+            RuntimeOrigin::signed(nrc_admin(0)),
+            pid
+        ));
+        assert_eq!(Balances::free_balance(&payer), 9_890);
+        assert_eq!(Balances::free_balance(&funding), 9_000);
         assert_eq!(Balances::free_balance(&dest), 1_000);
-        // 提案数据仍保留（由 engingcore 延迟清理）
-        assert!(engingcore::Pallet::<Test>::get_proposal_data(pid).is_some());
+        assert_noop!(
+            VotingEngine::retry_passed_proposal(RuntimeOrigin::signed(nrc_admin(0)), pid),
+            engingcore::Error::<Test>::ProposalNotRetryable
+        );
+        assert_eq!(Balances::free_balance(&payer), 9_890);
     });
+}
+
+#[test]
+fn remark_fee_precheck_includes_ed_and_never_charges_rejected_proposals() {
+    new_test_ext().execute_with(|| {
+        let payer = nrc_fee_account();
+        assert_ok!(Balances::force_set_balance(
+            RuntimeOrigin::root(),
+            payer.clone(),
+            110
+        ));
+        assert_noop!(
+            propose_transfer(
+                RuntimeOrigin::signed(nrc_admin(0)),
+                Some(nrc_actor_cid()),
+                nrc_main_account(),
+                beneficiary_account_id(),
+                1_000,
+                vec![b'a'].try_into().unwrap()
+            ),
+            Error::<Test>::InsufficientFeeBalance
+        );
+        assert_eq!(Balances::free_balance(&payer), 110);
+        assert_ok!(Balances::force_set_balance(
+            RuntimeOrigin::root(),
+            payer.clone(),
+            111
+        ));
+        assert_ok!(propose_transfer(
+            RuntimeOrigin::signed(nrc_admin(0)),
+            Some(nrc_actor_cid()),
+            nrc_main_account(),
+            beneficiary_account_id(),
+            1_000,
+            vec![b'a'].try_into().unwrap()
+        ));
+        let pid = last_proposal_id();
+        assert_eq!(Balances::free_balance(&payer), 111);
+        let votes = nrc_pass_pairs();
+        assert_ok!(cast_transfer_votes_n(
+            &votes[1..],
+            nrc_pass_count() - 1,
+            pid
+        ));
+        assert_eq!(Balances::free_balance(&payer), 1);
+        assert_eq!(
+            VotingEngine::proposals(pid).unwrap().status,
+            STATUS_EXECUTED
+        );
+    });
+}
+
+#[test]
+fn safety_fund_remark_fee_is_paid_only_by_nrc_fee_account() {
+    for remark in [vec![], b"a".to_vec(), b" ".to_vec(), vec![b'a'; 256]] {
+        new_test_ext().execute_with(|| {
+            let fund = AccountId32::new(primitives::cid::china::china_cb::SAFETY_FUND_ACCOUNT);
+            let _ = Balances::deposit_creating(&fund, 10_000);
+            let role = test_role_code(NRC).to_vec().try_into().unwrap();
+            assert_ok!(MultisigTransfer::propose_safety_fund_transfer(
+                RuntimeOrigin::signed(nrc_admin(0)),
+                nrc_actor_cid(),
+                role,
+                fund.clone(),
+                beneficiary_account_id(),
+                1_000,
+                remark.clone().try_into().unwrap()
+            ));
+            let pid = last_proposal_id();
+            assert_eq!(Balances::free_balance(nrc_fee_account()), 10_000);
+            let votes = nrc_pass_pairs();
+            assert_ok!(cast_transfer_votes_n(
+                &votes[1..],
+                nrc_pass_count() - 1,
+                pid
+            ));
+            let fee = 10
+                + if remark.is_empty() {
+                    0
+                } else {
+                    primitives::fee_policy::FLAT_FEE
+                };
+            assert_eq!(Balances::free_balance(&fund), 9_000);
+            assert_eq!(Balances::free_balance(nrc_fee_account()), 10_000 - fee);
+            assert_eq!(Balances::free_balance(nrc_main_account()), 10_000);
+        });
+    }
+}
+
+#[test]
+fn nrc_transfer_executes_when_internal_vote_reaches_threshold() {
+    for remark in [
+        vec![],
+        b"a".to_vec(),
+        "中".as_bytes().to_vec(),
+        b" ".to_vec(),
+        b"\n".to_vec(),
+        vec![b'a'; 256],
+    ] {
+        new_test_ext().execute_with(|| {
+            let funding_account_id = nrc_main_account();
+            let dest = beneficiary_account_id();
+
+            assert_ok!(propose_transfer(
+                RuntimeOrigin::signed(nrc_admin(0)),
+                Some(nrc_actor_cid()),
+                funding_account_id.clone(),
+                dest.clone(),
+                1_000,
+                remark.clone().try_into().unwrap(),
+            ));
+            let pid = last_proposal_id();
+            assert_eq!(Balances::free_balance(nrc_fee_account()), 10_000);
+
+            let vote_pairs = nrc_pass_pairs();
+            assert_ok!(cast_transfer_votes_n(
+                &vote_pairs[1..],
+                nrc_pass_count().saturating_sub(1),
+                pid,
+            ));
+
+            // 本金只从主账户支出，金额费及非空备注费只从同一 CID 的费用账户支出。
+            assert_eq!(Balances::free_balance(&funding_account_id), 9_000);
+            assert_eq!(
+                Balances::free_balance(nrc_fee_account()),
+                9_990
+                    - if remark.is_empty() {
+                        0
+                    } else {
+                        primitives::fee_policy::FLAT_FEE
+                    }
+            );
+            assert_eq!(Balances::free_balance(&dest), 1_000);
+            // 提案数据仍保留（由 engingcore 延迟清理）
+            assert!(engingcore::Pallet::<Test>::get_proposal_data(pid).is_some());
+        });
+    }
 }
 
 #[test]
@@ -217,76 +372,93 @@ fn frg_and_njd_can_create_multisig_transfer_internal_proposals() {
 
 #[test]
 fn personal_account_transfer_executes_when_internal_vote_reaches_threshold() {
-    new_test_ext().execute_with(|| {
-        let personal_account_id = personal_account_id();
-        let dest = beneficiary_account_id();
-        let admins = BoundedVec::try_from(
-            [
-                personal_account_admin(0),
-                personal_account_admin(1),
-                personal_account_admin(2),
-            ]
-            .into_iter()
-            .map(|account_id| adminbase::Admin {
-                account_id,
-                cid_number: Default::default(),
-                family_name: Default::default(),
-                given_name: Default::default(),
-            })
-            .collect::<Vec<_>>(),
-        )
-        .expect("admins should fit");
+    for remark in [
+        vec![],
+        b"a".to_vec(),
+        "中".as_bytes().to_vec(),
+        b" ".to_vec(),
+        b"\n".to_vec(),
+        vec![b'a'; 256],
+    ] {
+        new_test_ext().execute_with(|| {
+            let personal_account_id = personal_account_id();
+            let dest = beneficiary_account_id();
+            let admins = BoundedVec::try_from(
+                [
+                    personal_account_admin(0),
+                    personal_account_admin(1),
+                    personal_account_admin(2),
+                ]
+                .into_iter()
+                .map(|account_id| adminbase::Admin {
+                    account_id,
+                    cid_number: Default::default(),
+                    family_name: Default::default(),
+                    given_name: Default::default(),
+                })
+                .collect::<Vec<_>>(),
+            )
+            .expect("admins should fit");
 
-        personalentity::PersonalAccounts::<Test>::insert(
-            &personal_account_id,
-            personalentity::PersonalAccount {
-                creator_account_id: personal_account_admin(0),
-                account_name: b"personal"
-                    .to_vec()
-                    .try_into()
-                    .expect("account name should fit"),
-                created_at: 1,
-                status: personalentity::PersonalStatus::Active,
-            },
-        );
-        personaladmin::AdminAccounts::<Test>::insert(
-            personal_account_id.clone(),
-            adminbase::AdminAccount {
-                cid_number: Default::default(),
-                institution_code: PERSONAL_CODE,
-                kind: adminbase::AdminAccountKind::PersonalMultisig,
-                admins,
-                creator_account_id: personal_account_admin(0),
-                created_at: 1,
-                updated_at: 1,
-                status: adminbase::AdminAccountStatus::Active,
-            },
-        );
-        internalvote::ActivePersonalThresholds::<Test>::insert(personal_account_id.clone(), 2);
-        let _ = Balances::deposit_creating(&personal_account_id, 10_000);
+            personalentity::PersonalAccounts::<Test>::insert(
+                &personal_account_id,
+                personalentity::PersonalAccount {
+                    creator_account_id: personal_account_admin(0),
+                    account_name: b"personal"
+                        .to_vec()
+                        .try_into()
+                        .expect("account name should fit"),
+                    created_at: 1,
+                    status: personalentity::PersonalStatus::Active,
+                },
+            );
+            personaladmin::AdminAccounts::<Test>::insert(
+                personal_account_id.clone(),
+                adminbase::AdminAccount {
+                    cid_number: Default::default(),
+                    institution_code: PERSONAL_CODE,
+                    kind: adminbase::AdminAccountKind::PersonalMultisig,
+                    admins,
+                    creator_account_id: personal_account_admin(0),
+                    created_at: 1,
+                    updated_at: 1,
+                    status: adminbase::AdminAccountStatus::Active,
+                },
+            );
+            internalvote::ActivePersonalThresholds::<Test>::insert(personal_account_id.clone(), 2);
+            let _ = Balances::deposit_creating(&personal_account_id, 10_000);
 
-        assert_ok!(propose_transfer(
-            RuntimeOrigin::signed(personal_account_admin(0)),
-            None,
-            personal_account_id.clone(),
-            dest.clone(),
-            1_500,
-            BoundedVec::default(),
-        ));
-        let pid = last_proposal_id();
+            assert_ok!(propose_transfer(
+                RuntimeOrigin::signed(personal_account_admin(0)),
+                None,
+                personal_account_id.clone(),
+                dest.clone(),
+                1_500,
+                remark.clone().try_into().unwrap(),
+            ));
+            let pid = last_proposal_id();
 
-        let vote_pairs = personal_account_pairs(2);
-        assert_ok!(cast_transfer_votes_n(&vote_pairs[1..], 1, pid,));
+            let vote_pairs = personal_account_pairs(2);
+            assert_ok!(cast_transfer_votes_n(&vote_pairs[1..], 1, pid,));
 
-        assert_eq!(Balances::free_balance(&personal_account_id), 8_490);
-        assert_eq!(Balances::free_balance(&dest), 1_500);
-        assert_eq!(
-            engingcore::Pallet::<Test>::proposals(pid)
-                .expect("proposal should exist")
-                .status,
-            STATUS_EXECUTED
-        );
-    });
+            assert_eq!(
+                Balances::free_balance(&personal_account_id),
+                8_490
+                    - if remark.is_empty() {
+                        0
+                    } else {
+                        primitives::fee_policy::FLAT_FEE
+                    }
+            );
+            assert_eq!(Balances::free_balance(&dest), 1_500);
+            assert_eq!(
+                engingcore::Pallet::<Test>::proposals(pid)
+                    .expect("proposal should exist")
+                    .status,
+                STATUS_EXECUTED
+            );
+        });
+    }
 }
 
 #[test]
@@ -554,9 +726,10 @@ fn rejected_proposal_does_not_block_new_proposal() {
             funding_account_id.clone(),
             dest.clone(),
             100,
-            BoundedVec::default(),
+            vec![b'a'].try_into().unwrap(),
         ));
         let pid1 = last_proposal_id();
+        assert_eq!(Balances::free_balance(nrc_fee_account()), 10_000);
 
         let end = engingcore::Pallet::<Test>::proposals(pid1)
             .expect("proposal should exist")

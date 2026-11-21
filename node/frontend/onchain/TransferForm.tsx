@@ -166,13 +166,13 @@ export function TransferForm({ activeWallet, nodeReady = true, balance, balanceE
       </div>
 
       <div className="transfer-form-field">
-        <label htmlFor="transfer-form-remark">转账备注</label>
+        <label htmlFor="transfer-form-remark">转账备注（选填）</label>
         <textarea
           id="transfer-form-remark"
           className="transfer-form-remark"
           value={remark}
           onChange={(e) => setRemark(e.target.value)}
-          placeholder="选填，最多 99 字节"
+          placeholder="输入备注收1.00元备注手续费。"
           disabled={formDisabled}
         />
         <span className={`transfer-form-remark-counter${remarkTooLong ? ' is-error' : ''}`}>

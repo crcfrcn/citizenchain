@@ -298,8 +298,10 @@ impl primitives::fee_policy::OnchainFeeCharger<AccountId32, Balance> for TestOnc
     fn charge(
         payer_account_id: &AccountId32,
         transaction_amount: Balance,
+        has_remark: bool,
     ) -> Result<Balance, sp_runtime::DispatchError> {
-        let fee = primitives::fee_policy::calculate_onchain_fee(transaction_amount);
+        let fee = primitives::fee_policy::calculate_onchain_fee(transaction_amount)
+            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 });
         let imbalance = Balances::withdraw(
             payer_account_id,
             fee,

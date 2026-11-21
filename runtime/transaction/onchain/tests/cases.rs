@@ -199,35 +199,37 @@ fn execution_charger_uses_same_formula_exact_payer_and_ed_rule() {
     use primitives::fee_policy::OnchainFeeCharger;
     type Charger = OnchainExecutionFeeCharger<Test, Balances, ()>;
 
-    new_test_ext().execute_with(|| {
-        let payer_account_id = account(1);
-        let unrelated_signer = account(2);
-        let payer_before = Balances::free_balance(&payer_account_id);
-        let signer_before = Balances::free_balance(&unrelated_signer);
+    for (has_remark, expected) in [(false, 50), (true, 150)] {
+        new_test_ext().execute_with(|| {
+            let payer_account_id = account(1);
+            let unrelated_signer = account(2);
+            let payer_before = Balances::free_balance(&payer_account_id);
+            let signer_before = Balances::free_balance(&unrelated_signer);
 
-        let fee = Charger::charge(&payer_account_id, 50_000)
-            .expect("explicit payer_account_id can pay execution fee");
-        assert_eq!(fee, 50);
-        assert_eq!(
-            Balances::free_balance(&payer_account_id),
-            payer_before - fee
-        );
-        assert_eq!(Balances::free_balance(&unrelated_signer), signer_before);
-        assert!(System::events().iter().any(|record| matches!(
-            &record.event,
-            RuntimeEvent::OnchainTransaction(pallet::Event::FeePaid {
-                account_id,
-                fee: 50
-            }) if account_id == &payer_account_id
-        )));
+            let fee = Charger::charge(&payer_account_id, 50_000, has_remark)
+                .expect("explicit payer_account_id can pay execution fee");
+            assert_eq!(fee, expected);
+            assert_eq!(
+                Balances::free_balance(&payer_account_id),
+                payer_before - fee
+            );
+            assert_eq!(Balances::free_balance(&unrelated_signer), signer_before);
+            assert!(System::events().iter().any(|record| matches!(
+                &record.event,
+                RuntimeEvent::OnchainTransaction(pallet::Event::FeePaid {
+                    account_id,
+                    fee: actual_fee
+                }) if account_id == &payer_account_id && *actual_fee == expected
+            )));
 
-        let poor = account(3);
-        let poor_before = Balances::free_balance(&poor);
-        assert!(Charger::charge(&poor, 1).is_err());
-        // 扣款失败必须保持原账户余额不变，也绝不能转向无关签名者代付。
-        assert_eq!(Balances::free_balance(&poor), poor_before);
-        assert_eq!(Balances::free_balance(&unrelated_signer), signer_before);
-    });
+            let poor = account(3);
+            let poor_before = Balances::free_balance(&poor);
+            assert!(Charger::charge(&poor, 1, has_remark).is_err());
+            // 扣款失败必须保持原账户余额不变，也绝不能转向无关签名者代付。
+            assert_eq!(Balances::free_balance(&poor), poor_before);
+            assert_eq!(Balances::free_balance(&unrelated_signer), signer_before);
+        });
+    }
 }
 
 #[test]

@@ -311,7 +311,7 @@ pub mod pallet {
             // 金额手续费和本金销毁同属一次执行；任一失败时分账、事件和销毁全部回滚。
             let fee_result: Result<BalanceOf<T>, sp_runtime::DispatchError> =
                 frame_support::storage::with_transaction(|| {
-                    let fee = match T::OnchainFeeCharger::charge(&fee_account, action.amount) {
+                    let fee = match T::OnchainFeeCharger::charge(&fee_account, action.amount, false) {
                         Ok(fee) => fee,
                         Err(_) => {
                             return frame_support::storage::TransactionOutcome::Rollback(Err(

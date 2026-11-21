@@ -4485,7 +4485,7 @@ fn proposal_id_upgrade_rejects_invalid_old_layout_without_partial_writes() {
 }
 
 #[test]
-fn ordinary_transfer_remark_fee_uses_shared_constant_and_leaves_multisig_unchanged() {
+fn ordinary_transfer_remark_fee_keeps_multisig_creation_fee_unchanged() {
     use frame_support::dispatch::GetDispatchInfo;
     sp_io::TestExternalities::default().execute_with(|| {
         let who = AccountId::new([0x61; 32]);
@@ -4542,4 +4542,22 @@ fn ordinary_transfer_remark_fee_uses_shared_constant_and_leaves_multisig_unchang
             }
         }
     });
+}
+
+#[test]
+fn multisig_execution_charger_uses_existing_payer_and_shared_remark_fee() {
+    use primitives::fee_policy::OnchainFeeCharger;
+    type Charger = <Runtime as multisig::pallet::Config>::OnchainFeeCharger;
+    for (has_remark, expected) in [(false, 50), (true, 150)] {
+        sp_io::TestExternalities::default().execute_with(|| {
+            System::set_block_number(1);
+            let payer = AccountId::new([0x61; 32]);
+            assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), payer.clone().into(), 10_000));
+            assert_eq!(Charger::charge(&payer, 50_000, has_remark).unwrap(), expected);
+            assert_eq!(Balances::free_balance(&payer), 10_000 - expected);
+            assert_eq!(System::events().iter().filter(|event| matches!(&event.event,
+                RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid { account_id, fee })
+                    if account_id == &payer && *fee == expected)).count(), 1);
+        });
+    }
 }

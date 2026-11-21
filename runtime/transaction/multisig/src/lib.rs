@@ -371,7 +371,10 @@ pub mod pallet {
             // 预检与执行一致：机构本金账户只承担本金，金额手续费由同 CID 费用账户承担；
             // 个人多签没有机构费用账户，继续由个人资金账户承担本金和执行手续费。
             let amount_u128: u128 = amount.saturated_into();
-            let fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            let mut fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            if !remark.is_empty() {
+                fee_u128 = fee_u128.saturating_add(primitives::fee_policy::FLAT_FEE);
+            }
             let fee: BalanceOf<T> = fee_u128.saturated_into();
             let free = <T as Config>::Currency::free_balance(&funding_account_id);
             let principal_required = amount
@@ -490,9 +493,12 @@ pub mod pallet {
                 Error::<T>::InstitutionSpendNotAllowed
             );
 
-            // 安全基金只承担本金，NRC 费用账户单独承担金额手续费。
+            // 安全基金只承担本金，NRC费用账户承担金额费及非空备注费。
             let amount_u128: u128 = amount.saturated_into();
-            let fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            let mut fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            if !remark.is_empty() {
+                fee_u128 = fee_u128.saturating_add(primitives::fee_policy::FLAT_FEE);
+            }
             let fee: BalanceOf<T> = fee_u128.saturated_into();
             let ed: BalanceOf<T> = <T as Config>::Currency::minimum_balance();
             let free = <T as Config>::Currency::free_balance(&institution_account_id);
@@ -859,7 +865,7 @@ pub mod pallet {
             // 费用账户同时承担归集本金和金额手续费，两项必须在同一事务中完成。
             let execution: Result<(), DispatchError> =
                 frame_support::storage::with_transaction(|| {
-                    if <T as Config>::OnchainFeeCharger::charge(&fee_account, action.amount)
+                    if <T as Config>::OnchainFeeCharger::charge(&fee_account, action.amount, false)
                         .is_err()
                     {
                         return frame_support::storage::TransactionOutcome::Rollback(Err(
@@ -924,7 +930,10 @@ pub mod pallet {
 
             // ── 计算手续费 ──
             let amount_u128: u128 = action.amount.saturated_into();
-            let fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            let mut fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            if !action.remark.is_empty() {
+                fee_u128 = fee_u128.saturating_add(primitives::fee_policy::FLAT_FEE);
+            }
             let fee: BalanceOf<T> = fee_u128.saturated_into();
             // ── 分账户余额检查：安全基金 amount + ED，费用账户 fee + ED ──
             let free = <T as Config>::Currency::free_balance(&safety_fund_account);
@@ -945,7 +954,7 @@ pub mod pallet {
 
             let execution: Result<(), DispatchError> =
                 frame_support::storage::with_transaction(|| {
-                    if <T as Config>::OnchainFeeCharger::charge(&fee_account, action.amount)
+                    if <T as Config>::OnchainFeeCharger::charge(&fee_account, action.amount, !action.remark.is_empty())
                         .is_err()
                     {
                         return frame_support::storage::TransactionOutcome::Rollback(Err(
@@ -1024,9 +1033,12 @@ pub mod pallet {
                 Error::<T>::BeneficiaryIsProtectedAddress
             );
 
-            // ── 计算手续费（复用 primitives::fee_policy 唯一公式） ──
+            // 基础费复用唯一公式，非空备注另加FLAT_FEE，预检与实际收费一致。
             let amount_u128: u128 = action.amount.saturated_into();
-            let fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            let mut fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            if !action.remark.is_empty() {
+                fee_u128 = fee_u128.saturating_add(primitives::fee_policy::FLAT_FEE);
+            }
             let fee: BalanceOf<T> = fee_u128.saturated_into();
             let free = <T as Config>::Currency::free_balance(&action.funding_account_id);
             let principal_required = action
@@ -1055,7 +1067,7 @@ pub mod pallet {
             // 机构路径从费用账户扣费、从 funding_account_id 转本金；个人路径两者相同。
             // 任一失败时手续费事件、分账和本金转账全部回滚。
             let exec_result = frame_support::storage::with_transaction(|| {
-                if <T as Config>::OnchainFeeCharger::charge(&fee_payer, action.amount).is_err() {
+                if <T as Config>::OnchainFeeCharger::charge(&fee_payer, action.amount, !action.remark.is_empty()).is_err() {
                     return frame_support::storage::TransactionOutcome::Rollback(Err(
                         Error::<T>::InsufficientFeeBalance.into(),
                     ));

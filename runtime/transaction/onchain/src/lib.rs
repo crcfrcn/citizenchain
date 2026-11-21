@@ -61,7 +61,7 @@ pub mod pallet {
         #[pallet::constant]
         type OnchainFeeRate: Get<Perbill>;
 
-        /// 投票定额费及普通链上转账非空备注附加费，单位为分。
+        /// 投票定额费及普通、多签转账非空备注附加费，单位为分。
         #[pallet::constant]
         #[allow(non_camel_case_types)]
         type FLAT_FEE: Get<u128>;
@@ -239,7 +239,8 @@ pub struct OnchainChargeAdapter<Currency, Router, FeeRouteProvider>(
 ///
 /// 外层 extrinsic 继续由 `OnchainChargeAdapter` 消费 `FeeRoute`；投票通过后的
 /// 资金执行没有新的外层签名交易，因此由业务模块把已经核验的确切付款账户和
-/// 金额交给本执行器。两条路径共用同一公式、同一分账和同一 `FeePaid` 事件。
+/// 金额及备注是否非空交给本执行器。多签转账非空备注加收一次 FLAT_FEE；
+/// 与外层共用同一分账和同一 FeePaid 事件，执行失败由原业务事务回滚。
 pub struct OnchainExecutionFeeCharger<T, C, Router>(PhantomData<(T, C, Router)>);
 
 impl<T, C, Router>
@@ -254,10 +255,14 @@ where
     fn charge(
         payer_account_id: &T::AccountId,
         transaction_amount: <C as Currency<T::AccountId>>::Balance,
+        has_remark: bool,
     ) -> Result<<C as Currency<T::AccountId>>::Balance, sp_runtime::DispatchError> {
-        let fee_u128 = primitives::fee_policy::calculate_onchain_fee(
+        let mut fee_u128 = primitives::fee_policy::calculate_onchain_fee(
             transaction_amount.saturated_into::<u128>(),
         );
+        if has_remark {
+            fee_u128 = fee_u128.saturating_add(primitives::fee_policy::FLAT_FEE);
+        }
         let fee = fee_u128.saturated_into();
         let imbalance = C::withdraw(
             payer_account_id,

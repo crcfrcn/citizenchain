@@ -179,7 +179,7 @@ pub fn execute_clearing_bank_batch<T: Config>(
     // 不足即整批回滚(S3-① fail-closed)。
     let fee_account = bank_check::fee_account_of::<T>(actor_cid_number.as_slice())?;
     let onchain_fee_basis: BalanceOf<T> = total_batch_fee.saturated_into();
-    T::OnchainFeeCharger::charge(&fee_account, onchain_fee_basis)
+    T::OnchainFeeCharger::charge(&fee_account, onchain_fee_basis, false)
         .map_err(|_| Error::<T>::ClearingBatchOnchainFeeUnpaid)?;
 
     Pallet::<T>::deposit_event(Event::<T>::ClearingBankBatchSettled {

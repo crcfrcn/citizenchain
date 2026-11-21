@@ -48,7 +48,7 @@ pub(crate) fn execute_create_with_finalizer<T: Config>(
     let leftover = T::Currency::unreserve(&action.proposer_account_id, reserve_total);
     ensure!(leftover.is_zero(), Error::<T>::ReserveReleaseFailed);
 
-    let charged_fee = T::OnchainFeeCharger::charge(&action.proposer_account_id, action.amount)
+    let charged_fee = T::OnchainFeeCharger::charge(&action.proposer_account_id, action.amount, false)
         .map_err(|_| Error::<T>::FeeWithdrawFailed)?;
     ensure!(charged_fee == fee, Error::<T>::FeeWithdrawFailed);
 
@@ -137,7 +137,7 @@ pub(crate) fn execute_close_with_finalizer<T: Config>(
     let ed = T::Currency::minimum_balance();
     ensure!(transfer_amount >= ed, Error::<T>::CloseTransferBelowED);
 
-    let charged_fee = T::OnchainFeeCharger::charge(&action.account_id, all_balance)
+    let charged_fee = T::OnchainFeeCharger::charge(&action.account_id, all_balance, false)
         .map_err(|_| Error::<T>::FeeWithdrawFailed)?;
     ensure!(charged_fee == fee, Error::<T>::FeeWithdrawFailed);
 

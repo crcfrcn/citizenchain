@@ -215,8 +215,10 @@ impl primitives::fee_policy::OnchainFeeCharger<AccountId32, u128> for MockOnchai
     fn charge(
         payer_account_id: &AccountId32,
         transaction_amount: u128,
+        has_remark: bool,
     ) -> Result<u128, sp_runtime::DispatchError> {
-        let fee = primitives::fee_policy::calculate_onchain_fee(transaction_amount);
+        let fee = primitives::fee_policy::calculate_onchain_fee(transaction_amount)
+            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 });
         // 扣下的 NegativeImbalance 直接丢弃(等额销毁);真实分账由 runtime 的
         // OnchainExecutionFeeCharger 走 80/10/10,测试桩只验证费用账户被扣。
         let _imbalance = <Balances as Currency<AccountId32>>::withdraw(

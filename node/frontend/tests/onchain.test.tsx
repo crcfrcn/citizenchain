@@ -235,7 +235,7 @@ describe('现有四档金额和费用', () => {
     fireEvent.change(screen.getByPlaceholderText('请输入公民链或以太坊地址'), { target: { value: destination } });
     fireEvent.click(screen.getByRole('button', { name: '签名交易' }));
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '105' } });
-    fireEvent.change(screen.getByPlaceholderText('选填，最多 99 字节'), { target: { value: '中'.repeat(34) } });
+    fireEvent.change(screen.getByPlaceholderText('输入备注收1.00元备注手续费。'), { target: { value: '中'.repeat(34) } });
     fireEvent.click(screen.getByRole('button', { name: '签名交易' }));
     expect(submit).not.toHaveBeenCalled();
   });
@@ -486,7 +486,7 @@ describe('提交成功后的表单输入', () => {
     await screen.findByText('1,000.00 元');
     const address = screen.getByPlaceholderText('请输入公民链或以太坊地址') as HTMLInputElement;
     const amount = screen.getByPlaceholderText('0.00') as HTMLInputElement;
-    const remark = screen.getByPlaceholderText('选填，最多 99 字节') as HTMLTextAreaElement;
+    const remark = screen.getByPlaceholderText('输入备注收1.00元备注手续费。') as HTMLTextAreaElement;
     fireEvent.change(address, { target: { value: destination } });
     fireEvent.change(amount, { target: { value: '105' } });
     fireEvent.change(remark, { target: { value: '合成备注' } });

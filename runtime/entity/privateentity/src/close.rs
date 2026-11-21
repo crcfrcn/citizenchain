@@ -196,7 +196,7 @@ pub(crate) fn execute_institution_close_with_finalizer<T: Config>(
     )
     .ok_or(Error::<T>::FeeWithdrawFailed)?;
     if !balance.is_zero() {
-        fee = T::OnchainFeeCharger::charge(&fee_account, balance)
+        fee = T::OnchainFeeCharger::charge(&fee_account, balance, false)
             .map_err(|_| Error::<T>::FeeWithdrawFailed)?;
         T::Currency::transfer(
             &action.institution_account_id,

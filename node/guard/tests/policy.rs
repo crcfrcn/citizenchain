@@ -183,6 +183,7 @@ fn ordinary_remark_fee_and_historical_blocks_use_the_parent_metadata() {
 
 #[test]
 fn voting_keeps_legal_business_execution_fee_events() {
+    for execution_fee in [50, 150] {
     let pair = sr25519::Pair::from_seed(&[7; 32]);
     let payer = chain_signing::account_id_from_public(pair.public());
     let call = RuntimeCall::InternalVote(internalvote::pallet::Call::cast {
@@ -195,7 +196,7 @@ fn voting_keeps_legal_business_execution_fee_events() {
     ).into()];
     let mut events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = [
         (payer, primitives::fee_policy::FLAT_FEE),
-        (AccountId32::new([0x99; 32]), 50),
+        (AccountId32::new([0x99; 32]), execution_fee),
     ].into_iter().map(|(account_id, fee)| EventRecord {
         phase: Phase::ApplyExtrinsic(0), topics: vec![],
         event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid { account_id, fee }),
@@ -205,6 +206,7 @@ fn voting_keeps_legal_business_execution_fee_events() {
     for _ in 0..2 {
         assert!(check_block(&body, |at| (at == key).then(|| events.encode()), &metadata).is_ok());
         events.reverse();
+    }
     }
 }
 
