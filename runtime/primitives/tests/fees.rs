@@ -13,8 +13,8 @@ fn onchain_fee_percents_sum_to_100() {
 
 /// 投票统一价为 1 元。
 #[test]
-fn vote_flat_fee_equals_one_yuan() {
-    assert_eq!(VOTE_FLAT_FEE, 100);
+fn shared_fee_equals_one_yuan() {
+    assert_eq!(FLAT_FEE, 100);
 }
 
 /// 链下费率上下限合法。

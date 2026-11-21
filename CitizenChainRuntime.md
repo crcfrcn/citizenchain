@@ -1790,7 +1790,7 @@ LastClearingBatchSeq<Bank, u64>                  // 已成功落账的最新批�
 统一类型为 `FeeRoute<AccountId, Balance>`：
 
 - `Free`：系统、Root 回调或内部维护调用，外层不扣交易费。
-- `Onchain { transaction_amount, payer }`：按 `max(round(amount × 0.1%), 0.1 元)` 收取；机构普通操作传零金额，所以固定为 0.1 元。
+- `Onchain { transaction_amount, payer }`：基础费用为 `max(round(amount × 0.1%), 0.1 元)`；仅普通链上转账的非空备注在现有收费入口另加一次 `FLAT_FEE`。机构普通操作传零金额，所以固定为 0.1 元；多签转账执行费保持原公式。
 - `Offchain { fee_amount, payer: OffchainFeePayer::BatchItemPayers }`：链下清算批次可有多个付款公民；每个 item 的 `payer` 从其 L2 存款支付对应 `fee_amount`，外层适配器不重复扣款。收款方机构费用账户是手续费收款账户，不是付款账户。
 - `Vote { payer }`：只有实际投票行为，由投票签名者固定支付 1 元。
 - `Reject`：调用未分类、未开放、CID/账户不匹配、签名者不是该 CID 的 `admins`，或费用账户无法唯一解析时拒绝入池和执行。
@@ -1832,10 +1832,12 @@ tip 不属于交易费，不参与 `FeePaid`、RPC 聚合或 80/10/10 分账。
 
 `OnchainChargeAdapter` 只消费 `FeeRoute`：
 
-- `Onchain`：调用 `primitives::fee_policy::calculate_onchain_fee`，从路由中的 `payer` 扣款。
-- `Vote`：从路由中的 `payer` 扣固定 `VOTE_FLAT_FEE`。
+- `Onchain`：使用现有基础公式；仅普通 `transfer_with_remark` 非空备注在现有 `charge_details` 中额外收取一次 `FLAT_FEE`，从路由中的 `payer` 扣完整费用。备注长度不影响附加费，多签转账执行费保持原公式。
+- `Vote`：从路由中的 `payer` 扣固定 `FLAT_FEE`。
 - `Offchain` / `Free`：外层不扣款。
 - `Reject`：返回 `InvalidTransaction::Call`。
+
+`FLAT_FEE` 是唯一100分定额费定义，投票和普通转账非空备注共用。metadata、SDK各语言费用快照和访问接口均统一使用 `FLAT_FEE`，单位在注释中注明为分。节点前端构建期读取同一定义，不新增运行时查询。节点费用守卫使用父块metadata识别旧、新收费规则；历史旧名称仅用于历史回放，新规则生效后禁止通过Runtime升级退回旧名称。SDK费用快照只改字段名，C ABI大小和偏移不变；Runtime、节点、SDK和App需配套更新。
 
 余额扣款使用 `Precision::Exact + Preservation::Preserve + Fortitude::Polite`：必须完整扣除，并保证普通支出后不低于 ED；否则整笔交易失败。适配器不尝试第二付款账户，不做执行后退款。
 

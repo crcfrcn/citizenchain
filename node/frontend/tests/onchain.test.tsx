@@ -58,7 +58,7 @@ const wallet: Wallet = {
 const destination = accountIdToSs58(`0x${'22'.repeat(32)}`);
 const request = {
   requestJson: '合成签名请求', requestId: 'client-test', expectedPayloadHash: '合成载荷摘要',
-  callDataHex: '0x0400', signNonce: 7, signBlockNumber: 0, feeYuan: 0.11,
+  callDataHex: '0x0400', signNonce: 7, signBlockNumber: 0, feeYuan: 1.11,
 };
 const txHash = `0x${'33'.repeat(32)}`;
 
@@ -92,21 +92,118 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
-it('钱包名称最多8字，中文组合输入在确认后截断且不显示字数提示', () => {
+it('钱包名称最多10字，组合输入确认后截断，非BMP字符同样按一个字计数', () => {
   render(<WalletManagerModal wallets={[]} activeAccountId={null}
     onClose={vi.fn()} onUpdate={vi.fn()} onSelect={vi.fn()} />);
   const input = screen.getByPlaceholderText('请输入钱包名称') as HTMLInputElement;
-  expect(input.maxLength).toBe(8);
-  fireEvent.change(input, {target:{value:'一二三四五六七八九'}});
-  expect(input.value).toBe('一二三四五六七八');
-  fireEvent.input(input, {target:{value:'中文输入法组合测试中'},isComposing:true});
-  expect(input.value).toBe('中文输入法组合测试中');
+  fireEvent.change(input, {target:{value:'一二三四五六七八九十一'}});
+  expect(input.value).toBe('一二三四五六七八九十');
+  fireEvent.input(input, {target:{value:'中文输入法组合测试中一二'},isComposing:true});
+  expect(input.value).toBe('中文输入法组合测试中一二');
   fireEvent.compositionEnd(input);
-  expect(input.value).toBe('中文输入法组合测');
-  expect(screen.queryByText(/最多.*8|8.*字/)).toBeNull();
+  expect(input.value).toBe('中文输入法组合测试中');
+  fireEvent.change(input, {target:{value:'😀'.repeat(11)}});
+  expect(input.value).toBe('😀'.repeat(10));
+  expect(screen.queryByText(/最多.*10|10.*字/)).toBeNull();
+});
+
+describe('钱包圆点删除与选择区域', () => {
+  const hot: Wallet = { name: '矿工热钱包', signMode: 'hot', accountId: `0x${'55'.repeat(32)}` };
+  const other: Wallet = { ...wallet, name: '另一冷钱包', accountId: `0x${'66'.repeat(32)}` };
+
+  function manager() {
+    const onUpdate = vi.fn(), onSelect = vi.fn(), onClose = vi.fn();
+    const view = render(<WalletManagerModal wallets={[hot, wallet, other]} activeAccountId={hot.accountId}
+      onClose={onClose} onUpdate={onUpdate} onSelect={onSelect} />);
+    return { ...view, onUpdate, onSelect, onClose };
+  }
+
+  it('蓝点两次点击才删除，处理中重复点击不重复提交，也不选择钱包', async () => {
+    const removal = deferred<{ wallets: Wallet[]; activeAccountId: string }>();
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_wallet_balance') return '100000';
+      if (command === 'remove_wallet') return removal.promise;
+      throw new Error(`不应调用: ${command}`);
+    });
+    const view = manager();
+    const dot = screen.getByRole('button', { name: `删除${wallet.name}` });
+    fireEvent.click(dot);
+    expect(dot.classList.contains('confirm')).toBe(true);
+    expect(mocks.invoke.mock.calls.filter(([c]) => c === 'remove_wallet')).toHaveLength(0);
+    fireEvent.click(dot);
+    fireEvent.click(dot);
+    expect(mocks.invoke.mock.calls.filter(([c]) => c === 'remove_wallet')).toEqual([
+      ['remove_wallet', { accountId: wallet.accountId }],
+    ]);
+    const store = { wallets: [hot, other], activeAccountId: hot.accountId };
+    await act(async () => removal.resolve(store));
+    expect(view.onUpdate).toHaveBeenCalledExactlyOnceWith(store);
+    expect(view.onSelect).not.toHaveBeenCalled();
+    expect(view.onClose).not.toHaveBeenCalled();
+  });
+
+  it('改点另一个蓝点重新确认；删除失败显示错误并可重试', async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_wallet_balance') return '0';
+      throw new Error('合成删除失败');
+    });
+    const view = manager();
+    const first = screen.getByRole('button', { name: `删除${wallet.name}` });
+    const second = screen.getByRole('button', { name: `删除${other.name}` });
+    fireEvent.click(first);
+    fireEvent.click(second);
+    expect(first.classList.contains('confirm')).toBe(false);
+    expect(second.classList.contains('confirm')).toBe(true);
+    expect(mocks.invoke.mock.calls.some(([c]) => c === 'remove_wallet')).toBe(false);
+    fireEvent.click(second);
+    await screen.findByText('合成删除失败');
+    expect(view.onUpdate).not.toHaveBeenCalled();
+    expect(screen.getByText(other.name)).toBeTruthy();
+    fireEvent.click(second);
+    await waitFor(() => expect(mocks.invoke.mock.calls.filter(([c]) => c === 'remove_wallet')).toHaveLength(2));
+    expect(mocks.invoke.mock.calls.filter(([c]) => c === 'remove_wallet').every(([, args]) => args.accountId === other.accountId)).toBe(true);
+  });
+
+  it.each(['.wallet-row-name', '.wallet-row-address', '.wallet-row-balance'])(
+    '名称左侧和红点不选择或删除，点击%s仍选择钱包', async (selector) => {
+      const store = { wallets: [hot, wallet, other], activeAccountId: wallet.accountId };
+      mocks.invoke.mockImplementation(async (command: string) => {
+        if (command === 'get_wallet_balance') return '100000';
+        if (command === 'set_active_wallet') return store;
+        throw new Error(`不应调用: ${command}`);
+      });
+      const view = manager();
+      fireEvent.click(screen.getByRole('radio', { name: `${hot.name}（热钱包）` }));
+      const row = screen.getByText(wallet.name).closest('.wallet-row')!;
+      fireEvent.click(row);
+      expect(mocks.invoke.mock.calls.some(([c]) => ['set_active_wallet', 'remove_wallet'].includes(c))).toBe(false);
+      expect(view.container.querySelectorAll('.wallet-radio.hot')).toHaveLength(1);
+      expect(screen.queryByRole('button', { name: `删除${hot.name}` })).toBeNull();
+      fireEvent.click(row.querySelector(selector)!);
+      await waitFor(() => expect(view.onClose).toHaveBeenCalledOnce());
+      expect(mocks.invoke).toHaveBeenCalledWith('set_active_wallet', { accountId: wallet.accountId });
+      expect(view.onSelect).toHaveBeenCalledWith(wallet, expect.any(Object));
+    },
+  );
 });
 
 describe('现有四档金额和费用', () => {
+  it.each(['hot', 'cold'] as const)('%s确认弹窗包含备注附加费', (signMode) => {
+    flow(signMode);
+    const row = screen.getByText('预估手续费').closest('.transfer-signing-row');
+    expect(row?.textContent).toContain('1.11 元');
+  });
+  it.each(['a', '中', ' ', '\n', 'a'.repeat(99)])('普通转账备注非空统一加一次FLAT_FEE，清空备注恢复基础费：%j', (remark) => {
+    expect(calculateTransferFeeYuan(105, remark)).toBe(1.11);
+    expect(calculateTransferFeeYuan(0, remark)).toBe(0);
+    const view = render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '105' } });
+    const input = view.container.querySelector('#transfer-form-remark')!;
+    fireEvent.change(input, { target: { value: remark } });
+    expect(view.container.querySelector('.transfer-form-summary-line')?.textContent).toContain('1.11');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(view.container.querySelector('.transfer-form-summary-line')?.textContent).toContain('0.11');
+  });
   it.each([destination, '0x6D66a0cB155051055F3FB3Cc73d9230D3Fb4D5B5'])(
     '收款地址%s原样交给后端解析，不在前端改写大小写', (address) => {
       const submit = vi.fn();

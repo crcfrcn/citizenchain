@@ -34,9 +34,7 @@ pub async fn add_wallet(
     ss58_address: String,
 ) -> Result<Wallet, String> {
     let name = name.trim().to_string();
-    if name.is_empty() {
-        return Err("钱包名称不能为空".to_string());
-    }
+    crate::wallet::validate_new_wallet_name(&name)?;
     let account_id_bytes = tauri::async_runtime::spawn_blocking(move || {
         nodeclient::signing::resolve_recipient_account_id(&ss58_address)
     })
@@ -171,7 +169,7 @@ pub fn build_cold_transfer_request(
     validate_transfer_remark(&remark)?;
 
     // 前端预估费和链上实扣费统一复用 runtime 手续费公式。
-    let fee_fen = calculate_transfer_fee(amount_fen);
+    let fee_fen = calculate_transfer_fee(amount_fen, &remark);
     let fee_yuan = fee_fen as f64 / 100.0;
 
     // 校验余额

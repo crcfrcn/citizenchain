@@ -209,6 +209,34 @@ fn transfer_remark_rejects_more_than_99_bytes() {
 }
 
 #[test]
+fn ordinary_transfer_remark_adds_the_shared_fee_once() {
+    for (amount, base) in [
+        (100, 10),
+        (10_499, 10),
+        (10_500, 11),
+        (100_000, 100),
+        (
+            u128::MAX,
+            primitives::fee_policy::calculate_onchain_fee(u128::MAX),
+        ),
+    ] {
+        assert_eq!(calculate_transfer_fee(amount, ""), base);
+        for remark in [
+            "a".to_string(),
+            "中".to_string(),
+            " ".to_string(),
+            "\n".to_string(),
+            "a".repeat(99),
+        ] {
+            assert_eq!(
+                calculate_transfer_fee(amount, &remark),
+                base + primitives::fee_policy::FLAT_FEE
+            );
+        }
+    }
+}
+
+#[test]
 fn transfer_checks_spendable_amount_including_fee_instead_of_display_total() {
     // 总资产1200分，其中200分reserved、800分frozen；实际只能再支出400分。
     assert!(crate::transfer::ensure_balance(400, 400, 11).is_ok());

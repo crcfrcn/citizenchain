@@ -5,6 +5,27 @@ use crate::wallet::WalletStore;
 
 const ACCOUNT_ID: &str = "0x1111111111111111111111111111111111111111111111111111111111111111";
 
+#[test]
+fn new_wallet_names_allow_ten_unicode_characters() {
+    use crate::wallet::validate_new_wallet_name;
+    assert!(validate_new_wallet_name("").is_err());
+    for name in ["一二三四五六七八九十", "abcdefghij", "😀😀😀😀😀😀😀😀😀😀"]
+    {
+        assert!(validate_new_wallet_name(name).is_ok());
+        assert!(validate_new_wallet_name(&format!("{name}一")).is_err());
+    }
+    let mut legacy = cold_wallet();
+    legacy.name = "已有名称超过十个字也保留".to_string();
+    let store = WalletStore {
+        wallets: vec![legacy],
+        active_account_id: None,
+    };
+    assert_eq!(
+        decode_store(&serde_json::to_string(&store).unwrap()).unwrap(),
+        store
+    );
+}
+
 fn cold_wallet() -> Wallet {
     cold_wallet_for_account(ACCOUNT_ID)
 }

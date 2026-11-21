@@ -11,7 +11,7 @@ use frame_support::traits::{
         fungible::{Balanced, Credit},
         Fortitude, Imbalance, Precision, Preservation,
     },
-    Currency, FindAuthor, OnUnbalanced,
+    Currency, FindAuthor, IsSubType, OnUnbalanced,
 };
 use frame_support::unsigned::TransactionValidityError;
 use pallet_transaction_payment::{Config as TxPaymentConfig, OnChargeTransaction, TxCreditHold};
@@ -52,7 +52,7 @@ pub mod pallet {
         //
         // 费率真源恒为 `primitives::fee_policy`,runtime 绑定时**只做转发**,本 pallet
         // 与任何客户端都不得另立交易费常量(全仓交易费常量只有区块链常量库一处)。
-        // 客户端据此自行计算 `max(amount × OnchainFeeRate, OnchainMinFee)`,不再复刻数字。
+        // 客户端据此预估基础费，普通转账非空备注另加 FLAT_FEE，不再复刻数字。
         /// 链上交易单笔最低费(分)。
         #[pallet::constant]
         type OnchainMinFee: Get<u128>;
@@ -61,9 +61,10 @@ pub mod pallet {
         #[pallet::constant]
         type OnchainFeeRate: Get<Perbill>;
 
-        /// 实际投票统一费(分/票)。
+        /// 投票定额费及普通链上转账非空备注附加费，单位为分。
         #[pallet::constant]
-        type VoteFlatFee: Get<u128>;
+        #[allow(non_camel_case_types)]
+        type FLAT_FEE: Get<u128>;
     }
 
     /// 普通转账金额类型。
@@ -225,7 +226,7 @@ pub trait SafetyFundAccountProvider<AccountId> {
 }
 
 /// 统一手续费收取适配器：
-/// - 只有实际投票固定收取 `VOTE_FLAT_FEE`
+/// - 实际投票固定收取 `FLAT_FEE`，普通链上转账非空备注额外收取一次同额费用
 /// - 机构操作按 actor CID 的唯一费用账户收取最低链上交易费
 /// - 链上资金交易按 `ONCHAIN_FEE_RATE` 和 `ONCHAIN_MIN_FEE` 计算
 /// - 链下清算手续费由清算模块执行，不重复进入链上手续费分账
@@ -282,6 +283,7 @@ where
     FeeRouteProvider:
         CallFeeRoute<T::AccountId, T::RuntimeCall, <Currency as Inspect<T::AccountId>>::Balance>,
     T::AccountId: Clone,
+    T::RuntimeCall: IsSubType<pallet::Call<T>>,
 {
     type LiquidityInfo = Option<Credit<T::AccountId, Currency>>;
     type Balance = <Currency as Inspect<T::AccountId>>::Balance;
@@ -510,7 +512,7 @@ pub type ChargeDetails<AccountId, Balance> = Option<(AccountId, Balance)>;
 
 /// 只读查询现有收费明细，供交易报价与实际扣款共同使用。
 ///
-/// 本函数只消费唯一 FeeRoute 并调用既有费用公式，不扣款、不分账、不发事件。
+/// 本函数消费唯一 FeeRoute，普通转账非空备注加收 FLAT_FEE，不扣款、不分账、不发事件。
 /// 报价不代替付款余额检查；余额检查和实际扣款仍由 OnchainChargeAdapter 执行。
 /// 返回类型同时绑定 runtime 账户和 Currency 余额，保持两者的编译期一致性。
 #[allow(clippy::type_complexity)]
@@ -524,10 +526,11 @@ pub fn charge_details<T, Currency, FeeRouteProvider>(
     TransactionValidityError,
 >
 where
-    T: TxPaymentConfig,
+    T: TxPaymentConfig + pallet::Config,
     Currency: Balanced<T::AccountId>,
     FeeRouteProvider:
         CallFeeRoute<T::AccountId, T::RuntimeCall, <Currency as Inspect<T::AccountId>>::Balance>,
+    T::RuntimeCall: IsSubType<pallet::Call<T>>,
 {
     // tip 不属于交易费；非零 tip 在入池预检和区块执行中都直接拒绝。
     if !tip.is_zero() {
@@ -542,12 +545,16 @@ where
         } => {
             // 只有链上交易费按金额套 0.1% 费率；机构普通操作传零金额，固定落最低费。
             let amount_u128: u128 = transaction_amount.saturated_into();
-            let fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            let mut fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
+            if matches!(call.is_sub_type(), Some(pallet::Call::transfer_with_remark { remark, .. }) if !remark.is_empty())
+            {
+                fee_u128 = fee_u128.saturating_add(primitives::fee_policy::FLAT_FEE);
+            }
             let fee = fee_u128.saturated_into();
             Ok(Some((payer_account_id, fee)))
         }
         FeeRoute::Vote { payer_account_id } => {
-            let fee = primitives::fee_policy::VOTE_FLAT_FEE.saturated_into();
+            let fee = primitives::fee_policy::FLAT_FEE.saturated_into();
             Ok(Some((payer_account_id, fee)))
         }
         FeeRoute::Offchain { .. } => {

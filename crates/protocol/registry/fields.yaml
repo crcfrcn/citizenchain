@@ -309,3 +309,8 @@
   field_label_zh: 登记前机构状态指纹
 - field_key: initial_threshold
   field_label_zh: 初始治理阈值
+
+- field_key: batch_id
+  field_label_zh: 删除批次
+- field_key: contact_list
+  field_label_zh: 删除联系人及版本

@@ -318,6 +318,8 @@ fn finalize_total_issuance_is_exact_and_overflow_is_rejected() {
 #[ignore = "requires explicitly supplied WASM_FILE"]
 fn candidate_runtime_interface_rules_are_enforced() {
     let wasm = runtime::WASM_BINARY.expect("WASM_FILE is required; no skipped assertion");
+    // 当前父metadata包含FLAT_FEE；旧WASM不能再冒充本次候选通过检查。
+    let parent_metadata = runtime::Runtime::metadata_at_version(16).expect("V16 metadata");
     let backend: sp_state_machine::InMemoryBackend<sp_runtime::traits::BlakeTwo256> = (
         sp_runtime::Storage::default(),
         sp_core::storage::StateVersion::V1,
@@ -328,13 +330,15 @@ fn candidate_runtime_interface_rules_are_enforced() {
         sp_core::H256::repeat_byte(1),
         &BTreeMap::new(),
         wasm,
+        Some(parent_metadata.as_slice()),
     )
     .unwrap();
     assert!(crate::guard::runtime_policy::check_candidate_runtime(
         &backend,
         sp_core::H256::repeat_byte(1),
         &BTreeMap::new(),
-        b"invalid WASM"
+        b"invalid WASM",
+        None,
     )
     .is_err());
 }

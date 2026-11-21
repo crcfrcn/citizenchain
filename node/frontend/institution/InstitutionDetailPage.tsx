@@ -364,8 +364,8 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
             >
               <div className="proposal-card-header">
                 <div className="proposal-card-identity">
-                  <span className="proposal-id">{item.displayId}</span>
                   <span className="proposal-card-vote-kind">{item.kindLabel}</span>
+                  <span className="proposal-id">{item.displayId}</span>
                 </div>
                 <span className={`proposal-status status-${item.status}`}>
                   {item.statusLabel}

@@ -69,7 +69,7 @@ export function TransferSigningFlow({ wallet, toAddress, amountYuan, remark, onC
   signRequestRef.current = signRequest;
 
   const isHot = wallet.signMode === 'hot';
-  const fee = calculateTransferFeeYuan(amountYuan);
+  const fee = calculateTransferFeeYuan(amountYuan, remark);
 
   useEffect(() => {
     if (step !== 'qr') return;

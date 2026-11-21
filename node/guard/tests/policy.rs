@@ -80,13 +80,13 @@ fn unit_code_updated_metadata() -> Vec<u8> {
     prefixed.encode()
 }
 
-fn signed_transfer(amount: u128) -> (Vec<sp_runtime::OpaqueExtrinsic>, AccountId32) {
+fn signed_transfer(amount: u128, remark: &[u8]) -> (Vec<sp_runtime::OpaqueExtrinsic>, AccountId32) {
     let pair = sr25519::Pair::from_seed(&[7u8; 32]);
     let payer_account_id = chain_signing::account_id_from_public(pair.public());
     let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
         beneficiary_account_id: AccountId32::new([8u8; 32]),
         amount,
-        remark: b"fee-test".to_vec().try_into().expect("remark fits"),
+        remark: remark.to_vec().try_into().expect("remark fits"),
     });
     let xt =
         chain_signing::build_signed_extrinsic_local(call, sp_core::H256::repeat_byte(1), 0, &pair);
@@ -97,9 +97,173 @@ fn signed_transfer(amount: u128) -> (Vec<sp_runtime::OpaqueExtrinsic>, AccountId
 fn node_fixed_fee_values_are_exact() {
     assert_eq!(primitives::fee_policy::calculate_onchain_fee(1), 10);
     assert_eq!(primitives::fee_policy::calculate_onchain_fee(50_000), 50);
-    assert_eq!(primitives::fee_policy::VOTE_FLAT_FEE, 100);
+    assert_eq!(primitives::fee_policy::FLAT_FEE, 100);
     assert_eq!(primitives::fee_policy::OFFCHAIN_MIN_FEE, 1);
     assert_eq!(offchain_fee(50_000, OFFCHAIN_MAX_RATE_UNITS), 50);
+}
+
+#[test]
+fn ordinary_remark_fee_and_historical_blocks_use_the_parent_metadata() {
+    for legacy in [false, true] {
+        let mut metadata = nodeclient::codec::decode_runtime_metadata(&local_metadata()).unwrap();
+        let RuntimeMetadata::V16(meta) = &mut metadata else {
+            panic!("V16 required")
+        };
+        if legacy {
+            meta.pallets
+                .iter_mut()
+                .find(|p| p.name == "OnchainTransaction")
+                .unwrap()
+                .constants
+                .iter_mut()
+                .find(|c| c.name == "FLAT_FEE")
+                .unwrap()
+                .name = "VoteFlatFee".into();
+        }
+        let metadata = RuntimeMetadataPrefixed(frame_metadata::META_RESERVED, metadata).encode();
+        for remark in [
+            vec![],
+            b"a".to_vec(),
+            "中".as_bytes().to_vec(),
+            b" ".to_vec(),
+            b"\n".to_vec(),
+            vec![b'a'; 99],
+        ] {
+            let (body, payer) = signed_transfer(50_000, &remark);
+            let expected = 50
+                + if !legacy && !remark.is_empty() {
+                    primitives::fee_policy::FLAT_FEE
+                } else {
+                    0
+                };
+            for actual in [expected - 1, expected, expected + 1] {
+                let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
+                    phase: Phase::ApplyExtrinsic(0),
+                    topics: vec![],
+                    event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+                        account_id: payer.clone(),
+                        fee: actual,
+                    }),
+                }];
+                let key = storage_key::events();
+                assert_eq!(
+                    check_block(&body, |at| (at == key).then(|| events.encode()), &metadata)
+                        .is_ok(),
+                    actual == expected
+                );
+                if actual == expected {
+                    for (account_id, fee) in [
+                        (payer.clone(), expected),
+                        (payer.clone(), expected + 1),
+                        (AccountId32::new([0x99; 32]), expected),
+                    ] {
+                        let extra = EventRecord {
+                            phase: Phase::ApplyExtrinsic(0),
+                            topics: vec![],
+                            event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+                                account_id,
+                                fee,
+                            }),
+                        };
+                        let mut duplicated = vec![events[0].clone(), extra];
+                        for _ in 0..2 {
+                            assert!(check_block(
+                                &body,
+                                |at| (at == key).then(|| duplicated.encode()),
+                                &metadata,
+                            ).is_err());
+                            duplicated.reverse();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn voting_keeps_legal_business_execution_fee_events() {
+    let pair = sr25519::Pair::from_seed(&[7; 32]);
+    let payer = chain_signing::account_id_from_public(pair.public());
+    let call = RuntimeCall::InternalVote(internalvote::pallet::Call::cast {
+        proposal_id: 7,
+        ticket_claim: internalvote::InternalVoteTicketClaim::Personal,
+        approve: true,
+    });
+    let body = vec![chain_signing::build_signed_extrinsic_local(
+        call, sp_core::H256::repeat_byte(1), 0, &pair,
+    ).into()];
+    let mut events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = [
+        (payer, primitives::fee_policy::FLAT_FEE),
+        (AccountId32::new([0x99; 32]), 50),
+    ].into_iter().map(|(account_id, fee)| EventRecord {
+        phase: Phase::ApplyExtrinsic(0), topics: vec![],
+        event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid { account_id, fee }),
+    }).collect();
+    let key = storage_key::events();
+    let metadata = local_metadata();
+    for _ in 0..2 {
+        assert!(check_block(&body, |at| (at == key).then(|| events.encode()), &metadata).is_ok());
+        events.reverse();
+    }
+}
+
+#[test]
+fn shared_fee_metadata_rejects_wrong_values_missing_duplicate_and_policy_rollback() {
+    let mut metadata = nodeclient::codec::decode_runtime_metadata(&local_metadata()).unwrap();
+    assert_eq!(remark_fee_enabled(&metadata, None).unwrap(), true);
+    assert_eq!(remark_fee_enabled(&metadata, Some(true)).unwrap(), true);
+    let RuntimeMetadata::V16(meta) = &mut metadata else {
+        panic!("V16 required")
+    };
+    let constants = &mut meta
+        .pallets
+        .iter_mut()
+        .find(|p| p.name == "OnchainTransaction")
+        .unwrap()
+        .constants;
+    let index = constants.iter().position(|c| c.name == "FLAT_FEE").unwrap();
+    constants[index].name = "VoteFlatFee".into();
+    assert_eq!(remark_fee_enabled(&metadata, Some(false)).unwrap(), false);
+    assert!(remark_fee_enabled(&metadata, Some(true)).is_err());
+    let RuntimeMetadata::V16(meta) = &mut metadata else {
+        unreachable!()
+    };
+    let constants = &mut meta
+        .pallets
+        .iter_mut()
+        .find(|p| p.name == "OnchainTransaction")
+        .unwrap()
+        .constants;
+    constants[index].name = "FLAT_FEE".into();
+    constants[index].value = 99u128.encode();
+    assert!(remark_fee_enabled(&metadata, None).is_err());
+    let RuntimeMetadata::V16(meta) = &mut metadata else {
+        unreachable!()
+    };
+    let constants = &mut meta
+        .pallets
+        .iter_mut()
+        .find(|p| p.name == "OnchainTransaction")
+        .unwrap()
+        .constants;
+    constants[index].value = primitives::fee_policy::FLAT_FEE.encode();
+    let mut duplicate = constants[index].clone();
+    duplicate.name = "VoteFlatFee".into();
+    constants.push(duplicate);
+    assert!(remark_fee_enabled(&metadata, None).is_err());
+    let RuntimeMetadata::V16(meta) = &mut metadata else {
+        unreachable!()
+    };
+    let constants = &mut meta
+        .pallets
+        .iter_mut()
+        .find(|p| p.name == "OnchainTransaction")
+        .unwrap()
+        .constants;
+    constants.pop();
+    constants.remove(index);
+    assert!(remark_fee_enabled(&metadata, None).is_err());
 }
 
 #[test]
@@ -112,13 +276,13 @@ fn rates_above_zero_point_one_percent_are_rejected() {
 
 #[test]
 fn actual_onchain_fee_event_must_match_fixed_formula() {
-    let (body, payer_account_id) = signed_transfer(50_000);
+    let (body, payer_account_id) = signed_transfer(50_000, b"fee-test");
     let metadata = local_metadata();
     let good_events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
         phase: Phase::ApplyExtrinsic(0),
         event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
             account_id: payer_account_id.clone(),
-            fee: 50,
+            fee: 150,
         }),
         topics: Vec::new(),
     }];
@@ -213,13 +377,13 @@ fn actual_offchain_settlement_uses_recipient_rate_and_one_fen_minimum() {
 fn upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks() {
     let metadata = local_metadata();
     let old_metadata = unit_code_updated_metadata();
-    let (body, payer) = signed_transfer(50_000);
+    let (body, payer) = signed_transfer(50_000, b"fee-test");
     let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![
         EventRecord {
             phase: Phase::ApplyExtrinsic(0),
             event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
                 account_id: payer,
-                fee: 50,
+                fee: 150,
             }),
             topics: Vec::new(),
         },
@@ -319,7 +483,8 @@ fn both_ml_proofs_keep_the_actual_fixed_transfer_fee_guard() {
         }];
         let key = storage_key::events();
         let body = vec![xt.into()];
-        assert!(check_block(&body, |at| (at == key).then(|| events.encode()), &metadata).is_ok());
+        let result = check_block(&body, |at| (at == key).then(|| events.encode()), &metadata);
+        assert!(result.is_ok(), "{result:?}");
         assert!(check_block(
             &body,
             |at| (at == key)
@@ -370,7 +535,12 @@ fn legacy_metadata() -> [Vec<u8>; 2] {
             event: Some(v14::PalletEventMetadata {
                 ty: meta_type::<onchain::pallet::Event<runtime::Runtime>>(),
             }),
-            constants: vec![],
+            constants: vec![v14::PalletConstantMetadata {
+                name: "VoteFlatFee",
+                ty: meta_type::<u128>(),
+                value: primitives::fee_policy::FLAT_FEE.encode(),
+                docs: vec![],
+            }],
             error: None,
             index: 4,
         },
@@ -559,7 +729,7 @@ fn historical_v4_uses_parent_metadata_and_keeps_every_fee_constraint() {
 #[test]
 fn transaction_envelopes_and_metadata_fail_closed() {
     let metadata = local_metadata();
-    let (body, _) = signed_transfer(50_000);
+    let (body, _) = signed_transfer(50_000, b"fee-test");
     let raw = body[0].inner();
     assert_eq!(&raw[..2], &[0x45, 1]);
     assert!(decode_body(&body, &metadata).is_ok());
@@ -615,7 +785,7 @@ fn protected_call_cannot_omit_payer_or_use_undeclared_authentication() {
     });
     let bare: UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic::new_bare(call).into();
     assert!(decode_body(&[bare.into()], &metadata).is_err());
-    let (body, _) = signed_transfer(50_000);
+    let (body, _) = signed_transfer(50_000, b"fee-test");
     let mut prefixed = RuntimeMetadataPrefixed::decode(&mut metadata.as_slice()).unwrap();
     let RuntimeMetadata::V16(meta) = &mut prefixed.1 else {
         panic!("V16 required")

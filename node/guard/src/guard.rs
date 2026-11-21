@@ -521,6 +521,7 @@ impl<I> NodeGuard<I> {
             *params.header.parent_hash(),
             &BTreeMap::new(),
             code,
+            None,
         )?;
         Ok(())
     }
@@ -840,6 +841,7 @@ impl<I> NodeGuard<I> {
                 parent_hash,
                 &post_delta,
                 &candidate_code,
+                Some(parent_metadata.as_slice()),
             ) {
                 log::error!(
                     target: "node-guard",

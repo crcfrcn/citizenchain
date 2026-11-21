@@ -111,7 +111,7 @@ impl crate::pallet::Config for Test {
     type OnchainMinFee =
         frame_support::traits::ConstU128<{ primitives::fee_policy::ONCHAIN_MIN_FEE }>;
     type OnchainFeeRate = TestOnchainFeeRate;
-    type VoteFlatFee = frame_support::traits::ConstU128<{ primitives::fee_policy::VOTE_FLAT_FEE }>;
+    type FLAT_FEE = frame_support::traits::ConstU128<{ primitives::fee_policy::FLAT_FEE }>;
 }
 
 frame_support::parameter_types! {

@@ -109,6 +109,24 @@
     - new_account_id
     - expected_binding_revision
 
+# CID绑定钱包一次授权整批联系人删除；其他设备同步结果不重新签名。
+- action_key: contacts_delete
+  action_code: 20
+  action_label_zh: 删除联系人
+  kind: offchain_sign
+  qr_kind: sign_request
+  pallet:
+  call:
+  decoder: contacts_delete
+  hash_only_allowed: false
+  signing_category: offchain_auth
+  required_fields:
+    - cid_number
+    - account_id
+    - binding_revision
+    - batch_id
+    - contact_list
+
 # 本机默认账户切换——变化前的原默认账户签署完整目标账户顺序。
 # 该动作只授权本机用户切换，不包含 CID 或绑定版本，也不得进入任何换绑流程。
 - action_key: switch_default_account

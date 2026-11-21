@@ -16,6 +16,12 @@ export function developmentTLS(certificate, privateKey) {
 }
 
 const root = realpathSync(resolve(import.meta.dirname, '..'));
+// 前端及其测试从 Rust 唯一定义注入定额费；不在脚本中维护第二份金额。
+const flatFeeDeclaration = readFileSync(join(root, 'runtime/primitives/src/fee_policy.rs'), 'utf8')
+  .match(/^pub const FLAT_FEE: u128 = ([0-9_]+);$/mu);
+if (!flatFeeDeclaration) throw new Error('缺少唯一 FLAT_FEE 定义');
+export const FLAT_FEE = Number(flatFeeDeclaration[1].replaceAll('_', ''));
+if (!Number.isSafeInteger(FLAT_FEE) || FLAT_FEE <= 0) throw new Error('FLAT_FEE 必须为安全正整数分');
 const fail = message => { throw Error(message); };
 export function inside(parent, path, allowSame = false, paths = {relative, isAbsolute, sep}) {
   const value = paths.relative(parent, path);

@@ -76,7 +76,7 @@ export function TransferForm({ activeWallet, nodeReady = true, balance, balanceE
   }, [resetVersion]);
 
   const amount = parseAmount(amountText);
-  const fee = calculateTransferFeeYuan(amount);
+  const fee = calculateTransferFeeYuan(amount, remark);
   const total = amount + fee;
   const remarkBytes = utf8ByteLength(remark);
   const formDisabled = disabled || !activeWallet;

@@ -14,7 +14,7 @@ mod monetary {
         assert_eq!(100u128 * u128::from(NATIVE_TO_ETH_RATIO), 10u128.pow(18));
         assert_eq!(fee_policy::ONCHAIN_MIN_FEE, 10);
         assert_eq!(fee_policy::OFFCHAIN_MIN_FEE, 1);
-        assert_eq!(fee_policy::VOTE_FLAT_FEE, 100);
+        assert_eq!(fee_policy::FLAT_FEE, 100);
         assert_eq!(fee_policy::calculate_onchain_fee(50_000), 50);
     }
 }

@@ -5,7 +5,7 @@ import { transactionApi as api } from "./api";
 import type { SignMode, Wallet, WalletStore, WalletBalanceState } from "./types";
 
 import scanIcon from "../../../icons/scan.svg?url";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 type Props = {
   wallets: Wallet[];
@@ -28,7 +28,8 @@ function signModeLabel(signMode: SignMode): string {
 }
 
 function limitWalletName(value: string): string {
-  return Array.from(value).slice(0, 8).join('');
+  // 与后端 chars() 一致计数，原生 maxLength 会把非BMP字符计为两个。
+  return Array.from(value).slice(0, 10).join('');
 }
 
 /** 分 → 千分位元 */
@@ -49,6 +50,8 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
   const [adding, setAdding] = useState(false);
   const [showScan, setShowScan] = useState(false);
   const [confirmDeleteAccountId, setConfirmDeleteAccountId] = useState<string | null>(null);
+  const deleting = useRef(false);
+  const [deletePending, setDeletePending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 每个钱包的余额缓存以唯一 account_id 为键。
   const [balances, setBalances] = useState<Record<string, WalletBalanceState>>({});
@@ -81,13 +84,20 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
   };
 
   const handleDeleteClick = async (accountId: string) => {
+    if (deleting.current || !wallets.some((w) => w.accountId === accountId && w.signMode === 'cold')) return;
     if (confirmDeleteAccountId === accountId) {
+      deleting.current = true;
+      setDeletePending(true);
+      setError(null);
       try {
         const store = await api.removeWallet(accountId);
         onUpdate(store);
         setConfirmDeleteAccountId(null);
       } catch (e) {
         setError(sanitizeError(e));
+      } finally {
+        deleting.current = false;
+        setDeletePending(false);
       }
     } else {
       setConfirmDeleteAccountId(accountId);
@@ -128,77 +138,83 @@ export function WalletManagerModal({ wallets, activeAccountId, onClose, onUpdate
 
         {error && <div className="error">{error}</div>}
 
-        {/* 添加区（上方） */}
-        <div className="wallet-add-section-top">
-          <input
-            type="text"
-            placeholder="请输入钱包名称"
-            maxLength={8}
-            value={name}
-            onChange={(e) => setName((e.nativeEvent as InputEvent).isComposing
-              ? e.target.value : limitWalletName(e.target.value))}
-            onCompositionEnd={(e) => setName(limitWalletName(e.currentTarget.value))}
-            className="wallet-add-input"
-          />
-          <input
-            type="text"
-            placeholder={ADDRESS_INPUT_PLACEHOLDER}
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            className="wallet-add-input"
-          />
-          <button type="button" className="scan-icon-btn" onClick={() => setShowScan(true)} title="扫码填入">
-            <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url("${scanIcon}")`,WebkitMaskImage:`url("${scanIcon}")`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
-          </button>
-        </div>
-        {showScan && (
-          <AddressScanModal
-            onResult={(result) => { setAddress(result.ss58Address); setShowScan(false); }}
-            onClose={() => setShowScan(false)}
-          />
-        )}
+        <div className="wallet-manager-body">
+          <div className="wallet-manager-content">
+            {/* 添加区（上方，与列表共用滚动宽度） */}
+            <div className="wallet-add-section-top">
+              <input
+                type="text"
+                placeholder="请输入钱包名称"
+                value={name}
+                onChange={(e) => setName((e.nativeEvent as InputEvent).isComposing
+                  ? e.target.value : limitWalletName(e.target.value))}
+                onCompositionEnd={(e) => setName(limitWalletName(e.currentTarget.value))}
+                className="wallet-add-input"
+              />
+              <input
+                type="text"
+                placeholder={ADDRESS_INPUT_PLACEHOLDER}
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                className="wallet-add-input"
+              />
+              <button type="button" className="scan-icon-btn" onClick={() => setShowScan(true)} title="扫码填入">
+                <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url("${scanIcon}")`,WebkitMaskImage:`url("${scanIcon}")`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
+              </button>
+            </div>
+            {showScan && (
+              <AddressScanModal
+                onResult={(result) => { setAddress(result.ss58Address); setShowScan(false); }}
+                onClose={() => setShowScan(false)}
+              />
+            )}
 
-        {/* 分割线 */}
-        <hr className="wallet-divider" />
+            {/* 分割线 */}
+            <hr className="wallet-divider" />
 
-        {/* 钱包列表（下方，可滚动） */}
-        <div className="wallet-list-scroll">
-          {wallets.length === 0 && (
-            <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>暂无钱包</p>
-          )}
-          {wallets.map((w) => {
-            const bal = balances[w.accountId];
-            return (
-              <div
-                key={w.accountId}
-                className={`wallet-row ${w.accountId === activeAccountId ? 'active' : ''}`}
-                onClick={() => handleSelectWallet(w)}
-              >
-                <input
-                  type="radio"
-                  checked={w.accountId === activeAccountId}
-                  readOnly
-                  className={`wallet-radio ${w.signMode}`}
-                  title={signModeLabel(w.signMode)}
-                  aria-label={`${w.name}（${signModeLabel(w.signMode)}）`}
-                />
-                <span className="wallet-row-name">{w.name}</span>
-                <span className="wallet-row-address">{accountIdToSs58(w.accountId)}</span>
-                <span className="wallet-row-balance" title={bal?.status === 'error' ? bal.message : undefined}>
-                  {bal?.status === 'ready' ? `${fenToYuan(bal.balance)} 元`
-                    : bal?.status === 'error' ? '查询失败' : '查询中...'}
-                </span>
-                {w.signMode === 'cold' && (
-                  <button
-                    className={`wallet-row-delete-text ${confirmDeleteAccountId === w.accountId ? 'confirm' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); handleDeleteClick(w.accountId); }}
+            {/* 钱包列表（下方，可滚动） */}
+            <div className="wallet-list-scroll">
+              {wallets.length === 0 && (
+                <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>暂无钱包</p>
+              )}
+              {wallets.map((w) => {
+                const bal = balances[w.accountId];
+                return (
+                  <div
+                    key={w.accountId}
+                    className={`wallet-row ${w.accountId === activeAccountId ? 'active' : ''}`}
                   >
-                    {confirmDeleteAccountId === w.accountId ? '确认' : '删除'}
-                  </button>
-                )}
-              </div>
-            );
-          })}
+                    {w.signMode === 'cold' ? (
+                      <button
+                        type="button"
+                        className={`wallet-radio cold ${confirmDeleteAccountId === w.accountId ? 'confirm' : ''}`}
+                        aria-label={`${confirmDeleteAccountId === w.accountId ? '确认删除' : '删除'}${w.name}`}
+                        disabled={deletePending}
+                        onClick={(e) => { e.stopPropagation(); void handleDeleteClick(w.accountId); }}
+                      />
+                    ) : <input
+                      type="radio"
+                      checked={w.accountId === activeAccountId}
+                      readOnly
+                      className={`wallet-radio ${w.signMode}`}
+                      title={signModeLabel(w.signMode)}
+                      aria-label={`${w.name}（${signModeLabel(w.signMode)}）`}
+                      tabIndex={-1}
+                      onClick={(e) => e.preventDefault()}
+                    />}
+                    <button type="button" className="wallet-row-select" onClick={() => handleSelectWallet(w)}>
+                      <span className="wallet-row-name">{w.name}</span>
+                      <span className="wallet-row-address">{accountIdToSs58(w.accountId)}</span>
+                      <span className="wallet-row-balance" title={bal?.status === 'error' ? bal.message : undefined}>
+                        {bal?.status === 'ready' ? `${fenToYuan(bal.balance)} 元`
+                          : bal?.status === 'error' ? '查询失败' : '查询中...'}
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
     </div>

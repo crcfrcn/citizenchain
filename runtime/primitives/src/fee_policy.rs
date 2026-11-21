@@ -68,8 +68,8 @@ pub const ONCHAIN_FEE_RATE: Perbill = Perbill::from_parts(1_000_000);
 /// 链上交易单笔最小手续费:10 FEN = 0.1 元。
 pub const ONCHAIN_MIN_FEE: u128 = 10;
 
-/// 实际投票统一费用:100 FEN = 1 元/票。
-pub const VOTE_FLAT_FEE: u128 = 100;
+/// 投票定额费及普通链上转账非空备注附加费，单位为分：100 分 = 1 元。
+pub const FLAT_FEE: u128 = 100;
 
 // 链上交易手续费分账。
 /// 铸块全节点分成:80%。

@@ -46,8 +46,13 @@ pub(crate) fn amount_yuan_to_fen(amount_yuan: f64) -> Result<u128, String> {
     Ok(amount_fen)
 }
 
-pub(crate) fn calculate_transfer_fee(amount_fen: u128) -> u128 {
-    primitives::fee_policy::calculate_onchain_fee(amount_fen)
+pub(crate) fn calculate_transfer_fee(amount_fen: u128, remark: &str) -> u128 {
+    let fee = primitives::fee_policy::calculate_onchain_fee(amount_fen);
+    if remark.is_empty() {
+        fee
+    } else {
+        fee.saturating_add(primitives::fee_policy::FLAT_FEE)
+    }
 }
 
 pub(crate) fn validate_transfer_remark(remark: &str) -> Result<(), String> {
@@ -226,7 +231,7 @@ pub(crate) fn submit_hot_transfer_inner(
 
     let amount_fen = amount_yuan_to_fen(amount_yuan)?;
     validate_transfer_remark(&remark)?;
-    let fee_fen = calculate_transfer_fee(amount_fen);
+    let fee_fen = calculate_transfer_fee(amount_fen, &remark);
     ensure_spendable_balance(&hot_wallet.account_id, amount_fen, fee_fen)?;
 
     // 真正的私钥签名只发生在节点 RPC 内部；一次性令牌避免外部本机 RPC 直接花费矿工余额。

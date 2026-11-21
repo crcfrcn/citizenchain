@@ -367,7 +367,7 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "93806d74ea685fed2ed472a5146a0a964669bee7ed76c73c5a32c18b9b330a5d",
+        "deaa1fd50ec90c19571b78c8b064cbd1c05f22b47bd2062577f32845a2324be5",
         "Dart registry 与包含统一机构登记状态锁的正式导出金标不一致"
     );
 }

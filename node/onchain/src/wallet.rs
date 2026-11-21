@@ -36,6 +36,16 @@ pub struct WalletStore {
     pub active_account_id: Option<String>,
 }
 
+pub(crate) fn validate_new_wallet_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("钱包名称不能为空".to_string());
+    }
+    if name.chars().count() > 10 {
+        return Err("钱包名称不能超过10个字".to_string());
+    }
+    Ok(())
+}
+
 // 只读取当前严格格式；旧格式直接失败，不写回、不删除用户的原始文件。
 fn decode_store(raw: &str) -> Result<WalletStore, String> {
     let store: WalletStore =

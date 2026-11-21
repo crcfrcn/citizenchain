@@ -657,7 +657,7 @@ impl onchain::pallet::Config for Runtime {
     // 三项收费参数只做转发，不在此处另立数字；客户端从 metadata 读取后自行预估费用。
     type OnchainMinFee = ConstU128<{ primitives::fee_policy::ONCHAIN_MIN_FEE }>;
     type OnchainFeeRate = RuntimeOnchainFeeRate;
-    type VoteFlatFee = ConstU128<{ primitives::fee_policy::VOTE_FLAT_FEE }>;
+    type FLAT_FEE = ConstU128<{ primitives::fee_policy::FLAT_FEE }>;
 }
 
 pub struct RuntimeNrcAccountProvider;

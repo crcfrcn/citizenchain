@@ -39,6 +39,7 @@ pub(crate) enum ProtectedFee {
     Onchain {
         payer_account_id: [u8; 32],
         amount: u128,
+        has_remark: bool,
     },
     Vote {
         payer_account_id: [u8; 32],
@@ -48,6 +49,7 @@ pub(crate) enum ProtectedFee {
 fn protected_fee(
     call: &Value<()>,
     payer: Option<[u8; 32]>,
+    remark_fee_enabled: bool,
 ) -> Result<Option<ProtectedFee>, String> {
     let (pallet, fields) = variant(call).ok_or("交易缺少 RuntimeCall 类型")?;
     let call = only_field(fields).ok_or("交易 pallet 调用结构非法")?;
@@ -77,6 +79,27 @@ fn protected_fee(
             amount: composite_field(fields, "amount")
                 .and_then(integer)
                 .ok_or("链上转账 amount 类型非法")?,
+            has_remark: {
+                let mut remark = composite_field(fields, "remark").ok_or("链上转账缺少 remark")?;
+                // BoundedVec 的类型包装也会解成 Composite；借用解包，避免把空备注误判为非空。
+                loop {
+                    match &remark.value {
+                        ValueDef::Composite(Composite::Named(values)) if values.len() == 1 => {
+                            remark = &values[0].1
+                        }
+                        ValueDef::Composite(Composite::Unnamed(values)) => {
+                            if values.len() == 1
+                                && matches!(&values[0].value, ValueDef::Composite(_))
+                            {
+                                remark = &values[0];
+                            } else {
+                                break remark_fee_enabled && !values.is_empty();
+                            }
+                        }
+                        _ => return Err("链上转账 remark 类型非法".into()),
+                    }
+                }
+            },
         }
     } else {
         ProtectedFee::Vote { payer_account_id }
@@ -88,12 +111,17 @@ fn expected_fee(rule: ProtectedFee) -> ([u8; 32], u128) {
         crate::guard::runtime_policy::ProtectedFee::Onchain {
             payer_account_id,
             amount,
+            has_remark,
         } => (
             payer_account_id,
-            primitives::fee_policy::calculate_onchain_fee(amount),
+            primitives::fee_policy::calculate_onchain_fee(amount).saturating_add(if has_remark {
+                primitives::fee_policy::FLAT_FEE
+            } else {
+                0
+            }),
         ),
         crate::guard::runtime_policy::ProtectedFee::Vote { payer_account_id } => {
-            (payer_account_id, primitives::fee_policy::VOTE_FLAT_FEE)
+            (payer_account_id, primitives::fee_policy::FLAT_FEE)
         }
     }
 }
@@ -307,6 +335,66 @@ where
     Ok(fees)
 }
 
+// 唯一历史名称只用于识别不可改写的旧 metadata，不作为当前接口别名。
+fn remark_fee_enabled(
+    metadata: &RuntimeMetadata,
+    parent_enabled: Option<bool>,
+) -> Result<bool, String> {
+    let constants: Vec<(&str, &[u8])> = match metadata {
+        RuntimeMetadata::V14(meta) => meta
+            .pallets
+            .iter()
+            .find(|p| p.name == "OnchainTransaction")
+            .map(|p| {
+                p.constants
+                    .iter()
+                    .map(|c| (c.name.as_str(), c.value.as_slice()))
+                    .collect()
+            }),
+        RuntimeMetadata::V15(meta) => meta
+            .pallets
+            .iter()
+            .find(|p| p.name == "OnchainTransaction")
+            .map(|p| {
+                p.constants
+                    .iter()
+                    .map(|c| (c.name.as_str(), c.value.as_slice()))
+                    .collect()
+            }),
+        RuntimeMetadata::V16(meta) => meta
+            .pallets
+            .iter()
+            .find(|p| p.name == "OnchainTransaction")
+            .map(|p| {
+                p.constants
+                    .iter()
+                    .map(|c| (c.name.as_str(), c.value.as_slice()))
+                    .collect()
+            }),
+        _ => return Err("费用 metadata 版本不受支持".into()),
+    }
+    .ok_or("metadata 缺少 OnchainTransaction")?;
+    let mut policy = None;
+    for (name, raw) in constants {
+        let enabled = match name {
+            "FLAT_FEE" => true,
+            "VoteFlatFee" => false,
+            _ => continue,
+        };
+        if policy.is_some()
+            || decode_exact::<u128>(raw, "定额费")? != primitives::fee_policy::FLAT_FEE
+        {
+            return Err("metadata 定额费重复或不等于 FLAT_FEE".into());
+        }
+        policy = Some(enabled);
+    }
+    let enabled = policy.ok_or("metadata 缺少定额费")?;
+    if parent_enabled == Some(true) && !enabled {
+        return Err("新定额费规则生效后禁止退回旧收费名称".into());
+    }
+    Ok(enabled)
+}
+
 /// 交易与事件共用父 Runtime 的真实类型；历史 V4 不能交给现行 V5 包装类型解码。
 struct ExtrinsicSchema {
     types: scale_info::PortableRegistry,
@@ -315,12 +403,15 @@ struct ExtrinsicSchema {
     call: u32,
     versions: Vec<u8>,
     extensions: BTreeMap<u8, Vec<(String, u32)>>,
+    remark_fee_enabled: bool,
 }
 
 impl ExtrinsicSchema {
     fn new(raw: &[u8]) -> Result<Self, String> {
+        let metadata = nodeclient::codec::decode_runtime_metadata(raw)?;
+        let remark_fee_enabled = remark_fee_enabled(&metadata, None)?;
         let (types, address, signature, call, versions, extensions) =
-            match nodeclient::codec::decode_runtime_metadata(raw)? {
+            match metadata {
                 RuntimeMetadata::V14(meta) => {
                     if !matches!(meta.extrinsic.version, 4 | 5) {
                         return Err("父 Runtime 声明的交易格式非法".into());
@@ -408,6 +499,7 @@ impl ExtrinsicSchema {
             call,
             versions,
             extensions,
+            remark_fee_enabled,
         })
     }
 
@@ -486,7 +578,7 @@ impl ExtrinsicSchema {
         if !input.is_empty() {
             return Err("交易包含尾随字节".into());
         }
-        protected_fee(&call, payer)
+        protected_fee(&call, payer, self.remark_fee_enabled)
     }
 }
 
@@ -544,16 +636,24 @@ where
         let Some(rule) = rule else {
             continue;
         };
+        let ordinary_transfer = matches!(rule, ProtectedFee::Onchain { .. });
         let (expected_payer, expected_amount) = expected_fee(rule);
-        let found = events.iter().any(|record| {
-            matches!(record, crate::guard::runtime_policy::FeeEvent::Paid { extrinsic: Some(event_index), account_id, fee }
-                if *event_index == index as u32
-                    && *account_id == expected_payer
-                    && *fee == expected_amount)
+        let mut paid = events.iter().filter(|record| {
+            matches!(record, FeeEvent::Paid { extrinsic: Some(event_index), .. } if *event_index == index as u32)
         });
+        let matches_expected = |record: &FeeEvent| {
+            matches!(record, FeeEvent::Paid { account_id, fee, .. }
+                if *account_id == expected_payer && *fee == expected_amount)
+        };
+        let found = if ordinary_transfer {
+            // 普通转账只能有一次完整扣费；投票仍允许合法业务回调的执行费用。
+            paid.next().is_some_and(matches_expected) && paid.next().is_none()
+        } else {
+            paid.any(matches_expected)
+        };
         if !found {
             return Err(format!(
-                "第 {index} 笔交易缺少节点固定口径 FeePaid:账户 0x{},金额 {expected_amount} 分",
+                "第 {index} 笔交易 FeePaid 缺失、金额不符或普通转账重复收费:账户 0x{},金额 {expected_amount} 分",
                 hex::encode(expected_payer)
             ));
         }
@@ -673,6 +773,7 @@ pub(crate) fn check_candidate_runtime<B>(
     parent_hash: sp_core::H256,
     post_delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     candidate_code: &[u8],
+    parent_metadata: Option<&[u8]>,
 ) -> Result<(), String>
 where
     B: Backend<BlakeTwo256>,
@@ -709,6 +810,24 @@ where
     {
         return Err("候选 runtime 暴露 Benchmark runtime API，禁止作为正式 :code".to_string());
     }
+
+    let metadata_raw = call_candidate(
+        backend,
+        &mut overlay,
+        &executor,
+        &runtime_code,
+        parent_hash,
+        "Metadata_metadata",
+        &[],
+    )?;
+    let metadata: sp_core::OpaqueMetadata = decode_exact(&metadata_raw, "候选 metadata")?;
+    let parent_enabled = parent_metadata
+        .map(|raw| remark_fee_enabled(&nodeclient::codec::decode_runtime_metadata(raw)?, None))
+        .transpose()?;
+    remark_fee_enabled(
+        &nodeclient::codec::decode_runtime_metadata(&metadata)?,
+        parent_enabled,
+    )?;
 
     // 节点二进制级死规则:个人多签禁强制公民 CID。候选 runtime 必须暴露 `AdminPolicyApi`
     // 且 `personal_multisig_cid_mandated() == false`;返回 true(强制)或缺失该 API(下方

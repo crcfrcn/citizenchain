@@ -1985,7 +1985,7 @@ fn runtime_square_post_fee_kind_uses_onchain_minimum_fee() {
         );
         assert_eq!(primitives::fee_policy::ONCHAIN_MIN_FEE, 10);
         // 广场发布费不得改变实际投票的统一费用。
-        assert_eq!(primitives::fee_policy::VOTE_FLAT_FEE, YUAN);
+        assert_eq!(primitives::fee_policy::FLAT_FEE, YUAN);
     });
 }
 
@@ -4481,5 +4481,65 @@ fn proposal_id_upgrade_rejects_invalid_old_layout_without_partial_writes() {
         let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
         assert!(std::panic::catch_unwind(|| AddPrcFeeSweepPermissions::on_runtime_upgrade()).is_err());
         assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+    });
+}
+
+#[test]
+fn ordinary_transfer_remark_fee_uses_shared_constant_and_leaves_multisig_unchanged() {
+    use frame_support::dispatch::GetDispatchInfo;
+    sp_io::TestExternalities::default().execute_with(|| {
+        let who = AccountId::new([0x61; 32]);
+        for amount in [1, 10_499, 10_500, 100_000, u128::MAX] {
+            for remark in [
+                vec![],
+                b"a".to_vec(),
+                "中".as_bytes().to_vec(),
+                b" ".to_vec(),
+                b"\n".to_vec(),
+                vec![b'a'; 99],
+            ] {
+                let expected = primitives::fee_policy::calculate_onchain_fee(amount)
+                    + if remark.is_empty() {
+                        0
+                    } else {
+                        primitives::fee_policy::FLAT_FEE
+                    };
+                let call =
+                    RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+                        beneficiary_account_id: AccountId::new([0x62; 32]),
+                        amount,
+                        remark: remark.clone().try_into().unwrap(),
+                    });
+                assert_eq!(
+                    onchain::charge_details::<Runtime, Balances, RuntimeFeeRouter>(
+                        &who,
+                        &call,
+                        &call.get_dispatch_info(),
+                        0,
+                    )
+                    .unwrap(),
+                    Some((who.clone(), expected))
+                );
+                let multisig =
+                    RuntimeCall::MultisigTransfer(multisig::pallet::Call::propose_transfer {
+                        actor_cid_number: None,
+                        proposer_role_code: None,
+                        funding_account_id: who.clone(),
+                        beneficiary_account_id: AccountId::new([0x62; 32]),
+                        amount,
+                        remark: remark.try_into().unwrap(),
+                    });
+                assert_eq!(
+                    onchain::charge_details::<Runtime, Balances, RuntimeFeeRouter>(
+                        &who,
+                        &multisig,
+                        &multisig.get_dispatch_info(),
+                        0,
+                    )
+                    .unwrap(),
+                    Some((who.clone(), primitives::fee_policy::ONCHAIN_MIN_FEE))
+                );
+            }
+        }
     });
 }

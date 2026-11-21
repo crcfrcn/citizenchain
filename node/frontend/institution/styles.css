@@ -329,9 +329,13 @@
 }
 
 .institution-overview .proposal-card-vote-kind {
-  color: var(--institution-overview-secondary);
+  color: var(--text-primary);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.institution-overview .proposal-card-identity .proposal-id {
+  color: var(--institution-overview-secondary);
 }
 
 .institution-overview .proposal-card-header .proposal-status {

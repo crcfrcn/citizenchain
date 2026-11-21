@@ -12,7 +12,11 @@ fn transfer_amounts_fees_and_cold_call_match_runtime() {
         (1000.0, 100_000, 100),
     ] {
         assert_eq!(amount_yuan_to_fen(yuan).unwrap(), fen);
-        assert_eq!(calculate_transfer_fee(fen), fee);
+        assert_eq!(calculate_transfer_fee(fen, ""), fee);
+        assert_eq!(
+            calculate_transfer_fee(fen, "转账"),
+            fee + primitives::fee_policy::FLAT_FEE
+        );
         let bytes = build_transfer_with_remark_call(&destination, fen, "转账").unwrap();
         let call = runtime::RuntimeCall::OnchainTransaction(
             ::onchain::pallet::Call::transfer_with_remark {

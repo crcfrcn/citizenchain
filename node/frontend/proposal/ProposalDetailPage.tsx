@@ -341,7 +341,7 @@ function VoteTallyBar({ title, yes, no, threshold }: {
       <div className="vote-tally-header">
         <span className="vote-tally-title">{title}</span>
         <span className="vote-tally-counts">
-          赞成 {yes} / 反对 {no}
+          赞成 {yes} 票 / 反对 {no} 票
           {threshold != null && <span className="vote-threshold">（通过线 {threshold}）</span>}
         </span>
       </div>

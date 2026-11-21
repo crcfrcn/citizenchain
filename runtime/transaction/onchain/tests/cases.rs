@@ -135,6 +135,47 @@ fn withdraw_and_can_withdraw_use_explicit_signer_payer_and_min_fee() {
 }
 
 #[test]
+fn ordinary_transfer_remark_charges_once_in_quote_precheck_and_withdrawal() {
+    type Adapter = OnchainChargeAdapter<Balances, (), FeeRouteTinyOnchain>;
+    for remark in [
+        vec![],
+        b"a".to_vec(),
+        "中".as_bytes().to_vec(),
+        b" ".to_vec(),
+        b"\n".to_vec(),
+        vec![b'a'; 99],
+    ] {
+        new_test_ext().execute_with(|| {
+            let who = account(1);
+            let extra = if remark.is_empty() { 0 } else { primitives::fee_policy::FLAT_FEE };
+            let expected = primitives::fee_policy::ONCHAIN_MIN_FEE + extra;
+            let call = RuntimeCall::OnchainTransaction(pallet::Call::transfer_with_remark {
+                beneficiary_account_id: account(2), amount: 1,
+                remark: remark.try_into().unwrap(),
+            });
+            let info = call.get_dispatch_info();
+            for _ in 0..2 {
+                assert_eq!(charge_details::<Test, Balances, FeeRouteTinyOnchain>(&who, &call, &info, 0).unwrap(), Some((who.clone(), expected)));
+                assert_ok!(<Adapter as OnChargeTransaction<Test>>::can_withdraw_fee(&who, &call, &info, 0, 0));
+                assert_eq!(Balances::free_balance(&who), 1_000);
+            }
+            let credit = <Adapter as OnChargeTransaction<Test>>::withdraw_fee(&who, &call, &info, 0, 0).unwrap().unwrap();
+            assert_eq!(credit.peek(), expected);
+            assert_eq!(Balances::free_balance(&who), 1_000 - expected);
+            assert!(System::events().iter().any(|event| matches!(&event.event,
+                RuntimeEvent::OnchainTransaction(pallet::Event::FeePaid { account_id, fee }) if account_id == &who && *fee == expected)));
+            // 差一分必须拒绝，恰好留下 ED 时可支付；报价与预检不扣款。
+            drop(credit);
+            use frame_support::traits::fungible::Mutate;
+            <Balances as Mutate<AccountId32>>::set_balance(&who, expected);
+            assert!(<Adapter as OnChargeTransaction<Test>>::can_withdraw_fee(&who, &call, &info, 0, 0).is_err());
+            <Balances as Mutate<AccountId32>>::set_balance(&who, expected + 1);
+            assert_ok!(<Adapter as OnChargeTransaction<Test>>::can_withdraw_fee(&who, &call, &info, 0, 0));
+        });
+    }
+}
+
+#[test]
 fn withdraw_uses_explicit_route_payer() {
     type Adapter = OnchainChargeAdapter<Balances, (), FeeRouteTinyAccount2>;
 
@@ -886,11 +927,11 @@ fn exposed_fee_constants_forward_fee_policy_exactly() {
     let min_fee: u128 = <<Test as crate::pallet::Config>::OnchainMinFee as Get<u128>>::get();
     let fee_rate: sp_runtime::Perbill =
         <<Test as crate::pallet::Config>::OnchainFeeRate as Get<sp_runtime::Perbill>>::get();
-    let vote_fee: u128 = <<Test as crate::pallet::Config>::VoteFlatFee as Get<u128>>::get();
+    let vote_fee: u128 = <<Test as crate::pallet::Config>::FLAT_FEE as Get<u128>>::get();
 
     assert_eq!(min_fee, primitives::fee_policy::ONCHAIN_MIN_FEE);
     assert_eq!(fee_rate, primitives::fee_policy::ONCHAIN_FEE_RATE);
-    assert_eq!(vote_fee, primitives::fee_policy::VOTE_FLAT_FEE);
+    assert_eq!(vote_fee, primitives::fee_policy::FLAT_FEE);
 }
 
 /// 多次报价必须保持整个链上状态不变，五类路由仍由原制度决定。
@@ -911,7 +952,7 @@ fn charge_details_is_read_only_for_existing_fee_routes() {
             );
             assert_eq!(
                 charge_details::<Test, Balances, FeeRouteVote>(&who, &call, &info, 0),
-                Ok(Some((who.clone(), primitives::fee_policy::VOTE_FLAT_FEE)))
+                Ok(Some((who.clone(), primitives::fee_policy::FLAT_FEE)))
             );
             assert_eq!(
                 charge_details::<Test, Balances, FeeRouteTinyAccount2>(&who, &call, &info, 0),

@@ -3639,7 +3639,8 @@ select option:checked {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
-  width: 700px;
+  width: max-content;
+  min-width: min(700px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
   max-height: 85vh;
   display: flex;
@@ -3676,17 +3677,28 @@ select option:checked {
   color: var(--text-primary);
 }
 
-/* 钱包列表行：radio + 名称 + 地址 + 删除 一行排列 */
+.wallet-manager-body {
+  overflow: auto;
+  min-height: 0;
+}
+
+.wallet-manager-content {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* 共享名称列由当前最长名称撑开；上下区域共用同一滚动宽度。 */
 
 .wallet-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   margin-bottom: 6px;
-  cursor: pointer;
   transition: border-color 0.15s;
 }
 
@@ -3700,7 +3712,6 @@ select option:checked {
 }
 
 .wallet-radio {
-  flex-shrink: 0;
   appearance: none;
   width: 13px;
   height: 13px;
@@ -3713,10 +3724,50 @@ select option:checked {
 
 .wallet-radio.hot {
   background: #ef4444;
+  cursor: default;
 }
 
 .wallet-radio.cold {
   background: #60a5fa;
+  position: relative;
+}
+
+.wallet-radio.cold::before,
+.wallet-radio.cold::after {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 1px;
+  background: var(--bg-app);
+  top: 6px;
+  left: 3px;
+  transform: rotate(45deg);
+}
+
+.wallet-radio.cold::after {
+  transform: rotate(-45deg);
+}
+
+.wallet-radio.cold.confirm::before {
+  transform: none;
+}
+
+.wallet-radio.cold.confirm::after {
+  display: none;
+}
+
+.wallet-row-select {
+  grid-column: 2 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .wallet-row-name {
@@ -3724,51 +3775,30 @@ select option:checked {
   font-size: 13px;
   color: var(--text-primary);
   white-space: nowrap;
-  flex-shrink: 0;
+  padding-right: 10px;
+  border-right: 1px solid var(--border);
+  text-align: left;
 }
 
 .wallet-row-address {
-  flex: 1;
-  min-width: 0;
   font-size: 12px;
   color: var(--text-muted);
   font-family: monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.wallet-row-delete-text {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 6px;
-}
-
-.wallet-row-delete-text:hover {
-  color: #ef4444;
-}
-
-.wallet-row-delete-text.confirm {
-  color: #ef4444;
-  font-weight: 600;
+  text-align: left;
 }
 
 .wallet-row-balance {
-  flex-shrink: 0;
   font-size: 12px;
   color: var(--text-secondary);
   font-family: monospace;
   white-space: nowrap;
+  text-align: right;
 }
 
 /* 添加区（上方） */
 .wallet-add-section-top {
   display: grid;
-  /* 700px弹窗扣除边框、内边距、32px扫码按钮及两个8px间隔，输入框为150px和460px。 */
   grid-template-columns: minmax(0, 150px) minmax(0, 1fr) var(--scan-icon-size);
   gap: 8px;
   align-items: center;
@@ -3778,12 +3808,6 @@ select option:checked {
 .wallet-add-section-top .wallet-add-input {
   width: 100%;
   min-width: 0;
-}
-
-@media (max-width: 600px) {
-  .wallet-add-section-top {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) var(--scan-icon-size);
-  }
 }
 
 .wallet-add-section-top h4 {
@@ -3813,11 +3837,16 @@ select option:checked {
   flex-shrink: 0;
 }
 
-/* 钱包列表（下方，可滚动） */
+/* 圆点、名称、完整地址、金额共享列；滚动由上下区域的共同父级承担。 */
 .wallet-list-scroll {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
+  display: grid;
+  /* 圆点13px，加行左侧10px内边距和1px边框。 */
+  grid-template-columns: 24px max-content minmax(max-content, 1fr) max-content;
+  column-gap: 10px;
+}
+
+.wallet-list-scroll > p {
+  grid-column: 1 / -1;
 }
 
 .wallet-add-section {
