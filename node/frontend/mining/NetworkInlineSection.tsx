@@ -1,3 +1,5 @@
+// 展示实际网络连接、同步及节点角色概览。
+
 import { sanitizeError } from "../client/tauri";
 import { miningApi as api } from "./api";
 import type { NetworkOverview } from "./types";

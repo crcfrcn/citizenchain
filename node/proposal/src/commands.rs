@@ -1,6 +1,5 @@
-// 治理模块入口：注册 Tauri 命令，聚合机构数据。
+//! 提供提案分页、详情和机构提案查询的桌面命令。
 
-// Tauri IPC 命令参数对应既有扫码签名载荷，不能在 Node 内改成新的封装对象。
 #![allow(clippy::too_many_arguments)]
 use tauri::AppHandle;
 

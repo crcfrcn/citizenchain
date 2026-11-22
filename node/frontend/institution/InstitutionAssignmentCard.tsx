@@ -1,3 +1,5 @@
+// 展示机构岗位任职、任期及管理员资料。
+
 import { formatBalance } from "../client/format";
 import { accountIdToSs58 } from "../client/ss58";
 import type { InstitutionAdminInfo, InstitutionRoleAssignmentInfo } from "./administrators";

@@ -1,12 +1,4 @@
-//! 个人多签管理员快照与机构岗位投票人快照。
-//!
-//! 机构提案创建时按 `VotePlan` 锁定每个岗位主体的有效任职账户，并按 CID
-//! 累加岗位票据总数；投票期间不随后续任职变化。`AdminSnapshot` 只供独立个人多签路径
-//! 使用，不得用于机构投票资格判定。
-//!
-//! - `is_admin_in_snapshot`:查个人多签快照判断某账户是否为冻结管理员
-//! - `snapshot_admins_len`:个人多签快照中的管理员数量
-//! - `snapshot_role_voters`:按完整岗位主体写入任职快照和 CID 岗位票据总数
+//! 冻结个人管理员及机构岗位投票人快照，提供投票资格和票据查询。
 
 use frame_support::pallet_prelude::{BoundedVec, DispatchResult};
 

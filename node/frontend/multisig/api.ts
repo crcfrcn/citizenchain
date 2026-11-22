@@ -1,3 +1,5 @@
+// 封装普通多签、安全基金和归集提案的准备及提交命令。
+
 import { invoke } from "../client/tauri";
 import type { VoteSignRequestResult, VoteSubmitResult } from "./types";
 

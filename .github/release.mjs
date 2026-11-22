@@ -1,3 +1,5 @@
+// 组装并验证正式发布归档，保持各平台安装包及macOS签名内容。
+
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {appendFileSync, createReadStream, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';

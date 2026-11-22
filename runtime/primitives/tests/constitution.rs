@@ -1,4 +1,5 @@
-//! 所属原语的真实单元测试，保留原断言与固定输入。
+//! 验证修宪范围分类、不可修改优先级和表决条件。
+
 mod constitution {
 
     use crate::constitution::*;

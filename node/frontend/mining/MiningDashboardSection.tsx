@@ -1,3 +1,5 @@
+// 展示挖矿收入、区块记录及精确金额。
+
 import { sanitizeError } from "../client/tauri";
 import { MetricHelp } from "../desktop/MetricHelp";
 import { miningApi as api } from "./api";

@@ -1,3 +1,5 @@
+//! 验证批次SCALE往返和签名及批次容量边界。
+
 use super::*;
 
 use crate::keystore::SigningKey;

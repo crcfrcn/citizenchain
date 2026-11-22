@@ -40,6 +40,21 @@ impl<T: pallet::Config> InstitutionAdminQuery<T::AccountId> for pallet::Pallet<T
         caller: &T::AccountId,
     ) -> Option<T::AccountId> {
         let value = Self::get_institution_admins(institution_code, cid_number)?;
+        if Self::wallets_initialized(Self::bounded_cid(cid_number)?) {
+            let key = Self::bounded_cid(cid_number)?;
+            let anchor = WalletOwners::<T>::get(&key, caller)?;
+            return value
+                .admins
+                .iter()
+                .any(|admin| admin.account_id == anchor)
+                .then_some(anchor.clone())
+                .filter(|_| {
+                    AdminWallets::<T>::get(&key, &anchor)
+                        .and_then(|state| state.wallet)
+                        .as_ref()
+                        == Some(caller)
+                });
+        }
         let operation = T::ChainPhase::is_operation();
         // 运行期才需要 LR 回落：私权 LR 的四要素强制在 `InstitutionInfo.legal_representative`
         // 身份记录上，其名册条目的 cid 可能为空；回落后 LR 同样按 CID 身份锚定。
@@ -90,5 +105,65 @@ impl<T: pallet::Config> InstitutionAdminQuery<T::AccountId> for pallet::Pallet<T
     fn institution_admins_len(institution_code: InstitutionCode, cid_number: &[u8]) -> Option<u32> {
         Self::get_institution_admins(institution_code, cid_number)
             .map(|value| value.admins.len() as u32)
+    }
+}
+
+// 新钱包接口只读取基础状态；原 InstitutionAdminQuery / resolve_admin_account 未切换。
+impl<T: pallet::Config> InstitutionAdminWalletQuery<T::AccountId> for pallet::Pallet<T> {
+    fn institution_wallets_initialized(
+        institution_code: InstitutionCode,
+        cid_number: &[u8],
+    ) -> bool {
+        Self::get_institution_admins(institution_code, cid_number).is_some()
+            && Self::bounded_cid(cid_number).is_some_and(WalletsInitialized::<T>::get)
+    }
+    fn institution_wallet_state(
+        institution_code: InstitutionCode,
+        cid_number: &[u8],
+        admin_account: &T::AccountId,
+    ) -> Option<InstitutionAdminWalletState<T::AccountId>> {
+        Self::get_institution_admins(institution_code, cid_number)?;
+        AdminWallets::<T>::get(Self::bounded_cid(cid_number)?, admin_account)
+    }
+
+    fn current_institution_wallet(
+        institution_code: InstitutionCode,
+        cid_number: &[u8],
+        admin_account: &T::AccountId,
+    ) -> Option<T::AccountId> {
+        let roster = Self::get_institution_admins(institution_code, cid_number)?;
+        if !roster
+            .admins
+            .iter()
+            .any(|admin| &admin.account_id == admin_account)
+        {
+            return None;
+        }
+        AdminWallets::<T>::get(Self::bounded_cid(cid_number)?, admin_account)?.wallet
+    }
+}
+
+impl<T: Config> Pallet<T> {
+    pub(crate) fn legacy_institution_wallet(
+        cid: &AdminCidNumber,
+        admin: &Admin<T::AccountId>,
+    ) -> Option<T::AccountId> {
+        if T::ChainPhase::is_operation() {
+            let effective_cid = if !admin.cid_number.is_empty() {
+                Some(admin.cid_number.to_vec())
+            } else if T::LegalRepresentativeQuery::legal_representative(cid).as_ref()
+                == Some(&admin.account_id)
+            {
+                T::LegalRepresentativeQuery::legal_representative_cid(cid)
+            } else {
+                None
+            };
+            if let Some(cid) = effective_cid {
+                let wallet = T::CitizenIdentityBinding::current_account(&cid)?;
+                return T::CitizenIdentityBinding::matches_citizen_account(&cid, &wallet)
+                    .then_some(wallet);
+            }
+        }
+        Some(admin.account_id.clone())
     }
 }

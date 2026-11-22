@@ -1,3 +1,6 @@
+// 展示当前私权类型的机构列表及详情入口。
+
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 // 私权机构列表。私权机构必须输入机构全称、简称或 CID 精确搜索,避免跨省全量扫描。
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -102,7 +105,7 @@ export const PrivateListTable: React.FC<Props> = ({
         align: 'center',
         render: (_v, _row, index) => cursorStack.length * 50 + index + 1,
       },
-      { title: '身份ID', dataIndex: 'cidNumber', width: 260, align: 'center' },
+      { title: '身份CID号', dataIndex: 'cidNumber', width: 260, align: 'center', render: (value: string) => <IdentityCidText value={value} /> },
       {
         title: '机构全称',
         dataIndex: 'cidFullName',

@@ -1,21 +1,4 @@
-//! 业务路径执行入口(issue/mint/burn/close/transfer)— 框架占位。
-//!
-//! 业务审批走多签内部执行:
-//! 本 pallet **不暴露 wrapper extrinsic**,业务由 VotingEngine InternalVote 通过后,
-//! 通过 callback 回调本模块入口函数,内部以 root 调用 `pallet_assets`。
-//!
-//! 规则要点:
-//! - propose origin 校验：proposer_account_id ∈ admins(actor_cid_number)（防 spam）
-//! - 费用必须进入全链五类协议，并由机构 CID 的费用账户承担
-//! - `asset_id` 只表示资产编号，治理身份只来自 `actor_cid_number`
-//! - OnchainAssetMeta 同时记录机构 CID 与资产执行账户，二者职责分离
-//!
-//! 当前框架阶段只搭函数签名 + doc 占位,实装在后续任务卡 A 完成。
-//!
-//! **未实装期一律 fail-closed**:本模块所有执行入口返回 `Error::NotImplemented`,
-//! 不返回 `Ok(())`。外层虽已有 `RuntimeCallFilter` reject 与 `FeeRoute::Reject` 双闸,
-//! 但那是外层防护;内层自己也必须拒绝,才能保证将来"先接回调、后写业务"时
-//! 投票会明确失败,而不是静默通过。
+//! 声明代币发行业务执行入口，当前未开放的动作明确拒绝。
 
 use crate::pallet::{Config, Error, OnchainAssetId};
 use crate::proposal::{BurnProposal, CloseProposal, IssueProposal, MintProposal, TransferProposal};

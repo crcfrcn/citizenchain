@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证法律提案组织保留原执行机构及两院信息。
+
 use super::*;
 use crate::law::model::{LawChapter, LawSection};
 use codec::Decode;

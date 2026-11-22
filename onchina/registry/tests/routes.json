@@ -50,7 +50,7 @@
       "get"
     ],
     "handlers": [
-      "onchina::institutions::subjects::admin::check_cid_full_name"
+      "onchina::institutions::check_cid_full_name"
     ],
     "owner": "registry"
   },
@@ -61,7 +61,7 @@
       "get"
     ],
     "handlers": [
-      "onchina::institutions::subjects::admin::search_parent_institutions"
+      "onchina::institutions::search_parent_institutions"
     ],
     "owner": "registry"
   },
@@ -72,7 +72,7 @@
       "post"
     ],
     "handlers": [
-      "onchina::institutions::subjects::admin::upload_legal_representative_photo"
+      "onchina::institutions::upload_legal_representative_photo"
     ],
     "owner": "registry"
   },
@@ -194,7 +194,7 @@
       "get"
     ],
     "handlers": [
-      "onchina::institutions::subjects::admin::get_federal_registry"
+      "onchina::institutions::get_federal_registry"
     ],
     "owner": "registry"
   },

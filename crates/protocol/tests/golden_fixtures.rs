@@ -1,19 +1,5 @@
-//! Golden fixtures 契约测试。
-//!
-//! `citizenchain/crates/protocol/tests/*.json` 是 QR_V1 五种码型的
-//! 唯一样例真源,各端注释都指向它。但在本测试出现之前,**全仓没有任何测试加载过
-//! 它们** —— 全部引用都只是注释。结果是 fixtures 与实现各自演化:2026-08-06 审计
-//! 发现 `user_contact`/`user_transfer` 还停在旧长字段、`sign_request` 的动作码
-//! `515`(0x0203)根本不在 registry 里,即唯一的签名请求样例是不可签的。
-//!
-//! 本测试把 fixtures 钉死为可回归的契约:
-//! - 五种码型齐备,文件名与 `k` 值一一对应
-//! - 信封字段集精确(固定码禁带 `i`/`e`,临时码必带)
-//! - body 键集精确等于 spec 规定的单字母集合
-//! - `account_id`(`n`)必须是小写 `0x` + 64 hex
-//! - 签名请求的动作码必须在 registry 在册(否则签名端按铁律必须拒签)
+//! 验证各码型唯一黄金样例、字段集合及节点部署意图往返。
 
-// 金标夹具读取失败必须立即中止测试，断言式解包仅限本测试目标。
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use serde_json::Value;

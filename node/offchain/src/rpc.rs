@@ -1,3 +1,5 @@
+//! 向用户提供清算余额、nonce和待处理数量查询及签名支付提交。
+
 use crate::ledger::OffchainLedger;
 use crate::packer::BatchSigner;
 use codec::Decode;

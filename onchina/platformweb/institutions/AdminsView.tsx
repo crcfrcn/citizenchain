@@ -1,11 +1,16 @@
+// 展示本机构链上管理员及公开资料。
+
+import { InstitutionWalletChangeModal, InstitutionWalletRecoveryPanel } from './GovernanceReview';
+import type { InstitutionWalletRunResult } from './governance';
 import { useEffect, useState } from 'react';
 import { KeyOutlined } from '@ant-design/icons';
-import { Badge, Button, Card, Empty, Grid, Modal, Spin, Table, Tooltip } from 'antd';
+import { Badge, Button, Card, Empty, Grid, Modal, Spin, Space, Table, Tooltip } from 'antd';
 import { useAuth } from '../authentication/useAuth';
 
 import { type OwnInstitutionAdminListOutput, type OwnInstitutionAdminRow, listOwnInstitutionAdmins } from './governance';
 
 import { sameHexAccount } from './adminUtils';
+import { tryEncodeSs58 } from '../codes/ss58';
 
 import { CID_MODAL_Z_INDEX } from '../controls/modalStack';
 import { notice } from '../controls/notice';
@@ -23,6 +28,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
   const { registered: passkeyRegistered, busy: passkeyBusy, register: doRegisterPasskey } =
     usePasskeyRegistration();
   const [data, setData] = useState<OwnInstitutionAdminListOutput | null>(null);
+  const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(false);
   const [detailTarget, setDetailTarget] = useState<OwnInstitutionAdminRow | null>(null);
   const screens = Grid.useBreakpoint();
@@ -48,7 +54,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
     return () => {
       cancelled = true;
     };
-  }, [auth?.accessToken]);
+  }, [auth?.accessToken, auth?.accountId, auth?.institutionCidNumber, revision]);
 
   const passkeyAction = (row: OwnInstitutionAdminRow) => {
     const isSelf = row.isSelf || sameHexAccount(row.accountId, auth?.accountId);
@@ -77,6 +83,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
       bordered={false}
       style={{ background: '#ffffff', borderRadius: 8 }}
     >
+      <InstitutionWalletRecoveryActions institutionCidNumber={auth?.institutionCidNumber} onSubmitted={() => setRevision(r => r + 1)}/>
       {isCardLayout ? (
         <Spin spinning={loading}>
           {rows.length === 0 && !loading ? (
@@ -94,7 +101,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
                   key={row.accountId}
                   assignment={row}
                   index={index + 1}
-                  action={passkeyAction(row)}
+                  action={<Space>{passkeyAction(row)}<InstitutionWalletSelfAction accountId={row.accountId} institutionCidNumber={auth?.institutionCidNumber} onSubmitted={() => setRevision(r => r + 1)}/></Space>}
                   actionPlacement="balance-row"
                 />
               ))}
@@ -107,6 +114,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
           loading={loading}
           dataSource={rows}
           pagination={false}
+          scroll={{ x: 1100 }}
           columns={[
             {
               title: '序号',
@@ -117,7 +125,21 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
             {
               title: '岗位',
               dataIndex: 'roleName',
+              render: (value: string | null | undefined) => value?.trim() || '-',
+            },
+            {
+              title: '姓名',
               render: (_value: string, row) => assignmentDisplayLabel(row) || '-',
+            },
+            {
+              title: '钱包账户',
+              dataIndex: 'accountId',
+              width: 360,
+              render: (value: string) => (
+                <span style={{ fontSize: 11, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  {tryEncodeSs58(value)}
+                </span>
+              ),
             },
             {
               title: '余额',
@@ -131,7 +153,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
               width: 220,
               align: 'center',
               render: (_v: unknown, row) => (
-                <span onClick={(event) => event.stopPropagation()}>{passkeyAction(row)}</span>
+                <span onClick={(event) => event.stopPropagation()}>{passkeyAction(row)} <InstitutionWalletSelfAction accountId={row.accountId} institutionCidNumber={auth?.institutionCidNumber} onSubmitted={() => setRevision(r => r + 1)}/></span>
               ),
             },
           ]}
@@ -153,4 +175,30 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
       </Modal>
     </Card>
   );
+}
+
+
+/** 所有管理员列表复用此入口：同一登录机构、同一当前钱包才显示本人更换。 */
+export function InstitutionWalletSelfAction({ accountId, institutionCidNumber, onSubmitted }: { accountId: string; institutionCidNumber?: string; onSubmitted?: () => void }) {
+  const { auth, logout } = useAuth();
+  const [open, setOpen] = useState(false);
+  if (!auth || !auth.institutionCidNumber || institutionCidNumber !== auth.institutionCidNumber || !sameHexAccount(accountId, auth.accountId)) return null;
+  const completed = (result: InstitutionWalletRunResult) => {
+    if (result.draft.expectedWallet === auth.accountId) { notice.info('请使用新钱包重新登录本机构'); logout(); }
+    else onSubmitted?.();
+  };
+  return <><Button size="small" onClick={event => { event.stopPropagation(); setOpen(true); }}>更换</Button>
+    {open && <InstitutionWalletChangeModal key={`${auth.accessToken}|${auth.accountId}|${auth.institutionCidNumber}`} auth={auth} cidNumber={auth.institutionCidNumber} mode="SELF" onClose={() => setOpen(false)} onSubmitted={completed}/>}
+  </>;
+}
+
+
+/** 恢复入口与完整机构CID绑定，注册局目录不会展示其他机构的签名记录。 */
+export function InstitutionWalletRecoveryActions({ institutionCidNumber, onSubmitted }: { institutionCidNumber?: string; onSubmitted?: () => void }) {
+  const { auth, logout } = useAuth();
+  if (!auth || !institutionCidNumber || institutionCidNumber !== auth.institutionCidNumber) return null;
+  return <InstitutionWalletRecoveryPanel auth={auth} onSubmitted={result => {
+    if (result.mode === 'SELF' && result.draft.expectedWallet === auth.accountId) { notice.info('请使用新钱包重新登录本机构'); logout(); }
+    else onSubmitted?.();
+  }}/>;
 }

@@ -1,7 +1,4 @@
-//! 普选入口。
-//!
-//! 普选的职位、任期、候选来源、选民范围由业务模块解释后传入。
-//! 本文件只把这些数据固化成快照并创建 electionvote 提案。
+//! 冻结普选候选与人口范围，创建普选并执行公民投票。
 
 use frame_support::pallet_prelude::DispatchResult;
 

@@ -1,12 +1,4 @@
-//! 双层 ID + 反向索引专项测试。
-//!
-//! 覆盖:
-//! - 主键 `proposal_id: u128` 全局纯单调,跨业务跨年都唯一连续 +1
-//! - 展示号 `ProposalDisplayId[id] = (year, seq_in_year)` 跨年自动重置
-//! - 4 张反向索引在 `register_proposal_data` 时同事务写入
-//! - 清理路径(`FinalCleanup`)同步删除反向索引 + 展示号
-//!
-//! 全新创世:双层 ID 自创世第一块即终态布局,无回填迁移。
+//! 验证全局提案主键、年度展示号和反向索引的独立性。
 
 use super::*;
 // 这些 storage 在 engingcore 主 crate;dual_id 测试通过 super::* 拿到 engingcore::pallet 的 re-import。

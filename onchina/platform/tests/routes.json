@@ -161,7 +161,7 @@
         "get"
       ],
       "handlers": [
-        "institutions::catalog::list_own_institution_admins"
+        "institutions::list_own_institution_admins"
       ],
       "owner": "platform"
     },
@@ -172,7 +172,7 @@
         "get"
       ],
       "handlers": [
-        "institutions::catalog::get_own_institution"
+        "institutions::get_own_institution"
       ],
       "owner": "platform"
     },
@@ -183,7 +183,7 @@
         "post"
       ],
       "handlers": [
-        "institutions::admins::prepare_institution_governance"
+        "institutions::prepare_institution_governance"
       ],
       "owner": "platform"
     },
@@ -194,7 +194,7 @@
         "get"
       ],
       "handlers": [
-        "institutions::subjects::admin::read_legal_representative_photo"
+        "institutions::read_legal_representative_photo"
       ],
       "owner": "platform"
     },
@@ -205,7 +205,7 @@
         "post"
       ],
       "handlers": [
-        "institutions::accounts::handler::create_account"
+        "institutions::create_account"
       ],
       "owner": "platform"
     },
@@ -217,8 +217,8 @@
         "patch"
       ],
       "handlers": [
-        "institutions::subjects::admin::get_institution",
-        "institutions::subjects::admin::update_institution"
+        "institutions::get_institution",
+        "institutions::update_institution"
       ],
       "owner": "platform"
     },
@@ -229,7 +229,7 @@
         "get"
       ],
       "handlers": [
-        "institutions::accounts::handler::list_accounts"
+        "institutions::list_accounts"
       ],
       "owner": "platform"
     },
@@ -240,7 +240,7 @@
         "delete"
       ],
       "handlers": [
-        "institutions::accounts::handler::delete_account"
+        "institutions::delete_account"
       ],
       "owner": "platform"
     },
@@ -363,7 +363,7 @@
         "get"
       ],
       "handlers": [
-        "institutions::subjects::chain_multisig_info::app_search_institutions"
+        "institutions::app_search_institutions"
       ],
       "owner": "platform"
     },
@@ -374,7 +374,7 @@
         "get"
       ],
       "handlers": [
-        "institutions::subjects::chain_multisig_info::app_get_institution"
+        "institutions::app_get_institution"
       ],
       "owner": "platform"
     },
@@ -385,7 +385,7 @@
         "get"
       ],
       "handlers": [
-        "institutions::subjects::chain_multisig_info::app_list_accounts"
+        "institutions::app_list_accounts"
       ],
       "owner": "platform"
     },
@@ -418,7 +418,29 @@
         "get"
       ],
       "handlers": [
-        "institutions::admins::get_governance_state"
+        "institutions::get_governance_state"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "public",
+      "path": "/api/qr/split",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "qr::split_frames"
+      ],
+      "owner": "platform"
+    },
+    {
+      "group": "admin",
+      "path": "/api/admin/institution/wallet/prepare",
+      "methods": [
+        "post"
+      ],
+      "handlers": [
+        "institutions::prepare_institution_wallet"
       ],
       "owner": "platform"
     }

@@ -1,3 +1,5 @@
+//! 查询当前平台正式版本，下载并校验安装包并报告更新进度。
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};

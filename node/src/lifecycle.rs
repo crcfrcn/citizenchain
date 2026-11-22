@@ -1,3 +1,5 @@
+//! 串行启动和停止节点，将数据库锁及启动失败转换为用户状态。
+
 use crate::initialization::install_genesis_state_if_available;
 use crate::initialization::needs_local_chain_initialization;
 use nodeclient::handle::NodeHandle;

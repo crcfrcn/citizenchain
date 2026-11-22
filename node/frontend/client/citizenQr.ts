@@ -1,3 +1,5 @@
+// 严格解析统一二维码信封、签名请求和账户载荷。
+
 import { decodeGeneratedBase64Url, GENERATED_FIXED_KINDS, GENERATED_QR_KIND_CODE, type GeneratedQrKind, validateGeneratedQrV1 } from "./qrBodies.g";
 
 

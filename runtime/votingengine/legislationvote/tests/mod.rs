@@ -1,3 +1,5 @@
+//! 装配立法投票测试Runtime、身份范围及代表机构夹具。
+
 #![cfg(test)]
 
 //! 立法投票 sub-pallet 单测 mock runtime。

@@ -1,3 +1,6 @@
+// 展示公权机构详情及其账户和资料入口。
+
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 import { RolesView } from '@gmb/onchina-platform/institutions/RolesView';
 import { AssignmentsView } from '@gmb/onchina-platform/institutions/AssignmentsView';
 import { RepresentativeView } from '@gmb/onchina-platform/institutions/RepresentativeView';
@@ -99,9 +102,9 @@ export const GovDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, onBa
         <Row gutter={24}>
           <Col xs={24} md={24}>
             <Descriptions column={1} size="small">
-              <Descriptions.Item label="身份ID">
+              <Descriptions.Item label="身份CID号">
                 <Typography.Text style={{ fontSize: 12, wordBreak: 'break-all' }}>
-                  {inst.cidNumber}
+                  <IdentityCidText value={inst.cidNumber} />
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="全称">{inst.cidFullName || '-'}</Descriptions.Item>
@@ -125,10 +128,10 @@ export const GovDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, onBa
                   ? `${inst.legalRepresentative.family_name}${inst.legalRepresentative.given_name}`
                   : <span style={{ color: '#999' }}>(未填写)</span>}
               </Descriptions.Item>
-              <Descriptions.Item label="法定代表人身份ID">
+              <Descriptions.Item label="法定代表人身份CID号">
                 {inst.legalRepresentative?.cid_number ? (
                   <Typography.Text style={{ fontSize: 12, wordBreak: 'break-all' }}>
-                    {inst.legalRepresentative.cid_number}
+                    <IdentityCidText value={inst.legalRepresentative.cid_number} />
                   </Typography.Text>
                 ) : (
                   <span style={{ color: '#999' }}>(未填写)</span>
@@ -158,7 +161,7 @@ export const GovDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, onBa
         <InstitutionDetailNavLayout
           backAction={onBack ? { label: backLabel ?? '返回列表', onClick: onBack } : undefined}
           title={inst.cidFullName ?? inst.cidShortName ?? '(未设置全称)'}
-          subtitle={`身份ID：${inst.cidNumber}`}
+          subtitle={<IdentityCidText value={`身份CID号：${inst.cidNumber}`} />}
           status={
             <Tag color={inst.status === 'ACTIVE' ? 'green' : 'red'}>
               {SUBJECT_STATUS_LABEL[inst.status] || inst.status}

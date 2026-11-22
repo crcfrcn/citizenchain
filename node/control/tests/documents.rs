@@ -1,3 +1,5 @@
+//! 验证白皮书与两张图片引用唯一原件及章节顺序。
+
 use crate::documents::{get_other_tabs_content, get_whitepaper_document};
 
 #[test]

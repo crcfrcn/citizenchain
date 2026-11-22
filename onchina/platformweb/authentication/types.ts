@@ -1,5 +1,4 @@
-// 登录与角色相关的前端类型集中放在 auth 模块内。
-// 管理员按机构码(institution_code)归属机构;workspace/capabilities 由后端会话下发,前端镜像渲染工作台入口。
+// 定义管理员登录身份、令牌及后端工作台能力的前端类型。
 
 import type { CapabilitySet } from '../workspace/modules';
 import type { InstitutionWorkspace } from '../workspace/types';

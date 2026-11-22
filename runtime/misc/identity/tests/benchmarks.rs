@@ -1,7 +1,4 @@
-//! `identity` FRAME benchmark。
-//!
-//! 身份写入使用 fresh spec-genesis 中真实 FRG 省专员岗位完成授权；人口维护四项按
-//! 可独立组合的最重完整路径生成安全上界，避免日期推进或集中到期被低估。
+//! 以真实注册局岗位授权基准测量身份写入及有界人口维护。
 
 #![cfg(feature = "runtime-benchmarks")]
 

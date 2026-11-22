@@ -21,3 +21,43 @@ fn administrator_kind_and_lifecycle_discriminants_are_fixed() {
     assert_eq!(AdminAccountStatus::Active.encode(), vec![1]);
     assert_eq!(AdminAccountStatus::Closed.encode(), vec![2]);
 }
+
+#[test]
+fn institution_wallet_state_and_change_have_separate_strict_codec_contracts() {
+    let state = InstitutionAdminWalletState {
+        wallet: Some(9u8),
+        revision: 17,
+    };
+    let bytes = state.encode();
+    assert_eq!(bytes, (Some(9u8), 17u64).encode());
+    assert_eq!(
+        InstitutionAdminWalletState::<u8>::decode_all(&mut &bytes[..]).unwrap(),
+        state
+    );
+    let retired = InstitutionAdminWalletState::<u8> {
+        wallet: None,
+        revision: 18,
+    };
+    assert_eq!(retired.encode(), (None::<u8>, 18u64).encode());
+    let change = InstitutionAdminWalletChange {
+        admin_account: 1u8,
+        expected_wallet: 9u8,
+        new_wallet: 10u8,
+        expected_revision: 17,
+    };
+    let bytes = change.encode();
+    assert_eq!(bytes, (1u8, 9u8, 10u8, 17u64).encode());
+    assert_eq!(
+        InstitutionAdminWalletChange::<u8>::decode_all(&mut &bytes[..]).unwrap(),
+        change
+    );
+    for end in 0..bytes.len() {
+        assert!(InstitutionAdminWalletChange::<u8>::decode_all(&mut &bytes[..end]).is_err());
+    }
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(InstitutionAdminWalletChange::<u8>::decode_all(&mut &trailing[..]).is_err());
+    let mut trailing_state = state.encode();
+    trailing_state.push(0);
+    assert!(InstitutionAdminWalletState::<u8>::decode_all(&mut &trailing_state[..]).is_err());
+}

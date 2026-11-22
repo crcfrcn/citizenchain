@@ -1,3 +1,5 @@
+//! 构造绑定签名账户和代码摘要的运行时升级冷签请求。
+
 use nodeclient::session::remember_chain_sign_request_session;
 use nodeclient::signing::build_signing_payloads;
 use nodeclient::signing::chain_action_code;

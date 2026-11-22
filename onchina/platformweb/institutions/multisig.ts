@@ -1,5 +1,4 @@
-// 机构多签链交互查询 API。机构创建/机构资料维护仍归属
-// `frontend/subjects/`;本目录只承载链端 pull CID 信息所需的前端封装。
+// 封装公民端机构链信息的公开查询。
 
 type ApiEnvelope<T> = {
   code: number;

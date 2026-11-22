@@ -1,3 +1,5 @@
+// 装配节点桌面导航、首页双面板及各业务页面。
+
 import { NrcSection } from "../institution/NrcSection";
 import { PrcSection } from "../institution/PrcSection";
 import { PrbSection } from "../institution/PrbSection";

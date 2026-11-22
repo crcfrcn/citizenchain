@@ -1,4 +1,5 @@
-// 所属业务前端回归，公共测试辅助只有一份。
+// 验证注册局管理员登记请求和提交状态的准确传递。
+
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';
@@ -228,7 +229,7 @@ function registrationState(): GovernanceState {
   const target = (n: number) => ({ accountId: regAccount(n), termStart: 0, termEnd: 0, active: true, effective: true, sourceLabel: '机构内部治理', sourceRef: '0xff0080' });
   return { cidNumber: regCid, blockHash: '0x' + '10'.repeat(32), blockNumber: 10, currentDay: 20000, moduleTag: 'pub-mgmt', legalRoleCode: 'LR', representative: null,
     registrationStateHash: '0x' + 'ab'.repeat(32), governanceThreshold: 2, registrationRoles: [{ roleCode: 'R_REGISTRAR', roleName: '登记办理岗' }],
-    members: [1, 2, 3].map(n => ({ accountId: regAccount(n), signerId: n === 1 ? regAccount(9) : regAccount(n), cidNumber: 'citizen-' + n, familyName: '原', givenName: String(n) })),
+    members: [1, 2, 3].map(n => ({ accountId: regAccount(n), signerId: n === 1 ? regAccount(9) : regAccount(n), cidNumber: 'citizen-' + n, walletRevision: 0, familyName: '原', givenName: String(n) })),
     roles: [
       { roleCode: 'LR', roleName: '法定代表人', active: true, fixed: true, assignmentLocked: true, termRequired: false, minAssignments: 0, maxAssignments: 1, permissions: [], assignments: [] },
       { roleCode: 'R_GOV', roleName: '机构治理岗', active: true, fixed: false, assignmentLocked: false, termRequired: false, minAssignments: 0, maxAssignments: null,
@@ -474,5 +475,79 @@ describe('第5步通用页面与原投票语义', () => {
       expect(bodies[0].body).not.toHaveProperty('expectedStateHash');
       expect(sign).toHaveBeenCalledTimes(1);
     } finally { fetcher.mockRestore(); vi.resetModules(); }
+  });
+});
+
+
+describe('注册局管理员列与操作', () => {
+  const browserTest = process.env.ONCHINA_TEST_DOM ? it : it.skip;
+  browserTest('联邦和市注册局岗位姓名分列、展示当前钱包并保留原操作权限', async () => {
+    vi.resetModules();
+    const { createRequire } = await import('node:module');
+    const { JSDOM } = createRequire(import.meta.url)(process.env.ONCHINA_TEST_DOM!);
+    const dom = new JSDOM('<div id="root"></div>', { url: 'https://onchina.example.invalid/', pretendToBeVisual: true });
+    const computed = dom.window.getComputedStyle.bind(dom.window);
+    dom.window.getComputedStyle = (element: Element) => computed(element);
+    dom.window.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
+    for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'ShadowRoot', 'SVGElement', 'getComputedStyle']) vi.stubGlobal(name, dom.window[name]);
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const account = (byte: string) => '0x' + byte.repeat(32);
+    const cityCid = 'GZ018-CREGM-159197206-2026';
+    let auth = { accessToken: 'registry-table-session', accountId: account('11'), institutionCode: 'FRG', institutionCidNumber: 'ZS001-FRG07-249474503-2026', adminLevel: 'NATIONAL', scopeProvinceName: '贵州省', scopeCityName: null as string | null };
+    const register = vi.fn(async () => {});
+    const remove = vi.fn();
+    vi.doMock('@gmb/onchina-platform/authentication/useAuth', () => ({ useAuth: () => ({ auth }) }));
+    vi.doMock('@gmb/onchina-platform/authentication/usePasskey', () => ({ usePasskeyRegistration: () => ({ registered: false, busy: false, register }) }));
+    const React = await import('react');
+    vi.doMock('../government/GovDetailPage', () => ({ GovDetailPage: ({ adminListSection }: { adminListSection: import('react').ReactNode }) => React.createElement('div', null, adminListSection) }));
+    const { createRoot } = await import('react-dom/client');
+    const { FederalRegistryAdminSubTab } = await import('../admins/FederalRegistryAdminSubTab');
+    const { CityRegistryView } = await import('../admins/ProvinceDetailView');
+    const { decodeSs58 } = await import('@gmb/onchina-platform/codes/ss58');
+    const host = document.getElementById('root')!;
+    const root = createRoot(host);
+    const common = { termRequired: false, termStart: 0, termEnd: 0, assignmentSource: 0, assignmentSourceLabel: '创世', assignmentSourceRef: '', builtIn: true, createdAt: '2026-01-01T00:00:00Z' };
+    const federalRows = [
+      { ...common, id: 1, provinceName: '贵州省', accountId: account('11'), familyName: '张', givenName: '三', roleCode: 'PROVINCE_COMMISSIONER_GZ', roleName: '贵州省专员', balanceFen: '1200' },
+      { ...common, id: 2, provinceName: '广东省', accountId: account('44'), familyName: '', givenName: '', roleCode: 'PROVINCE_COMMISSIONER_GD', roleName: '广东省专员', balanceFen: '0' },
+    ];
+    const cityRows = federalRows.map((row, i) => ({ ...row, id: String(row.id), institutionCidNumber: cityCid, rosterAccountId: account(i === 0 ? '22' : '33'), citizenCidNumber: 'fixture-person', institutionCode: 'CREG', cityName: '贵阳市', roleName: i === 0 ? '登记岗' : '复核岗' }));
+    const state = { selectedFederalRegistry: federalRows[0], selectedCity: '贵阳市', setSelectedCity: vi.fn(), cityRegistryAdmins: cityRows, cityRegistryAdminsLoading: false, cityRegistryAdminsError: null, refreshCityRegistryAdmins: vi.fn(async () => cityRows), cityRegistryAdminListPage: 1, setCityRegistryListPage: vi.fn(), cityRegistryAdminCities: [], cityRegistryAdminCitiesLoading: false, setAddCityRegistryOpen: vi.fn(), onDeleteCityRegistry: remove, cityRegistryCid: cityCid, cityRegistryLoading: false, cityRegistryError: null, reloadCityRegistry: vi.fn() };
+    try {
+      await React.act(async () => root.render(React.createElement(FederalRegistryAdminSubTab, { selectedFederalRegistry: federalRows[0], federalRegistryAdmins: federalRows, federalRegistryAdminsLoading: false, institutionCidNumber: auth.institutionCidNumber })));
+      expect([...host.querySelectorAll('thead th')].map(cell => cell.textContent)).toEqual(['序号', '省份', '岗位', '姓名', '钱包账户', '余额', '操作']);
+      let actual = [...host.querySelectorAll('tbody tr[data-row-key]')];
+      let first = actual[0].querySelectorAll('td');
+      expect(first[2].textContent).toBe('贵州省专员'); expect(first[3].textContent).toBe('张三');
+      expect(decodeSs58(first[4].textContent!)).toBe(federalRows[0].accountId);
+      expect(first[5].textContent).toBe('12.00 元'); expect(first[6].textContent?.replace(/\s/g, '')).toBe('密钥更换');
+      expect(actual[1].querySelectorAll('td')[2].textContent).toBe('广东省专员');
+      expect(actual[1].querySelectorAll('td')[3].textContent).toBe('-');
+      expect(actual[1].querySelectorAll('td')[6].textContent).toBe('');
+      await React.act(async () => first[6].querySelector('button')!.click());
+      expect(register).toHaveBeenCalledTimes(1);
+      expect(document.body.textContent).not.toContain('管理员岗位任职');
+      await React.act(async () => root.render(React.createElement(CityRegistryView, { state: state as never })));
+      expect([...host.querySelectorAll('thead th')].map(cell => cell.textContent)).toEqual(['序号', '岗位', '姓名', '钱包账户', '余额', '操作']);
+      actual = [...host.querySelectorAll('tbody tr[data-row-key]')]; first = actual[0].querySelectorAll('td');
+      expect(first[1].textContent).toBe('登记岗'); expect(first[2].textContent).toBe('张三');
+      expect(decodeSs58(first[3].textContent!)).toBe(cityRows[0].accountId);
+      expect(decodeSs58(first[3].textContent!)).not.toBe(cityRows[0].rosterAccountId);
+      expect(first[5].textContent?.replace(/\s/g, '')).toBe('删除密钥');
+      expect(actual[1].querySelectorAll('td')[5].textContent?.replace(/\s/g, '')).toBe('删除');
+      await React.act(async () => first[5].querySelector('button')!.click());
+      expect(remove).toHaveBeenCalledWith(cityRows[0]);
+      auth = { ...auth, institutionCode: 'CREG', institutionCidNumber: cityCid, adminLevel: 'CITY', scopeCityName: '贵阳市' };
+      await React.act(async () => root.render(React.createElement(CityRegistryView, { state: state as never })));
+      actual = [...host.querySelectorAll('tbody tr[data-row-key]')];
+      expect(actual[0].querySelectorAll('td')[5].textContent?.replace(/\s/g, '')).toBe('更换密钥');
+      expect(actual[1].querySelectorAll('td')[5].textContent).toBe('');
+      expect([...host.querySelectorAll('button')].some(button => button.textContent?.replace(/\s/g, '') === '删除')).toBe(false);
+      expect(cityRows[0].accountId).toBe(account('11'));
+    } finally {
+      await React.act(async () => root.unmount());
+      vi.doUnmock('@gmb/onchina-platform/authentication/useAuth'); vi.doUnmock('@gmb/onchina-platform/authentication/usePasskey'); vi.doUnmock('../government/GovDetailPage');
+      dom.window.close(); vi.unstubAllGlobals(); vi.resetModules();
+    }
   });
 });

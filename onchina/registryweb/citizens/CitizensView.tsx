@@ -1,3 +1,7 @@
+// 展示辖区公民列表、类型筛选及档案详情入口。
+
+import { IdentityCidInput } from '@gmb/onchina-platform/controls/IdentityCidInput';
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 import { encodeSs58 } from '@gmb/onchina-platform/codes/ss58';
 // 注册局顶层视图 —— activeView === 'citizens' 分支。
 // 包含:citizen 列表 + 搜索栏 + 表格 + 直接录入公民弹窗。
@@ -150,7 +154,7 @@ export function CitizensView() {
     await refreshList(searchKeyword, prevCursor, true);
   };
 
-  // 录入成功后，用返回的新身份 CID 自动回填搜索框并查询，让新公民立即显示在列表。
+  // 录入成功后，用返回的新身份CID号 自动回填搜索框并查询，让新公民立即显示在列表。
   // 拿不到新号(理论不应发生)时回退到沿用当前关键字刷新。
   const handleCreated = async (createdCid?: string) => {
     const next = createdCid?.trim();
@@ -187,10 +191,10 @@ export function CitizensView() {
       render: (v: string | undefined) => v ?? '-',
     },
     {
-      title: '公民CID号',
+      title: '身份CID号',
       dataIndex: 'cidNumber',
       align: 'center',
-      render: (v: string | undefined) => v ?? '-',
+      render: (v: string | undefined) => <IdentityCidText value={v ?? '-'} />,
     },
     {
       title: '类型',
@@ -272,9 +276,9 @@ export function CitizensView() {
           </Typography.Title>
           <Form form={searchForm} layout="inline" onFinish={onSearch} style={{ rowGap: 12 }}>
             <Form.Item name="keyword" style={{ marginBottom: 0 }}>
-              <Input
+              <IdentityCidInput
                 style={{ width: 420, maxWidth: '72vw' }}
-                placeholder="护照号/公民CID号/姓名/绑定钱包账户"
+                placeholder="护照号/身份CID号/姓名/绑定钱包账户"
                 allowClear
                 disabled={!canUseCitizenList}
                 onPressEnter={() => searchForm.submit()}

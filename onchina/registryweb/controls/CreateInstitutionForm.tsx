@@ -1,3 +1,6 @@
+// 提供机构登记共用表单，处理名称、属主及法定代表人输入。
+
+import { IdentityCidInput } from '@gmb/onchina-platform/controls/IdentityCidInput';
 // 机构新增弹窗共享表单(私权/公权/教育三入口共用)。
 // 当前只保留待第 6 步复用的资料录入界面；提交按钮固定关闭，任何入口都不能生成
 // 已删除的 PublicManage/PrivateManage call 5。新业务模块接入时必须同时提交岗位、权限、
@@ -366,7 +369,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
   const triggerParentSearch = async () => {
     const q = (form.getFieldValue('parentCidNumber') ?? '').trim();
     if (!q) {
-      notice.warning('请先输入所属法人全称、简称或身份ID关键字');
+      notice.warning('请先输入所属法人全称、简称或身份CID号关键字');
       return;
     }
     const opts = parentSearchOptions();
@@ -523,7 +526,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
       } else if (collectNameInModal) {
         notice.success(`公权机构已提交链上交易:${result.cidNumber}`);
       } else {
-        notice.success(`身份ID 已提交链上交易:${result.cidNumber}`);
+        notice.success(`身份CID号 已提交链上交易:${result.cidNumber}`);
       }
       onCreated(result);
     } catch (err) {
@@ -751,8 +754,8 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
                 onSelect={onParentSelect}
                 onChange={onParentInputChange}
               >
-                <Input
-                  placeholder="输入所属法人全称、简称或身份ID后点击搜索"
+                <IdentityCidInput
+                  placeholder="输入所属法人全称、简称或身份CID号后点击搜索"
                   suffix={
                     <span
                       style={{
@@ -848,7 +851,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
         </Form.List>
         {!collectNameInModal && (
           <div style={{ color: '#888', fontSize: 12, marginTop: -8 }}>
-            提示:本步骤仅生成身份ID。生成后请在详情页设置机构全称等信息。
+            提示:本步骤仅生成身份CID号。生成后请在详情页设置机构全称等信息。
           </div>
         )}
       </Form>

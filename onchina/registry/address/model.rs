@@ -1,3 +1,5 @@
+//! 定义地址范围查询、名称列表和地址变更接口模型。
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]

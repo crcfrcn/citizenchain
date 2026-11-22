@@ -1,3 +1,5 @@
+//! 装配联合投票测试Runtime、时间及公民人口快照。
+
 use super::*;
 use engingcore::PopulationScope;
 

@@ -1,5 +1,5 @@
+// 按链端费率及构建注入的固定费用计算转账手续费。
 
-// 与 charge_details 同口径；FLAT_FEE 在构建期从唯一 Rust 定义注入，单位为分。
 declare const FLAT_FEE: number;
 
 const ONCHAIN_MIN_FEE_FEN = 10;

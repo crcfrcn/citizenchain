@@ -1,3 +1,5 @@
+//! 组装已签名清算批次交易，并通过交易池提交。
+
 use crate::keystore::SigningKey;
 use crate::packer::BatchSubmitter;
 use codec::Decode;

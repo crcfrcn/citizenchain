@@ -1,3 +1,5 @@
+// 定义股份公司表单字段和页面，调用所属登记与列表接口。
+
 import React from "react";
 import { type PrivateTypePageProps, PrivateTypePage } from "./PrivateTypePage";
 import type { AdminAuth } from "@gmb/onchina-platform/authentication/types";

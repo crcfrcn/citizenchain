@@ -45,3 +45,7 @@ export * as platform_institutions_RolesView from "../institutions/RolesView";
 export * as platform_institutions_AssignmentsView from "../institutions/AssignmentsView";
 export * as platform_institutions_RepresentativeView from "../institutions/RepresentativeView";
 export * as platform_institutions_GovernanceReview from "../institutions/GovernanceReview";
+
+// 统一身份CID号展示；只公开UI组件，不改变机构或签名接口。
+export * as platform_codes_identityCid from "../codes/identityCid";
+export * as platform_controls_IdentityCidInput from "../controls/IdentityCidInput";

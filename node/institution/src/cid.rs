@@ -1,3 +1,5 @@
+//! 通过链上中国公开接口搜索可用清算行身份。
+
 use crate::types::EligibleClearingBankCandidate;
 use serde::Deserialize;
 use std::time::Duration;

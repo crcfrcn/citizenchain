@@ -1,3 +1,5 @@
+// 挂载管理端应用并装配共享样式和模块入口。
+
 import * as SharedSDK from './index';
 import React from 'react';
 import ReactDOM from 'react-dom/client';

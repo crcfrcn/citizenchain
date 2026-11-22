@@ -1,40 +1,5 @@
 #!/usr/bin/env python3
-"""
-统一派生 citizenchain/runtime/primitives/src/china 下所有链上保留地址。
-
-统一方案（GMB 单域 + op_tag 子命名空间）：
-
-    preimage = b"GMB"         (3B)
-             || op_tag        (1B)
-             || ss58          (2B, LE, = [0xEB, 0x07] for 2027)
-             || payload       (按 op_tag 规范拼接)
-    address  = blake2b_256(preimage)
-
-op_tag 分配（唯一真源 = account_derive.rs，本脚本运行时从该文件解析，不在此硬编码）：
-    0x00 = OP_NAME      → input: cid_number + name_utf8（机构自定义命名账户，永久冻结）
-    0x01 = OP_MAIN      → input: cid_number          （机构主账户）
-    0x02 = OP_FEE       → input: cid_number          （费用账户）
-    0x03 = OP_STAKE     → input: cid_number          （质押账户）
-    0x04 = OP_SAFETY    → input: cid_number          （国储会安全基金，仅 NRC）
-    0x05 = OP_HE        → input: cid_number          （国储会两和基金，仅 NRC）
-    0x06 = OP_PERSONAL  → input: creator(32B) + name_utf8（个人多签，链上派生）
-    0x07 = OP_CLEARING  → input: cid_number          （清算账户，清算行资格机构）
-    0x08 = OP_FCSF      → input: cid_number          （联邦公民安全基金，仅 FSC）
-
-字节空间分区：0x00-0x0F 地址派生；0x10-0x1D 签名域（sign.rs）；0x1E-0xFF 未分配保留。
-新增协议账户只取"当前最大 + 1"，不改动既有 tag（改 tag 会重派生全部地址）。
-
-本工具一次性重算：
-  - main_account（所有 7 个机构常量文件：cb/ch/zf/jc/lf/sf/jy）
-  - fee_account （cb + ch 共 87 个）
-  - stake_account（ch 专有 43 个，按 cid_number 派生）
-  - SAFETY_FUND_ACCOUNT（cb 内 1 个全局常量）
-  - CHINA_RESERVED_MAIN_ACCOUNTS 保留名单（zb.rs 汇总表，365 条）
-
-用法：
-  python3 citizenchain/runtime/primitives/rederive_accounts.py               # dry-run，仅打印差异
-  python3 citizenchain/runtime/primitives/rederive_accounts.py --apply       # 写回源码
-"""
+"""按统一公民签名域重新派生并更新内置机构的保留账户常量。"""
 
 import argparse
 import hashlib

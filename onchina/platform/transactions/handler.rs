@@ -242,6 +242,9 @@ async fn recheck_chain_submit_authorization(
     ctx: &AdminAuthContext,
     session: &ChainSignSession,
 ) -> Result<(), axum::response::Response> {
+    if session.purpose == crate::institutions::PURPOSE_INSTITUTION_WALLET {
+        return crate::institutions::recheck_institution_wallet(state, ctx, session).await;
+    }
     if let Some(owner) = state.modules.owner_of_purpose(&session.purpose) {
         if state.modules.local_owns(&owner) {
             return state
@@ -349,7 +352,14 @@ pub(crate) async fn submit_chain_sign(
         delete_session_best_effort(&state, session.request_id.as_str(), "expired");
         return api_error(StatusCode::GONE, 1005, "冷签会话已过期,请重新发起");
     }
-    if !same_account_id(session.account_id.as_str(), ctx.account_id.as_str()) {
+    // A rotated-in wallet may only observe or project this exact institution's previous signed attempt.
+    // Any resubmission still passes wallet_call's original actor check below.
+    let wallet_recovery = has_chain_attempt
+        && session.purpose == crate::institutions::PURPOSE_INSTITUTION_WALLET
+        && session.context["walletInput"]["mode"].as_str() == Some("SELF")
+        && session.context["walletInput"]["newWallet"].as_str() == Some(ctx.account_id.as_str())
+        && session.context["origin_institution_cid"].as_str() == Some(ctx.institution_cid_number.as_str());
+    if !same_account_id(session.account_id.as_str(), ctx.account_id.as_str()) && !wallet_recovery {
         if !has_chain_attempt {
             delete_session_best_effort(&state, session.request_id.as_str(), "actor mismatch");
         }
@@ -609,6 +619,12 @@ async fn finish_finalized_session(
         Ok(output) => output,
         Err(response) => return response,
     };
+    if session.purpose == crate::institutions::PURPOSE_INSTITUTION_WALLET {
+        // The transaction is already final. Cleanup failures never resubmit it; the periodic sweep retries.
+        if let Err(error) = crate::authentication::login::revoke_stale_admin_sessions_once(&state.db).await {
+            tracing::warn!(%error, "finalized institutional wallet session cleanup deferred");
+        }
+    }
     // 已完成事务后才清理短期会话；清理失败也不会再次执行投影。
     delete_session_best_effort(state, &session.request_id, "completed");
     if let Some(citizen) = &citizen_output {
@@ -680,9 +696,10 @@ pub fn commit_projection(
 
 pub(crate) fn builtin_purposes() -> Vec<&'static str> {
     vec![
-        crate::institutions::admins::PURPOSE_INSTITUTION_GOVERNANCE,
-        crate::institutions::accounts::handler::PURPOSE_INSTITUTION_ADD_ACCOUNT,
-        crate::institutions::accounts::handler::PURPOSE_INSTITUTION_CLOSE_ACCOUNT,
+        crate::institutions::PURPOSE_INSTITUTION_GOVERNANCE,
+        crate::institutions::PURPOSE_INSTITUTION_WALLET,
+        crate::institutions::PURPOSE_INSTITUTION_ADD_ACCOUNT,
+        crate::institutions::PURPOSE_INSTITUTION_CLOSE_ACCOUNT,
     ]
 }
 

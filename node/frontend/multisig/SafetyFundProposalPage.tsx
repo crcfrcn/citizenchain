@@ -1,3 +1,5 @@
+// 填写并准备安全基金转账提案。
+
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58, ADDRESS_INPUT_PLACEHOLDER } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";

@@ -1,3 +1,5 @@
+// 管理浏览器相机和图片识别、设备错误及单次扫码生命周期。
+
 import jsQR from 'jsqr';
 
 const scanIntervalMs = 250;

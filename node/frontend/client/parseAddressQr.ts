@@ -1,3 +1,5 @@
+// 从支持的地址二维码解析收款账户并报告准确码型。
+
 import { accountIdToSs58 } from "./ss58";
 import { parseQrEnvelope, QrParseError, type AccountIdCodeBody, type UserContactBody } from "./citizenQr";
 

@@ -1,3 +1,5 @@
+//! 验证实际连接去重与角色分类及零连接和损坏结果区分。
+
 use super::*;
 
 use crate::network::cid_count_storage_key;

@@ -1,11 +1,8 @@
-//! 机构/账户业务校验 + 分类 + 唯一性
-//!
-//! 凡是要在 handler 里做的业务级校验(不是简单的格式校验),都放这里。
-//! handler 只负责调用 service + 转 HTTP 响应。
+//! 校验机构账户名称、主体唯一性及法定代表人的行政范围。
 
 use crate::codes::code;
 use crate::codes::{validate_cid_number_format, AdminLevel};
-use crate::institutions::subjects::model::Institution;
+use crate::institutions::Institution;
 use primitives::account_derive::is_forbidden_account_name;
 
 // 保留名字面单源 = primitives::account_derive::RESERVED_NAME_*_STR。

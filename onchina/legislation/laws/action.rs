@@ -1,8 +1,4 @@
-//! 立法链交易签名准备。
-//!
-//! 本模块只负责把已经完成权限与辖区前置校验的 `ChainCall` 转为统一链签名会话：
-//! OnChina 展示请求二维码，CitizenWallet 只签名一次并显示响应二维码，OnChina 回扫后
-//! 统一通过 `/api/admin/chain/submit` 验签、dry-run、提交并等待进块。
+//! 为法律提案和代表表决构造统一冷签会话并复核提交权限。
 
 use super::model::ProposeLawInput;
 use super::service::{build_propose_law_call, build_representative_vote_call};
@@ -11,7 +7,7 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use chrono::{Duration, Utc};
 use onchina::authentication::passkey::PasskeyProof;
-use onchina::institutions_call::ChainCall;
+use onchina::institutions::ChainCall;
 use onchina::transactions::session::{ChainSignSession, SESSION_TTL_SECS};
 use serde::Serialize;
 use serde_json::{json, Value};

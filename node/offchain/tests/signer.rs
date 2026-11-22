@@ -1,3 +1,5 @@
+//! 验证清算批次真实签名及未加载密钥拒绝。
+
 use super::*;
 
 use crate::keystore::SigningKey;

@@ -1,3 +1,6 @@
+// 展示清算行管理员并协调本机签名钥的扫码解锁。
+
+import { IdentityCidText } from '../client/identityCid';
 import { adminsChangeApi } from "../institution/admins";
 import { InstitutionAssignmentCard } from "../institution/InstitutionAssignmentCard";
 import type { InstitutionAdminInfo } from "../institution/council";
@@ -51,7 +54,7 @@ export function ClearingBankAdminListPage({
       <button className="back-button" onClick={onBack}>← 返回</button>
       <div className="admin-list-header">
         <h2>管理员列表（{admins.length} 人,阈值 {threshold}/{adminsLen}）</h2>
-        <code className="admin-card-address">{cidNumber}</code>
+        <code className="admin-card-address"><IdentityCidText value={cidNumber} /></code>
       </div>
 
       {admins.length === 0 ? (

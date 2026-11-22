@@ -1,3 +1,5 @@
+//! 验证四类宪法篡改被拒绝且不阻断后续合法区块导入。
+
 use super::*;
 
 use runtime::opaque::Block;

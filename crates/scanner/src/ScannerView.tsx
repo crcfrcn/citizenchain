@@ -1,3 +1,5 @@
+// 展示摄像头预览并连接扫码控制器的识别及错误状态。
+
 import {
   useEffect,
   useMemo,

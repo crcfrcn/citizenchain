@@ -1,3 +1,5 @@
+//! 验证发行解码、摘要和JSON使用相同金额及原因。
+
 use crate::{decode::decode_resolution_issuance_action, summary::format_issuance_summary};
 
 #[test]

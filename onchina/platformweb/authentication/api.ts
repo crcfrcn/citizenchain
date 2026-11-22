@@ -1,5 +1,4 @@
-// 登录、登出、会话校验与二维码登录 API。
-// 通用 HTTP 能力在 workspace/http.ts;本文件只放 auth 模块自己的后端接口。
+// 调用登录二维码、会话检查、登出和节点绑定接口。
 
 import { adminHeaders, request } from "../workspace/http";
 import type { AdminAuth } from './types';

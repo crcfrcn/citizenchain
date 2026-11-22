@@ -1,9 +1,4 @@
-//! 汇总 runtime/primitives/src/china 目录下所有制度保留地址
-//! （main_account + fee_account + stake_account + SAFETY_FUND_ACCOUNT）。
-//! 用于禁止 organization-manage 抢注这些机构地址。
-//!
-//! 派生统一走 `primitives::core_const::GMB` + op_tag，由
-//! `scripts/gmb.py` 一次性生成，禁止手改。
+//! 汇总内置机构主、费用、质押及安全基金账户，判定保留主账户。
 
 use hex_literal::hex;
 

@@ -1,3 +1,7 @@
+// 编辑机构管理员和岗位信息，通过统一流程准备链上登记。
+
+import { InstitutionWalletChangeModal, InstitutionWalletRecoveryPanel } from '@gmb/onchina-platform/institutions/GovernanceReview';
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 import scanIcon from '../../../icons/scan.svg?url';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Checkbox, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Typography } from 'antd';
@@ -9,7 +13,7 @@ import { useAuth } from '@gmb/onchina-platform/authentication/useAuth';
 import { ApiError } from '@gmb/onchina-platform/http';
 import { notice } from '@gmb/onchina-platform/controls/notice';
 import { CID_MODAL_Z_INDEX } from '@gmb/onchina-platform/controls/modalStack';
-import { buildInstitutionRegistration, buildInstitutionAdminGovernance, governanceProposers, dateFromDay, dayFromDate, getGovernanceState, institutionRegistrationPermissions, permissionLabel,
+import { buildInstitutionRegistration, buildInstitutionAdminGovernance, governanceProposers, institutionWalletRoles, dateFromDay, dayFromDate, getGovernanceState, institutionRegistrationPermissions, permissionLabel,
   type GovernanceState, type InstitutionGovernanceAssignmentTargetInput, type InstitutionGovernanceRoleMutationInput,
   type InstitutionRegistrationInput } from '@gmb/onchina-platform/institutions/governance';
 import { runInstitutionRegistration, readRegistrationReceipt, saveRegistrationReceipt,
@@ -166,7 +170,7 @@ export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removi
           <Button disabled={busy} onClick={() => setReview(null)}>返回修改</Button><Button type="primary" loading={busy} onClick={() => void submit()}>{mode === 'governance' ? '确认并签名提交治理提案' : '确认并签名上链'}</Button>
         </> : <Button type="primary" disabled={!snapshot || loading || !!error || !candidates.length} onClick={buildReview}>核对登记</Button>}
       </Space>}>
-      <Typography.Paragraph>目标机构：{cid ?? '当前详情页目标未就绪'}</Typography.Paragraph>
+      <Typography.Paragraph>目标机构身份CID号：<IdentityCidText value={cid ?? '当前详情页目标未就绪'} /></Typography.Paragraph>
       {mode === 'governance' && <Alert type="info" message="本机构治理提案需投票通过并执行后生效" />}
       {pending ? <Alert type="info" showIcon message="已有签名会话待恢复" description={closedRecovery ? '原会话已清理或消费，但当前链状态不再完全吻合。可以重新核对当前名册；这不会撤销已签交易，也不会自动重签旧变更。' : '恢复使用原请求和原签名，不重新准备或重复签名。'} /> : <>
         {loading && <Spin tip="读取链上名册及有效岗位"><div style={{ minHeight: 60 }} /></Spin>}
@@ -237,10 +241,11 @@ export function InstitutionAdministratorsPanel({ auth, cidNumber, canWrite, onSu
 }) {
   const [snapshot, setSnapshot] = useState<GovernanceState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [walletTarget, setWalletTarget] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [draft, setDraft] = useState<{ mode: InstitutionAdminMode; removing?: RemoveTarget } | null>(null);
   useEffect(() => {
-    let cancelled = false; setSnapshot(null); setError(null); setDraft(null);
+    let cancelled = false; setSnapshot(null); setError(null); setDraft(null); setWalletTarget(null);
     getGovernanceState(auth, cidNumber).then(state => { if (!cancelled) setSnapshot(state); })
       .catch(error => { if (!cancelled) setError(error instanceof Error ? error.message : String(error)); });
     return () => { cancelled = true; };
@@ -248,6 +253,7 @@ export function InstitutionAdministratorsPanel({ auth, cidNumber, canWrite, onSu
   const canPropose = canWrite && !!snapshot && governanceProposers(auth, snapshot).length > 0;
   const canRegister = canWrite && !!snapshot?.registrationRoles?.length;
   return <Card title="机构治理">
+    {auth.institutionCidNumber === cidNumber && <InstitutionWalletRecoveryPanel auth={auth} mode="GOVERNANCE" onSubmitted={() => { setRevision(r => r + 1); onSubmitted(); }}/>}
     <Typography.Paragraph>管理员集合</Typography.Paragraph>
     {error && <Alert type="error" message="管理员链状态读取失败" description={error} action={<Button onClick={() => setRevision(r => r + 1)}>重试</Button>} />}
     {!snapshot && !error && <Spin tip="读取链上名册"><div style={{ minHeight: 40 }} /></Spin>}
@@ -257,10 +263,13 @@ export function InstitutionAdministratorsPanel({ auth, cidNumber, canWrite, onSu
       { title: '姓名', render: (_, member) => `${member.familyName}${member.givenName}` || '资料待完善' },
       { title: '绑定钱包账户', render: (_, member) => tryEncodeSs58(member.signerId) },
       { title: '操作', render: (_, member) => <Space>
+        {member.signerId.toLowerCase() !== auth.accountId.toLowerCase() && <Button disabled={!canWrite || !snapshot || !institutionWalletRoles(auth, snapshot, member.accountId).length} onClick={() => setWalletTarget(member.accountId)}>提案更换钱包</Button>}
         <Button danger disabled={!canPropose} onClick={() => setDraft({ mode: 'governance', removing: { id: member.accountId, institutionCidNumber: cidNumber, rosterAccountId: member.accountId, familyName: member.familyName, givenName: member.givenName } })}>提案删除</Button>
         <Button danger disabled={!canRegister} onClick={() => setDraft({ mode: 'registration', removing: { id: member.accountId, institutionCidNumber: cidNumber, rosterAccountId: member.accountId, familyName: member.familyName, givenName: member.givenName } })}>登记删除</Button>
       </Space> },
     ]} />
+    {walletTarget && <InstitutionWalletChangeModal key={`${auth.accessToken}|${cidNumber}|${walletTarget}`} auth={auth} cidNumber={cidNumber} mode="GOVERNANCE" targetAccount={walletTarget}
+      onClose={() => setWalletTarget(null)} onSubmitted={() => { setRevision(r => r + 1); onSubmitted(); }}/>}
     <InstitutionAdminChangeModal key={`${auth.accessToken}|${auth.accountId}|${cidNumber}|${draft?.mode ?? ''}`} auth={auth} cidNumber={cidNumber} open={!!draft}
       mode={draft?.mode} removing={draft?.removing} onClose={() => setDraft(null)} onSubmitted={() => { setRevision(r => r + 1); onSubmitted(); }} />
   </Card>;

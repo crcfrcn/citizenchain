@@ -1,7 +1,9 @@
+//! 按机构CID维护公权管理员名册，核对当前公民账户绑定。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 //! 公权机构管理员账户集合模块。
 //!
-//! 机构唯一身份是 CID。本模块只保存 `AdminAccounts[cid_number] -> admins`；
+//! 机构唯一身份是 CID。本模块保存原有 `AdminAccounts[cid_number] -> admins` 与独立的机构钱包授权状态；
 //! 岗位、任职和机构治理阈值归 entity；投票引擎只读取阈值，机构账户不参与管理员寻址。
 
 extern crate alloc;
@@ -20,7 +22,8 @@ use sp_std::collections::btree_set::BTreeSet;
 use adminbase::{
     can_store_public_admin_code, Admin, AdminAccountKind, AdminCidNumber, ChainPhaseCheck,
     CitizenIdentityBindingQuery, InstitutionAdminLifecycle, InstitutionAdminQuery,
-    InstitutionAdmins,
+    InstitutionAdminWalletChange, InstitutionAdminWalletLifecycle, InstitutionAdminWalletQuery,
+    InstitutionAdminWalletState, InstitutionAdmins,
 };
 use engingcore::types::InstitutionCode;
 
@@ -63,6 +66,38 @@ pub mod pallet {
     pub type AdminAccounts<T: Config> =
         StorageMap<_, Blake2_128Concat, AdminCidNumber, InstitutionAdminsOf<T>, OptionQuery>;
 
+    /// 机构CID + 名册稳定账户锚点 → 钱包基础状态。None钱包保留退役版本。
+    /// 激活后机构签名只读取本状态，名册生命周期同步维护。
+    #[pallet::storage]
+    #[pallet::getter(fn stored_admin_wallet)]
+    pub type AdminWallets<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        AdminCidNumber,
+        Blake2_128Concat,
+        T::AccountId,
+        InstitutionAdminWalletState<T::AccountId>,
+        OptionQuery,
+    >;
+
+    /// 每机构初始化完成标记。未完成保持旧读取；完成后缺失钱包绝不回退。
+    #[pallet::storage]
+    #[pallet::getter(fn wallets_initialized)]
+    pub type WalletsInitialized<T: Config> =
+        StorageMap<_, Blake2_128Concat, AdminCidNumber, bool, ValueQuery>;
+
+    /// 机构内钱包反向索引。用于已激活机构的唯一性检查，避免每次执行读取整组钱包。
+    #[pallet::storage]
+    pub type WalletOwners<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        AdminCidNumber,
+        Blake2_128Concat,
+        T::AccountId,
+        T::AccountId,
+        OptionQuery,
+    >;
+
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
         pub _phantom: core::marker::PhantomData<T>,
@@ -101,6 +136,26 @@ pub mod pallet {
             admins_len: u32,
             created: bool,
         },
+        /// 钱包内部初始化完成，不表示已切换现有业务授权。
+        InstitutionAdminWalletInitialized {
+            cid_number: AdminCidNumber,
+            admin_account: T::AccountId,
+            wallet: T::AccountId,
+            revision: u64,
+        },
+        InstitutionAdminWalletChanged {
+            cid_number: AdminCidNumber,
+            admin_account: T::AccountId,
+            previous_wallet: T::AccountId,
+            new_wallet: T::AccountId,
+            revision: u64,
+        },
+        InstitutionAdminWalletRetired {
+            cid_number: AdminCidNumber,
+            admin_account: T::AccountId,
+            previous_wallet: T::AccountId,
+            revision: u64,
+        },
     }
 
     #[pallet::error]
@@ -114,10 +169,22 @@ pub mod pallet {
         CitizenIdentityMismatch,
         /// 运行期(Operation)公权管理员缺少必填要素(cid/姓/名)。
         IncompleteAdminFields,
+        WalletLegacyUnavailable,
+        WalletLegacyMismatch,
+        WalletAdminNotFound,
+        WalletAdminStillPresent,
+        WalletUninitialized,
+        WalletAlreadyInitialized,
+        WalletInactive,
+        WalletOldMismatch,
+        WalletStaleRevision,
+        WalletUnchanged,
+        WalletDuplicate,
+        WalletRevisionOverflow,
     }
 }
 
-// 校验、写入与查询独立组织，不改变FRAME存储、事件或外部接口。
+// 原名册校验、写入与查询保持原行为；钱包基础状态独立追加，尚无对外调用。
 mod lifecycle;
 mod query;
 mod validation;

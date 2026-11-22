@@ -1,3 +1,5 @@
+//! 从待处理账本构造支付批次，协调签名及链上提交。
+
 use crate::ledger::OffchainLedger;
 use crate::ledger::PendingPayment;
 #[cfg(test)]

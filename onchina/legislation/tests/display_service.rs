@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证名册与提案投票装配及同账户多岗位的独立席位。
+
 use super::*;
 use crate::chain_read_proposal::VoteTally;
 

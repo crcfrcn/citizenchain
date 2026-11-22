@@ -1,3 +1,5 @@
+//! 编码清算行登记和端点更新调用并校验签名账户。
+
 use nodeclient::signing::build_sign_request_from_call_data;
 use nodeclient::signing::encode_compact_u32_pub;
 use nodeclient::signing::VoteSignRequestResult;

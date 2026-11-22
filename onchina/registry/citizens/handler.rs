@@ -1,9 +1,5 @@
-//! 公民列表 / 公开身份查询 handlers
-//!
-//! 公民查询能力属于 citizens 模块,不属于权限范围规则。
-//! 因此本文件承接后台公民列表和公开身份查询入口。
+//! 提供公民列表、公开身份及法定代表人查询并核对范围。
 
-// 公民 handler 的失败分支统一携带完整 Axum Response，避免公开与管理入口形成双轨错误模型。
 #![allow(clippy::result_large_err)]
 
 use crate::citizens::admin_entry::CitizenWrites;
@@ -153,10 +149,7 @@ fn legal_representative_scope_from_existing_target(
     state: &AppState,
     auth_ctx: &onchina::authentication::login::AdminAuthContext,
     target_cid_number: &str,
-) -> Result<
-    onchina::institutions::subjects::service::LegalRepresentativeCitizenScope,
-    axum::response::Response,
-> {
+) -> Result<onchina::institutions::LegalRepresentativeCitizenScope, axum::response::Response> {
     let Some((target, _)) = (match state.db.get_institution_with_accounts(target_cid_number) {
         Ok(v) => v,
         Err(err) => {
@@ -174,7 +167,7 @@ fn legal_representative_scope_from_existing_target(
             "institution not found",
         ));
     };
-    onchina::institutions::subjects::http::ensure_institution_visible_to_admin(&target, auth_ctx)?;
+    onchina::institutions::ensure_institution_visible_to_admin(&target, auth_ctx)?;
 
     let parent = match target.parent_cid_number.as_deref() {
         Some(parent_cid) if !parent_cid.trim().is_empty() => {
@@ -193,7 +186,7 @@ fn legal_representative_scope_from_existing_target(
         _ => None,
     };
     Ok(
-        onchina::institutions::subjects::service::resolve_legal_representative_scope_for_institution(
+        onchina::institutions::resolve_legal_representative_scope_for_institution(
             &target,
             parent.as_ref(),
         ),
@@ -204,10 +197,7 @@ fn legal_representative_scope_from_create_context(
     state: &AppState,
     auth_ctx: &onchina::authentication::login::AdminAuthContext,
     query: &LegalRepresentativeCitizenQuery,
-) -> Result<
-    onchina::institutions::subjects::service::LegalRepresentativeCitizenScope,
-    axum::response::Response,
-> {
+) -> Result<onchina::institutions::LegalRepresentativeCitizenScope, axum::response::Response> {
     let province_name = query
         .province_name
         .as_deref()
@@ -271,25 +261,23 @@ fn legal_representative_scope_from_create_context(
             }) else {
                 return Err(api_error(StatusCode::NOT_FOUND, 1004, "所属法人机构不存在"));
             };
-            if !onchina::institutions::subjects::unincorporated_org::can_attach_to_parent(
-                parent.institution_code.as_str(),
-            ) {
+            if !onchina::institutions::can_attach_to_parent(parent.institution_code.as_str()) {
                 return Err(api_error(
                     StatusCode::BAD_REQUEST,
                     1001,
-                    onchina::institutions::subjects::unincorporated_org::parent_subject_requirement_message(),
+                    onchina::institutions::parent_subject_requirement_message(),
                 ));
             }
             Some(parent)
         }
-        _ if onchina::institutions::subjects::unincorporated_org::requires_parent(institution) => {
+        _ if onchina::institutions::requires_parent(institution) => {
             return Err(api_error(StatusCode::BAD_REQUEST, 1001, "请先选择所属法人"));
         }
         _ => None,
     };
 
     Ok(
-        onchina::institutions::subjects::service::resolve_legal_representative_scope_for_codes(
+        onchina::institutions::resolve_legal_representative_scope_for_codes(
             institution,
             query.education_type.as_deref().map(str::trim),
             province_code,

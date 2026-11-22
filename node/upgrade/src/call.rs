@@ -1,3 +1,5 @@
+//! 校验升级原因、PoW参数及WASM输入，构造运行时升级提案。
+
 use codec::Encode;
 use nodeclient::signing::encode_compact_u32;
 

@@ -1,35 +1,4 @@
-//! # 链上发行代币模块(onchainissue)
-//!
-//! GMB 链上"发行 GMB 之外的其他人代币"业务 pallet。第一期承载:
-//!
-//! - **Plain FT(同质化代币,无锚定声明)**:发行人 = CID 注册机构 + personaladmin 个人多签
-//! - 当前公开业务调用尚未实现，由 runtime 统一 `Reject`，不得扣费后空成功。
-//! - **NRC 强制 monitor**:交易显式携带 NRC `actor_cid_number + actor_role_code`，并由任职管理员账户签名
-//! - **业务 InternalVote / 监管 JointVote**:沿用 unified_voting_entry phase 4 铁律,
-//!   业务 pallet 不暴露 wrapper extrinsic,前端直调 VotingEngine
-//!
-//! ## 与 pallet_assets 内核的关系
-//!
-//! 本模块是 **唯一外壳入口**,内核挂载 `pallet_assets`(Substrate 多资产 pallet),
-//! 所有原生 extrinsic 在 runtime `BaseCallFilter` 中 reject。业务调用必须经由
-//! `OnchainIssuance::propose_*` → InternalVote/JointVote 通过 → callback 回调 →
-//! 内部以 root 调用 `pallet_assets`。
-//!
-//! ## 协议位
-//!
-//! 用户代币用 `asset_id` 做资产编号；机构治理只使用 CID，资产账户仅作执行上下文。
-//!
-//! ## 模块文件
-//!
-//! - `types.rs`     — 共用数据类型(AssetMeta / AssetClass / AssetState 等)
-//! - `proposal.rs`  — ACTION 常量 + 提案体定义
-//! - `validation.rs` — 入参校验(decimals 范围 / 发行机构资格 / 黑名单 hit)
-//! - `blacklist.rs` — 字符串黑名单 storage + 默认词表
-//! - `execution.rs` — 业务路径(issue/mint/burn/close/transfer)桥接 pallet_assets
-//! - `monitor.rs`   — NRC 监管 5 动作执行
-//! - `weights.rs`   — WeightInfo 占位
-//! - 未实现业务没有可执行基准，拒绝行为由所属测试及完整Runtime验证
-//! - `tests/`       — 所属动作与输入校验；完整Runtime另验证所有未实现执行入口拒绝
+//! 组织非公民币代币的元数据和提案框架及尚未开放的业务入口。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 // FRAME 宏从既定资产发行 extrinsic 生成多参数分发函数；参数顺序属于链上编码契约。

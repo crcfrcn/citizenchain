@@ -1,3 +1,5 @@
+// 在浏览器模拟环境验证扫码预览组件及控制器交互。
+
 // @vitest-environment jsdom
 
 import { render, waitFor } from '@testing-library/react';

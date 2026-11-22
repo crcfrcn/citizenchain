@@ -1,13 +1,5 @@
-// QR_V1 统一协议 TS 类型与解析器。
-//
-// 唯一事实源：citizenchain/crates/protocol/registry/*.yaml
-// Golden fixtures:citizenchain/crates/protocol/tests/*.json
-//
-// body/envelope 约束由 onchina/platform/qr/generated.rs 产物统一解释；本文件只映射业务类型。
-//
-// body 键全部单字母,与 citizenapp / citizenwallet / onchina Rust 完全一致:
-//   a 动作 / g 算法 / u 公钥 / d 载荷 / s 签名 / o 换绑当前账户 / r 换绑当前账户签名
-//   c cid_number / n account_id / v 金额 / t 币种 / m 备注 / l 清算行 CID
+// 定义并严格解析QR_V1信封和签名文档，复用共享码型注册表。
+import { blake2b } from '@noble/hashes/blake2.js';
 
 import {
   decodeGeneratedBase64Url,
@@ -269,4 +261,24 @@ export function buildSignatureMessage(args: {
     throw new QrParseError('principal 必须为 32 字节账户标识');
   }
   return `${QR_V1}|${kindCode}|${args.id}|${sys}|${exp}|${pp}`;
+}
+
+
+/** 服务端复用原生分帧算法；显示前逐字节核对完整原文，不能替换待签请求。 */
+export function verifiedQrTransportFrames(original: string, values: unknown): string[] {
+  if (!Array.isArray(values) || values.length < 1 || values.length > 64 || values.some(v => typeof v !== 'string' || new TextEncoder().encode(v).length > 2331)) throw new Error('签名二维码分帧格式无效');
+  const frames = values as string[];
+  if (frames.length === 1 && frames[0] === original) return frames;
+  const expected = new TextEncoder().encode(original);
+  const digest = Array.from(blake2b(expected, { dkLen: 32 }), byte => byte.toString(16).padStart(2, '0')).join('');
+  const pieces = new Map<number, Uint8Array>();
+  for (const frame of frames) {
+    const match = /^GMBQR1:([0-9a-f]{64}):(0|[1-9][0-9]*):([1-9][0-9]*):([A-Za-z0-9_-]+)$/.exec(frame);
+    if (!match || match[1] !== digest || Number(match[3]) !== frames.length || Number(match[2]) >= frames.length || pieces.has(Number(match[2]))) throw new Error('签名二维码分帧编号或摘要不匹配');
+    const encoded = decodeGeneratedBase64Url(match[4], 'qr_frame');
+    pieces.set(Number(match[2]), Uint8Array.from(encoded.slice(2).match(/../g) ?? [], byte => parseInt(byte, 16)));
+  }
+  const merged = Array.from({ length: frames.length }, (_, index) => Array.from(pieces.get(index) ?? [])).flat();
+  if (merged.length !== expected.length || merged.some((byte, index) => byte !== expected[index])) throw new Error('分帧内容与原签名请求不一致');
+  return [...frames].sort((a, b) => Number(a.split(':')[2]) - Number(b.split(':')[2]));
 }

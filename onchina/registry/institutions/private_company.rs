@@ -1,6 +1,4 @@
-//! 股权公司私权机构。
-//!
-//! 股权公司固定为 `S + GQ`,具有法人资格,由股东和出资关系构成。
+//! 定义股权公司资料、出资参与关系及登记和列表入口。
 
 use axum::{
     extract::{Query, State},
@@ -15,7 +13,7 @@ use crate::institutions::private::common::{
 };
 use crate::institutions::private::participants::{ParticipantRole, COMPANY_ROLES};
 use crate::institutions::registration::{self, ListInstitutionQuery};
-use onchina::institutions::subjects::CreateInstitutionInput;
+use onchina::institutions::CreateInstitutionInput;
 use onchina::AppState;
 
 #[derive(Debug, Clone, Serialize)]

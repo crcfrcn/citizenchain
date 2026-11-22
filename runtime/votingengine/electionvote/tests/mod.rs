@@ -1,3 +1,5 @@
+//! 装配选举状态机测试Runtime及人口和岗位资格夹具。
+
 #![cfg(test)]
 
 //! electionvote 状态机测试 runtime。

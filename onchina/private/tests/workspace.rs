@@ -1,4 +1,5 @@
-//! 原私权工作台回归，参数与预期保持不变。
+//! 验证私权机构工作台归属及注册局工作台隔离。
+
 use onchina::workspace::build_institution_workspace;
 use onchina::workspace::model::WorkspaceKind;
 

@@ -1,4 +1,5 @@
-//! 公民证件资料模型，字段与序列化保持不变。
+//! 定义公民证件资料记录及接口序列化字段。
+
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 pub(crate) const CITIZEN_DOCUMENT_TYPES: [&str; 4] =

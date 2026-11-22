@@ -1,3 +1,5 @@
+// 统一管理端卡片布局和样式参数。
+
 import type React from 'react';
 
 /** 业务卡片统一毛玻璃风格,放在独立模块避免业务视图反向 import App.tsx 形成循环依赖。 */

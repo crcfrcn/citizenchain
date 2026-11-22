@@ -1,4 +1,4 @@
-//! nodeupgrade所属功能与公开接口。
+//! 组织运行时升级校验、冷签命令及提案详情展示。
 
 pub mod call;
 pub mod commands;

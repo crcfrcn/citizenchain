@@ -1,3 +1,5 @@
+//! 装配立法测试Runtime、议员身份及投票引擎替身。
+
 #![cfg(test)]
 
 //! 立法院模块第1步单测的 mock runtime。

@@ -1,5 +1,4 @@
-// 大屏席位板——本机构议员逐席投票色块(赞成绿/反对红/未投灰)+ 顶部图例计数。
-// 只读呈现;数据来自后端逐席左连接投票映射(SeatView.vote:true/false/null)。
+// 以席位色块和图例呈现代表的赞成、反对及未投票状态。
 
 import React from 'react';
 import type { SeatView } from './types';

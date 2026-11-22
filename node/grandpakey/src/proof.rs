@@ -1,3 +1,5 @@
+//! 读取准确最终块上下文并构造GRANDPA更换持钥证明。
+
 use crate::request::COMMITTEE_ROLE_CODE;
 use codec::Decode;
 use codec::Encode;

@@ -1,9 +1,4 @@
-//! 支付意图与签名数据结构。
-//!
-//!
-//! - `PaymentIntent` 是 L3 用私钥签名的原始数据,citizenapp 本地签,链上验。
-//! - 本文件**不引入新的 Storage**,仅提供纯结构与签名哈希函数。
-//! - 批次单条 item 结构由本文件提供(清算行体系)。
+//! 定义链下支付意图及批次项，构造付款人和清算行签名摘要。
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use primitives::sign::{signing_message, OP_SIGN_L3_PAY, OP_SIGN_OFFCHAIN_BATCH};

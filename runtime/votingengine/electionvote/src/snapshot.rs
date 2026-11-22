@@ -1,7 +1,4 @@
-//! 选举快照校验与写入。
-//!
-//! 投票期间只读取创建时固化的候选人/选民快照，
-//! 不实时回读业务模块状态，避免换届、管理员变更或 CID 数据更新影响已发起选举。
+//! 校验并保存选举候选及选民快照，保证投票期间资格稳定。
 
 use frame_support::{ensure, pallet_prelude::*};
 use sp_runtime::DispatchError;

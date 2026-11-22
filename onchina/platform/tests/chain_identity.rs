@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证CID有效绑定、修订及投票身份状态和严格SCALE解码。
+
 use super::*;
 use codec::Encode;
 

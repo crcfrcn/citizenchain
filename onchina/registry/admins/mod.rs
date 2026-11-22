@@ -1,4 +1,5 @@
-//! 注册局管理员办理、名册及原有列表 DTO。
+//! 组织注册局管理员名册、辖区校验及链上登记办理。
+
 #[path = "actions.rs"]
 pub(crate) mod actions;
 #[path = "catalog.rs"]

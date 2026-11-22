@@ -1,11 +1,4 @@
-//! 清算行费率自治。
-//!
-//!
-//! - 每个清算行主账户对应一个 `L2FeeRateBp` 费率(单位 bp,范围 1~10)。
-//! - 清算行有权岗位任职人可提案改费率,**延迟 7 天生效**(防突袭改价,给 L3 换行时间)。
-//! - 全局上限 `MaxL2FeeRateBp` 由联合投票调整(沿用 `engingcore`,
-//!   这里只定义 extrinsic 入口;具体联合投票执行回调另行对接)。
-//! - 在 `on_initialize` 每块扫描一次到期提案并激活(小成本,可优化为 cursor)。
+//! 管理清算行费率提案、延迟生效和最高费率约束。
 
 use frame_support::{ensure, pallet_prelude::*};
 use frame_system::pallet_prelude::*;

@@ -1,3 +1,6 @@
+// 展示机构账户和治理详情，提供多签资金操作入口。
+
+import { IdentityCidText } from '../client/identityCid';
 import { councilApi } from './council';
 import './styles.css';
 import { proposalApi } from '../proposal/api';
@@ -37,7 +40,7 @@ const PROPOSAL_PAGE_SIZE = 10;
 const INSTITUTION_ACCOUNT_HELP = [
   '所有机构均有1个主账户和1个费用账户，主账户和费用账户不可注销，所有机构特指链上注册的机构。',
   '主账户用于该机构持有资金，费用账户用于支付该机构交易产生的手续费等费用，费用账户只能向主账户转账。',
-  '机构可注册更多账户，机构账户由账户名称+机构CID号经哈希运算后产生，故一个机构CID号+不同账户名称可产生无限多的机构账户。',
+  '机构可注册更多账户，机构账户由账户名称+身份CID号经哈希运算后产生，故一个身份CID号+不同账户名称可产生无限多的机构账户。',
   '机构账户发起转账交易的，必须由该机构的管理员发起转账提案，经该机构管理员内部投票通过后执行。',
 ];
 const NRC_ACCOUNT_HELP = [
@@ -138,7 +141,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
     accountId: a.accountId,
     accountLabel: '',
   }));
-  // GRANDPA 换钥必须同时满足本机构 CID、委员岗位码和管理员账户；前端只展示
+  // GRANDPA 换钥必须同时满足本身份CID号、委员岗位码和管理员账户；前端只展示
   // 当前机构委员任职账户，Runtime 仍执行同一授权的最终校验。
   const committeeAccountIds = new Set(
     (detail?.admins ?? [])
@@ -440,7 +443,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
           </button>
         </div>
         <p className="institution-overview-cid">
-          机构CID号 <code>{detail.cidNumber}</code>
+          身份CID号 <code><IdentityCidText value={detail.cidNumber} /></code>
           {activatedCount > 0 && <span className="admin-badge">已激活 {activatedCount} 人</span>}
         </p>
       </header>

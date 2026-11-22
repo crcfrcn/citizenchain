@@ -1,9 +1,4 @@
-//! 登录链上集合鉴权 + 会话签发(QR 登录与挑战登录共用)。
-//!
-//! (去中心化鉴权):
-//! - 生成挑战前先查链上 Active 管理员关系并匹配本节点绑定；验签后以最新状态复核。
-//! - 平台启动不预设机构;首次登录从 `verified_account_id` 反查候选机构,二次确认后本节点绑定唯一机构。
-//! - 后台 `revoke_stale_admin_sessions_loop` 周期复查,管理员被链上移除后≤TTL 失效。
+//! 读取当前链上管理员关系，核对节点机构绑定并签发登录会话。
 
 use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
@@ -22,8 +17,6 @@ use super::model::{
 pub(super) enum GateError {
     /// 扫码者不在本机构链上 Active 管理员集合。
     NotOnchainAdmin,
-    /// 扫码者属于国家储委会/省储委会/省储行,这些机构只走节点桌面端。
-    DesktopGovernanceUnsupported,
     /// 扫码者属于个人多签,不进入机构节点控制台。
     PersonalMultisigUnsupported,
     /// 链节点不可达 / 读取失败(瞬时,允许重试,绝不降级查本地表)。
@@ -70,11 +63,6 @@ pub(super) fn gate_error_response(err: GateError) -> axum::response::Response {
         GateError::NotOnchainAdmin => {
             api_error(StatusCode::FORBIDDEN, 2002, "not an on-chain admin")
         }
-        GateError::DesktopGovernanceUnsupported => api_error(
-            StatusCode::FORBIDDEN,
-            2002,
-            chain_runtime::DESKTOP_GOVERNANCE_LOGIN_UNSUPPORTED,
-        ),
         GateError::PersonalMultisigUnsupported => api_error(
             StatusCode::FORBIDDEN,
             2002,
@@ -162,9 +150,6 @@ async fn find_allowed_memberships_for_login(
 ) -> Result<Vec<chain_runtime::ActiveAdminMembership>, GateError> {
     match chain_runtime::find_active_admin_memberships(normalized_account_id).await {
         Ok(memberships) => Ok(memberships),
-        Err(err) if err == chain_runtime::DESKTOP_GOVERNANCE_LOGIN_UNSUPPORTED => {
-            Err(GateError::DesktopGovernanceUnsupported)
-        }
         Err(err) if err == chain_runtime::PERSONAL_MULTISIG_LOGIN_UNSUPPORTED => {
             Err(GateError::PersonalMultisigUnsupported)
         }
@@ -176,10 +161,9 @@ async fn find_allowed_memberships_for_login(
 /// 钱包码给出目标账户后，按当前签名 `account_id` 反查链上 Active 管理员集合。
 ///
 /// 账户格式非法或链不可达立即拒绝；查询结果交给绑定事务检查，空集合不得生成挑战。
-/// 二维码不重复携带管理员 CID；服务端从链上管理员名册读取 CID，并在同一个
-/// finalized 区块通过 `CitizenIdentity` 正反向闭环解析当前绑定 `account_id`。因此换绑后
-/// 只有新账户能登录，名册中的岗位关联旧账户不能继续签名；冻结公权管理员与私权非 LR
-/// 没有 CID 时，严格按 runtime 规则使用名册 `account_id`。
+/// 二维码不重复携带管理员CID。同一finalized块内，已激活机构只接受机构钱包；
+/// 未激活机构严格按原阶段与个人CID绑定规则解析。名册账户始终保留为岗位锚点，
+/// 更换后不能继续作为旧钱包签名。
 ///
 /// 完成签名后仍会再次执行完整 gate，以最新链上状态为准签发会话。
 pub(super) async fn validate_login_identity(
@@ -517,7 +501,7 @@ pub(crate) async fn revoke_stale_admin_sessions_loop(db: Db) {
     }
 }
 
-async fn revoke_stale_admin_sessions_once(db: &Db) -> Result<(), String> {
+pub(crate) async fn revoke_stale_admin_sessions_once(db: &Db) -> Result<(), String> {
     let Some(binding) = repo::active_node_binding(db)? else {
         return Ok(());
     };
@@ -531,14 +515,14 @@ async fn revoke_stale_admin_sessions_once(db: &Db) -> Result<(), String> {
     };
     let institution_code = binding.institution_code.clone();
     db.with_client(move |conn| {
-        let account_ids = repo::list_session_admin_account_ids_conn(conn, &institution_code)?;
+        let account_ids = repo::list_session_admin_account_ids_conn(conn, &institution_code, &binding.institution_cid_number)?;
         for account_id in account_ids {
             let still_admin = onchain_admins
                 .iter()
                 .any(|admin| same_account_id(&admin.account_id, account_id.as_str()));
             if !still_admin {
                 let removed =
-                    repo::delete_admin_sessions_for_account_id_conn(conn, account_id.as_str())?;
+                    repo::delete_institution_admin_sessions_conn(conn, account_id.as_str(), &binding.institution_cid_number)?;
                 if removed > 0 {
                     tracing::info!(
                         account_id = %account_id,

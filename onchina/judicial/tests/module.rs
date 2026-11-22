@@ -1,4 +1,5 @@
-//! 所属独立软件包的真实声明与业务路由合同。
+//! 验证司法模块真实声明、路由、工作台及权限边界。
+
 use super::*;
 use onchina::modules::model::ModuleBusiness;
 

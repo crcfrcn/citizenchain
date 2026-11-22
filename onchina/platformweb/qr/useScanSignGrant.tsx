@@ -1,11 +1,4 @@
-// 通用「扫码签名」授权 hook。PASSKEY_COLD_SIGN 安全动作(如创建机构/创建账户)
-// 通过它拿到 signWithScan 回调:prepare 后弹出公民钱包二维码,扫描签名响应,
-// 解析出 account_id/signature 回传给 securityApi 的 createScanSignSecurityGrant 去 commit。
-//
-// 用法:
-//   const { signWithScan, scanSignModal } = useScanSignGrant();
-//   await createAccount(auth, cidNumber, accountName, signWithScan);
-//   ...在 JSX 末尾渲染 {scanSignModal}
+// 为敏感动作显示扫码签名并关联账户和原始响应。
 
 import { useCallback, useState, type ReactNode } from 'react';
 import type { PrepareAdminActionOutput } from '../authentication/security';

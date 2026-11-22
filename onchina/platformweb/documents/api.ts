@@ -1,4 +1,4 @@
-// 机构资料库前端 API。资料上传、下载、删除都归 docs 模块。
+// 调用机构资料列表及文件上传、下载和删除接口。
 
 import type { AdminAuth } from '../authentication/types';
 import { passkeySubmitHeaders } from '../authentication/security';

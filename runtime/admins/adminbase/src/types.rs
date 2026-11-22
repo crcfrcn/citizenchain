@@ -154,3 +154,74 @@ pub struct AdminSetChangeAction<AccountId, AdminList> {
     /// 提案通过后写入投票引擎的动态阈值；固定治理机构必须等于制度固定阈值。
     pub new_threshold: u32,
 }
+
+/// 机构管理员钱包基础状态；与现有 `Admin` 分开编码，不改名册/任职/快照布局。
+///
+/// 存储键为机构完整 CID 与 `Admin.account_id` 稳定锚点。`wallet=None` 是保留版本的
+/// 退役记录，不能删除后从零初始化。机构激活后本状态是签名钱包真源。
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
+)]
+pub struct InstitutionAdminWalletState<AccountId> {
+    pub wallet: Option<AccountId>,
+    pub revision: u64,
+}
+
+/// 机构内部钱包更新参数；机构 CID 由所属生命周期接口单独提供。
+///
+/// 本结构只绑定状态变更，不表示已取得本人双签或投票授权；两条授权入口在第2步接入。
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
+)]
+pub struct InstitutionAdminWalletChange<AccountId> {
+    pub admin_account: AccountId,
+    pub expected_wallet: AccountId,
+    pub new_wallet: AccountId,
+    pub expected_revision: u64,
+}
+
+/// 公私权共用的钱包状态校验结果；存储层只映射错误，不分别定义变更规则。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstitutionAdminWalletError {
+    Uninitialized,
+    AlreadyInitialized,
+    Inactive,
+    OldWalletMismatch,
+    StaleRevision,
+    Unchanged,
+    DuplicateWallet,
+    RevisionOverflow,
+}
+
+pub const INSTITUTION_WALLET_PROOF_MAX_BYTES: u32 = 5261;
+pub const INSTITUTION_WALLET_PROOF_MAX_LIFETIME_SECS: u64 = 30 * 24 * 60 * 60;
+pub type InstitutionWalletProof = BoundedVec<u8, ConstU32<INSTITUTION_WALLET_PROOF_MAX_BYTES>>;
+
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    Clone,
+    Copy,
+    Debug,
+    TypeInfo,
+    MaxEncodedLen,
+    PartialEq,
+    Eq,
+)]
+pub enum InstitutionWalletChangeMode {
+    SelfSigned,
+    Governance,
+}
+
+/// 新钱包只接受此机构/管理员/版本/授权路径；外层交易由旧钱包或提案发起人签署。
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
+)]
+pub struct InstitutionWalletAcceptance<AccountId, Hash> {
+    pub genesis_hash: Hash,
+    pub cid_number: AdminCidNumber,
+    pub change: InstitutionAdminWalletChange<AccountId>,
+    pub mode: InstitutionWalletChangeMode,
+    pub expires_at: u64,
+}

@@ -1,3 +1,5 @@
+// 展示多签转账提案的资金账户、收款及金额详情。
+
 import type { ReactNode } from "react";
 import { formatBalance } from "../client/format";
 import { accountIdToSs58 } from "../client/ss58";

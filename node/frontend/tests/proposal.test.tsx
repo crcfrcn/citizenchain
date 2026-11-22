@@ -1,3 +1,5 @@
+// 验证机构提案分页、投票状态和签名提交IPC及失败不重放。
+
 import {beforeEach, expect, it, vi} from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { accountIdToSs58 } from '../client/ss58';

@@ -1,3 +1,5 @@
+// 定义机构管理员状态及准确机构引用模型。
+
 import type { ActivateRequestResult, ActivatedAdmin, InstitutionAdminInfo, InstitutionRoleAssignmentInfo, InstitutionDetail } from "./council";
 
 

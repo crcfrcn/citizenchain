@@ -1,3 +1,5 @@
+//! 持有节点服务句柄和网络读取能力，报告存活及退出错误。
+
 use crate::network::LocalNetworkReader;
 
 use std::sync::atomic::AtomicBool;

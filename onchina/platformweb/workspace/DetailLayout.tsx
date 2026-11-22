@@ -1,4 +1,4 @@
-// 机构详情页共享左侧导航布局。这里只承载 BrixUI 风格 UI,不放业务 API。
+// 提供机构详情页共享侧边导航和内容布局。
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {

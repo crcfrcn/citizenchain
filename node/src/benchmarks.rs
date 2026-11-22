@@ -1,8 +1,5 @@
-//! Setup code for [`super::command`] which would otherwise bloat that module.
-//!
-//! Should only be used for benchmarking as it may break in other contexts.
+//! 为节点基准构造真实备注和带备注转账交易。
 
-// Substrate benchmark CLI 固定返回 sc_cli::Error；此处不能改变上游命令接口的错误类型。
 #![allow(clippy::result_large_err)]
 use nodeclient::types::FullClient;
 use runtime::AccountId;

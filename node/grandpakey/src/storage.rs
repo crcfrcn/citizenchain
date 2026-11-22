@@ -1,3 +1,5 @@
+//! 持久化并清理待生效的GRANDPA密钥更换记录。
+
 use crate::types::PendingKeyChange;
 
 use std::fs;

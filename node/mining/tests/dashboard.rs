@@ -1,3 +1,5 @@
+//! 验证挖矿缓存拒绝未知字段。
+
 use crate::dashboard::MiningComputationCache;
 
 #[test]

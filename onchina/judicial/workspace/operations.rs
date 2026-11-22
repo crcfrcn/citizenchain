@@ -1,4 +1,5 @@
-//! 既有司法操作入口，保持原有禁用条件。
+//! 生成司法操作入口并保留未开放动作的禁用条件。
+
 use onchina::modules::capability::CapabilitySet;
 use onchina::workspace::manifest::action;
 use onchina::workspace::model::WorkspaceActionItem;

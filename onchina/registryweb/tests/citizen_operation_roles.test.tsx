@@ -1,3 +1,5 @@
+// 验证公民办理界面仅消费后端确定的业务岗位授权。
+
 import '@gmb/onchina-platform/testing';
 import { describe, it, expect, vi } from 'vitest';
 

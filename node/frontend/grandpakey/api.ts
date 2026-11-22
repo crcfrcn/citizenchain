@@ -1,3 +1,5 @@
+// 调用GRANDPA更换准备、签名提交和状态查询命令。
+
 import { invoke } from "../client/tauri";
 import type { GrandpaKeyChangeRequest, GrandpaKeyChangeStatus, GrandpaKeyChangeSubmitResult } from "./types";
 

@@ -1,4 +1,4 @@
-//! nodemultisig所属功能与公开接口。
+//! 组织多签转账提案、冷签命令及公开详情。
 
 pub mod account;
 pub mod commands;

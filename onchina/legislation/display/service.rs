@@ -1,15 +1,10 @@
-//! 名册 × 活跃提案 × 逐席投票的聚合装配。
-//!
-//! 大屏看板的纯装配层——把链读结果拼成 `DisplayBoard`。计票/阶段判定不在此发生
-//! (只搬运 `fetch_proposal_state` 的只读投影)。席位投票由本机构名册左连接逐席投票映射得到。
+//! 将议员名册、活跃提案和逐席投票装配为只读看板。
 
 use std::collections::HashMap;
 
 use crate::chain_read_proposal::{fetch_proposal_state, LegProposalState};
 use onchina::chain_runtime::NodeInstitutionIdentity;
-use onchina::institutions::admins::chain_roles::{
-    fetch_active_assignments_onchain, InstitutionAssignmentView,
-};
+use onchina::institutions::{fetch_active_assignments_onchain, InstitutionAssignmentView};
 
 use super::chain_read::{fetch_active_proposal_ids, fetch_representative_ballots, BallotKey};
 use super::model::{ActiveProposalView, DisplayBoard, SeatView};

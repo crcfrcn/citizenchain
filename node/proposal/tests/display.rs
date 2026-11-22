@@ -1,3 +1,5 @@
+//! 验证升级和发行等业务动作解码及中文提案摘要。
+
 use crate::display::format_fee_rate_summary;
 use crate::query::encode_compact_u32;
 use crate::query::split_action_into_details;

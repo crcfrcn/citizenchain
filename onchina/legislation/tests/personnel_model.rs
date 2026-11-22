@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证人事任免数据的字段序列化和提案分类。
+
 use super::*;
 
 fn sample_decision() -> PersonnelDecision {

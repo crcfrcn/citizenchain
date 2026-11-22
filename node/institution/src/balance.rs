@@ -1,3 +1,5 @@
+//! 读取机构管理员和账户余额，区分冻结、保留和可支配金额。
+
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_SMALL;
 use serde_json::Value;
 use std::time::Duration;

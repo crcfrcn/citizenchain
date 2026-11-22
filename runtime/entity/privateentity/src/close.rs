@@ -1,9 +1,4 @@
-//! 私权机构自定义命名账户关闭流程（call_index=1）。
-//!
-//! 机构本身不提供关闭路径；主账户、费用账户及所有制度协议账户永久存在。
-//! 只有 `InstitutionNamed` 可由 `actor_cid_number + proposer_role_code + institution_account_id`
-//! 对应的有效岗位任职人
-//! 创建内部提案并在通过后关闭。
+//! 发起并执行私权机构自定义账户关闭，保护永久协议账户。
 
 extern crate alloc;
 

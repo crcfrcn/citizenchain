@@ -1,3 +1,5 @@
+//! 构建主Runtime的WASM产物及特性要求。
+
 #[cfg(feature = "std")]
 fn main() {
     // 强制环境切换时重新运行 build.rs，确保嵌入的 WASM 来源明确；此文件不编译 WASM。

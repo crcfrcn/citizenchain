@@ -1,7 +1,4 @@
-//! 审计日志 list handler(注册局管理员只读)
-//!
-//! 审计日志是独立后台能力,不属于权限范围规则本身,统一位于 `onchina/platform/audit`；
-//! 通用辖区校验继续由 platform/authorization 提供。
+//! 提供注册局管理员只读审计日志列表，按可见辖区过滤查询。
 
 use axum::{
     extract::{Query, State},

@@ -1,3 +1,5 @@
+// 展示节点身份及所属机构资料。
+
 import type { NodeIdentity } from "./types";
 
 

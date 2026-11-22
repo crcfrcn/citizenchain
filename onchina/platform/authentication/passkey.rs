@@ -1,12 +1,5 @@
-//! WebAuthn passkey 鉴权:注册 / 断言 ceremony + 一次性断言令牌。
-//!
-//! 三档鉴权的 Passkey / PasskeyColdSign 档 step-up:管理员先完成 passkey 断言换取一次性
-//! assertion 令牌,提交重要 / 特殊操作时携 `X-Passkey-Assertion` 头消费。
-//! - RP ID 与 Origin 取平台固定部署声明，与浏览器入口保持一致。
-//! - 独立 WebAuthn 协议,绝不复用 QR_V1 / GMB / AdminSignedPayload。
-//! - 断言失败 / RP 未配一律拒,绝不降档到 Session。
+//! 执行WebAuthn注册与断言流程，签发一次性管理员授权令牌。
 
-// Passkey 校验失败沿用统一 Axum Response，保持 step-up 鉴权所有拒绝分支同源。
 #![allow(clippy::result_large_err)]
 
 #[path = "passkey_store.rs"]

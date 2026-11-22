@@ -1,3 +1,5 @@
+//! 发起决议销毁投票，按批准结果及机构费用规则执行销毁。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;

@@ -23,7 +23,8 @@
 //
 // For more information, please refer to <http://unlicense.org>
 
-// Substrate and Polkadot dependencies
+//! 装配各pallet配置、费用路由、权限和运行时迁移。
+
 use adminbase::{AdminAccountQuery, InstitutionAdminQuery};
 use alloc::vec::Vec;
 use codec::Decode;
@@ -837,6 +838,9 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
                 publicentity::pallet::Call::propose_add_institution_account { cid_number, .. },
             ) => institution_onchain_route(who, cid_number.as_slice()),
             RuntimeCall::PublicManage(
+                publicentity::pallet::Call::rotate_institution_admin_wallet { cid_number, .. },
+            ) => institution_onchain_route(who, cid_number.as_slice()),
+            RuntimeCall::PublicManage(
                 publicentity::pallet::Call::propose_close_public_institution {
                     actor_cid_number,
                     institution_account_id,
@@ -863,6 +867,9 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
             // 与 propose_institution_governance 等机构自身发起的操作同口径。
             RuntimeCall::PrivateManage(
                 privateentity::pallet::Call::propose_add_institution_account { cid_number, .. },
+            ) => institution_onchain_route(who, cid_number.as_slice()),
+            RuntimeCall::PrivateManage(
+                privateentity::pallet::Call::rotate_institution_admin_wallet { cid_number, .. },
             ) => institution_onchain_route(who, cid_number.as_slice()),
             RuntimeCall::PrivateManage(
                 privateentity::pallet::Call::propose_close_private_institution {
@@ -1742,7 +1749,22 @@ impl entitybase::InstitutionCapabilityPolicy for RuntimeInstitutionCapabilityPol
     }
 }
 
+pub struct RuntimeInstitutionWalletVerifier;
+impl adminbase::InstitutionWalletSignatureVerifier<AccountId> for RuntimeInstitutionWalletVerifier {
+    fn verify(account: &AccountId, payload: &[u8], proof: &[u8]) -> bool {
+        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload);
+        let Ok((public, signature)) = mldsa::signature_parts(proof) else { return false; };
+        if let Some(public) = public {
+            let Ok(public) = mldsa::PublicKey::decode(&mut &public[..]) else { return false; };
+            let Ok(signature) = mldsa::Signature::decode(&mut &signature[..]) else { return false; };
+            let raw: [u8; 32] = *account.as_ref();
+            mldsa::verify_account_signature(&raw, &public, &message, &signature)
+        } else { mldsa::verify_account::<Runtime>(account, &message, signature) }
+    }
+}
+
 impl publicentity::Config for Runtime {
+    type WalletSignatureVerifier = RuntimeInstitutionWalletVerifier;
     type RuntimeEvent = RuntimeEvent;
     type OnAccountRegistered = crate::evm_accounts::EvmAccountMapping;
     type Currency = Balances;
@@ -1767,6 +1789,7 @@ impl publicentity::Config for Runtime {
 }
 
 impl privateentity::Config for Runtime {
+    type WalletSignatureVerifier = RuntimeInstitutionWalletVerifier;
     type RuntimeEvent = RuntimeEvent;
     type OnAccountRegistered = crate::evm_accounts::EvmAccountMapping;
     type Currency = Balances;
@@ -2034,6 +2057,12 @@ impl adminbase::CitizenIdentityBindingQuery<AccountId>
         identity::Pallet::<Runtime>::citizen_subject(account)
             .is_some_and(|subject| subject.cid_number == cid)
     }
+    fn current_account(cid_number: &[u8]) -> Option<AccountId> {
+        let cid: identity::CidNumberBound = cid_number.to_vec().try_into().ok()?;
+        let account = identity::AccountIdByCid::<Runtime>::get(&cid)?;
+        Self::matches_citizen_account(cid_number, &account).then_some(account)
+    }
+
 }
 
 pub struct RuntimeSquarePostCitizenIdentity;
@@ -2817,7 +2846,7 @@ pub(crate) fn is_nrc_admin(who: &AccountId) -> bool {
         .unwrap_or_else(|| panic!("NRC CID must exist"));
 
     // 创世后只信任链上管理员治理模块中的统一账户表。
-    RuntimeInstitutionAdminQuery::is_institution_admin(engingcore::types::NRC, nrc_cid_number, who)
+    RuntimeInstitutionAdminQuery::resolve_admin_account(engingcore::types::NRC, nrc_cid_number, who).is_some()
 }
 
 /// 联合提案发起权限：国家储委会（CHINA_CB[0]）+ 43个省储委会（CHINA_CB[1..44]）。

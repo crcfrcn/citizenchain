@@ -1,3 +1,5 @@
+//! 测量原生节点部分服务装配的性能预算。
+
 #[test]
 #[ignore = "第5步固定机器显式服务装配预算"]
 fn native_partial_service_assembly_budget() {

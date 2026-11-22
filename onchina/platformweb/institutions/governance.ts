@@ -1,4 +1,10 @@
-// 通用本机构管理员与机构治理 API；注册局专属名册 API 归注册局。
+// 读取本机构资料和链上治理状态，并准备机构治理签名。
+
+import { blake2b } from '@noble/hashes/blake2.js';
+import { decodeSs58 } from '../codes/ss58';
+import { parseQrEnvelope, type SignRequestBody, type SignResponseBody } from '../qr/citizenQr';
+import { submitChainSign, type ChainSignOptions, type ChainSignResult, type ChainSubmitResult } from '../qr/useChainSign';
+import { ApiError } from '../workspace/http';
 import type { AdminAuth } from '../authentication/types';
 import type { InstitutionDetail } from './api';
 import { adminHeaders, adminRequest, request } from "../workspace/http";
@@ -93,6 +99,8 @@ export async function prepareInstitutionGovernance(auth: AdminAuth, input: Prepa
 export type GovernanceMember = {
     accountId: string;
     signerId: string;
+    /** 钱包流程必须读取安全整数；历史纯治理读者不依赖本字段。 */
+    walletRevision?: number;
     cidNumber: string;
     familyName: string;
     givenName: string;
@@ -468,4 +476,225 @@ export function buildInstitutionAdminGovernance(auth: AdminAuth, state: Governan
         return stored ? { accountId: stored.accountId, cidNumber: stored.cidNumber, familyName: stored.familyName, givenName: stored.givenName } : member;
     });
     return input;
+}
+
+
+// 机构钱包流程独立于个人CID换绑；完整CID与固定名册锚点始终用于协议和恢复键。
+export type InstitutionWalletMode = 'SELF' | 'GOVERNANCE';
+export type InstitutionWalletDraft = {
+    cidNumber: string; adminAccount: string; expectedWallet: string; expectedRevision: number;
+    newWallet: string; mode: InstitutionWalletMode; proposerRoleCode: string;
+};
+export type InstitutionWalletAcceptanceOutput = { requestId: string; signRequest: string; expiresAt: number; acceptancePayloadHex: string };
+export type PendingInstitutionWallet = {
+    version: 1; draft: InstitutionWalletDraft; actorAccount: string; requestId: string;
+    signature: string; callDataHex: string; reviewedBlockNumber: number; genesisHash: string; proofExpiresAt: number;
+};
+const walletHex = (bytes: Uint8Array) => '0x' + Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+const walletBytes = (hex: string): Uint8Array => {
+    if (!/^0x(?:[0-9a-f]{2})+$/.test(hex)) throw new Error('钱包签名数据编码无效');
+    return Uint8Array.from(hex.slice(2).match(/../g)!, pair => parseInt(pair, 16));
+};
+export function isInstitutionWalletSignature(signature: string): boolean {
+    return /^0x(?:[0-9a-fA-F]{128}|[0-9a-fA-F]{10522})$/.test(signature);
+}
+export function normalizeInstitutionWalletAccount(value: string): string {
+    const raw = value.trim();
+    const account = /^0x[0-9a-fA-F]{64}$/.test(raw) ? raw.toLowerCase() : decodeSs58(raw);
+    if (/^0x0{64}$/.test(account)) throw new Error('新钱包账户不能为零账户');
+    return account;
+}
+export function institutionWalletRoles(auth: AdminAuth, state: GovernanceState, target: string): GovernanceRole[] {
+    const member = state.members.find(m => m.accountId === target);
+    if (!member || member.signerId.toLowerCase() === auth.accountId.toLowerCase()) return [];
+    return governanceProposers(auth, state).filter(role => auth.institutionCode !== 'FRG'
+        || role.assignments.some(a => a.accountId === target && a.effective));
+}
+export function buildInstitutionWalletDraft(auth: AdminAuth, state: GovernanceState, mode: InstitutionWalletMode, target: string, newWallet: string, proposerRoleCode = ''): InstitutionWalletDraft {
+    if (auth.institutionCidNumber !== state.cidNumber) throw new Error('只能更换本机构管理员钱包');
+    const actor = state.members.find(m => m.signerId.toLowerCase() === auth.accountId.toLowerCase());
+    const member = state.members.find(m => m.accountId === target);
+    if (!actor || !member || !/^0x[0-9a-f]{64}$/.test(member.accountId) || !/^0x[0-9a-f]{64}$/.test(member.signerId)) throw new Error('当前钱包或目标已不在本机构有效名册');
+    if (!Number.isSafeInteger(member.walletRevision) || member.walletRevision! < 0) throw new Error('机构钱包版本不可读取，请刷新链状态');
+    const normalized = normalizeInstitutionWalletAccount(newWallet);
+    if (state.members.some(m => m.signerId.toLowerCase() === normalized)) throw new Error('新钱包已被本机构管理员使用');
+    if (mode === 'SELF' ? actor.accountId !== target || proposerRoleCode !== '' : mode !== 'GOVERNANCE' || !institutionWalletRoles(auth, state, target).some(r => r.roleCode === proposerRoleCode)) throw new Error(mode === 'SELF' ? '本人更换只能使用自己的原钱包' : '无目标岗位的治理提案权限');
+    return { cidNumber: state.cidNumber, adminAccount: target, expectedWallet: member.signerId, expectedRevision: member.walletRevision!, newWallet: normalized, mode, proposerRoleCode };
+}
+function walletReview(auth: AdminAuth, state: GovernanceState, draft: InstitutionWalletDraft): string {
+    const fresh = buildInstitutionWalletDraft(auth, state, draft.mode, draft.adminAccount, draft.newWallet, draft.proposerRoleCode);
+    return JSON.stringify([state.moduleTag, fresh, draft.mode === 'GOVERNANCE' ? institutionWalletRoles(auth, state, draft.adminAccount) : []]);
+}
+function walletApiInput(draft: InstitutionWalletDraft) {
+    return { cidNumber: draft.cidNumber, adminAccount: draft.adminAccount, newWallet: draft.newWallet, mode: draft.mode, proposerRoleCode: draft.proposerRoleCode };
+}
+export function validateInstitutionWalletAcceptance(draft: InstitutionWalletDraft, prepared: InstitutionWalletAcceptanceOutput): { genesisHash: string; qrExpiresAt: number } {
+    const qr = parseQrEnvelope(prepared.signRequest);
+    if (qr.kind !== 'sign_request' || qr.id !== prepared.requestId) throw new Error('新钱包接收请求不匹配');
+    const body = qr.body as SignRequestBody;
+    if (body.action !== 21 || body.signer_public_key !== draft.newWallet || body.payload_hex !== prepared.acceptancePayloadHex) throw new Error('新钱包接收请求账户或内容不匹配');
+    const bytes = walletBytes(body.payload_hex);
+    const size = bytes[32] >>> 2;
+    if ((bytes[32] & 3) !== 0 || size < 1 || size > 32 || bytes.length !== 33 + size + 113) throw new Error('机构接收证明格式错误');
+    const offset = 33 + size;
+    const revision = new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(offset + 96, true);
+    const expires = new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(offset + 105, true);
+    const now = Math.floor(Date.now() / 1000);
+    if (new TextDecoder('utf-8', { fatal: true }).decode(bytes.slice(33, offset)) !== draft.cidNumber
+        || walletHex(bytes.slice(offset, offset + 32)) !== draft.adminAccount
+        || walletHex(bytes.slice(offset + 32, offset + 64)) !== draft.expectedWallet
+        || walletHex(bytes.slice(offset + 64, offset + 96)) !== draft.newWallet
+        || revision !== BigInt(draft.expectedRevision) || bytes[offset + 104] !== (draft.mode === 'SELF' ? 0 : 1)
+        || expires !== BigInt(prepared.expiresAt) || prepared.expiresAt <= now
+        || prepared.expiresAt > now + (draft.mode === 'SELF' ? 180 : 30 * 86400)
+        || !Number.isSafeInteger(qr.expires_at) || qr.expires_at! <= now || qr.expires_at! > Math.min(prepared.expiresAt, now + 180)) throw new Error('接收证明与已审阅机构、钱包、版本或期限不一致');
+    const id = 'institution-wallet-' + walletHex(blake2b(bytes, { dkLen: 32 })).slice(2);
+    if (id !== prepared.requestId) throw new Error('接收证明编号与内容不一致');
+    return { genesisHash: walletHex(bytes.slice(0, 32)), qrExpiresAt: qr.expires_at! };
+}
+function walletCompact(value: bigint): number[] {
+    if (value < 64n) return [Number(value << 2n)];
+    if (value < 16384n) { const v = Number((value << 2n) | 1n); return [v & 255, v >>> 8]; }
+    if (value < 1073741824n) { const v = (value << 2n) | 2n; return Array.from({ length: 4 }, (_, i) => Number(v >> BigInt(i * 8) & 255n)); }
+    throw new Error('签名字段超出范围');
+}
+function walletVec(bytes: Uint8Array): number[] { return [...walletCompact(BigInt(bytes.length)), ...bytes]; }
+function walletU64(value: number): number[] { return Array.from({ length: 8 }, (_, i) => Number(BigInt(value) >> BigInt(i * 8) & 255n)); }
+/** 独立重建call字节，不允许prepare悄悄替换新旧钱包、机构、方式或接收证明。 */
+export function institutionWalletCall(draft: InstitutionWalletDraft, expiresAt: number, proof: string, moduleTag: string): string {
+    const pallet = moduleTag === 'pub-mgmt' ? 30 : moduleTag === 'pri-mgmt' ? 31 : 0;
+    if (!pallet || !isInstitutionWalletSignature(proof)) throw new Error('机构归属或新钱包签名无效');
+    const cid = walletVec(new TextEncoder().encode(draft.cidNumber));
+    const change = [...walletBytes(draft.adminAccount), ...walletBytes(draft.expectedWallet), ...walletBytes(draft.newWallet), ...walletU64(draft.expectedRevision)];
+    const acceptance = [...change, ...walletU64(expiresAt), ...walletVec(walletBytes(proof.toLowerCase()))];
+    return walletHex(Uint8Array.from(draft.mode === 'SELF' ? [pallet, 10, ...cid, ...acceptance]
+        : [pallet, 8, ...cid, 3, ...acceptance, ...cid, ...walletVec(new TextEncoder().encode(draft.proposerRoleCode))]));
+}
+function validateWalletTransaction(prepared: PrepareInstitutionChainOutput, expected: string, genesisHash: string, actor: string) {
+    const qr = parseQrEnvelope(prepared.signRequest);
+    const body = qr.body as SignRequestBody;
+    if (qr.kind !== 'sign_request' || qr.id !== prepared.requestId || body.signer_public_key !== actor || prepared.callDataHex !== expected || body.action !== prepared.chainAction || prepared.chainAction !== parseInt(expected.slice(2, 4), 16) * 256 + parseInt(expected.slice(4, 6), 16)) throw new Error('交易签名请求与冻结更换内容不一致');
+    const payload = walletBytes(body.payload_hex), call = walletBytes(expected);
+    if (walletHex(payload.slice(0, call.length)) !== expected) throw new Error('交易二维码与待签调用不一致');
+    // 当前完整SigningPayload：era、nonce、tip、metadata模式、spec/tx、genesis、birth、metadata hash。
+    let at = call.length;
+    if (at >= payload.length) throw new Error('缺少完整链交易审阅材料');
+    const immortal = payload[at] === 0; at += immortal ? 1 : 2;
+    for (let field = 0; field < 2; field++) {
+        if (at >= payload.length) throw new Error('交易扩展截断');
+        const mode = payload[at] & 3;
+        const length = mode === 0 ? 1 : mode === 1 ? 2 : mode === 2 ? 4 : (payload[at] >>> 2) + 5;
+        if (length > 17 || at + length > payload.length) throw new Error('交易扩展编码无效');
+        at += length;
+    }
+    if (payload[at] > 1) throw new Error('交易metadata模式无效');
+    at += 9;
+    if (walletHex(payload.slice(at, at + 32)) !== genesisHash || immortal && walletHex(payload.slice(at + 32, at + 64)) !== genesisHash) throw new Error('交易与接收证明不属于同一创世链');
+    at += 64;
+    const option = payload[at++];
+    if (option === 1) at += 32;
+    if ((option !== 0 && option !== 1) || at !== payload.length || qr.expires_at !== prepared.expiresAt || prepared.expiresAt * 1000 <= Date.now()) throw new Error('链交易审阅材料截断、夹带内容或已过期');
+}
+function walletReceiptKey(receipt: PendingInstitutionWallet): string { return `institution-wallet:v1:${receipt.draft.cidNumber}:${receipt.draft.mode}:${receipt.draft.adminAccount}`; }
+export function canResumeInstitutionWallet(auth: AdminAuth, receipt: PendingInstitutionWallet): boolean {
+    return receipt.draft.cidNumber === auth.institutionCidNumber && (receipt.actorAccount === auth.accountId
+        || receipt.draft.mode === 'SELF' && receipt.draft.newWallet === auth.accountId);
+}
+export function rememberInstitutionWallet(receipt: PendingInstitutionWallet | null, previous?: PendingInstitutionWallet): void {
+    if (receipt) sessionStorage.setItem(walletReceiptKey(receipt), JSON.stringify(receipt));
+    else if (previous) sessionStorage.removeItem(walletReceiptKey(previous));
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') window.dispatchEvent(new window.Event('institution-wallet-receipts-changed'));
+}
+export function readInstitutionWalletReceipts(auth: AdminAuth): PendingInstitutionWallet[] {
+    try {
+        const prefix = `institution-wallet:v1:${auth.institutionCidNumber}:`;
+        return Array.from({ length: sessionStorage.length }, (_, i) => sessionStorage.key(i)).filter((key): key is string => !!key?.startsWith(prefix)).flatMap(key => {
+            try {
+                const receipt = JSON.parse(sessionStorage.getItem(key)!) as PendingInstitutionWallet;
+                if (receipt.version !== 1 || walletReceiptKey(receipt) !== key || !canResumeInstitutionWallet(auth, receipt)
+                    || !/^0x[0-9a-f]{64}$/.test(receipt.actorAccount) || !/^0x[0-9a-f]{64}$/.test(receipt.draft.adminAccount)
+                    || !/^0x[0-9a-f]{64}$/.test(receipt.draft.expectedWallet) || !/^0x[0-9a-f]{64}$/.test(receipt.draft.newWallet)
+                    || receipt.draft.mode === 'SELF' && (receipt.actorAccount !== receipt.draft.expectedWallet || receipt.draft.proposerRoleCode !== '')
+                    || receipt.draft.mode === 'GOVERNANCE' && (!receipt.draft.proposerRoleCode || new TextEncoder().encode(receipt.draft.proposerRoleCode).length > 64)
+                    || !['SELF', 'GOVERNANCE'].includes(receipt.draft.mode) || !Number.isSafeInteger(receipt.draft.expectedRevision) || receipt.draft.expectedRevision < 0
+                    || !Number.isSafeInteger(receipt.proofExpiresAt) || receipt.proofExpiresAt <= 0
+                    || !Number.isSafeInteger(receipt.reviewedBlockNumber) || receipt.reviewedBlockNumber < 0 || !isInstitutionWalletSignature(receipt.signature)
+                    || !/^institution-governance-[a-zA-Z0-9-]+$/.test(receipt.requestId) || !/^0x[0-9a-f]{64}$/.test(receipt.genesisHash)
+                    || !/^0x(?:[0-9a-f]{2})+$/.test(receipt.callDataHex)) return [];
+                return [receipt];
+            } catch { return []; }
+        });
+    } catch { return []; }
+}
+export type InstitutionWalletRunResult = { receipt?: ChainSubmitResult; observed?: boolean; mode: InstitutionWalletMode; draft: InstitutionWalletDraft };
+/** 只有链上已使旧版本不可执行时，才允许用户显式放弃旧签名并重新审阅。 */
+export async function reviewInstitutionWalletConflict(auth: AdminAuth, receipt: PendingInstitutionWallet): Promise<GovernanceState> {
+    if (!canResumeInstitutionWallet(auth, receipt)) throw new Error('原签名会话不属于当前机构或账户');
+    const state = await getGovernanceState(auth, receipt.draft.cidNumber);
+    if (state.cidNumber !== receipt.draft.cidNumber) throw new Error('读取的机构状态不匹配');
+    const member = state.members.find(m => m.accountId === receipt.draft.adminAccount);
+    if (member && (!Number.isSafeInteger(member.walletRevision) || member.walletRevision! < 0)) throw new Error('无法核对当前机构钱包版本');
+    if (member && member.signerId === receipt.draft.expectedWallet && member.walletRevision === receipt.draft.expectedRevision
+        && (!Number.isSafeInteger(state.currentDay) || state.currentDay * 86400 < receipt.proofExpiresAt)) throw new Error('原版本仍有效，请继续恢复原交易，不能重复准备或签名');
+    return state;
+}
+/** 已签名后任何重试仅submit原会话；治理提交成功不等于钱包已经更换。 */
+export async function runInstitutionWalletChange({ auth, state, draft, pending, sign, remember, check, signal }: {
+    auth: AdminAuth; state?: GovernanceState; draft?: InstitutionWalletDraft; pending?: PendingInstitutionWallet | null;
+    sign: (id: string, qr: string, options?: ChainSignOptions) => Promise<ChainSignResult>;
+    remember: (receipt: PendingInstitutionWallet | null, previous?: PendingInstitutionWallet) => void;
+    check: () => void; signal?: AbortSignal;
+}): Promise<InstitutionWalletRunResult> {
+    check();
+    let receipt = pending;
+    if (!receipt) {
+        if (!state || !draft) throw new Error('请先读取并审阅当前机构钱包状态');
+        if (readInstitutionWalletReceipts(auth).some(r => r.draft.adminAccount === draft.adminAccount && r.draft.mode === draft.mode)) throw new Error('存在已签名的原会话，请先恢复原交易');
+        const reviewed = walletReview(auth, state, draft);
+        if (JSON.stringify(buildInstitutionWalletDraft(auth, state, draft.mode, draft.adminAccount, draft.newWallet, draft.proposerRoleCode)) !== JSON.stringify(draft)) throw new Error('草稿与已审阅钱包状态不一致');
+        let fresh = await getGovernanceState(auth, draft.cidNumber); check();
+        if (walletReview(auth, fresh, draft) !== reviewed) throw new Error('链上钱包或岗位状态已变化，请刷新并重新审阅');
+        const accepted = await adminRequest<InstitutionWalletAcceptanceOutput>('/api/admin/institution/wallet/prepare', auth, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(walletApiInput(draft)), signal }); check();
+        const proofContext = validateInstitutionWalletAcceptance(draft, accepted);
+        const consent = await sign(accepted.requestId, accepted.signRequest, { signal, qrFrames: true, captureResponse: true, expiresAt: proofContext.qrExpiresAt, expectedAccountId: draft.newWallet, title: '新钱包接收确认', qrTitle: '新钱包确认二维码', qrHint: '使用新钱包扫码确认接收本机构管理员授权' }); check();
+        if (consent.accountId !== draft.newWallet || !consent.response || !isInstitutionWalletSignature(consent.signature)) throw new Error('新钱包响应账户或签名格式不匹配');
+        const response = parseQrEnvelope(consent.response), responseBody = response.body as SignResponseBody;
+        if (response.kind !== 'sign_response' || response.id !== accepted.requestId || response.expires_at !== proofContext.qrExpiresAt || response.expires_at! * 1000 <= Date.now() || responseBody.signer_public_key !== draft.newWallet || responseBody.signature !== consent.signature) throw new Error('新钱包响应与原接收请求不一致或已过期');
+        fresh = await getGovernanceState(auth, draft.cidNumber); check();
+        if (walletReview(auth, fresh, draft) !== reviewed) throw new Error('签名期间链上状态已变化，请重新审阅');
+        if (proofContext.qrExpiresAt * 1000 <= Date.now()) throw new Error('新钱包确认已过期，请重新核对');
+        const headers = await passkeySubmitHeaders(auth, { 'content-type': 'application/json' }); check();
+        const prepared = await adminRequest<PrepareInstitutionChainOutput>('/api/admin/institution/wallet/prepare', auth, { method: 'POST', headers, signal,
+            body: JSON.stringify({ ...walletApiInput(draft), expiresAt: accepted.expiresAt, newWalletResponse: consent.response }) }); check();
+        if (prepared.cidNumber !== draft.cidNumber) throw new Error('交易签名目标机构不一致');
+        const expected = institutionWalletCall(draft, accepted.expiresAt, consent.signature, fresh.moduleTag);
+        validateWalletTransaction(prepared, expected, proofContext.genesisHash, auth.accountId);
+        const signed = await sign(prepared.requestId, prepared.signRequest, { signal, qrFrames: true, expiresAt: Math.min(prepared.expiresAt, accepted.expiresAt), expectedAccountId: auth.accountId, title: draft.mode === 'SELF' ? '本人旧钱包交易签名' : '机构治理提案签名', qrHint: draft.mode === 'SELF' ? '使用原管理员钱包签署本人的更换交易' : '使用发起岗位的管理员钱包签署治理提案' }); check();
+        if (signed.accountId !== auth.accountId || !isInstitutionWalletSignature(signed.signature)) throw new Error('原钱包或提案人签名不匹配');
+        receipt = { version: 1, draft: structuredClone(draft), actorAccount: auth.accountId, requestId: prepared.requestId,
+            signature: signed.signature, callDataHex: expected, reviewedBlockNumber: fresh.blockNumber, genesisHash: proofContext.genesisHash, proofExpiresAt: accepted.expiresAt };
+        remember(receipt); // 必须先保存原签名，再进行可能已广播但响应丢失的网络提交。
+    }
+    if (!canResumeInstitutionWallet(auth, receipt)) throw new Error('原签名会话不属于当前机构或账户');
+    check();
+    if (pending) remember(receipt); // 浏览器持久化失败时，恢复也必须先保存再发网络请求。
+    let result: ChainSubmitResult;
+    try { result = await submitChainSign(auth, receipt.requestId, receipt.actorAccount, receipt.signature); }
+    catch (error) {
+        check();
+        if (error instanceof ApiError && [404, 409].includes(error.status) && receipt.draft.mode === 'SELF' && auth.accountId === receipt.draft.newWallet) {
+            const current = await getGovernanceState(auth, receipt.draft.cidNumber); check();
+            const member = current.members.find(m => m.accountId === receipt!.draft.adminAccount);
+            if (current.cidNumber === receipt.draft.cidNumber && current.blockNumber > receipt.reviewedBlockNumber && member?.signerId === receipt.draft.newWallet && member.walletRevision === receipt.draft.expectedRevision + 1) {
+                remember(null, receipt); return { mode: receipt.draft.mode, draft: receipt.draft, observed: true };
+            }
+        }
+        // 网络失败、撤权、冲突均保留原签名；不自动重prepare、不把未执行提案当作生效。
+        throw error;
+    }
+    check();
+    if (result.purpose !== 'INSTITUTION_WALLET' || result.cidNumber !== receipt.draft.cidNumber || !/^0x[0-9a-fA-F]{64}$/.test(result.txHash)
+        || !Number.isSafeInteger(result.blockNumber) || result.blockNumber! <= receipt.reviewedBlockNumber) throw new Error('原交易结果尚未确认，请继续恢复同一会话');
+    remember(null, receipt);
+    return { mode: receipt.draft.mode, draft: receipt.draft, receipt: result };
 }

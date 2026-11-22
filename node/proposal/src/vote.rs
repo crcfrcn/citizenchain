@@ -1,3 +1,5 @@
+//! 构造内部或联合投票的账户绑定冷签请求。
+
 use nodeclient::session::remember_chain_sign_session;
 use nodeclient::session::ChainSignSession;
 use nodeclient::signing::build_signing_payloads;

@@ -1,4 +1,4 @@
-//! nodemining所属功能与公开接口。
+//! 组织CPU和GPU挖矿、PoW验证及挖矿与网络概览。
 
 pub mod cpu;
 pub mod dashboard;

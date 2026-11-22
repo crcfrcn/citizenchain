@@ -1,3 +1,5 @@
+//! 依据实际事件和metadata核对受保护账户及固定费用政策。
+
 use crate::guard::decode_exact;
 #[cfg(test)]
 use codec::Decode;

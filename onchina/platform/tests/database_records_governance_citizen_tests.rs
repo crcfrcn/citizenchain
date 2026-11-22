@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证治理身份读取、缺失值及数据库错误传播。
+
 use super::*;
 
 #[test]
@@ -37,7 +38,7 @@ fn governance_identity_keeps_fields_latest_order_and_missing_values() {
             ).map_err(|e| e.to_string())?;
             Ok(())
         }).unwrap();
-    let expected = crate::institutions::model::GovernanceCitizen {
+    let expected = crate::institutions::GovernanceCitizen {
         cid_number: "latest".into(),
         family_name: "新姓".into(),
         given_name: "新名".into(),

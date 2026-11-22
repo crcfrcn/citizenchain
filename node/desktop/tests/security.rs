@@ -1,3 +1,5 @@
+//! 验证映射审计写入、并发追加及受控路径边界。
+
 use crate::validation::normalize_account_id;
 use crate::validation::normalize_grandpa_key;
 use crate::validation::normalize_node_key;

@@ -75,6 +75,8 @@
     "./institutions/RolesView": "./institutions/RolesView.tsx",
     "./institutions/AssignmentsView": "./institutions/AssignmentsView.tsx",
     "./institutions/RepresentativeView": "./institutions/RepresentativeView.tsx",
-    "./institutions/GovernanceReview": "./institutions/GovernanceReview.tsx"
+    "./institutions/GovernanceReview": "./institutions/GovernanceReview.tsx",
+    "./codes/identityCid": "./codes/identityCid.tsx",
+    "./controls/IdentityCidInput": "./controls/IdentityCidInput.tsx"
   }
 }

@@ -1,3 +1,6 @@
+// 展示清算行机构详情和对应账户操作入口。
+
+import { IdentityCidText } from '../client/identityCid';
 import { accountIdToSs58 } from "../client/ss58";
 import { formatBalance } from "../client/format";
 import { sanitizeError } from "../client/tauri";
@@ -135,9 +138,9 @@ export function ClearingBankInstitutionDetailPage({
       <div className="institution-detail-grid">
         <div className="metric-card">
           <div className="metric-label">
-            机构身份CID号 <code className="metric-label-id">{detail.cidNumber}</code>
+            身份CID号 <code className="metric-label-id"><IdentityCidText value={detail.cidNumber} /></code>
           </div>
-          <div className="metric-value">{detail.cidNumber}</div>
+          <div className="metric-value"><IdentityCidText value={detail.cidNumber} /></div>
         </div>
 
         <div className="metric-card">

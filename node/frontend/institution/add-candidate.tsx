@@ -1,3 +1,6 @@
+// 搜索和添加清算行候选机构。
+
+import { IdentityCidText } from '../client/identityCid';
 import { sanitizeError } from "../client/tauri";
 import { institutionReadApi } from "./api";
 import type { EligibleClearingBankCandidate } from "./types";
@@ -51,7 +54,7 @@ export function ClearingBankAddPage({ onBack, onSelectCandidate, onSelectKnownCi
         <input
           autoFocus
           type="text"
-          placeholder="机构身份号码或名称关键字(自动搜索)"
+          placeholder="身份CID号或机构名称关键字(自动搜索)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -78,7 +81,7 @@ export function ClearingBankAddPage({ onBack, onSelectCandidate, onSelectKnownCi
               }}
             >
               <strong>{r.cidFullName}</strong>
-              <code className="admin-card-address">{r.cidNumber}</code>
+              <code className="admin-card-address"><IdentityCidText value={r.cidNumber} /></code>
             </div>
           ))}
         </div>

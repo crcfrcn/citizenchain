@@ -1,3 +1,5 @@
+//! 装配个人多签测试Runtime、余额、保留账户和投票夹具。
+
 #![cfg(test)]
 
 extern crate alloc;

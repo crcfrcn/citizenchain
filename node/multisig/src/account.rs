@@ -1,4 +1,7 @@
+//! 严格解析机构转账明确指定的账户标识。
+
 /// 严格解析机构交易明确传入的账户，不接受 CID、前缀身份串或主账户回退。
+
 pub(crate) fn institution_account_from_id(account_id: &str) -> Result<[u8; 32], String> {
     let account_id = nodedesktop::validation::normalize_account_id(account_id)?;
     let account = hex::decode(account_id.trim_start_matches("0x"))

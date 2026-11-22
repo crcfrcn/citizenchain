@@ -1,3 +1,5 @@
+//! 读取并解码多签转账动作，生成详情及中文摘要。
+
 use crate::types::ProposalAction;
 use crate::types::SafetyFundProposalDetail;
 use crate::types::SweepProposalDetail;

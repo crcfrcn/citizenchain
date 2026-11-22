@@ -1,6 +1,4 @@
-//! 管理员结构化表读写。
-//!
-//! 管理员、登录签名请求、会话和安全动作状态全部以数据库表为唯一持久化真源。
+//! 读写管理员、登录挑战、会话、机构绑定及安全动作记录。
 
 use chrono::{DateTime, Duration, Utc};
 use sha2::{Digest, Sha256};
@@ -755,21 +753,10 @@ pub(crate) fn cleanup_admin_sessions_conn(
 pub(crate) fn list_session_admin_account_ids_conn(
     conn: &mut impl postgres::GenericClient,
     institution_code: &str,
+    institution_cid: &str,
 ) -> Result<Vec<String>, String> {
-    let rows=conn.query("SELECT DISTINCT payload_json->>'accountId' FROM session WHERE payload_json->>'institutionCode'=$1", &[&institution_code]).map_err(|e| format!("list session accounts failed: {e}"))?;
+    let rows=conn.query("SELECT DISTINCT payload_json->>'accountId' FROM session WHERE payload_json->>'institutionCode'=$1 AND payload_json->>'institutionCidNumber'=$2", &[&institution_code, &institution_cid]).map_err(|e| format!("list session accounts failed: {e}"))?;
     Ok(rows.iter().map(|row| row.get::<_, String>(0)).collect())
-}
-
-/// 清退某管理员账户的全部会话,返回删除行数(链上移除后即时失效用)。
-pub(crate) fn delete_admin_sessions_for_account_id_conn(
-    conn: &mut impl postgres::GenericClient,
-    account_id: &str,
-) -> Result<u64, String> {
-    conn.execute(
-        "DELETE FROM session WHERE payload_json->>'accountId' = $1",
-        &[&account_id],
-    )
-    .map_err(|e| format!("delete admin sessions for account failed: {e}"))
 }
 
 pub(crate) fn insert_qr_login_result_conn(
@@ -802,3 +789,8 @@ pub(crate) fn get_qr_login_result_conn(
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 #[path = "../tests/authentication_repo.rs"]
 mod tests;
+
+/// Revocation belongs to one institution; the same wallet can retain unrelated institution sessions.
+pub(crate) fn delete_institution_admin_sessions_conn(conn: &mut impl postgres::GenericClient, account_id: &str, cid: &str) -> Result<u64, String> {
+    conn.execute("DELETE FROM session WHERE payload_json->>'accountId'=$1 AND payload_json->>'institutionCidNumber'=$2", &[&account_id, &cid]).map_err(|e| format!("delete institution admin sessions failed: {e}"))
+}

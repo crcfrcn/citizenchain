@@ -1,3 +1,5 @@
+// 组合立法提案操作、代表表决和进度展示界面。
+
 import React from "react";
 import { useState } from "react";
 import { Button, Card, Input, InputNumber, Space, Tag, message } from "antd";

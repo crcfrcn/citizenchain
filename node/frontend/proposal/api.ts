@@ -1,3 +1,5 @@
+// 封装机构提案分页、详情、计票和投票签名提交命令。
+
 import { invoke } from "../client/tauri";
 import type { GovernanceOverview, InstitutionDetail } from "../institution/council";
 import type { ProposalDisplayMeta, ProposalFullInfo, ProposalListItem, ProposalPageResult, UserVoteStatus } from "./types";

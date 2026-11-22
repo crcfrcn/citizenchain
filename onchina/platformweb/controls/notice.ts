@@ -1,7 +1,8 @@
-// CID 前端唯一的用户提示入口。
-// 所有业务页面都必须通过本文件显示提示,避免英文原始错误、重复提示和连续弹窗。
+// 统一规范用户提示及API错误文案，控制重复提示。
 
 import { message, Modal } from 'antd';
+import { createElement } from 'react';
+import { IdentityCidText } from '../codes/identityCid';
 import type { ArgsProps } from 'antd/es/message';
 import type { ModalFuncProps } from 'antd';
 import { ApiError, AuthExpiredError } from "../workspace/http";
@@ -70,7 +71,7 @@ function show(type: ArgsProps['type'], content: string) {
   }
   lastNotice = { type, content, at: now };
   message.destroy();
-  message.open({ key: NOTICE_KEY, type, content });
+  message.open({ key: NOTICE_KEY, type, content: createElement(IdentityCidText, { value: content, systemText: true }) });
 }
 
 function extractMessage(input: unknown, fallback: string): string {
@@ -275,13 +276,13 @@ const KNOWN_ENGLISH_MESSAGES: Record<string, string> = {
 const FIELD_LABELS: Record<string, string> = {
   address: '地址',
   accountId: '账户 ID',
-  identityCode: '身份CID',
+  identityCode: '身份CID号',
   name: '名称',
   province: '省份',
   city: '城市',
   institution: '机构',
   cidFullName: '机构全称',
-  cidNumber: '身份CID',
+  cidNumber: '身份CID号',
   file: '文件',
   domain: '域名',
   origin: '来源',

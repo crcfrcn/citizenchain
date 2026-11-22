@@ -1,3 +1,5 @@
+//! 管理引导节点元数据和创世节点选择。
+
 use libp2p_identity::PeerId;
 use nodedesktop::address::decode_hex_32_strict;
 use serde::Deserialize;

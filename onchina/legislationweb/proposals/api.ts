@@ -1,7 +1,4 @@
-// 立法与表决前端 API(对接 onchina /api/legislation/*)。
-// 发起/表决返回统一链签名准备结果：CitizenWallet 签名一次并显示响应二维码，
-// OnChina 回扫后通过唯一提交入口上链；
-// 读法律/提案进度直读链投影。通用 http 走 platformweb/workspace/http.ts,本模块不另造请求封装。
+// 调用法律和表决接口，取得统一签名准备及链上进度数据。
 
 import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import type { ChainSignPrepare } from '@gmb/onchina-platform/qr/useChainSign';

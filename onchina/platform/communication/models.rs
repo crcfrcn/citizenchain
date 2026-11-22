@@ -1,4 +1,5 @@
-// 平台通用 DTO 与现有行映射；本次仅按功能移动定义。
+// 定义平台共用DTO、分页游标及机构分类行映射。
+
 #[derive(Clone, Copy)]
 pub struct DbPageCursor {
     pub created_at: DateTime<Utc>,
@@ -101,13 +102,13 @@ fn stable_institution_cursor_id(cid_number: &str) -> i64 {
 }
 
 fn institution_row_from_record(
-    inst: &crate::institutions::subjects::Institution,
+    inst: &crate::institutions::Institution,
     account_count: usize,
     creator_family_name: Option<String>,
     creator_given_name: Option<String>,
     creator_institution_code: Option<String>,
-) -> crate::institutions::subjects::InstitutionListRow {
-    crate::institutions::subjects::InstitutionListRow {
+) -> crate::institutions::InstitutionListRow {
+    crate::institutions::InstitutionListRow {
         status: inst.status.clone(),
         subject_property: inst.subject_property.clone(),
         cid_number: inst.cid_number.clone(),
@@ -134,7 +135,7 @@ fn institution_row_from_record(
 
 fn institution_row_from_pg_row(
     row: &postgres::Row,
-) -> Result<crate::institutions::subjects::InstitutionListRow, String> {
+) -> Result<crate::institutions::InstitutionListRow, String> {
     let category_text: String = row.get(2);
     let category = institution_category_from_text(category_text.as_str())
         .ok_or_else(|| format!("invalid institution category: {category_text}"))?;
@@ -155,12 +156,12 @@ fn institution_row_from_pg_row(
         city_code.as_deref(),
         Some(town_code_value.as_str()),
     );
-    let inst = crate::institutions::subjects::Institution {
+    let inst = crate::institutions::Institution {
         status: row
             .get::<_, Option<String>>(24)
             .ok_or("institution status missing")?,
         chain_status: row.get(25),
-        subject_property: crate::institutions::subjects::Institution::subject_property_for_code(
+        subject_property: crate::institutions::Institution::subject_property_for_code(
             &row.get::<_, String>(8),
         )?,
         cid_number: row.get(0),
@@ -200,7 +201,7 @@ fn institution_row_from_pg_row(
 
 fn institution_from_subject_row(
     row: &postgres::Row,
-) -> Result<crate::institutions::subjects::Institution, String> {
+) -> Result<crate::institutions::Institution, String> {
     let category_text: String = row.get(2);
     let category = institution_category_from_text(category_text.as_str())
         .ok_or_else(|| format!("invalid institution category: {category_text}"))?;
@@ -220,12 +221,12 @@ fn institution_from_subject_row(
         city_code.as_deref(),
         Some(town_code_value.as_str()),
     );
-    Ok(crate::institutions::subjects::Institution {
+    Ok(crate::institutions::Institution {
         status: row
             .get::<_, Option<String>>(28)
             .ok_or("institution status missing")?,
         chain_status: row.get(29),
-        subject_property: crate::institutions::subjects::Institution::subject_property_for_code(
+        subject_property: crate::institutions::Institution::subject_property_for_code(
             &row.get::<_, String>(8),
         )?,
         cid_number: row.get(0),
@@ -252,7 +253,7 @@ fn institution_from_subject_row(
             row.get::<_, Option<String>>(27),
         ) {
             (Some(family_name), Some(given_name), Some(cid_number), Some(account_id)) => {
-                Some(crate::institutions::subjects::model::LegalRepresentative {
+                Some(crate::institutions::LegalRepresentative {
                     family_name,
                     given_name,
                     cid_number,

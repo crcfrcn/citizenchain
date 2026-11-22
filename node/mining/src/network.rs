@@ -1,3 +1,5 @@
+//! 读取真实网络连接和链上CID数量，分类实际节点角色。
+
 use codec::Decode;
 use nodecontrol::network::local_network_reader;
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE;

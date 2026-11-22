@@ -1,3 +1,5 @@
+//! 按固定年度和衰减利率结算省储行发行，保存累计审计。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "runtime-benchmarks")]

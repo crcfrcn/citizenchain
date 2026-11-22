@@ -1,7 +1,5 @@
+// 定义钱包签名模式、公开账户及转账响应模型。
 
-// 交易模块类型定义。
-
-/** 钱包账户签名模式闭集；任何运行时未知值都必须拒绝。 */
 export type SignMode = 'hot' | 'cold';
 
 export type Wallet = {

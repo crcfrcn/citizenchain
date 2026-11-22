@@ -1,3 +1,5 @@
+//! 为本机RPC和桌面资源提供HTTPS及WSS传输和证书校验。
+
 use futures::future::try_join_all;
 use jsonrpsee::server::serve_with_graceful_shutdown;
 use jsonrpsee::server::stop_channel;

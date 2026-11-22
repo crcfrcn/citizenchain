@@ -1,16 +1,4 @@
-//! 个人多签关闭流程实现(call_index=1)。
-//!
-//! 仅接受个人多签账户(`PersonalAccounts.contains_key` 命中),
-//! 否则返回 `Error::NotPersonalAccount`;机构多签关闭走 publicentity/privateentity 入口。
-//!
-//! 业务流程：
-//! 1. 校验地址、受益人、地址非保留
-//! 2. 校验地址 PersonalAccounts 已 Active
-//! 3. 校验发起人是该个人多签账户的活跃管理员
-//! 4. 按统一链上费公式计算执行费，校验扣费后转出金额≥ED，且无 reserved 余额
-//! 5. 注销生命周期投票的全员阈值由投票引擎按管理员快照生成
-//! 6. 写入 PendingCloseProposal[address] = proposal_id 防并发
-//! 7. 发射 PersonalCloseProposed 事件
+//! 校验个人多签账户并发起关闭的内部投票提案。
 
 extern crate alloc;
 

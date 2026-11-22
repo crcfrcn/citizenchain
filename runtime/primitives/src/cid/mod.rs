@@ -1,5 +1,4 @@
-//! CID 协议与内置常量入口。
-//! `code` 管静态码表,`number/generator/seed` 管号码协议,`china` 管内置机构。
+//! 组织CID静态码表、号码生成与校验及内置机构派生。
 
 #[path = "../china/mod.rs"]
 pub mod china;

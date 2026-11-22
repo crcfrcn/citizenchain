@@ -1,8 +1,4 @@
-//! electionvote 本地类型。
-//!
-//! 本文件只保存“本次选举的运行态快照”。总统、院长、任期、
-//! 候选来源等业务规则由发起业务模块或未来选举法模块解释后传入，
-//! electionvote 不把这些规则写成常量真源。
+//! 定义选举模式及本次选举的候选、选民和运行态快照。
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;

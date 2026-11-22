@@ -1,10 +1,4 @@
-//! L3 支付 nonce 辅助。
-//!
-//!
-//! - 每个 L3 账户有一个单调递增的 nonce,防止清算行或中间人重放已签名的意图。
-//! - 链上权威存储 `L3PaymentNonce`(在 lib.rs 定义)。
-//! - 本模块只提供"消费下一个 nonce"的辅助函数,批次清算里调用。
-//! - 本模块仅提供辅助函数,不暴露调用 nonce 的 extrinsic。
+//! 读取并消费单调支付nonce，防止支付意图重放。
 
 use crate::{Config, Error, L3PaymentNonce};
 

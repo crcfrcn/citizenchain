@@ -1,8 +1,4 @@
-//! 公民护照号与护照有效期工具。
-//!
-//! 本文件把归档 CPMS 的护照号算法复制到 OnChina,但不复制旧档案号。
-//! 护照号终身唯一;资源回收只通过 `passport_number_recycle_pool` 提供的
-//! 空闲护照号领取入口实现,不携带旧公民个人资料。
+//! 生成唯一护照号，计算生效日期和按年龄确定的有效期。
 
 use blake2::digest::consts::U32;
 use blake2::{Blake2b, Digest};

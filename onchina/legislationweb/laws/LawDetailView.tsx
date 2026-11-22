@@ -1,5 +1,4 @@
-// 法律详情(只读)。章>节>条>款 编辑体渲染;宪法双语可切换。
-// **零发起入口**——阅读页绝不放发起/修改按钮（当前阅读页职责）。
+// 只读展示法律章节条款、版本和双语宪法正文。
 
 import React, { useEffect, useState } from "react";
 import { Alert, Button, Spin, Switch, Tag } from "antd";

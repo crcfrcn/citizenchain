@@ -1,3 +1,5 @@
+// 展示机构管理员、激活状态和冷签激活操作。
+
 import { sanitizeError } from "../client/tauri";
 import { CitizenSignatureModal } from "../desktop/signing";
 import { adminsChangeApi as api } from "./admins";

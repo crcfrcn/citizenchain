@@ -1,3 +1,5 @@
+//! 格式化提案展示号及类型、阶段和状态标签。
+
 use nodeupgrade::summary::format_runtime_upgrade_summary;
 
 use noderesolutionissue::summary::format_issuance_summary;

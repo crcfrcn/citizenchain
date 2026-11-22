@@ -1,7 +1,4 @@
-//! 提案进度只读投影：链上 `Proposal` + `RepresentativeMetas` + `LegislationMetas` + 计票。
-//!
-//! OnChina 只搬运链上事实，绝不计票或判断通过。代表表决和法律专属元数据必须分别
-//! 解码，避免任免、预算等代表表决被误认为法律业务。
+//! 读取并严格解码提案及投票元数据，投影链上阶段和计票事实。
 
 use super::law::model::{house_ref, HouseRef};
 use codec::Decode;

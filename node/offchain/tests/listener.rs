@@ -1,3 +1,5 @@
+//! 验证链上事件只更新所属清算行存款和批次状态。
+
 use super::*;
 
 use crate::ledger::OffchainLedger;

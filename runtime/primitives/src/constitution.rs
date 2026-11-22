@@ -1,31 +1,5 @@
-//! 公民宪法修改「章→档位」分类(第十九条落地单源)。
-//!
-//! 公民宪法第十九条把修宪分三档,本模块只做**纯判定**:给定「本次改动的条号集」
-//! 「核心章条号集」「不可修改条款清单」,返回本次改动要求的表决档位。判定与链上
-//! 泛型 `T` 解耦、无存储依赖。
-//!
-//! 两端分工(不是共用同一个函数):
-//! - runtime `legislation` 调用本模块 `classify` 做**条文**档位判定,再与章/节
-//!   标题变更的档位取更严一档(见 `Pallet::constitution_amendment_scope`);
-//! - 节点守卫 `node/src/core/constitution` **不调用** `classify`,它从 block#0 派生
-//!   `ImmutableReference`,以「禁改条逐字冻结」与「核心章非禁改条相对创世的 diff →
-//!   要求该版本记录为特别案」两条不变式**背书**已导入区块。
-//!
-//! 章/节标题不参与本函数:标题没有条号,若折算成所辖条号并入 `changed`,会因命中禁改
-//! 清单被误判为 [`AmendmentScope::ImmutableViolation`]。第十九条禁改保护的对象是**条**
-//! 本身,改动禁改条所在章节的标题不等于改动该条,故标题变更由 runtime 侧单独按所属章
-//! 判档。
-//!
-//! 判定语义(与第十九条逐字对应):
-//!   1. 改动命中不可修改条款(第 1/2/3/17/19/24/34/42 条)→ [`AmendmentScope::ImmutableViolation`](违宪,拒);
-//!   2. 改动命中第一章总则核心(非禁改)条款              → [`AmendmentScope::CoreChapter`](必须特别案 Special + 强制公投);
-//!   3. 改动仅落第二章及以后的一般条款                    → [`AmendmentScope::GeneralOnly`](必须重要案 Major);
-//!   4. 未改动任何条文                                    → [`AmendmentScope::NoChange`](空提案,拒)。
-//!
-//! 不可修改条款清单单源见 [`crate::count_const::IMMUTABLE_CONSTITUTION_ARTICLES`]。
+//! 分类宪法修改范围，并判定公投与护法审查的通过条件。
 
-/// 核心章在「章序列」中的下标。第十九条:第一章总则为宪法核心,故核心章恒为首章。
-/// runtime 与节点守卫共用此常量,禁止两端各写字面 `0`。
 pub const CONSTITUTION_CORE_CHAPTER_INDEX: usize = 0;
 
 /// 一次修宪改动的范围判定结果,决定它**要求**的表决档位。

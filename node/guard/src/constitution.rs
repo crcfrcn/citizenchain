@@ -1,3 +1,5 @@
+//! 严格解码法律章节和版本，核对宪法清单及保护条款。
+
 use codec::Decode;
 use codec::Encode;
 use primitives::count_const::IMMUTABLE_CONSTITUTION_ARTICLES;

@@ -1,3 +1,5 @@
+//! 以真实metadata和交易事件验证固定费用及受保护账户政策。
+
 use super::*;
 
 use crate::guard::runtime_policy::check_block;

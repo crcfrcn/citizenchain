@@ -1,8 +1,4 @@
-//! 全仓签名消息常量与唯一构造入口。
-//!
-//! 链上交易默认使用 Substrate extrinsic 签名;只有第三方背书、链下支付、链下 challenge
-//! 或跨上下文离线证明才使用本模块 op_tag。哈希域统一走 [`signing_message`],二进制前缀域
-//! 只使用 `GMB || op_tag` 前缀。Dart/TS 镜像必须与本文件和金标向量保持一致。
+//! 统一构造带公民域和操作标签的链下签名原文及摘要。
 
 use crate::core_const::GMB; // 域分隔符(地址派生 + 签名共用),单源在 core_const
 use sp_crypto_hashing::blake2_256;
@@ -183,7 +179,7 @@ pub fn decrypt_admin_payload(
 }
 
 /// 全部哈希域签名 op_tag。新增哈希域 op_tag 必须同步追加并刷新金标。
-pub const SIGN_OP_TAGS: [u8; 16] = [
+pub const SIGN_OP_TAGS: [u8; 17] = [
     OP_SIGN_CITIZEN_IDENTITY,
     OP_SIGN_CID_REBIND,
     OP_SIGN_CID_OCCUPY,
@@ -200,6 +196,7 @@ pub const SIGN_OP_TAGS: [u8; 16] = [
     OP_SIGN_SWITCH_DEFAULT_ACCOUNT,
     OP_SIGN_WALLET_MODE,
     OP_SIGN_PUBLISH,
+    OP_SIGN_INSTITUTION_WALLET,
 ];
 
 /// 构造哈希域签名消息:`BLAKE2-256(GMB || op_tag || scale_payload)`。
@@ -214,3 +211,6 @@ pub fn signing_message(op_tag: u8, scale_payload: &[u8]) -> [u8; 32] {
 // 机构登记/创建/治理/账户关闭均已收敛为「发起管理员账户直接冷签一笔普通 extrinsic」,由 runtime
 // 在 origin 处以 `is_institution_admin` 鉴权,不再有任何独立凭证签名消息。原
 // `institution_account_close_message`(注册局审批凭证)连同 OnChina 平台签名钥已整体删除。
+
+/// 机构新钱包接收证明专属域，不触及个人CID换绑。
+pub const OP_SIGN_INSTITUTION_WALLET: u8 = 0x25;

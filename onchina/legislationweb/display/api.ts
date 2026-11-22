@@ -1,5 +1,4 @@
-// 大屏看板取数(免登录只读)。经 request 拉本节点绑定机构的看板快照;
-// 机构由后端按节点绑定确定,前端不传任何参数(fail-closed 在后端)。
+// 读取无需登录且由后端节点绑定确定的立法看板快照。
 
 import { request } from '@gmb/onchina-platform/http';
 import type { DisplayBoard } from './types';

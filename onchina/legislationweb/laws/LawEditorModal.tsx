@@ -1,6 +1,4 @@
-// 法律案结构化编辑器(章>节>条>款 + 元字段)。立法/修法带正文,废法只填 law_id。
-// 组装 ProposeLawInput 后进入 OnChina 统一链签名流程，不在立法模块另造提交实现。
-// 嵌套不可变更新用 structuredClone(草稿改后整体替换),保持 React 引用变更即渲染。
+// 编辑结构化法律案及元字段，并进入统一链签名准备流程。
 
 import React, { useState } from 'react';
 import { Button, Divider, Input, InputNumber, Modal, Space, Typography, message } from 'antd';

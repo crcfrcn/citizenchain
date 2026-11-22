@@ -1,3 +1,7 @@
+// 展示私权机构工作台和会员价格，提供统一调价提案入口。
+import { InstitutionWalletGovernancePanel } from '@gmb/onchina-platform/institutions/GovernanceReview';
+
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 import { RolesView } from '@gmb/onchina-platform/institutions/RolesView';
 import { AssignmentsView } from '@gmb/onchina-platform/institutions/AssignmentsView';
 import { RepresentativeView } from '@gmb/onchina-platform/institutions/RepresentativeView';
@@ -18,7 +22,7 @@ import { passkeySubmitHeaders } from "@gmb/onchina-platform/authentication/secur
 // 私权机构本机构工作台。
 //
 // 本页面只展示当前登录机构自身信息与已授权模块，不提供注册局使用的省市筛选、
-// 私权机构目录或其它机构详情入口。所有写权限仍由后端按准确机构 CID 独立校验。
+// 私权机构目录或其它机构详情入口。所有写权限仍由后端按准确身份CID号 独立校验。
 
 
 
@@ -37,6 +41,7 @@ function PrivateOperations({ auth }: PrivateInstitutionWorkspaceProps) {
   const showPlatformPrice = auth.workspace?.workspace_modules.includes('platform_membership_price');
   return <InstitutionDetailNavLayout items={[
     {key:'accounts',label:'账户管理',content:<AccountManageSection auth={auth}/>},
+    {key:'governance',label:'机构治理',content:<InstitutionWalletGovernancePanel auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'assignments',label:'任职管理',content:<AssignmentsView auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'representative',label:'法定代表人',content:<RepresentativeView auth={auth} cidNumber={auth.institutionCidNumber}/>},
@@ -49,7 +54,7 @@ function PrivateDisplay({ auth }: PrivateInstitutionWorkspaceProps) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <OwnInstitutionInfoPanel auth={auth} />
       {auth.capabilities?.canViewOwnAdmins ? (
-        <OwnInstitutionAdminsView layout="cards" />
+        <OwnInstitutionAdminsView layout="table" />
       ) : null}
     </div>
   );
@@ -209,7 +214,7 @@ export function PlatformPricePanel({ auth }: { auth: AdminAuth }) {
             </Button>
           </Space>
           <Typography.Text type="secondary" style={{ wordBreak: 'break-all' }}>
-            平台机构 CID：{prices.platformCidNumber}
+            平台身份CID号：<IdentityCidText value={prices.platformCidNumber} />
           </Typography.Text>
         </Space>
       </Card>

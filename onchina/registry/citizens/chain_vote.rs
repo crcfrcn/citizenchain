@@ -1,9 +1,4 @@
-//! 投票资格查询 handler。
-//!
-//! 本接口只返回 OnChina 本地公民档案的即时状态,方便 CitizenApp 在提交交易前提示用户。
-//! 链端投票资格以 runtime `identity` 的链上状态为唯一真源,交易执行时再次校验。
-//!
-//! 无 token 鉴权：只按规范账户 ID 返回本人档案摘要，不签发链端可消费凭证。
+//! 查询本地档案的投票资格提示状态。
 
 use crate::citizens::admin_entry::CitizenQueries;
 use axum::{

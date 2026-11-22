@@ -1,3 +1,5 @@
+//! 构造机构管理员激活冷签会话，并持久化已激活资料。
+
 use crate::admins::institution_code_label;
 use crate::admins::InstitutionAdminsState;
 use primitives::cid::code::code_bytes;

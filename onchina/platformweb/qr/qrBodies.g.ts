@@ -1,4 +1,4 @@
-// 本文件由 citizenchain/crates/protocol/registry/kinds.yaml 生成，禁止手改。
+// 从统一注册表生成QR_V1码型和信封字段校验器，禁止手改。
 export const QR_BODY_SCHEMA = [
   {
     "fields": [

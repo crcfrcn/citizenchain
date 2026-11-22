@@ -1,3 +1,5 @@
+//! 管理本机密钥更换构建会话并生成冷签请求。
+
 use crate::proof::build_runtime_call;
 use crate::proof::decode_hex_32;
 use crate::proof::fetch_current_public_key;

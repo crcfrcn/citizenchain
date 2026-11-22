@@ -1,3 +1,5 @@
+//! 解码各类业务提案动作，统一转换详情及展示摘要。
+
 use nodemultisig::types::ProposalDetails;
 
 /// 已识别出的业务模块提案动作。

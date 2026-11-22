@@ -1,7 +1,4 @@
-// cid 前端登录态 hook。
-// 步 0 起数据源统一到 <AuthProvider> / AuthContext,
-// 本 hook 只暴露同一Context，包括登录态、能力与当前会话密钥状态。
-// 业务子组件继续 import { useAuth } 即可。
+// 向业务组件暴露同一认证Context中的登录态和能力。
 
 import { useAuthContext, type AuthContextValue } from './Context';
 

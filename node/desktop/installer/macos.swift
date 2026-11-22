@@ -1,3 +1,5 @@
+// 实现macOS安装交互、进度和取消及失败反馈。
+
 import AppKit
 import Darwin
 import MachO

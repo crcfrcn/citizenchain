@@ -1,3 +1,5 @@
+// 验证多签提案构建和提交IPC及失败不自动重放。
+
 import {beforeEach, expect, it, vi} from 'vitest';
 import {multisigTransferApi} from '../multisig/api';
 const mocks=vi.hoisted(()=>({invoke:vi.fn()}));

@@ -1,3 +1,5 @@
+//! 装配创世pallet测试Runtime、空播种器和外部执行环境。
+
 #![cfg(test)]
 
 use super::*;

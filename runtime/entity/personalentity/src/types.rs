@@ -1,13 +1,4 @@
-//! 个人多签类型定义。
-//!
-//! 第一类是"账户基本信息"——`PersonalStatus` / `PersonalAccount`,
-//! 由 `PersonalAccounts` storage map 引用,只描述个人多签的创建者、
-//! 账户名、创建区块和账户状态。管理员列表的唯一真源是 `personaladmin`，
-//! 普通动态阈值的唯一真源是 `internalvote`。
-//!
-//! 第二类是"提案业务数据"——`PersonalCreateAction` / `PersonalCloseAction`,
-//! 在投票引擎 `ProposalData` 里 SCALE 编码存放,投票通过后由
-//! `InternalVoteExecutor` 解码后执行业务。
+//! 定义个人多签账户状态、基本资料和提案动作数据。
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::pallet_prelude::*;

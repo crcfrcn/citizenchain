@@ -1,10 +1,4 @@
-// 注册局占号建档弹窗(占即绑,两次扫码)。
-//
-// 极简表单只收人主体类型(公民 CTZN / 居民 NATP)，业务授权由后端自动判断。居住省市由办理注册局 scope 派生;
-// 姓名/性别/出生/护照等档案占号后为空,后续在详情页「编辑资料」补齐(D4a 档案选填)。
-//
-// 流程:prepare(发号)→ 公民本人钱包/公民App 扫「占号签名」(占即绑,自填本账户)
-//   → submit(组装 occupy_cid)→ 管理员冷签 → chain/submit 进块建匿名记录。
+// 采集公民或居民类型，协调CID占号、账户回签及管理员冷签。
 
 import { useState } from 'react';
 import { Alert, Button, Form, Input, Modal, Select } from 'antd';
@@ -26,7 +20,7 @@ interface Props {
   provinceName: string | null;
   cityName: string | null;
   onClose: () => void;
-  /** 占号成功后回填新身份 CID 并刷新列表。 */
+  /** 占号成功后回填新身份CID号 并刷新列表。 */
   onCreated: (cidNumber: string) => Promise<void> | void;
 }
 
@@ -93,7 +87,7 @@ export function CitizenCreateModal({
       if (!result) {
         throw new Error('占号已上链,但记录落库结果缺失');
       }
-      notice.success(`占号上链成功,身份CID：${result.cidNumber}`);
+      notice.success(`占号上链成功,身份CID号：${result.cidNumber}`);
       form.resetFields();
       onClose();
       await onCreated(result.cidNumber);

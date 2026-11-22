@@ -1,3 +1,5 @@
+//! 初始化GPU矿工并执行批量搜索，转换难度目标和统计哈希率。
+
 use crate::pow::SimplePow;
 use codec::Encode;
 use ocl::Buffer;

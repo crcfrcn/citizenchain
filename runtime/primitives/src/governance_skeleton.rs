@@ -1,21 +1,4 @@
-//! 固定治理骨架冻结规格(档 A 单源)。
-//!
-//! `publicadmin::AdminAccounts` 保存固定机构管理员账户，`publicentity` 保存岗位与任职。
-//! 本模块把**永不合法变更的结构骨架**收敛为编译常量清单，供三端共读、防止规格漂移:
-//!   1. 创世播种(`runtime/genesis`):写入固定机构、岗位、任职与管理员账户;
-//!   2. runtime 查询(`publicentity`):按稳定岗位代码读取有效任职;
-//!   3. 节点守卫(`node/src/core/node_guard/governance_skeleton.rs`):读取固定账户骨架；
-//!      entity 岗位与席位的逐块 RAW 守卫按后续步骤接入。
-//!
-//! 本文件是跨 runtime、genesis 和 native node 的协议清单，不负责写入 storage。
-//! 实际创世写入唯一发生在 `runtime/genesis::institution`；runtime/node 只消费这里的
-//! 编译期规格。这样 Node Guard 不需要依赖可升级 runtime，也不会因 runtime/genesis
-//! 的实现变化而手抄另一份席位常量。
-//!
-//! **只冻结构,不冻成员**:固定机构的存在性/机构码/名额/护宪席位数是永不合法变更的
-//! 结构量;而"座位上坐的是谁"由普选/互选/阈值票合法轮换,不在本规格内(等长换座即过)。
-//! **不含阈值**:固定治理阈值是 `fixed_governance_pass_threshold` 计票逻辑、不落 state,守卫
-//! 锚不到,故不在本规格。成员劫持(保持席位数、整体换攻击者密钥)属档 B(创世根验签链),不在此。
+//! 冻结受保护机构的治理岗位、席位和管理员结构规格。
 
 extern crate alloc;
 

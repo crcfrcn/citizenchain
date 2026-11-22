@@ -1,3 +1,5 @@
+// 验证机构和提案入口按同一CID调用各自所属命令。
+
 import {expect,it,vi} from 'vitest';
 import {councilApi} from '../institution/council';
 import {proposalApi} from '../proposal/api';

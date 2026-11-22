@@ -1,22 +1,4 @@
-//! ACTION 常量 + 提案体定义。
-//!
-//! 与 ADR-011 第十节绑定。所有业务和监管动作走 VotingEngine ProposalData，
-//! 业务标签前缀 `MODULE_TAG = b"onc-iss"`(见 `lib.rs`),后接 4B ACTION。
-//!
-//! ## propose origin 校验铁律（ADR-011 第 5.4 / 5.6 节）
-//!
-//! - **业务 5 ACTION**(OAIS/OAMT/OABN/OACL/OATR):propose 入口校验
-//!   `actor_cid_number + actor_role_code + proposer_account_id` 的完整岗位权限
-//! - **监管 5 ACTION**(OMFZ/OMUF/OMCF/OMFT/OMFC):propose 入口固定校验
-//!   `NRC + COMMITTEE_MEMBER + proposer_account_id` 的完整岗位权限
-//!
-//! VotingEngine 自身在 cast 阶段校验冻结岗位主体，propose 阶段仍须前置校验完整岗位权限，
-//! 防止任意账户消耗 storage 提案位或占用投票引擎额度。
-//!
-//! ## metadata 永久不可改铁律（ADR-011 第 5.7 节）
-//!
-//! 第一期不提供 set_metadata ACTION。发行后 name / symbol / description 永久锁定,
-//! 如需改名只能 close 重发。
+//! 定义代币业务及监管动作标识和投票提案载荷。
 
 use crate::types::AssetClass;
 use codec::{Decode, Encode};

@@ -1,14 +1,5 @@
-// BLAKE2b-256 PoW mining kernel for CitizenChain.
-//
-// Each work-item computes blake2_256(pre_hash || nonce) where
-//   nonce = nonce_base + get_global_id(0)
-// and checks whether the resulting hash meets the difficulty target.
-//
-// Algorithm: BLAKE2b (RFC 7693), truncated to 256-bit output.
+// 在GPU工作项中计算区块预哈希与nonce的BLAKE2b-256挖矿结果。
 
-// ---------- BLAKE2b constants ----------
-
-// Initialization vector (first 8 words of the fractional parts of sqrt of first 8 primes).
 __constant ulong IV[8] = {
     0x6a09e667f3bcc908UL, 0xbb67ae8584caa73bUL,
     0x3c6ef372fe94f82bUL, 0xa54ff53a5f1d36f1UL,

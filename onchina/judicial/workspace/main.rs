@@ -1,4 +1,5 @@
-//! judicial独立Cargo包入口，仅链接平台公开库和本包业务。
+//! 启动独立司法模块服务，连接平台公共库和本包业务。
+
 use onchina::modules;
 use std::sync::Arc;
 

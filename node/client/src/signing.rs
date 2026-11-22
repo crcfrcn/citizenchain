@@ -1,3 +1,5 @@
+//! 构造链签名二维码及签名材料，提供账户和编码辅助。
+
 use crate::session::chain_sign_sessions;
 use crate::session::remember_chain_sign_session;
 use crate::session::ChainSignSession;

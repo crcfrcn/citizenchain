@@ -1,4 +1,4 @@
-// 43 省卡片网格 — 纯内容,标题栏由外层 Card 承载。
+// 展示43省的选择卡片网格。
 
 import React from 'react';
 import type { CidProvinceItem } from '@gmb/onchina-platform/codes/api';

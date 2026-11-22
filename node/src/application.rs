@@ -1,3 +1,5 @@
+//! 装配并运行节点桌面应用及原生命令。
+
 use crate::lifecycle::cleanup_on_exit;
 use crate::lifecycle::cleanup_on_startup;
 use nodecontrol::state::AppState;

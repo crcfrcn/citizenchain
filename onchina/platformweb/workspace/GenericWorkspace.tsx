@@ -1,3 +1,6 @@
+// 按后端清单展示通用机构操作、资料和记录。
+import { InstitutionWalletGovernancePanel } from '../institutions/GovernanceReview';
+
 import { RolesView } from '../institutions/RolesView';
 import { AssignmentsView } from '../institutions/AssignmentsView';
 import { RepresentativeView } from '../institutions/RepresentativeView';
@@ -23,6 +26,7 @@ function GenericOperations({ auth, focusLegislation }: GenericWorkspaceProps) {
   const legislation = auth.capabilities?.canViewLegislation ? <LegislationView auth={auth} /> : null;
   return <InstitutionDetailNavLayout initialActiveKey={focusLegislation?'legislation':'accounts'} items={[
     {key:'accounts',label:'账户管理',content:<AccountManageSection auth={auth}/>},
+    {key:'governance',label:'机构治理',content:<InstitutionWalletGovernancePanel auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'assignments',label:'任职管理',content:<AssignmentsView auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'representative',label:'法定代表人',content:<RepresentativeView auth={auth} cidNumber={auth.institutionCidNumber}/>},
@@ -35,7 +39,7 @@ function GenericDisplay({ auth }: GenericWorkspaceProps) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <OwnInstitutionInfoPanel auth={auth} />
-        <OwnInstitutionAdminsView layout="cards" />
+        <OwnInstitutionAdminsView layout="table" />
       </div>
     );
   }

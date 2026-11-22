@@ -1,5 +1,4 @@
-// 教育机构新增入口。机构锁死教育委员会(JY),主体属性 G(公立)/S(私立)/F(分校,
-// 必选本市学校本部为所属法人)。表单 UI 复用 onchina/registryweb/controls/CreateInstitutionForm.tsx,本文件只负责注入 education API。
+// 按公立、私立及分校规则提供教育机构登记表单。
 
 import React from 'react';
 import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';

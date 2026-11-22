@@ -8,17 +8,13 @@ use axum::{
 };
 use onchina::authentication::repo as auth_repo;
 use onchina::authorization::rules::ensure_registry_admin;
-use onchina::institutions::admins::{
-    build_chain_sign_output,
-    chain_roles::{
-        fetch_registration_roles_at, fetch_registration_snapshot, select_registration_role,
-    },
-    parse_registration_action, parse_registration_admin_inputs, InstitutionAdminInput,
-    InstitutionAssignmentChangeInput, InstitutionChainSignRequest, InstitutionRoleMutationInput,
+use onchina::institutions::{
+    build_chain_sign_output, fetch_registration_roles_at, fetch_registration_snapshot,
+    parse_registration_action, parse_registration_admin_inputs, select_registration_role,
+    InstitutionAdminInput, InstitutionAssignmentChangeInput, InstitutionChainSignRequest,
+    InstitutionRoleMutationInput,
 };
-use onchina::institutions_call::{
-    encode_register_institution_admins, RegisterInstitutionAdminsArgs,
-};
+use onchina::institutions::{encode_register_institution_admins, RegisterInstitutionAdminsArgs};
 use serde::Deserialize;
 pub(crate) const PURPOSE_INSTITUTION_REGISTER_ADMINS: &str = "INSTITUTION_REGISTER_ADMINS";
 

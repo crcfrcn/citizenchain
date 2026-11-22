@@ -1,4 +1,5 @@
-# 本平台GitHub任务归本工作流；编译调用产品编译入口。
+# 协调Windows节点和业务模块编译、回归及正式安装包交付。
+
 name: 公民链·Windows
 run-name: 公民链·Windows·${{ github.run_number }}
 'on':

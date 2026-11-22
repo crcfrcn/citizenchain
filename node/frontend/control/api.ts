@@ -1,3 +1,5 @@
+// 将节点控制、设置和文档读取接口映射到原生IPC命令。
+
 import { Channel } from '@tauri-apps/api/core';
 import { invoke } from "../client/tauri";
 import type { BootnodeKey, BootnodeOption, DesktopInstaller, DesktopUpdateProgress, GrandpaKey, OnChinaModuleId, NodeMode, NodeModeState, OnChinaPlatformState, RewardAccount, ChainStatus, NodeIdentity, NodeStatus, TotalIssuance, TotalStake, TotalFrozen, OtherTabsPayload, WhitepaperDocument } from "./types";

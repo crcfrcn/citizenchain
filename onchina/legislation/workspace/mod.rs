@@ -1,4 +1,5 @@
-//! 既有工作台分区，保持文字、顺序与能力条件。
+//! 生成立法工作台分区及其能力条件。
+
 use onchina::modules::capability::CapabilitySet;
 use onchina::workspace::manifest::{action, section};
 use onchina::workspace::model::{WorkspaceSection, WorkspaceSectionKind};

@@ -1,13 +1,4 @@
-//! # 联合投票 pallet (jointvote)
-//!
-//! 国家储委会 / 省储委会 / 省储行的加权多签投票模式 + 联合公投两阶段:
-//! - [`jointinternal`]:内部投票阶段 — 业务函数 `do_create_joint_proposal` /
-//!   `do_joint_vote` / `do_finalize_joint_timeout` 等。
-//! - [`jointreferendum`]:联合公投阶段 — 业务函数 `do_jointreferendum_vote` /
-//!   `do_finalize_jointreferendum_timeout`。
-//!
-//! 共用基础设施仍归 [`engingcore`] 引擎核心,本 pallet 通过
-//! `Config: engingcore::Config` 直接访问提案、投票计划与岗位投票人快照等共用 storage。
+//! 协调国家和省级储备机构的联合内部投票及公投两阶段流程。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

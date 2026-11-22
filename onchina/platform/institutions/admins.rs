@@ -1,11 +1,8 @@
-//! 机构管理员链下私密资料子模块。
-//!
-//! 管理员链上人员记录使用账户、公民CID、姓、名；授权只比较账户，岗位、任期和来源由 entity 表达。
-//! 本子模块只承接链下私密档案(部门/联系方式/证件照/passkey 绑定)与链投影,
-//! 落库到 `institution_admins` 省级分区表。控制台登录元数据走独立的 `admins` 表,与此无关。
+//! 管理机构管理员链下私密资料，解析链上管理员与岗位权限输入。
 
-// 机构管理员校验辅助函数直接返回统一 Axum Response，错误路径不另造可分叉的包装类型。
 #![allow(clippy::result_large_err)]
+
+use super::chain_roles;
 
 use axum::{
     extract::State,
@@ -22,7 +19,7 @@ use crate::{
     actor_ip_from_headers, api_error,
     authentication::{login::parse_account_id_bytes, repo as auth_repo},
     chain_submit,
-    institutions_call::{
+    institutions::{
         encode_propose_institution_governance, InstitutionAdminsPayload,
         ProposeInstitutionGovernanceArgs,
     },
@@ -30,9 +27,6 @@ use crate::{
     transactions::session::{ChainSignSession, SESSION_TTL_SECS},
     ApiResponse, AppState,
 };
-
-#[path = "admins_chain_roles.rs"]
-pub mod chain_roles;
 
 pub(crate) const PURPOSE_INSTITUTION_GOVERNANCE: &str = "INSTITUTION_GOVERNANCE";
 
@@ -962,7 +956,30 @@ pub(crate) async fn prepare_institution_governance(
     .into_response()
 }
 
-/// 治理数据只使用就绪登录会话和原机构数据范围，不重复调用管理员资格守卫。
+/// 仅治理读取允许各省专员访问同一个 FRG；地域办理范围和写入授权保持独立。
+pub(super) fn can_read_institution_governance(
+    ctx: &crate::authentication::login::AdminAuthContext,
+    institution_code: &str,
+    cid_number: &str,
+    province_name: &str,
+    city_name: &str,
+    town_name: &str,
+) -> bool {
+    let frg = primitives::governance_skeleton::federal_registry_institution();
+    let same_frg = ctx.institution_code == "FRG"
+        && institution_code == "FRG"
+        && ctx.institution_cid_number == cid_number
+        && cid_number == frg.cid_number;
+    same_frg
+        || crate::authorization::rules::get_visible_scope(ctx).includes_institution(
+            cid_number,
+            province_name,
+            city_name,
+            town_name,
+        )
+}
+
+/// 治理数据只使用就绪登录会话和只读范围，不重复调用管理员资格守卫。
 pub(crate) async fn get_governance_state(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -977,7 +994,9 @@ pub(crate) async fn get_governance_state(
         Ok(None) => return api_error(StatusCode::NOT_FOUND, 1004, "institution not found"),
         Err(error) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, &error),
     };
-    if !crate::authorization::rules::get_visible_scope(&ctx).includes_institution(
+    if !can_read_institution_governance(
+        &ctx,
+        &inst.institution_code,
         &inst.cid_number,
         &inst.province_name,
         &inst.city_name,
@@ -1040,4 +1059,278 @@ pub(crate) async fn get_governance_state(
             api_error(StatusCode::BAD_GATEWAY, 5002, "治理链上数据读取失败")
         }
     }
+}
+
+/// Institutional proof parameters are frozen; the personal CID binding is never written here.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct InstitutionWalletInput {
+    cid_number: String,
+    admin_account: String,
+    new_wallet: String,
+    mode: String,
+    #[serde(default)]
+    proposer_role_code: String,
+    #[serde(default)]
+    expires_at: Option<u64>,
+    #[serde(default)]
+    new_wallet_response: Option<String>,
+}
+pub(crate) const PURPOSE_INSTITUTION_WALLET: &str = "INSTITUTION_WALLET";
+
+async fn wallet_call(
+    state: &AppState,
+    ctx: &crate::authentication::login::AdminAuthContext,
+    input: &InstitutionWalletInput,
+) -> Result<
+    (
+        adminbase::InstitutionWalletAcceptance<[u8; 32], [u8; 32]>,
+        String,
+        Option<super::chain_call::ChainCall>,
+    ),
+    axum::response::Response,
+> {
+    let bad = |message: &str| api_error(StatusCode::BAD_REQUEST, 1001, message);
+    let binding = auth_repo::active_node_binding(&state.db)
+        .map_err(|_| bad("节点绑定读取失败"))?
+        .ok_or_else(|| bad("节点尚未绑定机构"))?;
+    if input.cid_number != binding.institution_cid_number
+        || input.cid_number != ctx.institution_cid_number
+        || binding.institution_code != ctx.institution_code
+    {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            1003,
+            "只能办理本机构管理员钱包",
+        ));
+    }
+    let identity = crate::chain_runtime::identity_from_binding_parts(
+        &binding.institution_code,
+        Some(&binding.institution_cid_number),
+    )
+    .map_err(|_| bad("机构绑定无效"))?;
+    let view = chain_roles::fetch_governance_state(&identity)
+        .await
+        .map_err(|_| bad("治理链状态读取失败"))?;
+    let member = view
+        .members
+        .iter()
+        .find(|m| m.account_id == input.admin_account)
+        .ok_or_else(|| bad("目标不是本机构在册管理员"))?;
+    let actor = view
+        .members
+        .iter()
+        .find(|m| m.signer_id == ctx.account_id)
+        .ok_or_else(|| bad("当前钱包已无本机构授权"))?;
+    let mode = match input.mode.as_str() {
+        "SELF" if actor.account_id == member.account_id && input.proposer_role_code.is_empty() => {
+            adminbase::InstitutionWalletChangeMode::SelfSigned
+        }
+        "GOVERNANCE" => {
+            let role = view
+                .roles
+                .iter()
+                .find(|r| {
+                    r.active
+                        && r.role_code == input.proposer_role_code
+                        && r.assignments
+                            .iter()
+                            .any(|a| a.account_id == actor.account_id && a.effective)
+                })
+                .ok_or_else(|| bad("发起人无有效岗位"))?;
+            if !role.permissions.iter().any(|p| {
+                p.module_tag == view.module_tag
+                    && p.action_code == entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE
+                    && p.operation == "PROPOSE"
+            }) {
+                return Err(bad("岗位无机构治理提案权限"));
+            }
+            if binding.institution_code == "FRG"
+                && !role
+                    .assignments
+                    .iter()
+                    .any(|a| a.effective && a.account_id == member.account_id)
+            {
+                return Err(bad("只能更换本省专员岗位内的钱包"));
+            }
+            adminbase::InstitutionWalletChangeMode::Governance
+        }
+        _ => return Err(bad("更换方式或本人目标不符")),
+    };
+    let parse = |raw: &str| parse_account_id_bytes(raw).ok_or_else(|| bad("钱包账户编码无效"));
+    let new_wallet = parse(&input.new_wallet)?;
+    if view.members.iter().any(|m| m.signer_id == input.new_wallet) {
+        return Err(bad("新钱包已是本机构管理员钱包"));
+    }
+    let now = Utc::now().timestamp() as u64;
+    let limit = if matches!(mode, adminbase::InstitutionWalletChangeMode::SelfSigned) {
+        180
+    } else {
+        adminbase::INSTITUTION_WALLET_PROOF_MAX_LIFETIME_SECS
+    };
+    let expires_at = input.expires_at.unwrap_or(now + limit);
+    if expires_at <= now
+        || expires_at > now + limit
+        || (input.new_wallet_response.is_some() && input.expires_at.is_none())
+    {
+        return Err(bad("接收证明已过期或缺少冻结期限"));
+    }
+    let finalized = crate::chain_runtime::FinalizedChainView::connect()
+        .await
+        .map_err(|_| bad("链不可用"))?;
+    let acceptance = adminbase::InstitutionWalletAcceptance {
+        genesis_hash: finalized.client.genesis_hash().0,
+        cid_number: input
+            .cid_number
+            .as_bytes()
+            .to_vec()
+            .try_into()
+            .map_err(|_| bad("机构CID过长"))?,
+        change: adminbase::InstitutionAdminWalletChange {
+            admin_account: parse(&member.account_id)?,
+            expected_wallet: parse(&member.signer_id)?,
+            new_wallet,
+            expected_revision: member.wallet_revision,
+        },
+        mode,
+        expires_at,
+    };
+    let payload = acceptance.encode();
+    let request_id = format!(
+        "institution-wallet-{}",
+        hex::encode(sp_crypto_hashing::blake2_256(&payload))
+    );
+    let Some(response) = &input.new_wallet_response else {
+        return Ok((acceptance, request_id, None));
+    };
+    let response =
+        crate::qr::parse_sign_response(response).map_err(|_| bad("新钱包签名响应无效"))?;
+    if response.id.as_deref() != Some(request_id.as_str())
+        || response
+            .expires_at
+            .is_none_or(|e| e <= now as i64 || e > expires_at as i64)
+        || response.body.account_id != input.new_wallet
+    {
+        return Err(bad("新钱包签名响应不匹配冻结证明"));
+    }
+    let proof = hex::decode(response.body.signature.trim_start_matches("0x"))
+        .map_err(|_| bad("签名编码无效"))?;
+    let message =
+        primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, &payload);
+    let valid = match chain_signing::mldsa::signature_parts(&proof) {
+        Ok((Some(public), signature)) => {
+            use codec::Decode;
+            let public = chain_signing::mldsa::PublicKey::decode(&mut &public[..])
+                .map_err(|_| bad("新钱包公钥无效"))?;
+            let signature = chain_signing::mldsa::Signature::decode(&mut &signature[..])
+                .map_err(|_| bad("新钱包签名无效"))?;
+            chain_signing::mldsa::verify_account_signature(
+                &new_wallet,
+                &public,
+                &message,
+                &signature,
+            )
+        }
+        Ok((None, _)) => {
+            !crate::chain_runtime::operation_at(&finalized.storage())
+                .await
+                .map_err(|_| bad("链阶段不可读取"))?
+                && crate::authentication::login::verify_admin_signature_bytes(
+                    &input.new_wallet,
+                    &message,
+                    &response.body.signature,
+                )
+        }
+        Err(_) => false,
+    };
+    if !valid {
+        return Err(bad("新钱包接收证明验签失败"));
+    }
+    let proof: adminbase::InstitutionWalletProof =
+        proof.try_into().map_err(|_| bad("接收证明过长"))?;
+    // Actual chain owner is authoritative for UNIN; never infer its pallet from its code.
+    let pallet = match view.module_tag.as_str() {
+        "pub-mgmt" => 30,
+        "pri-mgmt" => 31,
+        _ => return Err(bad("机构归属无效")),
+    };
+    let call = if matches!(
+        acceptance.mode,
+        adminbase::InstitutionWalletChangeMode::SelfSigned
+    ) {
+        let mut bytes = vec![pallet, 10];
+        bytes.extend(acceptance.cid_number.encode());
+        bytes.extend(acceptance.change.encode());
+        bytes.extend(expires_at.encode());
+        bytes.extend(proof.encode());
+        super::chain_call::ChainCall {
+            action: super::chain_call::chain_action_code(pallet, 10),
+            call_data: bytes,
+        }
+    } else {
+        let action = entitybase::InstitutionGovernanceAction::<[u8; 32]>::RotateAdminWallet {
+            change: acceptance.change.clone(),
+            expires_at,
+            new_wallet_proof: proof,
+        };
+        let mut bytes = vec![pallet, 8];
+        bytes.extend(acceptance.cid_number.encode());
+        bytes.extend(action.encode());
+        bytes.extend(acceptance.cid_number.encode());
+        bytes.extend(input.proposer_role_code.as_bytes().to_vec().encode());
+        super::chain_call::ChainCall {
+            action: super::chain_call::chain_action_code(pallet, 8),
+            call_data: bytes,
+        }
+    };
+    Ok((acceptance, request_id, Some(call)))
+}
+
+/// First call returns the new-wallet proof QR; second call freezes that exact proof in the old-wallet/proposer transaction.
+pub(crate) async fn prepare_institution_wallet(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<InstitutionWalletInput>,
+) -> axum::response::Response {
+    let result = async {
+        let ctx = require_admin_any(&state, &headers)?;
+        let (acceptance, id, call) = wallet_call(&state, &ctx, &input).await?;
+        if let Some(call) = call {
+            let passkey = crate::authentication::passkey::require_passkey_assertion(&state, &headers, &ctx.account_id)?;
+            let output = build_chain_sign_output(&state, InstitutionChainSignRequest { account_id: &ctx.account_id, cid_number: &input.cid_number, purpose: PURPOSE_INSTITUTION_WALLET, call_data: call.call_data, chain_action: call.action, context: serde_json::json!({"cid_number": input.cid_number, "walletInput": input, "expectedWallet": format!("0x{}",hex::encode(acceptance.change.expected_wallet)), "mode": input.mode}) }, &passkey).await?;
+            Ok(serde_json::to_value(output).map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, "签名会话编码失败"))?)
+        } else {
+            let action = qr_protocol::action_by_key("institution_wallet_accept").map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, "签名协议缺失"))?.action_code;
+            let qr = crate::qr::build_sign_request_bytes(&id, Utc::now().timestamp(), (Utc::now().timestamp() + 180).min(acceptance.expires_at as i64), &input.new_wallet, &acceptance.encode(), action)?;
+            Ok::<_, axum::response::Response>(serde_json::json!({"requestId":id,"expiresAt":acceptance.expires_at,"acceptancePayloadHex":format!("0x{}",hex::encode(acceptance.encode())),"signRequest":qr}))
+        }
+    }.await;
+    match result {
+        Ok(data) => Json(ApiResponse {
+            code: 0,
+            message: "ok".into(),
+            data,
+        })
+        .into_response(),
+        Err(response) => response,
+    }
+}
+
+pub(crate) async fn recheck_institution_wallet(
+    state: &AppState,
+    ctx: &crate::authentication::login::AdminAuthContext,
+    session: &ChainSignSession,
+) -> Result<(), axum::response::Response> {
+    let input = serde_json::from_value(session.context["walletInput"].clone())
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, 1001, "冻结更换上下文缺失"))?;
+    let (_, _, call) = wallet_call(state, ctx, &input).await?;
+    if session.account_id != ctx.account_id || call.is_none_or(|c| c.call_data != session.call_data)
+    {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            1003,
+            "冻结钱包更换已失效，请重新审阅签名",
+        ));
+    }
+    Ok(())
 }

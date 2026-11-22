@@ -1,15 +1,4 @@
-//! 非法人机构能力。
-//!
-//! 非法人不是法人资格,但不等于全部必须挂靠。个体经营(SFGT)和无限合伙(SFGP)
-//! 是独立非法人;非法人组织(UNIN,含学校分校/公权下属/公司分支)必须从属于一个法人主体。
-//! 公权机构和私权机构都可能拥有从属非法人机构,所以能力放在 `onchina/platform/institutions/subjects_unincorporated_org.rs`。
-//!
-//! 本模块是非法人挂靠规则的单一权威源,创建(create_institution)、改挂
-//! (update_institution)和所属法人搜索(search_parent_institutions 的 SQL 预过滤)
-//! 三处必须与这里同源,缺一处就有绕过口:
-//! - 父级属性:仅私法人(S)/公法人(G)可作所属法人;UNIN 通用从属,挂任意 S/G 父级;
-//! - 地域规则:见 [`parent_locality_rule`](父级是学校/大学 → 分校同市);
-//! - 盈利属性继承:见 [`inherited_p1`]。
+//! 判定非法人组织的挂靠要求、父主体资格及行政范围。
 
 use crate::codes::{code, AdminLevel};
 

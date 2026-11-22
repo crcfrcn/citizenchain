@@ -1,10 +1,11 @@
-// 既有结构化数据读写，沿用原事务、字段和查询语义。
+// 读取治理公民资料并映射结构化数据库记录。
+
 impl Db {
     /// 机构治理按账户读取最小身份投影，沿用原查询的空值、修剪和最新记录语义。
     pub(crate) fn find_governance_citizen_by_account_id(
         &self,
         account_id: &str,
-    ) -> Result<Option<crate::institutions::model::GovernanceCitizen>, String> {
+    ) -> Result<Option<crate::institutions::GovernanceCitizen>, String> {
         let account_id = account_id.trim().to_string();
         if account_id.is_empty() {
             return Ok(None);
@@ -25,7 +26,7 @@ impl Db {
     pub(crate) fn find_governance_citizen_by_cid(
         &self,
         cid_number: &str,
-    ) -> Result<Option<crate::institutions::model::GovernanceCitizen>, String> {
+    ) -> Result<Option<crate::institutions::GovernanceCitizen>, String> {
         let cid_number = cid_number.trim().to_string();
         if cid_number.is_empty() {
             return Ok(None);
@@ -81,8 +82,8 @@ impl Db {
         cid_number: &str,
     ) -> Result<
         Option<(
-            crate::institutions::subjects::Institution,
-            Vec<crate::institutions::subjects::InstitutionAccount>,
+            crate::institutions::Institution,
+            Vec<crate::institutions::InstitutionAccount>,
         )>,
         String,
     > {
@@ -128,8 +129,8 @@ impl Db {
         cid_number: &str,
     ) -> Result<
         Option<(
-            crate::institutions::subjects::Institution,
-            Vec<crate::institutions::subjects::InstitutionAccount>,
+            crate::institutions::Institution,
+            Vec<crate::institutions::InstitutionAccount>,
         )>,
         String,
     > {
@@ -171,7 +172,7 @@ impl Db {
                 .map_err(|e| format!("query institution accounts failed: {e}"))?;
             let mut accounts = Vec::with_capacity(account_rows.len());
             for row in account_rows {
-                accounts.push(crate::institutions::subjects::InstitutionAccount {
+                accounts.push(crate::institutions::InstitutionAccount {
                     cid_number: row.get(0),
                     account_name: row.get(1),
                     account_id: row.get(2),
@@ -189,7 +190,7 @@ impl Db {
 
     pub fn upsert_institution_row(
         &self,
-        inst: &crate::institutions::subjects::Institution,
+        inst: &crate::institutions::Institution,
     ) -> Result<(), String> {
         let inst = inst.clone();
         self.with_client(move |conn| {
@@ -206,7 +207,7 @@ impl Db {
     pub(crate) fn legal_representative_account_in_scope(
         &self,
         cid_number: &str,
-        scope: &crate::institutions::subjects::service::LegalRepresentativeCitizenScope,
+        scope: &crate::institutions::LegalRepresentativeCitizenScope,
     ) -> Result<Option<String>, String> {
         let cid_number = cid_number.trim().to_string();
         let province_code = scope.province_code().map(str::to_string);
@@ -232,7 +233,7 @@ impl Db {
         &self,
         q: &str,
         page_size: usize,
-        scope: &crate::institutions::subjects::service::LegalRepresentativeCitizenScope,
+        scope: &crate::institutions::LegalRepresentativeCitizenScope,
     ) -> Result<Vec<String>, String> {
         let q = q.trim().to_string();
         let province_code = scope.province_code().map(str::to_string);
@@ -261,7 +262,7 @@ impl Db {
 
     pub(crate) fn upsert_target_subject_rows<C: postgres::GenericClient>(
         conn: &mut C,
-        inst: &crate::institutions::subjects::Institution,
+        inst: &crate::institutions::Institution,
     ) -> Result<(), String> {
         let kind = match inst.category {
             crate::codes::InstitutionCategory::PrivateInstitution => "PRIVATE",
@@ -650,28 +651,25 @@ impl Db {
     #[allow(clippy::too_many_arguments)]
     pub fn list_institutions_exact(
         &self,
-        filter: crate::institutions::subjects::InstitutionListFilter,
+        filter: crate::institutions::InstitutionListFilter,
         private_type: Option<&str>,
         province_code: &str,
         city_code: Option<&str>,
         keyword: &str,
         cursor: Option<&str>,
         page_size: usize,
-    ) -> Result<PageResult<crate::institutions::subjects::InstitutionListRow>, String> {
+    ) -> Result<PageResult<crate::institutions::InstitutionListRow>, String> {
         let keyword = keyword.trim();
         if keyword.is_empty() {
             if matches!(
                 filter,
-                crate::institutions::subjects::InstitutionListFilter::Education
+                crate::institutions::InstitutionListFilter::Education
             ) {
                 return self.list_education_committees_direct(province_code, city_code, page_size);
             }
             // 选定城市后,私权机构空关键字 = 浏览该市全部私权机构(城市级有界)。
             // 省级(无城市)仍返回空,坚持精确搜索以防跨省全量扫描。
-            if matches!(
-                filter,
-                crate::institutions::subjects::InstitutionListFilter::Private
-            ) {
+            if matches!(filter, crate::institutions::InstitutionListFilter::Private) {
                 if let Some(city) = city_code {
                     return self.list_private_institutions_by_city_direct(
                         province_code,
@@ -775,11 +773,11 @@ impl Db {
         province_code: &str,
         city_code: Option<&str>,
         page_size: usize,
-    ) -> Result<PageResult<crate::institutions::subjects::InstitutionListRow>, String> {
+    ) -> Result<PageResult<crate::institutions::InstitutionListRow>, String> {
         let province_code = province_code.to_string();
         let city_code = city_code.map(str::to_string);
         self.with_client(move |conn| {
-            let city_type = crate::institutions::subjects::EDUCATION_TYPE_CITY_CITIZEN_EDU_COMMITTEE;
+            let city_type = crate::institutions::EDUCATION_TYPE_CITY_CITIZEN_EDU_COMMITTEE;
             let limit = i64::try_from(page_size.saturating_add(1))
                 .map_err(|_| "page_size too large".to_string())?;
             // 市详情只直接显示本市确定性市公民教育委员会;
@@ -835,7 +833,7 @@ impl Db {
         city_code: &str,
         private_type: Option<&str>,
         page_size: usize,
-    ) -> Result<PageResult<crate::institutions::subjects::InstitutionListRow>, String> {
+    ) -> Result<PageResult<crate::institutions::InstitutionListRow>, String> {
         let province_code = province_code.to_string();
         let city_code = city_code.to_string();
         let private_type = private_type
@@ -895,7 +893,7 @@ impl Db {
         institution_code_filter: Option<&str>,
         offset: usize,
         page_size: usize,
-    ) -> Result<PageResult<crate::institutions::subjects::InstitutionListRow>, String> {
+    ) -> Result<PageResult<crate::institutions::InstitutionListRow>, String> {
         let keyword = keyword.trim().to_ascii_lowercase();
         let province_code = province_code.to_string();
         let city_code = city_code.map(str::to_string);
@@ -1030,10 +1028,8 @@ impl Db {
 }
 
 /// 公共身份查询只映射治理需要的四个字段，不构造注册局完整档案。
-fn governance_citizen_from_row(
-    row: &postgres::Row,
-) -> crate::institutions::model::GovernanceCitizen {
-    crate::institutions::model::GovernanceCitizen {
+fn governance_citizen_from_row(row: &postgres::Row) -> crate::institutions::GovernanceCitizen {
+    crate::institutions::GovernanceCitizen {
         cid_number: row.get(0),
         family_name: row.get(1),
         given_name: row.get(2),

@@ -1,3 +1,5 @@
+//! 核对受保护机构管理员、岗位、任职及法定成员结构。
+
 use adminbase::Admin;
 use adminbase::InstitutionAdmins;
 use codec::Decode;

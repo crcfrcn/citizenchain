@@ -1,3 +1,5 @@
+//! 装配原生转账测试Runtime、出块者及费用接收账户。
+
 #![cfg(test)]
 
 use super::*;

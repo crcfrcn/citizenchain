@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! 构造创世配置及预设，将账户和GRANDPA密钥转换为创世地址。
+
 use alloc::vec;
 use alloc::vec::Vec;
 use sp_genesis_builder::PresetId;

@@ -1,3 +1,5 @@
+//! 管理节点工作线程、关键任务失败和首次退出原因。
+
 use nodeclient::handle::NodeHandle;
 use nodeclient::network::LocalNetworkReader;
 use std::path::PathBuf;

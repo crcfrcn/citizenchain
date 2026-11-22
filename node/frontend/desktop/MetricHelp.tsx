@@ -1,3 +1,5 @@
+// 展示指标含义和计算口径的帮助提示。
+
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 

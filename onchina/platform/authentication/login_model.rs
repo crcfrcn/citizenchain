@@ -1,7 +1,4 @@
-//! 登录认证数据模型与请求/响应 DTO。
-//!
-//! 本文件只放登录会话、challenge、二维码登录结果和接口 DTO;
-//! handler、鉴权守卫、签名验签逻辑分别放在同目录其他文件中。
+//! 定义登录挑战、签名请求、管理员会话和接口响应模型。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

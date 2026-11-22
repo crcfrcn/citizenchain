@@ -1,3 +1,5 @@
+//! 验证构建目录边界、资源复用和macOS签名归档完整性。
+
 use super::{comparison_path, local_build_work, path_within, same_path};
 use std::path::{Path, PathBuf};
 

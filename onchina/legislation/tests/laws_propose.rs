@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证法律提案调用索引、枚举和地区字段编码。
+
 use super::*;
 use legislation::{Tier, VoteType};
 

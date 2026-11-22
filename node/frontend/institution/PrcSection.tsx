@@ -1,3 +1,5 @@
+// 组合省储委会机构列表、管理员及详情页面。
+
 import { AdminListPage } from "./index";
 import { InstitutionListView } from "./InstitutionListView";
 import { InstitutionDetailPage } from "./InstitutionDetailPage";

@@ -1,3 +1,5 @@
+// 读取并展示受权限保护的法定代表人照片。
+
 import { useEffect, useRef, useState } from 'react';
 import { Button, Image, Modal } from 'antd';
 import type { AdminAuth } from '../authentication/types';

@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证公民编号并发唯一及容量耗尽错误。
+
 use super::*;
 use crate::citizens::admin_entry::CitizenWrites;
 

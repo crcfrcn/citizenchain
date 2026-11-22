@@ -1,3 +1,5 @@
+// 展示本机链上中国服务状态及公开访问入口。
+
 import { sanitizeError } from "../client/tauri";
 import { MetricHelp } from "../desktop/MetricHelp";
 import { settingsApi as api } from "./api";
@@ -114,6 +116,8 @@ export function OnChinaPlatformSection() {
       </div>
       {platform?.detail ? (
         <p className="section-inline-error">{platform.detail}</p>
+      ) : status === 'starting' ? (
+        <p className="section-inline-hint">启动中</p>
       ) : null}
       {statusError ? <p role="alert" className="section-inline-error">{statusError}</p> : null}
       {error ? <p role="alert" className="section-inline-error">{error}</p> : null}

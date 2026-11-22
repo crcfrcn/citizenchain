@@ -1,3 +1,5 @@
+// 协调提案投票审阅、冷签响应及交易提交。
+
 import { proposalApi } from './api';
 import { accountIdToSs58 } from "../client/ss58";
 import { sanitizeError } from "../client/tauri";

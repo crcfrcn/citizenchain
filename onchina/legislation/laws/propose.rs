@@ -1,24 +1,7 @@
-//! 立法院 `propose_enact/amend/repeal_law` 裸 SCALE call-data 编码器(onchina 侧唯一真源)。
-//!
-//! 复用 `onchina::institutions_call` 与 `onchina::chain_submit` 的「构造裸 call data → CitizenWallet
-//! 一次签名并显示响应二维码 → OnChina 回扫后统一提交」通道。
-//!
-//! **铁律**:参数顺序与 SCALE 类型必须与链端 `legislation`(pallet idx 25)逐字节一致:
-//! - `tier` / `vote_type` 是单字节枚举序号(Tier:0宪法/1国家/2省/3市;VoteType:0常规/1常规教育/2重要/3重要教育/4特别);
-//! - `houses` = `Vec<CidNumber>`,带 `Compact<u32>` 数量前缀,每项是 CID 字节向量;
-//! - `actor_cid_number` / `executive_cid_number` = 机构唯一 CID;
-//! - `proposer_role_code` = 发起账户在 actor 机构内实际任职的岗位码;
-//! - `legislature_cid_number` = `Option<CidNumber>`;
-//! - `title` / `title_en` = `Vec<u8>` / `Option<Vec<u8>>`(`Compact<u32>` 长度前缀);
-//! - `chapters` = 章>节>条>款 嵌套(链端 `BoundedVec` 与 `Vec` 的 SCALE 同布局,由 `ChapterArg` 派生 `Encode`);
-//! - `region` = 原两字母省码 + u16 小端市号(固定四字节);`effective_at` = 生效时间戳毫秒(u64 小端);`law_id` = u64 小端。
-//!
-//! `tests` 用链端真实 `legislation::{Tier,VoteType}` 与 codec `.encode()` 逐字节交叉校验,杜绝静默漂移。
-//!
-//! prepare 由 action.rs 调用，统一提交由平台 transactions 负责。
+//! 编码制定、修改和废止法律提案的裸SCALE调用。
 
 use codec::{Compact, Decode, Encode};
-use onchina::institutions_call::{chain_action_code, ChainCall};
+use onchina::institutions::{chain_action_code, ChainCall};
 use primitives::genesis::LawRegion;
 
 /// LegislationYuan pallet 在 construct_runtime 的索引。

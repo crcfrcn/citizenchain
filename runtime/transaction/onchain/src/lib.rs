@@ -1,3 +1,5 @@
+//! 执行带备注的原生转账，定义各调用费用的付款和分配路由。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "runtime-benchmarks")]

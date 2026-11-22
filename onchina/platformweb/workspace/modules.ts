@@ -1,8 +1,4 @@
-// 控制台能力位类型 + 空能力兜底。
-//
-// 能力由后端各模块真实入口声明，经 platform/modules/capability.rs 汇总并由会话下发。
-// 前端只镜像渲染工作台入口,不在此硬编码权限——render-gating 非安全边界,后端始终对越权独立拒绝。
-// 业务能力由模块真实声明提供，公共 capability.rs 负责汇总；前端不另写权限。
+// 按后端清单同源装载业务模块及样式，并选择准确机构工作台。
 
 export type CapabilitySet = {
   canViewCitizens: boolean;

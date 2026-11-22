@@ -1,3 +1,5 @@
+//! 装配决议销毁测试Runtime、机构管理员和投票夹具。
+
 #![cfg(test)]
 
 use super::*;

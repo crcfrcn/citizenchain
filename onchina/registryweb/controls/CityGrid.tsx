@@ -1,6 +1,4 @@
-// 某省的 N 市卡片网格 — 共享组件。
-// 按省读取确定性城市清单,优先命中本地缓存;点击某市回调外部。
-// 过滤掉 city_code="000" 的"本省统一"占位。
+// 展示所选省的城市卡片，缓存城市清单并排除统一占位项。
 
 import React, { useEffect, useState } from 'react';
 import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';

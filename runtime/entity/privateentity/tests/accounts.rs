@@ -1,10 +1,4 @@
-//! 机构账户表相关 helper。
-//!
-//! 此模块负责:
-//! - `build_required_protocol_accounts`: 根据 CID 制度约束生成强制协议账户。
-//! - `validate_initial_accounts`: 校验 runtime 自动生成的账户列表,派生每个账户
-//!   的链上地址,返回固化的 `CreateInstitutionAccountsOf<T>` + 主账户/
-//!   费用账户/初始余额合计。
+//! 构造并验证私权机构初始协议账户及制度账户约束。
 
 extern crate alloc;
 use alloc::collections::BTreeSet;

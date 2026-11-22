@@ -1,12 +1,4 @@
-//! # 立法院模块 (legislation)
-//!
-//! 法律结构化上链 + 修法一律走投票引擎(ADR-027)。本 pallet 是「业务壳」:
-//! 只承载法律数据(Law / LawVersion)、状态机、提案入口(立法/修法/废法)、
-//! 投票通过回调写入、不可修改条款硬拒与查询;表决规则、计票、两院顺序、强制公投
-//! 全部归属投票引擎 `legislationvote` sub-pallet。
-//!
-//! 解耦:`Config::LegislationVoteEngine` 注入立法投票引擎(runtime 装配为 `LegislationVote`);
-//! 业务壳通过它创建立法投票提案,投票终态经核心 `LegislationVoteResultCallback` 回调写回本壳。
+//! 维护链上法律及版本，发起立法投票并按结果和时间执行生效。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

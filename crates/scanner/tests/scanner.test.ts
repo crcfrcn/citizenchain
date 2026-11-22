@@ -1,3 +1,5 @@
+// 验证相机和图片识别、设备错误以及取消和资源回收。
+
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from 'vitest';

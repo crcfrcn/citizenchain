@@ -1,7 +1,4 @@
-//! 链账户 ID 与 sr25519 签名公钥工具。
-//!
-//! 账户输入只接受小写 `0x` 加 64 位十六进制；SS58 仅用于展示，禁止作为授权、
-//! 存储或接口身份主键。
+//! 校验规范账户文本并转换SS58展示地址。
 
 pub fn normalize_account_id(input: &str) -> Option<String> {
     let trimmed = input.trim();

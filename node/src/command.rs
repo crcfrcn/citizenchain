@@ -1,4 +1,5 @@
-// Substrate CLI runner 的闭包签名固定返回 sc_cli::Error，无法在 Node 侧装箱该错误类型。
+//! 实现Substrate节点命令行身份及各子命令运行分派。
+
 #![allow(clippy::result_large_err)]
 #[cfg(feature = "runtime-benchmarks")]
 use crate::benchmarks::inherent_benchmark_data;

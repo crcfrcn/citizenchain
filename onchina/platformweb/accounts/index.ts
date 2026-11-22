@@ -1,4 +1,4 @@
-// 机构账户前端公共出口,账户组件独立放在 accounts 目录。
+// 导出机构账户共用组件和公开接口。
 
 export { AccountList } from './AccountList';
 export { CreateAccountModal } from './CreateAccountModal';

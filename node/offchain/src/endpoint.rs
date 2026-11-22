@@ -1,3 +1,5 @@
+//! 构造CID存储键并读取链上清算行节点端点。
+
 use crate::types::ClearingBankNodeOnChainInfo;
 use codec::DecodeAll;
 use codec::Encode;

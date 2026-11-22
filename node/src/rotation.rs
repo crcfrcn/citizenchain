@@ -1,3 +1,5 @@
+//! 监视GRANDPA密钥更换状态并协调本机轮换。
+
 use nodegrandpakey::proof::decode_hex_32;
 use nodegrandpakey::proof::fetch_authorities;
 use nodegrandpakey::proof::fetch_current_public_key;

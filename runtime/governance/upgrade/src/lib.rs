@@ -1,3 +1,5 @@
+//! 管理运行时升级提案和开发者直升，执行获准代码变更。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "runtime-benchmarks")]

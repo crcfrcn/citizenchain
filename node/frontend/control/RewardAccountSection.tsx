@@ -1,3 +1,5 @@
+// 展示并绑定或更换矿工奖励账户。
+
 import { sanitizeError } from "../client/tauri";
 import { AddressScanModal } from "../desktop/scanner";
 import { accountIdToSs58, ADDRESS_INPUT_PLACEHOLDER, normalizeSs58Address } from "../client/ss58";

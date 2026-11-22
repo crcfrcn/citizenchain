@@ -1,3 +1,5 @@
+// 验证MetaMask接入页HTTPS、固定链配置及钱包权限和失败处理。
+
 import {installHtml} from '../desktop/metamask.mjs';
 import {fileURLToPath} from 'node:url';
 const generator = new URL('../desktop/metamask.mjs', import.meta.url);

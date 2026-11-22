@@ -1,3 +1,5 @@
+// 捕获组件渲染异常并呈现可恢复的错误界面。
+
 import React from 'react';
 
 type Props = {

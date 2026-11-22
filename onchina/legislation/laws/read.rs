@@ -1,13 +1,4 @@
-//! 法律链读:链上 `Law` / `LawVersion` 的 SCALE 解码镜像 + → 展示 DTO 转换。
-//!
-//! 复用 onchina 既有读链范式——`kv.value.encoded()` 原始字节 → 本地 `#[derive(Decode)]`
-//! 镜像结构解码(见 `onchina/platform/chain/runtime.rs::OnChainAdminAccount`)。镜像字段顺序锁死链端
-//! `legislation` 的 `Law` / `LawVersion`;`Tier`/`LawStatus`/`VoteType`
-//! 作单字节枚举解码为 u8(取值已在 `chain_propose` 交叉校验)。章节复用 `chain_propose::ChapterArg`(同
-//! SCALE 双向 Encode/Decode)。
-//!
-//! 本文件包含真实链读、严格解码和展示转换；地域读取保留省代码与省内市编号。
-//!
+//! 严格解码链上法律及版本，并转换为展示模型。
 
 use super::chain_propose::ChapterArg;
 use super::model::{house_ref, to_law_chapters, LawView};

@@ -1,3 +1,5 @@
+//! 装配主Runtime模块、区块和交易类型及原生版本。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 #![recursion_limit = "256"]
 

@@ -1,3 +1,5 @@
+// 展示和编辑机构任职，生成对应治理请求。
+
 import { useState } from 'react';
 import { Alert, Button, Card, Input, Modal, Select, Space, Table, Typography } from 'antd';
 import { GovernanceReview, GovernanceStatus, useGovernanceState, type GovernanceDraft, type GovernanceViewProps } from './GovernanceReview';

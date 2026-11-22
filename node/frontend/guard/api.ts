@@ -1,3 +1,5 @@
+// 调用原生接口读取Runtime宪法文档。
+
 import { invoke } from "../client/tauri";
 import type { OtherTabsPayload, WhitepaperDocument } from "../control/types";
 import type { RuntimeConstitutionDocument } from "./types";

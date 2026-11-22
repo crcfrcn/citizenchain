@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证既有私权机构分类保持准确编码。
+
 use super::*;
 #[test]
 fn existing_private_classes_keep_their_original_codes() {

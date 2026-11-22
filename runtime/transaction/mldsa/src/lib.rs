@@ -1,5 +1,5 @@
-//! 公民链、公民 SDK 与离线钱包共用唯一实现。
-//! 原生消费者不启用 `runtime` 特性，不链接 FRAME 或节点。
+//! 提供跨Runtime、SDK和钱包共用的ML-DSA身份、签名及二维码传输原语。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;

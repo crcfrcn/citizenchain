@@ -1,3 +1,5 @@
+// 定义提案元数据、展示号、计票及用户投票状态。
+
 import type { RuntimeUpgradeDetail } from '../upgrade/types';
 import type { ResolutionIssuanceDetail } from './resolutionissue';
 import type { ResolutionDestroyDetail } from './destroy';

@@ -1,3 +1,5 @@
+//! 组装创世制度状态，在导入和升级边界执行节点守卫。
+
 use codec::Decode;
 use nodeclient::types::FullBackend;
 use nodeclient::types::FullClient;

@@ -1,3 +1,5 @@
+//! 验证多签提案的摘要及详情变体保持一致。
+
 use crate::business::{format_summary, ProposalAction};
 
 #[test]

@@ -1,3 +1,5 @@
+//! 验证转账金额和余额边界，以及冷签会话篡改、过期和重放拒绝。
+
 use crate::transfer::amount_yuan_to_fen;
 use crate::transfer::build_transfer_with_remark_call;
 use crate::transfer::calculate_transfer_fee;

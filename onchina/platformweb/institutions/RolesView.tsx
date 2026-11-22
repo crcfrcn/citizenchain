@@ -1,3 +1,5 @@
+// 展示机构岗位并提供创建、改名和删除治理入口。
+
 import { useState } from 'react';
 import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Steps, Table, Typography } from 'antd';
 import { GovernanceReview, GovernanceStatus, useGovernanceState, type GovernanceDraft, type GovernanceViewProps } from './GovernanceReview';

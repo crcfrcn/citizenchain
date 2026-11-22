@@ -1,7 +1,4 @@
-//! 链上中国平台管理员登录认证模块。
-//!
-//! 对外暴露管理员会话与扫码登录；内部按模型、扫码登录、鉴权守卫、
-//! 签名工具拆分,避免认证链路继续集中在单个超大文件。
+//! 组织管理员登录模型、二维码认证、会话守卫及签名工具。
 
 #[path = "login_guards.rs"]
 mod guards;
@@ -29,7 +26,7 @@ pub(crate) use model::{
     AdminInstitutionCandidate, AdminSession, LoginSignRequest, NodeBindingChallenge,
     QrLoginResultRecord,
 };
-pub(crate) use onchain_gate::revoke_stale_admin_sessions_loop;
+pub(crate) use onchain_gate::{revoke_stale_admin_sessions_loop, revoke_stale_admin_sessions_once};
 pub(crate) use qr_login::{
     admin_auth_qr_complete, admin_auth_qr_result, admin_auth_qr_sign_request,
 };

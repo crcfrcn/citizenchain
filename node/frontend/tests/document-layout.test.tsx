@@ -1,3 +1,5 @@
+// 验证真实白皮书封面、配图、目录及章节跳转。
+
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { LocalDocViewer } from '../control/LocalDocViewer';

@@ -1,3 +1,5 @@
+//! 解码机构与CID生命周期，校验固定身份和合法状态转换。
+
 use codec::Decode;
 use codec::Encode;
 use primitives::account_derive::institution_kind_by_name;

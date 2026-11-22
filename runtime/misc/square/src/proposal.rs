@@ -1,6 +1,4 @@
-//! 平台价格调整与统一投票引擎的唯一业务边界。
-//!
-//! 本模块只创建投票 action 并处理终态回调，不实现资格、快照、计票或状态推进。
+//! 通过统一投票引擎发起平台调价，并处理终态业务回调。
 
 use crate::{
     pallet::{Config, Error, Event, Pallet, PlatformPrice},

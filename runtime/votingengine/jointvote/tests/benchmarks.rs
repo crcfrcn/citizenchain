@@ -1,6 +1,5 @@
-//! `jointvote` FRAME benchmark。
-//!
-//! 覆盖机构形成最终票、公民公投写票及两个超时阶段；人口快照随提案创建内联生成。
+//! 基准测量联合投票机构终票、公投写票和两类超时。
+
 #![cfg(feature = "runtime-benchmarks")]
 
 use codec::Decode;

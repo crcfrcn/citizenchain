@@ -1,3 +1,5 @@
+// 管理桌面钱包目录、名称、当前选择及确认删除交互。
+
 import { accountIdToSs58, ADDRESS_INPUT_PLACEHOLDER } from "../client/ss58";
 import { sanitizeError } from "../client/tauri";
 import { AddressScanModal } from "../desktop/scanner";

@@ -1,3 +1,5 @@
+//! 验证任职来源、权限中文标签及任期边界。
+
 use crate::storage::assignment_is_effective;
 use crate::storage::display_source_ref;
 use crate::storage::permission_operation_label;

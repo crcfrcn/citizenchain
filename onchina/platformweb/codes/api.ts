@@ -1,4 +1,4 @@
-// CID 元数据 API。这里承接省份、城市、机构码等跨页面选择项。
+// 读取机构码、省市镇和CID元数据选项。
 
 import { adminHeaders, request } from "../workspace/http";
 import type { AdminAuth } from '../authentication/types';

@@ -1,3 +1,6 @@
+// 展示教育机构列表并打开选中机构详情。
+
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 // 教育机构列表。市详情确定性市公民教育委员会先读本地缓存直接展示,再后台刷新;
 // 学校和 F+JY 非法人教育机构仍保持精确搜索,避免跨省全量扫描。
 
@@ -148,7 +151,7 @@ export const EducationListTable: React.FC<Props> = ({
         align: 'center',
         render: (_v, _row, index) => cursorStack.length * 50 + index + 1,
       },
-      { title: '身份ID', dataIndex: 'cidNumber', width: 260, align: 'center' },
+      { title: '身份CID号', dataIndex: 'cidNumber', width: 260, align: 'center', render: (value: string) => <IdentityCidText value={value} /> },
       {
         title: '机构全称',
         dataIndex: 'cidFullName',

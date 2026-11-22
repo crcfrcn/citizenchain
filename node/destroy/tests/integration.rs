@@ -1,3 +1,5 @@
+//! 验证销毁载荷、摘要和JSON保持同一机构及精确金额。
+
 use crate::{decode::decode_resolution_destroy_action, summary::format_destroy_summary};
 
 #[test]

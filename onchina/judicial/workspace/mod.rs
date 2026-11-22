@@ -1,4 +1,5 @@
-//! 既有司法工作台分区，文字、顺序及能力条件保持不变。
+//! 生成司法工作台分区及其能力条件。
+
 use onchina::modules::capability::CapabilitySet;
 use onchina::workspace::manifest::{action, section};
 use onchina::workspace::model::{WorkspaceSection, WorkspaceSectionKind};

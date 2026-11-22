@@ -1,3 +1,5 @@
+//! 从随包行政区划库分页查询镇下地址和名称。
+
 use rusqlite::params;
 
 use onchina::codes::china;

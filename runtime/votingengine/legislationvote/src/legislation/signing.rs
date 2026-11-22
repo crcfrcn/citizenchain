@@ -1,8 +1,7 @@
-//! 法律行政签署与省级、国家级三人共同签署程序。
-//!
-//! 本模块保存签署阶段可复用的纯规则，storage 状态推进仍由 `Pallet` 负责。
+//! 处理法律行政签署、三人共同签署和超时规则。
 
 /// 超时入口只允许在截止区块之后执行。
+
 pub(crate) fn is_expired<BlockNumber: PartialOrd>(now: BlockNumber, end: BlockNumber) -> bool {
     now > end
 }

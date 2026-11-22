@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证官方RPC字段、机构管理员及平台链状态的解码合同。
+
 use super::{
     decode_scale_u128, is_production_mode, one_frg_province, parse_hex_hash32,
     trusted_production_chain_by_hash, ActiveAdminMembership, FRG_CODE,
@@ -188,7 +189,7 @@ fn frozen_public_admin_without_cid_uses_roster_account_only() {
 }
 
 #[test]
-fn console_pallets_allow_njd_and_block_desktop_governance() {
+fn console_pallets_allow_all_fixed_institutions_without_changing_membership_scope() {
     assert_eq!(
         super::console_admin_pallets(b"NJD\0").unwrap(),
         vec![super::AdminPallet::PublicAdmins]
@@ -196,8 +197,8 @@ fn console_pallets_allow_njd_and_block_desktop_governance() {
 
     for code in [b"NRC\0", b"PRC\0", b"PRB\0"] {
         assert_eq!(
-            super::console_admin_pallets(code).unwrap_err(),
-            super::DESKTOP_GOVERNANCE_LOGIN_UNSUPPORTED
+            super::console_admin_pallets(code).unwrap(),
+            vec![super::AdminPallet::PublicAdmins]
         );
         // 遍历到受阻机构并不代表目标账户属于该机构；只有实际命中名册才返回边界错误。
         assert_eq!(
@@ -206,7 +207,7 @@ fn console_pallets_allow_njd_and_block_desktop_governance() {
         );
         assert_eq!(
             super::console_login_block_reason_for_membership(code, true),
-            Some(super::DESKTOP_GOVERNANCE_LOGIN_UNSUPPORTED)
+            None
         );
     }
 }

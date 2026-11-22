@@ -1,6 +1,4 @@
-// 公民直接录入 + 列表查询 API。
-// 注册局管理员提交档案字段,后端自动生成身份 CID、护照号和护照有效期。
-// 通用请求能力只从 platformweb/workspace/http.ts 引入,本文件不承接机构或管理员模块接口。
+// 调用公民录入、编辑、身份查询及办理签名接口。
 
 import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import { assertPasskey, PASSKEY_ASSERTION_HEADER } from '@gmb/onchina-platform/authentication/passkeyClient';

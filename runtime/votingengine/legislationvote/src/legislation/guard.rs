@@ -1,8 +1,7 @@
-//! 修宪提案的护宪大法官终审表决。
-//!
-//! 这里只承载护宪表决程序，不保存宪法正文或法律版本。
+//! 执行修宪护宪大法官终审投票及阶段推进。
 
 /// 护宪终审达到法定多数。
+
 pub(crate) fn decided(approve_or_reject: usize) -> bool {
     approve_or_reject >= primitives::constitution::CONSTITUTION_GUARD_APPROVAL_THRESHOLD as usize
 }

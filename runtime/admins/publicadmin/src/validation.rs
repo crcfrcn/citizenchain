@@ -17,10 +17,8 @@ impl<T: Config> Pallet<T> {
                     .map_err(|_| Error::<T>::InvalidCitizenCid)?;
                 ensure!(parts.institution == *b"CTZN", Error::<T>::InvalidCitizenCid);
                 ensure!(
-                    T::CitizenIdentityBinding::matches_citizen_account(
-                        admin.cid_number.as_slice(),
-                        &admin.account_id,
-                    ),
+                    T::CitizenIdentityBinding::current_account(admin.cid_number.as_slice())
+                        .is_some(),
                     Error::<T>::CitizenIdentityMismatch
                 );
                 ensure!(

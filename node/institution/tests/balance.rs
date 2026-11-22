@@ -1,3 +1,5 @@
+//! 验证账户总额与可支配余额，拒绝将损坏记录当零余额。
+
 use crate::balance::spendable_balance;
 use codec::Encode;
 use nodeclient::codec::{account_total, decode_account, AccountInfo};

@@ -1,3 +1,5 @@
+//! 验证转账地址预检及多签详情的字段和属主保持。
+
 use crate::proposal::decode_proposal_data_action;
 use crate::signing::{build_propose_transfer_sign_request, build_safety_fund_call_data};
 

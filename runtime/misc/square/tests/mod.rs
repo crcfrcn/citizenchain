@@ -1,3 +1,5 @@
+//! 装配广场测试Runtime、身份、余额及可控共识时间。
+
 #![cfg(test)]
 
 use super::*;

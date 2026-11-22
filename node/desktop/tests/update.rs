@@ -1,3 +1,5 @@
+//! 验证正式版本选择、数值版本顺序及安装包名称和链接绑定。
+
 use crate::update::github_tag_path;
 use crate::update::installer_asset_url;
 use crate::update::installer_label;

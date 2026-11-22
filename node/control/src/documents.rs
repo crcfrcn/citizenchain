@@ -1,3 +1,5 @@
+//! 读取白皮书、附加内容及链上宪法，生成桌面阅读文档。
+
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE;
 use nodedesktop::rpc::RPC_REQUEST_TIMEOUT;
 use serde::Deserialize;

@@ -1,3 +1,5 @@
+// 读取PoW参数并调用运行时升级签名准备命令。
+
 import { invoke } from "../client/tauri";
 import type { VoteSignRequestResult, VoteSubmitResult } from "../client/signing";
 

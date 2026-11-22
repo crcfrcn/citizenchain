@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证公民规范账户输出及并发编辑和过期投影的事务回滚。
+
 use super::*;
 use crate::citizens::admin_entry::CitizenWrites;
 use crate::citizens::chain_identity::IdentityOperations;

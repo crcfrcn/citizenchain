@@ -1,7 +1,4 @@
-//! 链上事件解析器。
-//!
-//! 使用 subxt 动态 API 解码区块事件，匹配所有余额变动事件，
-//! 转换为 `TxRecordInsert` 写入数据库。
+//! 动态解码链上余额变动事件，转换为可持久化交易记录。
 
 use chrono::{DateTime, TimeZone, Utc};
 use codec::Decode;

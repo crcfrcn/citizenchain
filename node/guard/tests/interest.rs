@@ -1,3 +1,5 @@
+//! 验证省储行存储键、本金保护及年度发行不变量。
+
 use crate::guard::provincialbank_interest::check_recorded_state;
 use crate::guard::provincialbank_interest::check_transition;
 use crate::guard::provincialbank_interest::expected_annual_audit;

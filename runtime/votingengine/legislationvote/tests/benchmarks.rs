@@ -1,7 +1,4 @@
-//! `legislationvote` FRAME benchmark。
-//!
-//! 五个公开调用分别覆盖代表写票、公民公投、行政签署、三人会签和护宪终审。
-//! 人口快照随特别案提案创建内联生成，资格材料始终来自 Runtime 真源。
+//! 基准测量代表写票、公投、行政签署、会签及护宪终审。
 
 #![cfg(feature = "runtime-benchmarks")]
 

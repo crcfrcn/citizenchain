@@ -1,3 +1,7 @@
+// 展示私权机构详情布局并提供基本资料编辑。
+
+import { IdentityCidInput } from '@gmb/onchina-platform/controls/IdentityCidInput';
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 import { RolesView } from '@gmb/onchina-platform/institutions/RolesView';
 import { AssignmentsView } from '@gmb/onchina-platform/institutions/AssignmentsView';
 import { RepresentativeView } from '@gmb/onchina-platform/institutions/RepresentativeView';
@@ -21,7 +25,7 @@ import { InstitutionAdministratorsPanel } from '../admins/AddCityRegistryAdminMo
 // 机构信息 tab:
 //   一整块 Card(标题 = 机构信息,编辑/取消/保存按钮在 Card extra 右上角):
 //     ┌ 左 Col:CID 信息(只读)──────────────┐  ┌ 右 Col:机构信息 ──────────────┐
-//     │ 身份ID / 省 / 市 / 盈利属性 / 机构(均纯中文) │  │ 机构全称 + 搜索查重图标       │
+//     │ 身份CID号 / 省 / 市 / 盈利属性 / 机构(均纯中文) │  │ 机构全称 + 搜索查重图标       │
 //     │ 创建时间 / 创建用户                  │  │ 私权类型/法人资格只读展示     │
 //     │                                      │  │ 所属法人 AutoComplete(需挂靠 F)│
 //     └──────────────────────────────────────┘  └───────────────────────────────┘
@@ -138,7 +142,7 @@ export const PrivateDetailLayout: React.FC<Props> = ({
   const onParentSearch = async (value: string) => {
     const q = value.trim();
     if (!q) {
-      notice.warning('请先输入 CID、机构全称或机构简称');
+      notice.warning('请先输入身份CID号、机构全称或机构简称');
       setParentSearchOpts([]);
       return;
     }
@@ -276,7 +280,7 @@ export const PrivateDetailLayout: React.FC<Props> = ({
   const triggerLegalRepSearch = async () => {
     const q = (form.getFieldValue('representativeCid') ?? '').trim();
     if (!q) {
-      notice.warning('请先输入法定代表人身份ID关键字');
+      notice.warning('请先输入法定代表人身份CID号关键字');
       return;
     }
     const parentValue = ((form.getFieldValue('parentCidNumber') ?? '') as string).trim();
@@ -352,7 +356,7 @@ export const PrivateDetailLayout: React.FC<Props> = ({
       !representativeCid ||
       !values.photoPath
     ) {
-      notice.error('请完整填写法定代表人姓、名、身份ID和证件照');
+      notice.error('请完整填写法定代表人姓、名、身份CID号和证件照');
       return;
     }
     // 机构全称变了必须查重通过才能保存。
@@ -450,9 +454,9 @@ export const PrivateDetailLayout: React.FC<Props> = ({
           {/* 左:CID 不可编辑身份信息 */}
           <Col xs={24} md={12}>
             <Descriptions column={1} size="small">
-              <Descriptions.Item label="身份ID">
+              <Descriptions.Item label="身份CID号">
                 <Typography.Text style={{ fontSize: 12, wordBreak: 'break-all' }}>
-                  {inst.cidNumber}
+                  <IdentityCidText value={inst.cidNumber} />
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="省份">{inst.provinceName}</Descriptions.Item>
@@ -544,7 +548,7 @@ export const PrivateDetailLayout: React.FC<Props> = ({
                       label="所属法人"
                       name="parentCidNumber"
                       rules={[{ required: true, message: '请选择所属法人机构' }]}
-	                      extra="输入 CID、机构全称或机构简称后点击右侧搜索图标,从下拉结果中选择;必须是私法人(S)或公法人(G)"
+	                      extra="输入身份CID号、机构全称或机构简称后点击右侧搜索图标,从下拉结果中选择;必须是私法人(S)或公法人(G)"
                     >
                       <AutoComplete
                         // 不提供 onSearch → 用户输入时不自动请求,仅点搜索图标触发
@@ -556,7 +560,7 @@ export const PrivateDetailLayout: React.FC<Props> = ({
                             <div>
                               <div style={{ fontWeight: 500 }}>{r.cidFullName}</div>
                               <div style={{ fontSize: 11, color: '#888' }}>
-                                {r.cidNumber} · {r.subjectProperty} · {r.provinceName}/{r.cityName}
+                                <IdentityCidText value={r.cidNumber} /> · {r.subjectProperty} · {r.provinceName}/{r.cityName}
                               </div>
                             </div>
                           ),
@@ -568,8 +572,8 @@ export const PrivateDetailLayout: React.FC<Props> = ({
                           setLegalRepOptions([]);
                         }}
                       >
-                        <Input
-	                          placeholder="输入 CID、机构全称或机构简称后点击右侧搜索图标"
+                        <IdentityCidInput
+	                          placeholder="输入身份CID号、机构全称或机构简称后点击右侧搜索图标"
                           suffix={
                             <span
                               style={{
@@ -607,19 +611,19 @@ export const PrivateDetailLayout: React.FC<Props> = ({
                     <Input placeholder="请输入法定代表人名" maxLength={30} />
                   </Form.Item>
                   <Form.Item
-                    label="法定代表人身份ID"
+                    label="法定代表人身份CID号"
                     name="representativeCid"
-                    rules={[{ required: true, message: '请选择法定代表人身份ID' }]}
+                    rules={[{ required: true, message: '请选择法定代表人身份CID号' }]}
                   >
                     <AutoComplete
                       filterOption={false}
                       options={legalRepOptions.map((cidNumber) => ({
                         value: cidNumber,
-                        label: cidNumber,
+                        label: <IdentityCidText value={cidNumber} />,
                       }))}
                     >
-                      <Input
-                        placeholder="输入身份ID后点击搜索"
+                      <IdentityCidInput
+                        placeholder="输入身份CID号后点击搜索"
                         suffix={
                           <span
                             style={{
@@ -680,12 +684,12 @@ export const PrivateDetailLayout: React.FC<Props> = ({
                               type="secondary"
                               style={{ marginLeft: 6, fontSize: 12 }}
                             >
-                              ({selectedParent.cidNumber})
+                              (<IdentityCidText value={selectedParent.cidNumber} />)
                             </Typography.Text>
                           </span>
                         ) : (
                           <Typography.Text code style={{ fontSize: 12 }}>
-                            {inst.parentCidNumber}
+                            <IdentityCidText value={inst.parentCidNumber} />
                           </Typography.Text>
                         )
                       ) : (
@@ -716,10 +720,10 @@ export const PrivateDetailLayout: React.FC<Props> = ({
                       ? `${inst.legalRepresentative.family_name}${inst.legalRepresentative.given_name}`
                       : <span style={{ color: '#999' }}>(未填写)</span>}
                   </Descriptions.Item>
-                  <Descriptions.Item label="法定代表人身份ID">
+                  <Descriptions.Item label="法定代表人身份CID号">
                     {inst.legalRepresentative?.cid_number ? (
                       <Typography.Text style={{ fontSize: 12, wordBreak: 'break-all' }}>
-                        {inst.legalRepresentative.cid_number}
+                        <IdentityCidText value={inst.legalRepresentative.cid_number} />
                       </Typography.Text>
                     ) : (
                       <span style={{ color: '#999' }}>(未填写)</span>
@@ -749,7 +753,7 @@ export const PrivateDetailLayout: React.FC<Props> = ({
       <InstitutionDetailNavLayout
         backAction={onBack ? { label: backLabel ?? '返回列表', onClick: onBack } : undefined}
         title={titleText}
-        subtitle={`身份ID：${inst.cidNumber}`}
+        subtitle={<IdentityCidText value={`身份CID号：${inst.cidNumber}`} />}
         status={
           <Tag color={inst.status === 'ACTIVE' ? 'green' : 'red'}>
             {inst.status === 'ACTIVE' ? '正常' : '已注销'}

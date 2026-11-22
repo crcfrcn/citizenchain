@@ -1,6 +1,4 @@
-//! 公益组织私权机构。
-//!
-//! 公益组织固定为 `S + GY`,具有法人资格且非营利,由成员、理事和监事构成。
+//! 定义非营利公益组织资料、成员角色及登记和列表入口。
 
 use axum::{
     extract::{Query, State},
@@ -15,7 +13,7 @@ use crate::institutions::private::common::{
 };
 use crate::institutions::private::participants::WELFARE_ROLES;
 use crate::institutions::registration::{self, ListInstitutionQuery};
-use onchina::institutions::subjects::CreateInstitutionInput;
+use onchina::institutions::CreateInstitutionInput;
 use onchina::AppState;
 
 #[derive(Debug, Clone, Serialize)]

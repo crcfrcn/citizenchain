@@ -1,7 +1,4 @@
-//! QR_V1 扫码签名协议真源包。
-//!
-//! 本 crate 是 host 端协议真源，不进入 runtime wasm。它统一保存 action registry、
-//! 中文字段、拒绝原因和两态签名判定 schema，后续由这里生成或校验 Rust/Dart/TS 端产物。
+//! 组织QR_V1码型、动作、中文字段及签名判定的宿主协议真源。
 
 pub mod codec;
 pub mod decision;

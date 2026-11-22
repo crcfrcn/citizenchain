@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证公民录入的恢复租约、投影事务及CID种子和nonce传递。
+
 use super::*;
 use crate::citizens::chain_identity::IdentityOperations;
 use chrono::Duration;

@@ -1,9 +1,4 @@
-//! onchina CID 运行态入口。
-//!
-//!
-//! runtime primitives 负责 CID 字节协议与常量;onchina 负责 SQLite 行政区、
-//! 当前年份、动态 UUID、数据库查重和管理端 API。业务模块只允许从 `crate::codes`
-//! 引用 CID 能力,不得恢复顶层 `china` 或 `number` 模块。
+//! 组织CID运行态生成、行政区查询及管理端元信息接口。
 
 #[path = "admin.rs"]
 pub mod admin;

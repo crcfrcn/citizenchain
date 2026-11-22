@@ -15,7 +15,7 @@ use onchina::{
         read_finalized_citizen_identity, FinalizedCidStatus, FinalizedCitizenIdentity,
     },
     chain_runtime::identity_from_binding_parts,
-    institutions::admins::chain_roles::fetch_authorized_public_roles_at,
+    institutions::fetch_authorized_public_roles_at,
     AppState,
 };
 

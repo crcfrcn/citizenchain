@@ -1,3 +1,5 @@
+// 依据真实已发现版本决定桌面更新标记。
+
 import type { DesktopUpdateInfo } from "./types";
 
 

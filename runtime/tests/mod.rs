@@ -1,3 +1,5 @@
+//! 装配主Runtime测试外部执行环境及真实CID辅助数据。
+
 #![cfg(test)]
 // runtime 测试夹具异常必须立即中止，断言式解包仅限测试模块。
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -212,6 +214,7 @@ fn setup_frg_citizen_identity_admin(
             .to_vec()
             .try_into()
             .expect("account name fits");
+    publicadmin::WalletsInitialized::<Runtime>::remove(&cid_number); // 此夹具直接写入升级前名册。
     publicadmin::pallet::AdminAccounts::<Runtime>::insert(
         cid_number.clone(),
         adminbase::InstitutionAdmins {

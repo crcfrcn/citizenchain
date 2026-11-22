@@ -1,3 +1,5 @@
+//! 核对全节点发行的区块奖励、计数及审计不变量。
+
 use crate::guard::FinalizeIssuancePlan;
 use codec::Decode;
 use primitives::pow_const::FULLNODE_BLOCK_REWARD;

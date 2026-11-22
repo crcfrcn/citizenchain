@@ -1,3 +1,5 @@
+//! 解码决议销毁提案的链上业务载荷。
+
 use crate::types::ResolutionDestroyDetail;
 
 use nodeclient::codec::decode_cid_number;

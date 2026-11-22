@@ -1,5 +1,4 @@
-// 提案进度纯展示件——阶段、状态、规则、当前代表机构和计票。
-// 只读投影(接收已取好的 LegProposalState,不含取数/鉴权),操作端进度页与大屏看板共用。
+// 只读呈现提案阶段、规则、代表机构及链上计票结果。
 
 import React from 'react';
 import { Progress, Space, Steps, Tag } from 'antd';

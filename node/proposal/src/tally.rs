@@ -1,3 +1,5 @@
+//! 读取内部投票、联合投票、公投计票及当前用户投票状态。
+
 use nodeclient::codec::decode_hex_storage;
 
 use crate::query::cid_number_key;

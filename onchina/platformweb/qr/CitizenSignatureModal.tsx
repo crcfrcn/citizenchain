@@ -1,5 +1,4 @@
-// 公民钱包签名弹窗外壳。内容统一交给 CitizenSignaturePanel,
-// 避免登录、扫码签名、管理员动作各自维护不同的扫码界面。
+// 以统一弹窗外壳承载公民钱包签名面板。
 
 import { Modal } from 'antd';
 import type { CitizenSignaturePanelProps } from './CitizenSignaturePanel';

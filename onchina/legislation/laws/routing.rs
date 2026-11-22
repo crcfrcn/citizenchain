@@ -1,16 +1,7 @@
-//! 法律案宪法路由:层级 × 是否教育 → houses / executive / legislature 机构码序列(单源)。
-//!
-//! 本表只定**机构码**层级路由(宪法第45/46/100/104–108条);`service` 再按机构码
-//! 与行政区解析唯一 CID。机构码取自 `primitives::cid::code` 真源:
-//! - 国家众议会 NRP / 国家参议会 NSN / 国家教委会 NED / 国家立法院 NLG / 总统府 PRS;
-//! - 省众议会 PRP / 省参议会 PSN / 省立法院 PLG / 省政府 PGV;
-//! - 市立法会 CLEG / 市政府 CGOV。
-//!
-//! 解耦:`actor_cid_number`(实际发起机构)与 `houses`(表决院序列)独立——市级教委会/自治会
-//! 发起时 actor 不等于 `houses[0]`(后者恒为市立法会),由 `service` 分别解析 CID。
-//!
+//! 按法律层级和教育表决类型确定两院及执行机构路由。
 
 /// 一条法律案路由(机构码层级；CID 在运行时解析)。
+
 pub struct LawRouting {
     /// 表决院序列(发起院在前、终审院在后;市级单院)。
     pub houses: Vec<[u8; 4]>,

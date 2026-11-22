@@ -1,8 +1,4 @@
-// WebAuthn passkey 客户端:注册凭证 + 断言换取一次性 assertion 令牌。
-//
-// 重要操作(Passkey 档)/特殊操作(PasskeyColdSign 档)提交前先调用 assertPasskey 取得
-// assertion_id,作为 `X-Passkey-Assertion` 请求头随提交发送。
-// 与后端 onchina/platform/authentication/passkey.rs 一一对应,挑战格式直接来自 webauthn-rs(base64url 字段)。
+// 执行浏览器WebAuthn注册和断言，将结果换取一次性授权。
 
 import { adminRequest } from "../workspace/http";
 import type { AdminAuth } from "./types";

@@ -1,18 +1,4 @@
-//! 机构能力公共类型和装载汇总；业务能力由所属模块真实入口声明，经会话下发前端。
-//!
-//! 决定「什么机构登录后进入什么工作台、能看到什么入口」。这是权限的【声明式单源】,与后端实际执行
-//! 边界(`is_tier1_registry` 谓词 / `scope` / 链上 Active 集合)同源对齐;前端只据此 render-gating,
-//! 不构成安全边界(后端始终对越权独立拒绝)。
-//!
-//! 机构类分发(`primitives::cid::code` 单源):
-//! - Tier1 创世注册局(FRG):拥有 Tier2 全部业务能力,并额外管理联邦/市注册局管理员。
-//! - Tier2 下级注册局(CREG,公权子集):录入公民/机构 + 看本市注册局 + 只读本省联邦注册局。
-//! - 国家司法院(NJD):可登录司法院工作台,本期只开只读「本机构管理员」位。
-//! - 国家储委会/省储委会/省储行(NRC/PRC/PRB):使用节点桌面端,不归本控制台 → 空能力。
-//! - 其余公权/私权/非法人机构:本期只开只读「本机构管理员」位(`can_view_own_admins`);
-//!   CRUD / 录入等具体功能待各机构功能落地时再开(机制就绪、不越权)。
-//!
-//! serde 字段名用 camelCase,与前端 `onchina/platformweb/workspace/modules.ts` 的 CapabilitySet 逐字段对齐。
+//! 从机构类型和实际业务声明汇总登录态可见能力。
 
 use serde::{Deserialize, Serialize};
 
@@ -88,15 +74,13 @@ const OWN_ADMINS_READONLY: CapabilitySet = CapabilitySet {
 pub fn base_capabilities(institution_code: &str) -> CapabilitySet {
     use primitives::cid::code::{
         institution_code_from_str, is_private_legal_code, is_public_legal_code,
-        is_unincorporated_code, NRC, PRB, PRC,
+        is_unincorporated_code,
     };
     let Some(code) = institution_code_from_str(institution_code) else {
         return EMPTY;
     };
-    if matches!(code, NRC | PRC | PRB) {
-        return EMPTY;
-    }
-    if is_public_legal_code(&code) || is_private_legal_code(&code) || is_unincorporated_code(&code)
+
+    if primitives::cid::code::is_fixed_governance_code(&code) || is_public_legal_code(&code) || is_private_legal_code(&code) || is_unincorporated_code(&code)
     {
         OWN_ADMINS_READONLY
     } else {

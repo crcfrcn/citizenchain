@@ -1,3 +1,5 @@
+// 展示首页节点状态并执行节点启动和停止。
+
 import { sanitizeError } from "../client/tauri";
 import { homeNodeApi as api } from "./api";
 import { ChainSection } from "./ChainSection";

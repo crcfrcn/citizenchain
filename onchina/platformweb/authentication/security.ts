@@ -1,6 +1,4 @@
-// 管理员安全动作 API。
-// 管理端权限统一为 SESSION / PASSKEY / PASSKEY_COLD_SIGN 三档。
-// PASSKEY_COLD_SIGN 动作走 prepare → CitizenWallet 扫码签名一次并显示响应二维码 → OnChina 回扫 commit。
+// 调用管理员敏感动作准备、冷签确认和安全授权接口。
 
 import type { AdminAuth } from './types';
 import { assertPasskey, PASSKEY_ASSERTION_HEADER } from './passkeyClient';

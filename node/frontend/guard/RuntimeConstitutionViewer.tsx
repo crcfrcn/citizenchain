@@ -1,3 +1,5 @@
+// 读取并展示实际Runtime宪法，隔离失败与正文并提供重试。
+
 import { guardApi } from './api';
 import { sanitizeError } from "../client/tauri";
 import type { RuntimeConstitutionDocument } from "./types";

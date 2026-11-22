@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// 编译链上中国宿主及所选独立业务模块和前端资源。
+
 import {Agent} from 'node:https';
 // 链上中国唯一专属构建实现；只生成所选软件产物，不安装、不发布、不改链。
 import {copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';

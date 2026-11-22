@@ -1,3 +1,5 @@
+//! 验证节点各入口产品版本一致及最终CID绑定事实。
+
 #[test]
 fn node_product_version_is_identical_in_cli_ui_and_tauri() {
     use sc_cli::SubstrateCli;

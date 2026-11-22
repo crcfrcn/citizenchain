@@ -1,3 +1,5 @@
+//! 从统一注册表生成各语言的二维码码型、字段和动作声明。
+
 use crate::registry::{actions, fields, kinds, reject_reasons, RegistryError};
 use serde_json::{json, Value};
 
@@ -22,7 +24,7 @@ pub fn export_qr_bodies_dart() -> Result<String, RegistryError> {
     let schema = serde_json::to_string_pretty(&normalized_kinds()?)?;
     let kind_enum = export_dart_kind_enum()?;
     Ok(format!(
-        r#"// 本文件由 citizenchain/crates/protocol/registry/kinds.yaml 生成，禁止手改。
+        r#"// 从统一注册表生成QR_V1码型和信封字段校验器，禁止手改。
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -160,7 +162,7 @@ class GeneratedQrBodySchema {{
 pub fn export_qr_bodies_typescript() -> Result<String, RegistryError> {
     let schema = serde_json::to_string_pretty(&normalized_kinds()?)?;
     Ok(format!(
-        r#"// 本文件由 citizenchain/crates/protocol/registry/kinds.yaml 生成，禁止手改。
+        r#"// 从统一注册表生成QR_V1码型和信封字段校验器，禁止手改。
 export const QR_BODY_SCHEMA = {schema} as const;
 
 export type GeneratedQrKind = (typeof QR_BODY_SCHEMA)[number]['kind_key'];
@@ -270,7 +272,7 @@ pub fn export_qr_bodies_rust() -> Result<String, RegistryError> {
         ));
     }
     Ok(format!(
-        r#"// 本文件由 citizenchain/crates/protocol/registry/kinds.yaml 生成，禁止手改。
+        r#"// 从统一注册表生成QR_V1码型和信封字段校验器，禁止手改。
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -413,7 +415,7 @@ pub fn export_registry_dart() -> Result<String, RegistryError> {
     reject_reasons.sort_by(|left, right| left.reject_reason_key.cmp(&right.reject_reason_key));
 
     let mut out = String::new();
-    out.push_str("// 本文件由 citizenchain/crates/protocol 生成，禁止手改。\n");
+    out.push_str("// 从统一注册表生成签名动作、中文审阅标签和拒绝原因，禁止手改。\n");
     out.push_str(
         "// 扫码签名动作、中文动作名、字段中文名和固定展示值的唯一真源在 registry/*.yaml。\n\n",
     );

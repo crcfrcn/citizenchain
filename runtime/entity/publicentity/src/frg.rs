@@ -19,6 +19,7 @@ pub(crate) fn handles<T: Config>(
 ) -> bool {
     code == FRG
         && match action {
+            InstitutionGovernanceAction::RotateAdminWallet { .. } => true,
             InstitutionGovernanceAction::ReplaceAdmins { .. }
             | InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles { .. } => true,
             InstitutionGovernanceAction::MutateRolesAndAssignments {
@@ -135,7 +136,17 @@ pub(crate) fn vote_plan<T: Config>(
     action: &InstitutionGovernanceActionOf<T>,
     data: &[u8],
 ) -> Result<VotePlanOf<T::AccountId>, sp_runtime::DispatchError> {
-    validate::<T>(cid, role, action)?;
+    if matches!(
+        action,
+        InstitutionGovernanceAction::RotateAdminWallet { .. }
+    ) {
+        ensure!(
+            wallet_role::<T>(cid, action)?.as_slice() == role.as_slice(),
+            Error::<T>::PermissionDenied
+        );
+    } else {
+        validate::<T>(cid, role, action)?;
+    }
     let action_code = entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE;
     let permission = BusinessActionId {
         module_tag: MODULE_TAG.to_vec(),
@@ -196,6 +207,35 @@ pub(crate) fn execute<T: Config>(
             && plan.voter_subjects.as_slice() == core::slice::from_ref(&plan.proposer_subject),
         engingcore::Error::<T>::InvalidVotePlan
     );
+    if let InstitutionGovernanceAction::RotateAdminWallet {
+        change,
+        expires_at,
+        new_wallet_proof,
+    } = action
+    {
+        ensure!(
+            wallet_role::<T>(cid, action)?.as_slice() == subject.role_code.as_slice(),
+            Error::<T>::PermissionDenied
+        );
+        let snapshot = engingcore::VoterSnapshot::<T>::get(proposal_id, &plan.proposer_subject)
+            .ok_or(engingcore::Error::<T>::MissingVoterSnapshot)?;
+        let current = Pallet::<T>::active_accounts_for_role(cid, &subject.role_code)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        ensure!(
+            current.contains(&change.admin_account)
+                && snapshot.into_iter().collect::<BTreeSet<_>>() == current,
+            Error::<T>::PermissionDenied
+        );
+        Pallet::<T>::check_wallet_acceptance(
+            cid,
+            change,
+            adminbase::InstitutionWalletChangeMode::Governance,
+            *expires_at,
+            new_wallet_proof,
+        )?;
+        return Pallet::<T>::apply_wallet_change(FRG, cid, change.clone());
+    }
     let change = validate::<T>(cid, &subject.role_code, action)?;
     let snapshot = engingcore::VoterSnapshot::<T>::get(proposal_id, &plan.proposer_subject)
         .ok_or(engingcore::Error::<T>::MissingVoterSnapshot)?;
@@ -256,4 +296,23 @@ pub(crate) fn execute<T: Config>(
         result_source_ref: source_ref,
     });
     Ok(())
+}
+
+fn wallet_role<T: Config>(
+    cid: &CidNumberOf<T>,
+    action: &InstitutionGovernanceActionOf<T>,
+) -> Result<RoleCodeOf, sp_runtime::DispatchError> {
+    let InstitutionGovernanceAction::RotateAdminWallet { change, .. } = action else {
+        return Err(Error::<T>::PermissionDenied.into());
+    };
+    let mut found = None;
+    for (role, _) in InstitutionRoles::<T>::iter_prefix(cid) {
+        if is_province_role(cid, &role)
+            && Pallet::<T>::active_accounts_for_role(cid, &role).contains(&change.admin_account)
+        {
+            ensure!(found.is_none(), Error::<T>::PermissionDenied);
+            found = Some(role);
+        }
+    }
+    found.ok_or_else(|| Error::<T>::PermissionDenied.into())
 }

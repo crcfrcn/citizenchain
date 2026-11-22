@@ -1,3 +1,5 @@
+//! 验证宪法章节、版本和保护条款的严格解码及篡改拒绝。
+
 use super::*;
 
 use crate::constitution::check_core_referendum_proof;

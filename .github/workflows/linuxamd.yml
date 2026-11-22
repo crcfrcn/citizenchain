@@ -1,4 +1,5 @@
-# 本平台GitHub任务归本工作流；编译调用产品编译入口。
+# 执行LinuxAMD节点及独立模块回归和编译，交付正式包并维护本平台记录。
+
 name: 公民链·LinuxAMD
 run-name: 公民链·LinuxAMD·${{ github.run_number }}
 'on':

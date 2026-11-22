@@ -1,3 +1,5 @@
+//! 构造Substrate存储前缀、单映射和双映射键。
+
 use sp_crypto_hashing::blake2_128;
 use sp_crypto_hashing::twox_128;
 use sp_crypto_hashing::twox_64;

@@ -1,3 +1,5 @@
+// 统一呈现待签二维码、响应扫描及签名状态反馈。
+
 import type { ReactNode } from "react";
 import { QrScanner } from "./scanner";
 import { QRCodeSVG } from "qrcode.react";

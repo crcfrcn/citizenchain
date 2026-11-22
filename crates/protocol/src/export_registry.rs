@@ -1,3 +1,5 @@
+//! 将二维码注册表导出到各消费者，并检查生成文件一致性。
+
 use qr_protocol::export::{
     export_qr_bodies_dart, export_qr_bodies_rust, export_qr_bodies_typescript,
     export_registry_dart, export_registry_json,

@@ -1,3 +1,5 @@
+//! 生成运行时升级原因及代码信息摘要。
+
 use crate::types::RuntimeUpgradeDetail;
 
 use nodeclient::codec::truncate_chars;

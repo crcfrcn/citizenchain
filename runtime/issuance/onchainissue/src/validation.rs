@@ -1,10 +1,4 @@
-//! 入参校验工具。
-//!
-//! 三大校验入口:
-//! - `ensure_institution_context` — 机构 CID 与资产执行账户都必须存在
-//! - `ensure_decimals_in_range` — decimals 必须落在 [0, 18]
-//! - `contains_blacklisted_word` — name / symbol / description 字段不可命中黑名单
-//! - `ensure_class_supported` — 第一期只支持 Plain,Pegged 直接 reject
+//! 校验代币机构上下文、精度、支持类别及禁词。
 
 use crate::types::AssetClass;
 use sp_std::vec::Vec;

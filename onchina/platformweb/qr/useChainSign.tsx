@@ -1,16 +1,6 @@
-// OnChina 链交易统一 Cold 签名入口。
-// 占号 / 吊销 / 身份上链的 prepare 都返回 { request_id, sign_request }:
-// 本 hook 弹出管理员 CitizenWallet 请求二维码，扫描签名响应并解析
-// { account_id, signature }，再由 OnChina 统一组装提交。CitizenWallet 只签名一次并展示响应二维码。
-// 此处的 Cold 是钱包账户签名方式；Session / Passkey / PasskeyColdSign 仍是 OnChina
-// 三档鉴权，二者不能合并成同一个枚举或增加第四档。
-//
-// 用法:
-//   const { signChain, chainSignModal } = useChainSign();
-//   const { account_id, signature } = await signChain(request_id, sign_request);
-//   ...在 JSX 末尾渲染 {chainSignModal}
+// 协调管理员冷签、统一链提交及同一签名会话的恢复。
 
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AdminAuth } from '../authentication/types';
 import { parseSignedReceiptPayload } from './parseSignedPayload';
 import { CitizenSignatureModal } from './CitizenSignatureModal';
@@ -20,6 +10,8 @@ import { adminHeaders, request } from "../workspace/http";
 export type ChainSignResult = {
   accountId: string;
   signature: string;
+  /** 原始QR_V1响应，机构接收证明必须原样交回服务端。 */
+  response?: string;
   /** 换绑扫码可在同一响应中附带当前账户授权，二者不得拆成两次交互。 */
   currentAccountId?: string;
   currentAccountSignature?: string;
@@ -64,7 +56,11 @@ export async function submitChainSign<TCitizen = unknown>(
   });
 }
 
+export type ChainSignOptions = { signal?: AbortSignal; expectedAccountId?: string; title?: string; qrTitle?: string; qrHint?: string; qrFrames?: boolean; expiresAt?: number; captureResponse?: boolean };
+
 type PendingChainSign = {
+  options?: ChainSignOptions;
+  cleanup: () => void;
   requestId: string;
   signRequest: string;
   resolve: (value: ChainSignResult) => void;
@@ -73,7 +69,7 @@ type PendingChainSign = {
 
 export interface UseChainSignResult {
   /** 展示 sign_request 二维码，扫描 CitizenWallet 响应并解析 account_id / signature。 */
-  signChain: (requestId: string, signRequest: string) => Promise<ChainSignResult>;
+  signChain: (requestId: string, signRequest: string, options?: ChainSignOptions) => Promise<ChainSignResult>;
   /** 需在组件 JSX 中渲染的扫码签名弹窗。 */
   chainSignModal: ReactNode;
 }
@@ -81,18 +77,42 @@ export interface UseChainSignResult {
 export function useChainSign(title = '管理员公民钱包签名'): UseChainSignResult {
   const [pending, setPending] = useState<PendingChainSign | null>(null);
   const [scanning, setScanning] = useState(false);
+  const current = useRef<PendingChainSign | null>(null);
+  useEffect(() => () => {
+    const active = current.current; current.current = null;
+    active?.cleanup(); active?.reject(new Error('签名页面已关闭'));
+  }, []);
 
   const signChain = useCallback(
-    (requestId: string, signRequest: string) =>
+    (requestId: string, signRequest: string, options?: ChainSignOptions) =>
       new Promise<ChainSignResult>((resolve, reject) => {
-        setPending({ requestId, signRequest, resolve, reject });
+        if (options?.signal?.aborted) { reject(new Error('签名操作已取消')); return; }
+        if (options?.expiresAt && options.expiresAt * 1000 <= Date.now()) { reject(new Error('签名请求已过期，请重新核对')); return; }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const previous = current.current;
+        previous?.cleanup(); previous?.reject(new Error('签名请求已切换'));
+        const entry: PendingChainSign = { requestId, signRequest, options, resolve, reject,
+          cleanup: () => { options?.signal?.removeEventListener('abort', abort); if (timer) clearTimeout(timer); } };
+        const abort = () => {
+          if (current.current !== entry) return;
+          current.current = null; entry.cleanup(); reject(new Error('签名操作已取消'));
+          setPending(null); setScanning(false);
+        };
+        current.current = entry;
+        options?.signal?.addEventListener('abort', abort, { once: true });
+        if (options?.expiresAt) timer = setTimeout(() => {
+          if (current.current !== entry) return;
+          current.current = null; entry.cleanup(); reject(new Error('签名请求已过期，请重新核对'));
+          setPending(null); setScanning(false);
+        }, Math.max(0, options.expiresAt * 1000 - Date.now()));
+        setPending(entry);
       }),
     [],
   );
 
   const onDetected = useCallback(
     (raw: string) => {
-      if (!pending) return;
+      if (!pending || current.current !== pending) return;
       setScanning(true);
       try {
         const signed = parseSignedReceiptPayload(raw, pending.requestId);
@@ -102,15 +122,19 @@ export function useChainSign(title = '管理员公民钱包签名'): UseChainSig
         if (!signed.accountId) {
           throw new Error('签名响应缺少 account_id');
         }
+        if (pending.options?.expectedAccountId && signed.accountId.toLowerCase() !== pending.options.expectedAccountId.toLowerCase()) throw new Error('签名钱包与本次指定账户不一致');
+        pending.cleanup(); current.current = null;
         // 统一把新账户签名和可选的当前账户签名交回同一个提交调用。
         pending.resolve({
           accountId: signed.accountId,
           signature: signed.signature,
+          ...(pending.options?.captureResponse ? { response: raw } : {}),
           currentAccountId: signed.currentAccountId,
           currentAccountSignature: signed.currentAccountSignature,
         });
         setPending(null);
       } catch (err) {
+        pending.cleanup(); current.current = null;
         pending.reject(err);
         setPending(null);
         notice.error(err, '');
@@ -122,6 +146,7 @@ export function useChainSign(title = '管理员公民钱包签名'): UseChainSig
   );
 
   const onCancel = useCallback(() => {
+    current.current = null; pending?.cleanup();
     pending?.reject(new Error('已取消签名'));
     setPending(null);
     setScanning(false);
@@ -129,12 +154,13 @@ export function useChainSign(title = '管理员公民钱包签名'): UseChainSig
 
   const chainSignModal = (
     <CitizenSignatureModal
-      title={title}
+      framed={pending?.options?.qrFrames ?? false}
+      title={pending?.options?.title ?? title}
       open={!!pending}
       onCancel={onCancel}
-      qrTitle="链交易签名二维码"
+      qrTitle={pending?.options?.qrTitle ?? "链交易签名二维码"}
       qrValue={pending?.signRequest ?? undefined}
-      qrHint="使用管理员公民钱包扫码签名"
+      qrHint={pending?.options?.qrHint ?? "使用管理员公民钱包扫码签名"}
       scannerHint="扫描公民钱包生成的签名响应二维码"
       scannerDisabled={scanning}
       scannerLoading={scanning}

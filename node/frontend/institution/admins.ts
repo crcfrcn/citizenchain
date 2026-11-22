@@ -1,3 +1,5 @@
+// 封装机构管理员变更相关原生调用。
+
 import { invoke } from "../client/tauri";
 import type { ActivateRequestResult, ActivatedAdmin, InstitutionAdminsRef, InstitutionAdminsState, InstitutionDetail } from "./administrators";
 

@@ -1,3 +1,5 @@
+// 验证导航顺序、下载状态跨页保留及离线安装失败重试。
+
 import {beforeEach,expect,it,vi} from 'vitest';
 import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import type {DesktopUpdateInfo,DesktopUpdateProgress} from '../control/types';

@@ -1,3 +1,7 @@
+// 按省市范围展示注册局详情及当前管理员名册。
+
+import { InstitutionWalletSelfAction, InstitutionWalletRecoveryActions } from '@gmb/onchina-platform/institutions/AdminsView';
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Badge, Button, Card, Modal, Space, Table, Typography } from 'antd';
 import { KeyOutlined } from '@ant-design/icons';
@@ -10,6 +14,7 @@ import { type CidCityItem } from '@gmb/onchina-platform/codes/api';
 import { type CityRegistryAdminRow, type FederalRegistryAdminRow, MAX_INSTITUTION_ADMINS, type RegistryAdminsSharedState, listCityRegistryAdmins, listFederalRegistryAdmins } from './cityRegistryAdminsApi';
 import { glassCardHeadStyle, glassCardStyle } from '@gmb/onchina-platform/controls/cardStyles';
 import { sameHexAccount } from '@gmb/onchina-platform/institutions/adminUtils';
+import { tryEncodeSs58 } from '@gmb/onchina-platform/codes/ss58';
 import { usePasskeyRegistration } from '@gmb/onchina-platform/authentication/usePasskey';
 import { AddCityRegistryAdminModal } from './AddCityRegistryAdminModal';
 import { FederalRegistryAdminSubTab } from './FederalRegistryAdminSubTab';
@@ -90,6 +95,7 @@ export function FederalRegistryView({ state }: RegistryViewProps) {
           federalRegistryAdmins={federalRegistryAdmins}
           federalRegistryAdminsLoading={federalRegistryAdminsLoading}
           federalRegistryCidShortName={federalRegistryDetail.institution.cidShortName}
+          institutionCidNumber={federalRegistryDetail.institution.cidNumber}
         />
       )}
     />
@@ -161,6 +167,7 @@ export function CityRegistryView({ state }: RegistryViewProps) {
         backLabel="返回列表"
         adminListSection={
           <CityRegistryAdminsView
+            institutionCidNumber={cityRegistryCid}
             canEditCityRegistryAdmins={canEditCityRegistryAdmins}
             cityRegistryAdmins={cityRegistryAdminsForProvince.filter((op) => op.institutionCidNumber === cityRegistryCid)}
             error={cityRegistryAdminsError}
@@ -266,10 +273,10 @@ function CityRegistryListTable({ auth, provinceName, cities, citiesLoading, onSe
       render: (_v, _row, index) => (page - 1) * CITY_REGISTRY_PAGE_SIZE + index + 1,
     },
     {
-      title: '身份ID',
+      title: '身份CID号',
       width: 260,
       align: 'center',
-      render: (_v, row) => row.registry?.cidNumber ?? '-',
+      render: (_v, row) => <IdentityCidText value={row.registry?.cidNumber ?? '-'} />,
     },
     {
       title: '市注册局名称',
@@ -323,7 +330,8 @@ function CityRegistryListTable({ auth, provinceName, cities, citiesLoading, onSe
 
 // ── 某市的市注册局管理员列表(显示在市注册局机构详情页的“管理员列表”tab) ──
 
-function CityRegistryAdminsView({ error, onRetry, canEditCityRegistryAdmins, cityRegistryAdmins, cityRegistryAdminsLoading, cityRegistryAdminListPage, setCityRegistryListPage, setAddCityRegistryOpen, onDeleteCityRegistry }: {
+function CityRegistryAdminsView({ institutionCidNumber, error, onRetry, canEditCityRegistryAdmins, cityRegistryAdmins, cityRegistryAdminsLoading, cityRegistryAdminListPage, setCityRegistryListPage, setAddCityRegistryOpen, onDeleteCityRegistry }: {
+  institutionCidNumber: string;
   error: string | null;
   onRetry: () => void;
   canEditCityRegistryAdmins: boolean;
@@ -338,7 +346,7 @@ function CityRegistryAdminsView({ error, onRetry, canEditCityRegistryAdmins, cit
   const { registered: passkeyRegistered, busy: passkeyBusy, register: doRegisterPasskey } =
     usePasskeyRegistration();
   const [detailTarget, setDetailTarget] = useState<CityRegistryAdminRow | null>(null);
-  // 本列表按准确机构CID读取完整链上名册；人数上限使用统一机构规则。
+  // 本列表按准确身份CID号读取完整链上名册；人数上限使用统一机构规则。
   const cityLimitReached = cityRegistryAdmins.length >= MAX_INSTITUTION_ADMINS;
   return (
     <Card
@@ -364,8 +372,10 @@ function CityRegistryAdminsView({ error, onRetry, canEditCityRegistryAdmins, cit
     >
       <>
         {error && <Alert type="error" message="链上管理员读取失败" description={error} action={<Button onClick={onRetry}>重试</Button>} />}
+        <InstitutionWalletRecoveryActions institutionCidNumber={institutionCidNumber} onSubmitted={onRetry}/>
         <Table<CityRegistryAdminRow>
           rowKey={(r) => `${r.id}-${r.accountId}`}
+          scroll={{ x: 1100 }}
           loading={cityRegistryAdminsLoading}
           dataSource={cityRegistryAdmins}
           pagination={{
@@ -393,6 +403,16 @@ function CityRegistryAdminsView({ error, onRetry, canEditCityRegistryAdmins, cit
               render: (_v, row) => assignmentDisplayLabel(row) || '-',
             },
             {
+              title: '钱包账户',
+              dataIndex: 'accountId',
+              width: 360,
+              render: (value: string) => (
+                <span style={{ fontSize: 11, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  {tryEncodeSs58(value)}
+                </span>
+              ),
+            },
+            {
               title: '余额',
               dataIndex: 'balanceFen',
               width: 160,
@@ -408,6 +428,7 @@ function CityRegistryAdminsView({ error, onRetry, canEditCityRegistryAdmins, cit
                 return (
                   <Space onClick={(event) => event.stopPropagation()}>
                     {canEditCityRegistryAdmins ? <Button size="small" danger onClick={() => onDeleteCityRegistry(row)}>删除</Button> : null}
+                    <InstitutionWalletSelfAction accountId={row.accountId} institutionCidNumber={row.institutionCidNumber} onSubmitted={onRetry}/>
                     {/* passkey 登录密钥 self-only:只能为当前登录管理员自己注册本机认证器。 */}
                     {isSelf ? (
                       <Badge dot={passkeyRegistered === false} size="small">

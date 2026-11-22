@@ -1,4 +1,5 @@
-//! 本包真实业务声明、HTTP路由和原业务回调。
+//! 声明注册局业务能力、工作台、HTTP路由和提交回调。
+
 use crate::*;
 use onchina::modules::model::{ModuleBusiness, ModuleDescription, ModuleRoute};
 pub(crate) const VERSION: &str = "1.0.0";
@@ -126,22 +127,21 @@ impl ModuleBusiness for Module {
                 "admin",
                 "/api/institutions/check-cid-full-name",
                 &["GET"],
-                get(onchina::institutions::subjects::admin::check_cid_full_name),
+                get(onchina::institutions::check_cid_full_name),
             ),
             modules::model::ModuleRoute::new(
                 "admin",
                 "/api/institutions/search-parents",
                 &["GET"],
-                get(onchina::institutions::subjects::admin::search_parent_institutions),
+                get(onchina::institutions::search_parent_institutions),
             ),
             modules::model::ModuleRoute::new(
                 "admin",
                 "/api/institutions/legal-representative/photo",
                 &["POST"],
-                post(onchina::institutions::subjects::admin::upload_legal_representative_photo)
-                    .layer(axum::extract::DefaultBodyLimit::max(
-                        5 * 1024 * 1024 + 64 * 1024,
-                    )),
+                post(onchina::institutions::upload_legal_representative_photo).layer(
+                    axum::extract::DefaultBodyLimit::max(5 * 1024 * 1024 + 64 * 1024),
+                ),
             )
             .body_limit(5 * 1024 * 1024 + 64 * 1024),
             modules::model::ModuleRoute::new(
@@ -208,7 +208,7 @@ impl ModuleBusiness for Module {
                 "admin",
                 "/api/institutions/federal-registry",
                 &["GET"],
-                get(onchina::institutions::subjects::admin::get_federal_registry),
+                get(onchina::institutions::get_federal_registry),
             ),
             modules::model::ModuleRoute::new(
                 "admin",

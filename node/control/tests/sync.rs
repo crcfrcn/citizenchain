@@ -1,3 +1,5 @@
+//! 验证网络脱离与同步异常识别及正常状态不降级。
+
 use super::*;
 
 use crate::sync::is_sync_network_detached;

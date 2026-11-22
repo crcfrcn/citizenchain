@@ -1,7 +1,5 @@
-//! `internalvote` FRAME benchmark。
-//!
-//! `cast` 覆盖命中门槛并进入异步执行队列的最后一票；超时用例覆盖拒绝终态、
-//! 业务拒绝通知、名额释放与 90 天清理登记。
+//! 基准测量内部投票最后一票、超时终结及账本清理。
+
 #![cfg(feature = "runtime-benchmarks")]
 
 use frame_benchmarking::v2::*;

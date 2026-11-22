@@ -1,3 +1,5 @@
+//! 验证解锁挑战和签名公钥位置，拒绝旧布局及异常输入。
+
 use crate::unlock::build_challenge_payload;
 use crate::unlock::build_decrypt_admin_request;
 use crate::unlock::decrypted_map;

@@ -1,3 +1,5 @@
+// 展示本机链状态及版本和高度信息。
+
 import { MetricHelp } from "../desktop/MetricHelp";
 import type { ChainStatus } from "./types";
 

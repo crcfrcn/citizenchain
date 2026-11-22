@@ -1,3 +1,5 @@
+//! 验证难度到大端目标值的零值、边界和往返转换。
+
 use super::*;
 
 use crate::gpu::difficulty_to_target_be;

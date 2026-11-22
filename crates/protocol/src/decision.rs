@@ -1,3 +1,5 @@
+//! 定义正常或拒绝的签名判定及公开审阅数据。
+
 use serde::{Deserialize, Serialize};
 
 /// 统一扫码签名判定结果。

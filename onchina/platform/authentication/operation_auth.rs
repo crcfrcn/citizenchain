@@ -1,12 +1,5 @@
-//! 管理端操作权限三档分级(读 / 本地写 / 链上写)。
-//!
-//! 三档之外一律拒绝;写操作一律 ≥ passkey,不存在只会话的写动作:
-//! - Session         只读查询:仅需有效会话(会话已是链上已证管理员);由 `require_admin_any`
-//!                   保障,不经 AdminActionType(AdminActionType 全是写动作)。
-//! - Passkey         本地写:会话 + WebAuthn passkey 断言;只改 onchina 本地库、不产生 extrinsic。
-//! - PasskeyColdSign 链上写:会话 + passkey + 冷钱包对真实链载荷签名。
+//! 定义读取、本地写入和链上写入的认证等级及动作角色约束。
 
-// 权限校验失败必须直接返回统一 Axum Response，不另造可被业务模块分叉解释的错误类型。
 #![allow(clippy::result_large_err)]
 
 use axum::http::StatusCode;

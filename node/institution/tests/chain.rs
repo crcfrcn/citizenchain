@@ -1,3 +1,5 @@
+//! 验证CID存储编码及主账户、费用账户的派生隔离。
+
 use crate::chain::derive_fee_account;
 use crate::chain::derive_main_account;
 use crate::chain::encode_cid_key_data;

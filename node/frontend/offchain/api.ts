@@ -1,3 +1,5 @@
+// 调用清算行端点检测、节点登记及密钥解锁原生命令。
+
 import { invoke } from "../client/tauri";
 import type { VoteSignRequestResult, VoteSubmitResult } from "../client/signing";
 import type { ClearingBankNodeOnChainInfo, ConnectivityTestReport, DecryptAdminRequestResult, DecryptedAdminInfo } from "./types";

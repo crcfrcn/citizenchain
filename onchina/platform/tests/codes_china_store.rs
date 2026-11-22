@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证真实行政区划库的省市镇存在性和无效范围拒绝。
+
 use super::*;
 
 fn first_town_triple() -> (&'static str, &'static str, &'static str) {

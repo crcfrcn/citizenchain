@@ -1,13 +1,4 @@
-//! 提案 ID 体系（双层 ID 设计）。
-//!
-//! - **主键 `proposal_id: u128`** 全局单调递增，永不重置；溢出时拒绝分配。
-//!   所有 storage map(`Proposals` / `ProposalData` / `InternalVotesByTicket` 等)
-//!   都以这个 u128 为主键,跨业务、跨机构、跨年全局唯一不重号。
-//! - **展示号** `(year, seq_in_year)` 单独存于 `ProposalDisplayId[id]`。
-//!   渲染层基于该表拼接 "2026-#000123" 类格式;展示格式想换季度制 / 字母分组
-//!   只动渲染层,主键和存储不动。
-//!
-//! 双层 ID 路径:主键单调 + ProposalDisplayId 同事务写入。
+//! 分配全局单调提案主键及按UTC年份分组的展示编号。
 
 use frame_support::traits::UnixTime;
 use sp_runtime::DispatchError;

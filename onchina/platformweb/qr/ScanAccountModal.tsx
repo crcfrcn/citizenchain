@@ -1,7 +1,4 @@
-// 通用“扫码识别账户”弹窗。这里要的是「一个账户」，因此只接受 QR_V1 `k=5` 账户码，
-// 其 body.account_id 本身就是规范 account_id，直接回填给业务表单。
-// 用户码(k=3)表达「人」、收款码(k=4)表达「一笔收款请求」，都不是账户声明，一律拒绝。
-// 设备层统一复用仓库级 jsQR + canvas 适配器；本弹窗只判断账户码业务语义。
+// 扫描固定账户码并向业务表单交付规范账户标识。
 
 import { useEffect, useState } from 'react';
 import { ScannerView } from '@gmb/scanner-react';

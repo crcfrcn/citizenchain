@@ -1,3 +1,5 @@
+//! 验证DNS快速失败及多项连通性检查的结果汇总。
+
 use crate::health::finalize;
 use crate::health::run_dns_check;
 use crate::types::ConnectivityCheck;

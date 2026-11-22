@@ -1,3 +1,5 @@
+//! 装配链身份测试Runtime、可控时间及注册局和签名夹具。
+
 #![cfg(test)]
 
 use super::*;

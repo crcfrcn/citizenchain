@@ -1,3 +1,5 @@
+// 展示公民币发行及相关金额指标。
+
 import { formatAmount } from "../client/format";
 import { MetricHelp } from "../desktop/MetricHelp";
 import type { TotalIssuance, TotalStake, TotalFrozen } from "./types";

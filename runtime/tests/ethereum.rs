@@ -1,4 +1,4 @@
-//! 主Runtime实际类型装配下的独立测试域。
+//! 在实际Runtime装配下验证以太坊账户表示、费用及交易行为。
 
 use super::*;
 use codec::Encode;

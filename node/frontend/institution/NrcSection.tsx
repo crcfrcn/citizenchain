@@ -1,3 +1,5 @@
+// 组合国家储委会机构列表、管理员及详情页面。
+
 import { AdminListPage } from "./index";
 import { InstitutionDetailPage } from "./InstitutionDetailPage";
 import { ProposalDetailPage } from "../proposal/ProposalDetailPage";

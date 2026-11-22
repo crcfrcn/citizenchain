@@ -1,3 +1,5 @@
+// 验证挖矿和网络概览IPC参数、回执及失败不重放。
+
 import {beforeEach, expect, it, vi} from 'vitest';
 import {miningApi} from '../mining/api';
 const mocks=vi.hoisted(()=>({invoke:vi.fn()}));

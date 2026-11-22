@@ -1,3 +1,5 @@
+//! 构造链配置和新鲜创世状态，并校验节点守卫创世资料。
+
 use sc_chain_spec::ChainSpec as _;
 use sc_chain_spec::ChainType;
 use sc_chain_spec::NoExtension;

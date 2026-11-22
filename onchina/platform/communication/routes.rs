@@ -1,7 +1,14 @@
-// 平台只登记公共路由；业务路由由独立模块提供。
+// 装配公共及业务模块路由，并处理缺失API和前端资源。
+
 fn platform_routes() -> Vec<modules::model::ModuleRoute> {
     vec![
-        modules::model::ModuleRoute::new("public", "/api/qr/join", &["POST"], post(qr::join_frames)),
+        modules::model::ModuleRoute::new(
+            "public",
+            "/api/qr/join",
+            &["POST"],
+            post(qr::join_frames),
+        ),
+        modules::model::ModuleRoute::new("public", "/api/qr/split", &["POST"], post(qr::split_frames)),
         modules::model::ModuleRoute::new(
             "auth",
             "/api/admin/auth/check",
@@ -84,57 +91,58 @@ fn platform_routes() -> Vec<modules::model::ModuleRoute> {
             "admin",
             "/api/admin/own-institution-admins",
             &["GET"],
-            get(institutions::catalog::list_own_institution_admins),
+            get(institutions::list_own_institution_admins),
         ),
         modules::model::ModuleRoute::new(
             "admin",
             "/api/admin/own-institution",
             &["GET"],
-            get(institutions::catalog::get_own_institution),
+            get(institutions::get_own_institution),
         ),
         modules::model::ModuleRoute::new(
             "admin",
             "/api/institutions/{cid_number}/governance",
             &["GET"],
-            get(institutions::admins::get_governance_state),
+            get(institutions::get_governance_state),
         ),
         modules::model::ModuleRoute::new(
             "admin",
             "/api/admin/institution/governance/prepare",
             &["POST"],
-            post(institutions::admins::prepare_institution_governance),
+            post(institutions::prepare_institution_governance),
         ),
+        modules::model::ModuleRoute::new("admin", "/api/admin/institution/wallet/prepare", &["POST"], post(institutions::prepare_institution_wallet)),
         modules::model::ModuleRoute::new(
             "admin",
             "/api/institutions/legal-representative/photo/{photo_id}",
             &["GET"],
-            get(institutions::subjects::admin::read_legal_representative_photo),
+            get(institutions::read_legal_representative_photo),
         ),
         modules::model::ModuleRoute::new(
             "admin",
             "/api/institutions/{cid_number}/account/create",
             &["POST"],
-            post(institutions::accounts::handler::create_account),
+            post(institutions::create_account),
         ),
         modules::model::ModuleRoute::new(
             "admin",
             "/api/institutions/{cid_number}",
             &["GET", "PATCH"],
-            get(institutions::subjects::admin::get_institution)
+            get(institutions::get_institution)
                 // 详情页只更新机构资料;私权类型由创建时身份编码锁定,不可在此改。
-                .patch(institutions::subjects::admin::update_institution),
+                .patch(institutions::update_institution),
         ),
         modules::model::ModuleRoute::new(
             "admin",
             "/api/institutions/{cid_number}/accounts",
             &["GET"],
-            get(institutions::accounts::handler::list_accounts),
+            get(institutions::list_accounts),
         ),
         modules::model::ModuleRoute::new(
             "admin",
             "/api/institutions/{cid_number}/account/{account_name}",
             &["DELETE"],
-            delete(institutions::accounts::handler::delete_account),
+            delete(institutions::delete_account),
         ),
         modules::model::ModuleRoute::new(
             "admin",
@@ -198,19 +206,19 @@ fn platform_routes() -> Vec<modules::model::ModuleRoute> {
             "app",
             "/api/app/institutions/search",
             &["GET"],
-            get(institutions::subjects::chain_multisig_info::app_search_institutions),
+            get(institutions::app_search_institutions),
         ),
         modules::model::ModuleRoute::new(
             "app",
             "/api/app/institutions/{cid_number}",
             &["GET"],
-            get(institutions::subjects::chain_multisig_info::app_get_institution),
+            get(institutions::app_get_institution),
         ),
         modules::model::ModuleRoute::new(
             "app",
             "/api/app/institutions/{cid_number}/accounts",
             &["GET"],
-            get(institutions::subjects::chain_multisig_info::app_list_accounts),
+            get(institutions::app_list_accounts),
         ),
         modules::model::ModuleRoute::new(
             "app",
@@ -244,6 +252,7 @@ fn build_routes(state: AppState) -> Router {
                     r.description.path.as_str(),
                     "/api/health"
                         | "/api/qr/join"
+                        | "/api/qr/split"
                         | "/api/admin/actions/prepare"
                         | "/api/admin/actions/commit"
                         | "/api/admin/chain/submit"

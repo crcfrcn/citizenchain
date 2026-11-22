@@ -1,3 +1,5 @@
+//! 初始化本机链数据库，验证并导入创世状态包。
+
 use std::fs;
 use std::path::PathBuf;
 

@@ -1,3 +1,5 @@
+//! 验证本机网络只读RPC、关闭释放及迟到响应隔离。
+
 use super::*;
 use sc_rpc_api;
 

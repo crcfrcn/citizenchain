@@ -1,7 +1,5 @@
-// 立法与表决前端类型,camelCase 逐字镜像后端 DTO
-// (onchina/legislation/laws/model.rs 与 chain_read_proposal.rs);枚举数值与链端对齐。
+// 定义与后端一致的法律提案、表决及进度数据类型。
 
-/** 提案类型(可扩展维度;本轮仅 law 实现,personnel/budget 预留)。 */
 export type ProposalCategory = 'law' | 'personnel' | 'budget';
 
 /** 立法动作(对应 propose_enact/amend/repeal_law)。 */

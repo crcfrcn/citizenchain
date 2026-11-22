@@ -1,14 +1,5 @@
-//! 法律案(本轮实现):章节条款提案 + 院内/两院表决 + 签署。
-//!
-//! 当前提供裸 SCALE call-data 编码器——
-//! - `chain_propose`:`propose_enact/amend/repeal_law`(pallet 25);
-//! - `chain_vote`：`cast_representative_vote` 等表决/签署（pallet 26）。
-//! 复用 `onchina::institutions_call` 和 `onchina::chain_submit` 的「构造 call data → CitizenWallet 一次签名
-//! → OnChina 回扫响应二维码并统一提交」通道，
-//! 逐字节交叉校验链端 SCALE。HTTP DTO(model)、`service` 组织提案数据、链读(`chain_read`)、
-//! 冷签准备由 action.rs 接入，最终提交复用平台 transactions。
+//! 组织法律提案、表决、签署及链上法律读取。
 
-/// 立法链签名准备——组织 ChainCall → 统一短期签名会话。
 #[path = "action.rs"]
 pub(crate) mod action;
 #[path = "propose.rs"]

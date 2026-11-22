@@ -1,3 +1,5 @@
+// 验证签名弹窗的挂载、内部点击和外部取消交互。
+
 import {expect,it,vi} from 'vitest';
 import {fireEvent,render,screen} from '@testing-library/react';
 import {CitizenSignatureModal} from "../desktop/signing";

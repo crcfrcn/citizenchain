@@ -1,9 +1,5 @@
-//! 立法机关表决本地账本清理边界。
-//!
-//! 具体分块清理由 `LegislationCleanupHandler` 实现统一调用，所有代表机构阶段按
-//! `proposal_id` 前缀清理，不能只清理当前机构。
+//! 按提案分块清理全部代表机构选票、公投及终态账本。
 
-/// clear_prefix 返回游标时必须保留清理任务，下一块继续。
 pub(crate) const fn has_more(cursor_present: bool) -> bool {
     cursor_present
 }

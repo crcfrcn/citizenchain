@@ -1,8 +1,4 @@
-//! 机构注册与列表 HTTP 入口。
-//!
-//! 旧 `PublicManage/PrivateManage` call 5 直接创建路径已经关闭。创建接口当前明确返回
-//! `501`，不得生成旧冷签载荷或落本地机构投影；待基础业务模块实现原子提交管理员、
-//! LR、初始治理岗位、权限、任职与投票规则后，再在本入口接入新协议。
+//! 处理机构列表查询，并明确拒绝尚未开放的直接创建接口。
 
 use axum::{
     extract::State,
@@ -16,9 +12,7 @@ use onchina::authentication::login::{require_admin_any, AdminAuthContext};
 use onchina::authorization::get_visible_scope;
 use onchina::codes::china::{city_code_by_name, province_code_by_name};
 use onchina::crypto::pubkey::{normalize_account_id, same_account_id};
-use onchina::institutions::subjects::model::{
-    CreateInstitutionInput, InstitutionListFilter, InstitutionListRow,
-};
+use onchina::institutions::{CreateInstitutionInput, InstitutionListFilter, InstitutionListRow};
 
 pub(crate) async fn create_institution(
     State(state): State<AppState>,
@@ -169,7 +163,7 @@ async fn list_institutions_inner(
         && onchina::chain_runtime::is_tier1_registry(ctx.institution_code.as_str())
     {
         if let Some(city) = city_code {
-            let scope = onchina::institutions::catalog::projection::NodeScope {
+            let scope = onchina::institutions::NodeScope {
                 province_code: province_code.to_string(),
                 city_code: city.to_string(),
             };

@@ -1,4 +1,5 @@
-//! 原所属签名回归，输入和断言保持。
+//! 验证交易预检错误分类及稳定中文拒绝提示。
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 use chain_signing::*;
 

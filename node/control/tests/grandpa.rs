@@ -1,3 +1,5 @@
+//! 验证GRANDPA目录使用规范CID简称并拒绝重复名称字段。
+
 use crate::grandpa::cid_short_name_for_cid;
 use crate::grandpa::load_institution_catalog;
 use crate::grandpa::StoredGrandpaMeta;

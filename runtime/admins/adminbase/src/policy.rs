@@ -85,3 +85,92 @@ pub fn expected_fixed_governance_admins_len(
     primitives::governance_skeleton::fixed_institution_by_identity(code, cid_number)
         .map(|institution| institution.expected_len)
 }
+
+/// 机构钱包的纯状态规则。未初始化与退役是不同状态，不能通过初始化重置版本。
+pub fn initial_institution_wallet_state<AccountId: Clone + PartialEq>(
+    previous: Option<&InstitutionAdminWalletState<AccountId>>,
+    wallet: &AccountId,
+    expected_revision: Option<u64>,
+    other_wallets: &[AccountId],
+) -> Result<InstitutionAdminWalletState<AccountId>, InstitutionAdminWalletError> {
+    use InstitutionAdminWalletError as Error;
+    let revision = match previous {
+        None => {
+            if expected_revision.is_some() {
+                return Err(Error::StaleRevision);
+            }
+            0
+        }
+        Some(state) => {
+            if state.wallet.is_some() {
+                return Err(Error::AlreadyInitialized);
+            }
+            if expected_revision != Some(state.revision) {
+                return Err(Error::StaleRevision);
+            }
+            state
+                .revision
+                .checked_add(1)
+                .ok_or(Error::RevisionOverflow)?
+        }
+    };
+    if other_wallets.contains(wallet) {
+        return Err(Error::DuplicateWallet);
+    }
+    Ok(InstitutionAdminWalletState {
+        wallet: Some(wallet.clone()),
+        revision,
+    })
+}
+
+/// 公私权共用的更新规则；调用方提供本机构其他在册管理员的已初始化钱包。
+pub fn changed_institution_wallet_state<AccountId: Clone + PartialEq>(
+    state: Option<&InstitutionAdminWalletState<AccountId>>,
+    change: &InstitutionAdminWalletChange<AccountId>,
+    other_wallets: &[AccountId],
+) -> Result<InstitutionAdminWalletState<AccountId>, InstitutionAdminWalletError> {
+    use InstitutionAdminWalletError as Error;
+    let state = state.ok_or(Error::Uninitialized)?;
+    let current = state.wallet.as_ref().ok_or(Error::Inactive)?;
+    if state.revision != change.expected_revision {
+        return Err(Error::StaleRevision);
+    }
+    if current != &change.expected_wallet {
+        return Err(Error::OldWalletMismatch);
+    }
+    if current == &change.new_wallet {
+        return Err(Error::Unchanged);
+    }
+    if other_wallets.contains(&change.new_wallet) {
+        return Err(Error::DuplicateWallet);
+    }
+    Ok(InstitutionAdminWalletState {
+        wallet: Some(change.new_wallet.clone()),
+        revision: state
+            .revision
+            .checked_add(1)
+            .ok_or(Error::RevisionOverflow)?,
+    })
+}
+
+/// 名册移除后保留不可回退的版本；重复退役不能再次改变状态。
+pub fn retired_institution_wallet_state<AccountId>(
+    state: Option<&InstitutionAdminWalletState<AccountId>>,
+    expected_revision: u64,
+) -> Result<InstitutionAdminWalletState<AccountId>, InstitutionAdminWalletError> {
+    use InstitutionAdminWalletError as Error;
+    let state = state.ok_or(Error::Uninitialized)?;
+    if state.wallet.is_none() {
+        return Err(Error::Inactive);
+    }
+    if state.revision != expected_revision {
+        return Err(Error::StaleRevision);
+    }
+    Ok(InstitutionAdminWalletState {
+        wallet: None,
+        revision: state
+            .revision
+            .checked_add(1)
+            .ok_or(Error::RevisionOverflow)?,
+    })
+}

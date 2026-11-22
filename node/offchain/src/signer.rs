@@ -1,3 +1,5 @@
+//! 使用已解锁清算行密钥签署完整支付批次。
+
 use crate::keystore::SigningKey;
 use crate::packer::BatchSigner;
 use sp_core::sr25519;

@@ -1,9 +1,4 @@
-//! 链交易组装与提交(ADR-031 D7)。
-//!
-//! OnChina 侧唯一的 extrinsic 组装+提交通路：CitizenWallet 只签名一次并显示响应二维码，
-//! OnChina 回扫后由本模块「重建签名材料 → 本地 sr25519 验签 → system_dryRun
-//! 拒 Future/Stale → submit-and-watch → finalized + ExtrinsicSuccess」。
-//! 签名材料构建统一调用 `chain-signing`,避免 OnChina 和 node 各自拼 payload。
+//! 组装冷签交易，核验签名材料后提交并读取准确最终执行结果。
 
 use codec::Encode;
 use serde_json::{json, Value};

@@ -1,6 +1,4 @@
-//! 共用数据类型(AssetMeta / AssetClass / MonitorReason 等)。
-//!
-//! 全部为零业务逻辑的裸结构,仅承载字段。业务逻辑在 execution / monitor / validation 中。
+//! 定义代币类别、状态、元数据及监管原因等共用模型。
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::pallet_prelude::*;

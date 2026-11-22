@@ -1,3 +1,5 @@
+//! 验证链上中国子进程管道、就绪、超时及异常退出。
+
 use super::*;
 
 use crate::platform::wait_onchina_exit;
@@ -111,6 +113,44 @@ fn listen_address_is_validated_and_scoped_to_the_current_host() {
     assert_eq!(local_platform_address(), Some(second));
     end_local_platform(2);
     assert_eq!(local_platform_address(), None);
+}
+
+#[test]
+fn startup_waits_for_https_address_and_preserves_health_failures() {
+    let address = parse_listen_address("192.168.1.4:1988", 1988).unwrap();
+    let waiting = platform_state(true, None, |_| panic!("HTTPS 未就绪时不应发起请求"));
+    assert!(waiting.running);
+    assert_eq!(waiting.status, "starting");
+    assert_eq!(waiting.status_label, "启动中");
+    assert_eq!(waiting.detail, None);
+    assert!(waiting.modules.is_empty());
+
+    let ready = platform_state(true, Some(address), |target| {
+        assert_eq!(target, address);
+        Ok(vec!["registry".into()])
+    });
+    assert_eq!(ready.status, "enabled");
+    assert_eq!(ready.detail, None);
+    assert_eq!(ready.modules, vec!["registry"]);
+
+    for error in [
+        "链上中国可信 HTTPS 健康检查失败",
+        "链上中国健康检查响应无效",
+        "链上中国平台健康检查未通过",
+    ] {
+        let failed = platform_state(true, Some(address), |_| Err(error.into()));
+        assert_eq!(failed.status, "starting");
+        assert_eq!(failed.detail.as_deref(), Some(error));
+        assert!(failed.modules.is_empty());
+    }
+
+    let stopped = platform_state(false, Some(address), |_| panic!("已停止时不应发起请求"));
+    assert!(!stopped.running);
+    assert_eq!(stopped.status, "stopped");
+    assert_eq!(stopped.detail, None);
+    let exited = failed_state(false, "链上中国子进程已退出".into());
+    assert_eq!(exited.status, "error");
+    assert_eq!(exited.detail.as_deref(), Some("链上中国子进程已退出"));
 }
 
 #[test]

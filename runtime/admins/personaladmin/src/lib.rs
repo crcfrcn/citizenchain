@@ -1,3 +1,5 @@
+//! 维护个人多签管理员集合，发起并执行内部投票变更。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 //! 个人多签管理员 pallet。
 //!

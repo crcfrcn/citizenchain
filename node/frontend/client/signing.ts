@@ -1,7 +1,4 @@
-
-
-
-// ── 签名请求/响应 ──
+// 定义投票签名准备和提交结果的前端模型。
 
 export type VoteSignRequestResult = {
   requestJson: string;

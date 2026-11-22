@@ -1,10 +1,5 @@
-//! 注册局直接录入公民 handler。
-//!
-//! 公民由注册局管理员在办理市先录入本地档案。请求只提交公民档案字段;
-//! 身份 CID、护照号、护照有效期由服务端确定性生成并落库。
-//! 链账户留到链上身份推送阶段录入，并由该账户签名确认。
+//! 录入公民档案，生成CID、护照号及有效期并持久化。
 
-// Handler 直接复用统一 Axum Response；日期 expect 只消费本模块已严格校验并规范化的日期。
 #![allow(clippy::result_large_err, clippy::expect_used)]
 
 use crate::citizens::chain_identity::IdentityOperations;

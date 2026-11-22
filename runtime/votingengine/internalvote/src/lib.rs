@@ -1,24 +1,4 @@
-//! # 内部投票 pallet (internalvote)
-//!
-//! 所有机构与个人多签共用的内部投票程序：机构按岗位票据，个人多签按
-//! 独立管理员快照。
-//!
-//! 本模块负责内部投票模式准入、机构上下文、资格快照、计票和终态，不判断
-//! 某个机构能否发起转账、销毁或密钥变更等具体业务。有效准入必须同时通过
-//! 投票引擎的模式校验与调用方业务 pallet 的业务权限校验。
-//!
-//! 共用基础设施(Proposals 主 storage / 双层 ID / 反向索引 / 状态机骨架 / 快照 / 锁 / 清理)
-//! 仍归 [`engingcore`] 引擎核心,本 pallet 通过 `Config: engingcore::Config` 直接访问。
-//!
-//! 本 pallet 自有:
-//! - storage:`InternalVotesByTicket` / `InternalTallies` / `InternalThresholdSnapshot`
-//! - event:`InternalVoteCast`
-//! - error:`InvalidInternalCode` / `MissingThresholdSnapshot` / `InvalidThresholdSnapshot`
-//! - extrinsic:`cast(proposal_id, ticket_claim, approve)`
-//! - 业务函数:`do_create_internal_proposal*` / `do_internal_vote` / `do_finalize_internal_timeout`
-//! - trait impl:`InternalVoteEngine`(供业务 pallet 创建提案)
-//! - trait impl:`InternalProposalFinalizer`(engingcore 主 pallet finalize 路径反向调用)
-//! - trait impl:`InternalCleanupHandler`(engingcore 主 pallet cleanup 状态机反向调用)
+//! 按机构岗位票据或个人管理员快照执行内部投票程序。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

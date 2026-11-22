@@ -1,5 +1,4 @@
-// 法律案语义色状态标签(生效/待生效/废止)。层级/表决类型纯文本标签下沉到
-// onchina/legislationweb/proposals/labels.ts(叶子层,shared/ 不向上依赖 operator/),此处 re-export 保持既有导入点不变。
+// 呈现法律生效状态标签并导出共用层级和表决标签。
 
 import React from 'react';
 import { Tag } from 'antd';

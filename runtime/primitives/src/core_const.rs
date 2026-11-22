@@ -1,6 +1,5 @@
-//! 核心常量。
+//! 定义货币精度、存续余额、SS58前缀和基础链参数。
 
-// 货币基础参数。
 pub const TOKEN_SYMBOL: &str = "GMB"; // 公民币符号
 pub const TOKEN_DECIMALS: u32 = 2; // 精度：2 位（元 / 分制），1 GMB = 100 FEN
 pub const TOKEN_MIN_UNIT: u128 = 1; // 最小计价单位（1 分）

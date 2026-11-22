@@ -1,6 +1,4 @@
-//! 普通转账真实调用基准；最大备注为主用例，空备注为额外边界用例。
-//!
-//! 只准备临时余额并调用既有入口，不替换手续费、转账或权重实现。
+//! 基准测量真实带备注转账，覆盖最大和空备注。
 
 use crate::pallet::{BalanceOf, Call, Config, Event, Pallet, TransferRemarkOf};
 use frame_benchmarking::v2::*;

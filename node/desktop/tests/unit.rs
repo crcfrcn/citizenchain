@@ -1,3 +1,5 @@
+//! 验证显式HTTPS来源及明文、凭据和歧义地址拒绝。
+
 use crate::cid::validate_base_url as endpoint;
 
 #[test]

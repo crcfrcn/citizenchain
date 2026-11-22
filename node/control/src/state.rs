@@ -1,3 +1,5 @@
+//! 维护节点生命周期互斥状态及数据目录。
+
 use nodeclient::handle::NodeHandle;
 
 use std::path::PathBuf;

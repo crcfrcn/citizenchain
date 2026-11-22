@@ -225,9 +225,7 @@ async fn extract_block_timestamp_from_block(
 /// 公共绑定机构每五秒刷新，与注册局模块是否装载无关。
 pub(crate) async fn bound_institution_projection_worker(db: Db) {
     loop {
-        if let Err(error) =
-            crate::institutions::catalog::projection::refresh_bound_institution(&db).await
-        {
+        if let Err(error) = crate::institutions::refresh_bound_institution(&db).await {
             warn!(error = %error, "bound institution projection paused");
         }
         tokio::time::sleep(Duration::from_secs(5)).await;

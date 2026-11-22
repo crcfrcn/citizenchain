@@ -1,12 +1,4 @@
-//! 全局活跃提案数量限制。
-//!
-//! 每个提案主体同时最多允许 Runtime 配置数量的活跃提案，
-//! 不区分提案类型（转账、销毁、换管理员等），由投票引擎统一管控。
-//!
-//! 使用方式：
-//! - 创建提案时调用 `try_add_active_proposal`
-//! - 提案完成/清理时调用 `remove_active_proposal`
-//! - App 端查询活跃数调用 `active_proposal_count`
+//! 按提案主体统一限制活跃提案数量，释放终态占用。
 
 use crate::pallet::{self, Config, Error};
 use crate::ProposalSubject;

@@ -1,3 +1,5 @@
+// 协调多签转账表单、冷签二维码及提案提交步骤。
+
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { MetricHelp } from '../desktop/MetricHelp';

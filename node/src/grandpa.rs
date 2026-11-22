@@ -1,3 +1,5 @@
+//! 为节点启动配置所属GRANDPA权威密钥。
+
 use nodecontrol::grandpa::cid_short_name_by_grandpa_public_key;
 use nodecontrol::grandpa::grandpa_public_key_from_private_hex;
 use nodecontrol::grandpa::restore_grandpa_persisted_state;

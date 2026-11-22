@@ -1,7 +1,4 @@
-//! 平台管理员登录元数据；名册业务 DTO 由所属功能持有。
-//!
-//! 管理员按准确机构 CID 归属名册，机构码仅分类；内置初始联邦注册局管理员
-//! 承担不可删除安全根职责。
+//! 定义按机构CID归属的本地管理员登录元数据。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

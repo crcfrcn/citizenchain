@@ -1,3 +1,5 @@
+//! 验证公开证书的身份、原子替换及私有材料隔离。
+
 use crate::publication::check_rpc_certificate_acl;
 use crate::publication::check_rpc_certificate_file;
 use crate::publication::formal_rpc_certificate_profile;

@@ -1,3 +1,5 @@
+//! 装配难度测试Runtime，提供区块、时间和交易数控制。
+
 #![cfg(test)]
 
 use super::*;

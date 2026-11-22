@@ -1,9 +1,4 @@
-//! 立法与表决 HTTP handler(`/api/legislation/*`)。
-//!
-//! 发起/表决产出扫码上链 `sign_request`；CitizenWallet 只签名一次并显示响应二维码，OnChina 回扫响应后通过统一入口提交；
-//! 读法律/提案进度直读链。后端强制:① 登录绑定机构(只有该院管理员可达)② 本机构能否发起该
-//! 类型提案(`category::proposable_candidates`)③ 原机构 CID 地域与目标法律范围校验。
-//! 能力位是前端渲染门控,后端以此三重边界为准。
+//! 处理法律和提案查询，校验机构范围并准备发起和表决签名。
 
 use axum::{
     extract::{Path, Query, State},

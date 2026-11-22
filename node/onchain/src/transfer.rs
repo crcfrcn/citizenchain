@@ -1,3 +1,5 @@
+//! 校验转账账户、精确金额、费用和备注，管理冷签交易提交。
+
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_SMALL;
 
 use std::time::Duration;

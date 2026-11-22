@@ -1,3 +1,5 @@
+// 提供节点前端测试共用的Vitest辅助接口。
+
 import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';

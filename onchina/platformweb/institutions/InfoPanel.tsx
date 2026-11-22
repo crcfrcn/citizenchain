@@ -1,3 +1,6 @@
+// 展示本机构资料、行政范围及主要账户。
+
+import { IdentityCidText } from '../codes/identityCid';
 // 平台通用本机构信息面板。保留原有链读取、字段、样式、hooks 与交互。
 
 import { useEffect, useState } from 'react';
@@ -113,7 +116,7 @@ export function OwnInstitutionInfoPanel({ auth }: OwnInstitutionInfoProps) {
           <Descriptions.Item label="机构简称">
             {displayValue(inst?.cidShortName ?? auth.cidShortName)}
           </Descriptions.Item>
-          <Descriptions.Item label="身份ID">{displayValue(inst?.cidNumber)}</Descriptions.Item>
+          <Descriptions.Item label="身份CID号"><IdentityCidText value={displayValue(inst?.cidNumber)} /></Descriptions.Item>
           <Descriptions.Item label="机构码">
             {institutionCodeTitle === institutionCode ? institutionCode : `${institutionCodeTitle}(${institutionCode})`}
           </Descriptions.Item>
@@ -149,7 +152,7 @@ export function OwnInstitutionInfoPanel({ auth }: OwnInstitutionInfoProps) {
             </Descriptions.Item>
           ) : null}
           {inst?.parentCidNumber ? (
-            <Descriptions.Item label="所属法人身份ID">{inst.parentCidNumber}</Descriptions.Item>
+            <Descriptions.Item label="所属法人身份CID号"><IdentityCidText value={inst.parentCidNumber} /></Descriptions.Item>
           ) : null}
           <Descriptions.Item label="主账户">{displayValue(account?.accountName)}</Descriptions.Item>
           <Descriptions.Item label="主账户地址">{accountText(account?.accountId)}</Descriptions.Item>
@@ -161,8 +164,8 @@ export function OwnInstitutionInfoPanel({ auth }: OwnInstitutionInfoProps) {
             </Descriptions.Item>
           ) : null}
           {inst?.legalRepresentative?.cid_number ? (
-            <Descriptions.Item label="法定代表人身份ID">
-              {inst.legalRepresentative.cid_number}
+            <Descriptions.Item label="法定代表人身份CID号">
+              <IdentityCidText value={inst.legalRepresentative.cid_number} />
             </Descriptions.Item>
           ) : null}
           {detail?.creatorFamilyName || detail?.creatorGivenName ? (

@@ -1,3 +1,5 @@
+// 定义清算行候选、账户余额和机构查询的公开类型。
+
 import type { InstitutionAdminInfo } from "./council";
 
 

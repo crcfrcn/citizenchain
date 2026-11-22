@@ -1,5 +1,4 @@
-// cid 前端登录态 + 能力标志的全局 Context。
-// 能力位由后端按已装载模块下发；所有模块复用本文件的同一Context实例。
+// 维护唯一管理员登录上下文、后端能力及会话密钥状态。
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { AdminAuth } from './types';

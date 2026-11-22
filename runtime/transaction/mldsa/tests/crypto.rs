@@ -1,3 +1,5 @@
+//! 验证真实ML-DSA身份、跨消息验签、二维码传输和原生接口。
+
 use codec::{Decode, Encode};
 use mldsa::{account_id, public_key, sign, transaction_message, verify, Proof};
 

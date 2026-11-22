@@ -1,3 +1,5 @@
+// 验证清算行端点、登记和锁钥命令及失败不重放。
+
 import {beforeEach, expect, it, vi} from 'vitest';
 import {offchainApi} from '../offchain/api';
 const mocks=vi.hoisted(()=>({invoke:vi.fn()}));

@@ -1,6 +1,4 @@
-//! 股份公司私权机构。
-//!
-//! 股份公司固定为 `S + GF`,具有法人资格,由股份、发起人和股东关系构成。
+//! 定义股份公司资料、股份参与关系及登记和列表入口。
 
 use axum::{
     extract::{Query, State},
@@ -15,7 +13,7 @@ use crate::institutions::private::common::{
 };
 use crate::institutions::private::participants::{ParticipantRole, CORPORATION_ROLES};
 use crate::institutions::registration::{self, ListInstitutionQuery};
-use onchina::institutions::subjects::CreateInstitutionInput;
+use onchina::institutions::CreateInstitutionInput;
 use onchina::AppState;
 
 #[derive(Debug, Clone, Serialize)]

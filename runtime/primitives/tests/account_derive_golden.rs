@@ -1,5 +1,4 @@
-//! 账户派生金标测试。
-//! `ACCOUNT_DERIVE_UPDATE=1` 重写 fixture;默认只断言派生结果不漂移。
+//! 以冻结向量验证账户派生，支持显式更新所属黄金样例。
 
 use primitives::account_derive::AccountKind;
 use primitives::core_const::{GMB, SS58_FORMAT};

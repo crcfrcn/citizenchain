@@ -1,6 +1,4 @@
-// 机构资料库 — 自治模块,管理机构注册文件(公司章程/许可证等)。
-// 本组件独立管理数据加载、上传、下载、删除,外部只需传 auth + cidNumber + canWrite。
-// 修改资料库功能只需改本文件,不影响其他模块。
+// 展示并管理机构资料库的加载、上传、下载和删除。
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card, Popconfirm, Select, Table, Tag, Upload } from 'antd';

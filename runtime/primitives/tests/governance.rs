@@ -1,4 +1,5 @@
-//! 所属原语的真实单元测试，保留原断言与固定输入。
+//! 验证受保护机构治理骨架、法定岗位及账户和人数约束。
+
 mod governance_skeleton {
     #![allow(clippy::expect_used)]
     use crate::cid::code::*;

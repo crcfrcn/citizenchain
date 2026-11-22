@@ -1,4 +1,4 @@
-//! nodecontrol所属功能与公开接口。
+//! 导出节点身份、模式、密钥、奖励和运行控制接口。
 
 pub mod bootnodes;
 pub mod documents;

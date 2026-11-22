@@ -1,4 +1,5 @@
-// Tauri IPC 参数由既有前端签名协议逐字段传入，合并参数会改变命令契约。
+//! 查询准确块PoW参数快照并提供升级准备和提交命令。
+
 #![allow(clippy::too_many_arguments)]
 use crate::types::ProposeUpgradeRequestResult;
 use codec::{Decode, DecodeAll};

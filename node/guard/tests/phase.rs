@@ -1,3 +1,5 @@
+//! 验证固定创世声明和版本保护，不冻结正常业务字段。
+
 use super::*;
 use std::collections::BTreeMap;
 fn facts() -> BTreeMap<Vec<u8>, Vec<u8>> {

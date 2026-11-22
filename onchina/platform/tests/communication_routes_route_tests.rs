@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 通过真实路由和HTTPS验证能力装载、权限及业务模块替换。
+
 use super::*;
 use tower::ServiceExt;
 

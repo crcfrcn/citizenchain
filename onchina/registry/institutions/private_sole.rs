@@ -1,6 +1,4 @@
-//! 个体经营私权机构。
-//!
-//! 个体经营固定为 `F + GT`,无法人资格,负责人完全负责。
+//! 定义个体经营资料和负责人规则，提供登记和列表入口。
 
 use axum::{
     extract::{Query, State},
@@ -15,7 +13,7 @@ use crate::institutions::private::common::{
 };
 use crate::institutions::private::participants::{ParticipantRole, SOLE_ROLES};
 use crate::institutions::registration::{self, ListInstitutionQuery};
-use onchina::institutions::subjects::CreateInstitutionInput;
+use onchina::institutions::CreateInstitutionInput;
 use onchina::AppState;
 
 /// 个体经营特有资料边界。

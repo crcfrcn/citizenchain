@@ -1,10 +1,5 @@
-// 中文文件头:App.tsx = 登录态壳子 + Layout 壳子。
-// 本文件只负责:
-//   1. 挂 <AuthProvider>(AppOuter)
-//   2. 渲染 Layout / Header / Content(AppInner)
-//   3. 刷新登录态并把机构工作台交给同目录 WorkspaceRouter.tsx
-//
-// 机构 UI 按原职责放在所属模块 frontend,不得继续把机构差异塞回 App.tsx。
+// 装配管理员认证、页面布局和当前机构工作台。
+
 import { initializeModules } from "./modules";
 import { useEffect, useRef, useState } from 'react';
 import { QrcodeOutlined } from '@ant-design/icons';

@@ -1,3 +1,5 @@
+//! 验证节点模式选项、持久值及未开放模式的拒绝。
+
 use crate::mode::build_node_mode_state;
 
 #[test]

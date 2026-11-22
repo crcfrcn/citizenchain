@@ -1,3 +1,5 @@
+// 根据注册局工作台清单组织公民、机构及管理员办理页面。
+
 import { useState } from 'react';
 import { Alert, Card } from 'antd';
 import { type AdminAuth } from '@gmb/onchina-platform/authentication/types';

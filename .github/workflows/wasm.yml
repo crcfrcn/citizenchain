@@ -1,4 +1,5 @@
-# WASM的GitHub任务归本工作流；编译只调用产品Runtime入口。
+# 按明确版本编译和回归Runtime WASM，交付候选资产并维护记录。
+
 name: 公民链·WASM
 run-name: 公民链·WASM·v${{ inputs.version }}
 'on':

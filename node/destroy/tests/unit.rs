@@ -1,3 +1,5 @@
+//! 验证销毁载荷逐段截断、错误属主和尾随数据拒绝。
+
 use crate::decode::decode_resolution_destroy_action;
 use codec::Encode;
 

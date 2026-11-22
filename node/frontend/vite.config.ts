@@ -1,3 +1,5 @@
+// 配置节点React前端构建、测试及链原语常量注入。
+
 import {fileURLToPath} from 'node:url';
 import { defineConfig, type UserConfig } from 'vite';
 import react from '@vitejs/plugin-react';

@@ -1,13 +1,4 @@
-// 前端镜像后端 authorization::rules::VisibleScope,按机构行政层级(admin_level)派生可见域。
-//
-// 五档(与后端 get_visible_scope 逐档一致):
-//   - 全国(NATIONAL,部委等)        → 不限省/市/镇
-//   - 省级(PROVINCE / 联邦注册局)   → 本省,所有市(skipProvinceList=true 直进本省)
-//   - 市级(CITY)                    → 本市,所有镇(skipCityList=true 直进本市)
-//   - 镇级(TOWN)                    → 本镇(skipTownList=true 直进本镇)
-//   - 自机构(私权法人/非法人,无层级)→ 暂沿用本市范围
-//
-// 鉴权真源在后端;本 hook 只服务前端 UX:写按钮置灰(canWrite*)+ 进 tab 跳级导航(skip*)。
+// 按登录机构行政层级派生前端可见范围及规范省名。
 
 import { useMemo } from 'react';
 import type { AdminAuth } from '../authentication/types';

@@ -1,7 +1,4 @@
-//! 镇下地址管理模块。
-//!
-//! 本模块读取随包 `china.sqlite.addresses`,并构造地址变更链上 call data。
-//! 不在这里维护第二份地址主数据,也不直接提交链交易。
+//! 组织镇下地址查询及链上变更准备，复用随包行政地址真源。
 
 #[path = "chain_call.rs"]
 pub(crate) mod chain_call;

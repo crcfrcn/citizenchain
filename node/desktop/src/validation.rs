@@ -1,3 +1,5 @@
+//! 校验SS58、规范账户、公钥及相关桌面输入。
+
 use crate::address::decode_ss58_prefix;
 use crate::constants::SS58_PREFIX;
 

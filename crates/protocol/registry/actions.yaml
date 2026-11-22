@@ -1625,3 +1625,60 @@
   required_fields:
     - proposal_id
     - approve
+
+# Institution-only acceptance proof; does not rebind a personal CID.
+- action_key: institution_wallet_accept
+  action_code: 21
+  action_label_zh: 机构管理员新钱包接收确认
+  kind: offchain_sign
+  qr_kind: sign_request
+  pallet:
+  call:
+  decoder: institution_wallet_accept
+  hash_only_allowed: false
+  signing_category: offchain_auth
+  required_fields:
+    - genesis_hash
+    - cid_number
+    - admin_account_id
+    - old_wallet_account_id
+    - new_wallet_account_id
+    - wallet_revision
+    - wallet_change_mode
+    - expires_at
+
+- action_key: rotate_public_institution_admin_wallet
+  action_code: 7690
+  action_label_zh: 本人更换机构管理员钱包
+  kind: chain_call
+  qr_kind: sign_request
+  pallet: PublicManage
+  call: rotate_institution_admin_wallet
+  decoder: rotate_public_institution_admin_wallet
+  hash_only_allowed: false
+  signing_category: chain_tx
+  required_fields:
+    - cid_number
+    - admin_account_id
+    - old_wallet_account_id
+    - new_wallet_account_id
+    - wallet_revision
+    - expires_at
+
+- action_key: rotate_private_institution_admin_wallet
+  action_code: 7946
+  action_label_zh: 本人更换机构管理员钱包
+  kind: chain_call
+  qr_kind: sign_request
+  pallet: PrivateManage
+  call: rotate_institution_admin_wallet
+  decoder: rotate_private_institution_admin_wallet
+  hash_only_allowed: false
+  signing_category: chain_tx
+  required_fields:
+    - cid_number
+    - admin_account_id
+    - old_wallet_account_id
+    - new_wallet_account_id
+    - wallet_revision
+    - expires_at

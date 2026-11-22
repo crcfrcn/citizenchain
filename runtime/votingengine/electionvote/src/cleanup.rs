@@ -1,7 +1,4 @@
-//! electionvote 存储清理。
-//!
-//! 核心 engingcore 只维护清理状态机，具体选票、候选、计票账本
-//! 住在 electionvote，因此通过 `ElectionCleanupHandler` 派发到这里分块删除。
+//! 按提案分块清理选举选票、选民、计票及终态数据。
 
 use crate::pallet::{
     ElectionCandidateTallies, ElectionCandidates, ElectionMetaStore, ElectionResults,

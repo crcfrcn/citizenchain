@@ -1,3 +1,5 @@
+//! 提供清算行节点登记状态、PeerID及端点连通性测试命令。
+
 use crate::types::ClearingBankNodeOnChainInfo;
 use crate::types::ConnectivityTestReport;
 use crate::types::DecryptAdminRequestResult;

@@ -1,6 +1,5 @@
-// 治理模块入口：注册 Tauri 命令，聚合机构数据。
+//! 装配机构治理概览、岗位与账户余额的桌面命令响应。
 
-// Tauri IPC 命令参数对应既有扫码签名载荷，不能在 Node 内改成新的封装对象。
 #![allow(clippy::too_many_arguments)]
 use crate::registry::InstitutionRef;
 use serde::Serialize;

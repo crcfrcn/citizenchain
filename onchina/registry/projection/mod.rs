@@ -1,17 +1,9 @@
-//! 链→注册局本地库 通用投影逻辑(M1 indexer 增量 / M3 联邦 drill-in 共用)。
-//!
-//! 行为契约由本模块测试和数据库 schema 共同固定。
-//! 本模块拥有公民投影纯逻辑、事务写入与增量 worker；公共机构投影调用平台公开接口。
-//! 因此保正本(链下正本不被覆盖)、作用域过滤、插入 vs 更新全部可离线单测,无需活链。
-//!
-//! 关键手法:merge 出的最终行**已把链下正本从 existing 原样带回**,故写库时即使走现有
-//! `upsert_citizen_row`(ON CONFLICT DO UPDATE 全列=EXCLUDED)也不会丢正本——EXCLUDED 已是
-//! 保留后的正确值。链读与写库在下方 writer 层,merge 纯逻辑离线单测。
+//! 合并链上公民事实，事务更新本地注册局投影及增量同步进度。
 
 use crate::citizens::admin_entry::CitizenWrites;
 use crate::citizens::chain_identity::IdentityOperations;
 use chrono::{DateTime, Utc};
-use onchina::institutions::catalog::projection::{
+use onchina::institutions::{
     apply_institution_projection_conn, chain_institution_from_lookup, chain_or_local_str,
     r5_province_city, ChainInstitution, NodeScope,
 };
@@ -25,7 +17,7 @@ use onchina::chain_runtime::{
 use onchina::codes::InstitutionCategory;
 use onchina::database::Db;
 #[cfg(test)]
-use onchina::institutions::subjects::model::LegalRepresentative;
+use onchina::institutions::LegalRepresentative;
 
 /// 链上公民数据(由 chain_read 层从 CidRegistry/VotingIdentity/AccountId/Candidate 读出)。
 ///
@@ -717,4 +709,4 @@ async fn project_entities_once(db_pool: &Db) -> Result<(), String> {
 }
 
 #[cfg(test)]
-use onchina::institutions::catalog::projection::merge_institution_record;
+use onchina::institutions::merge_institution_record;

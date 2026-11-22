@@ -1,3 +1,5 @@
+// 测量桌面前端关键计算和渲染的固定工作量性能。
+
 import {expect,it} from 'vitest';
 import {accountIdToSs58,normalizeSs58Address} from '../client/ss58';
 // 第5步固定机器预算验收；未提供预算明确跳过，普通单测不冒充性能达标。

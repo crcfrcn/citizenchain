@@ -1,3 +1,5 @@
+//! 通过实际区块导入验证时间戳、用户交易及制度守卫。
+
 use super::*;
 
 use crate::guard::has_user_transaction;

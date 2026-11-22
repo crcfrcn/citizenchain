@@ -1,3 +1,6 @@
+// 呈现管理员二维码登录及节点机构绑定选择。
+
+import { IdentityCidText } from '../codes/identityCid';
 // 独立的登录页组件:渲染未登录态(QR 扫码登录 + 签名请求/响应),
 // 持有登录相关 state / handler / useEffect / videoRef,
 // 登录成功后通过 useAuth().setAuth 写入全局,App.tsx 只负责在 !auth 时渲染 <LoginView />。
@@ -322,7 +325,7 @@ export function LoginView() {
                       <br />
                       <Typography.Text type="secondary">
                         {candidate.institutionCode}
-                        {candidate.institutionCidNumber ? ` · ${candidate.institutionCidNumber}` : ''}
+                        {candidate.institutionCidNumber ? <> · <IdentityCidText value={candidate.institutionCidNumber} /></> : ''}
                         {scope ? ` · ${scope}` : ''}
                       </Typography.Text>
                     </div>

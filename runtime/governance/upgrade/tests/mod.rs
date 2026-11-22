@@ -1,3 +1,5 @@
+//! 装配Runtime升级测试环境及联合投票授权夹具。
+
 #![cfg(test)]
 
 use super::*;

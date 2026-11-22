@@ -314,3 +314,18 @@
   field_label_zh: 删除批次
 - field_key: contact_list
   field_label_zh: 删除联系人及版本
+
+- field_key: admin_account_id
+  field_label_zh: 管理员固定身份锚点
+
+- field_key: old_wallet_account_id
+  field_label_zh: 原管理员钱包账户
+
+- field_key: new_wallet_account_id
+  field_label_zh: 新管理员钱包账户
+
+- field_key: wallet_revision
+  field_label_zh: 机构钱包版本
+
+- field_key: wallet_change_mode
+  field_label_zh: 机构钱包更换方式

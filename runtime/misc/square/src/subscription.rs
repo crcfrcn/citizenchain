@@ -1,7 +1,4 @@
-//! 平台订阅与创作者订阅的链上状态模型和真实公历换算。
-//!
-//! 用户签名订阅即建立持续自动扣款授权，只有签名取消才撤销。runtime 使用每个区块的
-//! 共识时间戳计算真实 UTC 公历周期并自动扣款；不使用区块高度或固定天数表示周期。
+//! 定义订阅和方案状态，计算真实UTC公历扣款周期。
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use entitybase::InstitutionMultisigQuery;

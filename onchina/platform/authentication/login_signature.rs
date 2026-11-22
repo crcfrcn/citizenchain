@@ -1,14 +1,11 @@
-//! 登录签名验签、公钥解析与登录辅助工具。
-//!
-//! 这里放纯工具函数和 challenge 清理逻辑;会话鉴权在 `guards.rs`,HTTP handler 在
-//! `handler.rs` / `qr_login.rs`。
+//! 解析账户公钥、验证管理员登录签名并清理过期挑战。
 
 use hex::FromHex;
 use schnorrkel::{signing_context, PublicKey as Sr25519PublicKey, Signature as Sr25519Signature};
 
 use crate::*;
 
-/// 校验管理员签名钱包对**规范文本**的 sr25519 签名。
+/// 校验管理员签名钱包对**规范文本**的 sr25519 / ML-DSA 签名。
 ///
 /// 只接受一种编码。此前还额外接受 `<Bytes>{message}</Bytes>` 包裹形式,
 /// 即同一条逻辑消息有两种合法字节 —— 而全仓**没有任何一端产生**这种包裹
@@ -22,9 +19,9 @@ pub(crate) fn verify_admin_signature(
     verify_admin_signature_bytes(account_id, message.as_bytes(), signature_text)
 }
 
-/// 校验管理员使用的签名钱包对原始字节的 sr25519 签名。
+/// 校验管理员使用的签名钱包对原始字节的 sr25519 / ML-DSA 签名。
 ///
-/// 两个调用方,两种消息,共用这一个底层验签:
+/// 登录、机构接收证明和既有治理动作共用底层验签，消息域由调用方固定。
 /// - 扫码登录:`verify_admin_signature` 传管道分隔的登录原文
 ///   (`QR_V1|k|id|system|expires|principal`,与冷端 `signature_message.dart` 同源);
 /// - 治理动作:`action_sign::verify_account_signature` 传
@@ -34,6 +31,17 @@ pub(crate) fn verify_admin_signature_bytes(
     message: &[u8],
     signature_text: &str,
 ) -> bool {
+    // 机构新钱包首次登录也可携带ML-DSA公钥信封；签名原文不变。
+    if let Ok(wire) = hex::decode(signature_text.trim_start_matches("0x")) {
+        if let Ok((public, signature)) = chain_signing::mldsa::decode_pq_signature(&wire) {
+            if let Some(account) = parse_account_id_bytes(account_id) {
+                return chain_signing::mldsa::verify_account_signature(
+                    &account, &public, message, &signature,
+                );
+            }
+            return false;
+        }
+    }
     let Some(public_key_bytes) = parse_sr25519_public_key_bytes(account_id) else {
         return false;
     };

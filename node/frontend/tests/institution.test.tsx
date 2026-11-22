@@ -1,3 +1,5 @@
+// 验证机构管理员与升级提案交互、IPC参数及失败重试状态。
+
 import {beforeEach, expect, it, vi} from 'vitest';
 import {adminsChangeApi} from '../institution/admins';
 import {TransferProposalDialog} from '../multisig/TransferProposalDialog';
@@ -189,7 +191,7 @@ it.each([0, 1, 2])('机构类型 %s 的账户说明逐字匹配，按机构区�
     expect(within(help).getAllByRole('listitem').map(item => item.textContent)).toEqual([
       '所有机构均有1个主账户和1个费用账户，主账户和费用账户不可注销，所有机构特指链上注册的机构。',
       '主账户用于该机构持有资金，费用账户用于支付该机构交易产生的手续费等费用，费用账户只能向主账户转账。',
-      '机构可注册更多账户，机构账户由账户名称+机构CID号经哈希运算后产生，故一个机构CID号+不同账户名称可产生无限多的机构账户。',
+      '机构可注册更多账户，机构账户由账户名称+身份CID号经哈希运算后产生，故一个身份CID号+不同账户名称可产生无限多的机构账户。',
       '机构账户发起转账交易的，必须由该机构的管理员发起转账提案，经该机构管理员内部投票通过后执行。',
       ...(orgType === 0 ? [
         '国家储委会拥有安全基金专用账户，安全基金用于公民链的技术安全，赔付因公民链技术原因造成的用户资金损失。',

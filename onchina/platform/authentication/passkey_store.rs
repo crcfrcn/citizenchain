@@ -1,7 +1,4 @@
-//! passkey 凭证 / ceremony 状态 / 断言令牌的结构化表读写。
-//!
-//! ceremony 状态(PasskeyRegistration / PasskeyAuthentication)与凭证(Passkey)以 webauthn-rs
-//! 序列化存 JSONB;ceremony 与断言令牌均一次性消费(取出即删),过期由清理扫描回收。
+//! 持久化Passkey凭证、认证仪式状态和一次性断言令牌。
 
 use chrono::{DateTime, Utc};
 use postgres::GenericClient;

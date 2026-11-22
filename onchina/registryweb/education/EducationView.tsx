@@ -1,5 +1,8 @@
+// 组织教育机构范围选择、列表及详情界面。
+
+import { IdentityCidInput } from '@gmb/onchina-platform/controls/IdentityCidInput';
 // 教育机构页面入口。JY 教育机构统一在这里管理:
-// 市详情直接展示本市市公民教育委员会,学校和 F+JY 非法人教育机构按名称或身份ID精确搜索。
+// 市详情直接展示本市市公民教育委员会,学校和 F+JY 非法人教育机构按名称或身份CID号精确搜索。
 //
 // 视觉完全复用"注册局"的 Card 样式(glassCardStyle / glassCardHeadStyle),
 // 保证横线颜色、毛玻璃底、绿色左竖条与注册局完全一致。
@@ -117,9 +120,9 @@ export const EducationView: React.FC<Props> = ({ auth, cidMeta }) => {
           {effectiveProvince} · {effectiveCity}
         </div>
         <div style={{ flex: '1 1 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, minWidth: 0 }}>
-          <Input
+          <IdentityCidInput
             value={searchInput}
-            placeholder="请输入教育机构全称、简称或身份ID"
+            placeholder="请输入教育机构全称、简称或身份CID号"
             allowClear
             style={{ flex: '1 1 auto', maxWidth: 360, minWidth: 0 }}
             onChange={(e) => {

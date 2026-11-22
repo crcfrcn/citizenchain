@@ -1,6 +1,4 @@
-//! 合伙企业私权机构。
-//!
-//! 无限合伙固定为 `F + GP`,有限合伙固定为 `S + LP`;两者都由本模块统一管理合伙人关系。
+//! 统一处理有限和无限合伙资料、合伙人及登记和列表。
 
 use axum::{
     extract::{Query, State},
@@ -16,7 +14,7 @@ use crate::institutions::private::common::{
 };
 use crate::institutions::private::participants::{ParticipantRole, PARTNERSHIP_ROLES};
 use crate::institutions::registration::{self, ListInstitutionQuery};
-use onchina::institutions::subjects::CreateInstitutionInput;
+use onchina::institutions::CreateInstitutionInput;
 use onchina::AppState;
 
 /// 合伙企业特有资料边界。

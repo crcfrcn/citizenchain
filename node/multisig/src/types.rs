@@ -1,3 +1,5 @@
+//! 定义普通转账、安全基金及归集提案详情的公开模型。
+
 use serde::Serialize;
 
 /// 普通多签转账提案详情（从 `VotingEngine::ProposalData` 解码）。

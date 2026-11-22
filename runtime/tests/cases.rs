@@ -1,4 +1,5 @@
-// runtime 集成夹具异常必须立即中止测试，断言式解包仅限本测试文件。
+//! 验证主Runtime模块集成、公开metadata和创世治理权限。
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use super::*;
@@ -2646,6 +2647,7 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
         };
 
         let established_admins = members(spec.min_members);
+        publicadmin::WalletsInitialized::<Runtime>::remove(&cid_number); // 原始名册夹具模拟升级前状态。
         publicadmin::AdminAccounts::<Runtime>::insert(
             cid_number.clone(),
             adminbase::InstitutionAdmins {
@@ -2894,6 +2896,7 @@ fn national_singletons_without_member_ranges_can_be_composed_once() {
                 .try_into()
                 .expect("singleton CID fits");
             let admins = vec![AccountId::new([91u8; 32]), AccountId::new([92u8; 32])];
+            publicadmin::WalletsInitialized::<Runtime>::remove(&cid_number);
             publicadmin::AdminAccounts::<Runtime>::insert(
                 cid_number.clone(),
                 adminbase::InstitutionAdmins {
@@ -3915,6 +3918,7 @@ fn creg_business_still_requires_roster_permission_effective_assignment_and_local
             family_name: "测".as_bytes().to_vec().try_into().unwrap(),
             given_name: "试".as_bytes().to_vec().try_into().unwrap(),
         }].try_into().unwrap();
+        publicadmin::WalletsInitialized::<Runtime>::remove(&cid);
         publicadmin::AdminAccounts::<Runtime>::insert(&cid, adminbase::InstitutionAdmins { institution_code: *b"CREG", admins });
         assert!(!allowed(), "只有管理员名册不授予业务权限");
         publicentity::InstitutionRoles::<Runtime>::insert(&cid, &role, entitybase::InstitutionRole {
@@ -4560,4 +4564,67 @@ fn multisig_execution_charger_uses_existing_payer_and_shared_remark_fee() {
                     if account_id == &payer && *fee == expected)).count(), 1);
         });
     }
+}
+
+
+#[test]
+fn institution_wallet_governance_keeps_frg_votes_within_original_province_group() {
+    use adminbase::InstitutionAdminWalletQuery;
+    use codec::Encode;
+    use frame_support::traits::Hooks;
+    new_test_ext().execute_with(|| {
+        let institution=primitives::governance_skeleton::federal_registry_institution();
+        let cid: publicentity::pallet::CidNumberOf<Runtime>=institution.cid_number.as_bytes().to_vec().try_into().unwrap();
+        let role: publicentity::RoleCodeOf=primitives::governance_skeleton::province_commissioner_role_code(*b"GD").try_into().unwrap();
+        let other_role: publicentity::RoleCodeOf=primitives::governance_skeleton::province_commissioner_role_code(*b"HU").try_into().unwrap();
+        let group=publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid,&role).iter().map(|a|a.account_id.clone()).collect::<Vec<_>>();
+        let other=publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid,&other_role)[0].account_id.clone();
+        assert_eq!(group.len(),5);
+        let pair=sr25519::Pair::from_seed(&[93;32]);
+        let change=adminbase::InstitutionAdminWalletChange {admin_account:group[1].clone(),expected_wallet:group[1].clone(),new_wallet:AccountId::new(pair.public().0),expected_revision:0};
+        let expires_at=1_782_950_400+86400;
+        let payload=adminbase::InstitutionWalletAcceptance{genesis_hash:System::block_hash(0),cid_number:cid.to_vec().try_into().unwrap(),change:change.clone(),mode:adminbase::InstitutionWalletChangeMode::Governance,expires_at}.encode();
+        let proof=pair.sign(&primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET,&payload)).0.to_vec().try_into().unwrap();
+        let action=entitybase::InstitutionGovernanceAction::RotateAdminWallet{change:change.clone(),expires_at,new_wallet_proof:proof};
+        assert_noop!(PublicManage::propose_institution_governance(RuntimeOrigin::signed(other.clone()),cid.clone(),action.clone(),cid.to_vec(),other_role.clone()),publicentity::Error::<Runtime>::PermissionDenied);
+        assert_ok!(PublicManage::propose_institution_governance(RuntimeOrigin::signed(group[0].clone()),cid.clone(),action,cid.to_vec(),role.clone()));
+        let pid=VotingEngine::next_proposal_id()-1;
+        let plan=VotingEngine::proposal_vote_plan(pid).unwrap();
+        assert_eq!(plan.voter_subjects.len(),1);
+        let snapshot=engingcore::VoterSnapshot::<Runtime>::get(pid,&plan.proposer_subject).unwrap();
+        assert_eq!(snapshot.len(),5);
+        assert!(!snapshot.contains(&other));
+        assert!(internalvote::Pallet::<Runtime>::do_internal_vote(other,pid,internalvote::InternalVoteTicketClaim::InstitutionRole(other_role),true).is_err());
+        assert_ok!(internalvote::Pallet::<Runtime>::do_internal_vote(group[1].clone(),pid,internalvote::InternalVoteTicketClaim::InstitutionRole(role.clone()),true));
+        assert_ok!(internalvote::Pallet::<Runtime>::do_internal_vote(group[2].clone(),pid,internalvote::InternalVoteTicketClaim::InstitutionRole(role.clone()),true));
+        <VotingEngine as Hooks<BlockNumber>>::on_initialize(System::block_number());
+        assert_eq!(PublicAdmins::current_institution_wallet(adminbase::FRG,&cid,&change.admin_account),Some(change.new_wallet));
+        assert_eq!(publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid,&role).iter().map(|a|a.account_id.clone()).collect::<Vec<_>>(),group);
+        assert_eq!(PublicAdmins::institution_admins_len(adminbase::FRG,&cid),Some(215));
+    });
+}
+
+#[test]
+fn institution_wallet_new_pq_proof_is_first_use_scoped_and_operation_safe() {
+    use adminbase::{InstitutionAdminWalletQuery, InstitutionAdminQuery};
+    use frame_support::{assert_ok, assert_noop};
+    new_test_ext().execute_with(|| {
+        let institution=primitives::governance_skeleton::federal_registry_institution();
+        let cid: publicentity::pallet::CidNumberOf<Runtime>=institution.cid_number.as_bytes().to_vec().try_into().unwrap();
+        let anchor=crate::PublicAdmins::institution_admins(adminbase::FRG,&cid).unwrap()[0].clone();
+        let child=[94;32]; let public=mldsa::public_key(&child); let new=AccountId::new(mldsa::account_id(&public));
+        let expires_at=1_782_950_400+180;
+        let change=adminbase::InstitutionAdminWalletChange{admin_account:anchor.clone(),expected_wallet:anchor.clone(),new_wallet:new.clone(),expected_revision:0};
+        let payload=adminbase::InstitutionWalletAcceptance{genesis_hash:System::block_hash(0),cid_number:cid.to_vec().try_into().unwrap(),change:change.clone(),mode:adminbase::InstitutionWalletChangeMode::SelfSigned,expires_at}.encode();
+        let signature=mldsa::sign(&child,&primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET,&payload)).unwrap();
+        let proof:adminbase::InstitutionWalletProof=mldsa::encode_pq_signature(&public,&signature).try_into().unwrap();
+        <mldsa::GenesisChainPhase<Runtime> as mldsa::ChainPhase>::enter_operation();
+        assert!(!mldsa::PqPublicKey::<Runtime>::contains_key(&new));
+        let mut forged=proof.clone();forged[2000]^=1;
+        assert_noop!(crate::PublicManage::rotate_institution_admin_wallet(crate::RuntimeOrigin::signed(anchor.clone()),cid.clone(),change.clone(),expires_at,forged),publicentity::Error::<Runtime>::InvalidWalletProof);
+        assert_ok!(crate::PublicManage::rotate_institution_admin_wallet(crate::RuntimeOrigin::signed(anchor.clone()),cid.clone(),change,expires_at,proof));
+        assert_eq!(crate::PublicAdmins::current_institution_wallet(adminbase::FRG,&cid,&anchor),Some(new.clone()));
+        assert_eq!(crate::PublicAdmins::resolve_admin_account(adminbase::FRG,&cid,&new),Some(anchor));
+        assert!(!mldsa::PqPublicKey::<Runtime>::contains_key(new)); // domain proof does not mutate transaction key registration
+    });
 }

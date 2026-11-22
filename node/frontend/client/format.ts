@@ -1,8 +1,5 @@
+// 将链上分金额格式化为带千分位的元金额。
 
-/**
- * 将链上余额（分）格式化为带千分位的元显示。
- * 1 元 = 100 分。
- */
 export function formatBalance(fenStr: string): string {
   const fen = BigInt(fenStr);
   const negative = fen < 0n;

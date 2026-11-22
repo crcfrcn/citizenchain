@@ -1,3 +1,5 @@
+//! 读取提案编号、分页索引及机构管理提案的链状态。
+
 use nodeupgrade::types::RuntimeUpgradeDetail;
 
 use noderesolutionissue::types::ResolutionIssuanceDetail;

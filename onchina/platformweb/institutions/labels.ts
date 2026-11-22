@@ -1,18 +1,4 @@
-// 按表单入口(category)+ subject_property 决定"新增机构"弹窗里哪些字段锁定 + 默认值。
-// private/gov/education 三个新增弹窗共用这一份字段锁定规则,组件分别放在各自业务目录。
-//
-// 手动新增三个入口(普通官方公权目录由后端自动生成,不走手动创建):
-//   PRIVATE_INSTITUTION   私权 tab:按 private_type 锁定主体属性和机构码,创建阶段写入名称
-//   GOV_INSTITUTION       公权 tab:G(非自动官方目录机构)机构全称必填 / F(锁非法人组织 UNIN)挂公法人
-//   EDUCATION_FORM 教育 tab:G/S/F;institution_code 不再锁死,按 subject_property×education_type 计算
-//                         (公私大学 GUN/SUN、公私中小学 GSCH/SFSC),F 分校继承本部学校码(GSCH/SFSC)
-//
-// P1 盈利属性统一按主体属性联动(见 p1LocksForSubject,与后端号码生成器/unincorporated_org 同源):
-//   G → 锁死 0(非盈利,生成器硬规则)
-//   S → 可选 0/1,默认 1
-//   F → 个体经营/无限合伙为独立非法人;教育分校/公权下属非法人继承所属法人
-//
-// 非法人(F)挂靠只用于从属非法人。个体经营(F+GT)和无限合伙(F+GP)不选择所属法人。
+// 按登记类型确定表单默认值、锁定字段及机构选项。
 
 import type { EducationType, PartnershipKind, PrivateType } from './api';
 

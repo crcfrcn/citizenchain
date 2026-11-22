@@ -1,3 +1,5 @@
+//! 从实际PeerID推导节点身份及当前运行状态。
+
 use crate::rpc::rpc_post;
 use crate::state::AppState;
 use serde::Serialize;

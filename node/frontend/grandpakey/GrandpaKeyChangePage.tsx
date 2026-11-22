@@ -1,3 +1,5 @@
+// 展示GRANDPA轮换或紧急恢复，协调冷签及生效状态读取。
+
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";

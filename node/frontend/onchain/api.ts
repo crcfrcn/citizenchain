@@ -1,3 +1,5 @@
+// 调用钱包目录和转账准备、提交及余额原生命令。
+
 import { invoke } from "../client/tauri";
 import type { TransferSignRequestResult, TransferSubmitResult, Wallet, WalletStore } from "./types";
 

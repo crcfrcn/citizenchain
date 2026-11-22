@@ -1,3 +1,5 @@
+//! 将选定引导节点身份及密钥配置到节点启动现场。
+
 use nodecontrol::bootnodes::find_genesis_bootnode_cid_short_name_by_peer_id;
 use nodecontrol::bootnodes::is_genesis_bootnode_peer_id;
 use nodecontrol::bootnodes::peer_id_from_node_key_hex;

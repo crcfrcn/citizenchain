@@ -1,8 +1,4 @@
-//! 投票类型（Track）统一路由。
-//!
-//! 核心引擎只认识提案 `kind`，具体阶段、超时判定、模式账本清理和模式终态副作用
-//! 全部由对应 sub-pallet 实现。新增投票类型时只需实现 [`ProposalTrackHandler`]
-//! 并加入 Runtime 的递归 tuple，不再扩展核心阶段分支。
+//! 按提案类型路由模式阶段、超时终结和有界账本清理。
 
 use crate::{traits::CleanupChunkResult, Proposal};
 use frame_support::dispatch::DispatchResult;

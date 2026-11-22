@@ -1,10 +1,5 @@
-//! 登录会话鉴权守卫。
-//!
-//! 普通读取只检查已签发会话，不重新核验链上管理员资格。
-//! 业务模块通过 `require_admin_any` 获取认证上下文;
-//! 写操作的冷钱包扫码签名(PasskeyColdSign 档)由 admins::actions 的安全 grant 单独校验。
+//! 校验已签发管理员会话，并向业务处理提供认证上下文。
 
-// 登录守卫直接携带统一拒绝响应，保证所有调用方复用完全相同的状态码和错误体。
 #![allow(clippy::result_large_err)]
 
 use axum::http::{HeaderMap, StatusCode};

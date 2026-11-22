@@ -1,8 +1,4 @@
-// 公权机构新增入口,两种能力:
-//   G 公法人 → 新增公权机构(ZF/LF/SF/JC,排除储备体系自动目录代码,机构全称必填同市查重)
-//   F 非法人 → 公权下属非法人(必选公法人为所属法人:本市市级/本省省级/国家级,盈利属性锁非盈利)
-// JY 教育机构归教育 tab;普通公权目录仍由后端自动生成。
-// 表单 UI 复用 onchina/registryweb/controls/CreateInstitutionForm.tsx,本文件只负责注入 gov API。
+// 提供公法人及公权下属非法人机构的登记表单。
 
 import React from 'react';
 import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';

@@ -1,6 +1,5 @@
-//! 所属共享SCALE、Runtime元数据解码和UTF-8截断。
+//! 解码SCALE账户和Runtime metadata，并安全截断UTF-8展示文本。
 
-// Substrate service API 固定返回 sc_service::Error，Node 必须保持框架函数签名。
 #![allow(clippy::result_large_err)]
 use runtime;
 

@@ -1,3 +1,5 @@
+// 组织钱包选择、余额及链上转账界面。
+
 import { sanitizeError } from "../client/tauri";
 import { transactionApi as api } from "./api";
 import type { TransferDraft, Wallet, WalletStore, WalletBalanceState } from "./types";

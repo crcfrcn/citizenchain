@@ -1,3 +1,5 @@
+//! 验证守卫链身份与规范区块头和客户端状态读取。
+
 use super::*;
 
 use crate::guard::testing::TestGenesisIdentity;

@@ -1,4 +1,5 @@
-//! 通过真实共享包接口核验导出块，金标只归本包tests。
+//! 验证坏块构造只更改首个状态根，拒绝同根及异常输入。
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 use blockchain_harness::*;
 const BLOCK0_JSON_LINE: &str = include_str!("block.json");

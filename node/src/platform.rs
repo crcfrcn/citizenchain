@@ -1,13 +1,5 @@
-//! 公民链节点 — 区块链节点 + 桌面界面合一。
-//!
-//! 自动适应环境：
-//! - 有显示器：打开桌面窗口 + 区块链节点
-//! - 无显示器（服务器）：直接运行区块链节点
-//! - 有子命令（build-spec 等）：运行工具命令后退出
+//! 启动和监督链上中国宿主进程，接收实际HTTPS监听地址。
 
-// release 构建走 windows subsystem,Windows 双击 exe 不会附带弹控制台,
-// 也不会因为关闭控制台触发 CTRL_CLOSE_EVENT 把进程杀掉;
-// dev 构建保留 console subsystem,便于看 eprintln!/log 输出。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // 测试断言失败必须立即终止；保留带上下文的 unwrap/expect，生产构建不受此豁免影响。
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
@@ -569,7 +561,7 @@ pub struct OnChinaPlatformState {
 }
 
 // 保留公信 HTTPS 与域名 SNI，连接到当前宿主回传的监听地址。
-fn onchina_health_modules(app: &AppHandle) -> Result<Vec<String>, String> {
+fn onchina_health_modules(app: &AppHandle, address: SocketAddr) -> Result<Vec<String>, String> {
     #[derive(Deserialize)]
     struct HealthModule {
         id: String,
@@ -588,7 +580,6 @@ fn onchina_health_modules(app: &AppHandle) -> Result<Vec<String>, String> {
     }
 
     let deployment = deployment(app)?;
-    let address = local_platform_address().ok_or("链上中国正在选择局域网监听地址")?;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(900))
         .https_only(true)
@@ -629,12 +620,27 @@ fn current_state(app: &AppHandle) -> OnChinaPlatformState {
             startup_error().unwrap_or_else(|| "链上中国子进程已退出".into()),
         );
     }
-    let health = process_running.then(|| onchina_health_modules(app));
+    platform_state(process_running, local_platform_address(), |address| {
+        onchina_health_modules(app, address)
+    })
+}
+
+// 宿主回传 HTTPS 就绪地址前不发请求；回传后的检查错误必须原样展示。
+fn platform_state(
+    process_running: bool,
+    address: Option<SocketAddr>,
+    check: impl FnOnce(SocketAddr) -> Result<Vec<String>, String>,
+) -> OnChinaPlatformState {
+    let health = if process_running {
+        address.map(check)
+    } else {
+        None
+    };
     let (status, status_label, detail, modules) = match health {
+        None if process_running => ("starting", "启动中", None, Vec::new()),
         None => ("stopped", "未开启", None, Vec::new()),
         Some(Ok(modules)) => ("enabled", "已开启", None, modules),
-        // 进程已启动但健康检查暂未通过时，只能表达“启动中”。
-        // 退出后从公开诊断通道报告具体失败；活跃但未通过 HTTPS 的进程保持启动中。
+        // 地址已就绪但检查失败时保留真实诊断，模块入口继续禁用。
         Some(Err(error)) => ("starting", "启动中", Some(error), Vec::new()),
     };
     OnChinaPlatformState {

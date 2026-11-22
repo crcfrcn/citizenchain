@@ -1,4 +1,5 @@
-//! 随统一提交流程迁移的原有恢复与授权回归，夹具及预期保持不变。
+//! 验证交易恢复阶段及首次提交和安全重提的同一授权。
+
 use super::*;
 
 use super::test_support::chain_session_with_context;

@@ -6,7 +6,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use onchina::institutions::admins::chain_roles::{fetch_governance_state, GovernanceState};
+use onchina::institutions::{fetch_governance_state, GovernanceState};
 
 pub(crate) fn chain_registry_rows(
     cid: &str,

@@ -1,3 +1,5 @@
+//! 提供机构管理员状态查询并校验预期机构码和CID。
+
 use crate::admins::institution_code_label;
 use crate::admins::is_valid_institution_code;
 use crate::admins::InstitutionAdminsState;

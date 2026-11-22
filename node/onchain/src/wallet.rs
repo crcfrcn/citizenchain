@@ -1,3 +1,5 @@
+//! 持久化钱包目录、签名模式和当前选择，并校验钱包名称。
+
 use serde::Deserialize;
 use serde::Serialize;
 use std::fs;

@@ -1,4 +1,5 @@
-// 仓库守卫用 Result 传播读取与结构错误；合同不符仍由原有断言使测试失败。
+//! 验证协议样例和生成文件的仓库归属及源码扫描边界。
+
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fs;

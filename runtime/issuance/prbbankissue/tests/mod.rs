@@ -1,3 +1,5 @@
+//! 装配省储行年度发行测试Runtime及可控年度区块环境。
+
 #![cfg(test)]
 
 use super::pallet::*;

@@ -1,3 +1,5 @@
+//! 验证公权机构治理、固定岗位和管理员登记的完整链状态。
+
 use super::*;
 use frame_support::traits::GetCallName;
 use frame_support::{assert_noop, assert_ok};
@@ -276,7 +278,7 @@ fn dynamic_role_lifecycle_persists_permissions_and_never_reuses_code() {
 }
 
 #[test]
-fn operation_phase_authorizes_by_cid_and_survives_wallet_rebind() {
+fn initialized_institution_does_not_follow_personal_cid_wallet_rebind() {
     new_test_ext().execute_with(|| {
         use entitybase::{
             InstitutionRoleAuthorizationQuery, InstitutionRoleMutation, RolePermissionOperation,
@@ -364,8 +366,8 @@ fn operation_phase_authorizes_by_cid_and_survives_wallet_rebind() {
         // 运行期：admin(0) 换绑到新钱包 admin(5)。
         set_operation_phase(true);
         bind_cid(&citizen_cid, admin(5));
-        assert!(authorized(&admin(5))); // 换绑不掉权：新钱包解析到同一名册账户
-        assert!(!authorized(&admin(0))); // 旧钱包掉权：CID 已不绑定它
+        assert!(!authorized(&admin(5))); // 个人换绑不会授予机构权限
+        assert!(authorized(&admin(0))); // 机构钱包保持原授权
         assert!(authorized(&admin(1))); // 无 CID 管理员运行期仍按 account_id
     });
 }
@@ -817,6 +819,8 @@ fn fresh_registration_target(tag: &str) -> pallet::CidNumberOf<Test> {
         pallet::InstitutionRoleAssignments::<Test>::remove(&cid, &code);
     }
     publicadmin::AdminAccounts::<Test>::remove(&cid);
+    let _ = publicadmin::AdminWallets::<Test>::clear_prefix(&cid, u32::MAX, None);
+    publicadmin::WalletsInitialized::<Test>::remove(&cid);
     pallet::InstitutionRoleNonce::<Test>::remove(&cid);
     cid
 }
@@ -1273,5 +1277,65 @@ fn registration_nonce_exhaustion_rolls_back_admin_lifecycle_write() {
             PublicManage::registration_state_hash(&cid).unwrap(),
             expected
         );
+    });
+}
+
+
+fn wallet_proof(cid: &pallet::CidNumberOf<Test>, change: &adminbase::InstitutionAdminWalletChange<AccountId32>, mode: adminbase::InstitutionWalletChangeMode, expiry: u64, pair: &sr25519::Pair) -> adminbase::InstitutionWalletProof {
+    let payload = adminbase::InstitutionWalletAcceptance { genesis_hash: System::block_hash(0), cid_number: cid.to_vec().try_into().unwrap(), change: change.clone(), mode, expires_at: expiry }.encode();
+    pair.sign(&primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, &payload)).0.to_vec().try_into().unwrap()
+}
+
+#[test]
+fn institution_self_wallet_rotation_checks_both_parties_scope_and_replay_without_mutating_identity_or_roles() {
+    new_test_ext().execute_with(|| {
+        use adminbase::{InstitutionAdminWalletQuery, InstitutionAdminQuery};
+        let cid = create_cgov("wallet-self");
+        let code = pallet::Institutions::<Test>::get(&cid).unwrap().institution_code;
+        let pair = sr25519::Pair::from_seed(&[91;32]);
+        let new_wallet = AccountId32::new(pair.public().0);
+        let change = adminbase::InstitutionAdminWalletChange { admin_account: admin(0), expected_wallet: admin(0), new_wallet: new_wallet.clone(), expected_revision:0 };
+        let expiry = TestTimeProvider::now().as_secs()+180;
+        let proof = wallet_proof(&cid, &change, adminbase::InstitutionWalletChangeMode::SelfSigned, expiry, &pair);
+        let roster = publicadmin::AdminAccounts::<Test>::get(&cid).unwrap().encode();
+        let roles = pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid).collect::<Vec<_>>().encode();
+        let nonce = pallet::InstitutionRoleNonce::<Test>::get(&cid);
+        assert_noop!(PublicManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(9)),cid.clone(),change.clone(),expiry,proof.clone()),Error::<Test>::PermissionDenied);
+        let mut stale = change.clone(); stale.expected_revision=1;
+        assert_noop!(PublicManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(0)),cid.clone(),stale,expiry,proof.clone()),Error::<Test>::InvalidWalletProof);
+        let governance_proof=wallet_proof(&cid,&change,adminbase::InstitutionWalletChangeMode::Governance,expiry,&pair);
+        assert_noop!(PublicManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(0)),cid.clone(),change.clone(),expiry,governance_proof),Error::<Test>::InvalidWalletProof);
+        assert_noop!(PublicManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(0)),cid.clone(),change.clone(),expiry+1,proof.clone()),Error::<Test>::InvalidWalletProof);
+        assert_ok!(PublicManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(0)),cid.clone(),change.clone(),expiry,proof.clone()));
+        assert_eq!(publicadmin::Pallet::<Test>::resolve_admin_account(code,&cid,&new_wallet),Some(admin(0)));
+        assert_eq!(publicadmin::Pallet::<Test>::resolve_admin_account(code,&cid,&admin(0)),None);
+        assert_eq!(publicadmin::Pallet::<Test>::institution_wallet_state(code,&cid,&admin(0)).unwrap().revision,1);
+        assert_eq!(publicadmin::AdminAccounts::<Test>::get(&cid).unwrap().encode(),roster);
+        assert_eq!(pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid).collect::<Vec<_>>().encode(),roles);
+        assert_eq!(pallet::InstitutionRoleNonce::<Test>::get(&cid),nonce+1);
+        assert_noop!(PublicManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(0)),cid,change,expiry,proof),Error::<Test>::PermissionDenied);
+    });
+}
+
+#[test]
+fn governance_wallet_rotation_requires_existing_role_vote_and_executes_the_same_kernel() {
+    new_test_ext().execute_with(|| {
+        use adminbase::InstitutionAdminWalletQuery;
+        let cid = create_cgov("wallet-vote");
+        let role = grant_close_role(&cid);
+        pallet::InstitutionRolePermissions::<Test>::mutate(&cid,&role, |permissions| {for p in permissions.iter_mut() {p.business_action_id.action_code=3;}});
+        let code = pallet::Institutions::<Test>::get(&cid).unwrap().institution_code;
+        let pair=sr25519::Pair::from_seed(&[92;32]);
+        let change=adminbase::InstitutionAdminWalletChange{admin_account:admin(1),expected_wallet:admin(1),new_wallet:AccountId32::new(pair.public().0),expected_revision:0};
+        let expiry=TestTimeProvider::now().as_secs()+86400;
+        let proof=wallet_proof(&cid,&change,adminbase::InstitutionWalletChangeMode::Governance,expiry,&pair);
+        let action=entitybase::InstitutionGovernanceAction::RotateAdminWallet{change:change.clone(),expires_at:expiry,new_wallet_proof:proof};
+        assert_noop!(PublicManage::propose_institution_governance(RuntimeOrigin::signed(admin(9)),cid.clone(),action.clone(),cid.to_vec(),role.clone()), Error::<Test>::PermissionDenied);
+        assert_ok!(PublicManage::propose_institution_governance(RuntimeOrigin::signed(admin(0)),cid.clone(),action.clone(),cid.to_vec(),role.clone()));
+        let pid=VotingEngine::next_proposal_id()-1;
+        assert_eq!(publicadmin::Pallet::<Test>::current_institution_wallet(code,&cid,&change.admin_account),Some(change.expected_wallet.clone()));
+        assert_ok!(cast_yes_votes(&[admin(1),admin(2)],2,pid));
+        assert_eq!(publicadmin::Pallet::<Test>::current_institution_wallet(code,&cid,&change.admin_account),Some(change.new_wallet));
+        assert_noop!(PublicManage::propose_institution_governance(RuntimeOrigin::signed(admin(0)),cid.clone(),action,cid.to_vec(),role),Error::<Test>::InvalidWalletProof);
     });
 }

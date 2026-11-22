@@ -1,10 +1,5 @@
-//! 管理员敏感动作的冷钱包扫码签名工具(PasskeyColdSign 档)。
-//!
-//! 敏感动作 step-up 统一为
-//! "会话(链上已证管理员)+ 冷钱包扫码签名"。本模块只承载扫码签名 payload 构造、
-//! 哈希与验签工具,不含任何设备本地因子。
+//! 构造管理员敏感动作的冷签原文和摘要，并验证账户签名。
 
-// Axum 安全辅助函数直接返回统一 HTTP Response，错误只走拒绝路径，装箱会扩散整条鉴权接口。
 #![allow(clippy::result_large_err)]
 
 use axum::http::StatusCode;

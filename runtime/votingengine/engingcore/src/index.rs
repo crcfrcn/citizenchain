@@ -1,15 +1,4 @@
-//! 提案反向索引。
-//!
-//! 链上 4 张反向索引让客户端按"分类"O(分类内规模)迭代提案,不用扫全表:
-//! - **`ProposalsByCode[institution_code][id]`** — 按 CID 机构码(固定治理档 / PMUL / 公权法人 / 私权法人)反查
-//! - **`ProposalsByCid[cid_number][id]`** — 按机构唯一 CID 反查
-//!   (如某省储行、某公司、某银行的所有关联提案)
-//! - **`ProposalsByOwner[module_tag][id]`** — 按业务模块 MODULE_TAG 反查
-//!   (如"只看 runtime 升级提案"、"只看决议销毁提案")
-//! - **`ProposalsByYear[year][id]`** — 按创建年份反查(历史归档视图)
-//!
-//! **写入时机**:`register_proposal_data` 末尾(提案对外业务数据落地后立刻写)。
-//! **删除时机**:`cleanup_proposal_indexes`(终态/90 天保留期清理路径)。
+//! 维护按机构码、机构、阶段和主体查询提案的反向索引。
 
 use frame_support::pallet_prelude::BoundedVec;
 

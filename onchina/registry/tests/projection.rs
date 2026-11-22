@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证链公民投影移动辖区时保留原始资料及更新一致性。
+
 use super::*;
 use crate::citizens::chain_identity::IdentityOperations;
 

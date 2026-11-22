@@ -1,8 +1,4 @@
-//! GRANDPA 验证密钥更换持钥证明。
-//!
-//! 正常更换由旧、新两把 GRANDPA ed25519 私钥签同一摘要；紧急恢复仅要求新私钥
-//! 签名，因为旧私钥已经丢失或无法使用。摘要绑定创世哈希、机构、岗位、发起账户、
-//! 当前 authority set、nonce 与有效期，不能跨链、跨机构、跨账户或跨轮次重放。
+//! 构造并验证GRANDPA轮换与恢复持钥证明，绑定机构、岗位和挑战。
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_system::pallet_prelude::BlockNumberFor;

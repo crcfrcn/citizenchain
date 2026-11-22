@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证维护数据库仅接受本地目标及HTTPS监听配置。
+
 use super::database_url_targets_local_host_only;
 
 // 只解析配置，不连接数据库；各原生宿主共用相同TCP判断边界。

@@ -1,3 +1,6 @@
+// 展示公权机构目录、行政范围及状态标签。
+
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 // 公权机构列表。确定性目录,进入页面直接显示。
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -130,7 +133,7 @@ export const GovListTable: React.FC<Props> = ({
         render: (_v, _row, index) =>
           (deterministicPage - 1) * DETERMINISTIC_PAGE_SIZE + index + 1,
       },
-      { title: '身份ID', dataIndex: 'cidNumber', width: 260, align: 'center' },
+      { title: '身份CID号', dataIndex: 'cidNumber', width: 260, align: 'center', render: (value: string) => <IdentityCidText value={value} /> },
       {
         title: '机构全称',
         width: 180,

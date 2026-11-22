@@ -1,9 +1,5 @@
-//! 管理员安全动作：本地写只消费一次Passkey，链上操作另验证真实冷签。
-//!
-//! 管理员治理动作、业务安全授权和短期挑战全部使用结构化表;
-//! PasskeyColdSign 档 commit 校验冷钱包签名且 signer 须 ∈ 本机构链上 Active 集合。
+//! 准备和消费管理员安全动作，核验一次性Passkey授权及链上冷签。
 
-// 管理员动作统一返回完整 Axum Response 以保留状态码和错误体，错误路径不参与高频成功态分配。
 #![allow(clippy::result_large_err)]
 
 use axum::{

@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证安全授权并发消费防重放及Passkey解绑事务原子性。
+
 use super::*;
 use crate::authentication::login::{AdminSession, NodeInstitutionBinding};
 

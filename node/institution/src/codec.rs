@@ -1,3 +1,5 @@
+//! 严格解码公权和私权机构管理员名册。
+
 use crate::admins::AdminDecoded;
 use crate::admins::InstitutionAdminsDecoded;
 use adminbase::Admin;

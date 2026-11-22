@@ -1,3 +1,5 @@
+//! 维护清算行与用户存款、支付nonce和批次结算的链上状态及入口。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 //! # offchain-transaction · 清算行(L2)扫码支付清算

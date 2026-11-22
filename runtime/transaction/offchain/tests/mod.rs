@@ -1,21 +1,4 @@
-//! 清算行 pallet 单元测试环境与模块协作回归。
-//!
-//! 覆盖**端到端**路径:构造 mock `Test` runtime(含 `frame_system` +
-//! `pallet_balances` + 本 pallet + mock CID),用真实 sr25519 密钥签 L3 支付
-//! 意图,经 `submit_offchain_batch` 执行后断言链上 Storage 全部吻合。
-//!
-//! 测试清单:
-//! - `bind_deposit_withdraw_full_cycle`      绑定 / 充值 / 提现三合一
-//! - `double_bind_rejected`                  禁止重复绑定
-//! - `bind_rejects_unregistered_bank`        拒绝未注册清算行
-//! - `switch_requires_zero_balance`          先清零再切换
-//! - `switch_after_withdraw_all_works`
-//! - `submit_batch_rejects_non_admin`        非管理员提交批次应失败
-//! - `submit_batch_same_bank_end_to_end`     单笔同行支付完整结算 + PaymentSettled 事件
-//!
-//! Mock 与生产 runtime 均由 pallet `Config` 在编译期限定为官方 `AccountId32`；L3
-//! 签名账户由 sr25519 `Public` 转换得到，settlement 使用完整32字节验签，不从泛型
-//! SCALE 编码截断或猜测公钥。
+//! 装配清算测试Runtime、银行账户及签名和存款夹具。
 
 #![cfg(test)]
 

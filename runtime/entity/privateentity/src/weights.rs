@@ -1,29 +1,4 @@
-
-//! Generated baseline weights (registration manually supplemented on 2026-11-14) for `privateentity`
-//!
-//! THIS FILE WAS AUTO-GENERATED USING THE SUBSTRATE BENCHMARK CLI VERSION 58.0.0
-//! DATE: 2026-10-31, STEPS: `50`, REPEAT: `20`, LOW RANGE: `[]`, HIGH RANGE: `[]`
-//! WORST CASE MAP SIZE: `1000000`
-//! HOSTNAME: `rhettdeMacBook-Pro.local`, CPU: `<UNKNOWN>`
-//! WASM-EXECUTION: `Compiled`, CHAIN: `Some("/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/spec.json")`, DB CACHE: 1024
-
-// Executed Command:
-// /Users/rhett/citizenchain/target/test/weights-vdq6qjrp/cargo/release/citizenchain
-// benchmark
-// pallet
-// --chain=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/spec.json
-// --genesis-builder=spec-genesis
-// --extrinsic=*
-// --min-duration=0
-// --output-analysis=max
-// --quiet
-// --pallets=onchain,address,fullnodeissue,multisig,personaladmin,personalentity,publicentity,privateentity,internalvote,jointvote,electionvote,legislationvote,engingcore,square,upgrade,legislation
-// --heap-pages=8192
-// --steps=50
-// --repeat=20
-// --output=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/finalweights
-// --template=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/weights.hbs
-// --json-file=/Users/rhett/citizenchain/target/test/weights-vdq6qjrp/all.samples.json
+//! 定义私权机构账户和治理登记的执行及数据库读写权重。
 
 #![cfg_attr(rustfmt, rustfmt_skip)]
 #![allow(unused_parens)]
@@ -35,6 +10,16 @@ use core::marker::PhantomData;
 
 /// FRAME实测权重接口。
 pub trait WeightInfo {
+    /// Conservative initialized-wallet bound: one bounded roster, a reverse wallet index,
+    /// one acceptance verification and a single wallet/nonce update. Legacy initialization
+    /// is budgeted separately at the call site; it never runs in the execution callback.
+    /// This is a safety envelope, not a newly measured benchmark regression.
+    fn institution_wallet_change(n: u32) -> Weight {
+        Weight::from_parts(50_000_000_000, 800_000)
+            .saturating_add(Weight::from_parts(10_000_000, 0).saturating_mul(u64::from(n)))
+            .saturating_add(RocksDbWeight::get().reads_writes(12, 5))
+    }
+
     fn update_institution_info() -> Weight;
     fn register_institution_admins(n: u32, r: u32, p: u32, a: u32) -> Weight;
     fn add_institution_account() -> Weight;

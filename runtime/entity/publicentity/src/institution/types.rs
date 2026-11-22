@@ -1,7 +1,4 @@
-//! 机构实体与账户类型统一出口。
-//!
-//! 定义已上提 `entitybase` 单源(公权/私权 pallet 逐字段一致),本模块仅 re-export,
-//! 保持 `crate::institution::types::*` 与对外 `publicentity::{...}` API 不变。
+//! 导出实体共用记录并定义公权机构新增账户动作。
 
 extern crate alloc;
 

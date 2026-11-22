@@ -1,3 +1,5 @@
+//! 从统一机构原语读取CID、全称及中英文简称。
+
 use crate::council::GovernanceOverview;
 use crate::council::InstitutionListItem;
 use crate::council::InstitutionType;

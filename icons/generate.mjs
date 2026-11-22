@@ -1,3 +1,5 @@
+// 从公民链图标原件生成平台图标，并处理PNG校验和编码。
+
 const directEntry = process.argv[1] === import.meta.filename && !process.execArgv.some(value => /^(?:-e|-p|--eval|--print)(?:=|$)/u.test(value));
 const inlineTestEntry = directEntry && Boolean(process.env.NODE_TEST_CONTEXT) && process.argv.length === 2;
 import assert from 'node:assert/strict';

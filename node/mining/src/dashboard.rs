@@ -1,3 +1,5 @@
+//! 聚合并缓存挖矿收入和区块记录，管理刷新及持久化。
+
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE;
 use serde::Deserialize;
 use serde::Serialize;

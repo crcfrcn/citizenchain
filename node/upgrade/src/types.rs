@@ -1,3 +1,5 @@
+//! 定义升级提案详情和准备结果的公开模型。
+
 use serde::Serialize;
 
 /// 协议升级提案详情（从 VotingEngine::ProposalData 解码）。

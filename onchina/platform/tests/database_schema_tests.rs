@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证数据库最终结构、无写重开及旧结构和损坏拒绝。
+
 use super::*;
 
 #[cfg(unix)]
@@ -7,7 +8,9 @@ fn archive_paths_preserve_spaces_quotes_and_owned_configuration_is_idempotent() 
     use crate::database_embedded::{archive_command, configure_postgresql_conf};
     struct Scratch(std::path::PathBuf);
     impl Drop for Scratch {
-        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
     let base = std::path::PathBuf::from(std::env::var("CITIZENCHAIN_WORK_DIR").unwrap())
         .join(format!("archive-{}", uuid::Uuid::new_v4()));
@@ -15,26 +18,50 @@ fn archive_paths_preserve_spaces_quotes_and_owned_configuration_is_idempotent() 
     std::fs::create_dir_all(&scratch.0).unwrap();
     let directory = scratch.0.join("archive with ' quote $HOME");
     let conf = scratch.0.join("postgresql.conf");
-    std::fs::write(&conf, "max_connections = 37\narchive_command = 'old'\narchive_mode = on\n").unwrap();
+    std::fs::write(
+        &conf,
+        "max_connections = 37\narchive_command = 'old'\narchive_mode = on\n",
+    )
+    .unwrap();
     configure_postgresql_conf(&scratch.0, directory.to_str()).unwrap();
     let first = std::fs::read_to_string(&conf).unwrap();
     configure_postgresql_conf(&scratch.0, directory.to_str()).unwrap();
     assert_eq!(std::fs::read_to_string(&conf).unwrap(), first);
     assert!(first.contains("max_connections = 37"));
-    assert_eq!(first.lines().filter(|line| line.starts_with("archive_command =")).count(), 1);
+    assert_eq!(
+        first
+            .lines()
+            .filter(|line| line.starts_with("archive_command ="))
+            .count(),
+        1
+    );
     assert!(!first.contains("'old'"));
     let input = scratch.0.join("input");
     std::fs::write(&input, "original").unwrap();
     let command = archive_command(directory.to_str().unwrap())
-        .replace("%p", input.to_str().unwrap()).replace("%f", "segment");
-    assert!(std::process::Command::new("/bin/sh").args(["-c", &command]).status().unwrap().success());
+        .replace("%p", input.to_str().unwrap())
+        .replace("%f", "segment");
+    assert!(std::process::Command::new("/bin/sh")
+        .args(["-c", &command])
+        .status()
+        .unwrap()
+        .success());
     std::fs::write(&input, "changed").unwrap();
-    assert!(!std::process::Command::new("/bin/sh").args(["-c", &command]).status().unwrap().success());
-    assert_eq!(std::fs::read_to_string(directory.join("segment")).unwrap(), "original");
+    assert!(!std::process::Command::new("/bin/sh")
+        .args(["-c", &command])
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(
+        std::fs::read_to_string(directory.join("segment")).unwrap(),
+        "original"
+    );
     configure_postgresql_conf(&scratch.0, None).unwrap();
     let disabled = std::fs::read_to_string(&conf).unwrap();
     assert!(disabled.contains("archive_mode = off"));
-    assert!(!disabled.lines().any(|line| line.starts_with("archive_command =")));
+    assert!(!disabled
+        .lines()
+        .any(|line| line.starts_with("archive_command =")));
 }
 
 #[test]
@@ -139,7 +166,7 @@ fn old_format_is_rejected_without_changing_counter_or_schema() {
 #[test]
 #[ignore = "由控制台交付本机onchina_test隔离数据库后执行"]
 fn private_subject_is_one_record_with_nullable_personality_and_atomic_constraints() {
-    use crate::institutions::subjects::Institution;
+    use crate::institutions::Institution;
     let sandbox = IsolatedTestDb::new();
     let db = &sandbox.db;
     let cid = format!(
@@ -211,15 +238,14 @@ fn private_subject_is_one_record_with_nullable_personality_and_atomic_constraint
 fn private_maintenance_uses_subject_for_backup_and_cleanup() {
     let sandbox = IsolatedTestDb::new();
     let db = &sandbox.db;
-    let inst: crate::institutions::subjects::Institution =
-        serde_json::from_value(serde_json::json!({
-            "status":"ACTIVE","subjectProperty":"S","cidNumber":"synthetic-invalid-cid",
-            "cidFullName":"维护测试","category":"PRIVATE_INSTITUTION","p1":"1",
-            "provinceName":"贵州省","cityName":"绥阳市","provinceCode":"GZ",
-            "cityCode":"018","institutionCode":"SFGQ","privateType":"COMPANY",
-            "createdAt":chrono::Utc::now()
-        }))
-        .unwrap();
+    let inst: crate::institutions::Institution = serde_json::from_value(serde_json::json!({
+        "status":"ACTIVE","subjectProperty":"S","cidNumber":"synthetic-invalid-cid",
+        "cidFullName":"维护测试","category":"PRIVATE_INSTITUTION","p1":"1",
+        "provinceName":"贵州省","cityName":"绥阳市","provinceCode":"GZ",
+        "cityCode":"018","institutionCode":"SFGQ","privateType":"COMPANY",
+        "createdAt":chrono::Utc::now()
+    }))
+    .unwrap();
     db.upsert_institution_row(&inst).unwrap();
     // dry_run真实遍历动态清理清单并回滚，不能引用已退役副表。
     db.purge_legacy_cid_rows(true).unwrap();

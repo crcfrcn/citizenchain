@@ -1,7 +1,4 @@
-//! 注册协会私权机构。
-//!
-//! 注册协会固定为 `SFAS`，具有法人资格，由会员、理事和监事构成；盈利属性由每个
-//! 机构实例在首次登记时显式选择，不在模块常量中固定。
+//! 定义注册协会资料和参与角色，处理登记与列表并保留实例营利属性。
 
 use axum::{
     extract::{Query, State},
@@ -16,7 +13,7 @@ use crate::institutions::private::common::{
 };
 use crate::institutions::private::participants::{ParticipantRole, ASSOCIATION_ROLES};
 use crate::institutions::registration::{self, ListInstitutionQuery};
-use onchina::institutions::subjects::CreateInstitutionInput;
+use onchina::institutions::CreateInstitutionInput;
 use onchina::AppState;
 
 #[derive(Debug, Clone, Serialize)]

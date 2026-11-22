@@ -1,3 +1,4 @@
+// 在32字节账户和规范公民链SS58地址之间转换。
 
 import { blake2b } from '@noble/hashes/blake2.js';
 

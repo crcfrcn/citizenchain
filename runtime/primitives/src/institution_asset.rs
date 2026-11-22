@@ -1,14 +1,4 @@
-//! 机构账户资金操作白名单(institution_asset)。
-//!
-//! 只提供 `InstitutionAssetAction` 枚举和 `InstitutionAsset` trait,供实体生命周期
-//! (public/private/personalentity)、`multisig`、`offchain` 复用;不是 pallet,不含
-//! storage 或 extrinsic。实际放行/拒绝规则由 runtime 的 `RuntimeInstitutionAsset` 实现。
-//!
-//! # Safety
-//!
-//! 默认 `()` 实现为 **fail-open(全放行)**,仅适用于测试。
-//! 生产 runtime 必须配置为 `RuntimeInstitutionAsset`,否则资金白名单层将完全失效。
-//! runtime 层应有集成测试锁定 stake/main/fee_account/普通账户 的允许矩阵。
+//! 定义机构资产操作枚举及受限资金操作接口。
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;

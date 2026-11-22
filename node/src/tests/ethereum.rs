@@ -1,3 +1,5 @@
+//! 验证以太坊查询绑定准确执行区块及独立Runtime上下文。
+
 use super::*;
 
 use crate::ethereum::initialize;

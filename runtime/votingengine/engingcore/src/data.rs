@@ -1,13 +1,4 @@
-//! 提案业务数据 / Owner / 元数据 / 大对象统一接口。
-//!
-//! 所有提案在创建后由本入口原子绑定:
-//! - `ProposalOwner[id]` = 业务模块 MODULE_TAG(分发自动执行 / 重试 / 取消的归属来源)
-//! - `ProposalData[id]` = 业务参数 SCALE 字节(BoundedVec)
-//! - `ProposalMeta[id]` = (created_at, passed_at) 辅助元数据
-//! - `ProposalObject[id]` / `ProposalObjectMeta[id]` = 大对象(如 runtime wasm)
-//!
-//! 业务模块只能通过 `register_proposal_data` 在创建阶段写入一次,后续生产路径
-//! 不得让 caller 自报 `module_tag` 更新 ProposalData。
+//! 原子绑定提案业务数据、所属模块、投票计划及大对象元数据。
 
 use frame_support::ensure;
 use frame_support::pallet_prelude::{BoundedVec, DispatchResult};

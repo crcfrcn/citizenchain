@@ -1,3 +1,5 @@
+// 展示并管理本机节点密钥的导入、导出和删除操作。
+
 import { sanitizeError } from "../client/tauri";
 import { settingsApi as api } from "./api";
 import type { BootnodeKey } from "./types";

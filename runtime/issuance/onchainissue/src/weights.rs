@@ -1,8 +1,4 @@
-//! WeightInfo 占位。
-//!
-//! 框架阶段统一走 Weight::zero() 占位,实装与 benchmarks.rs 联动后由
-//! `frame-benchmarking` 自动生成,然后 `cargo run --features runtime-benchmarks --
-//! benchmark pallet --pallet onchainissue --extrinsic '*' --output ...` 落盘。
+//! 声明未开放代币业务的零权重占位实现。
 
 use frame_support::weights::Weight;
 

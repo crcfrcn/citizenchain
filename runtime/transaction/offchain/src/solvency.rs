@@ -1,13 +1,4 @@
-//! 清算行偿付能力自动保护。
-//!
-//!
-//! - 不变式:`L2 清算账户链上 Balances 余额 >= BankTotalDeposits[L2]`
-//!   这个不变式保证清算行随时可兑付所有 L3 存款(全额准备金)。
-//! - 任何会让 `BankTotalDeposits` 增加的动作执行前,先校验偿付充足;
-//!   任何会让清算账户余额减少的动作(手续费扣款 / 提现)同样校验。
-//! - 偿付校验嵌在 `settlement::execute_clearing_bank_batch`
-//!   和 `deposit::do_withdraw`/`do_deposit` 的路径上,不足时直接 Err
-//!   `SolvencyProtected`,链上**自动拒绝**,无需省储行手动干预。
+//! 核对清算行链上余额与用户存款总额，限制违反偿付能力的支出。
 
 use frame_support::{ensure, traits::Currency};
 use sp_runtime::traits::SaturatedConversion;

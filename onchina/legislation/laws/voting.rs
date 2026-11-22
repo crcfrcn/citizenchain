@@ -1,19 +1,9 @@
-//! 立法投票 `cast_representative_vote` 等裸 SCALE call-data 编码器（pallet 26）。
-//!
-//! 代表机构表决携带 `voter_role_code`；其余签署调用仍为 `(proposal_id, approve)`。
-//! 复用「构造裸 call data → CitizenWallet 一次签名并显示响应二维码
-//! → OnChina 回扫后统一提交」通道。
-//!
-//! 特别案人口快照由投票引擎按 `actor_cid_number` 推导作用域并随提案原子生成，本文件不承载快照调用。
-//!
-//! `cast_representative_vote` 已接入 handler；`cast_referendum_vote`/`executive_sign`/`override_sign`/
-//! `guard_vote` 及其 call index 为公投/行政签署/护宪终审流预留(本轮读展示 + 另线程),暂无生产消费方。
+//! 编码代表投票、公投及行政签署的SCALE调用。
 
-// 公投/行政签署/护宪终审流的 call index 与 encode 函数为预留(本轮读展示 + 另线程),尚无生产消费方。
 #![allow(dead_code)]
 
 use codec::Encode;
-use onchina::institutions_call::{chain_action_code, ChainCall};
+use onchina::institutions::{chain_action_code, ChainCall};
 
 /// LegislationVote pallet 在 construct_runtime 的索引。
 pub const LEGISLATION_VOTE_PALLET_INDEX: u8 = 26;

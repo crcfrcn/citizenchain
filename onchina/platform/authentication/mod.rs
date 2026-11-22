@@ -1,4 +1,5 @@
-/// 敏感动作冷钱包扫码签名工具(PasskeyColdSign 档)。
+//! 组织管理员身份、会话、Passkey和敏感动作认证模块。
+
 #[path = "action_sign.rs"]
 pub mod action_sign;
 /// 统一管理员安全动作入口；注册局办理调用所属模块，原有凭证规则保持不变。

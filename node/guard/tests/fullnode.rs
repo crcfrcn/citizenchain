@@ -1,3 +1,5 @@
+//! 验证全节点奖励存储键、合法发行及异常状态转换拒绝。
+
 use super::*;
 
 use crate::guard::fullnode_issuance::author_from_header;

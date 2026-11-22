@@ -1,3 +1,5 @@
+// 验证私权工作台和会员价格清单及调价准备的Passkey边界。
+
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
@@ -91,6 +93,6 @@ describe('私权本机构工作台', () => {
     expect(pricing).toContain('会员定价');
     // 拆页后首屏仅挂载账户页，定价读取不能抢先发生。
     expect(pricing).not.toContain('ant-spin');
-    for (const label of ['岗位管理', '任职管理', '法定代表人']) expect(normal).toContain(label);
+    for (const label of ['机构治理', '岗位管理', '任职管理', '法定代表人']) expect(normal).toContain(label);
   });
 });

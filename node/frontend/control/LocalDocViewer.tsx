@@ -1,3 +1,5 @@
+// 净化和渲染本机文档，生成目录、章节锚点及图片布局。
+
 import type { LocalDoc } from "./types";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';

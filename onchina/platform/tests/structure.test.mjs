@@ -1,4 +1,5 @@
-// 结构回归复用产品既有测试流程；源码定位不启动业务服务。
+// 验证链上中国源码职责布局、模块声明及已替代引用清理。
+
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,existsSync,statSync,realpathSync} from 'node:fs';
@@ -204,4 +205,26 @@ test('默认节点保留基准命令开关、完整元数据依赖及生产防�
  assert.match(readFileSync(join(root,'node/src/command.rs'),'utf8'),/#\[cfg\(feature = "runtime-benchmarks"\)\]\s*Some\(crate::cli::Subcommand::Benchmark/u);
  assert.match(readFileSync(join(root,'node/guard/Cargo.toml'),'utf8'),/^frame-benchmarking = /mu);
  assert.match(readFileSync(join(root,'node/guard/src/policy.rs'),'utf8'),/dyn frame_benchmarking::Benchmark<runtime::Block>/u);
+});
+
+// 机构公共入口必须同时承载真实业务，内部实现不能成为额外出口。
+test('机构只有一个公共入口，合并文件包含实际业务且旧层级不可达',()=>{
+ const entry=source('platform/institutions/mod.rs');
+ assert.doesNotMatch(entry,/pub(?:\(crate\))?\s+mod\s/u);
+ assert.match(entry,/pub(?:\(crate\))? use /u);
+ assert.deepEqual(definitionOwners('fn','create_account'),['platform/institutions/accounts.rs']);
+ assert.deepEqual(definitionOwners('fn','derive_account_bytes'),['platform/institutions/accounts.rs']);
+ assert.deepEqual(definitionOwners('fn','get_institution'),['platform/institutions/subjects.rs']);
+ assert.deepEqual(definitionOwners('fn','ensure_institution_visible_to_admin'),['platform/institutions/subjects.rs']);
+ assert.deepEqual(definitionOwners('const','PARTITIONED_TABLES'),['platform/database/connection.rs']);
+ const directory=join(onchina,'platform/institutions');
+ for(const file of files(directory).filter(path=>path.endsWith('.rs'))){
+  const text=readFileSync(file,'utf8');
+  assert.ok(text.trimEnd().split('\n').length>=100,relative(onchina,file));
+  assert.match(text.split('\n')[0],/^\/\/!.*[\u4e00-\u9fff]/u,file);
+  assert.doesNotMatch(text,/pub(?:\(crate\))?\s+mod\s/u,file);
+ }
+ const lib=source('platform/modules/lib.rs');
+ assert.equal([...lib.matchAll(/#\[path = "\.\.\/institutions\/[^"\n]+"\]/gu)].length,1);
+ assert.match(lib,/#\[path = "\.\.\/institutions\/mod\.rs"\]\s*pub mod institutions;/u);
 });

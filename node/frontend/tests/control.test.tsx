@@ -1,3 +1,5 @@
+// 验证节点控制IPC、失败不重放及精确发行金额和更新标记。
+
 import {beforeEach, expect, it, vi} from 'vitest';
 import {homeNodeApi} from '../control/api';
 const mocks=vi.hoisted(()=>({invoke:vi.fn()}));
@@ -487,6 +489,30 @@ it('链上中国只显示宿主交付的入口和具体启动诊断',async()=>{
   expect(status.nextElementSibling).toBe(screen.getByText('链上中国平台'));
   expect(screen.getByText('主机尚未配置固定地址')).toBeTruthy();
   view.unmount();
+});
+
+it.each(['enabled', 'starting'] as const)('链上中国等待HTTPS时无错误，就绪后保留%s检查结果', async (status) => {
+  vi.useFakeTimers();
+  const detail = status === 'starting' ? '链上中国可信 HTTPS 健康检查失败' : null;
+  mocks.invoke.mockResolvedValue({running:true,status:'starting',statusLabel:'启动中',url:'https://product.example:1988/',detail:null,modules:[]});
+  const view = render(<OnChinaPlatformSection />);
+  try {
+    await act(async () => {});
+    expect(screen.getByRole('status').getAttribute('aria-label')).toBe('启动中');
+    expect(screen.getByText('启动中').className).toBe('section-inline-hint');
+    expect(view.container.querySelector('.section-inline-error')).toBeNull();
+    expect((screen.getByRole('button', {name:/^注册局/}) as HTMLButtonElement).disabled).toBe(true);
+    mocks.invoke.mockResolvedValue({running:true,status,statusLabel:status === 'enabled' ? '已开启' : '启动中',url:'https://product.example:1988/',detail,modules:status === 'enabled' ? ['registry'] : []});
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(screen.getByRole('status').getAttribute('data-status')).toBe(status);
+    expect(view.container.querySelector('.section-inline-hint')).toBeNull();
+    if (detail) expect(screen.getByText(detail)).toBeTruthy();
+    else expect(view.container.querySelector('.section-inline-error')).toBeNull();
+    expect((screen.getByRole('button', {name:/^注册局/}) as HTMLButtonElement).disabled).toBe(status !== 'enabled');
+  } finally {
+    view.unmount();
+    vi.useRealTimers();
+  }
 });
 
 it('链上中国只允许打开已就绪模块，并只传模块 ID', async () => {

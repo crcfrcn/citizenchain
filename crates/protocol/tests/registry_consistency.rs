@@ -1,4 +1,5 @@
-// 协议 fixture 缺失或不一致必须立即中止测试，断言式解包仅限本测试目标。
+//! 验证动作码、中文标签、审阅字段及跨端生成注册表一致性。
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use qr_protocol::export::{
@@ -367,8 +368,8 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "deaa1fd50ec90c19571b78c8b064cbd1c05f22b47bd2062577f32845a2324be5",
-        "Dart registry 与包含统一机构登记状态锁的正式导出金标不一致"
+        "de803ac98d53f8026046262f4b4c8cf5292716066889c9b1427022fd202a4859",
+        "Dart registry 与包含机构钱包专用证明及call10的正式导出金标不一致"
     );
 }
 
@@ -446,7 +447,7 @@ fn generated_qr_body_validators_are_current() {
     assert_eq!(
         generated_sha256(&export_qr_bodies_dart().expect("Dart body schema 必须可生成"))
             .expect("Dart body 原消费者金标摘要"),
-        "b3d8170972e7446d4242daecbaed6a3fd4ece13270c3e02b978731147acf8c49",
+        "1b46f13bad94462ea0da3cb9c0836552834f9998fc0331b83de8d4c26fd6b012",
         "Dart body 与原消费者完整字节不一致"
     );
     let cases = [

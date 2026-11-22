@@ -1,11 +1,5 @@
-//! 联合投票 — 联合公投阶段。
-//!
-//! 联合内部投票阶段非全票通过或超时进入此阶段,链上公民身份持有者按 >50% 严格多数投票。
-//!
-//! 业务函数挂在 `super::Pallet<T>` 上,在 super(lib.rs)的 #[pallet::call]
-//! `cast_referendum` extrinsic 与 `JointProposalFinalizer::finalize_jointreferendum_timeout`
-//! trait 实现中被调用。
-//!
+//! 执行联合公投写票和超时终结，按人口快照判定严格多数。
+
 use frame_support::{ensure, pallet_prelude::DispatchResult};
 
 use engingcore::{Proposal, PROPOSAL_KIND_JOINT, STATUS_PASSED};

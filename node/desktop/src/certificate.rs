@@ -1,3 +1,5 @@
+//! 管理桌面本机TLS证书、私钥及其安全文件位置。
+
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;

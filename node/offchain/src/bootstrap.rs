@@ -1,23 +1,5 @@
-//! 扫码支付清算体系节点层。
-//!
-//! - 本目录统一承载 node 层清算行功能,包括清算行管理命令、本地账本、
-//!   对 citizenapp 的 RPC、批次打包器、链上事件监听同步、主账对账。
-//! - 清算行结算依赖的机构身份只读(候选搜索、链上机构详情、管理员集合、动态阈值、CID 注册凭证)
-//!   收敛在 `institution_read` 子模块;机构创建归 onchina 控制台,节点不承接。
-//! - 本 mod 直接挂载扫码收单+RPC+ledger 文件;`settlement` 子目录承载结算 worker。
-//! - `service::new_full` 检测到 `--clearing-bank` CLI flag 时,调
-//!   `start_clearing_bank_components` 启动本目录下的组件,并 spawn:
-//!     - `offchain-clearing-packer`(30 秒 tick)
-//!     - `offchain-clearing-event-listener`(订阅 import_notification_stream)
-//!     - `offchain-clearing-reserve-monitor`(主账对账)
-//!
-//!   不加 `--clearing-bank` 的节点仅跑 PoW + GRANDPA,跳过本目录所有启动。
-//!
-//! 模块边界:
-//! - 本 mod 平铺文件:扫码支付收单与清算行节点声明 + RPC + 本地账本。
-//! - `settlement`:只管本清算行交易打包上链与结算 worker。
+//! 启动清算行账本、批次打包、事件监听和偿付监视组件。
 
-// 清算组件装配函数逐项接收服务句柄和机构配置，保持既有调用边界。
 #![allow(clippy::too_many_arguments)]
 //! 清算行 offchain 组件启动接线。
 //!

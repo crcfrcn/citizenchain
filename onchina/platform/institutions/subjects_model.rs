@@ -1,15 +1,4 @@
-//! 机构/账户两层数据模型
-//!
-//! 链端 `InstitutionAccounts::<T>(cid_number, account_name) → account_info`
-//! 是 DoubleMap，一个 cid_number 下可挂多个机构账户。
-//! cid 系统这里对应拆两层:
-//!
-//! - `Institution`:每个 cid_number 唯一,存机构展示信息(cid_full_name 等),
-//!   **不**进链。
-//! - `InstitutionAccount`:以 `(cid_number, account_name)` 为复合 key,account_name 是
-//!   **进链的 name**,一个机构下可挂多个。
-//!
-//! 真实模型与链上投影边界见根技术文档 CitizenChainOnChina.md。
+//! 定义机构主体、法定代表人及机构账户的数据模型。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -389,7 +378,7 @@ pub struct ParentInstitutionRow {
 #[serde(rename_all = "camelCase")]
 pub struct InstitutionDetailOutput {
     pub institution: Institution,
-    pub accounts: Vec<crate::institutions::accounts::handler::ChainAccountRow>,
+    pub accounts: Vec<crate::institutions::ChainAccountRow>,
     /// 创建该机构的登录管理员姓(按 creator_account_id 账户反查 admins)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub creator_family_name: Option<String>,

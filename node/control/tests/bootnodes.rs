@@ -1,3 +1,5 @@
+//! 验证引导节点元数据拒绝重复的旧名称字段。
+
 use crate::bootnodes::StoredBootnodeMeta;
 
 #[test]

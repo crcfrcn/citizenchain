@@ -20,7 +20,7 @@ use axum::{
 use chrono::Utc;
 use onchina::authentication::repo;
 use onchina::chain_runtime;
-use onchina::institutions::catalog::balance_fen;
+use onchina::institutions::balance_fen;
 use std::collections::BTreeMap;
 /// 原有名册展示缓存有效期，不作为授权真源。
 const FEDERAL_ADMINS_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(30);
@@ -49,12 +49,16 @@ pub(crate) async fn list_federal_registry_admins(
         let message = format!("province '{province}' is not a valid chain province");
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
     }
-    // 命中短 TTL 缓存直接返回,跳过后续全量链读(全省任职扫描 + 批量余额),
-    // 避免每次进 tab 都阻塞在链读上。锁不跨 await。
+    // A wallet execution in a new finalized block must not reuse an earlier displayed wallet.
+    let cache_block = match chain_runtime::FinalizedChainView::connect().await {
+        Ok(view) => format!("{:#x}", view.block_hash),
+        Err(_) => return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable"),
+    };
+    let cache_key = format!("{province}:{cache_block}");
     {
         // 缓存锁即使被旧请求 poison 也只恢复当前内存缓存，不影响链上管理员授权真源。
         let cache = cache.lock().unwrap_or_else(|err| err.into_inner());
-        if let Some((cached_at, rows)) = cache.get(&province) {
+        if let Some((cached_at, rows)) = cache.get(&cache_key) {
             if cached_at.elapsed() < FEDERAL_ADMINS_CACHE_TTL {
                 return Json(ApiResponse {
                     code: 0,
@@ -83,18 +87,17 @@ pub(crate) async fn list_federal_registry_admins(
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
         }
     };
-    let province_groups =
-        match onchina::institutions::admins::chain_roles::fetch_all_federal_registry_assignments(
-            &identity,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(err) => {
-                tracing::warn!(error = %err, "chain unreachable listing all federal registry admins");
-                return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable");
-            }
-        };
+    let province_groups = match onchina::institutions::fetch_all_federal_registry_assignments(
+        &identity,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::warn!(error = %err, "chain unreachable listing all federal registry admins");
+            return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable");
+        }
+    };
     let now = Utc::now();
     let tier1_code = chain_runtime::TIER1_REGISTRY_CODE.to_string();
     let balance_account_ids = province_groups
@@ -187,7 +190,8 @@ pub(crate) async fn list_federal_registry_admins(
     // 回填短 TTL 缓存,窗口内重复打开直接命中,不再全量链读。锁不跨 await。
     {
         let mut cache = cache.lock().unwrap_or_else(|err| err.into_inner());
-        cache.insert(province.clone(), (std::time::Instant::now(), rows.clone()));
+        cache.retain(|key, _| !key.starts_with(&format!("{province}:")));
+        cache.insert(cache_key, (std::time::Instant::now(), rows.clone()));
     }
     Json(ApiResponse {
         code: 0,

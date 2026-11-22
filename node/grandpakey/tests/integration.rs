@@ -1,3 +1,5 @@
+//! 验证两类GRANDPA更换调用符合Runtime编码合同。
+
 use crate::proof::build_runtime_call;
 use codec::DecodeAll;
 

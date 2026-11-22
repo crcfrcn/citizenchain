@@ -1,3 +1,5 @@
+//! 验证支付批次打包、签名提交及失败时账本处理。
+
 use super::*;
 
 use crate::ledger::OffchainLedger;

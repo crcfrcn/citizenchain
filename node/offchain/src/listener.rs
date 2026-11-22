@@ -1,3 +1,5 @@
+//! 监听链上充值、提现和批次事件并更新所属清算行账本。
+
 use crate::ledger::OffchainLedger;
 use codec::Decode;
 use futures::StreamExt;

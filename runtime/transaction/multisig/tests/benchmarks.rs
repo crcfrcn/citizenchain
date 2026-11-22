@@ -1,12 +1,4 @@
-//! 多签资金账户转账模块 Benchmark 定义。
-//!
-//! 本 benchmark 当前覆盖治理机构路径；个人多签与注册机构账户
-//! 通过相同 `propose_transfer` 入口和查询 trait 接入，职责边界不在本文件复刻。
-//!
-//! 机构岗位选民与个人多签管理员投票一律通过 `InternalVote::cast`(20.0)。
-//! 本文件只保留 `propose_transfer` benchmark;手动重试统一走
-//! `VotingEngine::retry_passed_proposal`,投票与重试 weight 全部归入
-//! engingcore pallet 自身的 benchmark,业务端无需重复覆盖。
+//! 基准测量治理机构多签转账及所属费用和执行路径。
 
 #![cfg(feature = "runtime-benchmarks")]
 

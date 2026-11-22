@@ -1,3 +1,5 @@
+// 填写多签转账对象、金额和备注并准备治理提案。
+
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58, ADDRESS_INPUT_PLACEHOLDER } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";

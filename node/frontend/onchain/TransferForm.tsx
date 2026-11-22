@@ -1,3 +1,5 @@
+// 采集收款地址、精确金额和备注，展示费用并发起转账。
+
 import { ADDRESS_INPUT_PLACEHOLDER } from "../client/ss58";
 import { AddressScanModal } from "../desktop/scanner";
 import { calculateTransferFeeYuan } from "./fee";

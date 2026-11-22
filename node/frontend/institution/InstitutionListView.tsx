@@ -1,3 +1,5 @@
+// 展示机构目录并打开机构详情。
+
 import { councilApi } from './council';
 import { sanitizeError } from "../client/tauri";
 import type { GovernanceOverview, InstitutionListItem } from "./council";

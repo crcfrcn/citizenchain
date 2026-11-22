@@ -1,4 +1,5 @@
-//! registry独立Cargo包入口，仅链接平台公开库和本包业务。
+//! 启动独立注册局服务并连接平台公共接口。
+
 use axum::{
     http::StatusCode,
     routing::{delete, get, post},

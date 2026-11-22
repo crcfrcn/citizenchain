@@ -1,3 +1,6 @@
+// 采集自定义账户名称并发起机构账户创建提案。
+
+import { IdentityCidText } from '../codes/identityCid';
 // 新建账户弹窗。
 //
 // 新增机构自定义账户 = 发起本机构「新增账户」内部投票提案:
@@ -106,7 +109,7 @@ export const CreateAccountModal: React.FC<Props> = ({
           <Typography.Text type="secondary">机构:{cidFullName}</Typography.Text>
           <br />
           <Typography.Text type="secondary" code style={{ fontSize: 11 }}>
-            {cidNumber}
+            <IdentityCidText value={cidNumber} />
           </Typography.Text>
         </div>
         <Form form={form} layout="vertical" onFinish={onSubmit}>

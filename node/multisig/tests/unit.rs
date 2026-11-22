@@ -1,3 +1,5 @@
+//! 验证多签动作解码、字段映射及摘要截断和缺失机构处理。
+
 use crate::proposal::decode_transfer_action;
 use crate::proposal::format_sweep_summary;
 use crate::proposal::format_transfer_summary;

@@ -1,5 +1,4 @@
-// 发起菜单(唯一发起入口)。候选(可发起立法动作 × 表决类型)单源自后端
-// /api/legislation/proposable(参议会/非立法机构返回空 → 不渲染)。选表决类型 + 立法/修法/废法 → 开编辑器。
+// 按后端候选呈现可发起法律动作和表决类型，打开对应编辑器。
 
 import React, { useEffect, useState } from 'react';
 import { Alert, Button, Select, Space } from 'antd';

@@ -1,3 +1,5 @@
+//! 生成决议销毁机构、账户及金额的展示摘要。
+
 use crate::types::ResolutionDestroyDetail;
 
 pub fn format_destroy_summary(d: &ResolutionDestroyDetail) -> String {

@@ -1,7 +1,4 @@
-//! A collection of node-specific RPC methods.
-//! Substrate provides the `sc-rpc` crate, which defines the core RPC layer
-//! used by Substrate nodes. This file extends those RPC definitions with
-//! capabilities that are specific to this project's runtime configuration.
+//! 装配节点原生RPC、CID绑定查询及PoW账户签名交易入口。
 
 #![warn(missing_docs)]
 use codec::Decode;

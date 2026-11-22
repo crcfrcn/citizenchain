@@ -1,3 +1,5 @@
+//! 验证首次身份奖励的精确发行及奖励档位和数量边界。
+
 use super::*;
 use codec::Encode;
 type State = BTreeMap<Vec<u8>, Vec<u8>>;

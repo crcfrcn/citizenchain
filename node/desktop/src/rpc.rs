@@ -1,3 +1,5 @@
+//! 维护本机RPC端口并生成带固定回环身份的安全地址。
+
 use serde_json::Value;
 use std::env;
 use std::io::Read;

@@ -1,3 +1,5 @@
+//! 验证清算RPC使用的账户、费率和支付nonce存储键。
+
 use super::*;
 
 use crate::rpc::calc_fee;

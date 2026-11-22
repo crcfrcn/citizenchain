@@ -1,3 +1,5 @@
+//! 取得当前本机节点的只读网络会话。
+
 use nodeclient::network::LocalNetworkReader;
 
 /// 仅给 Rust 内部调用者返回固定查询入口，释放 AppState 锁后再执行查询。

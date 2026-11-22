@@ -1,3 +1,5 @@
+//! 管理可选择节点模式、持久配置和运行能力。
+
 use serde::Deserialize;
 use serde::Serialize;
 use std::fs;

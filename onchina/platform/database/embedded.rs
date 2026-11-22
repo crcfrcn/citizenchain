@@ -1,12 +1,4 @@
-//! 内嵌私有 PostgreSQL 生命周期(onchina 自管)。
-//!
-//! (Card 05):去中心化每市自治节点零依赖——onchina 在启动期把随安装包打进来的
-//! PostgreSQL 二进制拉成**本机私有实例**(127.0.0.1,不对外),首启 `initdb`,起 `postgres`,
-//! 建 `onchina` 库,返回 `DATABASE_URL`;退出期 `pg_ctl stop`。node 不碰 PG,只用 env 告诉
-//! onchina 二进制目录/数据目录/端口(见 `node/src/onchina_proc`)。
-//!
-//! 两种部署:① 桌面/小市内嵌(`ONCHINA_EMBEDDED_PG=1`,本模块);② 大市外部托管 PG(直接给
-//! `DATABASE_URL`,不启用本模块)。
+//! 启动和停止随包私有PostgreSQL实例，管理本机数据及连接配置。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

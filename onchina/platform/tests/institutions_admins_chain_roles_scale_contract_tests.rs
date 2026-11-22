@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证机构岗位任职的期限、CID锚定及SCALE布局。
+
 use super::*;
 use entitybase::{AuthorizationSubject, BusinessActionId, RoleBusinessPermission, RoleSubject};
 use frame_support::pallet_prelude::{BoundedVec, ConstU32};
@@ -16,6 +17,128 @@ type FixtureVotePlan = (
     u8,
     [u8; 32],
 );
+
+fn governance_read_context(
+    code: &str,
+    cid: &str,
+    province: &str,
+) -> crate::authentication::login::AdminAuthContext {
+    crate::authentication::login::AdminAuthContext {
+        account_id: format!("0x{}", "11".repeat(32)),
+        institution_cid_number: cid.into(),
+        institution_code: code.into(),
+        admin_level: Some(if code == "CREG" { "CITY" } else { "NATIONAL" }.into()),
+        family_name: "测".into(),
+        given_name: "试".into(),
+        scope_province_name: Some(province.into()),
+        scope_city_name: (code == "CREG").then(|| "贵阳市".into()),
+        scope_town_name: None,
+        cid_short_name: None,
+    }
+}
+
+#[test]
+fn frg_governance_read_all_provinces_share_one_institution_without_national_scope() {
+    let frg = primitives::governance_skeleton::federal_registry_institution();
+    for province in primitives::cid::code::PROVINCE_CODE_INFOS {
+        let ctx = governance_read_context("FRG", frg.cid_number, province.province_name);
+        assert!(crate::institutions::can_read_institution_governance(
+            &ctx,
+            "FRG",
+            frg.cid_number,
+            "中枢省",
+            "",
+            "",
+        ));
+        let scope = crate::authorization::rules::get_visible_scope(&ctx);
+        assert!(!scope.nationwide);
+        assert!(scope.includes_province(province.province_name));
+        let other = if province.province_name == "中枢省" {
+            "贵州省"
+        } else {
+            "中枢省"
+        };
+        assert!(!scope.includes_province(other));
+        assert!(!crate::institutions::can_read_institution_governance(
+            &ctx,
+            "CREG",
+            "other-institution",
+            other,
+            "",
+            "",
+        ));
+    }
+}
+
+#[test]
+fn frg_governance_read_exception_requires_exact_session_target_and_fixed_cid() {
+    let frg = primitives::governance_skeleton::federal_registry_institution();
+    let fake = "GZ018-FRG00-000000001-2026";
+    for (actor_code, actor_cid, target_code, target_cid) in [
+        ("FRG", fake, "FRG", frg.cid_number),
+        ("FRG", frg.cid_number, "FRG", fake),
+        ("FRG", fake, "FRG", fake),
+        ("FRG", frg.cid_number, "CREG", frg.cid_number),
+        ("CREG", frg.cid_number, "FRG", frg.cid_number),
+        ("SFGY", "another-institution", "FRG", frg.cid_number),
+    ] {
+        let ctx = governance_read_context(actor_code, actor_cid, "贵州省");
+        assert!(
+            !crate::institutions::can_read_institution_governance(
+                &ctx,
+                target_code,
+                target_cid,
+                "中枢省",
+                "",
+                "",
+            ),
+            "actor={actor_code}:{actor_cid}, target={target_code}:{target_cid}"
+        );
+    }
+    let ctx = governance_read_context("FRG", frg.cid_number, "贵州省");
+    assert!(crate::institutions::can_read_institution_governance(
+        &ctx,
+        "CREG",
+        "existing-local-target",
+        "贵州省",
+        "",
+        "",
+    ));
+}
+
+#[test]
+fn frg_governance_read_does_not_grant_cross_province_registration_roles() {
+    let frg = primitives::governance_skeleton::federal_registry_institution();
+    let ctx = governance_read_context("FRG", frg.cid_number, "贵州省");
+    assert!(crate::institutions::can_read_institution_governance(
+        &ctx,
+        "FRG",
+        frg.cid_number,
+        "中枢省",
+        "",
+        "",
+    ));
+    let role = primitives::governance_skeleton::province_commissioner_role_code(*b"GZ");
+    let target = |r5: &str| {
+        let payload = format!("{r5}CREG1591972062026");
+        format!(
+            "{r5}-CREG{}-159197206-2026",
+            primitives::cid::number::checksum_char_m1(&payload, false)
+        )
+    };
+    assert!(registration_role_in_scope(
+        frg.cid_number.as_bytes(),
+        &role,
+        target("GZ018").as_bytes(),
+        *b"CREG",
+    ));
+    assert!(!registration_role_in_scope(
+        frg.cid_number.as_bytes(),
+        &role,
+        target("GD018").as_bytes(),
+        *b"CREG",
+    ));
+}
 
 #[test]
 fn assignment_term_window_is_inclusive_and_non_term_requires_zeroes() {
@@ -613,6 +736,7 @@ fn registration_snapshot_fixture() -> RegistrationSnapshot {
     let cid = b"NX013-CREGN-937676656-2026".to_vec();
     let code = b"R_EXISTING".to_vec();
     RegistrationSnapshot {
+        owner: AdminPallet::PublicAdmins,
         block_hash: [7; 32],
         block_number: 9,
         current_day: 10,
@@ -713,13 +837,12 @@ fn registration_snapshot_hash_matches_runtime_bounded_scale_layout_and_revision(
 
 #[test]
 fn registration_parser_preserves_old_provenance_and_stamps_only_new_assignments() {
-    use crate::institutions::admins::{
+    use crate::institutions::{
         parse_registration_action, InstitutionAssignmentChangeInput, InstitutionRoleMutationInput,
     };
     let snapshot = registration_snapshot_fixture();
-    let admins = crate::institutions_call::InstitutionAdminsPayload::Public(
-        snapshot.admins.clone().unwrap(),
-    );
+    let admins =
+        crate::institutions::InstitutionAdminsPayload::Public(snapshot.admins.clone().unwrap());
     let changes: Vec<InstitutionAssignmentChangeInput> = serde_json::from_value(serde_json::json!([
         {"roleCode":"R_EXISTING","assignments":[{"accountId":format!("0x{}",hex::encode([1;32])),"termStart":1,"termEnd":20}]}
     ])).unwrap();
@@ -828,7 +951,7 @@ fn registration_roles_require_existing_scope_and_choose_only_effective_candidate
 
 #[test]
 fn registration_retains_canonical_roster_cid_and_empty_profile_without_local_defaults() {
-    use crate::institutions::admins::{retained_registration_admin, InstitutionAdminInput};
+    use crate::institutions::{retained_registration_admin, InstitutionAdminInput};
     let snapshot = registration_snapshot_fixture();
     let mut stored = snapshot.admins.unwrap()[0].clone();
     stored.family_name = Default::default();
@@ -847,4 +970,35 @@ fn registration_retains_canonical_roster_cid_and_empty_profile_without_local_def
     assert_eq!(updated.family_name.as_slice(), "张".as_bytes());
     assert_eq!(updated.account_id, stored.account_id);
     assert_eq!(updated.cid_number, stored.cid_number);
+}
+
+
+#[test]
+fn institutional_wallet_scale_fixture_is_identical_to_runtime_types_and_new_call() {
+    use codec::Encode;
+    let fixture: serde_json::Value=serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),"/../../runtime/primitives/tests/fixtures/role_permission.json"))).unwrap();
+    let f=&fixture["institution_wallet"];
+    let change=adminbase::InstitutionAdminWalletChange{admin_account:[2;32],expected_wallet:[3;32],new_wallet:[4;32],expected_revision:7};
+    let cid=f["cid_number"].as_str().unwrap().as_bytes().to_vec();
+    let acceptance=adminbase::InstitutionWalletAcceptance{genesis_hash:[1u8;32],cid_number:cid.clone().try_into().unwrap(),change:change.clone(),mode:adminbase::InstitutionWalletChangeMode::SelfSigned,expires_at:1900000000};
+    assert_eq!(format!("0x{}",hex::encode(acceptance.encode())),f["acceptance_hex"]);
+    let proof: adminbase::InstitutionWalletProof=vec![0xab;64].try_into().unwrap();
+    let mut call=vec![30,10];call.extend(cid.encode());call.extend(change.encode());call.extend(1900000000u64.encode());call.extend(proof.encode());
+    assert_eq!(format!("0x{}",hex::encode(call)),f["self_call_hex"]);
+    let action=entitybase::InstitutionGovernanceAction::<[u8;32]>::RotateAdminWallet{change,expires_at:1900000000,new_wallet_proof:proof};
+    assert_eq!(format!("0x{}",hex::encode(action.encode())),f["governance_action_hex"]);
+    // Existing discriminants remain byte-identical.
+    assert_eq!(entitybase::InstitutionGovernanceAction::<[u8;32]>::ReplaceAdmins{admins:vec![]}.encode()[0],0);
+}
+
+#[test]
+fn institutional_pq_wallet_can_login_without_changing_signing_messages() {
+    let child=[97;32];let public=chain_signing::mldsa::public_key(&child);
+    let account=format!("0x{}",hex::encode(chain_signing::mldsa::account_id(&public)));
+    let message=b"QR_V1|login|institution-wallet";
+    let signature=chain_signing::mldsa::sign(&child,message).unwrap();
+    let wire=format!("0x{}",hex::encode(chain_signing::mldsa::encode_pq_signature(&public,&signature)));
+    assert!(crate::authentication::login::verify_admin_signature_bytes(&account,message,&wire));
+    assert!(!crate::authentication::login::verify_admin_signature_bytes(&account,b"other login",&wire));
+    assert!(!crate::authentication::login::verify_admin_signature_bytes(&format!("0x{}",hex::encode([1;32])),message,&wire));
 }

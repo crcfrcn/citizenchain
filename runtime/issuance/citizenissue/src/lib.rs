@@ -1,14 +1,4 @@
-//! # 公民轻节点认证奖励发行模块 (citizenissue)
-//!
-//! 本模块在公民**首次上链**(投票身份登记或竞选身份首建,二者同权)时，通过
-//! `OnVotingIdentityRegistered` 回调登记本块待发奖励，并在同一块 `on_finalize` 中自动
-//! 发放一次性认证奖励。竞选身份不要求先有投票身份，首次即以竞选身份上链同样发币。
-//!
-//! ## 核心规则
-//! - 双重防重：按规范 `cid_number` + 按账户，防止同一公民或同一账户重复领奖。
-//! - 阶梯奖励：前 `CITIZEN_ISSUANCE_HIGH_REWARD_COUNT` 人获高额奖励，之后降为常规奖励。
-//! - 总量硬顶：累计发放人数达到 `CITIZEN_ISSUANCE_MAX_COUNT` 后停止发放。
-//! - 本模块不暴露任何 extrinsic，所有触发均来自上游回调。
+//! 在公民首次登记链上身份时排队并发放一次性认证奖励。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

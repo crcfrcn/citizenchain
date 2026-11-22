@@ -1,3 +1,5 @@
+//! 装配公权管理员测试Runtime、运行阶段和CID身份夹具。
+
 #![cfg(test)]
 
 use super::*;
@@ -102,6 +104,10 @@ impl internalvote::Config for Test {
 pub struct TestCitizenIdentityBinding;
 
 impl adminbase::CitizenIdentityBindingQuery<AccountId32> for TestCitizenIdentityBinding {
+    fn current_account(cid_number: &[u8]) -> Option<AccountId32> {
+        (cid_number == b"CN220-CTZN2-198805200-2026").then(|| CURRENT_ACCOUNT_ID_SEED.with(|seed| account(seed.get())))
+    }
+
     fn matches_citizen_account(cid_number: &[u8], account: &AccountId32) -> bool {
         cid_number == b"CN220-CTZN2-198805200-2026"
             && CURRENT_ACCOUNT_ID_SEED.with(|seed| account == &self::account(seed.get()))
@@ -185,3 +191,72 @@ mod unit;
 mod security;
 
 mod integration;
+
+/// 钱包基础夹具使用现有CID生成器；初始化钱包显式提供，不从锚点或个人CID猜测。
+fn wallet_fixture_cid(code: InstitutionCode, seed: u8) -> Vec<u8> {
+    primitives::cid::generator::generate_cid_number(
+        primitives::cid::generator::GenerateCidNumberInput {
+            public_key: &format!("0x{seed:064x}"),
+            p1: "0",
+            province_code: "GZ",
+            province_name: "贵州省",
+            city_code: "018",
+            city_name: "贵阳市",
+            year: 2026,
+            institution: primitives::cid::code::institution_code_text(&code).unwrap(),
+        },
+    )
+    .unwrap()
+    .into_bytes()
+}
+
+fn wallet_roster_fixture(code: InstitutionCode, cid: &[u8], count: u32) -> Vec<AccountId32> {
+    let records = (0..count)
+        .map(|index| {
+            let mut bytes = [0u8; 32];
+            bytes[..4].copy_from_slice(&index.to_le_bytes());
+            Admin {
+                account_id: AccountId32::new(bytes),
+                cid_number: Default::default(),
+                family_name: adminbase::FamilyName::truncate_from("测".as_bytes().to_vec()),
+                given_name: adminbase::GivenName::truncate_from("试".as_bytes().to_vec()),
+            }
+        })
+        .collect::<Vec<_>>();
+    let anchors = records
+        .iter()
+        .map(|record| record.account_id.clone())
+        .collect();
+    // Pre-upgrade roster: exercise explicit initialization independently of the new setter.
+    AdminAccounts::<Test>::insert(AdminCidNumber::try_from(cid.to_vec()).unwrap(),
+        InstitutionAdmins { institution_code: code, admins: records.try_into().unwrap() });
+    anchors
+}
+
+fn initialize_wallet_roster(code: InstitutionCode, cid: &[u8], anchors: &[AccountId32]) {
+    for anchor in anchors {
+        assert_ok!(<PublicAdmins as InstitutionAdminWalletLifecycle<
+            AccountId32,
+        >>::initialize_institution_wallet(
+            code,
+            cid.to_vec(),
+            anchor.clone(),
+            anchor.clone(),
+            None,
+        ));
+    }
+}
+
+fn wallet_change(
+    anchor: &AccountId32,
+    old: AccountId32,
+    new: AccountId32,
+    revision: u64,
+) -> InstitutionAdminWalletChange<AccountId32> {
+    InstitutionAdminWalletChange {
+        admin_account: anchor.clone(),
+        expected_wallet: old,
+        new_wallet: new,
+        expected_revision: revision,
+    }
+}

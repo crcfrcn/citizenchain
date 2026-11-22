@@ -1,3 +1,5 @@
+//! 核对创世阶段、声明和固定事实，拒绝受保护字段非法更改。
+
 use codec::Decode;
 use codec::Encode;
 use primitives::genesis::CITIZENS;

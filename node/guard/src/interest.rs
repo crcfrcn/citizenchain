@@ -1,3 +1,5 @@
+//! 核对省储行本金保护及年度利率、发行和审计记录。
+
 use crate::guard::FinalizeIssuancePlan;
 use crate::guard::MAccountInfo;
 use codec::Decode;

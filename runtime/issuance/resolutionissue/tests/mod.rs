@@ -1,3 +1,5 @@
+//! 装配决议发行测试Runtime和联合投票执行夹具。
+
 #![cfg(test)]
 
 use super::*;

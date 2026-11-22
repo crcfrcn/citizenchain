@@ -1,18 +1,4 @@
-// SS58 地址编/解码工具
-//
-// CitizenChain 的 SS58 prefix 固定为 2027（runtime/primitives/src/core_const.rs）。
-// 所有面向用户的地址展示统一使用 SS58；提交到链或后端的账户字段统一使用
-// 小写 `0x` 加 64 位十六进制的 account_id。两者通过本文件提供的编解码函数互转。
-//
-// 编码格式（substrate SS58）：
-//   payload  = prefix_bytes ++ pubkey_32
-//   checksum = blake2b_512("SS58PRE" ++ payload)[0..2]
-//   address  = base58( payload ++ checksum )
-//
-// prefix 编码规则：
-//   0..=63          → 单字节 prefix
-//   64..=16383      → 双字节 prefix（高位编码到 6 位）
-//   2027 落在双字节区间。
+// 编解码公民链SS58展示地址及固定前缀。
 
 import { blake2b } from '@noble/hashes/blake2.js';
 

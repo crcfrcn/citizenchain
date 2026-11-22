@@ -1,3 +1,6 @@
+// 按后端工作台清单展示司法操作、机构资料和记录。
+import { InstitutionWalletGovernancePanel } from '@gmb/onchina-platform/institutions/GovernanceReview';
+
 import { RolesView } from '@gmb/onchina-platform/institutions/RolesView';
 import { AssignmentsView } from '@gmb/onchina-platform/institutions/AssignmentsView';
 import { RepresentativeView } from '@gmb/onchina-platform/institutions/RepresentativeView';
@@ -33,7 +36,8 @@ export function JudicialWorkspace({ auth }: JudicialWorkspaceProps) {
         // 账户管理归本机构在册管理员;司法类操作入口叠加显示。
         <InstitutionDetailNavLayout items={[
           {key:'accounts',label:'账户管理',content:<AccountManageSection auth={auth}/>},
-          {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={auth.institutionCidNumber}/>},
+          {key:'governance',label:'机构治理',content:<InstitutionWalletGovernancePanel auth={auth} cidNumber={auth.institutionCidNumber}/>},
+    {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={auth.institutionCidNumber}/>},
           {key:'assignments',label:'任职管理',content:<AssignmentsView auth={auth} cidNumber={auth.institutionCidNumber}/>},
           {key:'representative',label:'法定代表人',content:<RepresentativeView auth={auth} cidNumber={auth.institutionCidNumber}/>},
           {key:'judicial',label:'司法业务',content:<JudicialOperations auth={auth}/>},
@@ -53,7 +57,7 @@ export function JudicialDisplay({ auth }: OwnInstitutionInfoProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <OwnInstitutionInfoPanel auth={auth} />
-      <OwnInstitutionAdminsView layout="cards" />
+      <OwnInstitutionAdminsView layout="table" />
     </div>
   );
 }
@@ -71,7 +75,7 @@ export type JudicialOperationsProps = {
 export function JudicialOperations({ auth }: JudicialOperationsProps) {
   const actions = auth.workspace?.workspace_sections
     .find((section) => section.workspace_section === 'operations')
-    ?.workspace_actions ?? [];
+    ?.workspace_actions.filter(action => action.action !== 'manage_own_admins') ?? []; // 已由机构治理子tab承载。
 
   if (actions.length === 0) {
     return <Empty description="暂无可执行操作" />;

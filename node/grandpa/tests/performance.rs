@@ -1,3 +1,5 @@
+//! 测量GRANDPA投票快照恢复的固定工作量预算。
+
 use super::*;
 use sp_keyring::Ed25519Keyring;
 use substrate_test_runtime_client::{

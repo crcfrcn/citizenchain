@@ -1,3 +1,5 @@
+//! 验证支付意图布局、签名域及存款和待处理支付账本。
+
 use super::*;
 
 use crate::ledger::PendingPayment;

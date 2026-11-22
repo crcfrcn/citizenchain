@@ -23,8 +23,8 @@
 //
 // For more information, please refer to <http://unlicense.org>
 
-// External crates imports
-// 官方 Revive API 宏展开使用 vec!；WASM 的 no_std 环境需显式导入。
+//! 实现主Runtime公开API，提供区块、交易、metadata及治理查询。
+
 use alloc::{vec, vec::Vec};
 use frame_support::{
     genesis_builder_helper::{build_state, get_preset},

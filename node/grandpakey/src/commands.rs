@@ -1,3 +1,5 @@
+//! 提供GRANDPA密钥更换请求、提交及状态查询的桌面命令。
+
 use crate::request::build_request_sync;
 use crate::request::build_sessions;
 use crate::storage::load_pending;

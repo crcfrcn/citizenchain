@@ -1,4 +1,5 @@
-//! 原所属签名回归，输入和断言保持。
+//! 验证V5已签名交易保留扩展字段并通过真实Runtime解码。
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 use chain_signing::*;
 use codec::Encode;

@@ -1,3 +1,4 @@
+// 挂载节点桌面应用及其全局样式。
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';

@@ -1,3 +1,5 @@
+//! 提供限流、安全响应头、静态缓存及环境输入的HTTP辅助。
+
 use axum::{
     extract::{ConnectInfo, Request, State},
     http::{header::HeaderName, HeaderMap, HeaderValue, Method, StatusCode},

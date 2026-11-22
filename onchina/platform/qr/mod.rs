@@ -1,7 +1,4 @@
-//! QR_V1 统一二维码协议 envelope。
-//!
-//! 唯一事实源：`citizenchain/crates/protocol/registry/*.yaml`。
-//! 本模块只保留 OnChina 后端需要的紧凑签名请求/响应结构。
+//! 定义平台QR_V1信封及签名请求模型，引用共享码型和动作注册表。
 
 #[path = "generated.rs"]
 mod generated;
@@ -68,7 +65,7 @@ pub fn action_rebind() -> u16 {
     *ACTION_CITIZEN_REBIND_CODE
 }
 // 链交易动作码(机构治理/管理员集合)不在此处发明扁平常量:
-// 统一用 `crate::institutions_call::chain_action_code(pallet,call)` 派生(b.a 与 b.d 同源),
+// 统一用 `crate::institutions::chain_action_code(pallet,call)` 派生(b.a 与 b.d 同源),
 // 旧机构直接创建 call 5 已关闭。机构管理员变更由 entity 治理结果驱动，
 // 不存在 public/private admins 的直接集合变更动作。
 // 详见 qr-action-registry.md「链交易动作码」。
@@ -391,5 +388,14 @@ pub(crate) async fn join_frames(
             axum::http::StatusCode::BAD_REQUEST,
             axum::Json(serde_json::json!({"code":1,"message":error})),
         ),
+    }
+}
+
+
+/// 仅展示公开签名材料，分帧与钱包使用同一原生实现，不改变签名原文。
+pub(crate) async fn split_frames(axum::Json(text): axum::Json<String>) -> impl axum::response::IntoResponse {
+    match chain_signing::mldsa::qr_frames(&text) {
+        Ok(frames) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"code":0,"data":frames}))),
+        Err(error) => (axum::http::StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({"code":1,"message":error}))),
     }
 }

@@ -1,7 +1,4 @@
-//! `electionvote` FRAME benchmark。
-//!
-//! 两个用例都构造“最后一票”路径，并按候选人数 `c` 读取全部候选计票、生成结果，
-//! 覆盖普通写票之外最重的终结分支。
+//! 基准测量最后一票的选举终结及各类有界清理。
 
 #![cfg(feature = "runtime-benchmarks")]
 

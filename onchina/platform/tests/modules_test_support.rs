@@ -1,5 +1,7 @@
-//! 模块测试辅助，仅由cfg(test)或test-support加载。
+//! 提供业务模块声明及真实HTTPS服务的公共测试夹具。
+
 /// 每个业务金标只有其所属tests中的一份，公共测试按需组合。
+
 pub fn fixture_cases() -> Vec<serde_json::Value> {
     let mut values = serde_json::from_str::<serde_json::Value>(include_str!("layout.json"))
         .unwrap()["capabilityCases"]

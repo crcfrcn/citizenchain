@@ -1,5 +1,9 @@
+// 展示法定代表人并提供更换或解除的治理入口。
+
+import { IdentityCidInput } from '../controls/IdentityCidInput';
+import { IdentityCidText } from '../codes/identityCid';
 import { useState } from 'react';
-import { Alert, Button, Card, Descriptions, Input, Modal, Select, Space } from 'antd';
+import { Alert, Button, Card, Descriptions, Modal, Select, Space } from 'antd';
 import { GovernanceReview, GovernanceStatus, useGovernanceState, type GovernanceDraft, type GovernanceViewProps } from './GovernanceReview';
 import { governanceProposers, memberName, representativeChanges } from './governance';
 import { notice } from '../controls/notice';
@@ -31,7 +35,7 @@ function RepresentativePanel(props: GovernanceViewProps) {
         }
     };
     return <Card title="法定代表人" extra={<Space><Button onClick={reload}>刷新</Button><Button type="primary" disabled={!writable} onClick={() => { setAccount(undefined); setCitizenCid(''); setSelecting(true); }}>更换法定代表人</Button></Space>}>
-    <Descriptions column={1} bordered><Descriptions.Item label="姓名">{current ? `${current.familyName}${current.givenName}` : '空缺'}</Descriptions.Item><Descriptions.Item label="公民CID">{current?.cidNumber || '-'}</Descriptions.Item><Descriptions.Item label="链上登记账户">{current?.accountId || '-'}</Descriptions.Item></Descriptions>
+    <Descriptions column={1} bordered><Descriptions.Item label="姓名">{current ? `${current.familyName}${current.givenName}` : '空缺'}</Descriptions.Item><Descriptions.Item label="身份CID号"><IdentityCidText value={current?.cidNumber || '-'} /></Descriptions.Item><Descriptions.Item label="链上登记账户">{current?.accountId || '-'}</Descriptions.Item></Descriptions>
     {!legalRole && <Alert style={{ marginTop: 16 }} type="info" message="该机构未配置法定代表人岗位，仅展示当前记录"/>}
     <Alert style={{ marginTop: 16 }} type="info" message="本页同步法定代表人记录及其专属岗位任职，不新增或删除管理员。"/>
     <Button style={{ marginTop: 24 }} danger disabled={!writable || !current || !!legalRole?.minAssignments} onClick={() => propose(null)}>发起解除</Button>
@@ -39,9 +43,9 @@ function RepresentativePanel(props: GovernanceViewProps) {
             if (account)
                 propose(account);
         }} okButtonProps={{ disabled: !account }} okText="核对变更" zIndex={CID_MODAL_Z_INDEX.business}>
-      <Alert type="info" message="选择现有链上管理员并填写其公民CID；后端及链端核对资料与任职是否一致，不在本页新增管理员。"/>
+      <Alert type="info" message="选择现有链上管理员并填写其身份CID号；后端及链端核对资料与任职是否一致，不在本页新增管理员。"/>
       <Select aria-label="新法定代表人" style={{ width: '100%', marginTop: 16 }} placeholder="选择公民身份" value={account} onChange={value => { setAccount(value); setCitizenCid(state.members.find(m => m.accountId === value)?.cidNumber || ''); }} options={state.members.map(m => ({ value: m.accountId, label: memberName(m) }))}/>
-      <Input aria-label="新法定代表人公民CID" placeholder="所选管理员对应的公民CID" value={citizenCid} onChange={e => setCitizenCid(e.target.value)} style={{ marginTop: 12 }}/>
+      <IdentityCidInput aria-label="新法定代表人身份CID号" placeholder="所选管理员对应的身份CID号" value={citizenCid} onChange={e => setCitizenCid(e.target.value)} style={{ marginTop: 12 }}/>
     </Modal>
     <GovernanceReview auth={props.auth} state={state} draft={draft} onClose={() => setDraft(null)} onSubmitted={reload}/>
   </Card>;

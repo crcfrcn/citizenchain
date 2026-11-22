@@ -1,4 +1,5 @@
-//! 原机构记录SCALE字段布局金标，预期保持。
+//! 以黄金布局验证机构记录的SCALE字段顺序。
+
 use crate::*;
 use codec::Encode;
 

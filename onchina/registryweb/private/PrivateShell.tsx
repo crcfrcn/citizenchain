@@ -1,5 +1,4 @@
-// 私权机构前端 Shell。根层只负责省市选择和详情页跳转;
-// 顶层 App 已直接显示六类 Tab,本文件只渲染当前选中的那一类。
+// 组织当前私权机构类型的省市选择和详情导航。
 
 import React, { useState } from 'react';
 import { Button, Card } from 'antd';

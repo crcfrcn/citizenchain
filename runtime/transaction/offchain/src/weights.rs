@@ -1,12 +1,4 @@
-//! 清算行(L2)扫码支付清算 pallet 权重。
-//!
-//!
-//! - 本文件先给出**非零保守权重**并统一接入 `T::WeightInfo`,替换早期空 trait
-//!   占位,避免清算行核心 Call 只按裸 `DbWeight` 计费。
-//! - 数值按当前读写路径与 sr25519 验签 / Currency transfer 的最坏路径手工上调,
-//!   不是 `frame-benchmarking` 自动生成产物。
-//! - 后续用带 benchmarking runtime api 的专用 WASM 重新跑 benchmark 后,应以
-//!   自动生成文件替换本文件,并保留同名 trait 方法。
+//! 定义清算业务各调用的非零保守权重预算。
 
 #![cfg_attr(rustfmt, rustfmt_skip)]
 #![allow(unused_parens)]

@@ -1,3 +1,5 @@
+//! 验证升级调用与Runtime metadata一致，并保持准备提交的原因字节。
+
 use super::*;
 
 use crate::call::propose_runtime_upgrade;

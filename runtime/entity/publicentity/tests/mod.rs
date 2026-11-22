@@ -1,3 +1,5 @@
+//! 装配公权实体测试Runtime、注册局身份及投票权限夹具。
+
 #![cfg(test)]
 
 extern crate alloc;
@@ -391,6 +393,9 @@ impl adminbase::ChainPhaseCheck for TestChainPhase {
 /// 可换绑的 identity 绑定 mock：某 CID 当前只绑定一个钱包，可改绑以模拟换绑。
 pub struct TestCitizenBinding;
 impl adminbase::CitizenIdentityBindingQuery<AccountId32> for TestCitizenBinding {
+    fn current_account(cid_number: &[u8]) -> Option<AccountId32> {
+        CID_WALLET.with(|cell| cell.borrow().as_ref().filter(|(cid, _)| cid.as_slice() == cid_number).map(|(_, wallet)| wallet.clone()))
+    }
     fn matches_citizen_account(cid_number: &[u8], account: &AccountId32) -> bool {
         CID_WALLET.with(|cell| {
             cell.borrow()
@@ -448,7 +453,18 @@ impl frame_support::traits::Get<frame_support::weights::Weight> for RecordAccoun
     fn get() -> frame_support::weights::Weight { frame_support::weights::Weight::zero() }
 }
 
+pub struct TestInstitutionWalletVerifier;
+impl adminbase::InstitutionWalletSignatureVerifier<AccountId32> for TestInstitutionWalletVerifier {
+    fn verify(account: &AccountId32, payload: &[u8], proof: &[u8]) -> bool {
+        let Ok(signature) = <[u8;64]>::try_from(proof) else { return false; };
+        let raw: [u8;32] = *account.as_ref();
+        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload);
+        sp_io::crypto::sr25519_verify(&signature.into(), &message, &raw.into())
+    }
+}
+
 impl pallet::Config for Test {
+    type WalletSignatureVerifier = TestInstitutionWalletVerifier;
     type OnAccountRegistered = RecordAccountRegistration;
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;

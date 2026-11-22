@@ -1,9 +1,4 @@
-//! 大屏专属链读:本机构活跃提案 ID 列表 + 某提案的逐席院内投票映射。
-//!
-//! 复用 chain_runtime 读链范式(subxt dynamic + 严格镜像 decode)。
-//! - 活跃提案:点查 `VotingEngine::ActiveProposalsBySubject[InstitutionCid(cid_number)]`
-//!   → `BoundedVec<u128>`(与 `Vec<u128>` 同编码)。
-//! - 逐席投票：按 `proposal_id` 迭代 `RepresentativeVotesByTicket`，再按当前代表机构索引过滤。
+//! 读取本机构活跃立法提案、代表席位和逐席投票映射。
 
 use std::collections::HashMap;
 

@@ -1,3 +1,5 @@
+//! 读取并校验YAML中的二维码动作、字段、码型及拒绝原因注册表。
+
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 

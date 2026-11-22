@@ -1,3 +1,6 @@
+// 组织公权机构行政范围、目录列表和详情导航。
+
+import { IdentityCidInput } from '@gmb/onchina-platform/controls/IdentityCidInput';
 // 公权机构页面入口。市公安局已折叠为普通公权机构,统一在公权机构列表展示。
 //
 // 视觉完全复用"注册局"的 Card 样式(glassCardStyle / glassCardHeadStyle),
@@ -129,9 +132,9 @@ export const GovView: React.FC<Props> = ({ auth, cidMeta, resetToken = 0 }) => {
           {effectiveProvince} · {effectiveCity}
         </div>
         <div style={{ flex: '1 1 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, minWidth: 0 }}>
-          <Input
+          <IdentityCidInput
             value={searchInput}
-            placeholder="请输入机构全称、简称或身份ID"
+            placeholder="请输入机构全称、简称或身份CID号"
             allowClear
             style={{ flex: '1 1 auto', maxWidth: 360, minWidth: 0 }}
             onChange={(e) => {

@@ -1,16 +1,6 @@
 #!/usr/bin/env python3
-"""从 china.sqlite 生成 area_data.bin(创世直铸行政区常量真源,ADR-031 卡3)。
+"""从唯一行政区划SQLite快照生成创世派生使用的紧凑二进制数据。"""
 
-china.sqlite 是行政区唯一真源(ADR-021);本脚本把其省/市/镇快照编成紧凑二进制,
-供 primitives no_std 端 include_bytes! 读取,创世直铸「行政区 × 机构码模板」派生
-全部市行政区/镇行政区公权机构。幂等:重跑覆盖 area_data.bin。
-
-格式(小端 u16):
-  u16 省数
-  每省: [2]省码(ascii) u8 名长 名(utf-8); u16 市数
-    每市: [3]市码 u8 名长 名; u16 镇数
-      每镇: [3]镇码 u8 名长 名
-"""
 import pathlib
 import sqlite3
 import struct

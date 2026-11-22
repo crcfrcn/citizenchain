@@ -1,3 +1,6 @@
+// 展示机构其他账户及其公开余额资料。
+
+import { IdentityCidText } from '../client/identityCid';
 import { accountIdToSs58 } from "../client/ss58";
 import { formatBalance } from "../client/format";
 import type { AccountWithBalance } from "./types";
@@ -15,7 +18,7 @@ export function OtherAccountsListPage({ cidNumber, otherAccounts, onBack }: Prop
       <button className="back-button" onClick={onBack}>← 返回</button>
       <div className="admin-list-header">
         <h2>其他账户列表（{otherAccounts.length} 个）</h2>
-        <code className="admin-card-address">{cidNumber}</code>
+        <code className="admin-card-address"><IdentityCidText value={cidNumber} /></code>
       </div>
 
       {otherAccounts.length === 0 ? (

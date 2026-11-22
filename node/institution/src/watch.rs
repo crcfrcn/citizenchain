@@ -1,3 +1,5 @@
+//! 登记并驱动机构治理余额监视，管理订阅退出。
+
 use crate::council::build_institution_balance_update_sync;
 use std::collections::HashMap;
 use std::sync::LazyLock;

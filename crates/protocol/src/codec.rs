@@ -1,11 +1,4 @@
-//! QR_V1 载荷字段编解码唯一真源。
-//!
-//! QR body 中的公钥、签名等定长字节字段统一用 base64url(no padding)承载;
-//! 进入 Rust 侧后一律转成 ADR-040 规范文本(小写 `0x` + 十六进制)。
-//!
-//! 本模块是四端 host 侧的唯一实现:`node`(桌面端验签)与 `onchina`(控制台扫码)
-//! 必须复用这里的函数,禁止各自再写一份解码。两份实现一旦在长度校验或大小写
-//! 上产生分毫差异,同一个二维码就会在一端通过、另一端拒绝。
+//! 统一编解码QR_V1字节字段和节点部署意图，校验规范载荷。
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde_json::{Map, Value};

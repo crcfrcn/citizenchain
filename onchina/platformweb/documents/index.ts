@@ -1,4 +1,4 @@
-// 机构资料库前端公共出口,资料库组件独立放在 docs 目录。
+// 导出共用机构资料库组件和接口。
 
 export { DocsLibrary } from './Library';
 export type { InstitutionDocument } from './api';

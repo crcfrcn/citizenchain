@@ -1,10 +1,5 @@
-//! 立法机关表决终局结果边界。
-//!
-//! 终局结果由 engingcore 核心交给回调元组；法律、任免和预算业务分别依据
-//! `ProposalOwner`/`MODULE_TAG` 认领。任一提案只能由一个业务模块返回非 `Ignored`，
-//! 本 pallet 不读取任何业务存储。
+//! 推进立法终局阶段，将结果按所属模块交给唯一业务执行者。
 
-/// 立法成功结果统一映射为 engingcore 的通过状态。
 pub(crate) const fn approved_status() -> u8 {
     engingcore::STATUS_PASSED
 }

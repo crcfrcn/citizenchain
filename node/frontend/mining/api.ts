@@ -1,3 +1,5 @@
+// 调用原生挖矿收入和网络概览接口。
+
 import { invoke } from "../client/tauri";
 import type { MiningDashboard, NetworkOverview } from "./types";
 

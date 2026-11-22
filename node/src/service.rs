@@ -1,16 +1,5 @@
-//! # 节点服务层 (service)
-//!
-//! 实现 CitizenChain 全节点的双共识架构：
-//! - **PoW 共识**：SimplePow 算法，blake2_256(pre_hash ++ nonce)，难度从链上 Runtime API 读取。
-//! - **GRANDPA 最终性**：权威节点运行 voter，普通节点运行 observer。
-//!
-//! 挖矿特性：
-//! - CPU 多线程挖矿，各线程 nonce 不重叠（stride = 线程数）。
-//! - GPU 挖矿（可选 `gpu-mining` feature），使用 nonce 高半区（bit63=1）。
-//! - 空交易池时不挖矿（避免空块），major sync 时暂停出块；peer 连接状态不限制挖矿。
-//! - PoW 有效解找到后立即提交；六分钟只是难度调整追踪的长期平均目标。
+//! 装配PoW出块、GRANDPA最终性、网络、RPC及全节点后台任务。
 
-// Substrate service API 固定返回 sc_service::Error，Node 必须保持框架函数签名。
 #![allow(clippy::result_large_err)]
 use runtime;
 

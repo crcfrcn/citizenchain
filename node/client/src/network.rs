@@ -1,6 +1,5 @@
-//! 本机原生RPC的只读会话与固定网络查询。
+//! 管理本机原生RPC只读会话及固定网络查询。
 
-// Substrate service API 固定返回 sc_service::Error，Node 必须保持框架函数签名。
 #![allow(clippy::result_large_err)]
 
 use futures::FutureExt;

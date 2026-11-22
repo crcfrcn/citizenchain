@@ -1,14 +1,15 @@
-// 统一的 QR_V1 公民钱包签名面板。
-// 左侧展示待签名二维码,右侧开启摄像头扫描签名响应;登录、扫码签名、
-// 管理员重要操作都复用这一套视觉和扫码生命周期。
+// 展示待签二维码并扫描签名响应，统一摄像头生命周期。
 
 import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
+import { verifiedQrTransportFrames } from './citizenQr';
 import { ScannerView, createQrAssembler } from '@gmb/scanner-react';
 import { Button, QRCode, Typography } from 'antd';
 import { ScanOutlined } from '@ant-design/icons';
 
 export interface CitizenSignaturePanelProps {
   qrTitle?: string;
+  /** 仅机构钱包流程启用现有原生分帧，其他调用保持原展示。 */
+  framed?: boolean;
   scannerTitle?: string;
   qrValue?: string | null;
   qrPlaceholderValue?: string;
@@ -32,6 +33,7 @@ const cornerColor = '#0d9488';
 
 export function CitizenSignaturePanel({
   qrTitle = '签名二维码',
+  framed = false,
   scannerTitle = '扫码窗口',
   qrValue,
   qrPlaceholderValue = 'CID_SIGN_PENDING',
@@ -54,7 +56,31 @@ export function CitizenSignaturePanel({
   useEffect(() => () => { session.current += 1; }, []);
   const assemble = useMemo(() => createQrAssembler(frames => request<string | null>('/api/qr/join', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(frames)})), [scannerActive]);
 
-  const currentQrValue = qrValue || qrPlaceholderValue;
+  const [frameSource, setFrameSource] = useState<string | null>(null);
+  const [frames, setFrames] = useState<string[]>([]);
+  const [frameError, setFrameError] = useState<string | null>(null);
+  const [frameIndex, setFrameIndex] = useState(0);
+  const [frameAttempt, setFrameAttempt] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const needsFrames = !!(framed && qrValue && new TextEncoder().encode(qrValue).length > 2331);
+  useEffect(() => {
+    setFrameSource(qrValue ?? null); setFrames([]); setFrameIndex(0); setFrameError(null); setPaused(false);
+    if (!needsFrames || !qrValue) return;
+    const controller = new AbortController();
+    request<unknown>('/api/qr/split', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(qrValue), signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setFrames(verifiedQrTransportFrames(qrValue, value)); })
+      .catch(error => { if (!controller.signal.aborted) setFrameError(error instanceof Error ? error.message : String(error)); });
+    return () => controller.abort();
+  }, [qrValue, needsFrames, frameAttempt]);
+  useEffect(() => {
+    if (frames.length < 2 || paused) return;
+    const timer = setInterval(() => setFrameIndex(index => (index + 1) % frames.length), 600);
+    return () => clearInterval(timer);
+  }, [frames, paused, qrValue]);
+  const activeFrames = frameSource === qrValue ? frames : [];
+  const visibleFrameError = frameSource === qrValue && needsFrames ? frameError : null;
+  const displayReady = !!qrValue && (!needsFrames || activeFrames.length > 0) && !visibleFrameError;
+  const currentQrValue = needsFrames ? activeFrames[frameIndex] ?? qrPlaceholderValue : qrValue || qrPlaceholderValue;
 
   return (
     <div style={{ display: 'flex', gap: 32, alignItems: 'stretch', flexWrap: 'wrap' }}>
@@ -90,7 +116,7 @@ export function CitizenSignaturePanel({
           <div style={{ position: 'absolute', bottom: 0, right: 0, width: 20, height: 20, borderBottom: `3px solid ${cornerColor}`, borderRight: `3px solid ${cornerColor}`, borderBottomRightRadius: 8 }} />
           <div
             style={{
-              filter: qrValue ? 'none' : 'blur(3px) opacity(0.4)',
+              filter: displayReady ? 'none' : 'blur(3px) opacity(0.4)',
               transition: 'filter 0.3s ease',
             }}
           >
@@ -98,6 +124,12 @@ export function CitizenSignaturePanel({
           </div>
         </div>
         <div style={{ marginTop: 14, textAlign: 'center' }}>
+          {needsFrames && !activeFrames.length && !visibleFrameError && <Typography.Paragraph>正在准备签名二维码</Typography.Paragraph>}
+          {visibleFrameError && <><Typography.Paragraph type="danger">{visibleFrameError}</Typography.Paragraph><Button onClick={() => setFrameAttempt(value => value + 1)}>重新载入二维码</Button></>}
+          {activeFrames.length > 1 && <div style={{ marginBottom: 12 }}><Typography.Paragraph>第 {frameIndex + 1} / {activeFrames.length} 帧，请持续扫码至钱包完成合并</Typography.Paragraph>
+            <Button size="small" onClick={() => setFrameIndex(index => (index + frames.length - 1) % frames.length)}>上一帧</Button>
+            <Button size="small" onClick={() => setPaused(value => !value)}>{paused ? '继续轮播' : '暂停轮播'}</Button>
+            <Button size="small" onClick={() => setFrameIndex(index => (index + 1) % frames.length)}>下一帧</Button></div>}
           <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
             {qrHint}
           </Typography.Text>
@@ -218,7 +250,7 @@ export function CitizenSignaturePanel({
               setScannerReady(false);
               setScannerActive((value) => !value);
             }}
-            disabled={scannerDisabled}
+            disabled={scannerDisabled || !!(needsFrames && !displayReady)}
             loading={scannerLoading}
             style={{ borderRadius: 10, fontWeight: 500, width: 200 }}
           >

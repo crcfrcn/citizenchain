@@ -1,3 +1,5 @@
+//! 验证System账户存储键的固定布局。
+
 use crate::query::system_account_key;
 
 #[test]

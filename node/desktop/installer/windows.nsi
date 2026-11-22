@@ -1,4 +1,7 @@
 ; Based on Tauri CLI v2.11.4 (MIT/Apache-2.0), with the CitizenChain progress page.
+
+; 定义Windows安装器的程序部署、快捷方式及卸载流程。
+
 Unicode true
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)

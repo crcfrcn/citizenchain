@@ -1,3 +1,5 @@
+//! 验证投票类型编码、投票计划主体及其结构约束。
+
 use codec::Encode;
 use frame_support::{traits::ConstU32, BoundedVec};
 // 投票计划有效性及固定编码测试。

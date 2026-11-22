@@ -1,6 +1,4 @@
-//! 机构资料库 HTTP handler。
-//!
-//! 资料文件本体存磁盘,元数据只写 `docs` 结构化表。
+//! 处理机构资料文件的列表、上传、下载和删除及元数据记录。
 
 use axum::{
     body::Body,
@@ -15,8 +13,8 @@ use uuid::Uuid;
 use crate::authentication::actions::require_admin_security_grant;
 use crate::authentication::login::require_admin_any;
 use crate::authentication::operation_auth::AdminActionType;
-use crate::institutions::subjects::http::ensure_institution_visible_to_admin;
-use crate::institutions::subjects::model::{InstitutionDocument, VALID_DOC_TYPES};
+use crate::institutions::ensure_institution_visible_to_admin;
+use crate::institutions::{InstitutionDocument, VALID_DOC_TYPES};
 use crate::response::ApiResponse;
 use crate::*;
 

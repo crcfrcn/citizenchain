@@ -1,5 +1,5 @@
-//! 链上中国公共库：宿主和独立业务通过本库公开接口复用唯一公共实现。
-//! CID、省市解析、权限与业务规则保持原实现。
+//! 提供链上中国宿主与业务模块共用的状态和公共接口。
+
 use axum::{
     http::StatusCode,
     middleware,
@@ -43,17 +43,14 @@ pub mod database;
 /// 内嵌私有 PostgreSQL 生命周期(onchina 自管;Card 05 零依赖部署)。
 #[path = "../database/embedded.rs"]
 pub(crate) mod database_embedded;
-/// 机构治理裸 SCALE call data 编码器（OnChina 唯一真源）。
-#[path = "../institutions/chain_call.rs"]
-pub mod institutions_call;
+#[path = "../security/lan.rs"]
+mod lan;
 /// QR_V1 协议和链上中国平台签名二维码构造。
 #[path = "../qr/mod.rs"]
 pub mod qr;
 /// HTTP API 通用响应、分页和健康检查输出模型。
 #[path = "../communication/response.rs"]
 pub mod response;
-#[path = "../security/lan.rs"]
-mod lan;
 #[path = "../security/http.rs"]
 pub(crate) mod security_http;
 /// 公信 HTTPS 证书申请、续期和热加载。
@@ -83,7 +80,6 @@ pub use crate::response::*;
 pub use crate::security_http::*;
 pub use authentication::login::{parse_account_id_bytes, require_admin_any};
 pub use authentication::model::*;
-pub use institutions::model::*;
 
 /// HTTPS 入口唯一真源；宿主通过 --describe 向节点公开。
 pub const PLATFORM_HOST: &str = "onchina.crcfrcn.com";

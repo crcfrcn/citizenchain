@@ -1,7 +1,4 @@
-//! 互选入口。
-//!
-//! 互选的选民岗位主体由业务模块通过 `VotePlan` 提交；本引擎只从 entity 任职真源
-//! 读取这些岗位当前有效任职并冻结，调用方不能提交账户名单。
+//! 从岗位有效任职冻结互选资格，创建互选并执行投票。
 
 use frame_support::pallet_prelude::DispatchResult;
 

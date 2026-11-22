@@ -147,6 +147,10 @@ impl<AccountId> InstitutionAdminQuery<AccountId> for () {
 /// 实现只能读取 `identity` 真源；publicadmin 不得自行生成或修正公民 CID。
 pub trait CitizenIdentityBindingQuery<AccountId> {
     fn matches_citizen_account(cid_number: &[u8], account: &AccountId) -> bool;
+    /// 只供机构旧授权兼容初始化读取，不能改写个人CID绑定。
+    fn current_account(_cid_number: &[u8]) -> Option<AccountId> {
+        None
+    }
 }
 
 impl<AccountId> CitizenIdentityBindingQuery<AccountId> for () {
@@ -295,4 +299,65 @@ impl<AccountId> AdminAccountQuery<AccountId> for () {
     ) -> Option<u32> {
         None
     }
+}
+
+/// 机构钱包基础查询。状态记录不是独立的管理员资格来源，任职仍由名册和 entity 决定。
+/// 机构激活后 `resolve_admin_account` 通过独立钱包状态解析，个人CID仍独立。
+pub trait InstitutionAdminWalletQuery<AccountId> {
+    fn institution_wallets_initialized(
+        institution_code: InstitutionCode,
+        cid_number: &[u8],
+    ) -> bool;
+    /// 读取已持久化的状态（含退役版本）；未初始化明确返回 None，不猜测旧锚点或个人绑定。
+    fn institution_wallet_state(
+        institution_code: InstitutionCode,
+        cid_number: &[u8],
+        admin_account: &AccountId,
+    ) -> Option<InstitutionAdminWalletState<AccountId>>;
+
+    /// 只返回仍在本机构名册中且已初始化的基础钱包；尚不参与现有登录/业务授权。
+    fn current_institution_wallet(
+        institution_code: InstitutionCode,
+        cid_number: &[u8],
+        admin_account: &AccountId,
+    ) -> Option<AccountId>;
+}
+
+/// 仅运行时内部的钱包状态写入原语，没有对外 extrinsic。
+///
+/// 初始化的钱包必须由后续兼容接入层读取旧授权事实提供，不能接收客户端猜测值。
+/// 本接口只校验状态；本人双签、机构投票及名册移除调用点在第2步接入，不能直接开放。
+pub trait InstitutionAdminWalletLifecycle<AccountId> {
+    /// 同一机构内原子采样旧授权并初始化；完成后不再回退个人钱包。
+    fn ensure_institution_wallets(
+        institution_code: InstitutionCode,
+        cid_number: Vec<u8>,
+    ) -> DispatchResult;
+    /// 首次初始化传 None；退役后重新录入必须传入保留的版本，再递增一次。
+    fn initialize_institution_wallet(
+        institution_code: InstitutionCode,
+        cid_number: Vec<u8>,
+        admin_account: AccountId,
+        wallet: AccountId,
+        expected_revision: Option<u64>,
+    ) -> DispatchResult;
+
+    fn change_institution_wallet(
+        institution_code: InstitutionCode,
+        cid_number: Vec<u8>,
+        change: InstitutionAdminWalletChange<AccountId>,
+    ) -> DispatchResult;
+
+    /// 在管理员已移出名册后退役，保留版本；可用于整个名册已关闭后的内部清理。
+    fn retire_institution_wallet(
+        institution_code: InstitutionCode,
+        cid_number: Vec<u8>,
+        admin_account: AccountId,
+        expected_revision: u64,
+    ) -> DispatchResult;
+}
+
+/// 机构新钱包接收证明的账户验签注入；不复用个人CID换绑入口。
+pub trait InstitutionWalletSignatureVerifier<AccountId> {
+    fn verify(account: &AccountId, payload: &[u8], proof: &[u8]) -> bool;
 }

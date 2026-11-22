@@ -1,3 +1,5 @@
+// 协调转账审阅、冷热签名、提交和执行结果展示。
+
 import { accountIdToSs58 } from "../client/ss58";
 import { sanitizeError } from "../client/tauri";
 import { CitizenSignaturePanel } from "../desktop/signing";

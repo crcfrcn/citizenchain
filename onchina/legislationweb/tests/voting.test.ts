@@ -1,4 +1,5 @@
-// 所属业务前端回归，公共测试辅助只有一份。
+// 验证代表表决请求、Passkey等待及u128提案编号完整传递。
+
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';

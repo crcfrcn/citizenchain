@@ -1,9 +1,4 @@
-//! 公民人数查询 handler。
-//!
-//! 本接口只返回 OnChina 本地公民档案统计,用于 CitizenApp 展示或诊断。
-//! 链端联合投票人口快照由 runtime 从 `identity` 链上状态按 scope 读取。
-//!
-//! 无 token 鉴权:只返回聚合人数,不包含个人档案字段。
+//! 查询本地公民档案人数，返回公民端展示用统计。
 
 use axum::{
     extract::{Query, State},

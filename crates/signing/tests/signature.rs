@@ -1,4 +1,5 @@
-//! 原所属签名回归，输入和断言保持。
+//! 验证规范公钥、真实签名及错误账户、篡改和长度拒绝。
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 use chain_signing::*;
 use sp_core::H256;

@@ -1,12 +1,4 @@
-// 机构自助账户管理区块。机构自定义账户的新增/删除归机构自己的在册管理员,
-// 挂在机构自己的工作区(私权/通用/司法等),注册局详情页只读账户、不在此增删。
-//
-// 数据源:cid_number/全称用 getOwnInstitution(基于激活节点绑定,不接受前端传 cid_number);
-// 账户列表读侧已切链上真源,改调 /accounts(后端链读)。增删都不再本地直写,而是发起本机构
-// 内部投票提案:由发起管理员使用签名钱包冷签一笔普通 extrinsic,授权由 runtime 在 origin 处以
-// is_institution_admin + 岗位码(proposer_role_code)校验,机构内部投票通过后才生效。
-// 协议账户(主/费用/两和基金/安全基金/永久质押/清算)由后端 can_delete=false 标记,
-// AccountList 据此自动隐藏删除按钮。
+// 组合本机构账户查询及自定义账户新增和关闭提案界面。
 
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Input, Space } from 'antd';

@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证公权机构目录数据库字段及公开DTO的敏感字段隔离。
+
 use super::*;
 
 fn sample_row() -> PublicInstitutionRow {
@@ -16,7 +17,7 @@ fn sample_row() -> PublicInstitutionRow {
         town_code: String::new(),
         institution_code: "PGV".to_string(),
         has_legal_personality: Some(true),
-        legal_representative: Some(crate::institutions::subjects::model::LegalRepresentative {
+        legal_representative: Some(crate::institutions::LegalRepresentative {
             family_name: "张".to_string(),
             given_name: "三".to_string(),
             cid_number: format!(

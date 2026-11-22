@@ -1,3 +1,5 @@
+//! 读取并标注机构管理员、岗位权限及任职信息。
+
 use primitives::cid::code::is_valid_governance_code;
 use primitives::cid::code::InstitutionCode;
 use serde::Serialize;

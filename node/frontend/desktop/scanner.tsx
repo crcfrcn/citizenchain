@@ -1,3 +1,5 @@
+// 管理桌面二维码扫描及地址码识别弹窗。
+
 import { ScannerView, createQrAssembler } from "@gmb/scanner-react";
 import { parseAddressQr, type AddressScanResult } from "../client/parseAddressQr";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";

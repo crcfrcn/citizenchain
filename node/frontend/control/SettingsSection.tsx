@@ -1,3 +1,5 @@
+// 组合节点模式、密钥、奖励账户和设备认证等设置区块。
+
 import { adminsChangeApi } from "../institution/admins";
 import { MetricHelp } from "../desktop/MetricHelp";
 import { homeNodeApi, settingsApi } from "./api";

@@ -1,3 +1,5 @@
+//! 定义正常轮换、紧急恢复及本机待更换记录。
+
 use grandpakey::GrandpaKeyChangeKind;
 
 use serde::Deserialize;

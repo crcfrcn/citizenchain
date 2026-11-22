@@ -1,3 +1,5 @@
+//! 验证受限配置原子替换及各类链存储键布局。
+
 use super::*;
 
 use crate::storage::blake2_128_concat;

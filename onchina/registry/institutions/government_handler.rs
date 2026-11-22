@@ -1,11 +1,4 @@
-//! 公权机构 HTTP handler
-//!
-//! 本模块只承载确定性公权机构目录
-//! 和公民宪法机构目录;手动机构新增归 private,账户归 accounts,资料库归 docs。
-//!
-//! ## 当前路由表(admin 端,login 中间件)
-//!
-//! - GET    /api/institutions/gov                  → list_official_institutions
+//! 按管理员查询条件返回公权机构目录。
 
 use axum::{
     extract::State,
@@ -18,7 +11,7 @@ use crate::*;
 use onchina::authentication::login::require_admin_any;
 use onchina::authorization::get_visible_scope;
 use onchina::codes::china::{city_code_by_name, province_code_by_name, town_code_by_name};
-use onchina::institutions::subjects::model::InstitutionListRow;
+use onchina::institutions::InstitutionListRow;
 use onchina::response::ApiResponse;
 
 // 注册局原辖区查询参数。

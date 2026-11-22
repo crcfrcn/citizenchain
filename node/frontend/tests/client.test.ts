@@ -1,3 +1,5 @@
+// 验证金额显示、账户地址往返和有界错误展示。
+
 import {expect,it} from 'vitest';
 import {formatBalance,formatAmount} from '../client/format';
 import {accountIdToSs58,normalizeSs58Address} from '../client/ss58';

@@ -1,4 +1,5 @@
-//! private独立Cargo包入口，仅链接平台公开库和本包业务。
+//! 启动独立私权机构服务并连接平台公共接口。
+
 use axum::routing::{get, post};
 use onchina::*;
 use onchina::{authentication, modules, transactions};

@@ -1,3 +1,5 @@
+//! 装配多签转账测试Runtime、机构账户及身份和投票夹具。
+
 #![cfg(test)]
 
 use super::*;

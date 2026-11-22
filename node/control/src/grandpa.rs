@@ -1,3 +1,5 @@
+//! 读取机构目录并管理本机GRANDPA密钥元数据。
+
 use libp2p_identity::PeerId;
 use nodedesktop::address::decode_hex_32_strict;
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE;

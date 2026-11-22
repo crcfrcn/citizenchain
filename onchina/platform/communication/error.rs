@@ -1,4 +1,5 @@
-// 保留原有状态码、业务错误码、提示和追踪字段。
+// 生成平台业务错误响应并保留状态、错误码和追踪字段。
+
 pub fn api_error(status: StatusCode, code: u32, message: &str) -> axum::response::Response {
     (
         status,

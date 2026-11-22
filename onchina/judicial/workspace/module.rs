@@ -1,4 +1,5 @@
-//! 本包真实业务声明、HTTP路由和原业务回调。
+//! 声明司法模块的能力、工作台、业务路由和回调。
+
 use crate::*;
 use onchina::modules::model::{ModuleBusiness, ModuleDescription, ModuleRoute};
 pub(crate) const VERSION: &str = "1.0.0";

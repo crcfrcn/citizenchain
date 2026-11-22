@@ -1,3 +1,5 @@
+//! 准备节点构建工作目录，生成并嵌入所需前端和构建资源。
+
 use serde_json::Value;
 use std::{env, fs, path::Path};
 use substrate_build_script_utils::rerun_if_git_head_changed;

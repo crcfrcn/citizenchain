@@ -1,6 +1,4 @@
-// 主体共享类型。实际业务 API 必须放在
-// onchina/registryweb/government/api.ts、onchina/registryweb/<类型>/api.ts、onchina/platformweb/accounts/api.ts、onchina/platformweb/documents/api.ts。
-// 铁律:一个 cid_number 下可挂多个 account_name。
+// 定义共用机构数据和登记载荷构造，规范空白可选字段。
 
 export type InstitutionCategory = 'GOV_INSTITUTION' | 'PRIVATE_INSTITUTION';
 
@@ -95,6 +93,8 @@ export interface InstitutionAccount {
   cidNumber: string;
   accountName: string;
   accountId: string | null;
+  /** 链上已最终确认的 free 余额（分）；未读取到时不以零代替。 */
+  balanceFen?: string | null;
   accountKind: 'main' | 'fee' | 'stake' | 'safety_fund' | 'he' | 'clearing' | 'federal_citizen_security_fund' | 'named';
   canClose: boolean;
   canDelete: boolean;

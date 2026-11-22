@@ -1,3 +1,5 @@
+//! 在区块导入时核对宪法变更及受保护条款，拒绝违规状态。
+
 use super::*;
 
 use crate::constitution::check_frozen_constitution_records;

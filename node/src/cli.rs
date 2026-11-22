@@ -1,3 +1,5 @@
+//! 定义节点命令行参数、子命令及归档模式选项。
+
 #[derive(Debug, clap::Parser)]
 pub(crate) struct Cli {
     #[command(subcommand)]

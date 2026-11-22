@@ -1,6 +1,5 @@
-//! 清算行本地 L3 存款缓存账本。
-//!
-// 账本入口显式接收付款、收款和链状态字段，参数拆组会扩大本次清理的业务改动。
+//! 维护用户清算存款缓存、待处理支付及可用余额。
+
 #![allow(clippy::too_many_arguments)]
 use codec::Decode;
 use codec::DecodeAll;

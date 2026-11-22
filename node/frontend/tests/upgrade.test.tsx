@@ -1,3 +1,5 @@
+// 验证PoW参数读取及升级准备IPC和失败不自动重放。
+
 import {beforeEach, expect, it, vi} from 'vitest';
 import {runtimeUpgradeApi} from '../upgrade/api';
 const mocks=vi.hoisted(()=>({invoke:vi.fn()}));

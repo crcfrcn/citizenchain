@@ -1,3 +1,5 @@
+//! 通过真实HTTPS和WSS验证资源路由、证书匹配及明文拒绝。
+
 use super::*;
 
 use crate::tls::desktop_rpc_certificate;

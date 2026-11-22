@@ -1,4 +1,5 @@
-# 本平台GitHub任务归本工作流；编译调用产品编译入口。
+# 执行LinuxARM节点与业务模块编译及验收，交付正式包和所属记录。
+
 name: 公民链·LinuxARM
 run-name: 公民链·LinuxARM·${{ github.run_number }}
 'on':

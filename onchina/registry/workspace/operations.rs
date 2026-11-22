@@ -1,4 +1,5 @@
-//! 既有业务入口向量，保持原权限条件及关闭状态。
+//! 按管理员权限生成注册局办理操作清单。
+
 use onchina::modules::capability::CapabilitySet;
 use onchina::workspace::manifest::action;
 use onchina::workspace::model::WorkspaceActionItem;

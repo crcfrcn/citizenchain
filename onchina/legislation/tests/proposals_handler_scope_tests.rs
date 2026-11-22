@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证立法处理入口的机构和行政范围约束。
+
 use super::*;
 
 fn cid(institution: &str, province: &str, city: &str) -> String {

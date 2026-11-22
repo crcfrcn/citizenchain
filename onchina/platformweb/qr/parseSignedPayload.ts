@@ -1,6 +1,4 @@
-// 统一的签名二维码 payload 解析工具。
-// 唯一事实源：citizenchain/crates/protocol/registry/*.yaml
-// 使用 QR_V1 envelope,不支持字段别名。
+// 解析登录和业务签名响应，核对统一信封字段。
 
 import { parseQrEnvelope, QrParseError } from './citizenQr';
 import type { SignResponseBody } from './citizenQr';

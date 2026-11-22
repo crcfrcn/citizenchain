@@ -1,3 +1,5 @@
+//! 监视同步与网络状态，判断异常并维护恢复守卫状态。
+
 use crate::identity::current_status;
 use crate::network::local_network_reader;
 use serde::Serialize;

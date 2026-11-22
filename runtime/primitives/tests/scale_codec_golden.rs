@@ -1,14 +1,4 @@
-//! SCALE 编码原语金标测试。
-//! `SCALE_GOLDEN_UPDATE=1` 重写 fixture;默认只断言编码结果不漂移。
-//!
-//! 为什么需要:签名 payload 的字节由各端**手写**的 SCALE 编码拼出——
-//! Worker TS 的 `scaleCompact`/`scaleString`/`u64Le`、citizenapp Dart 的同名函数、
-//! citizenwallet Dart 的 `_decodeCompactU32`(解码方向)。三端此前都只用自己的实现
-//! 构造期望值,实现算错期望值同步错,测试照样绿。
-//!
-//! 本文件用 parity-scale-codec 生成真值,各端直读比对,把自证变他证。
-//! 编码错 → 签出链端不认的交易;解码错 → 冷钱包展示的交易内容与实际要签的不符,
-//! 用户在错误信息下按下签名,后者危险一个量级。
+//! 以跨端黄金向量验证SCALE整数和字符串编码。
 
 use codec::{Compact, Encode};
 

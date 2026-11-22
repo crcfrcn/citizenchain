@@ -1,4 +1,4 @@
-//! nodeclient所属功能与公开接口。
+//! 导出节点客户端、链查询、签名和服务共享接口。
 
 pub mod codec;
 pub mod handle;

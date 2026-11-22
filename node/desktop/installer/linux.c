@@ -1,4 +1,5 @@
-// GTK progress window for both the downloadable installer and desktop updates.
+// 为Linux独立安装及桌面更新提供GTK进度窗口。
+
 #include <gtk/gtk.h>
 #include <gio/gio.h>
 #include <glib/gstdio.h>

@@ -1,18 +1,4 @@
-//! NRC 监管动作(freeze / unfreeze / confiscate / forceTransfer / forceClose)— 框架占位。
-//!
-//! 与 ADR-011 第 5.1 / 5.6 节对齐：
-//! - 监管动作走 **JointVote**(NRC admin 多签 + 全民兜底)
-//! - propose origin 校验:`actor_cid_number == NRC` 且
-//!   `ensure!(proposer_account_id ∈ AdminAccounts[actor_cid_number].admins)`
-//! - 强制销毁倒计时 30 天:写入 `ForceCloseSchedule[expire_block].push(asset_id)`,
-//!   `on_finalize(n)` 通过 `take(n)` O(1) 处理,不全表扫描 Assets
-//!
-//! 当前框架阶段只搭函数签名 + doc 占位,实装在后续任务卡 B 完成。
-//!
-//! **未实装期一律 fail-closed**:本模块所有监管执行入口返回 `Error::NotImplemented`,
-//! 不返回 `Ok(())`。唯一例外是 `process_force_close_schedule_on_finalize`
-//! (在 `on_finalize` 中执行,不得 panic 也无 Result 可返回),其安全性由
-//! `execute_monitor_force_close` 的 fail-closed 上游保证。
+//! 声明代币监管执行入口，当前未实现的监管操作明确拒绝。
 
 use crate::pallet::{BalanceOf, Config, Error};
 use crate::proposal::{

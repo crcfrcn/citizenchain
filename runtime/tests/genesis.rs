@@ -1,6 +1,5 @@
-//! 主Runtime实际类型装配下的独立测试域。
+//! 验证创世预设、Runtime API及机构和账户初始状态。
 
-// 实际Runtime API必须与genesis公开入口保持同一预设字节；不引入第二个构造器。
 #[test]
 fn presets_match_builder_and_runtime_api() {
     use codec::{DecodeAll, Encode};

@@ -1,3 +1,5 @@
+//! 验证清算端点CID键编码、长度及存储前缀。
+
 use crate::endpoint::clearing_bank_nodes_key;
 use crate::endpoint::encode_cid_key_data;
 

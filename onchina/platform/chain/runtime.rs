@@ -1,4 +1,6 @@
-use codec::Decode;
+//! 读取可信公民链Runtime、机构和治理状态，提供强类型链数据适配。
+
+use codec::{Decode, DecodeAll};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, hash::Hasher, sync::OnceLock};
 use subxt::backend::legacy::LegacyRpcMethods;
@@ -551,13 +553,10 @@ pub(crate) fn parse_hex_2(raw: &str) -> Result<[u8; 2], String> {
 // 节点按自身机构码路由到对应 pallet,登录验签后比对该集合放行,
 // 本地 admins 表仅作展示元数据缓存，不保存管理员省权限。个人多签 PMUL 不在控制台范围。
 /// 联邦注册局机构码,镜像 `adminbase::FRG`(`*b"FRG\0"`)。
-/// onchina 不依赖 adminbase(避免引入 frame-support 重依赖),
-/// 此处单字面镜像;FRG 为稳定常量,与链端保持一致即可。
+/// 机构码为稳定的四字节常量，读侧与链端保持一致。
 const FRG_CODE: [u8; 4] = *b"FRG\0";
-/// 国家司法院机构码。NJD 虽属固定治理档,但按产品边界进入 OnChina 控制台。
+/// 国家司法院机构码；所有固定治理机构均可按本机构授权进入链上中国。
 const NJD_CODE: [u8; 4] = *b"NJD\0";
-pub(crate) const DESKTOP_GOVERNANCE_LOGIN_UNSUPPORTED: &str =
-    "desktop governance institution is not supported by OnChina";
 pub(crate) const PERSONAL_MULTISIG_LOGIN_UNSUPPORTED: &str =
     "personal multisig is not supported by OnChina";
 
@@ -794,9 +793,7 @@ fn console_admin_pallets(code: &[u8; 4]) -> Result<Vec<AdminPallet>, String> {
     if let Some(reason) = console_login_block_reason(code) {
         return Err(reason.to_string());
     }
-    if is_fixed_governance_code(code) {
-        return Err("fixed-governance institution is not managed by this console".to_string());
-    }
+    if is_fixed_governance_code(code) { return Ok(vec![AdminPallet::PublicAdmins]); }
     if is_public_legal_code(code) {
         return Ok(vec![AdminPallet::PublicAdmins]);
     }
@@ -810,10 +807,8 @@ fn console_admin_pallets(code: &[u8; 4]) -> Result<Vec<AdminPallet>, String> {
 }
 
 fn console_login_block_reason(code: &[u8; 4]) -> Option<&'static str> {
-    use primitives::cid::code::{is_personal_code, NRC, PRB, PRC};
-    if matches!(*code, NRC | PRC | PRB) {
-        return Some(DESKTOP_GOVERNANCE_LOGIN_UNSUPPORTED);
-    }
+    use primitives::cid::code::{is_personal_code};
+
     if is_personal_code(code) {
         return Some(PERSONAL_MULTISIG_LOGIN_UNSUPPORTED);
     }
@@ -1159,6 +1154,28 @@ async fn matching_admin_for_signer<'a>(
 /// 绑定账户；无 CID 的冻结公权管理员与私权非 LR 按名册 `account_id` 直接授权，严格
 /// 镜像 runtime `resolve_admin_account`。个人多签不经过本入口。CID 已撤销或当前未绑定
 /// 时，该管理员不进入有效集合，不回退旧账户。
+/// 同一finalized快照中的机构钱包启用/状态读取；读取失败不伪装成旧模式。
+pub(crate) async fn institution_wallets_initialized_at(
+    storage: &subxt::storage::Storage<PolkadotConfig, OnlineClient<PolkadotConfig>>,
+    pallet: AdminPallet, cid: &[u8],
+) -> Result<bool, String> {
+    let value = storage.fetch(&dynamic::storage(pallet.pallet_name(), "WalletsInitialized", vec![dynamic::Value::from_bytes(cid)])).await.map_err(|e| format!("read institution wallet mode failed: {e}"))?;
+    value.map(|v| bool::decode_all(&mut v.encoded())).transpose().map(|v| v.unwrap_or(false)).map_err(|e| format!("decode institution wallet mode failed: {e}"))
+}
+
+pub(crate) async fn institution_wallet_state_at(
+    storage: &subxt::storage::Storage<PolkadotConfig, OnlineClient<PolkadotConfig>>,
+    pallet: AdminPallet, cid: &[u8], anchor: &[u8;32],
+) -> Result<Option<adminbase::InstitutionAdminWalletState<[u8;32]>>, String> {
+    storage.fetch(&dynamic::storage(pallet.pallet_name(), "AdminWallets", vec![dynamic::Value::from_bytes(cid), dynamic::Value::from_bytes(anchor)])).await.map_err(|e| format!("read institution wallet failed: {e}"))?
+        .map(|v| adminbase::InstitutionAdminWalletState::decode_all(&mut v.encoded()).map_err(|e| format!("decode institution wallet failed: {e}"))).transpose()
+}
+
+pub(crate) async fn operation_at(storage: &subxt::storage::Storage<PolkadotConfig, OnlineClient<PolkadotConfig>>) -> Result<bool, String> {
+    let value = storage.fetch(&dynamic::storage("GenesisPallet", "Phase", Vec::<dynamic::Value>::new())).await.map_err(|e| format!("read chain phase failed: {e}"))?;
+    match value.map(|v| u8::decode_all(&mut v.encoded())).transpose().map_err(|e|e.to_string())?.unwrap_or(0) { 0 => Ok(false), 1 => Ok(true), _ => Err("unknown chain phase".into()) }
+}
+
 async fn resolve_onchain_admin_records(
     storage: &subxt::storage::Storage<PolkadotConfig, OnlineClient<PolkadotConfig>>,
     decoded: OnChainAdminAccount,
@@ -1167,6 +1184,8 @@ async fn resolve_onchain_admin_records(
 ) -> Result<Vec<ResolvedOnChainAdminRecord>, String> {
     use crate::chain_identity::read_active_cid_account_id_at;
 
+    let initialized = institution_wallets_initialized_at(storage, pallet, institution_cid_number).await?;
+    let operation = if initialized { false } else { operation_at(storage).await? };
     let legal_representative = if pallet == AdminPallet::PrivateAdmins {
         private_legal_representative_at(storage, institution_cid_number).await?
     } else {
@@ -1197,7 +1216,10 @@ async fn resolve_onchain_admin_records(
                 admin.given_name.clone(),
             ),
         };
-        let account_id = if cid_number.is_empty() {
+        let account_id = if initialized {
+            institution_wallet_state_at(storage, pallet, institution_cid_number, &admin.account_id).await?
+                .and_then(|state| state.wallet).ok_or("initialized institution has missing/inactive member wallet")?
+        } else if !operation || cid_number.is_empty() {
             // 冻结公权管理员、私权非 LR 没有公民 CID，不虚构身份字段，直接使用名册账户。
             admin.account_id
         } else {
@@ -1685,12 +1707,7 @@ pub(crate) async fn find_active_admin_memberships(
     })?;
     let finalized = FinalizedChainView::connect().await?;
     let storage = finalized.storage();
-    let target_cid_number =
-        crate::chain_identity::read_active_cid_number_by_account_id_at(&storage, target).await?;
-    let private_legal_representatives =
-        private_legal_representative_accounts_for_cid(&storage, target_cid_number.as_deref())
-            .await?;
-
+    let mut legacy = None;
     let mut memberships = Vec::new();
     let mut blocked_login_reason: Option<&'static str> = None;
     for pallet in [AdminPallet::PublicAdmins, AdminPallet::PrivateAdmins] {
@@ -1719,16 +1736,25 @@ pub(crate) async fn find_active_admin_memberships(
             {
                 return Err("AdminAccounts cid_number does not match institution_code".to_string());
             }
-            let matched_admin = matching_admin_for_signer(
-                &storage,
-                &decoded,
-                pallet,
-                &cid_number,
-                &target,
-                target_cid_number.as_deref(),
-                &private_legal_representatives,
-            )
-            .await?;
+            let initialized = institution_wallets_initialized_at(&storage, pallet, &cid_number).await?;
+            let matched_admin = if initialized {
+                let mut found = None;
+                for admin in &decoded.admins {
+                    let state = institution_wallet_state_at(&storage, pallet, &cid_number, &admin.account_id).await?.ok_or("institution wallet state missing")?;
+                    if state.wallet.as_ref() == Some(&target) { if found.is_some() { return Err("duplicate institution signer".into()); } found = Some(admin); }
+                }
+                found
+            } else if !operation_at(&storage).await? {
+                decoded.admins.iter().find(|admin| admin.account_id == target)
+            } else {
+                if legacy.is_none() {
+                    let target_cid = crate::chain_identity::read_active_cid_number_by_account_id_at(&storage, target).await?;
+                    let legal = private_legal_representative_accounts_for_cid(&storage, target_cid.as_deref()).await?;
+                    legacy = Some((target_cid, legal));
+                }
+                let (target_cid, legal) = legacy.as_ref().ok_or("legacy membership context missing")?;
+                matching_admin_for_signer(&storage, &decoded, pallet, &cid_number, &target, target_cid.as_deref(), legal).await?
+            };
             if let Some(reason) = console_login_block_reason_for_membership(
                 &institution_code,
                 matched_admin.is_some(),
@@ -1744,13 +1770,12 @@ pub(crate) async fn find_active_admin_memberships(
                 continue;
             }
             if institution_code == FRG_CODE {
-                let province_codes =
-                    crate::institutions::admins::chain_roles::fetch_frg_province_codes_for_admin(
-                        &finalized,
-                        &cid_number,
-                        matched_admin.account_id,
-                    )
-                    .await?;
+                let province_codes = crate::institutions::fetch_frg_province_codes_for_admin(
+                    &finalized,
+                    &cid_number,
+                    matched_admin.account_id,
+                )
+                .await?;
                 let province = one_frg_province(&province_codes)?;
                 memberships.push(ActiveAdminMembership {
                     institution_code: FRG_CODE,

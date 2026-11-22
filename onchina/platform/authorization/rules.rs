@@ -1,14 +1,4 @@
-//! 机构作用域规则
-//!
-//! 按登录管理员的机构行政层级(admin_level)派生其可见/可操作的数据范围
-//! (VisibleScope)。所有 list/CRUD API 都应先派生 scope,再用它过滤数据。
-//!
-//! 基础范围（上下文入口只给注册局地域办理权）:
-//! - 全国(NATIONAL,部委等)        → 不限省/市/镇
-//! - 省级(PROVINCE / 联邦注册局)   → 本省,所有市
-//! - 市级(CITY)                    → 本市,所有镇
-//! - 镇级(TOWN)                    → 本镇
-//! - 自机构(私权法人/非法人,无层级)→ 仅当前会话绑定的准确机构 CID
+//! 按管理员机构和行政层级计算数据可见范围，核对注册局权限。
 
 use crate::api_error;
 use crate::authentication::login::AdminAuthContext;

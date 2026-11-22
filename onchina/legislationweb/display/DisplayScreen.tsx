@@ -1,6 +1,4 @@
-// 立法大屏只读入口(经 main.tsx `#/display` 分流,免登录、无 AuthProvider)。
-// 轮询本节点绑定机构看板:院身份头 + 每个活跃立法提案(六阶段进度 + 逐席投票板)。
-// 只读呈现;瞬时轮询失败保留上一份好数据 + 角标提示,不闪白。
+// 轮询并展示节点绑定机构的只读立法大屏及逐席投票。
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Empty, Spin } from 'antd';

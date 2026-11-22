@@ -1,3 +1,5 @@
+//! 验证本机RPC安全地址及创世哈希规范。
+
 use crate::rpc::build_local_rpc_client;
 use crate::rpc::current_rpc_port;
 use crate::rpc::local_rpc_http_url;

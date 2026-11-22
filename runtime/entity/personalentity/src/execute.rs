@@ -1,10 +1,4 @@
-//! 投票通过/否决终态回调时的业务执行体。
-//!
-//! 涵盖:
-//! - `execute_create_with_finalizer`: ACTION_CREATE 通过后入金 + 激活 PersonalAccounts
-//! - `execute_close_with_finalizer`: ACTION_CLOSE 通过后转出余额 + 删除 PersonalAccounts
-//!   + 关闭 admin account_id + 清 PendingCloseProposal
-//! - `cleanup_pending_create`: 创建提案被否决/超时/终态失败时清理 reserve
+//! 执行个人多签创建和关闭的投票终态，并清理待建状态。
 
 extern crate alloc;
 

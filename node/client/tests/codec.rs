@@ -1,3 +1,5 @@
+//! 验证UTF-8截断、SCALE紧凑数及账户数据解码边界。
+
 use super::*;
 use codec::Encode;
 

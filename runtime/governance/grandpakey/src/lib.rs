@@ -1,13 +1,4 @@
-//! # GRANDPA 验证密钥治理模块
-//!
-//! 本模块只管理 NRC/PRC 自有 GRANDPA authority 密钥，提供两条互斥路径：
-//! - 正常更换：目标机构单个委员按 `CID + 委员岗位码 + account_id` 授权，旧、新
-//!   GRANDPA 私钥对同一证明摘要签名后延迟生效，不进入投票。
-//! - 紧急恢复：旧私钥丢失或无法签名时，由目标机构自己的委员岗位发起并在本机构
-//!   内部投票；NRC、各 PRC 彼此独立，不组成联合投票，PRB 不拥有 GRANDPA authority。
-//!
-//! `pallet-grandpa` 真正切换 authority set 后，本模块才更新机构当前公钥映射并发出
-//! 生效事件。节点据此在 finalized 确认后删除旧私钥；生效前旧、新私钥必须同时保留。
+//! 管理机构GRANDPA密钥正常轮换和内部投票紧急恢复。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

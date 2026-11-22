@@ -1,4 +1,5 @@
-// 所属业务前端回归，公共测试辅助只有一份。
+// 验证法律提案真实请求及一次Passkey准备失败不自动重试。
+
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';

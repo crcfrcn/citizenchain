@@ -1,3 +1,5 @@
+// 调用私权机构查名、登记、列表及法定代表人照片接口。
+
 import { passkeySubmitHeaders } from '@gmb/onchina-platform/authentication/security';
 // 私权机构前端共用 API。六类私权机构必须在各自的 private_*_api.ts 中传入 routeSegment,
 // 本文件只负责封装共用 HTTP、查重、证件照、详情和参与主体共享接口。

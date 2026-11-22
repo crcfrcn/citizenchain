@@ -1,3 +1,5 @@
+// 填写并准备机构费用账户归集提案。
+
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";

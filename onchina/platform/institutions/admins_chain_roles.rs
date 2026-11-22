@@ -1,9 +1,4 @@
-//! 机构岗位与管理员任职的链上只读适配层。
-//!
-//! `admins` pallet 保存管理员名册；有管理员 CID 时，实际签名账户由
-//! `CitizenIdentity::AccountIdByCid` 当前绑定决定。岗位定义和任职关系只从
-//! `PublicManage` / `PrivateManage` 读取。本模块在同一个 finalized 区块合并三类真源，
-//! 不参与投票或任免业务。
+//! 只读解码机构岗位、任职和管理员CID的当前链上绑定。
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -495,6 +490,7 @@ pub struct GovernanceMember {
     pub cid_number: String,
     pub family_name: String,
     pub given_name: String,
+    pub wallet_revision: u64,
 }
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -639,6 +635,7 @@ fn governance_roles(
 /// 登记使用原始账户锚点和二进制来源；展示用的当前钱包、中文标签不得参与指纹。
 #[derive(Debug)]
 pub struct RegistrationSnapshot {
+    owner: AdminPallet,
     pub block_hash: [u8; 32],
     pub block_number: u32,
     pub current_day: u32,
@@ -654,7 +651,7 @@ pub struct RegistrationSnapshot {
 
 impl RegistrationSnapshot {
     pub fn module_tag(&self) -> &'static [u8] {
-        if primitives::cid::code::is_private_legal_code(&self.institution.institution_code) {
+        if matches!(self.owner, AdminPallet::PrivateAdmins) {
             b"pri-mgmt"
         } else {
             b"pub-mgmt"
@@ -770,8 +767,9 @@ async fn registration_snapshot_at(
         }
     }
     let (pallet, institution) = found.ok_or("registration institution missing")?;
-    if (pallet == AdminPallet::PrivateAdmins)
-        != primitives::cid::code::is_private_legal_code(&expected)
+    if !primitives::cid::code::is_unincorporated_code(&expected)
+        && (pallet == AdminPallet::PrivateAdmins)
+            != primitives::cid::code::is_private_legal_code(&expected)
     {
         return Err("registration institution namespace mismatch".into());
     }
@@ -841,6 +839,7 @@ async fn registration_snapshot_at(
         return Err("registration roster identity mismatch".into());
     }
     Ok(RegistrationSnapshot {
+        owner: pallet,
         block_hash: finalized.block_hash.0,
         block_number: finalized.block_number,
         current_day: finalized.current_day().await?,
@@ -961,18 +960,35 @@ pub async fn fetch_governance_state(
         .flat_map(|(_, values)| values.iter().cloned())
         .collect();
     let permissions = snapshot.permissions.iter().cloned().collect();
-    let members = fetch_active_admins_onchain_at(identity, &finalized)
+    let mut members = Vec::new();
+    for admin in fetch_active_admins_onchain_at(identity, &finalized)
         .await?
         .unwrap_or_default()
-        .into_iter()
-        .map(|a| GovernanceMember {
-            account_id: format!("0x{}", hex::encode(a.role_account_id)),
-            signer_id: a.account_id,
-            cid_number: a.cid_number,
-            family_name: a.family_name,
-            given_name: a.given_name,
-        })
-        .collect();
+    {
+        let state = crate::chain_runtime::institution_wallet_state_at(
+            &finalized.storage(),
+            pallet,
+            identity.cid_number.as_bytes(),
+            &admin.role_account_id,
+        )
+        .await?;
+        let revision = match state {
+            None => 0,
+            Some(s) if s.wallet.is_none() => s
+                .revision
+                .checked_add(1)
+                .ok_or("wallet revision exhausted")?,
+            Some(s) => s.revision,
+        };
+        members.push(GovernanceMember {
+            account_id: format!("0x{}", hex::encode(admin.role_account_id)),
+            signer_id: admin.account_id,
+            cid_number: admin.cid_number,
+            family_name: admin.family_name,
+            given_name: admin.given_name,
+            wallet_revision: revision,
+        });
+    }
     let representative = info
         .legal_representative
         .map(|r| -> Result<_, String> {

@@ -1,8 +1,4 @@
-//! 字符串黑名单 storage + 默认词表(ADR-011 第 5.3 节)。
-//!
-//! 命中任意词的 name / symbol / description 字段一律 reject。
-//! 黑名单走 storage,GenesisConfig 注入默认词表,后续添词/删词必须走
-//! `upgrade::propose_runtime_upgrade` 联合投票升级 wasm,**不可 sudo**。
+//! 定义代币名称、符号和描述使用的链上禁词及默认词表。
 
 use sp_std::vec;
 use sp_std::vec::Vec;

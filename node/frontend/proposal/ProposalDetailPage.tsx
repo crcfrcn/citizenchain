@@ -1,3 +1,5 @@
+// 展示提案详情、阶段和计票，提供当前用户可用的投票入口。
+
 import { proposalApi } from './api';
 import { councilApi } from '../institution/council';
 import { sanitizeError } from "../client/tauri";

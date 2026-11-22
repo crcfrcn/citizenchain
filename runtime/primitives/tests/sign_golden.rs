@@ -1,5 +1,4 @@
-//! 签名协议金标测试。
-//! `SIGN_GOLDEN_UPDATE=1` 重写 fixture;默认只断言 signing_message 不漂移。
+//! 以冻结向量验证各操作签名原文和摘要，支持显式样例更新。
 
 use codec::Encode;
 use primitives::core_const::GMB;
@@ -64,7 +63,7 @@ fn sign_golden_vectors() {
     assert!(!vectors.is_empty(), "fixture 至少需 1 条向量");
 
     assert_eq!(OP_SIGN_MLS_DEVICE_BIND, 0x1C);
-    assert_eq!(SIGN_OP_TAGS.len(), 16);
+    assert_eq!(SIGN_OP_TAGS.len(), 17);
     assert_eq!(vectors.len(), SIGN_OP_TAGS.len());
     for vector in &vectors {
         assert!(

@@ -1,3 +1,5 @@
+//! 提供桌面钱包增删、选择及链上转账准备和提交命令。
+
 use crate::wallet::Wallet;
 
 use crate::wallet::WalletStore;

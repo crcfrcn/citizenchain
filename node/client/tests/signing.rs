@@ -1,3 +1,5 @@
+//! 验证签名使用的SCALE、摘要及SS58转换。
+
 use crate::signing::account_id_to_ss58;
 use crate::signing::classify_invalid_tx;
 use crate::signing::dry_run_reject_message;

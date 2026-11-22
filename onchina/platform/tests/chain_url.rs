@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证桌面证书绑定、真实HTTPS和WSS的主机名及重定向边界。
+
 use super::{decode_desktop_rpc_certificate, trusted_websocket_config};
 
 #[test]

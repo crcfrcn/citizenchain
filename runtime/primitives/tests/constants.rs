@@ -1,4 +1,5 @@
-//! 所属原语的真实单元测试，保留原断言与固定输入。
+//! 验证货币、投票及PoW发行常量的关系和边界。
+
 mod monetary {
 
     use crate::{core_const::*, fee_policy};

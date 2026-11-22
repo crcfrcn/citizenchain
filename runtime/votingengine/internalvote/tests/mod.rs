@@ -1,3 +1,5 @@
+//! 装配内部投票测试Runtime、机构岗位和CID换绑夹具。
+
 use super::*;
 use core::cell::RefCell;
 use std::collections::BTreeMap;

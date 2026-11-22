@@ -1,3 +1,5 @@
+// 定义GRANDPA更换类型、请求和本机状态响应。
+
 import type { VoteSubmitResult } from "../client/signing";
 
 

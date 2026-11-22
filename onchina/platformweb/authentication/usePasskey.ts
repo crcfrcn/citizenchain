@@ -1,5 +1,4 @@
-// 当前登录管理员的 passkey 注册状态 + 注册动作。
-// 供管理员列表操作列「设置/更新 passkey 密钥」按钮(self-only)与红点使用。
+// 读取当前管理员Passkey状态并协调本人注册或更新。
 
 import { useCallback, useState } from "react";
 import { useAuth } from "./useAuth";

@@ -1,9 +1,4 @@
-//! 法律案 HTTP DTO + 转换为链编码器入参。
-//!
-//! 前端提交的法律案请求体 = 章节条款 + 标量(tier/vote_type/标题/生效时间)。
-//! **houses / executive / legislature 由后端按宪法路由 + 链上账户解析,不收前端**(防越权伪造表决院)。
-//! 字段命名对齐链端 `legislation` 与 CitizenApp `law_models`。
-//!
+//! 定义法律案请求及章节条款结构，转换为链调用编码入参。
 
 use super::chain_propose::{ArticleArg, ChapterArg, ClauseArg, SectionArg};
 use serde::{Deserialize, Serialize};

@@ -1,4 +1,5 @@
-// 既有连接检查、命令解析与维护操作；不改变触发条件。
+// 解析后端维护命令，校验本地数据库目标并执行显式维护。
+
 fn database_url_targets_local_host_only(database_url: &str) -> Result<bool, String> {
     let config = database_url
         .parse::<postgres::Config>()

@@ -1,3 +1,5 @@
+// 读取注册局链上名册，准备机构管理员登记并关联提交回执。
+
 import { type AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import { adminHeaders, adminRequest, request } from '@gmb/onchina-platform/http';
 import { type CidCityItem } from '@gmb/onchina-platform/codes/api';

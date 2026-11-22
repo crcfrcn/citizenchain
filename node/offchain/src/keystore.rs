@@ -1,3 +1,5 @@
+//! 管理清算批次签名密钥的加载、保存和受控借用。
+
 use sp_core::sr25519;
 use sp_core::Pair;
 use std::fs;

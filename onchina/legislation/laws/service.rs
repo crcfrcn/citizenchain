@@ -1,9 +1,4 @@
-//! 法律案提案组织:HTTP 请求 + 本节点机构 + 宪法路由 + 链上账户 → 裸 SCALE call-data。
-//!
-//! onchina 只「组织数据 + 调编码器」,不计票、不提交。发起机构直接使用登录绑定的
-//! 现有 CID；其他路由机构由调用方注入的唯一查询解析，保持本层纯函数可测。
-//! 合法性最终裁决在链端 `ensure_routing`;本层派生同一 LawRegion，授权前置检查仍按原层级与机构 CID 执行。
-//!
+//! 结合请求、机构绑定、宪法路由和链账户构造法律提案调用。
 
 use super::chain_propose::{
     encode_propose_amend_law, encode_propose_enact_law, encode_propose_repeal_law,
@@ -11,7 +6,7 @@ use super::chain_propose::{
 use super::chain_vote::encode_cast_representative_vote;
 use super::model::{to_chapter_args, LawActionInput, ProposeLawInput};
 use super::routing::{routing_for, vote_type_is_education};
-use onchina::institutions_call::ChainCall;
+use onchina::institutions::ChainCall;
 
 /// 法律案组织错误(fail-closed:任一不满足即拒,不退化)。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

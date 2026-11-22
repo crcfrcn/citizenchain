@@ -1,15 +1,4 @@
-//! 创世实体落地:把创世时直接上链、未走注册局本地创建流程的实体,播种/回填进对应注册局本地库。
-//!
-//! 行为契约由本模块测试和创世投影数据结构共同固定。
-//! 现阶段两个创世实体:
-//! - 创世公民程伟(人主体 CN 号,基金会法定代表人,已有创世 identity 绑定)→
-//!   **按 finalized 链上绑定播种进联邦注册局本地库**,
-//!   置于 贵州省(GZ)/绥阳市(与基金会同市)。人主体 CID 去地域化,省市取自基金会机构 CID,
-//!   非从程伟号段推。联邦贵州组管理员进绥阳市即可见/可按 CID 搜到;
-//!   不加省级特殊视图,不用 PENDING/待补档。
-//! - 创世私权机构公民链技术发展基金会(`GZ018-SFGYR`)→ 绥阳市注册局回填(私权,后续 Step 实现)。
-//!
-//! 铁律:幂等——本地已有则跳过,绝不覆盖任何链下正本,不动现有写入器与推链门。
+//! 将链上创世公民及机构资料投影到所属注册局本地库。
 
 use crate::citizens::admin_entry::CitizenWrites;
 use chrono::Utc;
@@ -20,8 +9,8 @@ use onchina::chain_identity::{read_finalized_citizen_identity, FinalizedCidStatu
 use onchina::chain_runtime::{institution_lookup, is_tier1_registry};
 use onchina::codes::InstitutionCategory;
 use onchina::database::Db;
-use onchina::institutions::subjects::model::LegalRepresentative;
-use onchina::institutions::subjects::Institution;
+use onchina::institutions::Institution;
+use onchina::institutions::LegalRepresentative;
 
 use primitives::cid::china::citizenchain::{
     CITIZENCHAIN_FOUNDATION, LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER,
@@ -203,11 +192,10 @@ pub(crate) fn backfill_genesis_private_blocking(db: &Db) -> Result<bool, String>
         });
     let now = Utc::now();
     // 私权列表 SQL 要求 private_type 非空;链上无此字段,按机构码确定性派生(基金会 SFGY → WELFARE)。
-    let derived_private_type =
-        onchina::institutions::model::private_type_code_from_institution_code(
-            &parts.institution_code_text,
-        )
-        .map(str::to_string);
+    let derived_private_type = onchina::institutions::private_type_code_from_institution_code(
+        &parts.institution_code_text,
+    )
+    .map(str::to_string);
     let inst = Institution {
         status: "ACTIVE".to_string(),
         chain_status: Some("ACTIVE_ON_CHAIN".to_string()),

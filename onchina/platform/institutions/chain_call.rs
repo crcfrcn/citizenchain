@@ -1,7 +1,4 @@
-//! 机构治理 SCALE call-data 编码器。
-//!
-//! OnChina 只构造裸 call data，不提交 extrinsic。旧机构直接创建 call 5 已关闭；
-//! 本模块只保留现存机构治理和注册局管理员登记调用。
+//! 编码机构治理和注册局管理员登记的SCALE调用数据。
 
 use codec::{Compact, Encode};
 

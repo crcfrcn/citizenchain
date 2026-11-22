@@ -1,7 +1,15 @@
-//! OnChina 结构化数据库入口。
-//!
-//! 本模块只负责 PostgreSQL 连接池、创世前最终 schema 初始化和短事务封装。
-//! 空库按唯一目标结构事务初始化；已有结构只核验，不迁移、修补或重建。
+//! 管理PostgreSQL连接池、短事务及最终结构的初始化和核验。
+
+// 主体分区初始化使用的完整表名清单。
+const PARTITIONED_TABLES: &[&str] = &[
+    "subject",
+    "citizen",
+    "document",
+    "government",
+    "account",
+    "attachment",
+    "audit",
+];
 
 use std::{
     sync::{
@@ -322,7 +330,7 @@ impl Db {
         )
         .map_err(|err| format!("init core schema failed: {}", postgres_error_text(&err)))?;
         Self::init_subject_partition_schema(&mut tx)?;
-        tx.batch_execute(crate::institutions::subjects::photos::SCHEMA)
+        tx.batch_execute(crate::institutions::SCHEMA)
             .map_err(|err| format!("init legal representative photos failed: {err}"))?;
 
         let comment: String = tx
@@ -581,7 +589,7 @@ impl Db {
         conn: &mut impl postgres::GenericClient,
         province_code: &str,
     ) -> Result<(), String> {
-        for table in crate::institutions::subjects::schema::PARTITIONED_TABLES {
+        for table in PARTITIONED_TABLES {
             let partition_name = format!("{}{}", table, province_code.to_ascii_lowercase());
             let sql = format!(
                 "CREATE TABLE IF NOT EXISTS {partition_name} PARTITION OF {table} \

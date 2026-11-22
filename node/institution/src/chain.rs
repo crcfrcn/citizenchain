@@ -1,3 +1,5 @@
+//! 从链上读取机构及代表人，构造CID键并派生协议账户。
+
 use crate::types::AccountWithBalance;
 use crate::types::InstitutionAdminDisplay;
 use crate::types::InstitutionDetail;

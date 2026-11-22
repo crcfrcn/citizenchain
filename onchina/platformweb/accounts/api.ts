@@ -1,8 +1,4 @@
-// 机构账户前端 API。
-//
-// 机构自定义账户的新增/删除都不再本地直写:改为向后端拿「本机构内部投票提案」的裸 call
-// (PrepareInstitutionChainOutput),由发起管理员使用签名钱包冷签一笔普通 extrinsic 上链,机构内部
-// 投票通过后才生效。冷签扫码 + 提交复用 qr/useChainSign.tsx。账户列表读侧已切链上真源。
+// 查询机构账户并请求新增或关闭账户的链上提案准备。
 
 import type { AdminAuth } from '../authentication/types';
 import type { PrepareInstitutionChainOutput } from '../institutions/governance';

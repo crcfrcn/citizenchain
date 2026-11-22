@@ -1,9 +1,5 @@
-//! 公民身份上链准备 handler。
-//!
-//! 本模块只处理公民账户签名与 `identity` call data 构造。
-//! 身份授权使用公民既有绑定钱包；办理岗位由后端自动确定，不接受客户端指定。
+//! 核对既有公民账户绑定，准备并确认身份上链所需签名。
 
-// 身份准备辅助函数必须原样返回统一 Axum 拒绝响应，禁止不同入口各自改写错误语义。
 #![allow(clippy::result_large_err)]
 
 use super::authorization::{resolve_operation_role, CitizenOperation};
@@ -442,7 +438,7 @@ pub(crate) async fn complete_citizen_onchain_signature(
         operation.authorization_expires_at,
         &signature_bytes,
     );
-    let action = onchina::institutions_call::chain_action_code(
+    let action = onchina::institutions::chain_action_code(
         CITIZEN_IDENTITY_PALLET_INDEX,
         payload.identity_level.call_index(),
     );

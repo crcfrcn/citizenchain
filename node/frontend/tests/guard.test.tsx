@@ -1,3 +1,5 @@
+// 验证宪法读取失败不被当正文，重试保留组件隔离。
+
 import {expect,it,vi} from 'vitest';
 import {fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {RuntimeConstitutionViewer} from '../guard/RuntimeConstitutionViewer';

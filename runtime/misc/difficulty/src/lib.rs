@@ -1,21 +1,4 @@
-//! PoW 动态难度调整模块=difficulty
-//!
-//! # 设计原理
-//! 参考比特币 Nakamoto 难度调整算法：每隔 DIFFICULTY_ADJUSTMENT_INTERVAL 块，
-//! 根据窗口期实际出块总时长与目标时长的比值，按比例调整 PoW 挖矿难度。
-//!
-//! # 调整公式
-//! ```text
-//! new_difficulty = old_difficulty × (target_window_ms / actual_window_ms)
-//! ```
-//! 并限制单次调整幅度在 [old/4, old×4] 范围内，防止难度暴涨或暴跌。
-//!
-//! # 时序说明
-//! - 窗口起始时间戳在调整周期首块的 on_finalize 中记录（此时 pallet_timestamp 已完成时间戳注入）。
-//! - 窗口终止时间戳在调整周期末块的 on_finalize 中读取并触发调整。
-//! - 节点层直接读取 CurrentDifficulty RAW storage，避免 Runtime API 成为守卫绕路点。
-//! - 当前算法只取窗口首尾两个时间点，不对窗口内每一块做采样；因此制度安全仍依赖时间戳 inherent 的有效性。
-//! - runtime 在难度状态变更前拒绝只有 timestamp inherent 的空块；NodeGuard 的提前拒绝不能替代该共识规则。
+//! 依据实际PoW出块窗口调整难度，并调度受校验参数生效。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

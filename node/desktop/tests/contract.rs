@@ -1,3 +1,5 @@
+//! 验证桌面与链原语的SS58前缀一致。
+
 use crate::constants::EXPECTED_SS58_PREFIX;
 use crate::constants::SS58_PREFIX;
 

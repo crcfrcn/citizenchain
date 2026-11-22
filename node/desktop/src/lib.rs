@@ -1,4 +1,4 @@
-//! nodedesktop所属功能与公开接口。
+//! 组织桌面节点的安全文件、证书、RPC及安装更新公共能力。
 
 pub mod address;
 pub mod certificate;

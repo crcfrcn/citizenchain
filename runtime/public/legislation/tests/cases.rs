@@ -1,8 +1,4 @@
-//! 立法院模块第1步单测(engine = `()`)。
-//!
-//! 覆盖:write_law_version 写入/升版/废止、on_initialize 按时间戳生效调度、
-//! 提案校验(非议员拒绝 / 空标题空条文 / 宪法表决类型 / 不可修改条款 / 宪法不可废)、
-//! 合法提案到引擎返回 NotConfigured(确认对接点)。
+//! 验证法律写入、版本和生效调度及提案权限和修宪边界。
 
 use super::*;
 use crate::pallet::Error;

@@ -1,3 +1,6 @@
+// 查询并展示机构操作审计记录及结构化详情。
+
+import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 // 机构操作记录共享组件。公权、注册局、教育和私权机构详情页统一复用。
 
 import React, { useEffect, useState } from 'react';
@@ -66,7 +69,7 @@ const AUDIT_DETAIL_KEY_LABEL: Record<string, string> = {
   oldParentCidNumber: '原所属法人',
   familyName: '姓',
   givenName: '名',
-  representativeCid: '法定代表人身份ID',
+  representativeCid: '法定代表人身份CID号',
   accountName: '账户名称',
   docId: '资料ID',
   fileName: '文件名',
@@ -77,7 +80,7 @@ const AUDIT_DETAIL_KEY_LABEL: Record<string, string> = {
   actorIp: '来源IP',
   eligibleTotal: '选民总数',
   mode: '绑定方式',
-  cidNumber: '身份ID',
+  cidNumber: '身份CID号',
   proposalId: '提案ID',
   eligible: '有选举权',
   year: '年度',
@@ -203,7 +206,7 @@ export const OperationRecords: React.FC<Props> = ({ auth, cidNumber }) => {
             title: '详情',
             dataIndex: 'detail',
             ellipsis: true,
-            render: (v: AuditLogEntry['detail']) => formatAuditDetail(v, institutionLabels),
+            render: (v: AuditLogEntry['detail']) => <IdentityCidText value={formatAuditDetail(v, institutionLabels)} systemText />,
           },
           {
             title: '时间',

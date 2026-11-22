@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Runtime编译入口；正式候选只修改临时编译输入，原源码和创世输入不回写。
+// 在隔离输入中编译和核验Runtime候选，按正式版本推导升级版本。
+
 import {copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync,
   openSync, closeSync, fstatSync, readSync, constants as fileConstants} from 'node:fs';
 import {dirname, isAbsolute, join, relative, resolve} from 'node:path';

@@ -1,4 +1,5 @@
-// 所属业务前端回归，公共测试辅助只有一份。
+// 验证Passkey次数、HTTP字段、会话失效隔离及扫码授权边界。
+
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';

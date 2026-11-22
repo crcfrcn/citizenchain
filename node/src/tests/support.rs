@@ -1,4 +1,5 @@
-//! 仅开发测试目标挂载的原有夹具，不进入正式构建。
+//! 为节点服务测试提供部分服务装配和等待停止辅助。
+
 use crate::service::new_partial_inner;
 use nodeclient::types::Service;
 

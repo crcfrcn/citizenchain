@@ -1,3 +1,5 @@
+//! 登记和管理链签名请求及其恢复会话。
+
 use crate::signing::normalize_hash_hex;
 use crate::signing::now_secs;
 

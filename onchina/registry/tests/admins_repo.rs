@@ -1,6 +1,7 @@
-//! 名册真源改为链上后，旧本地计数/删除数据库夹具不再适用；保留准确CID辖区断言。
+//! 验证准确CID辖区及旧本地名册写入和挑战入口关闭。
+
 use super::*;
-use onchina::institutions::admins::chain_roles::{
+use onchina::institutions::{
     GovernanceAssignment, GovernanceMember, GovernanceRole, GovernanceState,
 };
 

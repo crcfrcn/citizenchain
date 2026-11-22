@@ -1,8 +1,5 @@
-// 立法提案纯文本标签(层级 / 表决类型),操作端与大屏看板共用的叶子层。
-// 单源自此,shared/ 不向上依赖 operator/;onchina/legislationweb/laws/labels.tsx 再从这里 re-export。
-// 数值口径对齐链端与 onchina/legislationweb/proposals/types.ts。
+// 统一立法层级、表决类型和代表规则的文本标签。
 
-/** 层级(0 宪法 / 1 国家 / 2 省 / 3 市)。 */
 export function tierLabel(tier: number): string {
   switch (tier) {
     case 0:

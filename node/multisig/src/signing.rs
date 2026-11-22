@@ -1,4 +1,7 @@
+//! 构造普通多签转账、安全基金和归集提案的冷签请求。
+
 /// 构建 propose_transfer 签名请求（创建转账提案：pallet=17, call=0）。
+
 pub(crate) fn build_propose_transfer_sign_request(
     signer_public_key: &str,
     actor_cid_number: &str,

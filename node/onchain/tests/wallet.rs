@@ -1,3 +1,5 @@
+//! 验证钱包名称、签名模式和账户目录持久化合同。
+
 use crate::wallet::decode_store;
 use crate::wallet::SignMode;
 use crate::wallet::Wallet;

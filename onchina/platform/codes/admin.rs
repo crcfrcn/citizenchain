@@ -1,4 +1,5 @@
-// ALL_CODES 与两张文本表同属 primitives 单源；缺项属于构建期不变量破坏，必须立即失败。
+//! 从链原语生成机构码选项和管理员CID元信息。
+
 #![allow(clippy::expect_used)]
 
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};

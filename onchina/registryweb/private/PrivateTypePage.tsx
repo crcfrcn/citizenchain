@@ -1,3 +1,6 @@
+// 按具体私权机构类型组合列表、创建和详情界面。
+
+import { IdentityCidInput } from '@gmb/onchina-platform/controls/IdentityCidInput';
 // 单一私权类型页面壳。六类业务页面只把自己的 API 和类型配置传进来,
 // 这里负责同一种页面结构:搜索、列表、新增、进入详情。
 
@@ -63,9 +66,9 @@ export const PrivateTypePage: React.FC<PrivateTypePageProps> = ({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
         <strong>{title}</strong>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <Input
+          <IdentityCidInput
             value={searchInput}
-            placeholder="请输入机构全称、简称或身份ID"
+            placeholder="请输入机构全称、简称或身份CID号"
             allowClear
             style={{ width: 360, maxWidth: '42vw' }}
             onChange={(e) => {

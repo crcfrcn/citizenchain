@@ -27,12 +27,22 @@ async fn serve_console(
         .handle(handle.clone())
         .serve(service);
     tokio::pin!(server);
-    let result = tokio::select! {
-        result = &mut server => result.map_err(|_| "链上中国 HTTPS 服务异常退出".to_string()),
-        result = &mut renewal => {
-            handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
-            let _ = server.await;
-            result.unwrap_or_else(|_| Err("HTTPS 证书管理任务异常退出".into()))
+    // 预留 TCP 端口不代表 HTTPS 就绪；只在证书、数据库、模块及监听都就绪后回传地址。
+    let mut report_address = host && std::env::var_os("ONCHINA_PARENT_PIPE").is_some();
+    let result = loop {
+        tokio::select! {
+            result = &mut server => break result.map_err(|_| "链上中国 HTTPS 服务异常退出".to_string()),
+            result = &mut renewal => {
+                handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
+                let _ = server.await;
+                break result.unwrap_or_else(|_| Err("HTTPS 证书管理任务异常退出".into()));
+            }
+            address = handle.listening(), if report_address => {
+                report_address = false;
+                if let Some(address) = address {
+                    println!("{}", serde_json::json!({"onchina_listening": address}));
+                }
+            }
         }
     };
     let _ = stop.send(true);
@@ -189,9 +199,6 @@ pub fn run_backend(local: Option<Arc<dyn modules::model::ModuleBusiness>>) {
             report_startup_error(&detail);
             std::process::exit(1)
         });
-        if is_host && std::env::var_os("ONCHINA_PARENT_PIPE").is_some() {
-            println!("{}", serde_json::json!({"onchina_listening": address}));
-        }
         Some(listener)
     } else {
         None

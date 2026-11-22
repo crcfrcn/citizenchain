@@ -1,6 +1,4 @@
-// 某机构下的账户列表。
-//
-// 机构账户读侧来自链上登记；只读视图不显示操作列，自助管理只允许发起自定义账户关闭提案。
+// 展示机构链上账户列表，并按权限提供关闭自定义账户的提案入口。
 
 import React from 'react';
 import { Button, Popconfirm, Table, Tag, type TableColumnsType } from 'antd';
@@ -9,6 +7,7 @@ import {
   type MultisigChainStatus,
 } from './api';
 import { tryEncodeSs58 } from '../codes/ss58';
+import { formatAdminBalanceFen } from '../institutions/AssignmentCard';
 
 interface Props {
   accounts: InstitutionAccount[];
@@ -59,6 +58,13 @@ export const AccountList: React.FC<Props> = ({
           </span>
         );
       },
+    },
+    {
+      title: '账户余额',
+      dataIndex: 'balanceFen',
+      width: 180,
+      align: 'right',
+      render: (value: string | null | undefined) => formatAdminBalanceFen(value) || '-',
     },
     {
       title: '链上状态',

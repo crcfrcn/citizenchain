@@ -244,7 +244,7 @@ pub mod government {
     use std::collections::{BTreeMap, BTreeSet};
 
     use crate::codes::{code, parse_cid_number_parts};
-    use crate::institutions::subjects::{
+    use crate::institutions::{
         EDUCATION_TYPE_CITY_CITIZEN_EDU_COMMITTEE, EDUCATION_TYPE_NATIONAL_CITIZEN_EDU_COMMITTEE,
     };
     use crate::Db;

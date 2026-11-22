@@ -1,3 +1,5 @@
+// 封装机构治理、管理员激活及余额订阅，并定义公开响应模型。
+
 import { invoke } from "../client/tauri";
 import type { ProposalDisplayMeta, ProposalFullInfo, ProposalListItem, ProposalPageResult, UserVoteStatus } from "../proposal/types";
 import type { VoteSignRequestResult, VoteSubmitResult } from "../client/signing";

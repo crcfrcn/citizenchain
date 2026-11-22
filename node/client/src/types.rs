@@ -1,6 +1,5 @@
-//! 节点客户端、后端与服务的共享Rust类型。
+//! 定义节点全客户端、后端及服务共享Rust类型。
 
-// Substrate service API 固定返回 sc_service::Error，Node 必须保持框架函数签名。
 #![allow(clippy::result_large_err)]
 use runtime;
 

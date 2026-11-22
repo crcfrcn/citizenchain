@@ -1,3 +1,5 @@
+//! 验证节点P2P连接及真实区块导入和停止行为。
+
 use super::*;
 
 use crate::service::testing::new_partial_for_test;

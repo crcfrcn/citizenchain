@@ -1,6 +1,4 @@
-//! 登录态工作台清单生成。
-//!
-//! 这里把后端能力位组织成「操作 / 显示 / 记录」三类页面;前端按该清单选择工作台壳。
+//! 将登录态业务能力整理成操作、显示和记录页面清单。
 
 use crate::modules::capability::CapabilitySet;
 
@@ -57,8 +55,8 @@ pub fn own_institution_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSec
             "操作",
             vec![action(
                 "manage_own_admins".to_string(),
-                "变更本机构管理员",
-                false,
+                "机构管理员钱包治理",
+                capabilities.view_own_admins, // 前端共用本人双签及岗位治理入口，写权仍由链端校验。
             )],
         ),
         section(

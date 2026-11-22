@@ -1,3 +1,6 @@
+// 展示公民档案及身份办理状态，组织详情操作和签名交互。
+
+import { IdentityCidText, formatIdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 import { encodeSs58 } from '@gmb/onchina-platform/codes/ss58';
 // 公民详情页承接单个公民档案展示与链上身份推送。
 // 身份授权直接使用最新finalized绑定钱包；本页不再重复录入或扫描账户。
@@ -101,9 +104,9 @@ const detailCell: CSSProperties = { height: 40, boxSizing: 'border-box', padding
 const textAction: CSSProperties = { height: 20, minHeight: 0, minWidth: 0, lineHeight: '20px', fontSize: 14, padding: 0, margin: 0, border: 0, background: 'transparent', boxShadow: 'none', flexShrink: 0 };
 const identityTheme = { token: { controlHeight: 20 }, components: { Select: { optionHeight: 40, optionPadding: '9px 12px' } } };
 
-function DetailValue({ value }: { value: string | number | null | undefined }) {
+function DetailValue({ value, cid = false }: { value: string | number | null | undefined; cid?: boolean }) {
   const text = value === null || value === undefined || value === '' ? '-' : String(value);
-  return <span title={text} style={{ display: 'block', height: 20, lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>;
+  return <span title={cid ? formatIdentityCidText(text) : text} style={{ display: 'block', height: 20, lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cid ? <IdentityCidText value={text} /> : text}</span>;
 }
 
 function statusTag(status?: string) {
@@ -484,7 +487,7 @@ function CitizenDetailContent({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 24, alignItems: 'start' }}>
           <Descriptions className="citizen-details" column={1} size="small" bordered style={{ minWidth: 0 }} styles={{ label: { ...detailCell, width: 120, minWidth: 120, maxWidth: 120 }, content: { ...detailCell, overflow: 'hidden' } }}>
             <Descriptions.Item label="护照号"><DetailValue value={current.passportNo} /></Descriptions.Item>
-            <Descriptions.Item label="公民CID号"><DetailValue value={current.cidNumber} /></Descriptions.Item>
+            <Descriptions.Item label="身份CID号"><DetailValue value={current.cidNumber} cid /></Descriptions.Item>
             <Descriptions.Item label="姓名"><DetailValue value={makeCitizenName(current)} /></Descriptions.Item>
             <Descriptions.Item label="性别"><DetailValue value={sexText(current.citizenSex)} /></Descriptions.Item>
             <Descriptions.Item label="出生日期"><DetailValue value={formatDate(current.citizenBirthDate)} /></Descriptions.Item>
@@ -665,8 +668,8 @@ function CitizenDetailContent({
         okButtonProps={{ disabled: !current.accountId || rebinding }}
         onOk={() => { setRebindOpen(false); void rebindWallet(); }}
       >
-        <Typography.Paragraph>确认更换该公民CID的绑定钱包账户？</Typography.Paragraph>
-        <Typography.Paragraph>公民CID：{current.cidNumber}</Typography.Paragraph>
+        <Typography.Paragraph>确认更换该身份CID号的绑定钱包账户？</Typography.Paragraph>
+        <Typography.Paragraph>身份CID号：<IdentityCidText value={current.cidNumber} /></Typography.Paragraph>
         <Typography.Paragraph style={{ overflowWrap: 'anywhere' }}>当前绑定钱包：{current.accountId ? encodeSs58(current.accountId) : '-'}</Typography.Paragraph>
         <Typography.Paragraph>确认后由新钱包签名，并由当前管理员验证密钥、冷签提交。</Typography.Paragraph>
       </Modal>

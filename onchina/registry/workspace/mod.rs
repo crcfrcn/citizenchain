@@ -1,4 +1,5 @@
-//! 既有工作台分区，保持文字、顺序与能力条件。
+//! 按机构能力生成注册局工作台分区。
+
 use onchina::modules::capability::CapabilitySet;
 use onchina::workspace::manifest::{action, section};
 use onchina::workspace::model::{WorkspaceSection, WorkspaceSectionKind};

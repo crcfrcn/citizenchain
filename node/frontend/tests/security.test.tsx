@@ -1,3 +1,5 @@
+// 验证二维码载荷容量、严格字段及账户和协议标记拒绝。
+
 import {expect,it} from 'vitest';
 import {parseQrEnvelope} from '../client/citizenQr';
 import fixture from '../../../crates/protocol/tests/account_id_code.json';

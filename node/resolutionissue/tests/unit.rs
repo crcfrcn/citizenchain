@@ -1,3 +1,5 @@
+//! 验证发行载荷截断、错误标签和尾随拒绝及最大金额。
+
 use crate::decode::decode_resolution_issuance_action;
 use codec::Encode;
 

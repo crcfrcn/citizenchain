@@ -1,4 +1,5 @@
-//! 原所属签名回归，输入和断言保持。
+//! 验证签名材料的完整审阅、账户与链上下文及载荷边界。
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 use chain_signing::*;
 use codec::Encode;

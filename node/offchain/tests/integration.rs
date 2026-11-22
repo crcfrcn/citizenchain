@@ -1,3 +1,5 @@
+//! 验证最近清算批次序号的链存储键布局。
+
 use super::*;
 
 use crate::bootstrap::last_clearing_batch_seq_key;

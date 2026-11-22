@@ -1,3 +1,5 @@
+// 调用地址名称、地址列表和变更签名准备接口。
+
 import { adminHeaders, request } from '@gmb/onchina-platform/http';
 import type { AdminAuth } from '@gmb/onchina-platform/authentication/types';
 

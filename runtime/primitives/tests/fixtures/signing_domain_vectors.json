@@ -97,6 +97,12 @@
       "name": "OP_SIGN_PUBLISH",
       "op_tag": "0x24",
       "scale_payload_hex": "7075626c697368"
+    },
+    {
+      "message_hex": "13377a0b08652a43a2bd6485de40e741baf59e75bec33ce6c97aa6d97c6e803a",
+      "name": "OP_SIGN_INSTITUTION_WALLET",
+      "op_tag": "0x25",
+      "scale_payload_hex": "696e737469747574696f6e2d77616c6c6574"
     }
   ]
 }

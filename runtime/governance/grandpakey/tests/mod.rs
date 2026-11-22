@@ -1,3 +1,5 @@
+//! 装配GRANDPA密钥治理测试Runtime、机构岗位及身份夹具。
+
 #![cfg(test)]
 
 use super::*;

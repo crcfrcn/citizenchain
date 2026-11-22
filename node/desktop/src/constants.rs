@@ -1,4 +1,5 @@
-// 全链共享常量，避免各模块重复定义导致一致性风险。
+//! 导出桌面节点使用的全链共享常量。
+
 pub const SS58_PREFIX: u16 = 2027;
 
 pub const EXPECTED_SS58_PREFIX: u64 = 2027;

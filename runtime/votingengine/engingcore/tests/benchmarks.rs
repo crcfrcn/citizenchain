@@ -1,7 +1,5 @@
-//! `engingcore` 核心 FRAME benchmark。
-//!
-//! mode-specific 写票由各 Track benchmark；这里测量统一超时入口、管理员恢复入口和
-//! 异步执行队列框架成本。业务执行最重的 `set_code` 另由 WeightInfo 显式叠加系统权重。
+//! 基准测量统一超时、管理员恢复和异步执行及清理框架成本。
+
 #![cfg(feature = "runtime-benchmarks")]
 
 use frame_benchmarking::v2::*;

@@ -1,3 +1,5 @@
+//! 验证安全目录权限及密钥轮换只清理准确旧钥。
+
 use crate::keystore::ensure_directory_secure;
 use crate::keystore::has_key_in_keystore;
 use crate::keystore::read_key_from_keystore;

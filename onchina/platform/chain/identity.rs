@@ -1,8 +1,4 @@
-//! 公民 CID finalized 链上快照唯一读取入口。
-//!
-//! 所有注册局办理、公开绑定查询和本地投影必须复用本模块，并在同一个 finalized
-//! 区块读取登记、正向绑定、绑定版本、反向绑定、投票身份和竞选身份。CID 是唯一
-//! 身份主键；`account_id` 只表示该 finalized 版本的签名授权账户。
+//! 在同一最终块严格读取CID登记、账户绑定及投票和参选身份。
 
 use codec::Decode;
 use subxt::backend::legacy::LegacyRpcMethods;

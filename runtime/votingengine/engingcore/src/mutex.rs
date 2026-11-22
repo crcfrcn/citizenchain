@@ -1,15 +1,4 @@
-//! 内部提案互斥锁。
-//!
-//! 同一提案主体下的内部提案互斥规则:
-//! - **普通提案**(`Regular`)允许同主体多个并发,但**禁止**与管理员变更提案共存。
-//! - **管理员变更提案**(`AdminSetMutationExclusive`)同主体下必须独占,
-//!   且发起时该主体不得有任何普通活跃提案。
-//!
-//! 本文件提供三个对外入口:
-//! - `acquire_internal_proposal_mutex` — 创建提案时获取互斥锁,登记反向绑定。
-//! - `release_internal_proposal_mutexes` — 终态/阶段切换时释放该提案持有的全部锁。
-//! - `ensure_admin_set_mutation_lock_owner` — 校验某主体当前是否被指定 proposal_id
-//!   的管理员变更提案占用。
+//! 管理同主体内部提案与管理员集合变更之间的互斥。
 
 use frame_support::ensure;
 use frame_support::pallet_prelude::DispatchResult;

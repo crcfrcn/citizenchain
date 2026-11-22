@@ -1,5 +1,4 @@
-// 机构码→中文标签单一真源:后端 /api/public/cid/labels 下发(primitives code.rs 的 104 码),
-// 取代原前端硬编码 INSTITUTION_CODE_LABEL。模块级缓存 + 一次拉取(免登录),多组件挂载复用同一份。
+// 读取后端机构码中文标签并合并并发请求和模块缓存。
 
 import { useEffect, useState } from 'react';
 import { request } from "../workspace/http";

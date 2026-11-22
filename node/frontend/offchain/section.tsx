@@ -1,3 +1,6 @@
+// 组织清算行列表、已知CID存储及详情和管理页面。
+
+import { IdentityCidText } from '../client/identityCid';
 import { sanitizeError } from "../client/tauri";
 import { institutionReadApi } from "../institution/api";
 import { ClearingBankAddPage } from "../institution/add-candidate";
@@ -231,7 +234,7 @@ function EmptyView({
               <span className="admin-card-index">→</span>
               <div>
                 <strong>{s.cidFullName}</strong>
-                <code className="admin-card-address" style={{ marginLeft: 8 }}>{s.cidNumber}</code>
+                <code className="admin-card-address" style={{ marginLeft: 8 }}><IdentityCidText value={s.cidNumber} /></code>
               </div>
             </div>
           ))}
@@ -282,11 +285,11 @@ function CheckMultisigView({
         <div className="error">{error}</div>
       ) : missing ? (
         <div className="no-data">
-          {cidFullName || cidNumber} 链上尚未创建机构多签。机构创建已迁至 onchina
+          <IdentityCidText value={cidFullName || cidNumber} /> 链上尚未创建机构多签。机构创建已迁至 onchina
           控制台,请由对应机构管理员在 onchina 完成创建并经投票生效后,再回本页声明清算行节点。
         </div>
       ) : (
-        <p>正在判定 {cidFullName || cidNumber} 链上多签状态…</p>
+        <p>正在判定 <IdentityCidText value={cidFullName || cidNumber} /> 链上多签状态…</p>
       )}
     </>
   );

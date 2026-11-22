@@ -1,3 +1,5 @@
+//! 查询链状态和发行量，校验RPC节点、版本及余额。
+
 use crate::identity::current_status;
 use codec::{Decode, Encode};
 use entitybase::RegisteredInstitution;

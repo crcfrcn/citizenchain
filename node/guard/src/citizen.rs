@@ -1,3 +1,5 @@
+//! 解码公民身份和认证奖励事实，核对登记状态及发行变化。
+
 use crate::guard::FinalizeIssuancePlan;
 use codec::Decode;
 use codec::Encode;

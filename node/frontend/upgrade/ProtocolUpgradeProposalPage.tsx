@@ -1,3 +1,5 @@
+// 采集升级原因、WASM及PoW参数，审阅并冷签运行时升级提案。
+
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";

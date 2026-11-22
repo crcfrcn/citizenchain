@@ -1,3 +1,4 @@
+// 验证文档HTML引用稳定及目录更新前的重复封面清理。
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

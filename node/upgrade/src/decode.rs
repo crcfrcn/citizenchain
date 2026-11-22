@@ -1,3 +1,5 @@
+//! 解码运行时升级提案的链上业务载荷。
+
 use crate::types::RuntimeUpgradeDetail;
 use codec::Decode;
 

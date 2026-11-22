@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证法律及版本读取保持省市范围和准确院CID。
+
 use super::super::chain_propose::{ArticleArg, ClauseArg, SectionArg};
 use super::*;
 use codec::Encode;

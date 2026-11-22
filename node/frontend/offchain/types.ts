@@ -1,3 +1,5 @@
+// 定义清算行链端点、连通性检查和节点登记响应。
+
 import type { InstitutionAdminInfo } from "../institution/council";
 import type { AccountWithBalance } from "../institution/types";
 

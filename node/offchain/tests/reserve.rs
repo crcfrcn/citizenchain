@@ -1,3 +1,5 @@
+//! 验证存款总额汇总及偿付准备金检查。
+
 use super::*;
 
 use crate::ledger::OffchainLedger;

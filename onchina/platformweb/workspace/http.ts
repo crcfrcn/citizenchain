@@ -1,5 +1,4 @@
-// 前端通用 HTTP 工具。这里只做请求、鉴权头和 401 拦截,
-// 不放任何业务 API;业务 API 必须放回所属功能模块目录。
+// 发送通用HTTP请求，附加认证并按原会话处理未授权响应。
 
 import type { AdminAuth } from "../authentication/types";
 

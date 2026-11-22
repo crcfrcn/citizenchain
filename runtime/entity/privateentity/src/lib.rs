@@ -1,3 +1,5 @@
+//! 维护私权机构实体和账户，提供注册局登记及机构治理提案入口。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 /// 模块标识前缀，用于在 ProposalData 中区分不同业务模块，防止跨模块误解码。
@@ -23,6 +25,8 @@ use adminbase::{
     InstitutionAdminQuery,
 };
 use codec::{Decode, Encode};
+use adminbase::{InstitutionAdminWalletLifecycle, InstitutionAdminWalletQuery, InstitutionWalletSignatureVerifier};
+use frame_support::traits::UnixTime;
 use frame_support::{
     ensure,
     pallet_prelude::*,
@@ -85,7 +89,8 @@ pub mod pallet {
         type InternalVoteEngine: engingcore::InternalVoteEngine<Self::AccountId>;
 
         /// 私权机构管理员生命周期写入口。
-        type AdminLifecycle: InstitutionAdminLifecycle<Self::AccountId>;
+        type AdminLifecycle: InstitutionAdminLifecycle<Self::AccountId> + InstitutionAdminWalletLifecycle<Self::AccountId> + InstitutionAdminWalletQuery<Self::AccountId>;
+        type WalletSignatureVerifier: InstitutionWalletSignatureVerifier<Self::AccountId>;
 
         /// 兄弟机构生命周期查询入口，用于禁止同一 CID 在公权模块重复登记。
         type SiblingInstitutionQuery: InstitutionCidQuery<CidNumberOf<Self>>;
@@ -583,6 +588,7 @@ pub mod pallet {
         MissingInitialConfiguration,
         /// 成立后的岗位定义和权限变化须走机构自身治理。
         RegistrationRoleChangeDenied,
+        InvalidWalletProof,
     }
 
     /// 提案操作类型标记：存储在 ProposalData 的第一个字节。
@@ -604,6 +610,26 @@ pub mod pallet {
 
         /// 注册局更新机构全称/简称(链是机构信息唯一真源)。
         /// 机构码/CID/省市码物理编码在 CID 里,不可改故不作为参数。
+        /// 本人旧钱包签交易，新钱包签接收证明；仅更新机构钱包。
+        #[pallet::call_index(10)]
+        #[pallet::weight(Pallet::<T>::wallet_change_weight(&cid_number))]
+        #[frame_support::transactional]
+        pub fn rotate_institution_admin_wallet(
+            origin: OriginFor<T>,
+            cid_number: CidNumberOf<T>,
+            change: adminbase::InstitutionAdminWalletChange<T::AccountId>,
+            expires_at: u64,
+            new_wallet_proof: adminbase::InstitutionWalletProof,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            let info = Institutions::<T>::get(&cid_number).ok_or(Error::<T>::InstitutionNotFound)?;
+            ensure!(info.institution_code == primitives::cid::code::institution_code_from_cid_number(core::str::from_utf8(&cid_number).map_err(|_| Error::<T>::InvalidInstitutionCode)?).ok_or(Error::<T>::InvalidInstitutionCode)?, Error::<T>::InvalidInstitutionCode);
+            ensure!(T::InstitutionAdminQuery::resolve_admin_account(info.institution_code, &cid_number, &who).as_ref() == Some(&change.admin_account) && who == change.expected_wallet, Error::<T>::PermissionDenied);
+            T::AdminLifecycle::ensure_institution_wallets(info.institution_code, cid_number.to_vec())?;
+            Self::check_wallet_acceptance(&cid_number, &change, adminbase::InstitutionWalletChangeMode::SelfSigned, expires_at, &new_wallet_proof)?;
+            Self::apply_wallet_change(info.institution_code, &cid_number, change)
+        }
+
         #[pallet::call_index(6)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::update_institution_info())]
         #[allow(clippy::too_many_arguments)]
@@ -653,7 +679,7 @@ pub mod pallet {
         /// 本入口只允许治理 `actor_cid_number == cid_number` 的本机构；注册局替
         /// 目标机构登记管理员集合必须走 `register_institution_admins`。
         #[pallet::call_index(8)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_institution_governance().max(<T as pallet::Config>::WeightInfo::governance_names()))]
+        #[pallet::weight(Pallet::<T>::governance_weight(&cid_number, &action))]
         #[allow(clippy::too_many_arguments)]
         pub fn propose_institution_governance(
             origin: OriginFor<T>,
@@ -862,6 +888,49 @@ pub mod pallet {
             )
         }
 
+        /// Changing an effective signer invalidates frozen registration fingerprints too.
+        #[frame_support::transactional]
+        pub(crate) fn apply_wallet_change(code: InstitutionCode, cid: &CidNumberOf<T>, change: adminbase::InstitutionAdminWalletChange<T::AccountId>) -> DispatchResult {
+            T::AdminLifecycle::change_institution_wallet(code, cid.to_vec(), change)?;
+            InstitutionRoleNonce::<T>::try_mutate(cid, |nonce| -> DispatchResult {
+                *nonce = nonce.checked_add(1).ok_or(Error::<T>::RoleNonceOverflow)?;
+                Ok(())
+            })
+        }
+
+        pub fn wallet_change_weight(cid: &CidNumberOf<T>) -> Weight {
+            let n = Institutions::<T>::get(cid).and_then(|i| T::InstitutionAdminQuery::institution_admins_len(i.institution_code, cid)).unwrap_or(0);
+            let cost = <T as Config>::WeightInfo::institution_wallet_change(n);
+            let legacy = Institutions::<T>::get(cid).is_some_and(|info| !T::AdminLifecycle::institution_wallets_initialized(info.institution_code, cid));
+            if legacy {
+                cost.max(<T as Config>::WeightInfo::register_institution_admins(n, 0, 0, 0))
+                    .saturating_add(T::DbWeight::get().writes(u64::from(n).saturating_add(1)))
+            } else { cost }
+        }
+
+        pub fn governance_weight(cid: &CidNumberOf<T>, action: &InstitutionGovernanceActionOf<T>) -> Weight {
+            let cost = <T as Config>::WeightInfo::propose_institution_governance().max(<T as Config>::WeightInfo::governance_names());
+            if matches!(action, InstitutionGovernanceAction::RotateAdminWallet { .. }) { cost.saturating_add(Self::wallet_change_weight(cid)) } else { cost }
+        }
+
+        pub(crate) fn check_wallet_acceptance(
+            cid: &CidNumberOf<T>, change: &adminbase::InstitutionAdminWalletChange<T::AccountId>,
+            mode: adminbase::InstitutionWalletChangeMode, expires_at: u64, proof: &[u8],
+        ) -> DispatchResult {
+            let info = Institutions::<T>::get(cid).ok_or(Error::<T>::InstitutionNotFound)?;
+            let now = <T as engingcore::Config>::TimeProvider::now().as_secs();
+            ensure!(expires_at > now && expires_at.saturating_sub(now) <= adminbase::INSTITUTION_WALLET_PROOF_MAX_LIFETIME_SECS, Error::<T>::InvalidWalletProof);
+            let state = T::AdminLifecycle::institution_wallet_state(info.institution_code, cid, &change.admin_account).ok_or(Error::<T>::InvalidWalletProof)?;
+            ensure!(T::AdminLifecycle::current_institution_wallet(info.institution_code, cid, &change.admin_account).as_ref() == Some(&change.expected_wallet) && state.revision == change.expected_revision && change.expected_wallet != change.new_wallet, Error::<T>::InvalidWalletProof);
+            let payload = adminbase::InstitutionWalletAcceptance {
+                genesis_hash: frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::default()),
+                cid_number: cid.to_vec().try_into().map_err(|_| Error::<T>::InvalidInstitutionCode)?,
+                change: change.clone(), mode, expires_at,
+            }.encode();
+            ensure!(T::WalletSignatureVerifier::verify(&change.new_wallet, &payload, proof), Error::<T>::InvalidWalletProof);
+            Ok(())
+        }
+
         fn ensure_governance_action_valid(
             institution_code: InstitutionCode,
             cid_number: &[u8],
@@ -873,6 +942,7 @@ pub mod pallet {
                     cid_number,
                 );
             match action {
+                InstitutionGovernanceAction::RotateAdminWallet { .. } => Ok(()),
                 InstitutionGovernanceAction::ReplaceAdmins { admins } => {
                     ensure!(
                         !protected_foundation,
@@ -959,6 +1029,7 @@ pub mod pallet {
             }
         }
 
+        #[frame_support::transactional]
         pub(crate) fn do_propose_institution_governance(
             who: T::AccountId,
             cid_number: CidNumberOf<T>,
@@ -974,7 +1045,12 @@ pub mod pallet {
             );
             let info =
                 Institutions::<T>::get(&cid_number).ok_or(Error::<T>::InstitutionNotFound)?;
-            Self::ensure_lifecycle_institution_code(&info.institution_code)?;
+            if let InstitutionGovernanceAction::RotateAdminWallet { change, expires_at, new_wallet_proof } = &action {
+                T::AdminLifecycle::ensure_institution_wallets(info.institution_code, cid_number.to_vec())?;
+                Self::check_wallet_acceptance(&cid_number, change, adminbase::InstitutionWalletChangeMode::Governance, *expires_at, new_wallet_proof)?;
+            } else {
+                Self::ensure_lifecycle_institution_code(&info.institution_code)?;
+            }
             // `build_institution_vote_plan` 一次校验 CID、岗位码、任职账户和业务权限；
             // 禁止在业务入口把管理员名册成员身份单独当成授权。
             Self::ensure_governance_action_valid(
@@ -1126,6 +1202,11 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::InvalidAssignmentResultInstitution)?;
             let result_source_ref = proposal_id.to_le_bytes().to_vec();
             match proposal.action {
+                InstitutionGovernanceAction::RotateAdminWallet { change, expires_at, new_wallet_proof } => {
+                    ensure!(engingcore::Pallet::<T>::is_callback_execution_scope(proposal_id), Error::<T>::PermissionDenied);
+                    Self::check_wallet_acceptance(&cid_number, &change, adminbase::InstitutionWalletChangeMode::Governance, expires_at, &new_wallet_proof)?;
+                    Self::apply_wallet_change(proposal.institution_code, &cid_number, change)
+                },
                 InstitutionGovernanceAction::ReplaceAdmins { admins } => {
                     let bounded: InstitutionAdminsInputOf<T> = admins
                         .try_into()
@@ -1434,6 +1515,8 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
             // Execution may declare an entire zero-balance account batch.
             .saturating_add(<T::OnAccountRegistered as Get<Weight>>::get()
                 .saturating_mul(T::MaxInstitutionAccounts::get() as u64))
+            // Wallet rotation creates no accounts or EVM mappings.
+            .max(<T as crate::pallet::Config>::WeightInfo::institution_wallet_change(<T as crate::pallet::Config>::MaxAdmins::get()))
     }
 
     fn terminal_weight() -> frame_support::weights::Weight {

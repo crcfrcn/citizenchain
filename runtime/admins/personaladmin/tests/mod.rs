@@ -1,3 +1,5 @@
+//! 装配个人多签管理员测试Runtime、身份及投票夹具。
+
 #![cfg(test)]
 
 use super::*;

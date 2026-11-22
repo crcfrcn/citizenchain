@@ -1,5 +1,4 @@
-
-// 设置页类型，对齐后端 src/settings 返回值。
+// 定义奖励账户、节点密钥、身份和设置的原生响应类型。
 
 export type RewardAccount = {
   accountId: string | null;

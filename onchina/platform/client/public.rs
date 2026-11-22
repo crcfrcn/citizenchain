@@ -1,23 +1,4 @@
-//! 公权机构目录 —— CitizenApp 公民端匿名只读 BFF。
-//!
-//! 数据来自 OnChina 本地链投影(subjects + gov + accounts),唯一真源是链上
-//! `PublicManage::Institutions` / `PublicManage::InstitutionAccounts`。
-//! 本层只做:① 去鉴权 / 去 scope 锁(公民可查任意省/市);② 公开 DTO 白名单(丢弃
-//! 管理员/运营/PII 字段);③ custom_account_names 批量补。
-//!
-//! ### 量级与混合模式
-//! 创世目录覆盖国家/省/市公权机构;镇级和后续新增机构由注册局运行期注册上链。
-//! 客户端走「发布期创世数据包打底 + 在线增量」混合:
-//! - **keyset 翻页**(`after_cid`,`WHERE cid_number > $after`):恒定快,避免 OFFSET
-//!   深翻 O(n²),供生成器高效全量导出。
-//! - **增量同步**(`since_version`):客户端版本等于当前链投影版本时返回空窗口;
-//!   版本不同则按 keyset 窗口刷新。
-//! - **真实版本号**:`chain_projection_state(public-gov)` 投影版本。链上新增、删除、
-//!   账户变化或重同步都会推进版本,客户端据此刷新。
-//!
-//! 路由(挂 app_routes,非 admin):
-//!   GET /api/app/public-institutions?province_name=&city_name=&since_version=&after_cid=&page_size=
-//!   GET /api/app/public-institutions/version?province_name=&city_name=
+//! 从本地链投影查询公权机构目录并返回公开字段。
 
 use std::collections::HashMap;
 
@@ -90,7 +71,7 @@ pub(crate) struct PublicInstitutionRow {
     pub has_legal_personality: Option<bool>,
     /// 法定代表人公开身份；人的姓名只下发分离的姓、名。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub legal_representative: Option<crate::institutions::subjects::model::LegalRepresentative>,
+    pub legal_representative: Option<crate::institutions::LegalRepresentative>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_cid_number: Option<String>,
     pub account_count: usize,
@@ -111,7 +92,7 @@ impl PublicInstitutionRow {
             row.get::<_, Option<String>>("representative_account"),
         ) {
             (Some(family_name), Some(given_name), Some(cid_number), Some(account_id)) => {
-                Some(crate::institutions::subjects::model::LegalRepresentative {
+                Some(crate::institutions::LegalRepresentative {
                     family_name,
                     given_name,
                     cid_number,
@@ -426,8 +407,7 @@ fn custom_account_names_for(
     }
     let province_code = province_code.to_string();
     let cids: Vec<String> = cid_numbers.to_vec();
-    let reserved: Vec<String> =
-        crate::institutions::accounts::derive::reserved_account_names().to_vec();
+    let reserved: Vec<String> = crate::institutions::reserved_account_names().to_vec();
     state.db.with_client(move |conn| {
         let rows = conn
             .query(

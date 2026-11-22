@@ -1,3 +1,5 @@
+//! 管理用户自定义个人多签账户的创建、关闭和生命周期状态。
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 //! 个人多签账户生命周期 pallet（MODULE_TAG = `b"per-mgmt"`）。

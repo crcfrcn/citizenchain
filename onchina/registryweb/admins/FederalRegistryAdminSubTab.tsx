@@ -1,3 +1,6 @@
+// 展示联邦注册局管理员名册子页。
+
+import { InstitutionWalletSelfAction, InstitutionWalletRecoveryActions } from '@gmb/onchina-platform/institutions/AdminsView';
 import { useMemo, useState } from 'react';
 import { Badge, Button, Card, Modal, Space, Table } from 'antd';
 import { KeyOutlined } from '@ant-design/icons';
@@ -8,6 +11,7 @@ import { CID_MODAL_Z_INDEX } from '@gmb/onchina-platform/controls/modalStack';
 import { type FederalRegistryAdminRow } from './cityRegistryAdminsApi';
 import { sameHexAccount } from '@gmb/onchina-platform/institutions/adminUtils';
 import { usePasskeyRegistration } from '@gmb/onchina-platform/authentication/usePasskey';
+import { tryEncodeSs58 } from '@gmb/onchina-platform/codes/ss58';
 import { InstitutionAssignmentDetails, assignmentDisplayLabel, formatAdminBalanceFen } from '@gmb/onchina-platform/institutions/AssignmentCard';
 // 联邦注册局管理员只读目录。管理员换届必须由治理业务写入 entity 任职结果，
 // OnChina 不提供本地替换或直接改管理员集合入口。
@@ -19,6 +23,7 @@ interface FederalRegistryAdminSubTabProps {
   federalRegistryAdminsLoading: boolean;
   /** 该机构 cid_short_name 单一字段，如“联邦注册局”。 */
   federalRegistryCidShortName?: string | null;
+  institutionCidNumber?: string;
 }
 
 const FEDERAL_REGISTRY_PAGE_SIZE = 20;
@@ -28,6 +33,7 @@ export function FederalRegistryAdminSubTab({
   federalRegistryAdmins,
   federalRegistryAdminsLoading,
   federalRegistryCidShortName,
+  institutionCidNumber,
 }: FederalRegistryAdminSubTabProps) {
   const { auth } = useAuth();
   const { registered: passkeyRegistered, busy: passkeyBusy, register: doRegisterPasskey } =
@@ -61,7 +67,22 @@ export function FederalRegistryAdminSubTab({
     { title: '省份', dataIndex: 'provinceName', align: 'center', width: 120 },
     {
       title: '岗位',
+      dataIndex: 'roleName',
+      render: (value: string | null | undefined) => value?.trim() || '-',
+    },
+    {
+      title: '姓名',
       render: (_value, row) => assignmentDisplayLabel(row) || '-',
+    },
+    {
+      title: '钱包账户',
+      dataIndex: 'accountId',
+      width: 360,
+      render: (value: string) => (
+        <span style={{ fontSize: 11, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+          {tryEncodeSs58(value)}
+        </span>
+      ),
     },
     {
       title: '余额',
@@ -72,10 +93,10 @@ export function FederalRegistryAdminSubTab({
     },
     {
       title: '操作',
-      width: 100,
+      width: 180,
       align: 'center',
       render: (_value, row) => sameHexAccount(row.accountId, auth?.accountId) ? (
-        <Badge dot={passkeyRegistered === false} size="small">
+        <Space><Badge dot={passkeyRegistered === false} size="small">
           <Button
             size="small"
             icon={<KeyOutlined />}
@@ -87,7 +108,7 @@ export function FederalRegistryAdminSubTab({
           >
             密钥
           </Button>
-        </Badge>
+        </Badge><InstitutionWalletSelfAction accountId={row.accountId} institutionCidNumber={institutionCidNumber}/></Space>
       ) : null,
     },
   ];
@@ -103,6 +124,7 @@ export function FederalRegistryAdminSubTab({
           </Space>
         )}
       >
+        <InstitutionWalletRecoveryActions institutionCidNumber={institutionCidNumber}/>
         <Table<FederalRegistryAdminRow>
           rowKey={(row) => `${row.id}-${row.accountId}-${row.roleCode}`}
           loading={federalRegistryAdminsLoading}
@@ -115,6 +137,7 @@ export function FederalRegistryAdminSubTab({
             onChange: (page) => setFederalListPage(page),
           }}
           columns={columns}
+          scroll={{ x: 1100 }}
           onRow={(row) => ({
             onClick: () => setDetailTarget(row),
             style: { cursor: 'pointer' },

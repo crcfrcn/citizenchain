@@ -1,7 +1,4 @@
-//! 立法院模块数据类型(ADR-027):法律层级 / 状态 / 表决类型 / 立法动作枚举。
-//!
-//! 这里只放与泛型 `T` 无关的纯枚举;带 `BoundedVec` 上限的法律结构体
-//! (Article / Clause / Item / Law / LawVersion)因依赖 `Config` 常量,定义在 `lib.rs` 的 pallet 模块内。
+//! 定义法律层级、状态、动作及表决类型的共用枚举。
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::pallet_prelude::Debug;

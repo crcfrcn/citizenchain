@@ -1,3 +1,5 @@
+//! 验证真实管理员身份字段布局及不完整名册拒绝。
+
 use crate::codec::decode_institution_admins;
 use adminbase::Admin;
 use adminbase::InstitutionAdmins;

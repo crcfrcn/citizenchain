@@ -1,8 +1,4 @@
-//! 注册局公民 CID 占号、换绑与吊销业务。
-//!
-//! 本文件保留原有业务校验、调用编码、公民账户回签和管理员签名准备。
-//! 通用冷签会话由平台 transactions/session.rs 持有，最终提交、确认与恢复由
-//! 平台 transactions/handler.rs 执行，再调用本模块的原有身份目标校验及业务投影。
+//! 办理CID占号、换绑和吊销，核验公民回签并准备管理员冷签。
 
 use super::authorization::{resolve_operation_role, resolve_operation_role_at, CitizenOperation};
 use crate::citizens::admin_entry::CitizenWrites;
@@ -963,7 +959,7 @@ pub(crate) async fn submit_citizen_occupy(
     };
 
     let issued_at = Utc::now();
-    let action = onchina::institutions_call::chain_action_code(
+    let action = onchina::institutions::chain_action_code(
         CITIZEN_IDENTITY_PALLET_INDEX,
         OCCUPY_CID_CALL_INDEX,
     );
@@ -1413,7 +1409,7 @@ pub(crate) async fn submit_citizen_rebind(
     };
 
     let issued_at = Utc::now();
-    let action = onchina::institutions_call::chain_action_code(
+    let action = onchina::institutions::chain_action_code(
         CITIZEN_IDENTITY_PALLET_INDEX,
         ADMIN_REBIND_CID_CALL_INDEX,
     );
@@ -1531,7 +1527,7 @@ pub(crate) async fn prepare_citizen_revoke(
     let issued_at = Utc::now();
     let expires_at = issued_at + Duration::seconds(SESSION_TTL_SECS);
     let request_id = format!("citizen-revoke-{}", Uuid::new_v4());
-    let action = onchina::institutions_call::chain_action_code(
+    let action = onchina::institutions::chain_action_code(
         CITIZEN_IDENTITY_PALLET_INDEX,
         REVOKE_CID_CALL_INDEX,
     );

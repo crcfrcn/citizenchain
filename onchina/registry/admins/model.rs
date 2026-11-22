@@ -1,4 +1,5 @@
-//! 注册局链上名册DTO；行标识是机构CID与名册锚点，不伪造本地管理员编号。
+//! 定义以机构CID和名册锚点定位的注册局管理员响应模型。
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize)]

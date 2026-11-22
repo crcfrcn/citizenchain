@@ -1,7 +1,4 @@
-//! 决议销毁模块 Benchmark 定义。
-//!
-//! 投票统一走 `engingcore::internal_vote`,本模块只覆盖"发起提案"和
-//! "任意人重试执行"两条路径。
+//! 基准测量决议销毁提案及执行重试入口。
 
 #![cfg(feature = "runtime-benchmarks")]
 

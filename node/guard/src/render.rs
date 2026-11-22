@@ -1,3 +1,5 @@
+//! 转义并渲染节点守卫页面的文本、背景和状态资料。
+
 use super::*;
 
 use crate::constitution::decode_law_head;

@@ -1,14 +1,4 @@
-//! 清算行合法性判定。
-//!
-//!
-//! - 清算行(L2)= subject_property 为 S(私法人)或 F(非法人)的私权机构。
-//! - 清算行在身份注册局注册时生成 cid_number,并登记主账户、费用账户等机构账户。
-//! - 本模块判定:某个地址能否作为"可被 L3 绑定的清算行主账户"。
-//!
-//! **解耦设计**:bank_check 不直接依赖具体实体生命周期 pallet,而是通过
-//! `CidAccountQuery` trait 抽象机构登记表。runtime 层实现该 trait(内部委托
-//! 给 runtime 聚合查询),测试层可用 `()` 空实现或 mock,从
-//! 而避免 pallet 之间形成强耦合。
+//! 查询清算行登记、账户和岗位授权，判定清算业务主体是否合法。
 
 use frame_support::ensure;
 use sp_std::vec::Vec;

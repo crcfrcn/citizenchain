@@ -1,6 +1,4 @@
-//! 地址变更链上 call data 编码器。
-//!
-//! OnChina 只构造裸 SCALE call data 和 QR 动作码,不在这里提交 extrinsic。
+//! 编码镇下地址变更的裸SCALE调用及二维码动作。
 
 use codec::{Compact, Encode};
 
@@ -45,7 +43,7 @@ fn parse_h256(raw: &str) -> Result<[u8; 32], String> {
 }
 
 fn action_code(call_index: u8) -> u16 {
-    onchina::institutions_call::chain_action_code(ADDRESS_REGISTRY_PALLET_INDEX, call_index)
+    onchina::institutions::chain_action_code(ADDRESS_REGISTRY_PALLET_INDEX, call_index)
 }
 
 fn output(

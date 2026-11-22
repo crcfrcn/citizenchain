@@ -1,26 +1,4 @@
-//! 扫码支付清算体系:清算行批次上链 settlement 路径。
-//!
-//!
-//! - 同行清算(payer_bank_cid == recipient_bank_cid):仅 `DepositBalance` 轧差 + 手续费从清算账户到费用账户
-//! - 跨行清算(payer_bank_cid != recipient_bank_cid):
-//!   付款方清算账户 → 收款方清算账户(本金)
-//!   + 付款方清算账户 → 收款方费用账户(fee)
-//!   + 双方 `DepositBalance` / `BankTotalDeposits` 同步
-//! - 每条 `OffchainBatchItem` 必经:
-//!     1. L3 签名验证(`sr25519_verify` 对 `PaymentIntent::signing_hash`)
-//!     2. nonce 单调递增(`nonce::consume_nonce`)
-//!     3. 费率正确性(按 **收款方** 清算行 `L2FeeRateBp`,最低 1 分)
-//!     4. 偿付自动保护(`solvency::ensure_can_debit`)
-//!     5. 防重放(`ProcessedOffchainTx` 不命中)
-//! - 手续费**全部归收款方清算行的费用账户**,无省储行分成。
-//!
-//! **收款方主导清算**模型。
-//! - `submit_offchain_batch` 的 `institution_account_id` = 收款方清算行主账户(身份锚)
-//! - 同一批次所有 item 的 `recipient_bank_cid` 必须 == `actor_cid_number`(收款方 CID)
-//! - 提交者 = 收款方清算行的某个激活管理员
-//! - 每个 item 的付款公民从其 L2 清算账户存款支付链下清算费;批尾对累计手续费收一次链上费(Step 3)
-//!
-//! 节点 packer 收齐多笔 → 提交 `submit_offchain_batch` 走到这里。
+//! 验签并执行同行或跨行支付批次，核对手续费及省域分片。
 
 use codec::Decode;
 use frame_support::{

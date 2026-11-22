@@ -1,13 +1,4 @@
-//! 公权机构命名与机构集模板(全仓单源,ADR-031 卡3)。
-//!
-//! 用户统一命名规则后，把确定性模板从 OnChina 收归
-//! primitives 单源,创世直铸与 onchina 目录共享,杜绝两处漂移。
-//!
-//! 组装规则(296 常量逆向验证零例外):
-//!   cid_short_name = 行政区显示名 + `cid_short_name_suffix`
-//!   cid_full_name = 行政区显示名 + `cid_full_name_suffix`
-//! 显示名:省行政区部门=省名,市行政区=市名,镇行政区=镇名。
-//! 创世只消费省/市模板;镇行政区模板只供注册局运行期按 town_code 注册上链。
+//! 定义公权机构命名、机构集及行政层级模板。
 
 use alloc::format;
 use alloc::string::String;

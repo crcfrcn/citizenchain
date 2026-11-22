@@ -1,3 +1,5 @@
+//! 解码决议发行提案及其分配明细。
+
 use crate::types::IssuanceAllocationItem;
 use crate::types::ResolutionIssuanceDetail;
 

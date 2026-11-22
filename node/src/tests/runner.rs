@@ -1,3 +1,5 @@
+//! 验证节点停止或异常退出时撤销读取能力并保留真实失败原因。
+
 use super::*;
 
 use crate::runner::essential_failure_message;

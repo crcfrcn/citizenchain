@@ -1,6 +1,4 @@
-// cid 前端管理员登录态持久化工具。
-// 从 App.tsx 里抽出来的 readStoredAuth / writeStoredAuth / clearStoredAuth,
-// 使用 sessionStorage 与既有结构校验，由 AuthContext 维护登录态。
+// 在sessionStorage保存和校验管理员公开登录态。
 
 import type { AdminAuth } from './types';
 

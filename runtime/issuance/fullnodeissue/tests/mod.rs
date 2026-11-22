@@ -1,3 +1,5 @@
+//! 装配全节点奖励测试Runtime、出块者及账户余额夹具。
+
 #![cfg(test)]
 
 use super::pallet::*;

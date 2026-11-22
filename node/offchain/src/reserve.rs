@@ -1,3 +1,5 @@
+//! 核对链上清算余额与本地存款，监视偿付准备金。
+
 use crate::ledger::OffchainLedger;
 use codec::Decode;
 use codec::Encode;

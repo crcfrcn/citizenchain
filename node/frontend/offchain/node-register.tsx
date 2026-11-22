@@ -1,3 +1,6 @@
+// 填写清算行节点资料，检测连通性并冷签登记。
+
+import { IdentityCidText } from '../client/identityCid';
 import { sanitizeError } from "../client/tauri";
 import { adminsChangeApi } from "../institution/admins";
 import { accountIdToSs58 } from "../client/ss58";
@@ -50,7 +53,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
   const signRequestRef = useRef(signRequest);
   signRequestRef.current = signRequest;
 
-  // 初始化：拉本机 PeerId + 按机构 CID 拉已激活管理员。
+  // 初始化：拉本机 PeerId + 按身份CID号 拉已激活管理员。
   useEffect(() => {
     let cancelled = false;
     Promise.all([
@@ -167,7 +170,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
       <button className="back-button" onClick={onBack}>← 返回</button>
       <div className="admin-list-header">
         <h2>声明清算行节点</h2>
-        <span className="admin-list-summary">{cidFullName} ({cidNumber})</span>
+        <span className="admin-list-summary">{cidFullName} (<IdentityCidText value={cidNumber} />)</span>
       </div>
 
       {step === 'form' || step === 'testing' || step === 'tested' || step === 'error' ? (

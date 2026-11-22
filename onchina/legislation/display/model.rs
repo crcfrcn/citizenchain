@@ -1,6 +1,4 @@
-//! 大屏看板 DTO(camelCase 出线,前端 `onchina/legislationweb/display/types.ts` 逐字镜像)。
-//!
-//! 嵌入既有 `LegProposalState`(不重定义),叠加席位与聚合计数。
+//! 定义立法大屏的席位、活跃提案和看板响应模型。
 
 use serde::Serialize;
 

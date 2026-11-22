@@ -1,3 +1,5 @@
+//! 定义机构概览、清算行候选和带余额账户的公开模型。
+
 use primitives::cid::code::InstitutionCode;
 use serde::Serialize;
 

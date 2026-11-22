@@ -23,6 +23,8 @@
 //
 // For more information, please refer to <http://unlicense.org>
 
+//! 汇总主Runtime性能基准入口。
+
 frame_benchmarking::define_benchmarks!(
     [frame_benchmarking, BaselineBench::<Runtime>]
     [frame_system, SystemBench::<Runtime>]

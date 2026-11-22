@@ -1,4 +1,5 @@
-//! 随所属功能迁移的原有回归，输入与断言保持不变。
+//! 验证护照号城市命名空间、校验位、序号和年龄有效期。
+
 use super::{
     build_passport_no, passport_city_namespace, passport_valid_until, passport_validity_years,
     PASSPORT_CITY_NAMESPACE_COUNT, PASSPORT_LOCAL_CAPACITY,

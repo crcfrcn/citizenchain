@@ -1,3 +1,5 @@
+//! 验证投票状态最新快照覆盖、恢复及损坏拒绝。
+
 use super::*;
 use sp_keyring::Ed25519Keyring;
 use substrate_test_runtime_client::{

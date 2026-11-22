@@ -1,3 +1,5 @@
+//! 组织内置机构常量并计算机构名称目录摘要。
+
 pub mod area;
 pub mod china_cb;
 pub mod china_ch;

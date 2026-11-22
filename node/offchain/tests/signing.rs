@@ -1,3 +1,5 @@
+//! 验证清算登记、注销和更新调用布局及输入边界。
+
 use crate::signing::build_register_call_data;
 use crate::signing::build_unregister_call_data;
 use crate::signing::parse_signer_public_key;

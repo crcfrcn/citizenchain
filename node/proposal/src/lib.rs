@@ -1,4 +1,4 @@
-//! nodeproposal所属功能与公开接口。
+//! 组织提案查询、业务解码、计票和冷签投票接口。
 
 pub mod business;
 pub mod commands;

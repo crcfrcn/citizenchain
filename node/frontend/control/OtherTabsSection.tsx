@@ -1,3 +1,5 @@
+// 加载并呈现白皮书和其他随包说明文档。
+
 import { otherTabsApi } from './api';
 import { sanitizeError } from "../client/tauri";
 import { LocalDocViewer } from "./LocalDocViewer";

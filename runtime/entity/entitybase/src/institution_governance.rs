@@ -1,8 +1,4 @@
-//! 机构治理结果共用协议。
-//!
-//! 具体业务只负责形成结果；`entity` 负责校验机构、岗位、任职、法定代表人和
-//! `admins` 派生不变量。本协议不包含提名、选举、预算等业务规则，也不提供
-//! 外部 extrinsic，因此新增或删除业务时不需要改变 entity storage。
+//! 定义机构治理结果、注册状态指纹和原子登记的共用协议。
 
 extern crate alloc;
 
@@ -148,6 +144,12 @@ pub enum InstitutionGovernanceAction<AccountId, AdminRecord = Admin<AccountId>> 
         assignment_changes: Vec<InstitutionRoleAssignmentChange<AccountId>>,
         legal_representative_change: Option<InstitutionLegalRepresentativeChange<AccountId>>,
     },
+    /// 只轮换本机构既有管理员的签名钱包，不替换人员/任职；保持原变体0..2不变。
+    RotateAdminWallet {
+        change: adminbase::InstitutionAdminWalletChange<AccountId>,
+        expires_at: u64,
+        new_wallet_proof: adminbase::InstitutionWalletProof,
+    },
 }
 
 impl<AccountId, AdminRecord> InstitutionGovernanceAction<AccountId, AdminRecord> {
@@ -181,6 +183,7 @@ impl<AccountId, AdminRecord> InstitutionGovernanceAction<AccountId, AdminRecord>
         let encoded_units =
             u32::try_from(self.encoded_size().saturating_add(255) / 256).unwrap_or(u32::MAX);
         let (admins, mutations, changes) = match self {
+            Self::RotateAdminWallet { .. } => return (encoded_units, 0, 0, 0),
             Self::ReplaceAdmins { admins } => {
                 return ((admins.len() as u32).max(encoded_units), 0, 0, 0)
             }
@@ -224,6 +227,7 @@ impl<AccountId> InstitutionGovernanceAction<AccountId, Admin<AccountId>> {
     /// 在签名载荷和投票数据生成前补齐管理员默认姓名，保证提案与最终链上记录一致。
     pub fn normalize_admin_person_names(self) -> Self {
         match self {
+            action @ Self::RotateAdminWallet { .. } => action,
             Self::ReplaceAdmins { admins } => Self::ReplaceAdmins {
                 admins: admins.into_iter().map(Admin::normalize_names).collect(),
             },

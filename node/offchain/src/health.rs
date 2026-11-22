@@ -1,3 +1,5 @@
+//! 检查清算行DNS及端点连接，汇总明确的健康结果。
+
 use crate::types::ConnectivityCheck;
 use crate::types::ConnectivityTestReport;
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_SMALL;

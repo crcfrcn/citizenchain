@@ -1,3 +1,5 @@
+//! 管理清算行密钥解锁挑战、冷签请求及短时内存解密状态。
+
 use crate::types::DecryptAdminRequestResult;
 use crate::types::DecryptedAdminInfo;
 use nodeclient::signing::payload_b64;

@@ -1,4 +1,5 @@
-// 唯一接入页真源；直接运行输出 HTML，导入只提供页面内容，不运行测试。
+// 生成公民链MetaMask接入页，校验HTTPS来源并添加、切换和回读链号。
+
 export const installHtml = String.raw`<!doctype html>
 <html lang="zh-CN">
 <head>

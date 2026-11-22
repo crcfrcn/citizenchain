@@ -1,3 +1,5 @@
+//! 验证受保护机构组成、法定岗位及有效管理员资料约束。
+
 use super::*;
 
 use crate::guard::national_body_composition::check_full_state;

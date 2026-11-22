@@ -1,8 +1,6 @@
-//! 机构信息查询(chain pull)。
-//!
-//! 公开只读接口直接查询 `subjects/accounts` 结构化表。
+//! 从主体和账户结构化表提供公民端机构搜索及详情查询。
 
-use crate::institutions::subjects::service::institution_account_kind_label;
+use crate::institutions::institution_account_kind_label;
 use crate::response::ApiResponse;
 use crate::*;
 use axum::{
@@ -37,8 +35,7 @@ pub(crate) struct AppInstitutionDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) parent_cid_number: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) legal_representative:
-        Option<crate::institutions::subjects::model::LegalRepresentative>,
+    pub(crate) legal_representative: Option<crate::institutions::LegalRepresentative>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -220,7 +217,7 @@ pub(crate) async fn app_list_accounts(
     }) else {
         return api_error(StatusCode::NOT_FOUND, 1004, "institution not found");
     };
-    let code = match crate::institutions::admins::code_bytes(&inst.institution_code) {
+    let code = match crate::institutions::code_bytes(&inst.institution_code) {
         Ok(v) => v,
         Err(resp) => return resp,
     };

@@ -1,3 +1,5 @@
+// 定义管理端组件主题和视觉参数。
+
 import type { ThemeConfig } from 'antd';
 
 export const cidTheme: ThemeConfig = {

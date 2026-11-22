@@ -1,4 +1,4 @@
-// 私权机构详情页只调度私权布局,不得承载公权机构业务。
+// 将私权机构详情参数交给所属详情布局。
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Typography } from 'antd';

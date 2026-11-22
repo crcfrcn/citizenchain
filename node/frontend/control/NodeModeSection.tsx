@@ -1,3 +1,5 @@
+// 展示节点模式选项并保存允许的运行模式。
+
 import { sanitizeError } from "../client/tauri";
 import { settingsApi as api } from "./api";
 import type { NodeMode, NodeModeState } from "./types";

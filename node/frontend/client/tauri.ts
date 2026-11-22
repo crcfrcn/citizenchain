@@ -1,3 +1,4 @@
+// 导出原生IPC调用并规范有界用户错误文本。
 
 import { invoke } from '@tauri-apps/api/core';
 

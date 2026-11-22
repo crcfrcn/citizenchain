@@ -1,7 +1,4 @@
-//! 管理员敏感动作的扫码签名挑战与一次性安全授权模型。
-//!
-//! 这些结构服务统一管理员安全动作，因此由平台 authentication 持有。
-//! step-up = 会话 + 冷钱包扫码签名。
+//! 定义敏感动作扫码挑战和一次性安全授权模型。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

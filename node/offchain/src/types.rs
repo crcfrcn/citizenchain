@@ -1,3 +1,5 @@
+//! 定义清算行链端点、连通性检查及公开命令响应模型。
+
 use serde::Serialize;
 
 /// 链上 `ClearingBankNodes[cid_number]` 解码后的对前端形态。

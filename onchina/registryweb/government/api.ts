@@ -1,3 +1,5 @@
+// 调用公权目录、机构登记及法定代表人资料接口。
+
 import { passkeySubmitHeaders } from '@gmb/onchina-platform/authentication/security';
 // 公权机构前端 API。市公安局已折叠为普通公权机构,与自动公权目录同走 gov 模块。
 // 手动新增两能力:公权机构(G,ZF/LF/SF/JC,排除储备体系自动目录代码)+ 公权下属非法人(F,挂公法人);

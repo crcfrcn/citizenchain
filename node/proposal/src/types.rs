@@ -1,3 +1,5 @@
+//! 定义提案编号、元数据、状态和详情的公开模型。
+
 use nodeupgrade::types::RuntimeUpgradeDetail;
 
 use noderesolutionissue::types::ResolutionIssuanceDetail;

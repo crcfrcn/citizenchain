@@ -1,3 +1,5 @@
+//! 验证服务RPC错误链、映射审计及阶段失败反馈。
+
 use super::*;
 
 use crate::service::ethereum_rpc_available;

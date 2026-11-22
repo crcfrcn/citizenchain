@@ -1,6 +1,5 @@
-/// GMB React 产品统一二维码设备适配器。
-///
-/// 设备识别输出原始字符串；传输帧助手只缓存帧，校验交给调用方，不判断业务码型或执行导航。
+// 导出React扫码设备接口，并提供由调用方验真的传输帧组装助手。
+
 export {
   ScannerController,
   ScannerFailure,

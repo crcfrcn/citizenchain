@@ -1,4 +1,5 @@
-//! 原所属模块回归，断言与输入保持。
+//! 验证各类机构工作台能力和注册局上下级权限范围。
+
 fn capabilities_for(code: &str) -> super::CapabilitySet {
     super::capabilities_for(&crate::modules::test_support::fixture_catalog(), code)
 }
@@ -89,7 +90,8 @@ fn ownerless_cases_exercise_real_base_capabilities() {
             "{code} must not be injected by fixture"
         );
         assert!(fixture.workspace(code).is_none());
-        let expected = serde_json::to_value(super::EMPTY).unwrap();
+        let mut expected = serde_json::to_value(super::EMPTY).unwrap();
+        if ["NRC", "PRC", "PRB"].contains(&code) { expected["canViewOwnAdmins"] = true.into(); }
         assert_eq!(
             serde_json::to_value(super::capabilities_for(&empty, code)).unwrap(),
             expected,
@@ -104,4 +106,18 @@ fn ownerless_cases_exercise_real_base_capabilities() {
     let ordinary = super::capabilities_for(&empty, "SFGQ");
     assert!(ordinary.view_own_admins);
     assert!(!ordinary.can_business_write && !ordinary.can_view_citizens);
+}
+
+
+#[test]
+fn wallet_frontend_entry_uses_only_own_institution_read_capability() {
+    for code in ["NRC", "PRC", "PRB", "NJD", "CGOV", "CEDU", "SFGY", "UNIN"] {
+        let capabilities = capabilities_for(code);
+        let sections = crate::workspace::manifest::own_institution_sections(capabilities);
+        let action = sections.iter().flat_map(|section| &section.workspace_actions).find(|action| action.action == "manage_own_admins").unwrap();
+        assert!(action.enabled, "已支持机构须有自己的钱包入口：{code}");
+        if ["NRC", "PRC", "PRB", "NJD", "SFGY", "UNIN"].contains(&code) { assert!(!capabilities.can_business_write, "钱包入口不授予注册局业务权限：{code}"); }
+    }
+    let disabled = crate::workspace::manifest::own_institution_sections(super::EMPTY);
+    assert!(!disabled[0].workspace_actions[0].enabled);
 }

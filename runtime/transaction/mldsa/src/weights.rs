@@ -1,5 +1,5 @@
-//! 使用保守执行预算，并计入完整公钥的存储证明。
-//! 这些权重不是由 FRAME 基准测试生成的结果。
+//! 定义sr25519及ML-DSA交易的保守权重和公钥存储证明预算。
+
 use frame_support::{traits::Get, weights::Weight};
 pub trait WeightInfo {
     fn sr() -> Weight;

@@ -1,3 +1,5 @@
+//! 生成决议发行总额、收款数量及原因摘要。
+
 use crate::types::ResolutionIssuanceDetail;
 
 use nodeclient::codec::truncate_chars;

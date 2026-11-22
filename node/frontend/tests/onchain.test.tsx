@@ -1,3 +1,5 @@
+// 验证钱包名称与删除确认、地址保留及转账费用和冷签边界。
+
 import { calculateTransferFeeYuan } from "../onchain/fee";
 import { TransferForm } from "../onchain/TransferForm";
 import { TransferSigningFlow } from "../onchain/TransferSigningFlow";

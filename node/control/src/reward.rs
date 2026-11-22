@@ -1,3 +1,5 @@
+//! 管理矿工奖励账户及所属PoW密钥文件。
+
 use nodedesktop::address::decode_hex_32_with_optional_0x;
 use nodedesktop::constants::EXPECTED_SS58_PREFIX;
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE;

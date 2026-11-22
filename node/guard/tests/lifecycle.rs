@@ -1,3 +1,5 @@
+//! 验证机构和CID生命周期的合法状态、固定身份及异常记录。
+
 use super::*;
 
 use crate::guard::cid_lifecycle::check_transition;

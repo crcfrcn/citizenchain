@@ -1,3 +1,5 @@
+// 展示岗位任职、任期及管理员账户余额等资料。
+
 import type { ReactNode } from 'react';
 import { Descriptions, Typography } from 'antd';
 import { tryEncodeSs58 } from '../codes/ss58';

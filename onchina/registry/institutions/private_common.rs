@@ -1,12 +1,9 @@
-//! 注册局私权业务类型枚举及输入规则；公共类别映射归平台。
-//!
-//! 这里只定义私权机构的机构码分类。
-//! `ZG/TG` 只服务公民/自然人/智能人等人类主体来源分类,不用于私权机构。
+//! 定义私权机构分类及其固定或实例指定的输入规则。
 
 use serde::{Deserialize, Serialize};
 
 use crate::institutions::private::participants::ParticipantRole;
-use onchina::institutions::subjects::CreateInstitutionInput;
+use onchina::institutions::CreateInstitutionInput;
 
 /// 私权机构业务类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,24 +20,24 @@ pub(crate) enum PrivateType {
 impl PrivateType {
     pub(crate) fn from_str(value: &str) -> Option<Self> {
         match value.trim() {
-            onchina::institutions::model::PRIVATE_TYPE_SOLE => Some(Self::Sole),
-            onchina::institutions::model::PRIVATE_TYPE_PARTNERSHIP => Some(Self::Partnership),
-            onchina::institutions::model::PRIVATE_TYPE_COMPANY => Some(Self::Company),
-            onchina::institutions::model::PRIVATE_TYPE_CORPORATION => Some(Self::Corporation),
-            onchina::institutions::model::PRIVATE_TYPE_WELFARE => Some(Self::Welfare),
-            onchina::institutions::model::PRIVATE_TYPE_ASSOCIATION => Some(Self::Association),
+            onchina::institutions::PRIVATE_TYPE_SOLE => Some(Self::Sole),
+            onchina::institutions::PRIVATE_TYPE_PARTNERSHIP => Some(Self::Partnership),
+            onchina::institutions::PRIVATE_TYPE_COMPANY => Some(Self::Company),
+            onchina::institutions::PRIVATE_TYPE_CORPORATION => Some(Self::Corporation),
+            onchina::institutions::PRIVATE_TYPE_WELFARE => Some(Self::Welfare),
+            onchina::institutions::PRIVATE_TYPE_ASSOCIATION => Some(Self::Association),
             _ => None,
         }
     }
 
     pub(crate) fn as_code(self) -> &'static str {
         match self {
-            Self::Sole => onchina::institutions::model::PRIVATE_TYPE_SOLE,
-            Self::Partnership => onchina::institutions::model::PRIVATE_TYPE_PARTNERSHIP,
-            Self::Company => onchina::institutions::model::PRIVATE_TYPE_COMPANY,
-            Self::Corporation => onchina::institutions::model::PRIVATE_TYPE_CORPORATION,
-            Self::Welfare => onchina::institutions::model::PRIVATE_TYPE_WELFARE,
-            Self::Association => onchina::institutions::model::PRIVATE_TYPE_ASSOCIATION,
+            Self::Sole => onchina::institutions::PRIVATE_TYPE_SOLE,
+            Self::Partnership => onchina::institutions::PRIVATE_TYPE_PARTNERSHIP,
+            Self::Company => onchina::institutions::PRIVATE_TYPE_COMPANY,
+            Self::Corporation => onchina::institutions::PRIVATE_TYPE_CORPORATION,
+            Self::Welfare => onchina::institutions::PRIVATE_TYPE_WELFARE,
+            Self::Association => onchina::institutions::PRIVATE_TYPE_ASSOCIATION,
         }
     }
 

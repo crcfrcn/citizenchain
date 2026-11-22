@@ -1,3 +1,5 @@
+//! 验证个人多签创建、关闭及投票执行和拒绝行为。
+
 use super::*;
 use codec::Encode;
 use frame_support::{
