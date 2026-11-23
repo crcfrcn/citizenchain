@@ -432,6 +432,8 @@ pub enum PendingCleanupStage {
     /// 清理业务数据（ProposalData + ProposalMeta）和核心数据（Proposals + Tallies）。
     /// 这是清理流程的最后一步，单次完成。
     FinalCleanup,
+    /// 与机构名单快照同寿命的冻结钱包版本；原清理游标编码不变。
+    FrozenWalletVersions,
 }
 
 /// 延迟清理 FIFO 中的单个任务。

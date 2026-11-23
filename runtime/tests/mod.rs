@@ -189,6 +189,27 @@ fn cid_authorization_expires_at() -> u64 {
     Timestamp::get().saturating_div(1_000).saturating_add(300)
 }
 
+/// 构造局部授权夹具时同步写入完整钱包数据，不模拟升级前名册。
+fn complete_test_public_wallets(cid: &publicentity::pallet::CidNumberOf<Runtime>) {
+    let roster = publicadmin::AdminAccounts::<Runtime>::get(cid).expect("fixture roster exists");
+    for admin in roster.admins {
+        if !publicadmin::AdminWallets::<Runtime>::contains_key(cid,&admin.account_id) { System::inc_sufficients(&admin.account_id); }
+        publicadmin::AdminWallets::<Runtime>::insert(
+            cid,
+            &admin.account_id,
+            adminbase::InstitutionAdminWalletState {
+                wallet: Some(admin.account_id.clone()),
+                revision: 0,
+            },
+        );
+        publicadmin::WalletRoleBindings::<Runtime>::insert(
+            cid,
+            &admin.account_id,
+            &admin.account_id,
+        );
+    }
+}
+
 fn setup_frg_citizen_identity_admin(
     province_code: &[u8],
 ) -> (
@@ -214,7 +235,6 @@ fn setup_frg_citizen_identity_admin(
             .to_vec()
             .try_into()
             .expect("account name fits");
-    publicadmin::WalletsInitialized::<Runtime>::remove(&cid_number); // 此夹具直接写入升级前名册。
     publicadmin::pallet::AdminAccounts::<Runtime>::insert(
         cid_number.clone(),
         adminbase::InstitutionAdmins {
@@ -229,6 +249,7 @@ fn setup_frg_citizen_identity_admin(
             .expect("single registrar admin fits"),
         },
     );
+    complete_test_public_wallets(&cid_number);
     publicentity::AccountRegisteredCid::<Runtime>::insert(
         main_account.clone(),
         entitybase::RegisteredInstitution {
@@ -640,4 +661,17 @@ fn unified_self_rebind_real_signatures_survive_clock_gap_but_not_binding_revisio
             identity::Error::<Runtime>::BindingRevisionMismatch
         );
     });
+}
+
+/// 忽略本步明确新增的System sufficient存活引用，保护原nonce、providers、余额等状态。
+fn account_state_without_wallet_refs() -> Vec<(
+    AccountId,
+    frame_system::AccountInfo<Nonce, pallet_balances::AccountData<Balance>>,
+)> {
+    frame_system::Account::<Runtime>::iter()
+        .filter_map(|(wallet, mut info)| {
+            info.sufficients = 0;
+            (info != Default::default()).then_some((wallet, info))
+        })
+        .collect()
 }

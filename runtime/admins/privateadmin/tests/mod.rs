@@ -103,9 +103,6 @@ impl internalvote::Config for Test {
 impl Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxAdminsPerInstitution = ConstU32<1989>;
-    type ChainPhase = (); // 恒 Genesis（测试默认）
-    type CitizenIdentityBinding = (); // 恒不绑定（() 实现返回 false）
-    type LegalRepresentativeQuery = (); // 恒无 LR（() 实现返回 None）
 }
 
 fn new_test_ext() -> sp_io::TestExternalities {
@@ -139,7 +136,7 @@ mod security;
 
 mod integration;
 
-/// 钱包基础夹具使用现有CID生成器；初始化钱包显式提供，不从锚点或个人CID猜测。
+/// 钱包夹具经正式名册写入路径创建完整的实际账户、版本和岗位授权引用。
 fn wallet_fixture_cid(code: InstitutionCode, seed: u8) -> Vec<u8> {
     primitives::cid::generator::generate_cid_number(
         primitives::cid::generator::GenerateCidNumberInput {
@@ -174,24 +171,13 @@ fn wallet_roster_fixture(code: InstitutionCode, cid: &[u8], count: u32) -> Vec<A
         .iter()
         .map(|record| record.account_id.clone())
         .collect();
-    // Pre-upgrade roster: exercise explicit initialization independently of the new setter.
-    AdminAccounts::<Test>::insert(AdminCidNumber::try_from(cid.to_vec()).unwrap(),
-        InstitutionAdmins { institution_code: code, admins: records.try_into().unwrap() });
+    assert_ok!(PrivateAdmins::do_set_institution_admins(
+        cid.to_vec(),
+        code,
+        AdminAccountKind::PrivateInstitution,
+        records
+    ));
     anchors
-}
-
-fn initialize_wallet_roster(code: InstitutionCode, cid: &[u8], anchors: &[AccountId32]) {
-    for anchor in anchors {
-        assert_ok!(<PrivateAdmins as InstitutionAdminWalletLifecycle<
-            AccountId32,
-        >>::initialize_institution_wallet(
-            code,
-            cid.to_vec(),
-            anchor.clone(),
-            anchor.clone(),
-            None,
-        ));
-    }
 }
 
 fn wallet_change(

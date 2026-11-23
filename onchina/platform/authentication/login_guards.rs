@@ -11,7 +11,7 @@ use crate::*;
 
 use super::model::AdminAuthContext;
 
-/// 会话恢复只读本地会话及绑定；资格与地域已在登录阶段验证。
+/// 本地会话不授予当前资格；HTTP中间件及广播前复核最终块钱包、版本与辖区。
 pub(crate) fn admin_session(
     state: &AppState,
     headers: &HeaderMap,
@@ -88,7 +88,7 @@ pub fn require_admin_session(
     admin_session(state, headers).map(|session| session.context())
 }
 
-/// 所有业务读取和写入都先完成强制设置；此处不读链、不消费Passkey。
+/// 本地就绪门不消费Passkey；完整HTTP入口先经中间件复核链上钱包，处理函数保留原业务范围。
 pub fn require_admin_any(
     state: &AppState,
     headers: &HeaderMap,
@@ -111,4 +111,106 @@ pub(crate) fn bearer_token(headers: &HeaderMap) -> Option<String> {
         return None;
     }
     Some(token.trim().to_string())
+}
+
+/// 受保护请求/首次广播只接受当前实际钱包和在用版本；旧快照不提供业务权限。
+pub(crate) async fn validate_current_wallet(
+    state: &AppState,
+    ctx: &AdminAuthContext,
+) -> Result<(), axum::response::Response> {
+    // 测试快照来自各自隔离Db实例，不能影响正式二进制或其他测试会话。
+    #[cfg(test)]
+    if let Some(snapshot) = state
+        .db
+        .wallet_snapshot
+        .lock()
+        .map_err(|_| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                5001,
+                "test snapshot unavailable",
+            )
+        })?
+        .clone()
+    {
+        let equal = ctx.account_id == snapshot.account_id
+            && ctx.wallet_revision == snapshot.wallet_revision
+            && ctx.wallet_namespace == snapshot.wallet_namespace
+            && ctx.institution_cid_number == snapshot.institution_cid_number
+            && ctx.institution_code == snapshot.institution_code
+            && ctx.scope_province_name == snapshot.scope_province_name
+            && ctx.scope_city_name == snapshot.scope_city_name
+            && ctx.scope_town_name == snapshot.scope_town_name;
+        return if equal {
+            Ok(())
+        } else {
+            Err(api_error(
+                StatusCode::UNAUTHORIZED,
+                1002,
+                "institution wallet or version is no longer active",
+            ))
+        };
+    }
+    let result = async {
+        let identity = crate::chain_runtime::identity_from_binding_parts(
+            &ctx.institution_code,
+            Some(&ctx.institution_cid_number),
+        )?;
+        let finalized = crate::chain_runtime::FinalizedChainView::connect().await?;
+        let admins = crate::chain_runtime::fetch_active_admins_onchain_at(&identity, &finalized, Some(&ctx.account_id))
+            .await?
+            .unwrap_or_default();
+        let Some(admin) = admins.iter().find(|a| a.account_id == ctx.account_id) else {
+            return Ok(false);
+        };
+        if !ctx.matches_wallet(admin) {
+            return Ok(false);
+        }
+        if ctx.institution_code == "FRG" {
+            let provinces = crate::institutions::fetch_frg_province_codes_for_admin(
+                &finalized,
+                identity.cid_number.as_bytes(),
+                admin.role_account_id,
+            )
+            .await?;
+            if provinces.len() != 1 {
+                return Ok(false);
+            }
+            let membership = crate::chain_runtime::ActiveAdminMembership {
+                institution_code: primitives::cid::code::institution_code_from_cid_number(
+                    &ctx.institution_cid_number,
+                )
+                .ok_or("invalid institution CID")?,
+                cid_number: identity.cid_number,
+                frg_province_code: Some(provinces[0]),
+            };
+            let candidate = state.db.with_client(|conn| {
+                super::onchain_gate::candidate_from_membership_conn(conn, &membership)
+            })?;
+            if candidate.scope_province_name != ctx.scope_province_name
+                || candidate.scope_city_name != ctx.scope_city_name
+                || candidate.scope_town_name != ctx.scope_town_name
+            {
+                return Ok(false);
+            }
+        }
+        Ok::<bool, String>(true)
+    }
+    .await;
+    match result {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(api_error(
+            StatusCode::UNAUTHORIZED,
+            1002,
+            "institution wallet or version is no longer active",
+        )),
+        Err(error) => {
+            tracing::warn!(%error,"current institution wallet check failed");
+            Err(api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                1503,
+                "current institution wallet unavailable",
+            ))
+        }
+    }
 }

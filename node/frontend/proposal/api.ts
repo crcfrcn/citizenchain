@@ -2,8 +2,8 @@
 
 import { invoke } from "../client/tauri";
 import type { GovernanceOverview, InstitutionDetail } from "../institution/council";
-import type { ProposalDisplayMeta, ProposalFullInfo, ProposalListItem, ProposalPageResult, UserVoteStatus } from "./types";
-import type { VoteSignRequestResult, VoteSubmitResult } from "../client/signing";
+import type { FrozenVoteBinding, ProposalVoteSubmitResult, ProposalDisplayMeta, ProposalFullInfo, ProposalListItem, ProposalPageResult, UserVoteStatus } from "./types";
+import type { VoteSignRequestResult } from "../client/signing";
 
 export const proposalApi = {
 
@@ -59,8 +59,9 @@ export const proposalApi = {
     signNonce: number,
     signBlockNumber: number,
     responseJson: string,
+    frozenTicket?: FrozenVoteBinding,
   ) =>
-    invoke<VoteSubmitResult>('submit_vote', {
+    invoke<ProposalVoteSubmitResult>('submit_vote', {
       requestId: requestId,
       expectedPublicKey,
       expectedPayloadHash: expectedPayloadHash,
@@ -68,6 +69,7 @@ export const proposalApi = {
       signNonce: signNonce,
       signBlockNumber: signBlockNumber,
       responseJson: responseJson,
+      frozenTicket: frozenTicket ?? null,
     }),
 
   checkVoteStatus: (proposalId: string, signerPublicKey: string, cidNumber?: string, voterRoleCode?: string) =>

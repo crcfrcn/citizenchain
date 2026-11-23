@@ -60,7 +60,6 @@ export type InstitutionGovernanceAssignmentChangeInput = {
 export type PrepareInstitutionGovernanceInput = {
     cidNumber: string;
     proposerRoleCode: string;
-    admins?: InstitutionGovernanceAdminInput[];
     roleMutations?: InstitutionGovernanceRoleMutationInput[];
     assignmentChanges?: InstitutionGovernanceAssignmentChangeInput[];
     representativeCid?: string | null;
@@ -88,6 +87,7 @@ export async function getOwnInstitution(auth: AdminAuth): Promise<InstitutionDet
 }
 /** 链签名准备前完成一次现有Passkey认证，取消时不发送业务请求。 */
 export async function prepareInstitutionGovernance(auth: AdminAuth, input: PrepareInstitutionGovernanceInput, signal?: AbortSignal): Promise<PrepareInstitutionChainOutput> {
+    if ('admins' in input) throw new Error('完整管理员名单动作已停用');
     const headers = await passkeySubmitHeaders(auth, { 'content-type': 'application/json' });
     signal?.throwIfAborted();
     return adminRequest<PrepareInstitutionChainOutput>('/api/admin/institution/governance/prepare', auth, {
@@ -98,6 +98,8 @@ export async function prepareInstitutionGovernance(auth: AdminAuth, input: Prepa
 }
 export type GovernanceMember = {
     accountId: string;
+    /** 只用于既有岗位人员/签名授权引用，不作为管理员钱包身份。 */
+    authorizationAccountId: string;
     signerId: string;
     /** 钱包流程必须读取安全整数；历史纯治理读者不依赖本字段。 */
     walletRevision?: number;
@@ -152,7 +154,7 @@ export type GovernanceChanges = Pick<PrepareInstitutionGovernanceInput, 'roleMut
 // 仅合并同时发生的同会话同机构请求；不把查询缓存作为权限或长期状态真源。
 const governanceRequests = new Map<string, Promise<GovernanceState>>();
 export function getGovernanceState(auth: AdminAuth, cidNumber: string): Promise<GovernanceState> {
-    const key = auth.accessToken + '|' + cidNumber;
+    const key = JSON.stringify([auth.walletNamespace, auth.walletRevision, auth.accountId, auth.accessToken, cidNumber]);
     let pending = governanceRequests.get(key);
     if (!pending) {
         pending = adminRequest<GovernanceState>(`/api/institutions/${encodeURIComponent(cidNumber)}/governance`, auth)
@@ -167,7 +169,7 @@ export function governanceProposers(auth: AdminAuth, state: GovernanceState): Go
         return [];
     return state.roles.filter(role => role.active
         && role.permissions.some(p => p.moduleTag === state.moduleTag && p.actionCode === 3 && p.operation === 'PROPOSE')
-        && role.assignments.some(a => a.effective && state.members.some(m => m.accountId === a.accountId && m.signerId.toLowerCase() === auth.accountId.toLowerCase())));
+        && role.assignments.some(a => a.effective && state.members.some(m => m.authorizationAccountId === a.accountId && m.signerId.toLowerCase() === auth.accountId.toLowerCase())));
 }
 export function dayFromDate(value: string): number {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
@@ -184,7 +186,7 @@ export function dayFromDate(value: string): number {
 export function dateFromDay(day: number): string { return day ? new Date(day * 86400000).toISOString().slice(0, 10) : ''; }
 export function memberName(member?: GovernanceMember): string { return member ? `${member.familyName}${member.givenName}` || member.accountId : '不在当前名册'; }
 export function assignmentSummary(state: GovernanceState, termRequired: boolean, assignments: InstitutionGovernanceAssignmentTargetInput[]): string {
-    return assignments.map(a => `${memberName(state.members.find(m => m.accountId === a.accountId))} · ${a.accountId}：${termRequired ? `${dateFromDay(a.termStart)} 至 ${dateFromDay(a.termEnd)}` : '无任期'}`).join('；') || '空缺';
+    return assignments.map(a => `${memberName(state.members.find(m => m.authorizationAccountId === a.accountId))} · ${a.accountId}：${termRequired ? `${dateFromDay(a.termStart)} 至 ${dateFromDay(a.termEnd)}` : '无任期'}`).join('；') || '空缺';
 }
 const registrationBusinessActions: [string, string, number][] = [
     ['公民投票资格上链', 'cit-id', 0], ['公民参选资格上链', 'cit-id', 1], ['更新投票资格', 'cit-id', 2], ['更新参选资格', 'cit-id', 3],
@@ -203,7 +205,7 @@ export function validateAssignments(state: GovernanceState, role: Pick<Governanc
         throw new Error('任职人数不符合岗位规则');
     const seen = new Set<string>();
     for (const a of assignments) {
-        if (!state.members.some(m => m.accountId === a.accountId))
+        if (!state.members.some(m => m.authorizationAccountId === a.accountId))
             throw new Error('任职人员必须属于现有链上管理员名册');
         if (seen.has(a.accountId))
             throw new Error('任职人员不能重复');
@@ -269,7 +271,7 @@ export function representativeChanges(state: GovernanceState, accountId: string 
         validateAssignments(state, role, []);
         return { clearLegalRepresentative: true, assignmentChanges: [{ roleCode: role.roleCode, assignments: [] }] };
     }
-    const member = state.members.find(m => m.accountId === accountId);
+    const member = state.members.find(m => m.authorizationAccountId === accountId);
     if (!member)
         throw new Error('须选择现有链上管理员，管理员新增不在本页办理');
     const representativeCid = citizenCid?.trim() || member.cidNumber;
@@ -277,7 +279,7 @@ export function representativeChanges(state: GovernanceState, accountId: string 
         throw new Error('请填写该成员对应的公民CID');
     if (role.termRequired)
         throw new Error('该法代岗位要求专门任期流程，本页不代填');
-    const assignments = [{ accountId: member.accountId, termStart: 0, termEnd: 0 }];
+    const assignments = [{ accountId: member.authorizationAccountId, termStart: 0, termEnd: 0 }];
     validateAssignments(state, role, assignments);
     return { representativeCid, assignmentChanges: [{ roleCode: role.roleCode, assignments }] };
 }
@@ -333,7 +335,8 @@ export const MAX_INSTITUTION_ADMINS = 1989;
 export type InstitutionRegistrationInput = {
     cidNumber: string;
     // 存量成员只传锚点，让后端从同区块原记录保留CID和资料，不重建名册事实。
-    admins: ({ accountId: string } & Partial<InstitutionGovernanceAdminInput>)[];
+    admins?: ({ accountId: string } & Partial<InstitutionGovernanceAdminInput>)[];
+    walletChanges?: { added: InstitutionGovernanceAdminInput[]; removed: { accountId: string; expectedRevision: number }[]; replaced: { adminAccount: string; expectedWallet: string; newWallet: string; expectedRevision: number }[] };
     expectedStateHash: string;
     actorRoleCode?: string;
     initialThreshold?: number;
@@ -343,6 +346,7 @@ export type InstitutionRegistrationInput = {
 export type InstitutionRegistrationDraft = {
     addedAdmins?: InstitutionGovernanceAdminInput[];
     removeAccountId?: string;
+    replacement?: { accountId: string; newWallet: string };
     initialRoles?: InstitutionGovernanceRoleMutationInput[];
     initialThreshold?: number;
     assignments?: InstitutionGovernanceAssignmentChangeInput[];
@@ -366,27 +370,46 @@ export function registrationActorRole(state: GovernanceState, selected?: string)
     return role.roleCode;
 }
 
-/** 完整名册和显式任职原子登记；不按钱包人数推导阈值，不重写未变更任职。 */
-export function buildInstitutionRegistration(state: GovernanceState, draft: InstitutionRegistrationDraft, actorRoleCode?: string): InstitutionRegistrationInput {
-    if (!/^0x[0-9a-f]{64}$/.test(state.registrationStateHash ?? '') || state.governanceThreshold === undefined) throw new Error('登记链状态未就绪，请刷新');
-    const actor = registrationActorRole(state, actorRoleCode);
-    const added = draft.addedAdmins ?? [];
-    const removed = draft.removeAccountId;
-    if (removed && (!state.members.some(m => m.accountId === removed) || added.length)) throw new Error('删除目标不在当前链上名册');
-    if (!removed && !added.length) throw new Error('没有管理员变更');
-    const seen = new Set(state.members.flatMap(m => [m.accountId.toLowerCase(), m.signerId.toLowerCase()]));
+/** 钱包登记不产生岗位任免或阈值配置；所有操作显式冻结原钱包和版本。 */
+export function buildInstitutionRegistration(state:GovernanceState,draft:InstitutionRegistrationDraft,selected?:string):InstitutionRegistrationInput {
+    if (!/^0x[0-9a-f]{64}$/.test(state.registrationStateHash??'')) throw new Error('登记链状态未就绪，请刷新');
+    const actorRoleCode=registrationActorRole(state,selected);
+    if (draft.initialRoles?.length || draft.assignments?.length || draft.initialThreshold!==undefined) throw new Error('钱包维护不能夹带岗位、任职或阈值');
+    const added=draft.addedAdmins??[];const remove=draft.removeAccountId;const change=draft.replacement;
+    if ([!!added.length,!!remove,!!change].filter(Boolean).length!==1) throw new Error('请选择一种明确的钱包变更');
+    const fixed=/^[A-Z0-9]{5}-(FRG|NRC|PRC|PRB|NJD)/.test(state.cidNumber);
+    if (fixed && !change) throw new Error('固定机构只能等额更换钱包');
+    const target=state.members.find(m=>m.accountId===(remove??change?.accountId));
+    if ((remove||change)&&(!target || !Number.isSafeInteger(target.walletRevision) || target.walletRevision!<0)) throw new Error('目标或钱包版本已变化');
+    const seen=new Set(state.members.map(m=>m.accountId));
     for (const member of added) {
-        if (!/^0x[0-9a-f]{64}$/.test(member.accountId) || seen.has(member.accountId)) throw new Error('管理员账户无效或已在名册中');
-        if (!member.familyName.trim() || !member.givenName.trim() || new TextEncoder().encode(member.familyName.trim()).length > 128 || new TextEncoder().encode(member.givenName.trim()).length > 128) throw new Error('请填写有效的管理员姓和名');
+        if (!/^0x[0-9a-f]{64}$/.test(member.accountId)||seen.has(member.accountId)) throw new Error('管理员账户无效或已在名册');
+        if (!member.familyName.trim() || !member.givenName.trim() || new TextEncoder().encode(member.familyName).length>128 || new TextEncoder().encode(member.givenName).length>128) throw new Error('请填写有效的管理员姓和名');
         seen.add(member.accountId);
     }
-    const admins = [...state.members.filter(m => m.accountId !== removed).map(m => ({ accountId: m.accountId })), ...added.map(m => ({ ...m, familyName: m.familyName.trim(), givenName: m.givenName.trim() }))];
-    if (!admins.length || admins.length > MAX_INSTITUTION_ADMINS) throw new Error('管理员人数超出链上范围');
+    if (change && (!/^0x[0-9a-f]{64}$/.test(change.newWallet)||seen.has(change.newWallet))) throw new Error('新钱包无效或已在名册');
+    if (change && state.cidNumber.includes('-FRG') && !state.roles.some(r=>r.roleCode===actorRoleCode && r.assignments.some(a=>a.accountId===target!.authorizationAccountId && a.effective))) throw new Error('只能更换本省组钱包');
+    const admins=[...state.members.filter(m=>m.accountId!==remove).map(m=>m.accountId===change?.accountId?{accountId:change.newWallet,cidNumber:m.cidNumber,familyName:m.familyName,givenName:m.givenName}:{accountId:m.accountId}),...added.map(m=>({...m,familyName:m.familyName.trim(),givenName:m.givenName.trim()}))];
+    if (admins.length>MAX_INSTITUTION_ADMINS) throw new Error('管理员人数超出链上范围');
+    return {cidNumber:state.cidNumber,admins,expectedStateHash:state.registrationStateHash!,actorRoleCode,walletChanges:{added:added.map(m=>({...m,familyName:m.familyName.trim(),givenName:m.givenName.trim()})),removed:remove?[{accountId:remove,expectedRevision:target!.walletRevision!}]:[],replaced:change?[{adminAccount:target!.accountId,expectedWallet:target!.accountId,newWallet:change.newWallet,expectedRevision:target!.walletRevision!}]:[]}};
+}
+
+/** 首次治理配置是独立的显式业务，不修改管理员钱包名单。 */
+export function buildInstitutionConfiguration(state:GovernanceState,draft:Pick<InstitutionRegistrationDraft,'initialRoles'|'initialThreshold'>,selected?:string):InstitutionRegistrationInput {
+    if (state.governanceThreshold!==null || !state.members.length || !draft.initialRoles?.length) throw new Error('须先登记钱包，首次治理配置不能重置');
+    return buildInstitutionRoleRegistration(state,draft,selected);
+}
+
+function buildInstitutionRoleRegistration(state: GovernanceState, draft: InstitutionRegistrationDraft, actorRoleCode?: string): InstitutionRegistrationInput {
+    if (!/^0x[0-9a-f]{64}$/.test(state.registrationStateHash ?? '') || state.governanceThreshold === undefined) throw new Error('登记链状态未就绪，请刷新');
+    const actor = registrationActorRole(state, actorRoleCode);
+    if (draft.addedAdmins?.length || draft.removeAccountId || draft.replacement) throw new Error('岗位配置不处理管理员钱包');
+    if (!draft.initialRoles?.length && !draft.assignments?.length) throw new Error('没有岗位配置变更');
+    if (!state.members.length || state.members.length > MAX_INSTITUTION_ADMINS) throw new Error('须先登记有效管理员钱包');
     const initial = state.governanceThreshold === null;
     const mutations = draft.initialRoles ?? [];
     if (initial ? !mutations.length || draft.initialThreshold === undefined : mutations.length > 0 || draft.initialThreshold !== undefined) throw new Error('首次登记须初始化岗位和阈值，后续登记不得重置');
     const names = new Set(state.roles.map(r => r.roleName));
-    const rosterState = { ...state, members: [...state.members.filter(m => m.accountId !== removed), ...added.map(m => ({ ...m, cidNumber: m.cidNumber ?? '', signerId: m.accountId }))] };
     for (const mutation of mutations) {
         const name = mutation.roleName?.trim();
         if (mutation.mutation !== 'CREATE' || mutation.roleCode || !name || names.has(name) || new TextEncoder().encode(name).length > 128 || !mutation.permissions?.length) throw new Error('首次动态岗位必须填写不重复的中文名称和权限，不得输入岗位码');
@@ -397,26 +420,15 @@ export function buildInstitutionRegistration(state: GovernanceState, draft: Inst
             if (!institutionRegistrationPermissions(state).some(option => option.value === key) || permissions.has(key)) throw new Error('岗位权限无效或重复');
             permissions.add(key);
         }
-        validateAssignments(rosterState, { termRequired: !!mutation.termRequired, minAssignments: 0, maxAssignments: null }, mutation.assignments ?? []);
+        validateAssignments(state, { termRequired: !!mutation.termRequired, minAssignments: 0, maxAssignments: null }, mutation.assignments ?? []);
     }
     const changes = new Map<string, InstitutionGovernanceAssignmentChangeInput>();
     for (const change of draft.assignments ?? []) {
         const role = state.roles.find(r => r.roleCode === change.roleCode && r.active && !r.assignmentLocked);
-        if (!role || initial || changes.has(change.roleCode) || change.assignments.some(a => !added.some(m => m.accountId === a.accountId))) throw new Error('请选择可任职的现有岗位和新增人员');
-        validateAssignments(rosterState, role, change.assignments);
+        if (!role || initial || changes.has(change.roleCode)) throw new Error('请选择可任职的现有岗位');
+        validateAssignments(state, role, change.assignments);
         changes.set(change.roleCode, { roleCode: change.roleCode, assignments: change.assignments });
     }
-    for (const role of state.roles) {
-        const deleting = !!removed && role.assignments.some(a => a.accountId === removed);
-        if (!deleting && !changes.has(role.roleCode)) continue;
-        if (role.assignmentLocked) throw new Error('受保护岗位须先通过原治理或任免流程处理');
-        const kept = role.assignments.filter(a => a.accountId !== removed);
-        if (kept.some(a => !a.active)) throw new Error('该岗位存在已结束任职，请先通过任职治理处理');
-        const merged = [...kept.map(a => ({ accountId: a.accountId, termStart: a.termStart, termEnd: a.termEnd })), ...(changes.get(role.roleCode)?.assignments ?? [])];
-        validateAssignments(rosterState, role, merged);
-        changes.set(role.roleCode, { roleCode: role.roleCode, assignments: merged });
-    }
-    if (removed && state.representative?.accountId === removed) throw new Error('须先通过原流程解除法定代表人');
     const effective = (term: boolean, a: InstitutionGovernanceAssignmentTargetInput) => term ? a.termStart > 0 && a.termStart <= state.currentDay && state.currentDay <= a.termEnd : a.termStart === 0 && a.termEnd === 0;
     const seats = [
         ...state.roles.filter(r => r.active).map(r => ({ permissions: r.permissions, termRequired: r.termRequired, assignments: changes.get(r.roleCode)?.assignments ?? r.assignments.filter(a => a.active) })),
@@ -431,8 +443,7 @@ export function buildInstitutionRegistration(state: GovernanceState, draft: Inst
     }
     const threshold = initial ? draft.initialThreshold! : state.governanceThreshold!;
     if (!Number.isInteger(threshold) || !proposer || voters < 2 || threshold < 1 || threshold > voters || threshold * 2 <= voters) throw new Error('机构阈值须按有效治理岗位席位严格过半，至少两席，并保留有效发起岗位');
-    if (added.some(m => !seats.some(r => r.assignments.some(a => a.accountId === m.accountId)))) throw new Error('请为每位新增管理员明确选择任职岗位');
-    return { cidNumber: state.cidNumber, admins, expectedStateHash: state.registrationStateHash!, actorRoleCode: actor,
+    return { cidNumber: state.cidNumber, expectedStateHash: state.registrationStateHash!, actorRoleCode: actor,
         ...(initial ? { initialThreshold: threshold, roleMutations: mutations.map(m => ({ ...m, roleName: m.roleName!.trim() })) } : {}),
         assignmentChanges: [...changes.values()] };
 }
@@ -441,9 +452,10 @@ export function buildInstitutionRegistration(state: GovernanceState, draft: Inst
 /** 响应丢失/会话已消费时只核对链上目标结果，不据此构造或重签另一笔交易。 */
 export function institutionRegistrationMatches(state: GovernanceState, input: InstitutionRegistrationInput): boolean {
     const sorted = (values: string[]) => [...values].sort().join('|');
-    if (state.cidNumber !== input.cidNumber || sorted(state.members.map(m => m.accountId)) !== sorted(input.admins.map(m => m.accountId))) return false;
+    if (state.cidNumber !== input.cidNumber) return false;
+    if (input.walletChanges && (!input.admins || sorted(state.members.map(m => m.accountId)) !== sorted(input.admins.map(m => m.accountId)))) return false;
     if (input.initialThreshold !== undefined && state.governanceThreshold !== input.initialThreshold) return false;
-    if (input.admins.some(m => {
+    if (input.admins?.some(m => {
         const actual = state.members.find(a => a.accountId === m.accountId);
         return !actual || m.cidNumber !== undefined && actual.cidNumber !== m.cidNumber || m.familyName !== undefined && actual.familyName !== m.familyName || m.givenName !== undefined && actual.givenName !== m.givenName;
     })) return false;
@@ -462,20 +474,13 @@ export function institutionRegistrationMatches(state: GovernanceState, input: In
 }
 
 
-/** 登记与本机构治理共用名册/任职构造；治理仍由原call 8投票执行，不获得登记权限。 */
+/** 纯岗位任职构造不携带钱包名册；本机构治理仍由原call 8投票执行。 */
 export function buildInstitutionAdminGovernance(auth: AdminAuth, state: GovernanceState, draft: InstitutionRegistrationDraft, selected?: string): InstitutionRegistrationInput {
     if (auth.institutionCidNumber !== state.cidNumber) throw new Error('只能发起本机构治理');
     if (state.governanceThreshold == null) throw new Error('本机构须先由注册局完成初始化');
-    // 现有私权治理解析器会清空管理员CID；该后端文件不在本步14文件内，拒绝有损提交。
-    // 注册局call 9已保留原始名册CID，可通过同一详情页的登记入口办理。
-    if (state.moduleTag === 'pri-mgmt' && state.members.some(member => member.cidNumber)) throw new Error('现有私权治理接口不能无损保留名册CID，请由注册局使用本机构详情的登记入口办理');
+    if (draft.addedAdmins?.length || draft.removeAccountId || draft.replacement) throw new Error('管理员钱包只能使用专用更换或注册局维护入口');
     const registrationRoles = governanceProposers(auth, state).map(role => ({ roleCode: role.roleCode, roleName: role.roleName }));
-    const input = buildInstitutionRegistration({ ...state, registrationRoles }, draft, selected);
-    input.admins = input.admins.map(member => {
-        const stored = state.members.find(old => old.accountId === member.accountId);
-        return stored ? { accountId: stored.accountId, cidNumber: stored.cidNumber, familyName: stored.familyName, givenName: stored.givenName } : member;
-    });
-    return input;
+    return buildInstitutionRoleRegistration({ ...state, registrationRoles }, draft, selected);
 }
 
 
@@ -488,7 +493,7 @@ export type InstitutionWalletDraft = {
 export type InstitutionWalletAcceptanceOutput = { requestId: string; signRequest: string; expiresAt: number; acceptancePayloadHex: string };
 export type PendingInstitutionWallet = {
     version: 1; draft: InstitutionWalletDraft; actorAccount: string; requestId: string;
-    signature: string; callDataHex: string; reviewedBlockNumber: number; genesisHash: string; proofExpiresAt: number;
+    signature: string; callDataHex: string; reviewedBlockNumber: number; genesisHash: string; proofExpiresAt: number; authorizationAccountId: string;
 };
 const walletHex = (bytes: Uint8Array) => '0x' + Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 const walletBytes = (hex: string): Uint8Array => {
@@ -508,13 +513,13 @@ export function institutionWalletRoles(auth: AdminAuth, state: GovernanceState, 
     const member = state.members.find(m => m.accountId === target);
     if (!member || member.signerId.toLowerCase() === auth.accountId.toLowerCase()) return [];
     return governanceProposers(auth, state).filter(role => auth.institutionCode !== 'FRG'
-        || role.assignments.some(a => a.accountId === target && a.effective));
+        || role.assignments.some(a => a.accountId === member.authorizationAccountId && a.effective));
 }
 export function buildInstitutionWalletDraft(auth: AdminAuth, state: GovernanceState, mode: InstitutionWalletMode, target: string, newWallet: string, proposerRoleCode = ''): InstitutionWalletDraft {
     if (auth.institutionCidNumber !== state.cidNumber) throw new Error('只能更换本机构管理员钱包');
     const actor = state.members.find(m => m.signerId.toLowerCase() === auth.accountId.toLowerCase());
     const member = state.members.find(m => m.accountId === target);
-    if (!actor || !member || !/^0x[0-9a-f]{64}$/.test(member.accountId) || !/^0x[0-9a-f]{64}$/.test(member.signerId)) throw new Error('当前钱包或目标已不在本机构有效名册');
+    if (!actor || !member || !member.authorizationAccountId || member.accountId !== member.signerId || !/^0x[0-9a-f]{64}$/.test(member.accountId) || !/^0x[0-9a-f]{64}$/.test(member.signerId)) throw new Error('当前钱包或目标已不在本机构有效名册');
     if (!Number.isSafeInteger(member.walletRevision) || member.walletRevision! < 0) throw new Error('机构钱包版本不可读取，请刷新链状态');
     const normalized = normalizeInstitutionWalletAccount(newWallet);
     if (state.members.some(m => m.signerId.toLowerCase() === normalized)) throw new Error('新钱包已被本机构管理员使用');
@@ -612,6 +617,7 @@ export function readInstitutionWalletReceipts(auth: AdminAuth): PendingInstituti
             try {
                 const receipt = JSON.parse(sessionStorage.getItem(key)!) as PendingInstitutionWallet;
                 if (receipt.version !== 1 || walletReceiptKey(receipt) !== key || !canResumeInstitutionWallet(auth, receipt)
+                    || !/^0x[0-9a-f]{64}$/.test(receipt.authorizationAccountId) || receipt.draft.adminAccount !== receipt.draft.expectedWallet
                     || !/^0x[0-9a-f]{64}$/.test(receipt.actorAccount) || !/^0x[0-9a-f]{64}$/.test(receipt.draft.adminAccount)
                     || !/^0x[0-9a-f]{64}$/.test(receipt.draft.expectedWallet) || !/^0x[0-9a-f]{64}$/.test(receipt.draft.newWallet)
                     || receipt.draft.mode === 'SELF' && (receipt.actorAccount !== receipt.draft.expectedWallet || receipt.draft.proposerRoleCode !== '')
@@ -672,7 +678,7 @@ export async function runInstitutionWalletChange({ auth, state, draft, pending, 
         const signed = await sign(prepared.requestId, prepared.signRequest, { signal, qrFrames: true, expiresAt: Math.min(prepared.expiresAt, accepted.expiresAt), expectedAccountId: auth.accountId, title: draft.mode === 'SELF' ? '本人旧钱包交易签名' : '机构治理提案签名', qrHint: draft.mode === 'SELF' ? '使用原管理员钱包签署本人的更换交易' : '使用发起岗位的管理员钱包签署治理提案' }); check();
         if (signed.accountId !== auth.accountId || !isInstitutionWalletSignature(signed.signature)) throw new Error('原钱包或提案人签名不匹配');
         receipt = { version: 1, draft: structuredClone(draft), actorAccount: auth.accountId, requestId: prepared.requestId,
-            signature: signed.signature, callDataHex: expected, reviewedBlockNumber: fresh.blockNumber, genesisHash: proofContext.genesisHash, proofExpiresAt: accepted.expiresAt };
+            signature: signed.signature, callDataHex: expected, reviewedBlockNumber: fresh.blockNumber, genesisHash: proofContext.genesisHash, proofExpiresAt: accepted.expiresAt, authorizationAccountId: fresh.members.find(m => m.accountId === draft.adminAccount)!.authorizationAccountId };
         remember(receipt); // 必须先保存原签名，再进行可能已广播但响应丢失的网络提交。
     }
     if (!canResumeInstitutionWallet(auth, receipt)) throw new Error('原签名会话不属于当前机构或账户');
@@ -684,8 +690,8 @@ export async function runInstitutionWalletChange({ auth, state, draft, pending, 
         check();
         if (error instanceof ApiError && [404, 409].includes(error.status) && receipt.draft.mode === 'SELF' && auth.accountId === receipt.draft.newWallet) {
             const current = await getGovernanceState(auth, receipt.draft.cidNumber); check();
-            const member = current.members.find(m => m.accountId === receipt!.draft.adminAccount);
-            if (current.cidNumber === receipt.draft.cidNumber && current.blockNumber > receipt.reviewedBlockNumber && member?.signerId === receipt.draft.newWallet && member.walletRevision === receipt.draft.expectedRevision + 1) {
+            const member = current.members.find(m => m.accountId === receipt!.draft.newWallet);
+            if (current.cidNumber === receipt.draft.cidNumber && current.blockNumber > receipt.reviewedBlockNumber && member?.signerId === receipt.draft.newWallet && member.accountId === receipt.draft.newWallet && member.authorizationAccountId === receipt.authorizationAccountId && !current.members.some(m => m.accountId === receipt!.draft.expectedWallet) && Number.isSafeInteger(member.walletRevision) && member.walletRevision! >= 0) {
                 remember(null, receipt); return { mode: receipt.draft.mode, draft: receipt.draft, observed: true };
             }
         }

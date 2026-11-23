@@ -395,3 +395,46 @@ fn result_callback_fails_closed_for_incomplete_or_foreign_result() {
         );
     });
 }
+
+#[test]
+fn mutual_election_uses_original_wallet_version_after_administrator_rotation() {
+    new_test_ext().execute_with(|| {
+        let pid = create_mutual();
+        let old = target_admins()[0].clone();
+        let new = account(211);
+        let role: engingcore::types::RoleCode = TARGET_ROLE.to_vec().try_into().unwrap();
+        let subject = engingcore::AuthorizationSubject::Institution(engingcore::RoleSubject {
+            cid_number: institution_cid_number(),
+            role_code: role.clone(),
+        });
+        set_fixture_wallet(&institution_cid_number(), &old, new.clone(), 2);
+        assert_noop!(
+            ElectionVote::cast_mutual_vote(
+                RuntimeOrigin::signed(new),
+                pid,
+                role.clone(),
+                candidate(11)
+            ),
+            Error::<Test>::VoterNotInSnapshot
+        );
+        assert_ok!(ElectionVote::cast_mutual_vote(
+            RuntimeOrigin::signed(old.clone()),
+            pid,
+            role.clone(),
+            candidate(11)
+        ));
+        assert_noop!(
+            ElectionVote::cast_mutual_vote(
+                RuntimeOrigin::signed(old.clone()),
+                pid,
+                role,
+                candidate(12)
+            ),
+            engingcore::Error::<Test>::AlreadyVoted
+        );
+        assert_eq!(
+            engingcore::Pallet::<Test>::frozen_voter_identity(pid, &subject, &old),
+            Some((old, 0))
+        );
+    });
+}

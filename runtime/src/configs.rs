@@ -100,7 +100,8 @@ parameter_types! {
 }
 
 /// 现有链上的固定委员岗位权限由 Runtime 升级补齐。
-type SingleBlockMigrations = (AddPrcFeeSweepPermissions, crate::evm_accounts::BackfillEvmAccounts);
+type SingleBlockMigrations = (AddPrcFeeSweepPermissions, crate::evm_accounts::BackfillEvmAccounts,
+);
 
 const PRC_FEE_SWEEP_MIGRATED: &[u8] = b":citizenchain:prc-fee-sweep-permissions:v1";
 
@@ -184,7 +185,8 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
         // 提案编号原地扩宽：复用现有升级入口与 VotingEngine 存储版本，不增模块或存储表。
         // 必须独立于下面的权限迁移标记，否则已经补过权限的节点会漏掉提案转换。
         use codec::{DecodeAll, Encode};
-        use frame_support::{storage::{with_transaction, TransactionOutcome}, traits::StorageVersion};
+        use frame_support::{storage::{with_transaction, TransactionOutcome}, traits::StorageVersion,
+        };
         let mut proposal_weight = db.reads(1);
         if StorageVersion::get::<engingcore::Pallet<Runtime>>() == StorageVersion::new(0) {
             let result: Result<Weight, sp_runtime::DispatchError> = with_transaction(|| {
@@ -236,7 +238,8 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
                     (b"InternalVote", b"InternalTallies", 1, 0),
                     (b"InternalVote", b"InternalThresholdSnapshot", 1, 0),
                     (b"InternalVote", b"PendingPersonalThresholds", 1, 0),
-                    (b"InternalVote", b"PendingPersonalAdminChangeThresholds", 1, 0),
+                    (b"InternalVote", b"PendingPersonalAdminChangeThresholds", 1, 0,
+                        ),
                     (b"InternalVote", b"InternalProposalRoles", 1, 0),
                     (b"JointVote", b"JointVotesByTicket", 1, 0),
                     (b"JointVote", b"JointInstitutionTallies", 1, 0),
@@ -269,7 +272,8 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
                     (b"MultisigTransfer", b"SweepProposalActions", 1, 0),
                     (b"ResolutionIssuance", b"Executed", 2, 0),
                     (b"ResolutionIssuance", b"EverExecuted", 2, 0),
-                    (b"GrandpaKeyChange", b"ActiveEmergencyRecoveryByInstitution", 0, 1),
+                    (b"GrandpaKeyChange", b"ActiveEmergencyRecoveryByInstitution", 0, 1,
+                        ),
                     (b"GrandpaKeyChange", b"PendingGrandpaKeyChange", 0, 8),
                     (b"RuntimeUpgrade", b"LastRuntimeUpgradeAudit", 0, 7),
                     (b"LegislationYuan", b"LawVersions", 0, 6),
@@ -317,18 +321,21 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
                             let mut input = &raw[..];
                             let value = match value_layout {
                                 0 => raw.to_vec(),
-                                1 => u128::from(u64::decode_all(&mut input).map_err(|_| invalid())?).encode(),
+                                1 => {
+                                    u128::from(u64::decode_all(&mut input).map_err(|_| invalid())?).encode()
+                                }
                                 2 => Vec::<u64>::decode_all(&mut input).map_err(|_| invalid())?.into_iter().map(u128::from).collect::<Vec<_>>().encode(),
-                                3 => { let (year, seq) = <(u16, u32)>::decode_all(&mut input).map_err(|_| invalid())?; (u32::from(year), u64::from(seq)).encode() },
-                                4 => { let (at, id) = <(BlockNumber, u64)>::decode_all(&mut input).map_err(|_| invalid())?; (at, u128::from(id)).encode() },
-                                5 => { let (id, count) = <(Option<u64>, u32)>::decode_all(&mut input).map_err(|_| invalid())?; (id.map(u128::from), count).encode() },
+                                3 => { let (year, seq) = <(u16, u32)>::decode_all(&mut input).map_err(|_| invalid())?; (u32::from(year), u64::from(seq)).encode() }
+                                4 => { let (at, id) = <(BlockNumber, u64)>::decode_all(&mut input).map_err(|_| invalid())?; (at, u128::from(id)).encode() }
+                                5 => { let (id, count) = <(Option<u64>, u32)>::decode_all(&mut input).map_err(|_| invalid())?; (id.map(u128::from), count).encode() }
                                 6 => {
                                     // 旧 LawVersion 尾部固定为 ID、发布时间、生效时间；正文规范字节不动。
                                     let offset = raw.len().checked_sub(24).ok_or_else(invalid)?;
                                     let id = u64::decode_all(&mut &raw[offset..offset + 8]).map_err(|_| invalid())?;
                                     let mut out = raw[..offset].to_vec(); out.extend(u128::from(id).encode()); out.extend_from_slice(&raw[offset + 8..]);
-                                    legislation::pallet::LawVersion::<Runtime>::decode_all(&mut &out[..]).map_err(|_| invalid())?; out
-                                },
+                                    legislation::pallet::LawVersion::<Runtime>::decode_all(&mut &out[..],
+                                    ).map_err(|_| invalid())?; out
+                                }
                                 7 | 8 => {
                                     let offset = if value_layout == 8 {
                                         <(Vec<u8>, AccountId, [u8; 32], [u8; 32], u64, u8)>::decode(&mut input).map_err(|_| invalid())?;
@@ -336,9 +343,11 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
                                     } else { 0 };
                                     let id = Option::<u64>::decode(&mut input).map_err(|_| invalid())?;
                                     let mut out = raw[..offset].to_vec(); out.extend(id.map(u128::from).encode()); out.extend_from_slice(input); out
-                                },
+                                }
                                 9 => u32::from(u16::decode_all(&mut input).map_err(|_| invalid())?).encode(),
-                                10 => u64::from(u32::decode_all(&mut input).map_err(|_| invalid())?).encode(),
+                                10 => {
+                                    u64::from(u32::decode_all(&mut input).map_err(|_| invalid())?).encode()
+                                }
                                 _ => return Err(invalid()),
                             };
                             if key != old_key && sp_io::storage::exists(&key) { return Err(invalid()); }
@@ -347,14 +356,17 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
                     }
                     // 先收集再写入，禁止同前缀边遍历边插入；超预算时不提交任何转换。
                     let rows = updates.len() as u64;
-                    let weight = db.reads_writes(rows.saturating_mul(3).saturating_add(layouts.len() as u64 * 2), rows.saturating_mul(2).saturating_add(1))
-                        .saturating_add(Weight::from_parts(1_000_000_000u64.saturating_add(bytes.saturating_mul(10_000)), bytes.saturating_mul(2).saturating_add(rows * 512)));
+                    let weight = db.reads_writes(rows.saturating_mul(3).saturating_add(layouts.len() as u64 * 2), rows.saturating_mul(2).saturating_add(1),
+                        )
+                        .saturating_add(Weight::from_parts(1_000_000_000u64.saturating_add(bytes.saturating_mul(10_000)), bytes.saturating_mul(2).saturating_add(rows * 512),
+                        ));
                     if weight.any_gt(RuntimeBlockWeights::get().max_block) { return Err(invalid()); }
                     for (old, key, value) in &updates { if old != key { sp_io::storage::clear(old); } sp_io::storage::set(key, value); }
                     StorageVersion::new(1).put::<engingcore::Pallet<Runtime>>();
                     Ok(weight)
                 };
-                match convert() { Ok(weight) => TransactionOutcome::Commit(Ok(weight)), Err(error) => TransactionOutcome::Rollback(Err(error)) }
+                match convert() { Ok(weight) => TransactionOutcome::Commit(Ok(weight)), Err(error) => TransactionOutcome::Rollback(Err(error)),
+                }
             });
             // 新 Runtime 不能继续消费未转换的旧布局；失败使本次升级区块无效，禁止静默跳过。
             proposal_weight = proposal_weight.saturating_add(result.expect("提案编号原地转换必须完整成功"));
@@ -478,12 +490,14 @@ impl Contains<RuntimeCall> for RuntimeCallFilter {
         match call {
             // 只开放 Ethereum 外层及验签转换后的执行入口；来源由 SetOrigin 校验。
             // 普通合约不能借原生 dispatch 入口访问业务 pallet。
-            RuntimeCall::Revive(call) => !crate::evm_accounts::BackfillEvmAccounts::pending() && matches!(
+            RuntimeCall::Revive(call) => {
+                !crate::evm_accounts::BackfillEvmAccounts::pending() && matches!(
                 call,
                 pallet_revive::Call::eth_transact { .. }
                     | pallet_revive::Call::eth_call { .. }
                     | pallet_revive::Call::eth_instantiate_with_code { .. }
-            ),
+            )
+            }
             // Balances 只作为底层余额账本和内部 Currency 能力保留。
             // 外部单账户链上转账唯一入口是 OnchainTransaction::transfer_with_remark。
             RuntimeCall::Balances(_) => false,
@@ -796,7 +810,9 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
         use primitives::fee_policy::FeeRoute;
 
         match call {
-            RuntimeCall::Revive(_) if crate::evm_accounts::BackfillEvmAccounts::pending() => FeeRoute::Reject,
+            RuntimeCall::Revive(_) if crate::evm_accounts::BackfillEvmAccounts::pending() => {
+                FeeRoute::Reject
+            }
             // 金额只做严格整分转换，费用分类和计算仍走既有 signer_onchain_route。
             RuntimeCall::Revive(
                 pallet_revive::Call::eth_call { value, .. }
@@ -1334,7 +1350,9 @@ impl primitives::institution_asset::InstitutionAsset<AccountId> for RuntimeInsti
             }
             // 复用同一次账户反查，仅市注册局主账户需要读达标记录。
             if publicentity::creg::main_cid::<Runtime>(&account)
-                .is_some_and(|cid| identity::CityRegistryProgress::<Runtime>::get(cid).rank.is_none())
+                .is_some_and(|cid| {
+                identity::CityRegistryProgress::<Runtime>::get(cid).rank.is_none()
+            })
             {
                 return false;
             }
@@ -1406,9 +1424,6 @@ impl entitybase::RegistryAuthority<AccountId> for RuntimeRegistryAuthority {
         target_cid_number: &[u8],
         target_institution_code: primitives::cid::code::InstitutionCode,
     ) -> bool {
-        let Some(actor_code) = cid_institution_code(actor_cid_number) else {
-            return false;
-        };
         let role_subject = entitybase::RoleSubject {
             cid_number: actor_cid_number.to_vec(),
             role_code: actor_role_code.to_vec(),
@@ -1424,47 +1439,12 @@ impl entitybase::RegistryAuthority<AccountId> for RuntimeRegistryAuthority {
         ) {
             return false;
         }
-        let Some(parsed_target_code) = cid_institution_code(target_cid_number) else {
-            return false;
-        };
-        if parsed_target_code != target_institution_code
-            || primitives::cid::code::is_fixed_governance_code(&target_institution_code)
-            || primitives::institution_constraints::is_permanent_singleton_code(
-                &target_institution_code,
-            )
-        {
-            return false;
-        }
-
-        let Ok((target_province_code, target_city_code)) =
-            primitives::cid::number::cid_scope_codes(target_cid_number)
-        else {
-            return false;
-        };
-
-        const CITY_REGISTRY_CODE: primitives::cid::code::InstitutionCode = *b"CREG";
-        if actor_code == adminbase::FRG {
-            let expected = primitives::governance_skeleton::province_commissioner_role_code(
-                target_province_code,
-            );
-            return actor_role_code == expected.as_slice();
-        }
-
-        if actor_code == CITY_REGISTRY_CODE {
-            if target_institution_code == CITY_REGISTRY_CODE {
-                return false;
-            }
-            let Ok((issuer_province_code, issuer_city_code)) =
-                primitives::cid::number::cid_scope_codes(actor_cid_number)
-            else {
-                return false;
-            };
-            // CREG 只能登记本市非 CREG 机构;市归属由 CID R5 直接校验。
-            return issuer_province_code == target_province_code
-                && issuer_city_code == target_city_code;
-        }
-
-        false
+        primitives::institution_constraints::registry_wallet_role_in_scope(
+            actor_cid_number,
+            actor_role_code,
+            target_cid_number,
+            target_institution_code,
+        )
     }
 }
 
@@ -1752,7 +1732,8 @@ impl entitybase::InstitutionCapabilityPolicy for RuntimeInstitutionCapabilityPol
 pub struct RuntimeInstitutionWalletVerifier;
 impl adminbase::InstitutionWalletSignatureVerifier<AccountId> for RuntimeInstitutionWalletVerifier {
     fn verify(account: &AccountId, payload: &[u8], proof: &[u8]) -> bool {
-        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload);
+        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload,
+        );
         let Ok((public, signature)) = mldsa::signature_parts(proof) else { return false; };
         if let Some(public) = public {
             let Ok(public) = mldsa::PublicKey::decode(&mut &public[..]) else { return false; };
@@ -2163,9 +2144,6 @@ impl publicadmin::Config for Runtime {
 impl privateadmin::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type MaxAdminsPerInstitution = MaxAdminsPerInstitution;
-    type ChainPhase = GenesisPallet;
-    type CitizenIdentityBinding = RuntimePublicAdminCitizenIdentityBinding;
-    type LegalRepresentativeQuery = RuntimeInstitutionLegalRepresentativeQuery;
 }
 
 impl destroy::Config for Runtime {
@@ -2454,6 +2432,38 @@ impl adminbase::InstitutionAdminQuery<AccountId> for RuntimeInstitutionAdminQuer
             });
         }
         None
+    }
+    fn resolve_role_authorization(
+        code: primitives::cid::code::InstitutionCode,
+        cid: &[u8],
+        caller: &AccountId,
+    ) -> Option<AccountId> {
+        if adminbase::is_public_admin_code(&code) {
+            return <PublicAdmins as adminbase::InstitutionAdminQuery<AccountId>>::resolve_role_authorization(code,cid,caller);
+        }
+        if adminbase::is_private_admin_code(&code) {
+            return <PrivateAdmins as adminbase::InstitutionAdminQuery<AccountId>>::resolve_role_authorization(code,cid,caller);
+        }
+        if adminbase::is_unincorporated_admin_code(&code) {
+            return <PublicAdmins as adminbase::InstitutionAdminQuery<AccountId>>::resolve_role_authorization(code,cid,caller).or_else(|| <PrivateAdmins as adminbase::InstitutionAdminQuery<AccountId>>::resolve_role_authorization(code,cid,caller));
+        }
+        None
+    }
+    fn has_role_authorization(
+        code: primitives::cid::code::InstitutionCode,
+        cid: &[u8],
+        reference: &AccountId,
+    ) -> bool {
+        if adminbase::is_public_admin_code(&code) {
+            return <PublicAdmins as adminbase::InstitutionAdminQuery<AccountId>>::has_role_authorization(code,cid,reference);
+        }
+        if adminbase::is_private_admin_code(&code) {
+            return <PrivateAdmins as adminbase::InstitutionAdminQuery<AccountId>>::has_role_authorization(code,cid,reference);
+        }
+        if adminbase::is_unincorporated_admin_code(&code) {
+            return <PublicAdmins as adminbase::InstitutionAdminQuery<AccountId>>::has_role_authorization(code,cid,reference) || <PrivateAdmins as adminbase::InstitutionAdminQuery<AccountId>>::has_role_authorization(code,cid,reference);
+        }
+        false
     }
 }
 
@@ -2768,7 +2778,7 @@ fn seed_benchmark_public_admin_account(
                     .unwrap(),
         });
     }
-    <Runtime as publicentity::Config>::AdminLifecycle::set_institution_admins(
+    <Runtime as publicentity::Config>::AdminLifecycle::benchmark_set_institution_admins(
         publicentity::MODULE_TAG,
         cid_number.as_bytes().to_vec(),
         institution_code,
@@ -2966,7 +2976,8 @@ impl engingcore::JointVoteResultCallback for RuntimeJointVoteResultCallback {
         // budget after its proof-size reset so the extra cost is not discarded.
         Weight::from_parts(value.ref_time(), 0)
             .saturating_add(<crate::evm_accounts::EvmAccountMapping as frame_support::traits::Get<Weight>>::get()
-                .saturating_mul(ResolutionIssuanceMaxAllocations::get() as u64))
+                .saturating_mul(ResolutionIssuanceMaxAllocations::get() as u64),
+        )
     }
     fn on_joint_vote_finalized(
         vote_proposal_id: u128,
@@ -3119,15 +3130,51 @@ impl engingcore::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvid
         cid_number: &[u8],
         who: &AccountId,
     ) -> bool {
-        // 名册成员按 account_id（枚举/快照构建语义）。投票人身份解析走下面的 resolver。
+        // 当前名册仅包含实际钱包；岗位授权引用通过独立接口读取。
         RuntimeInstitutionAdminQuery::is_institution_admin(institution_code, cid_number, who)
     }
 
-    fn resolve_institution_voter(cid_number: &[u8], caller: &AccountId) -> Option<AccountId> {
-        // 复用 3a 的名册解析器：运行期有 CID 按 identity 绑定解析（换绑不掉权），
-        // 创世期或无 CID 管理员按 account_id；None = 非该机构当前管理员。
-        let institution_code = cid_institution_code(cid_number)?;
-        RuntimeInstitutionAdminQuery::resolve_admin_account(institution_code, cid_number, caller)
+    fn institution_wallet_snapshot(
+        cid: &[u8],
+        references: &[AccountId],
+    ) -> Option<Vec<(AccountId, u64)>> {
+        let code = cid_institution_code(cid)?;
+        let key = adminbase::AdminCidNumber::try_from(cid.to_vec()).ok()?;
+        let public = publicadmin::AdminAccounts::<Runtime>::get(&key);
+        let private = privateadmin::AdminAccounts::<Runtime>::get(&key);
+        let (roster, is_private) = match (public, private) {
+            (Some(r), None) => (r, false),
+            (None, Some(r)) => (r, true),
+            _ => return None,
+        };
+        if roster.institution_code != code {
+            return None;
+        }
+        let mut by_reference = alloc::collections::BTreeMap::new();
+        for admin in roster.admins {
+            let (state, reference) = if is_private {
+                (
+                    privateadmin::AdminWallets::<Runtime>::get(&key, &admin.account_id)?,
+                    privateadmin::WalletRoleBindings::<Runtime>::get(&key, &admin.account_id)?,
+                )
+            } else {
+                (
+                    publicadmin::AdminWallets::<Runtime>::get(&key, &admin.account_id)?,
+                    publicadmin::WalletRoleBindings::<Runtime>::get(&key, &admin.account_id)?,
+                )
+            };
+            if state.wallet.as_ref() != Some(&admin.account_id)
+                || by_reference
+                    .insert(reference, (admin.account_id, state.revision))
+                    .is_some()
+            {
+                return None;
+            }
+        }
+        references
+            .iter()
+            .map(|r| by_reference.get(r).cloned())
+            .collect()
     }
 
     #[cfg(feature = "runtime-benchmarks")]
@@ -3169,7 +3216,7 @@ impl engingcore::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvid
             family_name: b"F".to_vec().try_into().unwrap(),
             given_name: b"G".to_vec().try_into().unwrap(),
         });
-        <Runtime as publicentity::Config>::AdminLifecycle::set_institution_admins(
+        <Runtime as publicentity::Config>::AdminLifecycle::benchmark_set_institution_admins(
             publicentity::MODULE_TAG,
             cid_number.to_vec(),
             institution_code,
@@ -3219,7 +3266,8 @@ impl engingcore::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvid
     }
 
     fn get_personal_admins(personal_account_id: AccountId) -> Option<Vec<AccountId>> {
-        RuntimeAdminAccountQuery::active_account_admins(engingcore::types::PMUL, personal_account_id)
+        RuntimeAdminAccountQuery::active_account_admins(engingcore::types::PMUL, personal_account_id,
+        )
     }
 
     fn legal_representative(cid_number: &[u8]) -> Option<AccountId> {
@@ -3341,12 +3389,12 @@ impl engingcore::InstitutionRoleProvider<AccountId> for RuntimeInstitutionRolePr
 
     fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId> {
         match institution_role_directory(cid_number) {
-            Some(true) => <publicentity::Pallet<Runtime> as InstitutionRoleQuery<
-                AccountId,
-            >>::active_accounts_for_role(cid_number, role_code),
-            Some(false) => <privateentity::Pallet<Runtime> as InstitutionRoleQuery<
-                AccountId,
-            >>::active_accounts_for_role(cid_number, role_code),
+            Some(true) => {
+                publicentity::Pallet::<Runtime>::snapshot_role_references(cid_number, role_code)
+            }
+            Some(false) => {
+                privateentity::Pallet::<Runtime>::snapshot_role_references(cid_number, role_code)
+            }
             None => Vec::new(),
         }
     }
@@ -3785,7 +3833,7 @@ impl legislation::benchmarks::BenchmarkSetup for Runtime {
                 .iter()
                 .map(|a| a.account_id.clone())
                 .collect::<Vec<_>>();
-            <Runtime as publicentity::Config>::AdminLifecycle::set_institution_admins(
+            <Runtime as publicentity::Config>::AdminLifecycle::benchmark_set_institution_admins(
                 publicentity::MODULE_TAG,
                 cid.to_vec(),
                 code,
@@ -3900,7 +3948,7 @@ impl engingcore::benchmarks::BenchmarkSetup for Runtime {
                     given_name: b"G".to_vec().try_into().unwrap(),
                 })
                 .collect::<Vec<_>>();
-            <Runtime as publicentity::Config>::AdminLifecycle::set_institution_admins(
+            <Runtime as publicentity::Config>::AdminLifecycle::benchmark_set_institution_admins(
                 publicentity::MODULE_TAG,
                 cid.to_vec(),
                 primitives::cid::code::NRC,

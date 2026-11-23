@@ -10,14 +10,13 @@ use core::marker::PhantomData;
 
 /// FRAME实测权重接口。
 pub trait WeightInfo {
-    /// Conservative initialized-wallet bound: one bounded roster, a reverse wallet index,
-    /// one acceptance verification and a single wallet/nonce update. Legacy initialization
-    /// is budgeted separately at the call site; it never runs in the execution callback.
-    /// This is a safety envelope, not a newly measured benchmark regression.
+    /// Conservative bound for actual-wallet roster replacement, old/new address histories,
+    /// role signing-reference transfer, System sufficient references, acceptance verification and entity nonce update.
+    /// No legacy initialization path exists. This is a safety envelope, not a new benchmark.
     fn institution_wallet_change(n: u32) -> Weight {
-        Weight::from_parts(50_000_000_000, 800_000)
+        Weight::from_parts(50_000_000_000, 803_603)
             .saturating_add(Weight::from_parts(10_000_000, 0).saturating_mul(u64::from(n)))
-            .saturating_add(RocksDbWeight::get().reads_writes(12, 5))
+            .saturating_add(RocksDbWeight::get().reads_writes(18, 10))
     }
 
     fn update_institution_info() -> Weight;
@@ -81,7 +80,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(9))
 			.saturating_add(T::DbWeight::get().writes(1));
         // actor/target名册各覆盖一次。每位实名人员额外4次身份读取；n含旧名册及
-        // 编码输入，n+1保守覆盖办理人。10333来自四张身份表MEL+默认百万项Trie。
+        // 编码输入，n+1保守覆盖办理人。10333保留每账户四项身份/钱包/岗位引用的证明预算。
         Weight::from_parts(base.ref_time().saturating_mul(u64::from(r).saturating_add(1)), base.proof_size())
             .saturating_add(Weight::from_parts(0, 8192).saturating_mul(u64::from(r)))
             .saturating_add(Weight::from_parts(2573982, 512).saturating_mul(u64::from(p).saturating_add(u64::from(a))))
@@ -89,8 +88,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().writes(3u64.saturating_add(u64::from(r).saturating_mul(4))))
             // 最慢Operation样本作为附加成本，覆盖最大办理方名册的重复解析。
             .saturating_add(Weight::from_parts(28_494_000_000, 0))
-            .saturating_add(Weight::from_parts(0, 10_333).saturating_mul(u64::from(n).saturating_add(1)))
+            .saturating_add(Weight::from_parts(0, 13_936).saturating_mul(u64::from(n).saturating_add(1)))
             .saturating_add(T::DbWeight::get().reads(u64::from(n).saturating_add(1).saturating_mul(4)))
+            // 名单同步校验旧版本/岗位引用并登记或退役；含首次System引用的保守读写预算。
+            .saturating_add(T::DbWeight::get().reads_writes(u64::from(n).saturating_mul(5), u64::from(n).saturating_mul(3)))
     }
 	/// Storage: `PublicManage::Institutions` (r:1 w:0)
 	/// Proof: `PublicManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)
@@ -497,7 +498,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(9))
 			.saturating_add(RocksDbWeight::get().writes(1));
         // actor/target名册各覆盖一次。每位实名人员额外4次身份读取；n含旧名册及
-        // 编码输入，n+1保守覆盖办理人。10333来自四张身份表MEL+默认百万项Trie。
+        // 编码输入，n+1保守覆盖办理人。10333保留每账户四项身份/钱包/岗位引用的证明预算。
         Weight::from_parts(base.ref_time().saturating_mul(u64::from(r).saturating_add(1)), base.proof_size())
             .saturating_add(Weight::from_parts(0, 8192).saturating_mul(u64::from(r)))
             .saturating_add(Weight::from_parts(2573982, 512).saturating_mul(u64::from(p).saturating_add(u64::from(a))))
@@ -505,8 +506,10 @@ impl WeightInfo for () {
             .saturating_add(RocksDbWeight::get().writes(3u64.saturating_add(u64::from(r).saturating_mul(4))))
             // 最慢Operation样本作为附加成本，覆盖最大办理方名册的重复解析。
             .saturating_add(Weight::from_parts(28_494_000_000, 0))
-            .saturating_add(Weight::from_parts(0, 10_333).saturating_mul(u64::from(n).saturating_add(1)))
+            .saturating_add(Weight::from_parts(0, 13_936).saturating_mul(u64::from(n).saturating_add(1)))
             .saturating_add(RocksDbWeight::get().reads(u64::from(n).saturating_add(1).saturating_mul(4)))
+            // 名单同步校验旧版本/岗位引用并登记或退役；含首次System引用的保守读写预算。
+            .saturating_add(RocksDbWeight::get().reads_writes(u64::from(n).saturating_mul(5), u64::from(n).saturating_mul(3)))
     }
 	/// Storage: `PublicManage::Institutions` (r:1 w:0)
 	/// Proof: `PublicManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)

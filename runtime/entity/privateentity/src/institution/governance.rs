@@ -1,6 +1,7 @@
 //! 原子应用私权机构治理及注册局登记，核对状态指纹和派生不变量。
 
 extern crate alloc;
+use adminbase::InstitutionAdminWalletQuery;
 
 use adminbase::{ChainPhaseCheck as _, InstitutionAdminQuery as _};
 use alloc::{collections::BTreeMap, vec::Vec};
@@ -102,10 +103,25 @@ impl<T: Config> Pallet<T> {
                 institution_code,
                 cid_number.as_slice(),
             );
-        let current_admins =
+        let current_wallets =
             T::InstitutionAdminQuery::institution_admins(institution_code, cid_number.as_slice())
-                .ok_or(Error::<T>::InvalidAssignmentResultInstitution)?;
-        let current_admin_set = current_admins.iter().cloned().collect::<BTreeSet<_>>();
+                .unwrap_or_default();
+        let mut assignment_references = current_wallets
+            .iter()
+            .flat_map(|wallet| {
+                core::iter::once(wallet.clone()).chain(
+                    T::InstitutionAdminQuery::resolve_role_authorization(
+                        institution_code,
+                        &cid_number,
+                        wallet,
+                    ),
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        // 人员任职不因钱包退役而被删除；签名授权仍要求当前有效管理员和原岗位权限。
+        for (_, records) in InstitutionRoleAssignments::<T>::iter_prefix(&cid_number) {
+            assignment_references.extend(records.into_iter().map(|a| a.account_id));
+        }
 
         let mut role_mutations = role_mutations;
         let mut assignment_changes_input = assignment_changes_input;
@@ -252,7 +268,7 @@ impl<T: Config> Pallet<T> {
                         &role_code,
                         &role,
                         assignments,
-                        &current_admin_set,
+                        &assignment_references,
                         proposal_id
                             .is_none()
                             .then_some(result_source_ref.as_slice()),
@@ -354,7 +370,7 @@ impl<T: Config> Pallet<T> {
                 &role_code,
                 role,
                 change.assignments,
-                &current_admin_set,
+                &assignment_references,
                 proposal_id
                     .is_none()
                     .then_some(result_source_ref.as_slice()),
@@ -377,7 +393,7 @@ impl<T: Config> Pallet<T> {
             }
             for assignment in &assignments {
                 ensure!(
-                    current_admin_set.contains(&assignment.account_id),
+                    assignment_references.contains(&assignment.account_id),
                     Error::<T>::InvalidAssignmentResultAdmins
                 );
                 ensure!(
@@ -494,7 +510,7 @@ impl<T: Config> Pallet<T> {
         );
         let role_mutations_len = (role_writes.len() + role_deletes.len()) as u32;
         let assignment_changes_len = assignment_changes.len() as u32;
-        let admins_len = current_admins.len() as u32;
+        let admins_len = current_wallets.len() as u32;
         let legal_representative_updated = legal_representative_change.is_some();
 
         with_transaction(|| {
@@ -659,6 +675,10 @@ impl<T: Config> Pallet<T> {
         expected_state_hash: [u8; 32],
         initial_threshold: Option<u32>,
     ) -> DispatchResult {
+        ensure!(
+            action.allowed_in_registration(),
+            Error::<T>::InvalidRegistrationAction
+        );
         let institution = Institutions::<T>::get(&cid).ok_or(Error::<T>::InstitutionNotFound)?;
         Self::ensure_lifecycle_institution_code(&institution.institution_code)?;
         ensure!(
@@ -675,6 +695,50 @@ impl<T: Config> Pallet<T> {
             Self::registration_state_hash(&cid)? == expected_state_hash,
             Error::<T>::StaleRegistrationState
         );
+        // 钱包维护与岗位配置是不同动作；登记方的原签名覆盖完整状态指纹。
+        if let crate::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added,
+            removed,
+            replaced,
+        } = action
+        {
+            ensure!(
+                initial_threshold.is_none(),
+                Error::<T>::InvalidRegistrationAction
+            );
+
+            return with_transaction(|| {
+                let apply = || -> DispatchResult {
+                    use adminbase::InstitutionAdminLifecycle;
+                    T::AdminLifecycle::update_institution_wallets(
+                        cid.to_vec(),
+                        institution.institution_code,
+                        added,
+                        removed,
+                        replaced,
+                    )?;
+                    InstitutionRoleNonce::<T>::try_mutate(&cid, |nonce| -> DispatchResult {
+                        *nonce = nonce.checked_add(1).ok_or(Error::<T>::RoleNonceOverflow)?;
+                        Ok(())
+                    })?;
+                    let len = T::InstitutionAdminQuery::institution_admins_len(
+                        institution.institution_code,
+                        &cid,
+                    )
+                    .ok_or(Error::<T>::InvalidAssignmentResultAdmins)?;
+                    Self::deposit_event(crate::pallet::Event::<T>::InstitutionAdminsRegistered {
+                        cid_number: cid,
+                        admins_len: len,
+                        submitter: who,
+                    });
+                    Ok(())
+                };
+                match apply() {
+                    Ok(()) => TransactionOutcome::Commit(Ok(())),
+                    Err(e) => TransactionOutcome::Rollback(Err(e)),
+                }
+            });
+        }
         // 来源绑定已签名登记载荷和origin；不接受客户端自造来源，也不伪造proposal_id。
         let reference = entitybase::institution_governance::registration_reference(
             crate::MODULE_TAG,
@@ -688,7 +752,7 @@ impl<T: Config> Pallet<T> {
                 initial_threshold,
             ),
         );
-        let (admins, mutations, assignments) = action
+        let (mutations, assignments) = action
             .into_registration_parts()
             .ok_or(Error::<T>::InvalidRegistrationAction)?;
         ensure!(
@@ -717,14 +781,42 @@ impl<T: Config> Pallet<T> {
                 .all(|mutation| matches!(mutation, InstitutionRoleMutation::Create { .. })),
             Error::<T>::RegistrationRoleChangeDenied
         );
-        let admins: crate::pallet::InstitutionAdminsInputOf<T> = admins
-            .try_into()
-            .map_err(|_| Error::<T>::TooManyInstitutionAdmins)?;
-        let admins = Self::normalize_institution_admins(admins);
-        Self::ensure_admin_config(&admins)?;
+        let admins_len =
+            T::InstitutionAdminQuery::institution_admins_len(institution.institution_code, &cid)
+                .ok_or(Error::<T>::InvalidAssignmentResultAdmins)?;
+        ensure!(admins_len > 0, Error::<T>::InvalidAssignmentResultAdmins);
+        for wallet in
+            T::InstitutionAdminQuery::institution_admins(institution.institution_code, &cid)
+                .ok_or(Error::<T>::InvalidAssignmentResultAdmins)?
+        {
+            ensure!(
+                T::AdminLifecycle::current_institution_wallet(
+                    institution.institution_code,
+                    &cid,
+                    &wallet
+                )
+                .as_ref()
+                    == Some(&wallet)
+                    && T::InstitutionAdminQuery::resolve_role_authorization(
+                        institution.institution_code,
+                        &cid,
+                        &wallet
+                    )
+                    .is_some(),
+                Error::<T>::InvalidAssignmentResultAdmins
+            );
+        }
+        ensure!(
+            !mutations.is_empty() || !assignments.is_empty(),
+            Error::<T>::GovernanceResultEmpty
+        );
         with_transaction(|| {
             let apply = || -> DispatchResult {
-                Self::set_institution_admins(&cid, institution.institution_code, &admins)?;
+                // 保留原状态nonce推进，不再把现任钱包名册写回。
+                InstitutionRoleNonce::<T>::try_mutate(&cid, |n| -> DispatchResult {
+                    *n = n.checked_add(1).ok_or(Error::<T>::RoleNonceOverflow)?;
+                    Ok(())
+                })?;
                 if !mutations.is_empty() || !assignments.is_empty() {
                     Self::apply_role_changes(
                         institution.institution_code,
@@ -742,7 +834,7 @@ impl<T: Config> Pallet<T> {
                 Self::ensure_registration_configuration(&cid)?;
                 Self::deposit_event(crate::pallet::Event::<T>::InstitutionAdminsRegistered {
                     cid_number: cid,
-                    admins_len: admins.len() as u32,
+                    admins_len,
                     submitter: who,
                 });
                 Ok(())
@@ -759,13 +851,23 @@ impl<T: Config> Pallet<T> {
         let institution = Institutions::<T>::get(cid).ok_or(Error::<T>::InstitutionNotFound)?;
         let threshold = crate::pallet::InstitutionGovernanceThresholds::<T>::get(cid)
             .ok_or(Error::<T>::MissingInitialConfiguration)?;
-        let admins = T::InstitutionAdminQuery::institution_admins(
-            institution.institution_code,
-            cid.as_slice(),
-        )
-        .ok_or(Error::<T>::InvalidAssignmentResultAdmins)?
-        .into_iter()
-        .collect::<BTreeSet<_>>();
+        let mut personnel_references =
+            T::InstitutionAdminQuery::institution_admins(institution.institution_code, cid)
+                .unwrap_or_default()
+                .into_iter()
+                .flat_map(|wallet| {
+                    core::iter::once(wallet.clone()).chain(
+                        T::InstitutionAdminQuery::resolve_role_authorization(
+                            institution.institution_code,
+                            cid,
+                            &wallet,
+                        ),
+                    )
+                })
+                .collect::<BTreeSet<_>>();
+        for (_, rows) in InstitutionRoleAssignments::<T>::iter_prefix(cid) {
+            personnel_references.extend(rows.into_iter().map(|a| a.account_id));
+        }
         let action = entitybase::BusinessActionId {
             module_tag: crate::MODULE_TAG.to_vec(),
             action_code: entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
@@ -785,7 +887,7 @@ impl<T: Config> Pallet<T> {
             ensure!(
                 assignments
                     .iter()
-                    .all(|assignment| admins.contains(&assignment.account_id)),
+                    .all(|assignment| personnel_references.contains(&assignment.account_id)),
                 Error::<T>::InvalidAssignmentResultAdmins
             );
             if role.role_status == InstitutionRoleStatus::Inactive {
@@ -826,7 +928,7 @@ impl<T: Config> Pallet<T> {
         role_code: &RoleCodeOf,
         role: &InstitutionRoleOf<T>,
         targets: Vec<entitybase::InstitutionAssignmentTarget<T::AccountId>>,
-        current_admin_set: &BTreeSet<T::AccountId>,
+        assignment_references: &BTreeSet<T::AccountId>,
         registry_ref: Option<&[u8]>,
     ) -> Result<RoleAssignmentsOf<T>, sp_runtime::DispatchError> {
         ensure!(
@@ -845,7 +947,7 @@ impl<T: Config> Pallet<T> {
         let mut stored_assignments = Vec::with_capacity(targets.len());
         for target in targets {
             ensure!(
-                current_admin_set.contains(&target.account_id),
+                assignment_references.contains(&target.account_id),
                 Error::<T>::InvalidAssignmentResultAdmins
             );
             ensure!(

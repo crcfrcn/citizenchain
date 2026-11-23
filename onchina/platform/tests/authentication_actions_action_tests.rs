@@ -23,6 +23,8 @@ fn concurrent_security_grant_consumers_cannot_replay_one_grant() {
         status: "ACTIVE".into(),
     };
     let ctx = AdminAuthContext {
+        wallet_revision: "0".into(),
+        wallet_namespace: crate::chain_runtime::AdminPallet::PublicAdmins,
         account_id: actor.clone(),
         institution_cid_number: institution.clone(),
         institution_code: "CREG".into(),
@@ -54,6 +56,7 @@ fn concurrent_security_grant_consumers_cannot_replay_one_grant() {
         .db
         .with_client(|conn| {
             repo::upsert_active_node_binding_conn(conn, &binding)?;
+            repo::insert_admin_session_conn(conn,&AdminSession {token:"grant-session".into(),candidate_id:binding.candidate_id.clone(),expires_at:now+Duration::hours(1),last_active_at:now,wallet_revision:ctx.wallet_revision.clone(),wallet_namespace:ctx.wallet_namespace,setup_required:false,account_id:ctx.account_id.clone(),institution_cid_number:ctx.institution_cid_number.clone(),institution_code:ctx.institution_code.clone(),admin_level:ctx.admin_level.clone(),capabilities:crate::modules::capability::EMPTY,workspace:crate::modules::model::InstitutionWorkspace{workspace_kind:crate::modules::model::WorkspaceKind::Registry,workspace_title:"fixture".into(),workspace_sections:vec![],workspace_modules:vec![]},family_name:ctx.family_name.clone(),given_name:ctx.given_name.clone(),scope_province_name:ctx.scope_province_name.clone(),scope_city_name:ctx.scope_city_name.clone(),scope_town_name:ctx.scope_town_name.clone(),cid_short_name:ctx.cid_short_name.clone()})?;
             repo::insert_security_grant_conn(conn, &grant)?;
             for token in ["assert-a", "assert-b"] {
                 conn.execute(
@@ -81,6 +84,7 @@ fn concurrent_security_grant_consumers_cannot_replay_one_grant() {
                 let barrier = &barrier;
                 scope.spawn(move || {
                     let mut headers = HeaderMap::new();
+                    headers.insert("authorization","Bearer grant-session".parse().unwrap());
                     headers.insert("x-passkey-assertion", token.parse().unwrap());
                     headers.insert(ADMIN_SECURITY_GRANT_HEADER, "grant-test".parse().unwrap());
                     barrier.wait();
@@ -147,6 +151,8 @@ async fn unbind_requires_passkey_and_its_binding_sessions_and_challenge_are_atom
             repo::insert_admin_session_conn(
                 conn,
                 &AdminSession {
+                    wallet_revision: "0".into(),
+                    wallet_namespace: crate::chain_runtime::AdminPallet::PublicAdmins,
                     token: "test-session".into(),
                     account_id: actor.clone(),
                     institution_code: "CREG".into(),

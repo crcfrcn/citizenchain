@@ -175,6 +175,19 @@ impl engingcore::JointVoteEngine<AccountId32> for TestJointVoteEngine {
 
 pub struct TestInternalAdminProvider;
 impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+    fn institution_wallet_snapshot(
+        _cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        Some(
+            references
+                .iter()
+                .cloned()
+                .map(|wallet| (wallet, 0))
+                .collect(),
+        )
+    }
+
     fn is_institution_admin(
         institution_code: engingcore::types::InstitutionCode,
         cid_number: &[u8],

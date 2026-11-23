@@ -24,6 +24,8 @@ fn governance_read_context(
     province: &str,
 ) -> crate::authentication::login::AdminAuthContext {
     crate::authentication::login::AdminAuthContext {
+        wallet_revision: "0".into(),
+        wallet_namespace: crate::chain_runtime::AdminPallet::PublicAdmins,
         account_id: format!("0x{}", "11".repeat(32)),
         institution_cid_number: cid.into(),
         institution_code: code.into(),
@@ -736,6 +738,14 @@ fn registration_snapshot_fixture() -> RegistrationSnapshot {
     let cid = b"NX013-CREGN-937676656-2026".to_vec();
     let code = b"R_EXISTING".to_vec();
     RegistrationSnapshot {
+        wallet_states: BTreeMap::from([(
+            [1; 32],
+            adminbase::InstitutionAdminWalletState {
+                wallet: Some([1; 32]),
+                revision: 0,
+            },
+        )]),
+        role_authorizations: BTreeMap::from([([1; 32], [1; 32])]),
         owner: AdminPallet::PublicAdmins,
         block_hash: [7; 32],
         block_number: 9,
@@ -841,13 +851,11 @@ fn registration_parser_preserves_old_provenance_and_stamps_only_new_assignments(
         parse_registration_action, InstitutionAssignmentChangeInput, InstitutionRoleMutationInput,
     };
     let snapshot = registration_snapshot_fixture();
-    let admins =
-        crate::institutions::InstitutionAdminsPayload::Public(snapshot.admins.clone().unwrap());
     let changes: Vec<InstitutionAssignmentChangeInput> = serde_json::from_value(serde_json::json!([
         {"roleCode":"R_EXISTING","assignments":[{"accountId":format!("0x{}",hex::encode([1;32])),"termStart":1,"termEnd":20}]}
     ])).unwrap();
-    let action = parse_registration_action(admins.clone(), &[], &changes, &snapshot, None).unwrap();
-    let (_, _, assignments) = action.into_registration_parts().unwrap();
+    let action = parse_registration_action(&[], &changes, &snapshot, None).unwrap();
+    let (_, assignments) = action.into_registration_parts().unwrap();
     assert_eq!(
         assignments[0].assignments[0].assignment_source,
         entitybase::InstitutionAssignmentSource::InstitutionGovernance
@@ -858,11 +866,10 @@ fn registration_parser_preserves_old_provenance_and_stamps_only_new_assignments(
     );
     let mut changed = changes;
     changed[0].assignments[0].term_end = 21;
-    let (_, _, assignments) =
-        parse_registration_action(admins.clone(), &[], &changed, &snapshot, None)
-            .unwrap()
-            .into_registration_parts()
-            .unwrap();
+    let (_, assignments) = parse_registration_action(&[], &changed, &snapshot, None)
+        .unwrap()
+        .into_registration_parts()
+        .unwrap();
     assert_eq!(
         assignments[0].assignments[0].assignment_source,
         entitybase::InstitutionAssignmentSource::Registry
@@ -874,11 +881,11 @@ fn registration_parser_preserves_old_provenance_and_stamps_only_new_assignments(
         "mutation":"CREATE","roleName":"业务岗位","permissions":[{"moduleTag":"cit-id","actionCode":0,"operation":"PROPOSE"}],
         "assignments":[{"accountId":format!("0x{}",hex::encode([1;32]))}]
     }])).unwrap();
-    assert!(parse_registration_action(admins.clone(), &mutation, &[], &snapshot, Some(2)).is_err());
+    assert!(parse_registration_action(&mutation, &[], &snapshot, Some(2)).is_err());
     let mut first = registration_snapshot_fixture();
     first.threshold = None;
-    assert!(parse_registration_action(admins.clone(), &[], &[], &first, None).is_err());
-    let (_, mutations, _) = parse_registration_action(admins, &mutation, &[], &first, Some(2))
+    assert!(parse_registration_action(&[], &[], &first, None).is_err());
+    let (mutations, _) = parse_registration_action(&mutation, &[], &first, Some(2))
         .unwrap()
         .into_registration_parts()
         .unwrap();
@@ -972,33 +979,190 @@ fn registration_retains_canonical_roster_cid_and_empty_profile_without_local_def
     assert_eq!(updated.cid_number, stored.cid_number);
 }
 
-
 #[test]
 fn institutional_wallet_scale_fixture_is_identical_to_runtime_types_and_new_call() {
     use codec::Encode;
-    let fixture: serde_json::Value=serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),"/../../runtime/primitives/tests/fixtures/role_permission.json"))).unwrap();
-    let f=&fixture["institution_wallet"];
-    let change=adminbase::InstitutionAdminWalletChange{admin_account:[2;32],expected_wallet:[3;32],new_wallet:[4;32],expected_revision:7};
-    let cid=f["cid_number"].as_str().unwrap().as_bytes().to_vec();
-    let acceptance=adminbase::InstitutionWalletAcceptance{genesis_hash:[1u8;32],cid_number:cid.clone().try_into().unwrap(),change:change.clone(),mode:adminbase::InstitutionWalletChangeMode::SelfSigned,expires_at:1900000000};
-    assert_eq!(format!("0x{}",hex::encode(acceptance.encode())),f["acceptance_hex"]);
-    let proof: adminbase::InstitutionWalletProof=vec![0xab;64].try_into().unwrap();
-    let mut call=vec![30,10];call.extend(cid.encode());call.extend(change.encode());call.extend(1900000000u64.encode());call.extend(proof.encode());
-    assert_eq!(format!("0x{}",hex::encode(call)),f["self_call_hex"]);
-    let action=entitybase::InstitutionGovernanceAction::<[u8;32]>::RotateAdminWallet{change,expires_at:1900000000,new_wallet_proof:proof};
-    assert_eq!(format!("0x{}",hex::encode(action.encode())),f["governance_action_hex"]);
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../runtime/primitives/tests/fixtures/role_permission.json"
+    )))
+    .unwrap();
+    let f = &fixture["institution_wallet"];
+    let change = adminbase::InstitutionAdminWalletChange {
+        admin_account: [3; 32],
+        expected_wallet: [3; 32],
+        new_wallet: [4; 32],
+        expected_revision: 7,
+    };
+    let cid = f["cid_number"].as_str().unwrap().as_bytes().to_vec();
+    let acceptance = adminbase::InstitutionWalletAcceptance {
+        genesis_hash: [1u8; 32],
+        cid_number: cid.clone().try_into().unwrap(),
+        change: change.clone(),
+        mode: adminbase::InstitutionWalletChangeMode::SelfSigned,
+        expires_at: 1900000000,
+    };
+    assert_eq!(
+        format!("0x{}", hex::encode(acceptance.encode())),
+        f["acceptance_hex"]
+    );
+    let proof: adminbase::InstitutionWalletProof = vec![0xab; 64].try_into().unwrap();
+    let mut call = vec![30, 10];
+    call.extend(cid.encode());
+    call.extend(change.encode());
+    call.extend(1900000000u64.encode());
+    call.extend(proof.encode());
+    assert_eq!(format!("0x{}", hex::encode(call)), f["self_call_hex"]);
+    let action = entitybase::InstitutionGovernanceAction::<[u8; 32]>::RotateAdminWallet {
+        change,
+        expires_at: 1900000000,
+        new_wallet_proof: proof,
+    };
+    assert_eq!(
+        format!("0x{}", hex::encode(action.encode())),
+        f["governance_action_hex"]
+    );
     // Existing discriminants remain byte-identical.
-    assert_eq!(entitybase::InstitutionGovernanceAction::<[u8;32]>::ReplaceAdmins{admins:vec![]}.encode()[0],0);
+    assert_eq!(
+        entitybase::InstitutionGovernanceAction::<[u8; 32]>::ReplaceAdmins { admins: vec![] }
+            .encode()[0],
+        0
+    );
 }
 
 #[test]
 fn institutional_pq_wallet_can_login_without_changing_signing_messages() {
-    let child=[97;32];let public=chain_signing::mldsa::public_key(&child);
-    let account=format!("0x{}",hex::encode(chain_signing::mldsa::account_id(&public)));
-    let message=b"QR_V1|login|institution-wallet";
-    let signature=chain_signing::mldsa::sign(&child,message).unwrap();
-    let wire=format!("0x{}",hex::encode(chain_signing::mldsa::encode_pq_signature(&public,&signature)));
-    assert!(crate::authentication::login::verify_admin_signature_bytes(&account,message,&wire));
-    assert!(!crate::authentication::login::verify_admin_signature_bytes(&account,b"other login",&wire));
-    assert!(!crate::authentication::login::verify_admin_signature_bytes(&format!("0x{}",hex::encode([1;32])),message,&wire));
+    let child = [97; 32];
+    let public = chain_signing::mldsa::public_key(&child);
+    let account = format!(
+        "0x{}",
+        hex::encode(chain_signing::mldsa::account_id(&public))
+    );
+    let message = b"QR_V1|login|institution-wallet";
+    let signature = chain_signing::mldsa::sign(&child, message).unwrap();
+    let wire = format!(
+        "0x{}",
+        hex::encode(chain_signing::mldsa::encode_pq_signature(
+            &public, &signature
+        ))
+    );
+    assert!(crate::authentication::login::verify_admin_signature_bytes(
+        &account, message, &wire
+    ));
+    assert!(!crate::authentication::login::verify_admin_signature_bytes(
+        &account,
+        b"other login",
+        &wire
+    ));
+    assert!(!crate::authentication::login::verify_admin_signature_bytes(
+        &format!("0x{}", hex::encode([1; 32])),
+        message,
+        &wire
+    ));
+}
+
+#[test]
+fn registry_wallet_variant_preserves_old_action_indices_and_matches_cold_wallet_fixture() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../runtime/primitives/tests/fixtures/role_permission.json"
+    )))
+    .unwrap();
+    let f = &fixture["registry_wallets"];
+    let action = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+        added: vec![adminbase::Admin {
+            account_id: [6; 32],
+            cid_number: Default::default(),
+            family_name: b"F".to_vec().try_into().unwrap(),
+            given_name: b"G".to_vec().try_into().unwrap(),
+        }],
+        removed: vec![([5; 32], 2)],
+        replaced: vec![adminbase::InstitutionAdminWalletChange {
+            admin_account: [3; 32],
+            expected_wallet: [3; 32],
+            new_wallet: [4; 32],
+            expected_revision: 7,
+        }],
+    };
+    assert_eq!(
+        format!("0x{}", hex::encode(action.encode())),
+        f["action_hex"]
+    );
+    let args = crate::institutions::RegisterInstitutionAdminsArgs {
+        is_private: false,
+        cid_number: f["cid_number"].as_str().unwrap().as_bytes().to_vec(),
+        institution_code: *b"CREG",
+        action,
+        actor_cid_number: f["actor_cid_number"].as_str().unwrap().as_bytes().to_vec(),
+        actor_role_code: f["actor_role_code"].as_str().unwrap().as_bytes().to_vec(),
+        expected_state_hash: [9; 32],
+        initial_threshold: None,
+    };
+    assert_eq!(
+        format!(
+            "0x{}",
+            hex::encode(crate::institutions::encode_register_institution_admins(&args).call_data)
+        ),
+        f["call_hex"]
+    );
+}
+
+#[test]
+fn registry_wallet_snapshot_rejects_inactive_versions_duplicate_targets_and_personnel_side_effects()
+{
+    let snapshot = registration_snapshot_fixture();
+    let action = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+        added: vec![],
+        removed: vec![],
+        replaced: vec![adminbase::InstitutionAdminWalletChange {
+            admin_account: [1; 32],
+            expected_wallet: [1; 32],
+            new_wallet: [2; 32],
+            expected_revision: 0,
+        }],
+    };
+    assert!(snapshot.validate_wallet_action(&action, b"R").is_ok());
+    let mut stale = snapshot;
+    stale.wallet_states.get_mut(&[1; 32]).unwrap().revision = 1;
+    assert!(stale.validate_wallet_action(&action, b"R").is_err());
+}
+
+#[test]
+fn city_registry_cannot_manage_national_or_provincial_public_wallets_even_at_same_address() {
+    let frg = primitives::governance_skeleton::federal_registry_institution();
+    for institution in primitives::institution_constraints::singleton_institutions() {
+        let (province, _) =
+            primitives::cid::number::cid_scope_codes(institution.cid_number.as_bytes()).unwrap();
+        let role = primitives::governance_skeleton::province_commissioner_role_code(province);
+        assert!(registration_role_in_scope(
+            frg.cid_number.as_bytes(),
+            &role,
+            institution.cid_number.as_bytes(),
+            institution.code
+        ));
+        let r5 = &institution.cid_number[..5];
+        let text = format!("{r5}CREG1234567892026");
+        let city = format!(
+            "{r5}-CREG{}-123456789-2026",
+            primitives::cid::number::checksum_char_m1(&text, false)
+        );
+        assert!(!registration_role_in_scope(
+            city.as_bytes(),
+            b"LOCAL_REGISTRAR",
+            institution.cid_number.as_bytes(),
+            institution.code
+        ));
+    }
+    let city = b"NX013-CREGN-937676656-2026";
+    let text = "NX013PGV1234567892026";
+    let province = format!(
+        "NX013-PGV{}-123456789-2026",
+        primitives::cid::number::checksum_char_m1(text, false)
+    );
+    assert!(!registration_role_in_scope(
+        city,
+        b"LOCAL_REGISTRAR",
+        province.as_bytes(),
+        *b"PGV\0"
+    ));
 }

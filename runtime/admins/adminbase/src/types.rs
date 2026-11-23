@@ -15,9 +15,9 @@ pub type FamilyName = BoundedVec<u8, ConstU32<ADMIN_PERSON_NAME_MAX_BYTES>>;
 /// 与链上中国公民字段同名的名。
 pub type GivenName = BoundedVec<u8, ConstU32<ADMIN_PERSON_NAME_MAX_BYTES>>;
 
-/// 机构与个人多签管理员人员记录（公权/私权/个人多签统一复用）。
+/// 管理员账户及可选显示资料；个人多签保持原有编码。
 ///
-/// `cid_number` 引用identity真源；名册account_id供快照使用，运行期调用授权由机构查询接口按当前CID绑定解析。
+/// 机构名册的 `account_id` 始终是实际当前钱包，不是人员或永久身份键。
 /// 字段完整性按(机构类型, 是否 LR 岗)分层要求，由 `required_admin_elements` 单源 +
 /// `ChainPhaseCheck` 期段门控：创世期允许空、运行期(Operation)强制。
 /// `family_name`、`given_name` 与链上中国公民姓名字段逐字对齐。机构岗位和任职由 entity 独立保存。
@@ -26,7 +26,7 @@ pub type GivenName = BoundedVec<u8, ConstU32<ADMIN_PERSON_NAME_MAX_BYTES>>;
 )]
 pub struct Admin<AccountId> {
     pub account_id: AccountId,
-    /// 管理员本人公民 CID（引用 identity 真源）。运行期由所属机构查询接口参与身份授权解析；
+    /// 可选的账户显示资料CID；不参与机构钱包签名身份解析；
     /// 是否必填按 `required_admin_elements` 分层、`ChainPhaseCheck` 期段门控。个人多签恒空。
     pub cid_number: AdminCidNumber,
     pub family_name: FamilyName,
@@ -111,7 +111,7 @@ pub enum AdminAccountStatus {
 
 /// 机构管理员集合。
 ///
-/// 本结构只保存管理员人员记录及必要路由状态；岗位、任期和任职来源全部归
+/// 本结构保存实际管理员钱包及必要路由资料；岗位、任期和任职来源全部归
 /// `entity` 的岗位任职存储。机构管理员没有“创建人、创建时间、更新时间”字段。
 #[derive(
     Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
@@ -120,7 +120,7 @@ pub enum AdminAccountStatus {
 pub struct InstitutionAdmins<AdminList> {
     /// 机构码，用于把查询路由到对应公权或私权业务。
     pub institution_code: InstitutionCode,
-    /// 按账户去重的管理员人员集合。
+    /// 按实际钱包去重的当前管理员集合。
     pub admins: AdminList,
 }
 
@@ -155,10 +155,9 @@ pub struct AdminSetChangeAction<AccountId, AdminList> {
     pub new_threshold: u32,
 }
 
-/// 机构管理员钱包基础状态；与现有 `Admin` 分开编码，不改名册/任职/快照布局。
-///
-/// 存储键为机构完整 CID 与 `Admin.account_id` 稳定锚点。`wallet=None` 是保留版本的
-/// 退役记录，不能删除后从零初始化。机构激活后本状态是签名钱包真源。
+/// 机构钱包授权状态；键为完整机构CID + 实际钱包账户。
+/// `wallet=Some(key)` 表示在用，`None` 保留退役版本。钱包值不得指向另一账户。
+/// 名单、版本与岗位签名授权引用同事务写入；不使用个人CID解析或兼容补建。
 #[derive(
     Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
 )]
@@ -169,7 +168,8 @@ pub struct InstitutionAdminWalletState<AccountId> {
 
 /// 机构内部钱包更新参数；机构 CID 由所属生命周期接口单独提供。
 ///
-/// 本结构只绑定状态变更，不表示已取得本人双签或投票授权；两条授权入口在第2步接入。
+/// 本结构绑定实际旧钱包及预期版本，不代表已取得双签或治理授权。
+/// `admin_account` 与 `expected_wallet` 必须为同一真实旧钱包，不接收永久身份锚点。
 #[derive(
     Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
 )]

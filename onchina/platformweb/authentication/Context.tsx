@@ -20,6 +20,8 @@ export type PasskeyState =
 function sameSession(left: AdminAuth | null, right: AdminAuth | null): boolean {
   return left !== null && right !== null
     && left.accessToken === right.accessToken
+    && left.walletRevision === right.walletRevision
+    && left.walletNamespace === right.walletNamespace
     && left.accountId === right.accountId
     && left.institutionCidNumber === right.institutionCidNumber
     && left.institutionCode === right.institutionCode;
@@ -91,12 +93,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       logoutRef.current();
     });
     return () => setOnUnauthorized(null);
-  }, [auth?.accessToken, auth?.accountId, auth?.institutionCidNumber, auth?.institutionCode]);
+  }, [auth?.walletRevision, auth?.walletNamespace, auth?.accessToken, auth?.accountId, auth?.institutionCidNumber, auth?.institutionCode]);
 
   // 换会话或卸载时丢弃尚未结束的状态刷新；不在切页时发起密钥查询。
   useEffect(() => {
     return () => { ++passkeyRequest.current; };
-  }, [auth?.accessToken, auth?.accountId, auth?.institutionCidNumber, auth?.institutionCode, refreshPasskey]);
+  }, [auth?.walletRevision, auth?.walletNamespace, auth?.accessToken, auth?.accountId, auth?.institutionCidNumber, auth?.institutionCode, refreshPasskey]);
 
   const capabilities = useMemo(() => resolveRoleCapabilities(auth), [auth]);
 

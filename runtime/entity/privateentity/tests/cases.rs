@@ -1,10 +1,10 @@
 //! 验证私权机构账户、岗位和治理登记的授权及状态变化。
 
 use super::*;
-use sp_core::{sr25519, Pair};
+use engingcore::{types::code_bytes, InternalVoteEngine as _};
 use frame_support::traits::GetCallName;
 use frame_support::{assert_noop, assert_ok};
-use engingcore::{types::code_bytes, InternalVoteEngine as _};
+use sp_core::{sr25519, Pair};
 
 #[test]
 fn direct_institution_creation_call_is_permanently_absent() {
@@ -68,8 +68,12 @@ fn private_dynamic_role_is_authorized_only_for_assigned_admin() {
             }
         ));
 
-        let role_code =
-            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid_number.as_slice(), role_nonce, 51);
+        let role_code = entitybase::generate_dynamic_role_code(
+            crate::MODULE_TAG,
+            cid_number.as_slice(),
+            role_nonce,
+            51,
+        );
         let subject = RoleSubject {
             cid_number: cid_number.to_vec(),
             role_code,
@@ -164,8 +168,12 @@ fn initialized_lr_wallet_is_independent_of_personal_identity_record() {
                 result_source_ref: b"proposal-81".to_vec(),
             }
         ));
-        let role_code =
-            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid_number.as_slice(), role_nonce, 81);
+        let role_code = entitybase::generate_dynamic_role_code(
+            crate::MODULE_TAG,
+            cid_number.as_slice(),
+            role_nonce,
+            81,
+        );
         let subject = RoleSubject {
             cid_number: cid_number.to_vec(),
             role_code,
@@ -182,17 +190,24 @@ fn initialized_lr_wallet_is_independent_of_personal_identity_record() {
         // 创世期：按 account_id。
         assert!(authorized(&admin(1)));
 
-        // 运行期 + LR 换绑到新钱包：名册 cid 为空 → 回落到 LR 身份记录的 cid 完成解析。
+        // 法定代表人的资料记录不作为机构钱包来源；即使地址改变也不能授予该钱包业务权限。
         set_operation_phase(true);
-        bind_cid(&citizen_cid, admin(5));
-        assert!(!authorized(&admin(5))); // 个人CID不改变已初始化机构钱包
+        pallet::Institutions::<Test>::mutate(&cid_number, |info| {
+            info.as_mut()
+                .unwrap()
+                .legal_representative
+                .as_mut()
+                .unwrap()
+                .account_id = admin(5);
+        });
+        assert!(!authorized(&admin(5))); // LR资料不能替代当前钱包授权
         assert!(authorized(&admin(1))); // 机构钱包仍有效
-        assert!(authorized(&admin(2))); // 非 LR 且无 cid → 仍按 account_id（分层规则不被破坏）
+        assert!(authorized(&admin(2))); // 非LR管理员仍使用自己的实际钱包
     });
 }
 
 #[test]
-fn initialized_institution_does_not_follow_personal_cid_wallet_rebind() {
+fn institution_wallet_authority_ignores_personal_cid_display_metadata() {
     new_test_ext().execute_with(|| {
         use entitybase::{
             InstitutionRoleAuthorizationQuery, InstitutionRoleMutation, RolePermissionOperation,
@@ -228,11 +243,7 @@ fn initialized_institution_does_not_follow_personal_cid_wallet_rebind() {
         ]
         .try_into()
         .expect("admins fit");
-        assert_ok!(PrivateManage::set_institution_admins(
-            &cid_number,
-            code,
-            &admins
-        ));
+        assert_ok!(seed_institution_admins(&cid_number, code, &admins));
 
         let action = entitybase::BusinessActionId {
             module_tag: b"pri-mgmt".to_vec(),
@@ -261,8 +272,12 @@ fn initialized_institution_does_not_follow_personal_cid_wallet_rebind() {
                 result_source_ref: b"proposal-70".to_vec(),
             }
         ));
-        let role_code =
-            entitybase::generate_dynamic_role_code(crate::MODULE_TAG, cid_number.as_slice(), role_nonce, 70);
+        let role_code = entitybase::generate_dynamic_role_code(
+            crate::MODULE_TAG,
+            cid_number.as_slice(),
+            role_nonce,
+            70,
+        );
         let subject = RoleSubject {
             cid_number: cid_number.to_vec(),
             role_code,
@@ -280,10 +295,14 @@ fn initialized_institution_does_not_follow_personal_cid_wallet_rebind() {
         assert!(authorized(&admin(1)));
         assert!(!authorized(&admin(5)));
 
-        // 运行期：admin(1) 换绑到新钱包 admin(5)。
+        // 运行期调整名册的个人CID资料，不会将其他钱包变成机构管理员。
         set_operation_phase(true);
-        bind_cid(&citizen_cid, admin(5));
-        assert!(!authorized(&admin(5))); // 个人换绑不会授予机构权限
+        let key = adminbase::AdminCidNumber::try_from(cid_number.to_vec()).unwrap();
+        privateadmin::AdminAccounts::<Test>::mutate(&key, |roster| {
+            roster.as_mut().unwrap().admins[0].cid_number =
+                b"CN221-CTZN2-198805200-2026".to_vec().try_into().unwrap();
+        });
+        assert!(!authorized(&admin(5))); // 身份资料不能授予其他钱包机构权限
         assert!(authorized(&admin(1))); // 机构钱包保持原授权
         assert!(authorized(&admin(2))); // 无 CID 管理员运行期仍按 account_id
     });
@@ -707,8 +726,13 @@ fn add_account_proposal_then_vote_inserts_account() {
 
         // 通过后账户落库、反向索引写入、Pending 清除。
         let added = account_of(&cid_number, new_name);
-        assert!(sp_io::storage::exists(&codec::Encode::encode(&(b"evm-receive-registration", &added))),
-            "zero-balance business registration must invoke the receive-alias hook");
+        assert!(
+            sp_io::storage::exists(&codec::Encode::encode(&(
+                b"evm-receive-registration",
+                &added
+            ))),
+            "zero-balance business registration must invoke the receive-alias hook"
+        );
         assert_eq!(
             pallet::AccountRegisteredCid::<Test>::get(&added).map(|item| item.cid_number),
             Some(cid_number.clone())
@@ -1035,8 +1059,6 @@ fn non_admin_cannot_start_institution_account_close() {
     });
 }
 
-
-
 // 登记沿用统一机构模型。夹具在原测试文件内建立，不新增固定岗位/测试资产。
 fn fresh_registration_target(tag: &str) -> pallet::CidNumberOf<Test> {
     let cid = generated_cid(tag, "SFLP");
@@ -1061,7 +1083,7 @@ fn fresh_registration_target(tag: &str) -> pallet::CidNumberOf<Test> {
     }
     privateadmin::AdminAccounts::<Test>::remove(&cid);
     let _ = privateadmin::AdminWallets::<Test>::clear_prefix(&cid, u32::MAX, None);
-    privateadmin::WalletsInitialized::<Test>::remove(&cid);
+    let _ = privateadmin::WalletRoleBindings::<Test>::clear_prefix(&cid, u32::MAX, None);
     pallet::InstitutionRoleNonce::<Test>::remove(&cid);
     cid
 }
@@ -1090,25 +1112,6 @@ fn registration_target(
     }
 }
 
-fn retained_registration_target(
-    cid: &pallet::CidNumberOf<Test>,
-    role: &crate::RoleCodeOf,
-    account: AccountId32,
-) -> entitybase::InstitutionAssignmentTarget<AccountId32> {
-    let stored = pallet::InstitutionRoleAssignments::<Test>::get(cid, role)
-        .into_iter()
-        .find(|row| row.account_id == account)
-        .unwrap();
-    entitybase::InstitutionAssignmentTarget {
-        account_id: stored.account_id,
-        term_start: stored.term_start,
-        term_end: stored.term_end,
-        assignment_source: stored.assignment_source,
-        assignment_source_ref: stored.assignment_source_ref.to_vec(),
-        assignment_status: stored.assignment_status,
-    }
-}
-
 fn initial_registration_action() -> crate::pallet::InstitutionGovernanceActionOf<Test> {
     let permission = |action_code, operation| entitybase::RolePermissionSpec {
         business_action_id: entitybase::BusinessActionId {
@@ -1117,8 +1120,7 @@ fn initial_registration_action() -> crate::pallet::InstitutionGovernanceActionOf
         },
         operation,
     };
-    entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-        admins: registration_people(3),
+    entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
         role_mutations: vec![
             entitybase::InstitutionRoleMutation::Create {
                 role_name: "治理岗位".as_bytes().to_vec(),
@@ -1161,31 +1163,183 @@ fn send_registration(
 }
 
 #[test]
-fn registration_initializes_then_assigns_new_member_without_replacing_existing_members() {
+fn wallet_registration_bootstraps_without_roles_and_can_remove_last_wallet() {
     new_test_ext().execute_with(|| {
-        let cid = fresh_registration_target("register-initialize");
-        let expected = PrivateManage::registration_state_hash(&cid).unwrap();
-        let action = initial_registration_action();
-        let reference = sp_io::hashing::blake2_256(
-            &(
-                crate::MODULE_TAG,
-                entitybase::InstitutionAssignmentSource::Registry,
-                &registrar(),
-                &cid,
-                &action,
-                b"GD001-FRG00-000000001-2026".to_vec(),
-                b"REGISTRY-ROLE".to_vec(),
-                expected,
-                Some(2u32),
-            )
-                .encode(),
+        let cid = fresh_registration_target("wallet-reg-independent");
+        let before_roles = pallet::InstitutionRoles::<Test>::iter_prefix(&cid)
+            .collect::<Vec<_>>()
+            .encode();
+        let before_assignments = pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid)
+            .collect::<Vec<_>>()
+            .encode();
+        let before_accounts = account_state_without_wallet_refs().encode();
+        let action = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added: registration_people(3),
+            removed: vec![],
+            replaced: vec![],
+        };
+        let hash = PrivateManage::registration_state_hash(&cid).unwrap();
+        assert_ok!(send_registration(&cid, action.clone(), hash, None));
+        assert_noop!(
+            send_registration(&cid, action, hash, None),
+            Error::<Test>::StaleRegistrationState
         );
-        assert_ok!(send_registration(&cid, action.clone(), expected, Some(2)));
+        assert_eq!(
+            pallet::InstitutionGovernanceThresholds::<Test>::get(&cid),
+            None
+        );
+        assert_eq!(
+            pallet::InstitutionRoles::<Test>::iter_prefix(&cid)
+                .collect::<Vec<_>>()
+                .encode(),
+            before_roles
+        );
+        assert_eq!(
+            pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid)
+                .collect::<Vec<_>>()
+                .encode(),
+            before_assignments
+        );
+        assert_eq!(
+            account_state_without_wallet_refs().encode(),
+            before_accounts
+        );
+        // Explicit governance configuration is a separate signed operation.
+        assert_ok!(send_registration(
+            &cid,
+            initial_registration_action(),
+            PrivateManage::registration_state_hash(&cid).unwrap(),
+            Some(2)
+        ));
+        let assignments = pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid)
+            .collect::<Vec<_>>()
+            .encode();
+        let remove = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added: vec![],
+            removed: (1..=3).map(|i| (admin(i), 0)).collect(),
+            replaced: vec![],
+        };
+        assert_ok!(send_registration(
+            &cid,
+            remove,
+            PrivateManage::registration_state_hash(&cid).unwrap(),
+            None
+        ));
+        assert_eq!(
+            privateadmin::AdminAccounts::<Test>::get(&cid)
+                .unwrap()
+                .admins
+                .len(),
+            0
+        );
         assert_eq!(
             pallet::InstitutionGovernanceThresholds::<Test>::get(&cid),
             Some(2)
         );
-        assert_eq!(pallet::InstitutionRoleNonce::<Test>::get(&cid), 3);
+        assert_eq!(
+            pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid)
+                .collect::<Vec<_>>()
+                .encode(),
+            assignments
+        );
+        let add = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added: registration_people(1),
+            removed: vec![],
+            replaced: vec![],
+        };
+        assert_ok!(send_registration(
+            &cid,
+            add,
+            PrivateManage::registration_state_hash(&cid).unwrap(),
+            None
+        ));
+        assert_eq!(
+            privateadmin::AdminWallets::<Test>::get(&cid, admin(1))
+                .unwrap()
+                .revision,
+            2
+        );
+    });
+}
+
+#[test]
+fn registry_wallet_replacement_preserves_personnel_and_rejects_stale_or_mixed_operations_atomically(
+) {
+    use adminbase::InstitutionAdminQuery;
+    new_test_ext().execute_with(|| {
+        let cid = fresh_registration_target("wallet-reg-rotate");
+        let seed = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added: registration_people(3),
+            removed: vec![],
+            replaced: vec![],
+        };
+        assert_ok!(send_registration(
+            &cid,
+            seed,
+            PrivateManage::registration_state_hash(&cid).unwrap(),
+            None
+        ));
+        assert_ok!(send_registration(
+            &cid,
+            initial_registration_action(),
+            PrivateManage::registration_state_hash(&cid).unwrap(),
+            Some(2)
+        ));
+        let people = pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid)
+            .collect::<Vec<_>>()
+            .encode();
+        let balances = account_state_without_wallet_refs().encode();
+        let change = adminbase::InstitutionAdminWalletChange {
+            admin_account: admin(1),
+            expected_wallet: admin(1),
+            new_wallet: admin(91),
+            expected_revision: 0,
+        };
+        let action = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added: vec![],
+            removed: vec![],
+            replaced: vec![change.clone()],
+        };
+        assert_ok!(send_registration(
+            &cid,
+            action,
+            PrivateManage::registration_state_hash(&cid).unwrap(),
+            None
+        ));
+        let code = pallet::Institutions::<Test>::get(&cid)
+            .unwrap()
+            .institution_code;
+        assert_eq!(
+            privateadmin::Pallet::<Test>::resolve_admin_account(code, &cid, &admin(91)),
+            Some(admin(91))
+        );
+        assert_eq!(
+            privateadmin::Pallet::<Test>::resolve_admin_account(code, &cid, &admin(1)),
+            None
+        );
+        assert_eq!(
+            privateadmin::WalletRoleBindings::<Test>::get(&cid, admin(91)),
+            Some(admin(1))
+        );
+        assert_eq!(
+            pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid)
+                .collect::<Vec<_>>()
+                .encode(),
+            people
+        );
+        assert_eq!(account_state_without_wallet_refs().encode(), balances);
+        let bad = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added: vec![registration_people(4).pop().unwrap()],
+            removed: vec![],
+            replaced: vec![change],
+        };
+        assert!(send_registration(
+            &cid,
+            bad,
+            PrivateManage::registration_state_hash(&cid).unwrap(),
+            None
+        )
+        .is_err());
         assert_eq!(
             privateadmin::AdminAccounts::<Test>::get(&cid)
                 .unwrap()
@@ -1193,245 +1347,66 @@ fn registration_initializes_then_assigns_new_member_without_replacing_existing_m
                 .len(),
             3
         );
-        let business = pallet::InstitutionRoles::<Test>::iter_prefix(&cid)
-            .find(|(_, role)| role.role_name.as_slice() == "业务岗位".as_bytes())
-            .unwrap()
-            .0;
-        for (code, _) in pallet::InstitutionRoles::<Test>::iter_prefix(&cid) {
-            if code.as_slice() == b"LR" {
-                continue;
-            }
-            for assignment in pallet::InstitutionRoleAssignments::<Test>::get(&cid, &code) {
-                assert_eq!(
-                    assignment.assignment_source,
-                    entitybase::InstitutionAssignmentSource::Registry
-                );
-                assert_eq!(assignment.assignment_source_ref.as_slice(), reference);
-            }
-        }
-        assert_noop!(
-            send_registration(&cid, action.clone(), expected, Some(2)),
-            Error::<Test>::StaleRegistrationState
-        );
-        // 模拟已有合法治理任职；追加时不能改写其来源或任期。
-        pallet::InstitutionRoleAssignments::<Test>::mutate(&cid, &business, |rows| {
-            rows[0].assignment_source =
-                entitybase::InstitutionAssignmentSource::InstitutionGovernance;
-            rows[0].assignment_source_ref =
-                b"original-governance-result".to_vec().try_into().unwrap();
-        });
-        let previous_assignments = pallet::InstitutionRoleAssignments::<Test>::get(&cid, &business);
-        let current = PrivateManage::registration_state_hash(&cid).unwrap();
-        assert_noop!(
-            send_registration(&cid, action, current, Some(2)),
-            Error::<Test>::AlreadyInitialized
-        );
-        let add = entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-            admins: registration_people(4),
-            role_mutations: Vec::new(),
-            assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
-                role_code: business.to_vec(),
-                assignments: (1..=3)
-                    .map(|index| retained_registration_target(&cid, &business, admin(index)))
-                    .chain(core::iter::once(registration_target(admin(4))))
-                    .collect(),
+        // Failure after the wallet kernel ran must roll back the complete transaction.
+        pallet::InstitutionRoleNonce::<Test>::insert(&cid, u64::MAX);
+        let rotate = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added: vec![],
+            removed: vec![],
+            replaced: vec![adminbase::InstitutionAdminWalletChange {
+                admin_account: admin(2),
+                expected_wallet: admin(2),
+                new_wallet: admin(92),
+                expected_revision: 0,
             }],
-            legal_representative_change: None,
         };
-        let mut forged = add.clone();
-        if let entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-            ref mut assignment_changes,
-            ..
-        } = forged
-        {
-            assignment_changes[0].assignments[0].term_end = 1;
-        }
-        assert_noop!(
-            send_registration(&cid, forged, current, None),
-            Error::<Test>::InvalidAssignmentSource
-        );
-        assert_ok!(send_registration(&cid, add, current, None));
-        assert_eq!(
-            privateadmin::AdminAccounts::<Test>::get(&cid)
-                .unwrap()
-                .admins
-                .len(),
-            4
-        );
-        assert_eq!(
-            pallet::InstitutionRoleAssignments::<Test>::get(&cid, &business).len(),
-            4
-        );
-        let updated_assignments = pallet::InstitutionRoleAssignments::<Test>::get(&cid, &business);
-        assert!(
-            previous_assignments
-                .iter()
-                .all(|old| updated_assignments.iter().any(|row| row == old)),
-            "追加保留存量任职来源和任期"
-        );
-
-        assert_eq!(
-            pallet::InstitutionGovernanceThresholds::<Test>::get(&cid),
-            Some(2)
-        );
-        // 同一份准备快照的第二个写入不得覆盖刚新增的成员。
         assert_noop!(
             send_registration(
                 &cid,
-                entitybase::InstitutionGovernanceAction::ReplaceAdmins {
-                    admins: registration_people(3)
-                },
-                current,
+                rotate,
+                PrivateManage::registration_state_hash(&cid).unwrap(),
                 None
             ),
-            Error::<Test>::StaleRegistrationState
-        );
-        let current = PrivateManage::registration_state_hash(&cid).unwrap();
-        // 只删名册、不撤对应任职时拒绝，并且名册回滚。
-        assert_noop!(
-            send_registration(
-                &cid,
-                entitybase::InstitutionGovernanceAction::ReplaceAdmins {
-                    admins: registration_people(3)
-                },
-                current,
-                None
-            ),
-            Error::<Test>::InvalidAssignmentResultAdmins
-        );
-        let remove = entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-            admins: registration_people(3),
-            role_mutations: Vec::new(),
-            assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
-                role_code: business.to_vec(),
-                assignments: (1..=3)
-                    .map(|index| retained_registration_target(&cid, &business, admin(index)))
-                    .collect(),
-            }],
-            legal_representative_change: None,
-        };
-        assert_ok!(send_registration(&cid, remove, current, None));
-        let before_profile = PrivateManage::registration_state_hash(&cid).unwrap();
-        let mut people = registration_people(3);
-        people[0].given_name = b"Updated".to_vec().try_into().unwrap();
-        assert_ok!(send_registration(
-            &cid,
-            entitybase::InstitutionGovernanceAction::ReplaceAdmins { admins: people },
-            before_profile,
-            None
-        ));
-        assert_ne!(
-            PrivateManage::registration_state_hash(&cid).unwrap(),
-            before_profile,
-            "资料变更也推进现有nonce，旧快照必须失效"
-        );
-        assert_noop!(
-            send_registration(
-                &cid,
-                entitybase::InstitutionGovernanceAction::ReplaceAdmins {
-                    admins: registration_people(3)
-                },
-                before_profile,
-                None
-            ),
-            Error::<Test>::StaleRegistrationState
-        );
-        let fresh = PrivateManage::registration_state_hash(&cid).unwrap();
-        assert_noop!(
-            send_registration(&cid, initial_registration_action(), fresh, None),
-            Error::<Test>::RegistrationRoleChangeDenied
-        );
-        let protected = entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-            admins: registration_people(3),
-            role_mutations: Vec::new(),
-            assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
-                role_code: b"LR".to_vec(),
-                assignments: vec![registration_target(admin(1))],
-            }],
-            legal_representative_change: None,
-        };
-        assert_noop!(
-            send_registration(&cid, protected, fresh, None),
-            Error::<Test>::RegistrationRoleChangeDenied
+            Error::<Test>::RoleNonceOverflow
         );
     });
 }
 
 #[test]
-fn registration_late_failure_rolls_back_roster_roles_nonce_threshold_and_can_retry() {
+fn wallet_registration_cannot_implicitly_configure_roles_threshold_or_bypass_origin() {
     new_test_ext().execute_with(|| {
-        let cid = fresh_registration_target("register-rollback");
-        let expected = PrivateManage::registration_state_hash(&cid).unwrap();
-        let action = initial_registration_action();
-        let used_before = pallet::UsedRoleCodes::<Test>::iter_prefix(&cid).collect::<Vec<_>>();
+        let cid = fresh_registration_target("wallet-reg-guards");
+        let hash = PrivateManage::registration_state_hash(&cid).unwrap();
         assert_noop!(
-            send_registration(&cid, action.clone(), expected, Some(1)),
-            Error::<Test>::InvalidThreshold
-        );
-        assert_eq!(
-            PrivateManage::registration_state_hash(&cid).unwrap(),
-            expected
-        );
-        assert!(!privateadmin::AdminAccounts::<Test>::contains_key(&cid));
-        assert_eq!(
-            pallet::UsedRoleCodes::<Test>::iter_prefix(&cid).collect::<Vec<_>>(),
-            used_before
-        );
-        let mut foreign = action.clone();
-        if let entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-            ref mut role_mutations,
-            ..
-        } = foreign
-        {
-            if let entitybase::InstitutionRoleMutation::Create {
-                ref mut assignments,
-                ..
-            } = role_mutations[0]
-            {
-                assignments.push(registration_target(admin(99)));
-            }
-        }
-        assert_noop!(
-            send_registration(&cid, foreign, expected, Some(2)),
+            send_registration(&cid, initial_registration_action(), hash, Some(2)),
             Error::<Test>::InvalidAssignmentResultAdmins
         );
-        assert_ok!(send_registration(&cid, action, expected, Some(2)));
-    });
-}
-
-#[test]
-fn registration_rejects_unauthorized_source_and_missing_initialization() {
-    new_test_ext().execute_with(|| {
-        let cid = fresh_registration_target("register-auth");
-        let expected = PrivateManage::registration_state_hash(&cid).unwrap();
+        let action = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added: registration_people(3),
+            removed: vec![],
+            replaced: vec![],
+        };
+        assert_noop!(
+            send_registration(&cid, action.clone(), hash, Some(2)),
+            Error::<Test>::InvalidRegistrationAction
+        );
         assert_noop!(
             PrivateManage::register_institution_admins(
-                RuntimeOrigin::signed(admin(99)),
+                RuntimeOrigin::signed(admin(255)),
                 cid.clone(),
-                initial_registration_action(),
-                b"GD001-FRG00-000000001-2026".to_vec(),
+                action.clone(),
+                b"REGISTRY-CID".to_vec(),
                 b"REGISTRY-ROLE".to_vec(),
-                expected,
-                Some(2)
+                hash,
+                None
             ),
             Error::<Test>::RegistryAuthorityDenied
         );
-        assert_noop!(
-            send_registration(
-                &cid,
-                entitybase::InstitutionGovernanceAction::ReplaceAdmins {
-                    admins: registration_people(3)
-                },
-                expected,
-                None
-            ),
-            Error::<Test>::MissingInitialConfiguration
-        );
-        let mut action = initial_registration_action();
-        if let entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
+        assert_ok!(send_registration(&cid, action, hash, None));
+        let mut config = initial_registration_action();
+        if let entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
             ref mut role_mutations,
             ..
-        } = action
+        } = config
         {
             if let entitybase::InstitutionRoleMutation::Create {
                 ref mut assignments,
@@ -1443,7 +1418,12 @@ fn registration_rejects_unauthorized_source_and_missing_initialization() {
             }
         }
         assert_noop!(
-            send_registration(&cid, action, expected, Some(2)),
+            send_registration(
+                &cid,
+                config,
+                PrivateManage::registration_state_hash(&cid).unwrap(),
+                Some(2)
+            ),
             Error::<Test>::InvalidAssignmentSource
         );
     });
@@ -1486,58 +1466,186 @@ fn registration_call_nine_scale_fixture_covers_action_snapshot_and_initial_thres
     assert!(crate::Call::<Test>::decode(&mut old.as_slice()).is_err());
 }
 
+fn wallet_proof(
+    cid: &pallet::CidNumberOf<Test>,
+    change: &adminbase::InstitutionAdminWalletChange<AccountId32>,
+    mode: adminbase::InstitutionWalletChangeMode,
+    expiry: u64,
+    pair: &sr25519::Pair,
+) -> adminbase::InstitutionWalletProof {
+    let payload = adminbase::InstitutionWalletAcceptance {
+        genesis_hash: System::block_hash(0),
+        cid_number: cid.to_vec().try_into().unwrap(),
+        change: change.clone(),
+        mode,
+        expires_at: expiry,
+    }
+    .encode();
+    pair.sign(&primitives::sign::signing_message(
+        primitives::sign::OP_SIGN_INSTITUTION_WALLET,
+        &payload,
+    ))
+    .0
+    .to_vec()
+    .try_into()
+    .unwrap()
+}
+
 #[test]
-fn registration_nonce_exhaustion_rolls_back_admin_lifecycle_write() {
+fn institution_self_wallet_rotation_checks_both_parties_scope_and_replay_without_mutating_identity_or_roles(
+) {
     new_test_ext().execute_with(|| {
-        let cid = fresh_registration_target("register-overflow");
-        pallet::InstitutionRoleNonce::<Test>::insert(&cid, u64::MAX);
-        let expected = PrivateManage::registration_state_hash(&cid).unwrap();
+        use adminbase::{InstitutionAdminQuery, InstitutionAdminWalletQuery};
+        let cid = generated_cid("wallet-self", "SFGY");
+        assert_ok!(create_institution(
+            cid.clone(),
+            code_bytes("SFGY"),
+            initial_accounts(&[])
+        ));
+        let code = pallet::Institutions::<Test>::get(&cid)
+            .unwrap()
+            .institution_code;
+        let pair = sr25519::Pair::from_seed(&[91; 32]);
+        let new_wallet = AccountId32::new(pair.public().0);
+        let change = adminbase::InstitutionAdminWalletChange {
+            admin_account: admin(1),
+            expected_wallet: admin(1),
+            new_wallet: new_wallet.clone(),
+            expected_revision: 0,
+        };
+        let expiry = TestTimeProvider::now().as_secs() + 180;
+        let proof = wallet_proof(
+            &cid,
+            &change,
+            adminbase::InstitutionWalletChangeMode::SelfSigned,
+            expiry,
+            &pair,
+        );
+        let mut roster = privateadmin::AdminAccounts::<Test>::get(&cid).unwrap();
+        roster
+            .admins
+            .iter_mut()
+            .find(|a| a.account_id == change.expected_wallet)
+            .unwrap()
+            .account_id = new_wallet.clone();
+        let assigned_role = grant_close_role(&cid);
+        let role_codes_before =
+            <PrivateManage as entitybase::InstitutionRoleQuery<AccountId32>>::active_role_codes(
+                &cid,
+                &admin(1),
+            );
+        let roles = pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid)
+            .collect::<Vec<_>>()
+            .encode();
+        let nonce = pallet::InstitutionRoleNonce::<Test>::get(&cid);
         assert_noop!(
-            send_registration(&cid, initial_registration_action(), expected, Some(2)),
-            Error::<Test>::RoleNonceOverflow
+            PrivateManage::rotate_institution_admin_wallet(
+                RuntimeOrigin::signed(admin(9)),
+                cid.clone(),
+                change.clone(),
+                expiry,
+                proof.clone()
+            ),
+            Error::<Test>::PermissionDenied
+        );
+        let mut stale = change.clone();
+        stale.expected_revision = 1;
+        assert_noop!(
+            PrivateManage::rotate_institution_admin_wallet(
+                RuntimeOrigin::signed(admin(1)),
+                cid.clone(),
+                stale,
+                expiry,
+                proof.clone()
+            ),
+            Error::<Test>::InvalidWalletProof
+        );
+        let governance_proof = wallet_proof(
+            &cid,
+            &change,
+            adminbase::InstitutionWalletChangeMode::Governance,
+            expiry,
+            &pair,
+        );
+        assert_noop!(
+            PrivateManage::rotate_institution_admin_wallet(
+                RuntimeOrigin::signed(admin(1)),
+                cid.clone(),
+                change.clone(),
+                expiry,
+                governance_proof
+            ),
+            Error::<Test>::InvalidWalletProof
+        );
+        assert_noop!(
+            PrivateManage::rotate_institution_admin_wallet(
+                RuntimeOrigin::signed(admin(1)),
+                cid.clone(),
+                change.clone(),
+                expiry + 1,
+                proof.clone()
+            ),
+            Error::<Test>::InvalidWalletProof
+        );
+        assert_ok!(PrivateManage::rotate_institution_admin_wallet(
+            RuntimeOrigin::signed(admin(1)),
+            cid.clone(),
+            change.clone(),
+            expiry,
+            proof.clone()
+        ));
+        assert_eq!(
+            privateadmin::Pallet::<Test>::resolve_admin_account(code, &cid, &new_wallet),
+            Some(new_wallet.clone())
         );
         assert_eq!(
-            PrivateManage::registration_state_hash(&cid).unwrap(),
-            expected
+            privateadmin::Pallet::<Test>::resolve_admin_account(code, &cid, &admin(1)),
+            None
         );
-    });
-}
-
-
-fn wallet_proof(cid: &pallet::CidNumberOf<Test>, change: &adminbase::InstitutionAdminWalletChange<AccountId32>, mode: adminbase::InstitutionWalletChangeMode, expiry: u64, pair: &sr25519::Pair) -> adminbase::InstitutionWalletProof {
-    let payload = adminbase::InstitutionWalletAcceptance { genesis_hash: System::block_hash(0), cid_number: cid.to_vec().try_into().unwrap(), change: change.clone(), mode, expires_at: expiry }.encode();
-    pair.sign(&primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, &payload)).0.to_vec().try_into().unwrap()
-}
-
-#[test]
-fn institution_self_wallet_rotation_checks_both_parties_scope_and_replay_without_mutating_identity_or_roles() {
-    new_test_ext().execute_with(|| {
-        use adminbase::{InstitutionAdminWalletQuery, InstitutionAdminQuery};
-        let cid = generated_cid("wallet-self", "SFGY");
-        assert_ok!(create_institution(cid.clone(), code_bytes("SFGY"), initial_accounts(&[])));
-        let code = pallet::Institutions::<Test>::get(&cid).unwrap().institution_code;
-        let pair = sr25519::Pair::from_seed(&[91;32]);
-        let new_wallet = AccountId32::new(pair.public().0);
-        let change = adminbase::InstitutionAdminWalletChange { admin_account: admin(1), expected_wallet: admin(1), new_wallet: new_wallet.clone(), expected_revision:0 };
-        let expiry = TestTimeProvider::now().as_secs()+180;
-        let proof = wallet_proof(&cid, &change, adminbase::InstitutionWalletChangeMode::SelfSigned, expiry, &pair);
-        let roster = privateadmin::AdminAccounts::<Test>::get(&cid).unwrap().encode();
-        let roles = pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid).collect::<Vec<_>>().encode();
-        let nonce = pallet::InstitutionRoleNonce::<Test>::get(&cid);
-        assert_noop!(PrivateManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(9)),cid.clone(),change.clone(),expiry,proof.clone()),Error::<Test>::PermissionDenied);
-        let mut stale = change.clone(); stale.expected_revision=1;
-        assert_noop!(PrivateManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(1)),cid.clone(),stale,expiry,proof.clone()),Error::<Test>::InvalidWalletProof);
-        let governance_proof=wallet_proof(&cid,&change,adminbase::InstitutionWalletChangeMode::Governance,expiry,&pair);
-        assert_noop!(PrivateManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(1)),cid.clone(),change.clone(),expiry,governance_proof),Error::<Test>::InvalidWalletProof);
-        assert_noop!(PrivateManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(1)),cid.clone(),change.clone(),expiry+1,proof.clone()),Error::<Test>::InvalidWalletProof);
-        assert_ok!(PrivateManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(1)),cid.clone(),change.clone(),expiry,proof.clone()));
-        assert_eq!(privateadmin::Pallet::<Test>::resolve_admin_account(code,&cid,&new_wallet),Some(admin(1)));
-        assert_eq!(privateadmin::Pallet::<Test>::resolve_admin_account(code,&cid,&admin(1)),None);
-        assert_eq!(privateadmin::Pallet::<Test>::institution_wallet_state(code,&cid,&admin(1)).unwrap().revision,1);
-        assert_eq!(privateadmin::AdminAccounts::<Test>::get(&cid).unwrap().encode(),roster);
-        assert_eq!(pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid).collect::<Vec<_>>().encode(),roles);
-        assert_eq!(pallet::InstitutionRoleNonce::<Test>::get(&cid),nonce+1);
-        assert_noop!(PrivateManage::rotate_institution_admin_wallet(RuntimeOrigin::signed(admin(1)),cid,change,expiry,proof),Error::<Test>::PermissionDenied);
+        assert_eq!(
+            <PrivateManage as entitybase::InstitutionRoleQuery<AccountId32>>::active_role_codes(
+                &cid,
+                &new_wallet
+            ),
+            role_codes_before
+        );
+        assert!(<PrivateManage as entitybase::InstitutionRoleQuery<
+            AccountId32,
+        >>::is_active_assignment(
+            &cid, &new_wallet, &assigned_role
+        ));
+        assert!(!<PrivateManage as entitybase::InstitutionRoleQuery<
+            AccountId32,
+        >>::is_active_assignment(
+            &cid, &admin(1), &assigned_role
+        ));
+        assert_eq!(
+            privateadmin::Pallet::<Test>::institution_wallet_state(code, &cid, &admin(1))
+                .unwrap()
+                .revision,
+            1
+        );
+        assert_eq!(
+            privateadmin::AdminAccounts::<Test>::get(&cid).unwrap(),
+            roster
+        );
+        assert_eq!(
+            pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid)
+                .collect::<Vec<_>>()
+                .encode(),
+            roles
+        );
+        assert_eq!(pallet::InstitutionRoleNonce::<Test>::get(&cid), nonce + 1);
+        assert_noop!(
+            PrivateManage::rotate_institution_admin_wallet(
+                RuntimeOrigin::signed(admin(1)),
+                cid,
+                change,
+                expiry,
+                proof
+            ),
+            Error::<Test>::PermissionDenied
+        );
     });
 }
 
@@ -1546,21 +1654,178 @@ fn governance_wallet_rotation_requires_existing_role_vote_and_executes_the_same_
     new_test_ext().execute_with(|| {
         use adminbase::InstitutionAdminWalletQuery;
         let cid = generated_cid("wallet-vote", "SFGY");
-        assert_ok!(create_institution(cid.clone(), code_bytes("SFGY"), initial_accounts(&[])));
+        assert_ok!(create_institution(
+            cid.clone(),
+            code_bytes("SFGY"),
+            initial_accounts(&[])
+        ));
         let role = grant_close_role(&cid);
-        pallet::InstitutionRolePermissions::<Test>::mutate(&cid,&role, |permissions| {for p in permissions.iter_mut() {p.business_action_id.action_code=3;}});
-        let code = pallet::Institutions::<Test>::get(&cid).unwrap().institution_code;
-        let pair=sr25519::Pair::from_seed(&[92;32]);
-        let change=adminbase::InstitutionAdminWalletChange{admin_account:admin(2),expected_wallet:admin(2),new_wallet:AccountId32::new(pair.public().0),expected_revision:0};
-        let expiry=TestTimeProvider::now().as_secs()+86400;
-        let proof=wallet_proof(&cid,&change,adminbase::InstitutionWalletChangeMode::Governance,expiry,&pair);
-        let action=entitybase::InstitutionGovernanceAction::RotateAdminWallet{change:change.clone(),expires_at:expiry,new_wallet_proof:proof};
-        assert_noop!(PrivateManage::propose_institution_governance(RuntimeOrigin::signed(admin(9)),cid.clone(),action.clone(),cid.to_vec(),role.clone()), Error::<Test>::PermissionDenied);
-        assert_ok!(PrivateManage::propose_institution_governance(RuntimeOrigin::signed(admin(1)),cid.clone(),action.clone(),cid.to_vec(),role.clone()));
-        let pid=VotingEngine::next_proposal_id()-1;
-        assert_eq!(privateadmin::Pallet::<Test>::current_institution_wallet(code,&cid,&change.admin_account),Some(change.expected_wallet.clone()));
+        pallet::InstitutionRolePermissions::<Test>::mutate(&cid, &role, |permissions| {
+            for p in permissions.iter_mut() {
+                p.business_action_id.action_code = 3;
+            }
+        });
+        let code = pallet::Institutions::<Test>::get(&cid)
+            .unwrap()
+            .institution_code;
+        let pair = sr25519::Pair::from_seed(&[92; 32]);
+        let change = adminbase::InstitutionAdminWalletChange {
+            admin_account: admin(2),
+            expected_wallet: admin(2),
+            new_wallet: AccountId32::new(pair.public().0),
+            expected_revision: 0,
+        };
+        let expiry = TestTimeProvider::now().as_secs() + 86400;
+        let proof = wallet_proof(
+            &cid,
+            &change,
+            adminbase::InstitutionWalletChangeMode::Governance,
+            expiry,
+            &pair,
+        );
+        let action = entitybase::InstitutionGovernanceAction::RotateAdminWallet {
+            change: change.clone(),
+            expires_at: expiry,
+            new_wallet_proof: proof,
+        };
+        assert_noop!(
+            PrivateManage::propose_institution_governance(
+                RuntimeOrigin::signed(admin(9)),
+                cid.clone(),
+                action.clone(),
+                cid.to_vec(),
+                role.clone()
+            ),
+            Error::<Test>::PermissionDenied
+        );
+        assert_ok!(PrivateManage::propose_institution_governance(
+            RuntimeOrigin::signed(admin(1)),
+            cid.clone(),
+            action.clone(),
+            cid.to_vec(),
+            role.clone()
+        ));
+        let pid = VotingEngine::next_proposal_id() - 1;
+        assert_eq!(
+            privateadmin::Pallet::<Test>::current_institution_wallet(
+                code,
+                &cid,
+                &change.admin_account
+            ),
+            Some(change.expected_wallet.clone())
+        );
         assert_ok!(cast_yes_votes(pid));
-        assert_eq!(privateadmin::Pallet::<Test>::current_institution_wallet(code,&cid,&change.admin_account),Some(change.new_wallet));
-        assert_noop!(PrivateManage::propose_institution_governance(RuntimeOrigin::signed(admin(1)),cid.clone(),action,cid.to_vec(),role),Error::<Test>::InvalidWalletProof);
+        assert_eq!(
+            privateadmin::Pallet::<Test>::current_institution_wallet(
+                code,
+                &cid,
+                &change.new_wallet
+            ),
+            Some(change.new_wallet.clone())
+        );
+        assert_noop!(
+            PrivateManage::propose_institution_governance(
+                RuntimeOrigin::signed(admin(1)),
+                cid.clone(),
+                action,
+                cid.to_vec(),
+                role
+            ),
+            Error::<Test>::InvalidWalletProof
+        );
     });
+}
+
+#[test]
+fn registry_wallet_unincorporated_institution_uses_its_owner_pallet() {
+    new_test_ext().execute_with(|| {
+        let old = fresh_registration_target("registry-wallet-unin-parent");
+        let cid = generated_cid("registry-wallet-unin", "UNIN");
+        let mut institution = pallet::Institutions::<Test>::take(&old).unwrap();
+        institution.institution_code = *b"UNIN";
+        pallet::Institutions::<Test>::insert(&cid, institution);
+        let action = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added: registration_people(1),
+            removed: vec![],
+            replaced: vec![],
+        };
+        assert_ok!(send_registration(
+            &cid,
+            action,
+            PrivateManage::registration_state_hash(&cid).unwrap(),
+            None
+        ));
+        assert_eq!(
+            privateadmin::AdminAccounts::<Test>::get(&cid)
+                .unwrap()
+                .institution_code,
+            *b"UNIN"
+        );
+        assert!(
+            pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid)
+                .next()
+                .is_none()
+        );
+    });
+}
+
+#[test]
+fn retired_roster_actions_cannot_create_or_execute_and_original_votes_remain() {
+    use codec::Encode;
+    use engingcore::InternalVoteEngine;
+    new_test_ext().execute_with(||{
+        let cid=generated_cid("roster-stale", "SFGY");
+        assert_ok!(create_institution(cid.clone(),code_bytes("SFGY"),initial_accounts(&[(crate::RESERVED_NAME_MAIN,0),(crate::RESERVED_NAME_FEE,0)])));
+        let role=grant_close_role(&cid);
+        pallet::InstitutionRolePermissions::<Test>::mutate(&cid,&role,|items|{for p in items {p.business_action_id.action_code=3;}});
+        let rows=privateadmin::AdminAccounts::<Test>::get(&cid).unwrap().admins.to_vec();
+        let mut added=rows.clone();let mut unproved=rows[0].clone();unproved.account_id=admin(99);unproved.cid_number=Default::default();added.push(unproved);
+        let actions=vec![entitybase::InstitutionGovernanceAction::ReplaceAdmins{admins:added.clone()},entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles{admins:added,role_mutations:vec![entitybase::InstitutionRoleMutation::Rename{role_code:role.to_vec(),role_name:b"must-not-apply".to_vec()}],assignment_changes:vec![],legal_representative_change:None}];
+        for action in actions {
+            let roster_before=privateadmin::AdminAccounts::<Test>::get(&cid).encode();
+            let personnel_before=pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid).collect::<Vec<_>>().encode();
+            assert_noop!(PrivateManage::propose_institution_governance(RuntimeOrigin::signed(admin(1)),cid.clone(),action.clone(),cid.to_vec(),role.clone()),Error::<Test>::InvalidInstitutionGovernanceAction);
+            assert_noop!(send_registration(&cid,action.clone(),PrivateManage::registration_state_hash(&cid).unwrap(),None),Error::<Test>::InvalidRegistrationAction);
+            // 仅在隔离测试中复现已在链上的旧提案；生产入口绝不重新接纳旧动作。
+            let stored=entitybase::InstitutionGovernanceProposal{institution_code:pallet::Institutions::<Test>::get(&cid).unwrap().institution_code,cid_number:cid.to_vec(),action};
+            let mut data=crate::MODULE_TAG.to_vec();data.push(crate::pallet::ACTION_GOVERNANCE);data.extend(stored.encode());
+            let plan=PrivateManage::build_institution_vote_plan(&admin(1),&cid,&role,3,&data).unwrap();
+            let subject=plan.proposer_subject.clone();
+            let pid=<InternalVote as InternalVoteEngine<AccountId32>>::create_institution_admin_change_proposal_with_data(admin(1),stored.institution_code,cid.to_vec(),plan,data).unwrap();
+            let snapshot=engingcore::VoterSnapshot::<Test>::get(pid,&subject).unwrap();
+            let versions=engingcore::FrozenWalletVersions::<Test>::get(pid,&subject).unwrap();
+            for voter in snapshot.iter().filter(|v| **v!=admin(1)) {
+                if engingcore::Proposals::<Test>::get(pid).unwrap().status==engingcore::STATUS_VOTING {
+                    assert_ok!(InternalVote::cast(RuntimeOrigin::signed(voter.clone()),pid,internalvote::InternalVoteTicketClaim::InstitutionRole(role.clone()),true));
+                }
+            }
+            let tally=internalvote::InternalTallies::<Test>::get(pid);
+            let tickets=internalvote::InternalVotesByTicket::<Test>::iter_prefix(pid).collect::<Vec<_>>().encode();
+            <VotingEngine as frame_support::traits::Hooks<u64>>::on_initialize(System::block_number());
+            assert_eq!(engingcore::Proposals::<Test>::get(pid).unwrap().status,engingcore::STATUS_EXECUTION_FAILED);
+            assert_eq!(engingcore::VoterSnapshot::<Test>::get(pid,&subject),Some(snapshot));
+            assert_eq!(engingcore::FrozenWalletVersions::<Test>::get(pid,&subject),Some(versions));
+            assert_eq!(internalvote::InternalTallies::<Test>::get(pid),tally);
+            assert_eq!(internalvote::InternalVotesByTicket::<Test>::iter_prefix(pid).collect::<Vec<_>>().encode(),tickets);
+            assert_eq!(privateadmin::AdminAccounts::<Test>::get(&cid).encode(),roster_before);
+            assert_eq!(pallet::InstitutionRoleAssignments::<Test>::iter_prefix(&cid).collect::<Vec<_>>().encode(),personnel_before);
+            System::set_block_number(System::block_number()+1);
+        }
+    });
+}
+
+/// System存活引用是本步允许的唯一账户新增状态；nonce、providers、余额等仍须完全一致。
+fn account_state_without_wallet_refs() -> Vec<(
+    AccountId32,
+    frame_system::AccountInfo<
+        <Test as frame_system::Config>::Nonce,
+        <Test as frame_system::Config>::AccountData,
+    >,
+)> {
+    frame_system::Account::<Test>::iter()
+        .filter_map(|(wallet, mut info)| {
+            info.sufficients = 0;
+            (info != Default::default()).then_some((wallet, info))
+        })
+        .collect()
 }

@@ -228,18 +228,16 @@ fn public_admins_fix_size_only_for_full_genesis_identity() {
 }
 
 #[test]
-fn permanent_member_body_protection_is_scoped_to_genesis_cid() {
+fn member_body_wallet_count_is_independent_of_personnel_seats() {
     new_test_ext().execute_with(|| {
         let spec = primitives::institution_constraints::member_composition_specs()[0];
-        assert_noop!(
+        assert_ok!(
             PublicAdmins::do_set_institution_admins(
                 spec.institution.cid_number.as_bytes().to_vec(),
                 spec.institution.code,
                 AdminAccountKind::PublicInstitution,
                 indexed_admins(spec.min_members - 1),
-            ),
-            Error::<Test>::InvalidAdminsLen
-        );
+            ));
         assert_ok!(PublicAdmins::do_set_institution_admins(
             spec.institution.cid_number.as_bytes().to_vec(),
             spec.institution.code,
@@ -327,8 +325,7 @@ fn fixed_governance_admin_update_only_replaces_people_records() {
 }
 
 #[test]
-fn institution_wallet_foundation_covers_existing_institution_code_catalog() {
-    use codec::Encode;
+fn institution_wallet_registration_and_change_cover_code_catalog() {
     new_test_ext().execute_with(|| {
         let mut covered = 0;
         for info in primitives::cid::code::INSTITUTION_CODE_INFOS {
@@ -339,42 +336,48 @@ fn institution_wallet_foundation_covers_existing_institution_code_catalog() {
                 continue;
             }
             let cid = wallet_fixture_cid(code, 1);
-            let anchors = wallet_roster_fixture(code, &cid, 2);
+            let wallets = wallet_roster_fixture(code, &cid, 2);
             let key = AdminCidNumber::try_from(cid.clone()).unwrap();
-            let before = AdminAccounts::<Test>::get(&key).unwrap().encode();
+            let before = AdminAccounts::<Test>::get(&key).unwrap();
             assert_eq!(
-                PublicAdmins::current_institution_wallet(code, &cid, &anchors[0]),
-                None
+                PublicAdmins::resolve_admin_account(code, &cid, &wallets[0]),
+                Some(wallets[0].clone())
             );
-            initialize_wallet_roster(code, &cid, &anchors);
             assert_ok!(PublicAdmins::change_institution_wallet(
                 code,
                 cid.clone(),
-                wallet_change(&anchors[0], anchors[0].clone(), account(200), 0)
+                wallet_change(&wallets[0], wallets[0].clone(), account(200), 0)
             ));
+            let after = AdminAccounts::<Test>::get(&key).unwrap();
+            assert_eq!(after.admins.len(), before.admins.len());
+            let mut expected = before;
+            expected.admins[0].account_id = account(200);
+            assert_eq!(after, expected);
             assert_eq!(
-                PublicAdmins::current_institution_wallet(code, &cid, &anchors[0]),
-                Some(account(200))
-            );
-            assert_eq!(
-                PublicAdmins::institution_wallet_state(code, &cid, &anchors[0])
-                    .unwrap()
-                    .revision,
-                1
-            );
-            assert_eq!(AdminAccounts::<Test>::get(&key).unwrap().encode(), before);
-            assert_eq!(
-                PublicAdmins::institution_admins(code, &cid),
-                Some(anchors.clone())
-            );
-            // 原授权入口仍使用原来的规则；新的基础钱包尚未替换它。
-            assert_eq!(
-                PublicAdmins::resolve_admin_account(code, &cid, &anchors[0]),
-                Some(anchors[0].clone())
+                PublicAdmins::resolve_admin_account(code, &cid, &wallets[0]),
+                None
             );
             assert_eq!(
                 PublicAdmins::resolve_admin_account(code, &cid, &account(200)),
-                None
+                Some(account(200))
+            );
+            assert_eq!(
+                PublicAdmins::resolve_role_authorization(code, &cid, &account(200)),
+                Some(wallets[0].clone())
+            );
+            assert_eq!(
+                PublicAdmins::institution_wallet_state(code, &cid, &wallets[0]),
+                Some(InstitutionAdminWalletState {
+                    wallet: None,
+                    revision: 1
+                })
+            );
+            assert_eq!(
+                PublicAdmins::institution_wallet_state(code, &cid, &account(200)),
+                Some(InstitutionAdminWalletState {
+                    wallet: Some(account(200)),
+                    revision: 0
+                })
             );
             covered += 1;
         }
@@ -383,33 +386,31 @@ fn institution_wallet_foundation_covers_existing_institution_code_catalog() {
 }
 
 #[test]
-fn institution_wallet_foundation_is_scoped_to_institution_and_preserves_old_indices() {
+fn institution_wallet_versions_and_bindings_are_scoped_to_full_cid() {
     use codec::Encode;
     new_test_ext().execute_with(|| {
         let code = code_bytes("CGOV");
         let first = wallet_fixture_cid(code, 1);
         let second = wallet_fixture_cid(code, 2);
-        let anchors = wallet_roster_fixture(code, &first, 1);
+        let wallets = wallet_roster_fixture(code, &first, 1);
         wallet_roster_fixture(code, &second, 1);
-        initialize_wallet_roster(code, &first, &anchors);
-        initialize_wallet_roster(code, &second, &anchors);
         assert_ok!(PublicAdmins::change_institution_wallet(
             code,
             first.clone(),
-            wallet_change(&anchors[0], anchors[0].clone(), account(201), 0)
+            wallet_change(&wallets[0], wallets[0].clone(), account(201), 0)
         ));
         assert_eq!(
-            PublicAdmins::current_institution_wallet(code, &second, &anchors[0]),
-            Some(anchors[0].clone())
+            PublicAdmins::current_institution_wallet(code, &second, &wallets[0]),
+            Some(wallets[0].clone())
         );
         assert_eq!(
-            PublicAdmins::institution_wallet_state(code, &second, &anchors[0])
+            PublicAdmins::institution_wallet_state(code, &second, &wallets[0])
                 .unwrap()
                 .revision,
             0
         );
         assert_eq!(
-            PublicAdmins::institution_wallet_state(code_bytes("MFA"), &first, &anchors[0]),
+            PublicAdmins::resolve_admin_account(code, &second, &account(201)),
             None
         );
         assert_eq!(Error::<Test>::InvalidInstitution.encode()[0], 0);
@@ -428,79 +429,30 @@ fn institution_wallet_foundation_is_scoped_to_institution_and_preserves_old_indi
 }
 
 #[test]
-fn institution_wallet_foundation_preserves_all_fixed_governance_rosters() {
-    use codec::Encode;
+fn fixed_governance_rosters_keep_count_order_and_person_fields() {
     new_test_ext().execute_with(|| {
         let mut codes = BTreeSet::new();
         for institution in primitives::governance_skeleton::fixed_institutions() {
             let cid = institution.cid_number.as_bytes().to_vec();
-            let anchors = wallet_roster_fixture(institution.code, &cid, institution.expected_len);
+            let wallets = wallet_roster_fixture(institution.code, &cid, institution.expected_len);
             let key = AdminCidNumber::try_from(cid.clone()).unwrap();
-            let before = AdminAccounts::<Test>::get(&key).unwrap().encode();
-            initialize_wallet_roster(institution.code, &cid, &anchors);
+            let mut expected = AdminAccounts::<Test>::get(&key).unwrap();
             assert_ok!(PublicAdmins::change_institution_wallet(
                 institution.code,
                 cid.clone(),
-                wallet_change(&anchors[0], anchors[0].clone(), account(250), 0)
+                wallet_change(&wallets[0], wallets[0].clone(), account(250), 0)
             ));
-            assert_eq!(
-                PublicAdmins::institution_admins(institution.code, &cid),
-                Some(anchors)
+            expected.admins[0].account_id = account(250);
+            assert_eq!(AdminAccounts::<Test>::get(&key), Some(expected)
             );
             assert_eq!(
                 PublicAdmins::institution_admins_len(institution.code, &cid),
                 Some(institution.expected_len)
             );
-            assert_eq!(AdminAccounts::<Test>::get(&key).unwrap().encode(), before);
             codes.insert(institution.code);
         }
         for text in ["NRC", "PRC", "PRB", "NJD", "FRG"] {
             assert!(codes.contains(&code_bytes(text)));
         }
-    });
-}
-
-#[test]
-fn legacy_authorization_is_frozen_atomically_on_first_use() {
-    use codec::Encode;
-    new_test_ext().execute_with(|| {
-        let code = code_bytes("CGOV");
-        let cid = wallet_fixture_cid(code, 8);
-        let key = AdminCidNumber::try_from(cid.clone()).unwrap();
-        let mut record = admins(1).remove(0);
-        record.account_id = account(9);
-        record.cid_number = b"CN220-CTZN2-198805200-2026".to_vec().try_into().unwrap();
-        AdminAccounts::<Test>::insert(&key, InstitutionAdmins {institution_code: code, admins: vec![record].try_into().unwrap()});
-        let before = AdminAccounts::<Test>::get(&key).unwrap().encode();
-        set_operation_phase(true);
-        set_current_account_id_seed(10);
-        assert_eq!(PublicAdmins::resolve_admin_account(code, &cid, &account(10)), Some(account(9)));
-        assert_ok!(PublicAdmins::ensure_institution_wallets(code, cid.clone()));
-        assert!(PublicAdmins::wallets_initialized(&key));
-        set_current_account_id_seed(11);
-        assert_eq!(PublicAdmins::resolve_admin_account(code, &cid, &account(10)), Some(account(9)));
-        assert_eq!(PublicAdmins::resolve_admin_account(code, &cid, &account(11)), None);
-        assert_ok!(PublicAdmins::change_institution_wallet(code, cid.clone(), wallet_change(&account(9),account(10),account(77),0)));
-        assert_eq!(PublicAdmins::resolve_admin_account(code, &cid, &account(77)), Some(account(9)));
-        assert_eq!(PublicAdmins::resolve_admin_account(code, &cid, &account(10)), None);
-        assert_eq!(AdminAccounts::<Test>::get(&key).unwrap().encode(), before);
-    });
-}
-
-
-#[test]
-fn activated_wallet_reverse_index_is_scoped_atomic_and_never_grants_duplicate_ownership() {
-    new_test_ext().execute_with(|| {
-        let code=code_bytes("CGOV");let cid=wallet_fixture_cid(code,66);
-        let anchors=wallet_roster_fixture(code,&cid,2);let key=AdminCidNumber::try_from(cid.clone()).unwrap();
-        assert_ok!(PublicAdmins::ensure_institution_wallets(code,cid.clone()));
-        assert_eq!(WalletOwners::<Test>::get(&key,&anchors[0]),Some(anchors[0].clone()));
-        assert_noop!(PublicAdmins::change_institution_wallet(code,cid.clone(),wallet_change(&anchors[0],anchors[0].clone(),anchors[1].clone(),0)),Error::<Test>::WalletDuplicate);
-        assert_ok!(PublicAdmins::change_institution_wallet(code,cid.clone(),wallet_change(&anchors[0],anchors[0].clone(),account(201),0)));
-        assert_eq!(WalletOwners::<Test>::get(&key,&anchors[0]),None);
-        assert_eq!(WalletOwners::<Test>::get(&key,account(201)),Some(anchors[0].clone()));
-        assert_eq!(PublicAdmins::resolve_admin_account(code,&cid,&account(201)),Some(anchors[0].clone()));
-        assert_noop!(PublicAdmins::change_institution_wallet(code,cid.clone(),wallet_change(&anchors[1],anchors[1].clone(),account(201),0)),Error::<Test>::WalletDuplicate);
-        assert_eq!(PublicAdmins::resolve_admin_account(code,&cid,&anchors[1]),Some(anchors[1].clone()));
     });
 }

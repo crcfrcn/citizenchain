@@ -31,13 +31,13 @@ pub(crate) use accounts::{
 };
 pub use admins::{
     build_chain_sign_output, code_bytes, parse_admin_inputs, parse_registration_action,
-    parse_registration_admin_inputs, InstitutionAdminInput, InstitutionAssignmentChangeInput,
+    parse_registration_admin_inputs, parse_registry_wallet_action, InstitutionAdminInput, InstitutionAssignmentChangeInput,
     InstitutionAssignmentTargetInput, InstitutionChainSignRequest, InstitutionRoleMutationInput,
-    InstitutionRolePermissionInput, PrepareInstitutionChainOutput,
+    InstitutionRolePermissionInput, PrepareInstitutionChainOutput, RegistryWalletOperationsInput,
 };
 pub(crate) use admins::{
-    get_governance_state, prepare_institution_governance, PURPOSE_INSTITUTION_GOVERNANCE,
-    prepare_institution_wallet, recheck_institution_wallet, PURPOSE_INSTITUTION_WALLET,
+    get_governance_state, prepare_institution_governance, prepare_institution_wallet,
+    recheck_institution_wallet, PURPOSE_INSTITUTION_GOVERNANCE, PURPOSE_INSTITUTION_WALLET,
 };
 pub use chain_call::{
     chain_action_code, encode_admins_payload, encode_propose_add_institution_account,

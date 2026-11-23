@@ -184,7 +184,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// 内部投票。个人多签使用管理员账户；机构使用建案时冻结的岗位任职快照。
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as Config>::WeightInfo::cast())]
+        #[pallet::weight(<T as Config>::WeightInfo::cast().saturating_add(if matches!(ticket_claim,InternalVoteTicketClaim::InstitutionRole(_)){engingcore::Pallet::<T>::frozen_vote_weight()}else{Weight::zero()}))]
         pub fn cast(
             origin: OriginFor<T>,
             proposal_id: u128,
@@ -232,7 +232,7 @@ impl<T: Config> engingcore::InternalVoteEngine<T::AccountId> for Pallet<T> {
         with_transaction(|| {
             if sp_io::hashing::blake2_256(&data) != vote_plan.business_object_hash {
                 return TransactionOutcome::Rollback(Err(
-                    engingcore::Error::<T>::InvalidVotePlan.into(),
+                    engingcore::Error::<T>::InvalidVotePlan.into()
                 ));
             }
             let proposal_id = match Self::do_create_institution_proposal(
@@ -292,7 +292,7 @@ impl<T: Config> engingcore::InternalVoteEngine<T::AccountId> for Pallet<T> {
         with_transaction(|| {
             if sp_io::hashing::blake2_256(&data) != vote_plan.business_object_hash {
                 return TransactionOutcome::Rollback(Err(
-                    engingcore::Error::<T>::InvalidVotePlan.into(),
+                    engingcore::Error::<T>::InvalidVotePlan.into()
                 ));
             }
             let proposal_id = match Self::do_create_institution_proposal_with_mutex(

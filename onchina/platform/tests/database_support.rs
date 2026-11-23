@@ -67,6 +67,8 @@ impl IsolatedTestDb {
         }
         Self {
             db: Db {
+                #[cfg(test)]
+                wallet_snapshot: Arc::new(Mutex::new(None)),
                 clients: Arc::new(clients),
                 next_client_idx: Arc::new(AtomicUsize::new(0)),
             },
@@ -100,6 +102,8 @@ impl Db {
     /// 路由单测不创建数据库；任何误入持久化的请求都会明确失败。
     pub fn empty_for_route_test() -> Self {
         Self {
+            #[cfg(test)]
+            wallet_snapshot: Arc::new(Mutex::new(None)),
             clients: Arc::new(Vec::new()),
             next_client_idx: Arc::new(AtomicUsize::new(0)),
         }

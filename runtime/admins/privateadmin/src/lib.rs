@@ -4,7 +4,7 @@
 //! 私权机构管理员账户集合模块。
 //!
 //! 机构唯一身份是 CID。本模块保存原有 `AdminAccounts[cid_number] -> admins` 与独立的机构钱包授权状态；
-//! 岗位和任职归 entity，投票阈值归 engingcore，机构账户不参与管理员寻址。
+//! 岗位、任职和机构投票阈值归 entity，机构账户不参与管理员寻址。
 
 extern crate alloc;
 
@@ -20,13 +20,12 @@ use frame_system::pallet_prelude::*;
 use sp_std::collections::btree_set::BTreeSet;
 
 use adminbase::{
-    can_store_private_admin_code, Admin, AdminAccountKind, AdminCidNumber, ChainPhaseCheck,
-    CitizenIdentityBindingQuery, InstitutionAdminLifecycle, InstitutionAdminQuery,
+    can_store_private_admin_code, Admin, AdminAccountKind, AdminCidNumber,
+    InstitutionAdminLifecycle, InstitutionAdminQuery,
     InstitutionAdminWalletChange, InstitutionAdminWalletLifecycle, InstitutionAdminWalletQuery,
     InstitutionAdminWalletState, InstitutionAdmins,
 };
 use engingcore::types::InstitutionCode;
-use entitybase::InstitutionLegalRepresentativeQuery as _;
 
 pub use pallet::*;
 
@@ -43,19 +42,6 @@ pub mod pallet {
 
         #[pallet::constant]
         type MaxAdminsPerInstitution: Get<u32>;
-
-        /// 运行期强制门控(由 genesis 相位注入)。
-        type ChainPhase: ChainPhaseCheck;
-
-        /// 私权管理员非空公民 CID 与账户绑定查询（换绑钱包不掉权靠它解析）。
-        type CitizenIdentityBinding: CitizenIdentityBindingQuery<Self::AccountId>;
-
-        /// 法定代表人身份记录查询。分层强制下私权只有 LR 岗四要素完整，且强制落点是
-        /// `InstitutionInfo.legal_representative` 而非本名册；名册 cid 为空时由此回落，
-        /// 使 LR 同样享受「换绑不掉权」。
-        type LegalRepresentativeQuery: entitybase::InstitutionLegalRepresentativeQuery<
-            Self::AccountId,
-        >;
     }
 
     #[pallet::pallet]
@@ -74,8 +60,8 @@ pub mod pallet {
     pub type AdminAccounts<T: Config> =
         StorageMap<_, Blake2_128Concat, AdminCidNumber, InstitutionAdminsOf<T>, OptionQuery>;
 
-    /// 机构CID + 名册稳定账户锚点 → 钱包基础状态。None钱包保留退役版本。
-    /// 激活后机构签名只读取本状态，名册生命周期同步维护。
+    /// 完整机构CID + 实际钱包账户 → 授权状态。None钱包保留退役版本。
+    /// 机构签名校验实际名单与本状态，名册生命周期同步维护。
     #[pallet::storage]
     #[pallet::getter(fn stored_admin_wallet)]
     pub type AdminWallets<T: Config> = StorageDoubleMap<
@@ -88,15 +74,9 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// 每机构初始化完成标记。未完成保持旧读取；完成后缺失钱包绝不回退。
+    /// 当前钱包使用的已批准岗位签名授权引用。仅供岗位校验，不作为管理员或票据身份。
     #[pallet::storage]
-    #[pallet::getter(fn wallets_initialized)]
-    pub type WalletsInitialized<T: Config> =
-        StorageMap<_, Blake2_128Concat, AdminCidNumber, bool, ValueQuery>;
-
-    /// 机构内钱包反向索引。用于已激活机构的唯一性检查，避免每次执行读取整组钱包。
-    #[pallet::storage]
-    pub type WalletOwners<T: Config> = StorageDoubleMap<
+    pub type WalletRoleBindings<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         AdminCidNumber,
@@ -143,7 +123,7 @@ pub mod pallet {
             admins_len: u32,
             created: bool,
         },
-        /// 钱包内部初始化完成，不表示已切换现有业务授权。
+        /// 名册登记同步建立钱包版本。事件编码位置保留，登录不再执行初始化。
         InstitutionAdminWalletInitialized {
             cid_number: AdminCidNumber,
             admin_account: T::AccountId,
@@ -174,8 +154,6 @@ pub mod pallet {
         DuplicateAdmin,
         InvalidFamilyName,
         InvalidGivenName,
-        WalletLegacyUnavailable,
-        WalletLegacyMismatch,
         WalletAdminNotFound,
         WalletAdminStillPresent,
         WalletUninitialized,

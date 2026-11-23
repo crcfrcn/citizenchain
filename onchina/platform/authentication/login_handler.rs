@@ -33,8 +33,15 @@ pub(crate) async fn require_admin_session_middleware(
     } else {
         super::guards::require_admin_any(&state, request.headers())
     };
-    if let Err(resp) = context {
-        return resp;
+    let context = match context {
+        Ok(ctx) => ctx,
+        Err(resp) => return resp,
+    };
+    // 提交入口自己区分首次广播与只读恢复；已成功交易不受事后撤权影响。
+    if request.uri().path() != "/api/admin/chain/submit" {
+        if let Err(resp) = super::guards::validate_current_wallet(&state, &context).await {
+            return resp;
+        }
     }
     next.run(request).await
 }
@@ -48,6 +55,9 @@ pub(crate) async fn admin_auth_check(
         Err(response) => return response,
     };
     let ctx = session.context();
+    if let Err(response) = super::guards::validate_current_wallet(&state, &ctx).await {
+        return response;
+    }
     let capabilities = session.capabilities;
     let workspace = session.workspace.clone();
     Json(ApiResponse {
@@ -56,6 +66,8 @@ pub(crate) async fn admin_auth_check(
         data: AdminAuthOutput {
             setup_required: session.setup_required,
             ok: true,
+            wallet_revision: ctx.wallet_revision,
+            wallet_namespace: ctx.wallet_namespace,
             account_id: ctx.account_id,
             institution_cid_number: ctx.institution_cid_number,
             institution_code: ctx.institution_code,

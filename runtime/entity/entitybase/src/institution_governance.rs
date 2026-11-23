@@ -45,7 +45,7 @@ pub struct RolePermissionSpec {
 
 /// 单条目标任职。
 ///
-/// 每个管理员独立携带任期和来源，避免整体换届接口把存量成员错误改成同一任期。
+/// 每位任职人员独立携带任期和来源，避免整体换届接口把存量成员错误改成同一任期。
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, PartialEq, Eq)]
 pub struct InstitutionAssignmentTarget<AccountId> {
     pub account_id: AccountId,
@@ -124,12 +124,12 @@ pub struct InstitutionGovernanceResult<AccountId> {
 
 /// 机构管理员、岗位及任职的统一变更载荷。
 ///
-/// `admins` 是机构可任职人员名册；岗位和任职是机构职务事实，岗位权限才是业务
-/// 授权真源。call 8用于机构自身治理，call 9只接收合法登记子集；共享数据结构不代替
-/// 各自入口的来源与权限校验。三者可以原子执行，但不能从另一方反向派生。
+/// `admins` 是机构签名钱包集合，岗位人员独立保存。call 8仅允许纯岗位/任职动作1
+/// 和带新钱包证明的更换动作3；call 9仅允许注册局钱包维护4和不含法代变更的纯配置1。
+/// 旧动作0、2保留历史解码，禁止建案、登记与执行，不转换为新的可写动作。
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, PartialEq, Eq)]
 pub enum InstitutionGovernanceAction<AccountId, AdminRecord = Admin<AccountId>> {
-    /// 合法登记或机构内部投票通过后，完整替换机构 `admins` 真源。
+    /// 已停用写入与执行；仅保留原SCALE编号0用于历史读取。
     ReplaceAdmins { admins: Vec<AdminRecord> },
     /// 调整岗位定义、岗位任职和法定代表人，不改变机构 `admins`。
     MutateRolesAndAssignments {
@@ -137,7 +137,7 @@ pub enum InstitutionGovernanceAction<AccountId, AdminRecord = Admin<AccountId>> 
         assignment_changes: Vec<InstitutionRoleAssignmentChange<AccountId>>,
         legal_representative_change: Option<InstitutionLegalRepresentativeChange<AccountId>>,
     },
-    /// 同一登记事务或治理提案内原子替换管理员并调整岗位/任职。
+    /// 已停用写入与执行；仅保留原SCALE编号2用于历史读取。
     ReplaceAdminsAndMutateRoles {
         admins: Vec<AdminRecord>,
         role_mutations: Vec<InstitutionRoleMutation<AccountId>>,
@@ -150,26 +150,46 @@ pub enum InstitutionGovernanceAction<AccountId, AdminRecord = Admin<AccountId>> 
         expires_at: u64,
         new_wallet_proof: adminbase::InstitutionWalletProof,
     },
+    /// 注册局专用钱包维护。保留变体0..3的旧提案编码，不夹带人员/岗位/阈值。
+    RegisterAdminWalletChanges {
+        added: Vec<AdminRecord>,
+        removed: Vec<(AccountId, u64)>,
+        replaced: Vec<adminbase::InstitutionAdminWalletChange<AccountId>>,
+    },
 }
 
 impl<AccountId, AdminRecord> InstitutionGovernanceAction<AccountId, AdminRecord> {
-    /// 登记只接收名册及显式岗位/任职变更，不夹带法定代表人任免。
-    /// 首次岗位可随名册原子建立；成立后的权限修改仍由机构自身治理。
+    /// 机构治理只允许纯岗位/任职或专用钱包轮换，旧完整名单动作永不执行。
+    pub fn allowed_in_governance(&self) -> bool {
+        matches!(
+            self,
+            Self::MutateRolesAndAssignments { .. } | Self::RotateAdminWallet { .. }
+        )
+    }
+    /// 登记入口只允许专用钱包操作或不含法定代表人变更的纯岗位配置。
+    pub fn allowed_in_registration(&self) -> bool {
+        matches!(
+            self,
+            Self::RegisterAdminWalletChanges { .. }
+                | Self::MutateRolesAndAssignments {
+                    legal_representative_change: None,
+                    ..
+                }
+        )
+    }
+    /// 纯岗位配置复用编号1，不接收或回写管理员名单。
     pub fn into_registration_parts(
         self,
     ) -> Option<(
-        Vec<AdminRecord>,
         Vec<InstitutionRoleMutation<AccountId>>,
         Vec<InstitutionRoleAssignmentChange<AccountId>>,
     )> {
         match self {
-            Self::ReplaceAdmins { admins } => Some((admins, Vec::new(), Vec::new())),
-            Self::ReplaceAdminsAndMutateRoles {
-                admins,
+            Self::MutateRolesAndAssignments {
                 role_mutations,
                 assignment_changes,
                 legal_representative_change: None,
-            } => Some((admins, role_mutations, assignment_changes)),
+            } => Some((role_mutations, assignment_changes)),
             _ => None,
         }
     }
@@ -183,6 +203,22 @@ impl<AccountId, AdminRecord> InstitutionGovernanceAction<AccountId, AdminRecord>
         let encoded_units =
             u32::try_from(self.encoded_size().saturating_add(255) / 256).unwrap_or(u32::MAX);
         let (admins, mutations, changes) = match self {
+            Self::RegisterAdminWalletChanges {
+                added,
+                removed,
+                replaced,
+            } => {
+                return (
+                    (added
+                        .len()
+                        .saturating_add(removed.len())
+                        .saturating_add(replaced.len()) as u32)
+                        .max(encoded_units),
+                    0,
+                    0,
+                    0,
+                )
+            }
             Self::RotateAdminWallet { .. } => return (encoded_units, 0, 0, 0),
             Self::ReplaceAdmins { admins } => {
                 return ((admins.len() as u32).max(encoded_units), 0, 0, 0)
@@ -220,38 +256,6 @@ impl<AccountId, AdminRecord> InstitutionGovernanceAction<AccountId, AdminRecord>
             permissions,
             assignments,
         )
-    }
-}
-
-impl<AccountId> InstitutionGovernanceAction<AccountId, Admin<AccountId>> {
-    /// 在签名载荷和投票数据生成前补齐管理员默认姓名，保证提案与最终链上记录一致。
-    pub fn normalize_admin_person_names(self) -> Self {
-        match self {
-            action @ Self::RotateAdminWallet { .. } => action,
-            Self::ReplaceAdmins { admins } => Self::ReplaceAdmins {
-                admins: admins.into_iter().map(Admin::normalize_names).collect(),
-            },
-            Self::MutateRolesAndAssignments {
-                role_mutations,
-                assignment_changes,
-                legal_representative_change,
-            } => Self::MutateRolesAndAssignments {
-                role_mutations,
-                assignment_changes,
-                legal_representative_change,
-            },
-            Self::ReplaceAdminsAndMutateRoles {
-                admins,
-                role_mutations,
-                assignment_changes,
-                legal_representative_change,
-            } => Self::ReplaceAdminsAndMutateRoles {
-                admins: admins.into_iter().map(Admin::normalize_names).collect(),
-                role_mutations,
-                assignment_changes,
-                legal_representative_change,
-            },
-        }
     }
 }
 

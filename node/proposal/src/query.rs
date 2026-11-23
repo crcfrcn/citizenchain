@@ -24,7 +24,7 @@ use nodeclient::codec::decode_subject_cid_numbers;
 
 use primitives::cid::code::InstitutionCode;
 
-use codec::Decode;
+use codec::{DecodeAll, Encode};
 
 use crate::display::fetch_proposal_display;
 use crate::display::format_proposal_id;
@@ -33,9 +33,6 @@ use crate::display::resolve_cid_full_name_by_subjects;
 use crate::display::stage_label;
 use crate::display::status_label;
 use crate::display::ProposalDisplayInfo;
-use crate::tally::fetch_internal_tally;
-use crate::tally::fetch_joint_tally;
-use crate::tally::fetch_referendum_tally;
 use crate::types::FeeRateProposalDetail;
 use crate::types::ProposalAction;
 use crate::types::ProposalDisplayMeta;
@@ -77,7 +74,10 @@ fn decode_next_proposal_id(data: &[u8]) -> Result<u128, String> {
 /// 倒序分页包含零号，checked_sub 同时处理接近零和 u128 上限的边界。
 fn proposal_page_ids(start_id: u128, count: u32) -> (impl Iterator<Item = u128>, bool) {
     let has_more = count > 0 && start_id.checked_sub(u128::from(count)).is_some();
-    ((0..count).map_while(move |offset| start_id.checked_sub(u128::from(offset))), has_more)
+    (
+        (0..count).map_while(move |offset| start_id.checked_sub(u128::from(offset))),
+        has_more,
+    )
 }
 
 /// 检查提案是否为机构管理提案（创建/关闭机构多签账户），这类提案不在治理列表中显示。
@@ -105,7 +105,10 @@ fn is_institution_manage_proposal(proposal_id: u128) -> bool {
 /// 自动过滤多签管理提案(创建/关闭多签账户),这些在多签账户详情页单独展示。
 ///
 /// 双层 ID：主键从 0 起单调累加，所以下界用 0（不再按年份切）。
-pub(crate) fn fetch_proposal_page(start_id: u128, count: u32) -> Result<ProposalPageResult, String> {
+pub(crate) fn fetch_proposal_page(
+    start_id: u128,
+    count: u32,
+) -> Result<ProposalPageResult, String> {
     let mut items = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
 
@@ -168,8 +171,9 @@ pub(crate) fn fetch_proposal_page(start_id: u128, count: u32) -> Result<Proposal
 /// 业务动作统一走 [`resolve_proposal_action`] 解析,再按变体填入对应 `*_detail` 字段;
 /// 投票计数按 kind/stage 独立查询(保留原有条件)。
 pub(crate) fn fetch_proposal_full(proposal_id: u128) -> Result<ProposalFullInfo, String> {
-    let meta =
-        fetch_proposal_meta(proposal_id)?.ok_or_else(|| format!("提案 {proposal_id} 不存在"))?;
+    let at = nodeclient::query::fetch_finalized_head()?;
+    let meta = fetch_proposal_meta_at(proposal_id, &at)?
+        .ok_or_else(|| format!("提案 {proposal_id} 不存在"))?;
 
     // 业务动作:一次性解析,按变体分发到 7 个 *_detail 字段。
     let action = resolve_proposal_action(proposal_id, &meta)?;
@@ -181,27 +185,39 @@ pub(crate) fn fetch_proposal_full(proposal_id: u128) -> Result<ProposalFullInfo,
         fee_rate_detail,
     ) = split_action_into_details(action);
 
-    // 根据提案阶段查询对应的投票计数。
     let internal_tally = if meta.kind == 0 || meta.stage == 0 {
-        fetch_internal_tally(proposal_id).ok()
+        Some(crate::tally::fetch_internal_tally_at(proposal_id, &at)?)
     } else {
         None
     };
-
     let joint_tally = if meta.kind == 1 && meta.stage >= 1 {
-        fetch_joint_tally(proposal_id).ok()
+        Some(crate::tally::fetch_joint_tally_at(proposal_id, &at)?)
     } else {
         None
     };
-
     let referendum_tally = if meta.kind == 1 && meta.stage >= 2 {
-        fetch_referendum_tally(proposal_id).ok()
+        Some(crate::tally::fetch_referendum_tally_at(proposal_id, &at)?)
     } else {
         None
     };
-
     let cid_full_name = resolve_cid_full_name_by_subjects(&meta.subject_cid_numbers);
-    let voter_role_subjects = fetch_voter_role_subjects(proposal_id)?;
+    let plan = read_plan_at(proposal_id, &at)?;
+    let voter_role_subjects = plan
+        .voter_subjects
+        .iter()
+        .filter_map(|s| match s {
+            AuthorizationSubject::Institution(r) => Some(VoterRoleSubject {
+                cid_number: String::from_utf8_lossy(&r.cid_number).into_owned(),
+                role_code: String::from_utf8_lossy(&r.role_code).into_owned(),
+            }),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let frozen_vote_view = if voter_role_subjects.is_empty() {
+        None
+    } else {
+        Some(load_frozen_vote_view_at(proposal_id, &at)?)
+    };
 
     Ok(ProposalFullInfo {
         meta,
@@ -214,41 +230,9 @@ pub(crate) fn fetch_proposal_full(proposal_id: u128) -> Result<ProposalFullInfo,
         joint_tally,
         referendum_tally,
         voter_role_subjects,
+        frozen_vote_view,
         cid_full_name,
     })
-}
-
-fn fetch_voter_role_subjects(proposal_id: u128) -> Result<Vec<VoterRoleSubject>, String> {
-    let key = nodeclient::query::map_key(
-        "VotingEngine",
-        "ProposalVotePlans",
-        &proposal_id.to_le_bytes(),
-    );
-    let Some(hex_value) = nodeclient::query::fetch_finalized_storage(&key)? else {
-        return Err(format!(
-            "提案 {proposal_id} 缺少 VotingEngine::ProposalVotePlans"
-        ));
-    };
-    let bytes = hex::decode(hex_value.trim_start_matches("0x"))
-        .map_err(|error| format!("ProposalVotePlans hex 解码失败: {error}"))?;
-    let mut input = &bytes[..];
-    let plan = engingcore::types::VotePlanOf::<sp_runtime::AccountId32>::decode(&mut input)
-        .map_err(|error| format!("ProposalVotePlans SCALE 解码失败: {error}"))?;
-    if !input.is_empty() {
-        return Err("ProposalVotePlans SCALE 存在尾随字节".into());
-    }
-    let mut subjects = Vec::new();
-    for subject in plan.voter_subjects {
-        if let AuthorizationSubject::Institution(role) = subject {
-            subjects.push(VoterRoleSubject {
-                cid_number: String::from_utf8(role.cid_number.into_inner())
-                    .map_err(|_| "ProposalVotePlans cid_number 不是 UTF-8".to_string())?,
-                role_code: String::from_utf8(role.role_code.into_inner())
-                    .map_err(|_| "ProposalVotePlans role_code 不是 UTF-8".to_string())?,
-            });
-        }
-    }
-    Ok(subjects)
 }
 
 /// 把 [`ProposalAction`] 展开成 `ProposalFullInfo` 的业务详情字段。
@@ -404,15 +388,20 @@ pub(crate) fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u128>, S
 // ──── 内部查询 ────
 
 pub(crate) fn fetch_proposal_meta(proposal_id: u128) -> Result<Option<ProposalMeta>, String> {
+    let at = nodeclient::query::fetch_finalized_head()?;
+    fetch_proposal_meta_at(proposal_id, &at)
+}
+pub(crate) fn fetch_proposal_meta_at(
+    proposal_id: u128,
+    at: &str,
+) -> Result<Option<ProposalMeta>, String> {
     let key = nodeclient::query::map_key("VotingEngine", "Proposals", &proposal_id.to_le_bytes());
-    // (ADR-017):提案元数据(含 status)按 finalized 口径读取,禁止 best。
-    match nodeclient::query::fetch_finalized_storage(&key)? {
-        None => Ok(None),
-        Some(hex_data) => {
-            let data = decode_hex_storage(&hex_data)?;
-            Ok(decode_proposal_meta(proposal_id, &data))
-        }
-    }
+    nodeclient::query::fetch_storage_at(&key, at)?
+        .map(|raw| {
+            let data = decode_hex_storage(&raw)?;
+            decode_proposal_meta(proposal_id, &data).ok_or_else(|| "提案元数据损坏".into())
+        })
+        .transpose()
 }
 
 fn fetch_proposal_data_raw(proposal_id: u128) -> Result<Option<Vec<u8>>, String> {
@@ -651,3 +640,184 @@ pub(crate) fn fetch_proposals_by_owner(module_tag_scale: &[u8]) -> Result<Vec<u1
 #[cfg(test)]
 #[path = "../tests/display.rs"]
 mod format_summary_tests;
+
+pub(crate) fn read_plan_at(
+    pid: u128,
+    at: &str,
+) -> Result<engingcore::types::VotePlanOf<sp_runtime::AccountId32>, String> {
+    let key = nodeclient::query::map_key("VotingEngine", "ProposalVotePlans", &pid.to_le_bytes());
+    let value = nodeclient::query::fetch_storage_at(&key, at)?.ok_or("原投票计划缺失")?;
+    engingcore::types::VotePlanOf::decode_all(&mut &decode_hex_storage(&value)?[..])
+        .map_err(|e| format!("原投票计划损坏: {e}"))
+}
+
+pub(crate) fn load_frozen_vote_view(pid: u128) -> Result<crate::types::FrozenVoteView, String> {
+    let at = nodeclient::query::fetch_finalized_head()?;
+    load_frozen_vote_view_at(pid, &at)
+}
+pub(crate) fn load_frozen_vote_view_at(
+    pid: u128,
+    at: &str,
+) -> Result<crate::types::FrozenVoteView, String> {
+    let header = nodeclient::signing::rpc_post("chain_getHeader", serde_json::json!([at]))?;
+    let height = u64::from_str_radix(
+        header["number"]
+            .as_str()
+            .ok_or("最终块高度缺失")?
+            .trim_start_matches("0x"),
+        16,
+    )
+    .map_err(|_| "最终块高度损坏")?;
+    let genesis = format!(
+        "0x{}",
+        hex::encode(nodeclient::signing::fetch_genesis_hash()?)
+    );
+    let view = read_frozen_vote_view(pid, at, height, &genesis, |key| {
+        nodeclient::query::fetch_storage_at(key, at)
+    })?;
+    crate::vote::observe_completed_contexts(pid, &view)?;
+    Ok(view)
+}
+
+/// 可注入只读同块读取器，测试不得连接或写运行链。
+pub(crate) fn read_frozen_vote_view(
+    pid: u128,
+    at: &str,
+    height: u64,
+    genesis: &str,
+    mut read: impl FnMut(&str) -> Result<Option<String>, String>,
+) -> Result<crate::types::FrozenVoteView, String> {
+    use crate::types::{FrozenRoleSnapshot, FrozenVoteView, FrozenVoter};
+    let proposal_key = nodeclient::query::map_key("VotingEngine", "Proposals", &pid.to_le_bytes());
+    let raw = read(&proposal_key)?.ok_or("原提案不存在")?;
+    let proposal = engingcore::types::Proposal::<u32, sp_runtime::AccountId32>::decode_all(
+        &mut &decode_hex_storage(&raw)?[..],
+    )
+    .map_err(|e| format!("原提案损坏: {e}"))?;
+    let key = nodeclient::query::map_key("VotingEngine", "ProposalVotePlans", &pid.to_le_bytes());
+    let raw = read(&key)?.ok_or("原投票计划缺失")?;
+    let plan = engingcore::types::VotePlanOf::<sp_runtime::AccountId32>::decode_all(
+        &mut &decode_hex_storage(&raw)?[..],
+    )
+    .map_err(|e| format!("原投票计划损坏: {e}"))?;
+    let data_key = nodeclient::query::map_key("VotingEngine", "ProposalData", &pid.to_le_bytes());
+    let data = read(&data_key)?
+        .map(|v| {
+            Vec::<u8>::decode_all(&mut &decode_hex_storage(&v)?[..]).map_err(|e| e.to_string())
+        })
+        .transpose()?;
+    let mut scope_error = if data
+        .as_ref()
+        .is_some_and(|v| v.starts_with(TAG_PUBLIC_MANAGE) || v.starts_with(TAG_PRIVATE_MANAGE))
+    {
+        Some("机构管理提案不属于节点原治理投票范围".to_string())
+    } else {
+        None
+    };
+    let mut roles = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for subject in plan.voter_subjects {
+        let AuthorizationSubject::Institution(ref role) = subject else {
+            continue;
+        };
+        if !seen.insert(subject.encode()) {
+            return Err("原投票主体重复".into());
+        }
+        let cid = String::from_utf8(role.cid_number.to_vec()).map_err(|_| "机构身份CID号损坏")?;
+        let code = String::from_utf8(role.role_code.to_vec()).map_err(|_| "原岗位标识损坏")?;
+        if !primitives::cid::code::institution_code_from_cid_number(&cid)
+            .is_some_and(|c| primitives::cid::code::is_fixed_governance_code(&c))
+        {
+            scope_error = Some("不属于节点原治理机构投票范围".into());
+        }
+        let key = nodeclient::query::double_map_key(
+            "VotingEngine",
+            "VoterSnapshot",
+            &pid.to_le_bytes(),
+            &subject.encode(),
+        );
+        let list = read(&key)?;
+        let Some(list) = list else {
+            roles.push(FrozenRoleSnapshot {
+                cid_number: cid,
+                role_code: code,
+                error: Some("原冻结名单不存在或已按原规则清理".into()),
+                voters: vec![],
+            });
+            continue;
+        };
+        let wallets = Vec::<[u8; 32]>::decode_all(&mut &decode_hex_storage(&list)?[..])
+            .map_err(|e| format!("原冻结名单损坏: {e}"))?;
+        if wallets.is_empty()
+            || wallets.len() > 1989
+            || wallets
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != wallets.len()
+        {
+            return Err("原冻结名单为空、重复或超限".into());
+        }
+        let key = nodeclient::query::double_map_key(
+            "VotingEngine",
+            "FrozenWalletVersions",
+            &pid.to_le_bytes(),
+            &subject.encode(),
+        );
+        let versions = read(&key)?
+            .map(|v| {
+                Vec::<([u8; 32], u64)>::decode_all(&mut &decode_hex_storage(&v)?[..])
+                    .map_err(|e| format!("冻结版本损坏: {e}"))
+            })
+            .transpose()?;
+        let complete = versions.as_ref().is_some_and(|v| {
+            v.len() == wallets.len() && v.iter().zip(&wallets).all(|((w, _), r)| w == r)
+        });
+        let error = if complete {
+            None
+        } else {
+            Some("历史冻结版本资料缺失或错配，需按创建事实核实补齐".into())
+        };
+        let mut voters = Vec::new();
+        for (index, wallet) in wallets.into_iter().enumerate() {
+            let vote_key =
+                crate::tally::institution_vote_key(pid, proposal.kind, &cid, &code, &wallet)?;
+            let (vote, vote_error) = match read(&vote_key)
+                .and_then(|raw| crate::tally::decode_option_vote(raw.as_deref()))
+            {
+                Ok(v) => (v, None),
+                Err(e) => (None, Some(e)),
+            };
+            voters.push(FrozenVoter {
+                account_id: format!("0x{}", hex::encode(wallet)),
+                wallet_revision: if complete {
+                    Some(versions.as_ref().unwrap()[index].1.to_string())
+                } else {
+                    None
+                },
+                vote,
+                vote_error,
+            });
+        }
+        roles.push(FrozenRoleSnapshot {
+            cid_number: cid,
+            role_code: code,
+            error,
+            voters,
+        });
+    }
+    Ok(FrozenVoteView {
+        genesis_hash: genesis.into(),
+        block_hash: at.into(),
+        block_number: height.to_string(),
+        end_block: proposal.end.to_string(),
+        kind: proposal.kind,
+        stage: proposal.stage,
+        status: proposal.status,
+        actor_cid_number: proposal
+            .actor_cid_number
+            .map(|c| String::from_utf8_lossy(&c).into_owned()),
+        scope_error,
+        roles,
+    })
+}

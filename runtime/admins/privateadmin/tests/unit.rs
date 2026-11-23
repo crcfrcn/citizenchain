@@ -85,8 +85,7 @@ fn private_admins_reject_public_codes() {
 }
 
 #[test]
-fn institution_wallet_foundation_covers_existing_institution_code_catalog() {
-    use codec::Encode;
+fn institution_wallet_registration_and_change_cover_code_catalog() {
     new_test_ext().execute_with(|| {
         let mut covered = 0;
         for info in primitives::cid::code::INSTITUTION_CODE_INFOS {
@@ -97,42 +96,48 @@ fn institution_wallet_foundation_covers_existing_institution_code_catalog() {
                 continue;
             }
             let cid = wallet_fixture_cid(code, 1);
-            let anchors = wallet_roster_fixture(code, &cid, 2);
+            let wallets = wallet_roster_fixture(code, &cid, 2);
             let key = AdminCidNumber::try_from(cid.clone()).unwrap();
-            let before = AdminAccounts::<Test>::get(&key).unwrap().encode();
+            let before = AdminAccounts::<Test>::get(&key).unwrap();
             assert_eq!(
-                PrivateAdmins::current_institution_wallet(code, &cid, &anchors[0]),
-                None
+                PrivateAdmins::resolve_admin_account(code, &cid, &wallets[0]),
+                Some(wallets[0].clone())
             );
-            initialize_wallet_roster(code, &cid, &anchors);
             assert_ok!(PrivateAdmins::change_institution_wallet(
                 code,
                 cid.clone(),
-                wallet_change(&anchors[0], anchors[0].clone(), account(200), 0)
+                wallet_change(&wallets[0], wallets[0].clone(), account(200), 0)
             ));
+            let after = AdminAccounts::<Test>::get(&key).unwrap();
+            assert_eq!(after.admins.len(), before.admins.len());
+            let mut expected = before;
+            expected.admins[0].account_id = account(200);
+            assert_eq!(after, expected);
             assert_eq!(
-                PrivateAdmins::current_institution_wallet(code, &cid, &anchors[0]),
-                Some(account(200))
-            );
-            assert_eq!(
-                PrivateAdmins::institution_wallet_state(code, &cid, &anchors[0])
-                    .unwrap()
-                    .revision,
-                1
-            );
-            assert_eq!(AdminAccounts::<Test>::get(&key).unwrap().encode(), before);
-            assert_eq!(
-                PrivateAdmins::institution_admins(code, &cid),
-                Some(anchors.clone())
-            );
-            // 原授权入口仍使用原来的规则；新的基础钱包尚未替换它。
-            assert_eq!(
-                PrivateAdmins::resolve_admin_account(code, &cid, &anchors[0]),
-                Some(anchors[0].clone())
+                PrivateAdmins::resolve_admin_account(code, &cid, &wallets[0]),
+                None
             );
             assert_eq!(
                 PrivateAdmins::resolve_admin_account(code, &cid, &account(200)),
-                None
+                Some(account(200))
+            );
+            assert_eq!(
+                PrivateAdmins::resolve_role_authorization(code, &cid, &account(200)),
+                Some(wallets[0].clone())
+            );
+            assert_eq!(
+                PrivateAdmins::institution_wallet_state(code, &cid, &wallets[0]),
+                Some(InstitutionAdminWalletState {
+                    wallet: None,
+                    revision: 1
+                })
+            );
+            assert_eq!(
+                PrivateAdmins::institution_wallet_state(code, &cid, &account(200)),
+                Some(InstitutionAdminWalletState {
+                    wallet: Some(account(200)),
+                    revision: 0
+                })
             );
             covered += 1;
         }
@@ -141,33 +146,31 @@ fn institution_wallet_foundation_covers_existing_institution_code_catalog() {
 }
 
 #[test]
-fn institution_wallet_foundation_is_scoped_to_institution_and_preserves_old_indices() {
+fn institution_wallet_versions_and_bindings_are_scoped_to_full_cid() {
     use codec::Encode;
     new_test_ext().execute_with(|| {
         let code = code_bytes("SFLP");
         let first = wallet_fixture_cid(code, 1);
         let second = wallet_fixture_cid(code, 2);
-        let anchors = wallet_roster_fixture(code, &first, 1);
+        let wallets = wallet_roster_fixture(code, &first, 1);
         wallet_roster_fixture(code, &second, 1);
-        initialize_wallet_roster(code, &first, &anchors);
-        initialize_wallet_roster(code, &second, &anchors);
         assert_ok!(PrivateAdmins::change_institution_wallet(
             code,
             first.clone(),
-            wallet_change(&anchors[0], anchors[0].clone(), account(201), 0)
+            wallet_change(&wallets[0], wallets[0].clone(), account(201), 0)
         ));
         assert_eq!(
-            PrivateAdmins::current_institution_wallet(code, &second, &anchors[0]),
-            Some(anchors[0].clone())
+            PrivateAdmins::current_institution_wallet(code, &second, &wallets[0]),
+            Some(wallets[0].clone())
         );
         assert_eq!(
-            PrivateAdmins::institution_wallet_state(code, &second, &anchors[0])
+            PrivateAdmins::institution_wallet_state(code, &second, &wallets[0])
                 .unwrap()
                 .revision,
             0
         );
         assert_eq!(
-            PrivateAdmins::institution_wallet_state(code_bytes("SFGQ"), &first, &anchors[0]),
+            PrivateAdmins::resolve_admin_account(code, &second, &account(201)),
             None
         );
         assert_eq!(Error::<Test>::InvalidInstitution.encode()[0], 0);
@@ -182,23 +185,5 @@ fn institution_wallet_foundation_is_scoped_to_institution_and_preserves_old_indi
             .encode()[0],
             0
         );
-    });
-}
-
-
-#[test]
-fn activated_wallet_reverse_index_is_scoped_atomic_and_never_grants_duplicate_ownership() {
-    new_test_ext().execute_with(|| {
-        let code=code_bytes("SFGY");let cid=wallet_fixture_cid(code,66);
-        let anchors=wallet_roster_fixture(code,&cid,2);let key=AdminCidNumber::try_from(cid.clone()).unwrap();
-        assert_ok!(PrivateAdmins::ensure_institution_wallets(code,cid.clone()));
-        assert_eq!(WalletOwners::<Test>::get(&key,&anchors[0]),Some(anchors[0].clone()));
-        assert_noop!(PrivateAdmins::change_institution_wallet(code,cid.clone(),wallet_change(&anchors[0],anchors[0].clone(),anchors[1].clone(),0)),Error::<Test>::WalletDuplicate);
-        assert_ok!(PrivateAdmins::change_institution_wallet(code,cid.clone(),wallet_change(&anchors[0],anchors[0].clone(),account(201),0)));
-        assert_eq!(WalletOwners::<Test>::get(&key,&anchors[0]),None);
-        assert_eq!(WalletOwners::<Test>::get(&key,account(201)),Some(anchors[0].clone()));
-        assert_eq!(PrivateAdmins::resolve_admin_account(code,&cid,&account(201)),Some(anchors[0].clone()));
-        assert_noop!(PrivateAdmins::change_institution_wallet(code,cid.clone(),wallet_change(&anchors[1],anchors[1].clone(),account(201),0)),Error::<Test>::WalletDuplicate);
-        assert_eq!(PrivateAdmins::resolve_admin_account(code,&cid,&anchors[1]),Some(anchors[1].clone()));
     });
 }

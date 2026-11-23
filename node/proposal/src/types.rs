@@ -102,6 +102,7 @@ pub struct ProposalFullInfo {
     pub referendum_tally: Option<ReferendumVoteTally>,
     /// 提案创建时冻结的机构投票岗位主体；个人多签主体不在此列表中。
     pub voter_role_subjects: Vec<VoterRoleSubject>,
+    pub frozen_vote_view: Option<FrozenVoteView>,
     /// 关联机构名称（通过 `subject_cid_numbers` 反查）。
     pub cid_full_name: Option<String>,
 }
@@ -202,4 +203,53 @@ pub struct UserVoteStatus {
     pub internal_vote: Option<bool>,
     /// 该用户是否已在联合阶段投票（通过机构）：null=未投票, true=赞成, false=反对。
     pub joint_vote: Option<bool>,
+}
+
+/// 只读最终块视图；版本保留十进制字符串，不从现任管理员推断。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrozenVoteView {
+    pub genesis_hash: String,
+    pub block_hash: String,
+    pub block_number: String,
+    pub end_block: String,
+    pub kind: u8,
+    pub stage: u8,
+    pub status: u8,
+    pub actor_cid_number: Option<String>,
+    pub scope_error: Option<String>,
+    pub roles: Vec<FrozenRoleSnapshot>,
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrozenRoleSnapshot {
+    pub cid_number: String,
+    pub role_code: String,
+    pub error: Option<String>,
+    pub voters: Vec<FrozenVoter>,
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrozenVoter {
+    pub account_id: String,
+    pub wallet_revision: Option<String>,
+    pub vote: Option<bool>,
+    pub vote_error: Option<String>,
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalVoteSubmitResult {
+    pub tx_hash: Option<String>,
+    pub observed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FrozenVoteBinding {
+    pub genesis_hash: String,
+    pub proposal_id: String,
+    pub cid_number: String,
+    pub role_code: String,
+    pub account_id: String,
+    pub wallet_revision: String,
 }

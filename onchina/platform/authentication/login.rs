@@ -15,7 +15,7 @@ mod signature;
 
 const LOGIN_SIGN_REQUEST_TTL_SECONDS: i64 = 90;
 
-pub(crate) use guards::{admin_session, bearer_token};
+pub(crate) use guards::{admin_session, bearer_token, validate_current_wallet};
 pub use guards::{require_admin_any, require_admin_session};
 pub(crate) use handler::{
     admin_auth_check, admin_auth_confirm_node_binding, admin_logout,

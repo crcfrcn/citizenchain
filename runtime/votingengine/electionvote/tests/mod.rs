@@ -9,6 +9,12 @@
 
 use core::cell::RefCell;
 
+use engingcore::{
+    CitizenIdentityReader, ElectionProposalFinalizer, ElectionVoteResultCallback,
+    InstitutionRoleProvider, InternalAdminProvider, PopulationScope, ProposalExecutionOutcome,
+    ProposalTrackHandler, STATUS_PASSED, STATUS_REJECTED,
+};
+
 use frame_support::{
     assert_noop, assert_ok, derive_impl,
     traits::{ConstU32, ConstU64},
@@ -19,11 +25,6 @@ use primitives::cid::{
     code::{institution_code_from_cid_number, InstitutionCode, NLG},
 };
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use engingcore::{
-    CitizenIdentityReader, ElectionProposalFinalizer, ElectionVoteResultCallback,
-    InstitutionRoleProvider, InternalAdminProvider, PopulationScope, ProposalExecutionOutcome,
-    ProposalTrackHandler, STATUS_PASSED, STATUS_REJECTED,
-};
 
 use crate::{
     pallet::{
@@ -168,6 +169,26 @@ fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<Account
 }
 
 impl InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+    fn institution_wallet_snapshot(
+        _cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        Some(
+            references
+                .iter()
+                .map(|reference| {
+                    let key = codec::Encode::encode(&(b"fixture-current-wallet", _cid, reference));
+                    sp_io::storage::get(&key)
+                        .map(|raw| {
+                            <(AccountId32, u64) as codec::Decode>::decode(&mut &raw[..])
+                                .expect("explicit fixture wallet")
+                        })
+                        .unwrap_or_else(|| (reference.clone(), 0))
+                })
+                .collect(),
+        )
+    }
+
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -383,3 +404,11 @@ mod tally {
 }
 
 mod unit;
+
+/// 仅测试的当前机构凭据事实；不改岗位人员，不触碰个人身份。
+fn set_fixture_wallet(cid: &[u8], reference: &AccountId32, wallet: AccountId32, revision: u64) {
+    sp_io::storage::set(
+        &codec::Encode::encode(&(b"fixture-current-wallet", cid, reference)),
+        &codec::Encode::encode(&(wallet, revision)),
+    );
+}

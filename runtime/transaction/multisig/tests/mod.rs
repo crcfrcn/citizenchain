@@ -3,6 +3,11 @@
 #![cfg(test)]
 
 use super::*;
+use engingcore::types::{
+    code_bytes, institution_code_from_cid_number, InstitutionCode, FRG, NJD, PRC,
+};
+use engingcore::InstitutionRoleProvider as _;
+use engingcore::{STATUS_EXECUTED, STATUS_REJECTED, STATUS_VOTING};
 use frame_support::{
     assert_noop, assert_ok, derive_impl,
     traits::{ConstU128, ConstU32, Currency, ExistenceRequirement, Hooks, WithdrawReasons},
@@ -13,11 +18,6 @@ use primitives::cid::china::china_sf::CHINA_SF;
 use primitives::cid::china::china_zf::CHINA_ZF;
 use sp_core::{sr25519, Pair as PairT};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use engingcore::types::{
-    code_bytes, institution_code_from_cid_number, InstitutionCode, FRG, NJD, PRC,
-};
-use engingcore::InstitutionRoleProvider as _;
-use engingcore::{STATUS_EXECUTED, STATUS_REJECTED, STATUS_VOTING};
 
 // 测试用机构码:个人多签 / 私权法人,均属"注册多签动态账户"。
 const PERSONAL_CODE: InstitutionCode = PMUL;
@@ -133,6 +133,19 @@ fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<Account
 
 pub struct TestInternalAdminProvider;
 impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+    fn institution_wallet_snapshot(
+        _cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        Some(
+            references
+                .iter()
+                .cloned()
+                .map(|wallet| (wallet, 0))
+                .collect(),
+        )
+    }
+
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -401,7 +414,8 @@ impl primitives::fee_policy::OnchainFeeCharger<AccountId32, Balance> for TestOnc
         has_remark: bool,
     ) -> Result<Balance, sp_runtime::DispatchError> {
         let fee = primitives::fee_policy::calculate_onchain_fee(transaction_amount)
-            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 });
+            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 },
+        );
         let imbalance = Balances::withdraw(
             payer_account_id,
             fee,

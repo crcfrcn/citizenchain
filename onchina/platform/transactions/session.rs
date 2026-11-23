@@ -61,6 +61,8 @@ impl Db {
                 .context
                 .as_object_mut()
                 .ok_or("chain session context must be an object")?;
+            context.insert("origin_wallet_revision".into(),serde_json::json!(passkey.wallet_revision));
+            context.insert("origin_wallet_namespace".into(),serde_json::json!(passkey.wallet_namespace));
             context.insert(
                 "origin_binding_id".into(),
                 serde_json::json!(binding.binding_id),

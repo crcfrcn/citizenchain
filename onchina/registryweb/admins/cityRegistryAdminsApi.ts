@@ -117,6 +117,7 @@ export async function prepareRegisterInstitutionAdmins(
   input: PrepareRegisterInstitutionAdminsInput,
   signal?: AbortSignal,
 ): Promise<PrepareInstitutionChainOutput> {
+  if (!input.walletChanges && 'admins' in input) throw new Error('岗位配置不接收管理员名单');
   if (!/^0x[0-9a-f]{64}$/.test(input.expectedStateHash ?? '')) throw new Error('请使用管理员列表中的链上登记入口，刷新并核对机构状态');
   const headers = await passkeySubmitHeaders(auth, { 'content-type': 'application/json' });
   signal?.throwIfAborted();
@@ -135,7 +136,7 @@ function receiptKey(auth: AdminAuth, cid: string, mode: InstitutionAdminMode): s
 export function readRegistrationReceipt(auth: AdminAuth, cid: string, mode: InstitutionAdminMode = 'registration'): PendingInstitutionRegistration | null {
   try {
     const value = JSON.parse(sessionStorage.getItem(receiptKey(auth, cid, mode)) ?? 'null') as PendingInstitutionRegistration | null;
-    if (!value || (value.mode ?? 'registration') !== mode || value.cidNumber !== cid || value.expected?.cidNumber !== cid || !Array.isArray(value.expected.admins) || !Number.isSafeInteger(value.reviewedBlockNumber) || value.accountId.toLowerCase() !== auth.accountId.toLowerCase() ||
+    if (!value || (value.mode ?? 'registration') !== mode || value.cidNumber !== cid || value.expected?.cidNumber !== cid || (value.expected.walletChanges ? !Array.isArray(value.expected.admins) : value.expected.admins !== undefined && !Array.isArray(value.expected.admins)) || !Number.isSafeInteger(value.reviewedBlockNumber) || value.accountId.toLowerCase() !== auth.accountId.toLowerCase() ||
       !/^institution-governance-[a-zA-Z0-9-]+$/.test(value.requestId) || !/^0x[0-9a-fA-F]{128}$/.test(value.signature)) return null;
     return value;
   } catch { return null; }
@@ -158,13 +159,13 @@ export async function runInstitutionRegistration({ auth, cidNumber, input, pendi
   let receipt = pending;
   if (!receipt) {
     if (!input || input.cidNumber !== cidNumber) throw new Error('登记目标与当前页面不一致');
+    if (mode==='governance' && ('admins' in input || input.walletChanges)) throw new Error('完整名单治理已停用，不自动转换或重签');
     const fresh = await getGovernanceState(auth, cidNumber); check();
     if (fresh.cidNumber !== cidNumber || fresh.registrationStateHash !== input.expectedStateHash) throw new Error('机构状态已变化，请刷新后重新核对签名');
     registrationActorRole(mode === 'governance' ? { ...fresh, registrationRoles: governanceProposers(auth, fresh).map(role => ({ roleCode: role.roleCode, roleName: role.roleName })) } : fresh, input.actorRoleCode);
     if (mode === 'governance' && auth.institutionCidNumber !== cidNumber) throw new Error('只能发起本机构治理');
     const prepared = mode === 'registration' ? await prepareRegisterInstitutionAdmins(auth, input, signal) : await prepareInstitutionGovernance(auth, {
       cidNumber, proposerRoleCode: input.actorRoleCode!,
-      admins: input.admins.map(member => ({ ...member, familyName: member.familyName ?? '', givenName: member.givenName ?? '' })),
       assignmentChanges: input.assignmentChanges,
     }, signal); check();
     if (prepared.cidNumber !== cidNumber || !Number.isFinite(prepared.expiresAt) || !prepared.requestId || !prepared.signRequest || prepared.expiresAt * 1000 <= Date.now()) throw new Error('签名请求目标不匹配或已过期');
@@ -180,6 +181,7 @@ export async function runInstitutionRegistration({ auth, cidNumber, input, pendi
   try { result = await submitChainSign(auth, receipt.requestId, receipt.accountId, receipt.signature); }
   catch (error) {
     check();
+    if (receipt.expected.admins && !receipt.expected.walletChanges) throw error; // 旧0/2只允许核对原回执，不按目标状态推断成功。
     // 已完成会话可能已消费/清理。只有链上目标结果完全吻合才恢复为成功。
     if (error instanceof ApiError && [404, 409].includes(error.status)) {
       const settled = await getGovernanceState(auth, cidNumber); check();

@@ -191,7 +191,7 @@ pub mod pallet {
         /// 联合投票内部投票阶段:NRC/PRC/PRB 管理员按机构投票。
         /// 业务实现挂在 [`super::jointinternal`]。
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as Config>::WeightInfo::cast_admin())]
+        #[pallet::weight(<T as Config>::WeightInfo::cast_admin().saturating_add(engingcore::Pallet::<T>::frozen_vote_weight()))]
         pub fn cast_admin(
             origin: OriginFor<T>,
             proposal_id: u128,

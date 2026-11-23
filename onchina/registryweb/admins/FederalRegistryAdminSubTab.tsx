@@ -1,5 +1,6 @@
 // 展示联邦注册局管理员名册子页。
 
+import { InstitutionAdministratorsPanel } from './AddCityRegistryAdminModal';
 import { InstitutionWalletSelfAction, InstitutionWalletRecoveryActions } from '@gmb/onchina-platform/institutions/AdminsView';
 import { useMemo, useState } from 'react';
 import { Badge, Button, Card, Modal, Space, Table } from 'antd';
@@ -13,7 +14,7 @@ import { sameHexAccount } from '@gmb/onchina-platform/institutions/adminUtils';
 import { usePasskeyRegistration } from '@gmb/onchina-platform/authentication/usePasskey';
 import { tryEncodeSs58 } from '@gmb/onchina-platform/codes/ss58';
 import { InstitutionAssignmentDetails, assignmentDisplayLabel, formatAdminBalanceFen } from '@gmb/onchina-platform/institutions/AssignmentCard';
-// 联邦注册局管理员只读目录。管理员换届必须由治理业务写入 entity 任职结果，
+// 联邦注册局钱包维护与省专员人员任免独立；钱包维护仍核对目标原省组。
 // OnChina 不提供本地替换或直接改管理员集合入口。
 
 interface FederalRegistryAdminSubTabProps {
@@ -38,6 +39,7 @@ export function FederalRegistryAdminSubTab({
   const { auth } = useAuth();
   const { registered: passkeyRegistered, busy: passkeyBusy, register: doRegisterPasskey } =
     usePasskeyRegistration();
+  const [walletMaintenance,setWalletMaintenance]=useState(false);
   const [detailTarget, setDetailTarget] = useState<FederalRegistryAdminRow | null>(null);
   const [federalListPage, setFederalListPage] = useState(1);
   const currentProvinceName =
@@ -125,6 +127,10 @@ export function FederalRegistryAdminSubTab({
         )}
       >
         <InstitutionWalletRecoveryActions institutionCidNumber={institutionCidNumber}/>
+        {auth && <Button onClick={()=>setWalletMaintenance(true)}>注册局维护管理员钱包</Button>}
+        {auth && <Modal title="联邦注册局钱包维护" open={walletMaintenance} width={960} onCancel={()=>setWalletMaintenance(false)} footer={null} destroyOnClose>
+          {walletMaintenance && institutionCidNumber && <InstitutionAdministratorsPanel auth={auth} cidNumber={institutionCidNumber} canWrite={true} onSubmitted={()=>setWalletMaintenance(false)}/>}
+        </Modal>}
         <Table<FederalRegistryAdminRow>
           rowKey={(row) => `${row.id}-${row.accountId}-${row.roleCode}`}
           loading={federalRegistryAdminsLoading}

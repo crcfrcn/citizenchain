@@ -141,8 +141,7 @@ pub mod pallet {
         Blake2_128Concat,
         (
             u32,
-            engingcore::types::InstitutionVoteTicket<T::AccountId>,
-        ),
+            engingcore::types::InstitutionVoteTicket<T::AccountId>),
         bool,
         OptionQuery,
     >;
@@ -281,7 +280,7 @@ pub mod pallet {
 
         /// 管理员按当前代表机构席位投票。
         #[pallet::call_index(1)]
-        #[pallet::weight(<T as Config>::WeightInfo::cast_representative_vote())]
+        #[pallet::weight(<T as Config>::WeightInfo::cast_representative_vote().saturating_add(engingcore::Pallet::<T>::frozen_vote_weight()))]
         pub fn cast_representative_vote(
             origin: OriginFor<T>,
             proposal_id: u128,
@@ -311,7 +310,7 @@ pub mod pallet {
             <T as Config>::WeightInfo::executive_sign().max(
                 Weight::from_parts(38_000_000, 67_187)
                     .saturating_add(T::DbWeight::get().reads_writes(7, 5))
-            )
+            ).saturating_add(engingcore::Pallet::<T>::frozen_vote_weight().saturating_mul(1))
         )]
         pub fn executive_sign(
             origin: OriginFor<T>,
@@ -329,6 +328,7 @@ pub mod pallet {
             <T as Config>::WeightInfo::override_sign().max(
                 Weight::from_parts(45_000_000, 67_187)
                     .saturating_add(T::DbWeight::get().reads_writes(10, 2))
+            ).saturating_add(engingcore::Pallet::<T>::frozen_vote_weight().saturating_mul(3)
             )
         )]
         pub fn override_sign(
@@ -346,9 +346,10 @@ pub mod pallet {
             <T as Config>::WeightInfo::guard_vote().max(
                 Weight::from_parts(35_000_000, 30_000)
                     .saturating_add(T::DbWeight::get().reads_writes(5, 1))
-            )
+            ).saturating_add(engingcore::Pallet::<T>::frozen_vote_weight().saturating_mul(1))
         )]
-        pub fn guard_vote(origin: OriginFor<T>, proposal_id: u128, approve: bool) -> DispatchResult {
+        pub fn guard_vote(origin: OriginFor<T>, proposal_id: u128, approve: bool,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             Self::do_guard_vote(who, proposal_id, approve)
         }

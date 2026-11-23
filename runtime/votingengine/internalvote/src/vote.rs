@@ -33,11 +33,11 @@ impl<T: Config> Pallet<T> {
                 role_code: role_code.clone(),
             };
             let subject = AuthorizationSubject::Institution(role_subject.clone());
-            // 票据按【规范账户】防重：换绑前后归并为同一张票，杜绝新旧钱包各投一票。
+            // 按该提案冻结的实际钱包去重，版本取自同一不可变快照，不能继承或重置旧票。
             // 与下面的资格校验同源，同样只解析原始 `who`（绝不二次解析规范账户）。
             // 解析为 None 时资格校验必然失败，此处的回退值不会被采用。
-            let voter_account_id = <engingcore::Pallet<T>>::resolve_subject_voter(&subject, &who)
-                .unwrap_or_else(|| who.clone());
+            let voter_account_id = <engingcore::Pallet<T>>::resolve_snapshot_voter(proposal_id, &subject, &who)
+                    .ok_or(engingcore::Error::<T>::NoPermission)?;
             (
                 InternalVoteTicket::Institution(InstitutionVoteTicket {
                     role_subject,

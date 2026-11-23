@@ -22,8 +22,7 @@ pub trait CitizenIdentityReader<AccountId> {
     /// 读取投票引擎生成快照所需的四级人口数据；日期未完整推进时必须返回 `None`。
     /// 身份模块不得创建、保存或绑定任何投票快照。
     fn population_data(
-        scope: &identity::PopulationScope,
-    ) -> Option<identity::PopulationData> {
+        scope: &identity::PopulationScope) -> Option<identity::PopulationData> {
         let _ = scope;
         None
     }
@@ -60,8 +59,8 @@ impl<AccountId> CitizenIdentityReader<AccountId> for () {
 
 /// 内部管理员动态提供器。
 ///
-/// 机构管理员查询只用于业务入口确认签名账户属于机构人员名册；机构投票资格只能来自
-/// `InstitutionRoleProvider` 的岗位有效任职快照。个人多签继续使用独立管理员快照。
+/// 机构管理员查询只用于当前业务入口确认真实签名钱包；机构投票资格只能来自
+/// 提案冻结的钱包和版本。岗位提供器仅用于建案。个人多签继续使用独立管理员快照。
 pub trait InternalAdminProvider<AccountId> {
     fn is_institution_admin(
         institution_code: InstitutionCode,
@@ -69,16 +68,13 @@ pub trait InternalAdminProvider<AccountId> {
         who: &AccountId,
     ) -> bool;
 
-    /// 把机构岗位投票人钱包解析为名册**规范账户**（快照键），实现「换绑不掉权」。
-    ///
-    /// 默认 = 按账户（保持现状语义，测试 mock 直接继承）；生产实现 override 走 CID 解析：
-    /// 运行期该管理员若带公民 CID，则只认该 CID 当前绑定的钱包，换绑后新钱包解析到同一
-    /// 规范账户、旧钱包返回 `None`。返回 `None` 表示 caller 不是该机构当前管理员 → 拒。
-    fn resolve_institution_voter(_cid_number: &[u8], caller: &AccountId) -> Option<AccountId>
-    where
-        AccountId: Clone,
-    {
-        Some(caller.clone())
+    /// 仅在建案时将已批准岗位人员引用转换为同区块的实际管理员钱包及其版本。
+    /// 缺失/重复数据必须返回None；旧提案投票不调用当前名单或此接口。
+    fn institution_wallet_snapshot(
+        _cid_number: &[u8],
+        _references: &[AccountId],
+    ) -> Option<sp_std::vec::Vec<(AccountId, u64)>> {
+        None
     }
 
     /// FRAME benchmark 专用：把指定账户写成目标机构可解析的当前管理员。
@@ -148,10 +144,11 @@ impl<AccountId> InternalAdminProvider<AccountId> for () {
 /// 本接口只暴露岗位任职事实，不解释业务权限。业务模块必须在调用投票引擎前通过
 /// `InstitutionRoleAuthorizationQuery` 完成“CID + 岗位码 + 业务动作”的授权校验。
 pub trait InstitutionRoleProvider<AccountId> {
-    /// 账户是否正在指定机构岗位有效任职。
+    /// 当前签名钱包是否具备指定岗位的有效授权；仅用于建案和当前业务。
     fn is_active_assignment(cid_number: &[u8], who: &AccountId, role_code: &[u8]) -> bool;
 
-    /// 读取指定机构岗位当前全部有效任职账户，用于提案创建时冻结投票资格。
+    /// 建案时读取该岗位的完整有效人员/授权引用，随后映射实际钱包及版本。
+    /// 不得预先排除缺钱包的有效任职，否则会降低原分母；不用于旧提案资格复查。
     fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8])
         -> sp_std::vec::Vec<AccountId>;
 }

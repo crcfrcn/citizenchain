@@ -3,6 +3,8 @@
 #![cfg(test)]
 
 use super::*;
+use engingcore::InstitutionRoleProvider as _;
+use engingcore::{STATUS_PASSED, STATUS_REJECTED};
 use frame_support::{
     assert_noop, assert_ok, derive_impl,
     traits::{ConstU128, ConstU32, Currency, ExistenceRequirement, Hooks, WithdrawReasons},
@@ -10,8 +12,6 @@ use frame_support::{
 use frame_system as system;
 use primitives::cid::china::{china_cb::CHINA_CB, china_ch::CHINA_CH};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use engingcore::InstitutionRoleProvider as _;
-use engingcore::{STATUS_PASSED, STATUS_REJECTED};
 
 type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -123,6 +123,19 @@ impl TestInternalAdminProvider {
 }
 
 impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+    fn institution_wallet_snapshot(
+        _cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        Some(
+            references
+                .iter()
+                .cloned()
+                .map(|wallet| (wallet, 0))
+                .collect(),
+        )
+    }
+
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -303,7 +316,8 @@ impl primitives::fee_policy::OnchainFeeCharger<AccountId32, Balance> for TestOnc
         has_remark: bool,
     ) -> Result<Balance, sp_runtime::DispatchError> {
         let fee = primitives::fee_policy::calculate_onchain_fee(transaction_amount)
-            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 });
+            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 },
+        );
         let imbalance = Balances::withdraw(
             payer_account_id,
             fee,

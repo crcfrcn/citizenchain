@@ -213,7 +213,7 @@ async fn fetch_active_assignments_at(
     finalized: &FinalizedChainView,
 ) -> Result<Option<Vec<InstitutionAssignmentView>>, String> {
     let cid_number = identity.cid_number.as_str();
-    let Some(admins) = fetch_active_admins_onchain_at(identity, finalized).await? else {
+    let Some(admins) = fetch_active_admins_onchain_at(identity, finalized, None).await? else {
         return Ok(None);
     };
     let active_admins: HashMap<[u8; 32], ActiveAdminRoleProjection> = admins
@@ -355,7 +355,7 @@ pub async fn fetch_authorized_public_roles_at(
     if public.is_none() || private.is_some() {
         return Err("institution does not have a unique public entity".to_string());
     }
-    let admins = fetch_active_admins_onchain_at(identity, &finalized)
+    let admins = fetch_active_admins_onchain_at(identity, &finalized, None)
         .await?
         .ok_or_else(|| "institution admin roster missing".to_string())?;
     let active_admins: HashMap<_, _> = admins
@@ -481,11 +481,13 @@ pub async fn fetch_all_federal_registry_assignments(
         .collect())
 }
 
-/// 岗位定义与任职使用同一链上快照；account_id是名册锚点，signer_id是当前钱包，不互相覆盖。
+/// 岗位定义与任职使用同一链上快照；account_id与signer_id均为实际管理员钱包；authorization_account_id只关联既有岗位授权。
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GovernanceMember {
     pub account_id: String,
+    /// 已批准岗位资料引用；不作为管理员或钱包变更目标。
+    pub authorization_account_id: String,
     pub signer_id: String,
     pub cid_number: String,
     pub family_name: String,
@@ -632,7 +634,7 @@ fn governance_roles(
     Ok(output)
 }
 
-/// 登记使用原始账户锚点和二进制来源；展示用的当前钱包、中文标签不得参与指纹。
+/// 登记指纹使用实际管理员账户、原始任职账户引用和二进制来源；中文标签不得参与指纹。
 #[derive(Debug)]
 pub struct RegistrationSnapshot {
     owner: AdminPallet,
@@ -647,6 +649,8 @@ pub struct RegistrationSnapshot {
     assignments: Vec<(Vec<u8>, Vec<RawInstitutionAssignment>)>,
     nonce: u64,
     pub threshold: Option<u32>,
+    pub wallet_states: BTreeMap<[u8; 32], adminbase::InstitutionAdminWalletState<[u8; 32]>>,
+    pub role_authorizations: BTreeMap<[u8; 32], [u8; 32]>,
 }
 
 impl RegistrationSnapshot {
@@ -656,6 +660,111 @@ impl RegistrationSnapshot {
         } else {
             b"pub-mgmt"
         }
+    }
+
+    pub fn validate_wallet_action(
+        &self,
+        action: &entitybase::InstitutionGovernanceAction<[u8; 32]>,
+        actor_role: &[u8],
+    ) -> Result<(), String> {
+        let entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+            added,
+            removed,
+            replaced,
+        } = action
+        else {
+            return Err("not a wallet registration action".into());
+        };
+        let current = self.admins.as_deref().unwrap_or_default();
+        if added.len() + removed.len() + replaced.len() == 0
+            || added.len() + removed.len() + replaced.len() > 1989
+        {
+            return Err("empty or oversized wallet operation".into());
+        }
+        if primitives::governance_skeleton::fixed_institution_by_identity(
+            self.institution.institution_code,
+            &self.cid_number,
+        )
+        .is_some()
+            && (!added.is_empty() || !removed.is_empty())
+        {
+            return Err("fixed institution wallet count cannot change".into());
+        }
+        if self.module_tag() == b"pub-mgmt" {
+            let mut cids = std::collections::BTreeSet::new();
+            if current
+                .iter()
+                .filter(|a| !removed.iter().any(|(w, _)| w == &a.account_id))
+                .chain(added.iter())
+                .filter(|a| !a.cid_number.is_empty())
+                .any(|a| !cids.insert(a.cid_number.clone()))
+            {
+                return Err("duplicate public citizen metadata".into());
+            }
+        }
+        let mut sources = std::collections::BTreeSet::new();
+        let mut targets = std::collections::BTreeSet::new();
+        for (wallet, revision) in removed.iter().map(|(w, r)| (w, r)).chain(
+            replaced
+                .iter()
+                .map(|c| (&c.admin_account, &c.expected_revision)),
+        ) {
+            if !sources.insert(*wallet)
+                || !current.iter().any(|a| &a.account_id == wallet)
+                || !self
+                    .wallet_states
+                    .get(wallet)
+                    .is_some_and(|s| s.wallet == Some(*wallet) && s.revision == *revision)
+            {
+                return Err("wallet membership or version changed".into());
+            }
+        }
+        for wallet in added
+            .iter()
+            .map(|a| &a.account_id)
+            .chain(replaced.iter().map(|c| &c.new_wallet))
+        {
+            if !targets.insert(*wallet)
+                || current.iter().any(|a| &a.account_id == wallet)
+                || sources.contains(wallet)
+            {
+                return Err("duplicate wallet target".into());
+            }
+        }
+        for change in replaced {
+            if change.admin_account != change.expected_wallet
+                || change.expected_wallet == change.new_wallet
+            {
+                return Err("old wallet mismatch".into());
+            }
+            if self.institution.institution_code == primitives::cid::code::FRG {
+                let reference = self
+                    .role_authorizations
+                    .get(&change.admin_account)
+                    .ok_or("role authorization missing")?;
+                if !self.assignments.iter().any(|(role, rows)| {
+                    role == actor_role
+                        && rows.iter().any(|a| {
+                            &a.account_id == reference
+                                && self.roles.get(role).is_some_and(|r| {
+                                    r.role_status == ROLE_STATUS_ACTIVE
+                                        && assignment_is_effective(r, a, self.current_day)
+                                })
+                        })
+                }) {
+                    return Err("target wallet is outside registrar province group".into());
+                }
+            }
+        }
+        if current
+            .len()
+            .saturating_sub(removed.len())
+            .saturating_add(added.len())
+            > 1989
+        {
+            return Err("too many wallets".into());
+        }
+        Ok(())
     }
 
     /// 与entity call 9逐字段同序；Option名册、岗位排序、任职原始顺序都不能改写。
@@ -838,8 +947,40 @@ async fn registration_snapshot_at(
     {
         return Err("registration roster identity mismatch".into());
     }
+    let mut wallet_states = BTreeMap::new();
+    let mut role_authorizations = BTreeMap::new();
+    for admin in roster
+        .as_ref()
+        .map(|r| r.admins.as_slice())
+        .unwrap_or_default()
+    {
+        let state = crate::chain_runtime::institution_wallet_state_at(
+            &finalized.storage(),
+            pallet,
+            cid.as_bytes(),
+            &admin.account_id,
+        )
+        .await?
+        .ok_or("institution wallet state missing")?;
+        if state.wallet != Some(admin.account_id) {
+            return Err("institution wallet mismatch".into());
+        }
+        wallet_states.insert(admin.account_id, state);
+        role_authorizations.insert(
+            admin.account_id,
+            crate::chain_runtime::institution_role_authorization_at(
+                &finalized.storage(),
+                pallet,
+                cid.as_bytes(),
+                &admin.account_id,
+            )
+            .await?,
+        );
+    }
     Ok(RegistrationSnapshot {
         owner: pallet,
+        wallet_states,
+        role_authorizations,
         block_hash: finalized.block_hash.0,
         block_number: finalized.block_number,
         current_day: finalized.current_day().await?,
@@ -870,25 +1011,7 @@ pub struct RegistrationRoleChoice {
 }
 
 fn registration_role_in_scope(actor: &[u8], role: &[u8], target: &[u8], code: [u8; 4]) -> bool {
-    use primitives::{
-        cid::{code as codes, number},
-        institution_constraints as constraints,
-    };
-    if codes::is_fixed_governance_code(&code) || constraints::is_permanent_singleton_code(&code) {
-        return false;
-    }
-    let Ok(parts) = number::parse_cid_number_parts_bytes(actor) else {
-        return false;
-    };
-    let Ok((province, city)) = number::cid_scope_codes(target) else {
-        return false;
-    };
-    if parts.institution == codes::FRG {
-        return role == primitives::governance_skeleton::province_commissioner_role_code(province);
-    }
-    parts.institution == *b"CREG"
-        && code != *b"CREG"
-        && number::cid_scope_codes(actor).is_ok_and(|scope| scope == (province, city))
+    primitives::institution_constraints::registry_wallet_role_in_scope(actor, role, target, code)
 }
 
 /// 使用同一finalized区块的有效名册、任职、权限和既有登记辖区规则。
@@ -961,7 +1084,7 @@ pub async fn fetch_governance_state(
         .collect();
     let permissions = snapshot.permissions.iter().cloned().collect();
     let mut members = Vec::new();
-    for admin in fetch_active_admins_onchain_at(identity, &finalized)
+    for admin in fetch_active_admins_onchain_at(identity, &finalized, None)
         .await?
         .unwrap_or_default()
     {
@@ -969,19 +1092,20 @@ pub async fn fetch_governance_state(
             &finalized.storage(),
             pallet,
             identity.cid_number.as_bytes(),
-            &admin.role_account_id,
+            &crate::authentication::login::parse_account_id_bytes(&admin.account_id)
+                .ok_or("invalid member wallet")?,
         )
         .await?;
-        let revision = match state {
-            None => 0,
-            Some(s) if s.wallet.is_none() => s
-                .revision
-                .checked_add(1)
-                .ok_or("wallet revision exhausted")?,
-            Some(s) => s.revision,
-        };
+        let state = state.ok_or("institution wallet state missing")?;
+        let wallet = crate::authentication::login::parse_account_id_bytes(&admin.account_id)
+            .ok_or("invalid member wallet")?;
+        if state.wallet != Some(wallet) {
+            return Err("institution wallet state inactive or mismatched".into());
+        }
+        let revision = state.revision;
         members.push(GovernanceMember {
-            account_id: format!("0x{}", hex::encode(admin.role_account_id)),
+            account_id: admin.account_id.clone(),
+            authorization_account_id: format!("0x{}", hex::encode(admin.role_account_id)),
             signer_id: admin.account_id,
             cid_number: admin.cid_number,
             family_name: admin.family_name,

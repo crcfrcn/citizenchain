@@ -123,19 +123,26 @@ pub fn initial_institution_wallet_state<AccountId: Clone + PartialEq>(
     })
 }
 
-/// 公私权共用的更新规则；调用方提供本机构其他在册管理员的已初始化钱包。
+/// 旧钱包退役、新钱包登记使用各自历史版本。更换不是把原地址当永久身份。
 pub fn changed_institution_wallet_state<AccountId: Clone + PartialEq>(
     state: Option<&InstitutionAdminWalletState<AccountId>>,
+    new_previous: Option<&InstitutionAdminWalletState<AccountId>>,
     change: &InstitutionAdminWalletChange<AccountId>,
     other_wallets: &[AccountId],
-) -> Result<InstitutionAdminWalletState<AccountId>, InstitutionAdminWalletError> {
+) -> Result<
+    (
+        InstitutionAdminWalletState<AccountId>,
+        InstitutionAdminWalletState<AccountId>,
+    ),
+    InstitutionAdminWalletError,
+> {
     use InstitutionAdminWalletError as Error;
     let state = state.ok_or(Error::Uninitialized)?;
     let current = state.wallet.as_ref().ok_or(Error::Inactive)?;
     if state.revision != change.expected_revision {
         return Err(Error::StaleRevision);
     }
-    if current != &change.expected_wallet {
+    if change.admin_account != change.expected_wallet || current != &change.expected_wallet {
         return Err(Error::OldWalletMismatch);
     }
     if current == &change.new_wallet {
@@ -144,13 +151,14 @@ pub fn changed_institution_wallet_state<AccountId: Clone + PartialEq>(
     if other_wallets.contains(&change.new_wallet) {
         return Err(Error::DuplicateWallet);
     }
-    Ok(InstitutionAdminWalletState {
-        wallet: Some(change.new_wallet.clone()),
-        revision: state
-            .revision
-            .checked_add(1)
-            .ok_or(Error::RevisionOverflow)?,
-    })
+    let retired = retired_institution_wallet_state(Some(state), change.expected_revision)?;
+    let next = initial_institution_wallet_state(
+        new_previous,
+        &change.new_wallet,
+        new_previous.map(|s| s.revision),
+        other_wallets,
+    )?;
+    Ok((retired, next))
 }
 
 /// 名册移除后保留不可回退的版本；重复退役不能再次改变状态。

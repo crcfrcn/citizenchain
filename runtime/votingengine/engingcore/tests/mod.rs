@@ -99,6 +99,16 @@ impl ProposalTrackHandler<u64, u64> for Track {
         Self::handles(kind).then_some(Weight::from_parts(1_000, 32))
     }
 }
+pub struct FixtureWallets;
+impl crate::InternalAdminProvider<u64> for FixtureWallets {
+    fn is_institution_admin(_code: crate::types::InstitutionCode, _cid: &[u8], _who: &u64) -> bool {
+        false
+    }
+    fn institution_wallet_snapshot(_cid: &[u8], references: &[u64]) -> Option<Vec<(u64, u64)>> {
+        Some(references.iter().map(|wallet| (*wallet, 0)).collect())
+    }
+}
+
 impl Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
@@ -123,7 +133,7 @@ impl Config for Test {
     type CitizenIdentityReader = ();
     type JointVoteResultCallback = ();
     type InternalVoteResultCallback = Callback;
-    type InternalAdminProvider = ();
+    type InternalAdminProvider = FixtureWallets;
     type MaxAdminsPerInstitution = ConstU32<8>;
     type TimeProvider = Clock;
     type WeightInfo = ();

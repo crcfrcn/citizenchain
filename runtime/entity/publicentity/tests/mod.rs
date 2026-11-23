@@ -175,7 +175,8 @@ impl primitives::fee_policy::OnchainFeeCharger<AccountId32, Balance> for TestOnc
         has_remark: bool,
     ) -> Result<Balance, sp_runtime::DispatchError> {
         let fee = primitives::fee_policy::calculate_onchain_fee(transaction_amount)
-            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 });
+            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 },
+        );
         let imbalance = Balances::withdraw(
             payer_account_id,
             fee,
@@ -234,6 +235,27 @@ fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<Account
 
 pub struct TestInternalAdminProvider;
 impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+    fn institution_wallet_snapshot(
+        cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        let key = adminbase::AdminCidNumber::try_from(cid.to_vec()).ok()?;
+        let roster = publicadmin::AdminAccounts::<Test>::get(&key)?;
+        let mut entries = std::collections::BTreeMap::new();
+        for admin in roster.admins {
+            let state = publicadmin::AdminWallets::<Test>::get(&key, &admin.account_id)?;
+            let reference = publicadmin::WalletRoleBindings::<Test>::get(&key, &admin.account_id)?;
+            if state.wallet.as_ref() != Some(&admin.account_id)
+                || entries
+                    .insert(reference, (admin.account_id, state.revision))
+                    .is_some()
+            {
+                return None;
+            }
+        }
+        references.iter().map(|r| entries.get(r).cloned()).collect()
+    }
+
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -312,10 +334,7 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
     }
 
     fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
-        <crate::Pallet<Test> as entitybase::InstitutionRoleQuery<AccountId32>>::active_accounts_for_role(
-            cid_number,
-            role_code,
-        )
+        crate::Pallet::<Test>::snapshot_role_references(cid_number, role_code)
     }
 }
 
@@ -394,7 +413,9 @@ impl adminbase::ChainPhaseCheck for TestChainPhase {
 pub struct TestCitizenBinding;
 impl adminbase::CitizenIdentityBindingQuery<AccountId32> for TestCitizenBinding {
     fn current_account(cid_number: &[u8]) -> Option<AccountId32> {
-        CID_WALLET.with(|cell| cell.borrow().as_ref().filter(|(cid, _)| cid.as_slice() == cid_number).map(|(_, wallet)| wallet.clone()))
+        CID_WALLET.with(|cell| {
+            cell.borrow().as_ref().filter(|(cid, _)| cid.as_slice() == cid_number).map(|(_, wallet)| wallet.clone())
+        })
     }
     fn matches_citizen_account(cid_number: &[u8], account: &AccountId32) -> bool {
         CID_WALLET.with(|cell| {
@@ -425,9 +446,6 @@ impl publicadmin::Config for Test {
 impl privateadmin::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxAdminsPerInstitution = ConstU32<1989>;
-    type ChainPhase = ();
-    type CitizenIdentityBinding = ();
-    type LegalRepresentativeQuery = ();
 }
 
 /// 岗位生命周期单测只验证 entity 约束，允许测试 CID 持有提交的业务动作权限。
@@ -446,7 +464,8 @@ impl entitybase::InstitutionCapabilityPolicy for TestInstitutionCapabilityPolicy
 pub struct RecordAccountRegistration;
 impl frame_support::traits::OnNewAccount<AccountId32> for RecordAccountRegistration {
     fn on_new_account(account: &AccountId32) {
-        sp_io::storage::set(&codec::Encode::encode(&(b"evm-receive-registration", account)), &[1]);
+        sp_io::storage::set(&codec::Encode::encode(&(b"evm-receive-registration", account)), &[1],
+        );
     }
 }
 impl frame_support::traits::Get<frame_support::weights::Weight> for RecordAccountRegistration {
@@ -458,7 +477,8 @@ impl adminbase::InstitutionWalletSignatureVerifier<AccountId32> for TestInstitut
     fn verify(account: &AccountId32, payload: &[u8], proof: &[u8]) -> bool {
         let Ok(signature) = <[u8;64]>::try_from(proof) else { return false; };
         let raw: [u8;32] = *account.as_ref();
-        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload);
+        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload,
+        );
         sp_io::crypto::sr25519_verify(&signature.into(), &message, &raw.into())
     }
 }
@@ -688,3 +708,14 @@ mod cases;
 
 // 原仅供测试的账户构造，统一归所属测试目录。
 mod accounts;
+
+
+fn seed_institution_admins(cid:&pallet::CidNumberOf<Test>,code:InstitutionCode,rows:&pallet::InstitutionAdminsInputOf<Test>)->frame_support::dispatch::DispatchResult {
+    use adminbase::{InstitutionAdminLifecycle,InstitutionAdminWalletQuery};
+    let old=PublicAdmins::institution_admins(code,cid).unwrap_or_default();
+    let removed=old.into_iter().map(|a|{let v=PublicAdmins::institution_wallet_state(code,cid,&a).unwrap().revision;(a,v)}).collect::<Vec<_>>();
+    if !removed.is_empty(){PublicAdmins::update_institution_wallets(cid.to_vec(),code,vec![],removed,vec![])?;}
+    if !rows.is_empty(){PublicAdmins::update_institution_wallets(cid.to_vec(),code,rows.to_vec(),vec![],vec![])?;}
+    pallet::InstitutionRoleNonce::<Test>::mutate(cid,|n|*n+=1);
+    Ok(())
+}

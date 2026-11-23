@@ -212,8 +212,7 @@ impl<T: Config> Pallet<T> {
             // 人口数据并在本提案下生成快照；后续失败由外层事务整体回滚。
             match <engingcore::Pallet<T>>::create_population_snapshot(
                 id,
-                &PopulationScope::Country,
-            ) {
+                &PopulationScope::Country) {
                 Ok(0) => {
                     return TransactionOutcome::Rollback(Err(
                         Error::<T>::CitizenEligibleTotalNotSet.into(),
@@ -273,9 +272,9 @@ impl<T: Config> Pallet<T> {
             ),
             engingcore::Error::<T>::NoPermission
         );
-        // 票据按【规范账户】防重：换绑前后归并为同一张票，杜绝新旧钱包各投一票。
-        let voter_account_id = <engingcore::Pallet<T>>::resolve_subject_voter(&subject, &who)
-            .unwrap_or_else(|| who.clone());
+        // 按该提案冻结的实际钱包去重，版本取自同一不可变快照，不能继承或重置旧票。
+        let voter_account_id = <engingcore::Pallet<T>>::resolve_snapshot_voter(proposal_id, &subject, &who)
+                .ok_or(engingcore::Error::<T>::NoPermission)?;
         let ticket = InstitutionVoteTicket {
             role_subject,
             voter_account_id,

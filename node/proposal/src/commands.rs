@@ -10,7 +10,9 @@ pub async fn get_proposal_page(
     start_id: String,
     count: u32,
 ) -> Result<crate::types::ProposalPageResult, String> {
-    let start_id = start_id.parse::<u128>().map_err(|_| "提案 ID 超出 u128 范围")?;
+    let start_id = start_id
+        .parse::<u128>()
+        .map_err(|_| "提案 ID 超出 u128 范围")?;
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行，无法查询提案".to_string());
@@ -26,7 +28,9 @@ pub async fn get_proposal_detail(
     app: AppHandle,
     proposal_id: String,
 ) -> Result<crate::types::ProposalFullInfo, String> {
-    let proposal_id = proposal_id.parse::<u128>().map_err(|_| "提案 ID 超出 u128 范围")?;
+    let proposal_id = proposal_id
+        .parse::<u128>()
+        .map_err(|_| "提案 ID 超出 u128 范围")?;
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行，无法查询提案".to_string());
@@ -43,9 +47,11 @@ pub async fn get_next_proposal_id(app: AppHandle) -> Result<String, String> {
     if !status.running {
         return Err("节点未运行，无法查询提案 ID".to_string());
     }
-    tauri::async_runtime::spawn_blocking(|| crate::query::fetch_next_proposal_id().map(|id| id.to_string()))
-        .await
-        .map_err(|e| format!("next proposal id task failed: {e}"))?
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::query::fetch_next_proposal_id().map(|id| id.to_string())
+    })
+    .await
+    .map_err(|e| format!("next proposal id task failed: {e}"))?
 }
 
 /// 获取机构活跃提案 ID 列表（需要节点运行）。
@@ -82,7 +88,9 @@ pub async fn get_institution_proposal_page(
     start_id: String,
     count: u32,
 ) -> Result<crate::types::ProposalPageResult, String> {
-    let start_id = start_id.parse::<u128>().map_err(|_| "提案 ID 超出 u128 范围")?;
+    let start_id = start_id
+        .parse::<u128>()
+        .map_err(|_| "提案 ID 超出 u128 范围")?;
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行，无法查询提案".to_string());
@@ -102,7 +110,9 @@ pub async fn get_proposal_display(
     app: AppHandle,
     proposal_id: String,
 ) -> Result<Option<crate::types::ProposalDisplayMeta>, String> {
-    let proposal_id = proposal_id.parse::<u128>().map_err(|_| "提案 ID 超出 u128 范围")?;
+    let proposal_id = proposal_id
+        .parse::<u128>()
+        .map_err(|_| "提案 ID 超出 u128 范围")?;
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行,无法查询展示号".to_string());
@@ -125,7 +135,8 @@ pub async fn list_proposals_by_institution(
         return Err("节点未运行,无法查询反向索引".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        crate::query::fetch_proposals_by_institution_code(&institution_code).map(|ids| ids.into_iter().map(|id| id.to_string()).collect())
+        crate::query::fetch_proposals_by_institution_code(&institution_code)
+            .map(|ids| ids.into_iter().map(|id| id.to_string()).collect())
     })
     .await
     .map_err(|e| format!("proposals by org task failed: {e}"))?
@@ -133,14 +144,20 @@ pub async fn list_proposals_by_institution(
 
 /// 反向索引:列出 `ProposalsByCid[cidNumber]` 下所有 proposal_id。
 #[tauri::command]
-pub async fn list_proposals_by_cid(app: AppHandle, cid_number: String) -> Result<Vec<String>, String> {
+pub async fn list_proposals_by_cid(
+    app: AppHandle,
+    cid_number: String,
+) -> Result<Vec<String>, String> {
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行,无法查询反向索引".to_string());
     }
-    tauri::async_runtime::spawn_blocking(move || crate::query::fetch_proposals_by_cid(&cid_number).map(|ids| ids.into_iter().map(|id| id.to_string()).collect()))
-        .await
-        .map_err(|e| format!("proposals by cid task failed: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::query::fetch_proposals_by_cid(&cid_number)
+            .map(|ids| ids.into_iter().map(|id| id.to_string()).collect())
+    })
+    .await
+    .map_err(|e| format!("proposals by cid task failed: {e}"))?
 }
 
 /// 反向索引:列出 `ProposalsByOwner[module_tag]` 下所有 proposal_id。
@@ -157,7 +174,8 @@ pub async fn list_proposals_by_owner(
     tauri::async_runtime::spawn_blocking(move || {
         let bytes = hex::decode(module_tag_hex.trim_start_matches("0x"))
             .map_err(|e| format!("module_tag hex 解析失败: {e}"))?;
-        crate::query::fetch_proposals_by_owner(&bytes).map(|ids| ids.into_iter().map(|id| id.to_string()).collect())
+        crate::query::fetch_proposals_by_owner(&bytes)
+            .map(|ids| ids.into_iter().map(|id| id.to_string()).collect())
     })
     .await
     .map_err(|e| format!("proposals by owner task failed: {e}"))?
@@ -172,7 +190,9 @@ pub async fn build_vote_request(
     voter_role_code: Option<String>,
     approve: bool,
 ) -> Result<nodeclient::signing::VoteSignRequestResult, String> {
-    let proposal_id = proposal_id.parse::<u128>().map_err(|_| "提案 ID 超出 u128 范围")?;
+    let proposal_id = proposal_id
+        .parse::<u128>()
+        .map_err(|_| "提案 ID 超出 u128 范围")?;
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行，无法构建签名请求".to_string());
@@ -199,7 +219,9 @@ pub async fn build_joint_vote_request(
     voter_role_code: String,
     approve: bool,
 ) -> Result<nodeclient::signing::VoteSignRequestResult, String> {
-    let proposal_id = proposal_id.parse::<u128>().map_err(|_| "提案 ID 超出 u128 范围")?;
+    let proposal_id = proposal_id
+        .parse::<u128>()
+        .map_err(|_| "提案 ID 超出 u128 范围")?;
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行，无法构建签名请求".to_string());
@@ -230,7 +252,8 @@ pub async fn submit_vote(
     sign_nonce: u32,
     sign_block_number: u64,
     response_json: String,
-) -> Result<nodeclient::signing::VoteSubmitResult, String> {
+    frozen_ticket: Option<crate::types::FrozenVoteBinding>,
+) -> Result<crate::types::ProposalVoteSubmitResult, String> {
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行，无法提交投票".to_string());
@@ -238,7 +261,7 @@ pub async fn submit_vote(
     tauri::async_runtime::spawn_blocking(move || {
         let call_data =
             hex::decode(&call_data_hex).map_err(|e| format!("call_data 解码失败: {e}"))?;
-        nodeclient::signing::verify_and_submit(
+        crate::vote::submit_original_vote(
             &request_id,
             &expected_public_key,
             &expected_payload_hash,
@@ -246,6 +269,7 @@ pub async fn submit_vote(
             sign_nonce,
             sign_block_number,
             &response_json,
+            frozen_ticket,
         )
     })
     .await
@@ -261,7 +285,9 @@ pub async fn check_vote_status(
     cid_number: Option<String>,
     voter_role_code: Option<String>,
 ) -> Result<crate::types::UserVoteStatus, String> {
-    let proposal_id = proposal_id.parse::<u128>().map_err(|_| "提案 ID 超出 u128 范围")?;
+    let proposal_id = proposal_id
+        .parse::<u128>()
+        .map_err(|_| "提案 ID 超出 u128 范围")?;
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行，无法查询投票状态".to_string());

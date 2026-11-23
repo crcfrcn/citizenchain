@@ -14,6 +14,8 @@ fn cid(province: &str, city: &str) -> String {
 }
 fn actor() -> AdminAuthContext {
     AdminAuthContext {
+        wallet_revision: "0".into(),
+        wallet_namespace: onchina::chain_runtime::AdminPallet::PublicAdmins,
         account_id: format!("0x{}", "11".repeat(32)),
         institution_cid_number: "ZS001-FRG07-249474503-2026".into(),
         institution_code: "FRG".into(),
@@ -58,7 +60,9 @@ fn chain_roster_keeps_unassigned_people_and_rebound_wallets_without_local_metada
     let anchor = format!("0x{}", "11".repeat(32));
     let signer = format!("0x{}", "22".repeat(32));
     let member = GovernanceMember {
-        account_id: anchor.clone(),
+        account_id: signer.clone(),
+        authorization_account_id: anchor.clone(),
+        wallet_revision: 0,
         signer_id: signer.clone(),
         cid_number: "CN220-CTZN2-198805200-2026".into(),
         family_name: "张".into(),
@@ -76,6 +80,7 @@ fn chain_roster_keeps_unassigned_people_and_rebound_wallets_without_local_metada
             GovernanceMember {
                 account_id: format!("0x{}", "33".repeat(32)),
                 signer_id: format!("0x{}", "33".repeat(32)),
+                authorization_account_id: format!("0x{}", "33".repeat(32)),
                 ..member
             },
         ],
@@ -110,16 +115,17 @@ fn chain_roster_keeps_unassigned_people_and_rebound_wallets_without_local_metada
     let rows = read(&snapshot);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].account_id, signer);
-    assert_eq!(rows[0].roster_account_id, anchor);
+    assert_eq!(rows[0].roster_account_id, signer);
     assert_eq!(rows[0].role_name, "登记办理岗");
     assert!(rows[1].role_name.is_empty());
     assert!(rows[0].created_at.is_none());
     assert!(rows[0].creator_account_id.is_empty());
     let original_id = rows[0].id.clone();
-    snapshot.members[0].signer_id = format!("0x{}", "44".repeat(32));
+    snapshot.members[0].account_id = format!("0x{}", "44".repeat(32));
+    snapshot.members[0].signer_id = snapshot.members[0].account_id.clone();
     snapshot.roles[0].assignments[0].effective = false;
     let rows = read(&snapshot);
-    assert_eq!(rows[0].id, original_id);
+    assert_ne!(rows[0].id, original_id);
     assert!(rows[0].role_name.is_empty());
     assert_eq!(rows[0].account_id, snapshot.members[0].signer_id);
     assert!(crate::admins::city_registry_admins::chain_registry_rows(

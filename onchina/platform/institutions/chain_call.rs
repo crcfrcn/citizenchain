@@ -37,6 +37,7 @@ pub enum InstitutionAdminsPayload {
 /// 签名/公钥/nonce/作用域,授权由 runtime 在 origin 处以 `is_institution_admin` + 岗位码校验。
 #[derive(Debug, Clone)]
 pub struct ProposeInstitutionGovernanceArgs {
+    pub is_private: bool,
     pub cid_number: Vec<u8>,
     /// `entitybase::InstitutionGovernanceAction` 的 SCALE 字节。
     pub governance_action: Vec<u8>,
@@ -52,6 +53,8 @@ pub struct ProposeInstitutionGovernanceArgs {
 /// 在册管理员 + 对目标机构有登记权),call 不嵌独立凭证签名/公钥/nonce/作用域。
 #[derive(Debug, Clone)]
 pub struct RegisterInstitutionAdminsArgs {
+    /// 由目标机构实际命名空间确定，UNIN不能仅按机构码选择公权pallet。
+    pub is_private: bool,
     pub cid_number: Vec<u8>,
     pub action: entitybase::InstitutionGovernanceAction<[u8; 32]>,
     pub institution_code: [u8; 4],
@@ -119,7 +122,11 @@ pub struct ChainCall {
 
 /// 编码机构内部治理提案调用。字段顺序与 runtime call index 8 完全一致。
 pub fn encode_propose_institution_governance(args: &ProposeInstitutionGovernanceArgs) -> ChainCall {
-    let pallet_index = institution_manage_pallet_index(&args.institution_code);
+    let pallet_index = if args.is_private {
+        PRIVATE_MANAGE_PALLET_INDEX
+    } else {
+        PUBLIC_MANAGE_PALLET_INDEX
+    };
     let mut out = vec![pallet_index, PROPOSE_INSTITUTION_GOVERNANCE_CALL_INDEX];
 
     encode_bytes(&mut out, &args.cid_number);
@@ -136,7 +143,11 @@ pub fn encode_propose_institution_governance(args: &ProposeInstitutionGovernance
 /// 复用统一治理action；call 9顺序为CID、action、办理机构、岗位、状态指纹、初始阈值。
 /// 状态冲突必须刷新后重新审阅签名，不能自动重建已签名载荷。
 pub fn encode_register_institution_admins(args: &RegisterInstitutionAdminsArgs) -> ChainCall {
-    let pallet_index = institution_manage_pallet_index(&args.institution_code);
+    let pallet_index = if args.is_private {
+        PRIVATE_MANAGE_PALLET_INDEX
+    } else {
+        PUBLIC_MANAGE_PALLET_INDEX
+    };
     let mut out = vec![pallet_index, REGISTER_INSTITUTION_ADMINS_CALL_INDEX];
 
     encode_bytes(&mut out, &args.cid_number);

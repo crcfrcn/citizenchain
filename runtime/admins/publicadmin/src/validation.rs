@@ -48,23 +48,10 @@ impl<T: Config> Pallet<T> {
                     Error::<T>::InvalidAdminsLen
                 )
             }
-            None => match primitives::institution_constraints::member_composition_by_identity(
-                institution_code,
-                cid_number,
-            ) {
-                Some(spec) => ensure!(
-                    admins.len() >= spec.min_members as usize
-                        && admins.len() <= spec.max_members as usize,
-                    Error::<T>::InvalidAdminsLen
-                ),
-                None => {
-                    ensure!(!admins.is_empty(), Error::<T>::InvalidAdminsLen);
-                    ensure!(
+            None => ensure!(
                         admins.len() <= <T as Config>::MaxAdminsPerInstitution::get() as usize,
                         Error::<T>::InvalidAdminsLen
-                    );
-                }
-            },
+                    ),
         }
         // 运行期(Operation):公权机构所有管理员四要素完整;Genesis 放行=允许空。
         // 校验原始字段(本 pallet 不 normalize,无默认值掩盖问题)。

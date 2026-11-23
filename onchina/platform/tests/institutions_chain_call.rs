@@ -96,6 +96,7 @@ fn public_admin_payload_encodes_account_cid_family_name_and_given_name() {
 #[test]
 fn governance_payload_matches_runtime_call_field_order() {
     let args = ProposeInstitutionGovernanceArgs {
+        is_private:true,
         cid_number: b"LN001-SFAS-0001".to_vec(),
         governance_action: vec![0, 8, b'A'],
         institution_code: *b"SFAS",
@@ -148,6 +149,7 @@ fn register_admins_payload_matches_runtime_call_field_order() {
                 }
             };
             let args = RegisterInstitutionAdminsArgs {
+                is_private: pallet == 31,
                 cid_number: b"LN001-SFAS1-123456789-2026".to_vec(),
                 action,
                 institution_code,
@@ -267,6 +269,7 @@ fn private_institution_routes_add_and_close_to_pallet_31() {
 fn registration_call_golden_is_shared_with_cold_wallet() {
     use codec::DecodeAll;
     let args = RegisterInstitutionAdminsArgs {
+        is_private: false,
         cid_number: b"NX013-CREGN-937676656-2026".to_vec(),
         action: entitybase::InstitutionGovernanceAction::ReplaceAdmins {
             admins: vec![private_admin([0x41; 32], "", "")],
@@ -284,5 +287,34 @@ fn registration_call_golden_is_shared_with_cold_wallet() {
             .unwrap()
             .encode(),
         encoded
+    );
+}
+
+#[test]
+fn private_owned_unincorporated_wallet_registration_uses_actual_namespace() {
+    let action = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+        added: vec![private_admin([8; 32], "F", "G")],
+        removed: vec![],
+        replaced: vec![],
+    };
+    let args = RegisterInstitutionAdminsArgs {
+        is_private: true,
+        cid_number: b"NX013-UNIN0-123456789-2026".to_vec(),
+        institution_code: *b"UNIN",
+        action,
+        actor_cid_number: b"NX013-CREGN-937676656-2026".to_vec(),
+        actor_role_code: b"R".to_vec(),
+        expected_state_hash: [0; 32],
+        initial_threshold: None,
+    };
+    assert_eq!(
+        encode_register_institution_admins(&args).call_data[..2],
+        [31, 9]
+    );
+    let mut public = args;
+    public.is_private = false;
+    assert_eq!(
+        encode_register_institution_admins(&public).call_data[..2],
+        [30, 9]
     );
 }

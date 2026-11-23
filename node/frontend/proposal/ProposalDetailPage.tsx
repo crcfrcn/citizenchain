@@ -1,17 +1,14 @@
 // 展示提案详情、阶段和计票，提供当前用户可用的投票入口。
 
 import { proposalApi } from './api';
-import { councilApi } from '../institution/council';
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { MultisigTransferProposalDetailSection } from "../multisig/ProposalDetailSection";
-import { adminsChangeApi } from "../institution/admins";
-import { InstitutionAssignmentCard } from "../institution/InstitutionAssignmentCard";
-import type { ProposalFullInfo, UserVoteStatus } from "./types";
-import type { AdminSignerMatch, InstitutionDetail } from "../institution/council";
-import { VoteSigningFlow } from "./VoteSigningFlow";
+import type { ProposalFullInfo, FrozenVoteBinding } from "./types";
+import type { AdminSignerMatch } from "../institution/council";
+import { VoteSigningFlow, readPendingFrozenVote, clearPendingFrozenVote } from "./VoteSigningFlow";
 // 提案详情页：提案元数据 + 业务详情模块挂载 + 投票进度 + 管理员投票状态列表。
-// 从提案列表和机构页面进入时行为一致：自动检测管理员账户权限。
+// 投票资格来自原提案；现任管理员不继承旧票。
 import { useEffect, useState, useCallback, useRef } from 'react';
 import '../institution/styles.css';
 
@@ -22,154 +19,51 @@ type Props = {
   onBack: () => void;
 };
 
-type VoteStatuses = Partial<Record<string, UserVoteStatus>>;
-
+// 不从当前管理员/人员目录重算历史投票人。
 export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSigners, cidNumber: externalCidNumber, onBack }: Props) {
   const [info, setInfo] = useState<ProposalFullInfo | null>(null);
-  const [institution, setInstitution] = useState<InstitutionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [votingSigner, setVotingSigner] = useState<AdminSignerMatch | null>(null);
-  const [voteStatuses, setVoteStatuses] = useState<VoteStatuses>({});
-  const [detectedAdminSigners, setDetectedAdminSigners] = useState<AdminSignerMatch[]>([]);
-  const [resolvedCidNumber, setResolvedCidNumber] = useState<string | undefined>(externalCidNumber);
-  // 投票中（已提交但未确认上链）的签名账户 ID → 提交时间
-  const [pendingVotes, setPendingVotes] = useState<Map<string, number>>(new Map());
-  // 双层 ID v1:展示号反查值,链上 ProposalDisplayId[id] 拉取
-  const [displayMeta, setDisplayMeta] = useState<import('./types').ProposalDisplayMeta | null>(
-    null,
-  );
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // 超过 5 分钟未确认的投票视为丢失
-  const PENDING_TIMEOUT_MS = 5 * 60 * 1000;
-
-  const adminSigners = externalAdminSigners.length > 0 ? externalAdminSigners : detectedAdminSigners;
-  const cidNumber = resolvedCidNumber;
-
-  const fetchVoteStatuses = useCallback(async (
-    pid: string, admins: InstitutionDetail['admins'], sid: string | undefined,
-    voterRoleSubjects: ProposalFullInfo['voterRoleSubjects'],
-  ) => {
-    const eligibleRoleCodes = new Set(
-      voterRoleSubjects
-        .filter((subject) => subject.cidNumber === sid)
-        .map((subject) => subject.roleCode),
-    );
-    const results: VoteStatuses = {};
-    await Promise.all(
-      admins.flatMap((admin) => {
-        const assignments = admin.assignments.filter((assignment) =>
-          eligibleRoleCodes.has(assignment.roleCode));
-        return assignments.map(async (assignment) => {
-          try {
-            const { roleCode } = assignment;
-            const vs = await proposalApi.checkVoteStatus(pid, admin.accountId, sid, roleCode);
-            results[`${admin.accountId}:${roleCode}`] = vs;
-          } catch (_) {
-            // 查询失败的岗位没有结果，只有链上确认未投票的岗位才能发起签名。
-          }
-        });
-      }),
-    );
-    setVoteStatuses(results);
-    return results;
-  }, []);
-
-  const refreshData = useCallback(async (inst?: InstitutionDetail | null, sid?: string) => {
-    const curInst = inst ?? institution;
-    const curSid = sid ?? cidNumber;
-    let d: ProposalFullInfo | null = null;
+  const [votingTicket, setVotingTicket] = useState<FrozenVoteBinding | null>(null);
+  const [displayMeta, setDisplayMeta] = useState<import('./types').ProposalDisplayMeta | null>(null);
+  const epoch = useRef(0);
+  const previousChain = useRef<string | null>(null);
+  const signersKey = externalAdminSigners.map(s => s.accountId).sort().join(',');
+  const refreshData = useCallback(async () => {
+    const token = epoch.current;
     try {
-      d = await proposalApi.getProposalDetail(proposalId);
-      setInfo(d);
-    } catch (_) {}
-    if (curInst && curSid && d) {
-      const statuses = await fetchVoteStatuses(
-        proposalId,
-        curInst.admins,
-        curSid,
-        d.voterRoleSubjects,
-      );
-      // 已确认上链的投票或超时的投票，从 pending 中移除
-      setPendingVotes((prev) => {
-        const next = new Map(prev);
-        const now = Date.now();
-        for (const [ticketKey, submittedAt] of prev) {
-          const voteStatus = statuses[ticketKey];
-          const voted = voteStatus &&
-            (voteStatus.internalVote != null || voteStatus.jointVote != null);
-          const timedOut = now - submittedAt > PENDING_TIMEOUT_MS;
-          if (voted || timedOut) next.delete(ticketKey);
-        }
-        return next;
-      });
-    }
-  }, [proposalId, institution, cidNumber, fetchVoteStatuses]);
-
-  useEffect(() => {
-    setLoading(true);
-    const fetchAll = async () => {
-      const [d, dm] = await Promise.all([
-        proposalApi.getProposalDetail(proposalId),
-        proposalApi.getProposalDisplay(proposalId).catch(() => null),
-      ]);
-      setInfo(d);
-      setDisplayMeta(dm ?? null);
-      let sid = externalCidNumber;
-      if (!sid && d.meta.subjectCidNumbers.length > 0) {
-        sid = d.meta.subjectCidNumbers[0];
-        setResolvedCidNumber(sid);
+      const data = await proposalApi.getProposalDetail(proposalId);
+      if (token !== epoch.current) return;
+      const chain = data.frozenVoteView?.genesisHash ?? null;
+      if (previousChain.current !== chain) setVotingTicket(null);
+      previousChain.current = chain;
+      setInfo(data); setError(null);
+      // 只在原票据明确记录同一选择时清理待确认签名。
+      for (const role of data.frozenVoteView?.roles ?? []) for (const voter of role.voters) {
+        if (voter.walletRevision == null || voter.voteError || voter.vote == null) continue;
+        const binding = { genesisHash: data.frozenVoteView!.genesisHash, proposalId,
+          cidNumber: role.cidNumber, roleCode: role.roleCode, accountId: voter.accountId, walletRevision: voter.walletRevision };
+        const pending = readPendingFrozenVote(binding);
+        if (pending?.approve === voter.vote) clearPendingFrozenVote(binding);
       }
-      let signers = externalAdminSigners;
-      if (sid) {
-        try {
-          const inst = await councilApi.getInstitutionDetail(sid);
-          setInstitution(inst);
-          if (externalAdminSigners.length === 0) {
-            const activated = await adminsChangeApi.getActivatedAdmins(sid, {
-              cidNumber: sid,
-            });
-            signers = activated.map((admin) => ({
-
-              accountId: admin.accountId,
-              accountLabel: '',
-            }));
-            setDetectedAdminSigners(signers);
-          }
-          await fetchVoteStatuses(proposalId, inst.admins, sid, d.voterRoleSubjects);
-        } catch (_) {}
-      }
-    };
-    fetchAll()
-      .catch((e) => setError(sanitizeError(e)))
-      .finally(() => setLoading(false));
+    } catch (e) { if (token === epoch.current) setError(sanitizeError(e)); }
+    finally { if (token === epoch.current) setLoading(false); }
   }, [proposalId]);
-
-  // 有 pending 投票时轮询刷新
   useEffect(() => {
-    if (pendingVotes.size > 0) {
-      pollTimerRef.current = setInterval(() => refreshData(), 5000);
-    }
-    return () => {
-      if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
-    };
-  }, [pendingVotes.size, refreshData]);
-
-  // 投票提交成功回调：标记为 pending，关闭弹窗
-  const handleVoteSuccess = useCallback((txHash: string, accountId: string, voterRoleCode: string | null) => {
-    if (accountId) {
-      const ticketKey = `${accountId}:${voterRoleCode ?? ''}`;
-      setPendingVotes((prev) => new Map(prev).set(ticketKey, Date.now()));
-    }
-    setVotingSigner(null);
-    // 立即刷新一次
-    refreshData();
-  }, [refreshData]);
-
+    const token = ++epoch.current;
+    setLoading(true); setInfo(null); setError(null); setVotingTicket(null); setDisplayMeta(null);
+    void refreshData();
+    void proposalApi.getProposalDisplay(proposalId).then(d => {
+      if (token === epoch.current) setDisplayMeta(d);
+    }).catch(() => {});
+    const timer = setInterval(() => { void refreshData(); }, 5000);
+    return () => { ++epoch.current; clearInterval(timer); };
+  }, [proposalId, externalCidNumber, signersKey, refreshData]);
+  const handleVoteSuccess = useCallback(() => { setVotingTicket(null); void refreshData(); }, [refreshData]);
   if (loading) {
     return <div className="governance-section"><p>加载提案详情…</p></div>;
   }
-  if (error) {
+  if (error && !info) {
     return (
       <div className="governance-section">
         <button className="back-button" onClick={onBack}>← 返回</button>
@@ -204,14 +98,13 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
         </span>
       </header>
 
-      {votingSigner && (
-        <VoteSigningFlow
-          proposalId={meta.proposalId}
-          proposalKind={meta.kind}
-          adminSigners={[votingSigner]}
-          cidNumber={cidNumber}
-          onClose={() => setVotingSigner(null)}
-          onSuccess={handleVoteSuccess}
+      {error && <div role="alert" className="error">读取失败：{error}</div>}
+      {votingTicket && (
+        <VoteSigningFlow key={JSON.stringify(votingTicket)}
+          proposalId={meta.proposalId} proposalKind={meta.kind}
+          adminSigners={[{ accountId: votingTicket.accountId, accountLabel: '' }]}
+          frozenTicket={votingTicket} cidNumber={votingTicket.cidNumber}
+          onClose={() => setVotingTicket(null)} onSuccess={handleVoteSuccess}
         />
       )}
 
@@ -261,74 +154,49 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
         )}
       </div>
 
-      {/* 管理员投票状态列表 */}
-      {institution && (
-        <div className="institution-info-section">
-          <h3>管理员投票状态（{institution.admins.length} 人）</h3>
+      {/* 同钱包跨岗位分别显示，状态只取原票据。 */}
+      {info.frozenVoteView && (() => {
+        const view = info.frozenVoteView;
+        const cid = externalCidNumber ?? meta.actorCidNumber ?? meta.subjectCidNumbers[0];
+        const roles = view.roles.filter(role => role.cidNumber === cid);
+        const ticketCount = roles.reduce((n, r) => n + r.voters.length, 0);
+        const walletCount = new Set(roles.flatMap(r => r.voters.map(v => v.accountId))).size;
+        return <div className="institution-info-section">
+          <h3>原提案投票钱包（{walletCount} 个 / {ticketCount} 张岗位票）</h3>
+          {view.scopeError && <p className="error">{view.scopeError}</p>}
+          {!roles.length && <p className="error">原提案中没有该机构的冻结票据</p>}
           <div className="admin-grid proposal-detail-admin-grid">
-            {institution.admins.map((admin, i) => {
-              const accountId = admin.accountId;
-              const localSigner = adminSigners.find(
-                (signer) => signer.accountId === accountId,
-              );
-              const eligibleAssignments = admin.assignments.filter((assignment) =>
-                info.voterRoleSubjects.some((subject) =>
-                  subject.cidNumber === cidNumber && subject.roleCode === assignment.roleCode));
-              const assignmentVotes = eligibleAssignments.map((assignment) => {
-                const vs = voteStatuses[`${accountId}:${assignment.roleCode}`];
-                return meta.kind === 1 ? vs?.jointVote : vs?.internalVote;
-              });
-              const hasVoted = assignmentVotes.length > 0 && assignmentVotes.every((vote) => vote != null);
-              const votedYes = assignmentVotes.includes(true);
-              const votedNo = assignmentVotes.includes(false);
-              const hasPendingTicket = eligibleAssignments.some((assignment) =>
-                pendingVotes.has(`${accountId}:${assignment.roleCode}`));
-              const availableAssignments = eligibleAssignments.filter((assignment) => {
-                const ticketKey = `${accountId}:${assignment.roleCode}`;
-                const status = voteStatuses[ticketKey];
-                return status != null && status.internalVote == null &&
-                  status.jointVote == null && !pendingVotes.has(ticketKey);
-              });
-              const hasUnknownStatus = eligibleAssignments.some((assignment) =>
-                voteStatuses[`${accountId}:${assignment.roleCode}`] == null);
-              const canVote = localSigner && meta.status === 0 && availableAssignments.length > 0;
-
-              return (
-                <InstitutionAssignmentCard
-                  key={accountId}
-                  admin={admin}
-                  compactVote
-                  index={i + 1}
-                  balanceFen={admin.balanceFen}
-                  className={hasVoted && votedYes !== votedNo
-                    ? (votedYes ? 'admin-card-voted-yes' : 'admin-card-voted-no')
-                    : ''}
-                  action={
-                    <>
-                      {votedYes && <span className="vote-result-tag vote-yes-tag">赞成</span>}
-                      {votedNo && <span className="vote-result-tag vote-no-tag">反对</span>}
-                      {canVote ? (
-                        <button className="vote-button-inline" onClick={() => setVotingSigner({
-                          ...localSigner,
-                          roleAssignments: availableAssignments,
-                        })}>
-                          投票
-                        </button>
-                      ) : hasPendingTicket && !hasVoted ? (
-                        <span className="vote-result-tag vote-pending-tag">投票中</span>
-                      ) : !votedYes && !votedNo && (
-                        <span className="vote-result-tag vote-none-tag">
-                          {hasUnknownStatus ? '投票状态未知' : '未投票'}
-                        </span>
-                      )}
-                    </>
-                  }
-                />
-              );
-            })}
+            {roles.map(role => <div key={role.cidNumber + ':' + role.roleCode}>
+              {role.error && <p className="error">{role.error}</p>}
+              {role.voters.map(voter => {
+                const binding: FrozenVoteBinding | null = voter.walletRevision == null ? null : {
+                  genesisHash: view.genesisHash, proposalId, cidNumber: role.cidNumber,
+                  roleCode: role.roleCode, accountId: voter.accountId, walletRevision: voter.walletRevision,
+                };
+                let pending: ReturnType<typeof readPendingFrozenVote> = null;
+                let pendingError = '';
+                try { pending = binding ? readPendingFrozenVote(binding) : null; } catch (e) { pendingError = sanitizeError(e); }
+                const canVote = !pendingError && !error && !view.scopeError && !role.error && !voter.voteError && binding && voter.vote == null &&
+                  view.status === 0 && ((view.kind === 0 && view.stage === 0) || (view.kind === 1 && view.stage === 1)) &&
+                  BigInt(view.blockNumber) <= BigInt(view.endBlock);
+                return <div className="institution-assignment-card" key={voter.accountId + ':' + voter.walletRevision}>
+                  <p><code>{accountIdToSs58(voter.accountId)}</code></p>
+                  <p>原岗位：{role.roleCode} / 冻结钱包版本：{voter.walletRevision ?? '未知'}</p>
+                  <p>姓名及岗位名称：历史资料未记录</p>
+                  {voter.voteError ? <p className="error">投票状态未知：{voter.voteError}</p> :
+                    voter.vote === true ? <span className="vote-yes-tag">赞成</span> :
+                    voter.vote === false ? <span className="vote-no-tag">反对</span> :
+                    <span>{pending ? '已签名，等待链上确认' : '未投票'}</span>}
+                  {pendingError && <p className="error">{pendingError}</p>}
+                  {binding && pending ? <button onClick={() => setVotingTicket(binding)}>恢复原签名</button> :
+                    canVote ? <button onClick={() => setVotingTicket(binding)}>投票</button> : null}
+                </div>;
+              })}
+            </div>)}
           </div>
-        </div>
-      )}
+        </div>;
+      })()}
+
     </div>
   );
 }

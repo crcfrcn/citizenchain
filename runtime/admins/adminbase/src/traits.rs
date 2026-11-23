@@ -59,10 +59,20 @@ pub trait AdminAccountLifecycle<AccountId, AdminItem = AccountId> {
 /// 机构管理员集合写入口。
 ///
 /// 机构的来源、岗位和任职全部由 entity 表达，因此该接口不接收 `creator_account_id`，也不承担
-/// 个人多签的创建语义。公权与私权 entity 只通过本接口原子写入管理员人员集合。
+/// 个人多签的创建语义。公权与私权 entity 只通过显式增删改操作原子写入签名钱包集合。
 pub trait InstitutionAdminLifecycle<AccountId, AdminItem = Admin<AccountId>> {
-    /// 注册局或机构治理写入有效管理员人员集合；机构阈值由 entity 独立保存。
-    fn set_institution_admins(
+    /// 登记钱包操作显式区分，新增/删除不写岗位人员，更换保留原岗位授权引用。
+    fn update_institution_wallets(
+        cid: Vec<u8>,
+        code: InstitutionCode,
+        added: Vec<AdminItem>,
+        removed: Vec<(AccountId, u64)>,
+        replaced: Vec<crate::InstitutionAdminWalletChange<AccountId>>,
+    ) -> DispatchResult;
+
+    /// 仅基准externalities构造夹具；正式构建不存在全量替换接口。
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_set_institution_admins(
         module_tag: &[u8],
         cid_number: Vec<u8>,
         institution_code: InstitutionCode,
@@ -90,20 +100,26 @@ pub trait InstitutionAdminQuery<AccountId> {
 
     fn institution_admins_len(institution_code: InstitutionCode, cid_number: &[u8]) -> Option<u32>;
 
-    /// 把调用者钱包解析为名册中的**规范账户**(canonical `account_id`，即快照键)。
-    /// - 运行期(Operation)对**有 CID** 的管理员：按 identity 绑定解析
-    ///   (`matches_citizen_account(cid, caller)`)，换绑钱包后新钱包解析到同一 canonical、
-    ///   旧钱包不再匹配 →「换绑不掉权」；
-    /// - 创世期，或**无 CID** 的管理员(私权非 LR / 个人多签)：按 `account_id` 直配；
-    /// - 返回 `None` 表示 caller 不是该机构管理员。
-    ///
-    /// 授权链路统一先经本方法解析，再用返回的 canonical 匹配名册与任职，`account_id`
-    /// 由此降为签名快照、CID 成授权锚点(相位门控与 Phase 2 字段强制同一开关)。
+    /// 验证当前真实钱包及其在用版本；返回值始终等于caller。
     fn resolve_admin_account(
         institution_code: InstitutionCode,
         cid_number: &[u8],
         caller: &AccountId,
     ) -> Option<AccountId>;
+
+    /// 已批准岗位签名授权所引用的原记录。不是管理员身份，也不修改人员任职。
+    fn resolve_role_authorization(
+        institution_code: InstitutionCode,
+        cid_number: &[u8],
+        caller: &AccountId,
+    ) -> Option<AccountId>;
+
+    /// 是否仍有当前有效钱包代表该已批准岗位授权引用。
+    fn has_role_authorization(
+        institution_code: InstitutionCode,
+        cid_number: &[u8],
+        reference: &AccountId,
+    ) -> bool;
 }
 
 impl<AccountId> InstitutionAdminQuery<AccountId> for () {
@@ -140,14 +156,24 @@ impl<AccountId> InstitutionAdminQuery<AccountId> for () {
     ) -> Option<AccountId> {
         None
     }
+    fn resolve_role_authorization(
+        _code: InstitutionCode,
+        _cid: &[u8],
+        _caller: &AccountId,
+    ) -> Option<AccountId> {
+        None
+    }
+    fn has_role_authorization(_code: InstitutionCode, _cid: &[u8], _reference: &AccountId) -> bool {
+        false
+    }
 }
 
-/// 公权管理员非空公民 CID 与账户绑定查询。
+/// 管理员资料的个人身份真源查询；不作为机构管理员钱包解析器。
 ///
 /// 实现只能读取 `identity` 真源；publicadmin 不得自行生成或修正公民 CID。
 pub trait CitizenIdentityBindingQuery<AccountId> {
     fn matches_citizen_account(cid_number: &[u8], account: &AccountId) -> bool;
-    /// 只供机构旧授权兼容初始化读取，不能改写个人CID绑定。
+    /// 读取身份资料的现有校验接口；不得用于推导机构签名钱包。
     fn current_account(_cid_number: &[u8]) -> Option<AccountId> {
         None
     }
@@ -301,13 +327,8 @@ impl<AccountId> AdminAccountQuery<AccountId> for () {
     }
 }
 
-/// 机构钱包基础查询。状态记录不是独立的管理员资格来源，任职仍由名册和 entity 决定。
-/// 机构激活后 `resolve_admin_account` 通过独立钱包状态解析，个人CID仍独立。
+/// 按实际钱包查询机构授权状态；个人CID与岗位人员记录不参与账户解析。
 pub trait InstitutionAdminWalletQuery<AccountId> {
-    fn institution_wallets_initialized(
-        institution_code: InstitutionCode,
-        cid_number: &[u8],
-    ) -> bool;
     /// 读取已持久化的状态（含退役版本）；未初始化明确返回 None，不猜测旧锚点或个人绑定。
     fn institution_wallet_state(
         institution_code: InstitutionCode,
@@ -315,7 +336,7 @@ pub trait InstitutionAdminWalletQuery<AccountId> {
         admin_account: &AccountId,
     ) -> Option<InstitutionAdminWalletState<AccountId>>;
 
-    /// 只返回仍在本机构名册中且已初始化的基础钱包；尚不参与现有登录/业务授权。
+    /// 返回仍在本机构名册且具有有效版本的实际钱包；缺记录明确拒绝。
     fn current_institution_wallet(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -323,25 +344,8 @@ pub trait InstitutionAdminWalletQuery<AccountId> {
     ) -> Option<AccountId>;
 }
 
-/// 仅运行时内部的钱包状态写入原语，没有对外 extrinsic。
-///
-/// 初始化的钱包必须由后续兼容接入层读取旧授权事实提供，不能接收客户端猜测值。
-/// 本接口只校验状态；本人双签、机构投票及名册移除调用点在第2步接入，不能直接开放。
+/// 受控机构入口共用的实际钱包变更内核。登记随名册写齐，不提供补建或初始化操作。
 pub trait InstitutionAdminWalletLifecycle<AccountId> {
-    /// 同一机构内原子采样旧授权并初始化；完成后不再回退个人钱包。
-    fn ensure_institution_wallets(
-        institution_code: InstitutionCode,
-        cid_number: Vec<u8>,
-    ) -> DispatchResult;
-    /// 首次初始化传 None；退役后重新录入必须传入保留的版本，再递增一次。
-    fn initialize_institution_wallet(
-        institution_code: InstitutionCode,
-        cid_number: Vec<u8>,
-        admin_account: AccountId,
-        wallet: AccountId,
-        expected_revision: Option<u64>,
-    ) -> DispatchResult;
-
     fn change_institution_wallet(
         institution_code: InstitutionCode,
         cid_number: Vec<u8>,

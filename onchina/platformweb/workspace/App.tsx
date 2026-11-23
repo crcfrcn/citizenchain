@@ -51,6 +51,8 @@ function AppInner() {
         if (cancelled || authRef.current !== auth) return;
         const refreshedAuth: AdminAuth = {
           ...auth,
+          walletRevision: checked.walletRevision,
+          walletNamespace: checked.walletNamespace,
           setupRequired: checked.setupRequired,
           accountId: checked.accountId,
           institutionCidNumber: checked.institutionCidNumber,

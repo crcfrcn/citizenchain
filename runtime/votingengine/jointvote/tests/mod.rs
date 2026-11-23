@@ -3,16 +3,17 @@
 use super::*;
 use engingcore::PopulationScope;
 
-use frame_support::{assert_noop, assert_ok, derive_impl, traits::ConstU32, traits::Hooks};
-use frame_system as system;
-use primitives::cid::china::{china_cb::CHINA_CB, china_ch::CHINA_CH};
-use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
 use engingcore::{
     traits::{
         CitizenIdentityReader, InternalAdminProvider, JointVoteEngine, JointVoteResultCallback,
     },
     ProposalExecutionOutcome, STAGE_REFERENDUM, STATUS_EXECUTED, STATUS_PASSED, STATUS_VOTING,
 };
+
+use frame_support::{assert_noop, assert_ok, derive_impl, traits::ConstU32, traits::Hooks};
+use frame_system as system;
+use primitives::cid::china::{china_cb::CHINA_CB, china_ch::CHINA_CH};
+use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -111,6 +112,26 @@ impl TestAdminProvider {
 }
 
 impl InternalAdminProvider<AccountId32> for TestAdminProvider {
+    fn institution_wallet_snapshot(
+        _cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        Some(
+            references
+                .iter()
+                .map(|reference| {
+                    let key = codec::Encode::encode(&(b"fixture-current-wallet", _cid, reference));
+                    sp_io::storage::get(&key)
+                        .map(|raw| {
+                            <(AccountId32, u64) as codec::Decode>::decode(&mut &raw[..])
+                                .expect("explicit fixture wallet")
+                        })
+                        .unwrap_or_else(|| (reference.clone(), 0))
+                })
+                .collect(),
+        )
+    }
+
     fn is_institution_admin(
         institution_code: engingcore::InstitutionCode,
         cid_number: &[u8],
@@ -266,7 +287,8 @@ fn all_joint_institutions() -> Vec<(engingcore::InstitutionCode, Vec<u8>)> {
         .collect()
 }
 
-fn admins_for(institution_code: engingcore::InstitutionCode, cid_number: &[u8]) -> Vec<AccountId32> {
+fn admins_for(institution_code: engingcore::InstitutionCode, cid_number: &[u8],
+) -> Vec<AccountId32> {
     TestAdminProvider::institution_admins(institution_code, cid_number)
         .expect("joint institution should have admins")
 }
@@ -360,3 +382,11 @@ fn finalize_institution(
 }
 
 mod unit;
+
+/// 仅测试的当前机构凭据事实；不改岗位人员，不触碰个人身份。
+fn set_fixture_wallet(cid: &[u8], reference: &AccountId32, wallet: AccountId32, revision: u64) {
+    sp_io::storage::set(
+        &codec::Encode::encode(&(b"fixture-current-wallet", cid, reference)),
+        &codec::Encode::encode(&(wallet, revision)),
+    );
+}

@@ -253,3 +253,53 @@ fn same_citizen_cid_cannot_vote_twice_after_account_id_replacement() {
         assert_eq!(ReferendumTallies::<Test>::get(proposal_id).no, 0);
     });
 }
+
+#[test]
+fn joint_vote_keeps_original_wallet_and_does_not_inherit_current_wallet() {
+    new_test_ext().execute_with(|| {
+        let pid = create_joint_proposal();
+        let cid: engingcore::types::CidNumber = nrc_cid_number().try_into().unwrap();
+        let role: engingcore::types::RoleCode =
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+                .to_vec()
+                .try_into()
+                .unwrap();
+        let subject = engingcore::AuthorizationSubject::Institution(engingcore::RoleSubject {
+            cid_number: cid.clone(),
+            role_code: role.clone(),
+        });
+        let original = engingcore::VoterSnapshot::<Test>::get(pid, &subject).unwrap();
+        let old = original[1].clone();
+        let new = AccountId32::new([211; 32]);
+        set_fixture_wallet(&cid, &old, new.clone(), 2);
+        assert_noop!(
+            JointVote::cast_admin(
+                RuntimeOrigin::signed(new),
+                pid,
+                cid.clone(),
+                role.clone(),
+                true
+            ),
+            engingcore::Error::<Test>::NoPermission
+        );
+        assert_ok!(JointVote::cast_admin(
+            RuntimeOrigin::signed(old.clone()),
+            pid,
+            cid.clone(),
+            role.clone(),
+            true
+        ));
+        assert_noop!(
+            JointVote::cast_admin(RuntimeOrigin::signed(old.clone()), pid, cid, role, false),
+            engingcore::Error::<Test>::AlreadyVoted
+        );
+        assert_eq!(
+            engingcore::VoterSnapshot::<Test>::get(pid, &subject),
+            Some(original)
+        );
+        assert_eq!(
+            VotingEngine::frozen_voter_identity(pid, &subject, &old),
+            Some((old, 0))
+        );
+    });
+}

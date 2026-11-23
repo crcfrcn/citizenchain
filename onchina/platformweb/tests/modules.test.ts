@@ -163,7 +163,7 @@ describe('当前会话的密钥状态与工作台首屏', () => {
     const React = await import('react');
     const { createRoot } = await import('react-dom/client');
     const root = createRoot(document.getElementById('root')!);
-    const auth = { setupRequired: false, accessToken: 'fixture-session', accountId: 'fixture-account', institutionCidNumber: 'fixture-institution',
+    const auth = { walletRevision: '0', walletNamespace: 'PublicAdmins' as const, setupRequired: false, accessToken: 'fixture-session', accountId: 'fixture-account', institutionCidNumber: 'fixture-institution',
       institutionCode: 'FRG', familyName: '测', givenName: '试', workspace: { workspace_kind: 'registry' } } as import('../authentication/types').AdminAuth;
     return { React, root, auth, dispose: async () => {
       await React.act(async () => root.unmount());

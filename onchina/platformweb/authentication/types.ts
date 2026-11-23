@@ -4,6 +4,8 @@ import type { CapabilitySet } from '../workspace/modules';
 import type { InstitutionWorkspace } from '../workspace/types';
 
 export type TokenAdminAuth = {
+  walletRevision: string;
+  walletNamespace: 'PublicAdmins' | 'PrivateAdmins';
   /** 服务端会话阶段；未完成首次密钥设置时不得进入业务工作台。 */
   setupRequired: boolean;
   accessToken: string;

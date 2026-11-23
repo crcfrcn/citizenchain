@@ -857,6 +857,7 @@ pub(crate) async fn internal_workspace(
         Ok(ctx) => ctx,
         Err(response) => return response,
     };
+    if let Err(response)=crate::authentication::login::validate_current_wallet(&state,&ctx).await {return response;}
     let Some(local) = &state.modules.local else {
         return api_error(StatusCode::NOT_FOUND, 1004, "module endpoint unavailable");
     };

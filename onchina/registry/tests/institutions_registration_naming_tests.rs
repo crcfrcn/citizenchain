@@ -5,6 +5,8 @@ use super::*;
 #[test]
 fn scope_precheck_reads_canonical_admin_account_keys() {
     let ctx = AdminAuthContext {
+        wallet_revision: "0".into(),
+        wallet_namespace: onchina::chain_runtime::AdminPallet::PublicAdmins,
         account_id: format!("0x{}", "11".repeat(32)),
         institution_cid_number: "test-institution".into(),
         institution_code: "CREG".into(),

@@ -284,3 +284,18 @@ it('非安全上下文在发送认证请求前拒绝，只提示正式公信HTTP
     expect(fetcher).not.toHaveBeenCalled();
   } finally { vi.unstubAllGlobals(); fetcher.mockRestore(); }
 });
+
+describe('机构钱包版本登录存储', () => {
+  it('保留大整数版本，缺版本、数字版本或未知namespace直接失效', async () => {
+    const {readStoredAuth,writeStoredAuth}=await import('../authentication/storage');
+    const values=new Map<string,string>();
+    vi.stubGlobal('sessionStorage',{getItem:(k:string)=>values.get(k)??null,setItem:(k:string,v:string)=>values.set(k,v),removeItem:(k:string)=>values.delete(k)});
+    const complete={walletRevision:'9007199254740993',walletNamespace:'PublicAdmins' as const,setupRequired:false,accessToken:'original-token',accountId:'0x'+'11'.repeat(32),institutionCidNumber:'original-CID',institutionCode:'FRG',familyName:'测',givenName:'试'};
+    try {
+      writeStoredAuth(complete);expect(readStoredAuth()).toEqual(complete);
+      for(const bad of [{...complete,walletRevision:undefined},{...complete,walletRevision:0},{...complete,walletRevision:'-1'},{...complete,walletRevision:'18446744073709551616'},{...complete,walletNamespace:'Unknown'}]) {
+        values.set('onchina_admin_auth',JSON.stringify(bad));expect(readStoredAuth()).toBeNull();
+      }
+    }finally{vi.unstubAllGlobals();}
+  });
+});

@@ -10,9 +10,8 @@ use onchina::authentication::repo as auth_repo;
 use onchina::authorization::rules::ensure_registry_admin;
 use onchina::institutions::{
     build_chain_sign_output, fetch_registration_roles_at, fetch_registration_snapshot,
-    parse_registration_action, parse_registration_admin_inputs, select_registration_role,
-    InstitutionAdminInput, InstitutionAssignmentChangeInput, InstitutionChainSignRequest,
-    InstitutionRoleMutationInput,
+    parse_registration_action, select_registration_role, InstitutionAdminInput,
+    InstitutionAssignmentChangeInput, InstitutionChainSignRequest, InstitutionRoleMutationInput,
 };
 use onchina::institutions::{encode_register_institution_admins, RegisterInstitutionAdminsArgs};
 use serde::Deserialize;
@@ -39,7 +38,8 @@ fn registration_context(
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareRegisterInstitutionAdminsInput {
     pub(crate) cid_number: String,
-    pub(crate) admins: Vec<InstitutionAdminInput>,
+    pub(crate) admins: Option<Vec<InstitutionAdminInput>>,
+    pub(crate) wallet_changes: Option<onchina::institutions::RegistryWalletOperationsInput>,
     #[serde(default)]
     pub(crate) actor_role_code: Option<String>,
     pub(crate) expected_state_hash: String,
@@ -148,22 +148,82 @@ pub(crate) async fn prepare_register_institution_admins(
         Err(error) => return api_error(StatusCode::FORBIDDEN, 1003, error),
     };
     let code = snapshot.institution.institution_code;
-    let admins = match parse_registration_admin_inputs(&state, &input.admins, &snapshot) {
-        Ok(v) => v,
-        Err(resp) => return resp,
+    let action = if let Some(ops) = &input.wallet_changes {
+        if input.initial_threshold.is_some()
+            || !input.role_mutations.is_empty()
+            || !input.assignment_changes.is_empty()
+        {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                1001,
+                "钱包维护不能夹带岗位、任职或阈值",
+            );
+        }
+        match onchina::institutions::parse_registry_wallet_action(
+            &state,
+            ops,
+            &snapshot,
+            &actor_role_code,
+        ) {
+            Ok(v) => v,
+            Err(e) => return e,
+        }
+    } else {
+        if input.admins.is_some() {
+            return api_error(StatusCode::BAD_REQUEST, 1001, "岗位配置不接收管理员名单");
+        }
+        match parse_registration_action(
+            &input.role_mutations,
+            &input.assignment_changes,
+            &snapshot,
+            input.initial_threshold,
+        ) {
+            Ok(v) => v,
+            Err(e) => return e,
+        }
     };
-    let action = match parse_registration_action(
-        admins,
-        &input.role_mutations,
-        &input.assignment_changes,
-        &snapshot,
-        input.initial_threshold,
-    ) {
-        Ok(action) => action,
-        Err(response) => return response,
-    };
+    if let entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+        added,
+        removed,
+        replaced,
+    } = &action
+    {
+        let mut expected = snapshot.admins.clone().unwrap_or_default();
+        expected.retain(|a| !removed.iter().any(|(w, _)| w == &a.account_id));
+        for row in &mut expected {
+            if let Some(change) = replaced.iter().find(|c| c.admin_account == row.account_id) {
+                row.account_id = change.new_wallet;
+            }
+        }
+        expected.extend(added.clone());
+        let Some(reviewed) = input.admins.as_ref() else {
+            return api_error(StatusCode::BAD_REQUEST, 1001, "钱包维护缺少审阅结果");
+        };
+        if expected.len() != reviewed.len()
+            || expected.iter().zip(reviewed).any(|(a, i)| {
+                onchina::authentication::login::parse_account_id_bytes(&i.account_id)
+                    != Some(a.account_id)
+                    || i.cid_number
+                        .as_ref()
+                        .is_some_and(|v| v.as_bytes() != a.cid_number.as_slice())
+                    || i.family_name
+                        .as_ref()
+                        .is_some_and(|v| v.as_bytes() != a.family_name.as_slice())
+                    || i.given_name
+                        .as_ref()
+                        .is_some_and(|v| v.as_bytes() != a.given_name.as_slice())
+            })
+        {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                1001,
+                "显示名册与明确的钱包操作不一致",
+            );
+        }
+    }
     // 复用统一call 9；签名绑定完整action、原始状态指纹和显式初始阈值。
     let args = RegisterInstitutionAdminsArgs {
+        is_private: snapshot.module_tag() == b"pri-mgmt",
         cid_number: cid_number.as_bytes().to_vec(),
         action,
         institution_code: code,
@@ -233,6 +293,7 @@ mod registration_input_tests {
     #[test]
     fn registration_context_keeps_the_actual_call_target_for_submit_and_recovery() {
         let mut args = RegisterInstitutionAdminsArgs {
+            is_private: false,
             cid_number: b"NX013-CREGN-937676656-2026".to_vec(),
             institution_code: *b"CREG",
             action: entitybase::InstitutionGovernanceAction::ReplaceAdmins { admins: vec![] },
@@ -261,4 +322,80 @@ mod registration_input_tests {
         args.cid_number = vec![0xff];
         assert!(registration_context(&args, [7; 32], 10).is_err());
     }
+}
+
+/// 实际广播前复核原签名中的登记方、岗位、辖区、目标与版本；不重新构造交易。
+pub(crate) async fn recheck_registration(
+    state: &AppState,
+    ctx: &onchina::authentication::login::AdminAuthContext,
+    session: &onchina::transactions::session::ChainSignSession,
+) -> Result<(), axum::response::Response> {
+    use codec::DecodeAll;
+    let bad = || {
+        api_error(
+            StatusCode::FORBIDDEN,
+            1003,
+            "登记钱包、岗位、辖区或版本已变化",
+        )
+    };
+    let data = session.call_data.get(2..).ok_or_else(bad)?;
+    let (cid, action, actor, role, hash, initial): (
+        Vec<u8>,
+        entitybase::InstitutionGovernanceAction<[u8; 32]>,
+        Vec<u8>,
+        Vec<u8>,
+        [u8; 32],
+        Option<u32>,
+    ) = DecodeAll::decode_all(&mut &data[..]).map_err(|_| bad())?;
+    let target = core::str::from_utf8(&cid).map_err(|_| bad())?;
+    let snapshot = fetch_registration_snapshot(target)
+        .await
+        .map_err(|_| bad())?;
+    let binding = auth_repo::active_node_binding(&state.db)
+        .map_err(|_| bad())?
+        .ok_or_else(bad)?;
+    if session.account_id != ctx.account_id
+        || binding.institution_cid_number.as_bytes() != actor
+        || snapshot.state_hash() != hash
+        || session.call_data.get(..2)
+            != Some(
+                &[
+                    if snapshot.module_tag() == b"pri-mgmt" {
+                        31
+                    } else {
+                        30
+                    },
+                    9,
+                ][..],
+            )
+    {
+        return Err(bad());
+    }
+    let identity = onchina::chain_runtime::identity_from_binding_parts(
+        &binding.institution_code,
+        Some(&binding.institution_cid_number),
+    )
+    .map_err(|_| bad())?;
+    let roles =
+        fetch_registration_roles_at(&identity, &ctx.account_id, target, snapshot.block_hash)
+            .await
+            .map_err(|_| bad())?;
+    if !roles.iter().any(|r| r.role_code.as_bytes() == role) {
+        return Err(bad());
+    }
+    if matches!(
+        action,
+        entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges { .. }
+    ) {
+        if initial.is_some() {
+            return Err(bad());
+        }
+        snapshot
+            .validate_wallet_action(&action, &role)
+            .map_err(|_| bad())?;
+    } else if action.into_registration_parts().is_none() {
+        // 不把旧完整名单输入当作钱包操作，也不重建已签名内容。
+        return Err(bad());
+    }
+    Ok(())
 }

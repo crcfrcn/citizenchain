@@ -51,6 +51,8 @@ fn module_action_json_and_dispatch_share_valid_names_and_rejections() {
 #[test]
 fn ordinary_institution_cannot_prepare_registry_business() {
     let admin = AdminAuthContext {
+        wallet_revision: "0".into(),
+        wallet_namespace: crate::chain_runtime::AdminPallet::PublicAdmins,
         account_id: format!("0x{}", "11".repeat(32)),
         institution_cid_number: "own-institution".into(),
         institution_code: "SFLP".into(),

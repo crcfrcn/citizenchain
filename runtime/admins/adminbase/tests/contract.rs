@@ -40,13 +40,13 @@ fn institution_wallet_state_and_change_have_separate_strict_codec_contracts() {
     };
     assert_eq!(retired.encode(), (None::<u8>, 18u64).encode());
     let change = InstitutionAdminWalletChange {
-        admin_account: 1u8,
+        admin_account: 9u8,
         expected_wallet: 9u8,
         new_wallet: 10u8,
         expected_revision: 17,
     };
     let bytes = change.encode();
-    assert_eq!(bytes, (1u8, 9u8, 10u8, 17u64).encode());
+    assert_eq!(bytes, (9u8, 9u8, 10u8, 17u64).encode());
     assert_eq!(
         InstitutionAdminWalletChange::<u8>::decode_all(&mut &bytes[..]).unwrap(),
         change

@@ -26,7 +26,7 @@ export function AssignmentEditor({ state, termRequired, rows, onChange }: {
     const update = (index: number, patch: Partial<AssignmentRow>) => onChange(rows.map((row, i) => i === index ? { ...row, ...patch } : row));
     return <Space direction="vertical" style={{ width: '100%' }}>
     {rows.map((row, index) => <Space key={index} wrap>
-      <Select aria-label={`任职人员${index + 1}`} style={{ minWidth: 220 }} value={row.accountId || undefined} placeholder="选择现有链上管理员" onChange={accountId => update(index, { accountId })} options={state.members.map(m => ({ value: m.accountId, label: `${memberName(m)} · ${m.signerId.slice(0, 10)}` }))}/>
+      <Select aria-label={`任职人员${index + 1}`} style={{ minWidth: 220 }} value={row.accountId || undefined} placeholder="选择现有链上管理员" onChange={accountId => update(index, { accountId })} options={state.members.map(m => ({ value: m.authorizationAccountId, label: `${memberName(m)} · ${m.signerId.slice(0, 10)}` }))}/>
       {termRequired && <><Input aria-label={`任期开始${index + 1}`} type="date" value={row.start} onChange={e => update(index, { start: e.target.value })}/><Input aria-label={`任期结束${index + 1}`} type="date" value={row.end} onChange={e => update(index, { end: e.target.value })}/></>}
       <Button danger onClick={() => onChange(rows.filter((_, i) => i !== index))}>移除此任职</Button>
     </Space>)}
@@ -35,7 +35,7 @@ export function AssignmentEditor({ state, termRequired, rows, onChange }: {
 }
 export function AssignmentsView(props: GovernanceViewProps) {
     // 身份或目标切换时销毁草稿和认证流程，防止旧机构变更沿用到新页面。
-    return <AssignmentsPanel key={`${props.auth.accessToken}|${props.auth.accountId}|${props.cidNumber}`} {...props}/>;
+    return <AssignmentsPanel key={`${props.auth.walletNamespace}|${props.auth.walletRevision}|${props.auth.accessToken}|${props.auth.accountId}|${props.cidNumber}`} {...props}/>;
 }
 function AssignmentsPanel(props: GovernanceViewProps) {
     const { state, error, loading, reload } = useGovernanceState(props);
@@ -63,7 +63,7 @@ function AssignmentsPanel(props: GovernanceViewProps) {
     <Space><Typography.Text>岗位</Typography.Text><Select aria-label="所选岗位" style={{ minWidth: 240 }} value={role?.roleCode} onChange={setRoleCode} options={state.roles.map(r => ({ value: r.roleCode, label: r.roleName }))}/></Space>
     {role?.assignmentLocked && <Alert style={{ marginTop: 16 }} type="info" message={role.roleCode === state.legalRoleCode ? '法定代表人专属任职请在法定代表人页面办理' : '该岗位涉及专属治理或管理员换届，本页只读'}/>}
     <Table rowKey="accountId" pagination={false} dataSource={role?.assignments ?? []} columns={[
-            { title: '任职人员', render: (_, a) => memberName(state.members.find(m => m.accountId === a.accountId)) },
+            { title: '任职人员', render: (_, a) => memberName(state.members.find(m => m.authorizationAccountId === a.accountId)) },
             { title: '任期开始', render: (_, a) => role?.termRequired ? dateFromDay(a.termStart) || '-' : '无任期' },
             { title: '任期结束', render: (_, a) => role?.termRequired ? dateFromDay(a.termEnd) || '-' : '无任期' },
             { title: '状态', render: (_, a) => a.effective ? '有效' : a.active ? '未生效或已到期' : '已结束' },

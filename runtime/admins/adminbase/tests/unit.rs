@@ -121,149 +121,140 @@ fn admin_satisfies_by_required_elements() {
 }
 
 #[test]
-fn institution_wallet_policy_lifecycle_never_resets_versions() {
-    let initial = initial_institution_wallet_state(None, &9u8, None, &[]).unwrap();
-    assert_eq!(
-        initial,
-        InstitutionAdminWalletState {
-            wallet: Some(9),
-            revision: 0
-        }
-    );
-    let request = InstitutionAdminWalletChange {
-        admin_account: 1,
-        expected_wallet: 9,
-        new_wallet: 10,
-        expected_revision: 0,
-    };
-    let changed = changed_institution_wallet_state(Some(&initial), &request, &[20]).unwrap();
-    assert_eq!(
-        changed,
-        InstitutionAdminWalletState {
-            wallet: Some(10),
-            revision: 1
-        }
-    );
-    let retired = retired_institution_wallet_state(Some(&changed), 1).unwrap();
-    assert_eq!(
-        retired,
-        InstitutionAdminWalletState {
-            wallet: None,
-            revision: 2
-        }
-    );
-    assert_eq!(
-        initial_institution_wallet_state(Some(&retired), &11, None, &[]),
-        Err(InstitutionAdminWalletError::StaleRevision)
-    );
-    let readded = initial_institution_wallet_state(Some(&retired), &11, Some(2), &[]).unwrap();
-    assert_eq!(readded.revision, 3);
-    assert_eq!(
-        changed_institution_wallet_state(Some(&readded), &request, &[]),
-        Err(InstitutionAdminWalletError::StaleRevision)
-    );
-}
-
-#[test]
-fn institution_wallet_policy_rejects_conflicts_and_revision_overflow() {
-    use InstitutionAdminWalletError as Error;
-    let state = InstitutionAdminWalletState {
+fn wallet_policy_tracks_actual_address_history_and_rejects_aliases() {
+    let old = InstitutionAdminWalletState {
         wallet: Some(9u8),
         revision: 4,
     };
     let request = InstitutionAdminWalletChange {
-        admin_account: 1,
+        admin_account: 9,
         expected_wallet: 9,
         new_wallet: 10,
         expected_revision: 4,
     };
+    let (retired, next) =
+        changed_institution_wallet_state(Some(&old), None, &request, &[]).unwrap();
     assert_eq!(
-        initial_institution_wallet_state(Some(&state), &10, Some(4), &[]),
-        Err(Error::AlreadyInitialized)
+        retired,
+        InstitutionAdminWalletState {
+            wallet: None,
+            revision: 5
+        }
     );
     assert_eq!(
-        initial_institution_wallet_state(None, &9, Some(0), &[]),
-        Err(Error::StaleRevision)
+        next,
+        InstitutionAdminWalletState {
+            wallet: Some(10),
+            revision: 0
+        }
+    );
+    let returning = InstitutionAdminWalletChange {
+        admin_account: 10,
+        expected_wallet: 10,
+        new_wallet: 9,
+        expected_revision: 0,
+    };
+    let (_, back) =
+        changed_institution_wallet_state(Some(&next), Some(&retired), &returning, &[]).unwrap();
+    assert_eq!(
+        back,
+        InstitutionAdminWalletState {
+            wallet: Some(9),
+            revision: 6
+        }
+    );
+    use InstitutionAdminWalletError as E;
+    assert_eq!(
+        changed_institution_wallet_state(None, None, &request, &[]),
+        Err(E::Uninitialized)
     );
     assert_eq!(
-        initial_institution_wallet_state(None, &9, None, &[9]),
-        Err(Error::DuplicateWallet)
-    );
-    assert_eq!(
-        changed_institution_wallet_state(None, &request, &[]),
-        Err(Error::Uninitialized)
-    );
-    assert_eq!(
-        changed_institution_wallet_state(Some(&state), &request, &[10]),
-        Err(Error::DuplicateWallet)
+        changed_institution_wallet_state(Some(&retired), None, &request, &[]),
+        Err(E::Inactive)
     );
     assert_eq!(
         changed_institution_wallet_state(
-            Some(&state),
+            Some(&old),
+            None,
             &InstitutionAdminWalletChange {
-                expected_wallet: 8,
+                admin_account: 1,
                 ..request.clone()
             },
             &[]
         ),
-        Err(Error::OldWalletMismatch)
+        Err(E::OldWalletMismatch)
     );
     assert_eq!(
         changed_institution_wallet_state(
-            Some(&state),
+            Some(&old), None, &request, &[10]),
+        Err(E::DuplicateWallet)
+    );
+    assert_eq!(
+        changed_institution_wallet_state(
+            Some(&old),
+            None,
             &InstitutionAdminWalletChange {
                 new_wallet: 9,
                 ..request.clone()
             },
             &[]
         ),
-        Err(Error::Unchanged)
-    );
-    let inactive = InstitutionAdminWalletState {
-        wallet: None,
-        revision: 5,
-    };
-    assert_eq!(
-        changed_institution_wallet_state(Some(&inactive), &request, &[]),
-        Err(Error::Inactive)
+        Err(E::Unchanged)
     );
     assert_eq!(
-        retired_institution_wallet_state(Some(&inactive), 5),
-        Err(Error::Inactive)
+        changed_institution_wallet_state(
+            Some(&old),
+            None,
+            &InstitutionAdminWalletChange {
+                expected_revision: 3,
+                ..request.clone()
+            },
+            &[]
+        ),
+        Err(E::StaleRevision)
     );
-    assert_eq!(
-        retired_institution_wallet_state::<u8>(None, 0),
-        Err(Error::Uninitialized)
-    );
-    assert_eq!(
-        retired_institution_wallet_state(Some(&state), 3),
-        Err(Error::StaleRevision)
-    );
-    let max = InstitutionAdminWalletState {
+    let max_old = InstitutionAdminWalletState {
         wallet: Some(9),
         revision: u64::MAX,
     };
     assert_eq!(
         changed_institution_wallet_state(
-            Some(&max),
+            Some(&max_old),
+            None,
             &InstitutionAdminWalletChange {
                 expected_revision: u64::MAX,
-                ..request
+                ..request.clone()
             },
             &[]
         ),
-        Err(Error::RevisionOverflow)
+        Err(E::RevisionOverflow)
     );
-    assert_eq!(
-        retired_institution_wallet_state(Some(&max), u64::MAX),
-        Err(Error::RevisionOverflow)
-    );
-    let max_retired = InstitutionAdminWalletState {
+    let max_new = InstitutionAdminWalletState {
         wallet: None,
         revision: u64::MAX,
     };
     assert_eq!(
-        initial_institution_wallet_state(Some(&max_retired), &9, Some(u64::MAX), &[]),
-        Err(Error::RevisionOverflow)
+        changed_institution_wallet_state(Some(&old), Some(&max_new), &request, &[]),
+        Err(E::RevisionOverflow)
+    );
+    assert_eq!(
+        initial_institution_wallet_state(Some(&old), &9, Some(4), &[]),
+        Err(E::AlreadyInitialized)
+    );
+    assert_eq!(
+        initial_institution_wallet_state(Some(&retired), &9, None, &[]),
+        Err(E::StaleRevision)
+    );
+    assert_eq!(
+        initial_institution_wallet_state(None, &9, Some(0), &[]),
+        Err(E::StaleRevision)
+    );
+    assert_eq!(
+        retired_institution_wallet_state(Some(&retired), 5),
+        Err(E::Inactive)
+    );
+    assert_eq!(
+        retired_institution_wallet_state(Some(&old), 3),
+        Err(E::StaleRevision)
     );
 }

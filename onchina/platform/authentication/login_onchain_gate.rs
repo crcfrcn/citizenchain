@@ -100,7 +100,7 @@ pub(super) fn gate_error_response(err: GateError) -> axum::response::Response {
     }
 }
 
-fn candidate_from_membership_conn(
+pub(super) fn candidate_from_membership_conn(
     conn: &mut postgres::Client,
     membership: &chain_runtime::ActiveAdminMembership,
 ) -> Result<AdminInstitutionCandidate, String> {
@@ -351,7 +351,10 @@ async fn issue_session_for_candidate(
         Some(&institution_cid_number),
     )
     .map_err(GateError::BindingInvalid)?;
-    let chain_admins = chain_runtime::fetch_active_admins_onchain(&identity)
+    let finalized = chain_runtime::FinalizedChainView::connect()
+        .await
+        .map_err(GateError::ChainUnreachable)?;
+    let chain_admins = chain_runtime::fetch_active_admins_onchain_at(&identity, &finalized, Some(verified_account_id))
         .await
         .map_err(GateError::ChainUnreachable)?;
     let chain_admin = chain_admins
@@ -362,6 +365,23 @@ async fn issue_session_for_candidate(
                 .find(|admin| same_account_id(&admin.account_id, verified_account_id))
         })
         .ok_or(GateError::NotOnchainAdmin)?;
+    if institution_code == "FRG" {
+        let provinces = crate::institutions::fetch_frg_province_codes_for_admin(
+            &finalized,
+            institution_cid_number.as_bytes(),
+            chain_admin.role_account_id,
+        )
+        .await
+        .map_err(GateError::ChainUnreachable)?;
+        if provinces.len() != 1
+            || candidate.frg_province_code.as_deref()
+                != Some(format!("0x{}", hex::encode(provinces[0])).as_str())
+        {
+            return Err(GateError::BindingMismatch);
+        }
+    }
+    let wallet_revision = chain_admin.wallet_revision.to_string();
+    let wallet_namespace = chain_admin.wallet_namespace;
     let chain_family_name = chain_admin.family_name.clone();
     let chain_given_name = chain_admin.given_name.clone();
     let account_id_for_db = verified_account_id.to_string();
@@ -438,6 +458,8 @@ async fn issue_session_for_candidate(
                 Vec::new(),
             );
             let identify = AdminIdentifyOutput {
+                wallet_revision,
+                wallet_namespace,
                 account_id: admin.account_id,
                 institution_cid_number,
                 institution_code: institution_code.clone(),
@@ -509,10 +531,10 @@ pub(crate) async fn revoke_stale_admin_sessions_once(db: &Db) -> Result<(), Stri
         &binding.institution_code,
         Some(binding.institution_cid_number.as_str()),
     )?;
-    let Some(onchain_admins) = chain_runtime::fetch_active_admins_onchain(&identity).await? else {
-        // 账户暂不存在(链未就绪/未配),不冒然清退本地会话。
-        return Ok(());
-    };
+    // RPC失败保留会话；最终块确认不存在或空名单则按已撤权处理。
+    let onchain_admins = chain_runtime::fetch_active_admins_onchain(&identity)
+        .await?
+        .unwrap_or_default();
     let institution_code = binding.institution_code.clone();
     db.with_client(move |conn| {
         let account_ids = repo::list_session_admin_account_ids_conn(conn, &institution_code, &binding.institution_cid_number)?;
@@ -520,6 +542,10 @@ pub(crate) async fn revoke_stale_admin_sessions_once(db: &Db) -> Result<(), Stri
             let still_admin = onchain_admins
                 .iter()
                 .any(|admin| same_account_id(&admin.account_id, account_id.as_str()));
+            if let Some(admin)=onchain_admins.iter().find(|a|same_account_id(&a.account_id,&account_id)) {
+                let namespace=serde_json::to_value(admin.wallet_namespace).map_err(|e|e.to_string())?;
+                conn.execute("DELETE FROM session WHERE payload_json->>'institutionCidNumber'=$1 AND payload_json->>'accountId'=$2 AND (payload_json->>'walletRevision' IS DISTINCT FROM $3 OR payload_json->'walletNamespace' IS DISTINCT FROM $4)", &[&binding.institution_cid_number,&account_id,&admin.wallet_revision.to_string(),&namespace]).map_err(|e|e.to_string())?;
+            }
             if !still_admin {
                 let removed =
                     repo::delete_institution_admin_sessions_conn(conn, account_id.as_str(), &binding.institution_cid_number)?;

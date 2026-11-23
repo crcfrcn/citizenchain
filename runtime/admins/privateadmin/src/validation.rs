@@ -12,7 +12,6 @@ impl<T: Config> Pallet<T> {
                 && can_store_private_admin_code(&institution_code),
             Error::<T>::InvalidAdminAccountKind
         );
-        ensure!(!admins.is_empty(), Error::<T>::InvalidAdminsLen);
         ensure!(
             admins.len() <= <T as Config>::MaxAdminsPerInstitution::get() as usize,
             Error::<T>::InvalidAdminsLen

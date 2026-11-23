@@ -23,6 +23,7 @@ use frame_system::pallet_prelude::BlockNumberFor;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use engingcore::InstitutionRoleProvider as _;
     use frame_support::ensure;
     use frame_support::{
         pallet_prelude::*,
@@ -36,7 +37,6 @@ pub mod pallet {
         DispatchError,
     };
     use sp_std::vec::Vec;
-    use engingcore::InstitutionRoleProvider as _;
 
     use crate::types::{
         ElectionMeta, ElectionMode, ElectionTally as ElectionTallyData, ElectionVoter,
@@ -225,6 +225,7 @@ pub mod pallet {
             ElectionCandidates::<T>::get(*proposal_id)
                 .map(|items| items.len() as u32)
                 .unwrap_or_default()
+        ).saturating_add(engingcore::Pallet::<T>::frozen_vote_weight()
         ))]
         pub fn cast_mutual_vote(
             origin: OriginFor<T>,
@@ -493,10 +494,10 @@ pub mod pallet {
                     ),
                     Error::<T>::VoterNotInSnapshot
                 );
-                // 票据按【规范账户】防重：换绑前后归并为同一张票，杜绝新旧钱包各投一票。
+                // 按该提案冻结的实际钱包去重，版本取自同一不可变快照，不能继承或重置旧票。
                 let voter_account_id =
-                    engingcore::Pallet::<T>::resolve_subject_voter(&subject, &who)
-                        .unwrap_or_else(|| who.clone());
+                    engingcore::Pallet::<T>::resolve_snapshot_voter(proposal_id, &subject, &who)
+                        .ok_or(engingcore::Error::<T>::NoPermission)?;
                 let ticket = engingcore::types::InstitutionVoteTicket {
                     role_subject,
                     voter_account_id,

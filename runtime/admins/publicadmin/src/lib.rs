@@ -1,4 +1,4 @@
-//! 按机构CID维护公权管理员名册，核对当前公民账户绑定。
+//! 按机构CID维护实际管理员钱包名册与版本，岗位人员由entity独立保存。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 //! 公权机构管理员账户集合模块。
@@ -43,7 +43,7 @@ pub mod pallet {
         #[pallet::constant]
         type MaxAdminsPerInstitution: Get<u32>;
 
-        /// 公权管理员非空公民 CID 必须匹配 identity 的唯一账户绑定。
+        /// 公权管理员资料中的非空公民CID须存在；不以其当前绑定钱包推导机构管理员。
         type CitizenIdentityBinding: CitizenIdentityBindingQuery<Self::AccountId>;
 
         /// 运行期强制门控(由 genesis 相位注入);仅 Operation 期强制四要素完整。
@@ -66,8 +66,8 @@ pub mod pallet {
     pub type AdminAccounts<T: Config> =
         StorageMap<_, Blake2_128Concat, AdminCidNumber, InstitutionAdminsOf<T>, OptionQuery>;
 
-    /// 机构CID + 名册稳定账户锚点 → 钱包基础状态。None钱包保留退役版本。
-    /// 激活后机构签名只读取本状态，名册生命周期同步维护。
+    /// 完整机构CID + 实际钱包账户 → 授权状态。None钱包保留退役版本。
+    /// 机构签名校验实际名单与本状态，名册生命周期同步维护。
     #[pallet::storage]
     #[pallet::getter(fn stored_admin_wallet)]
     pub type AdminWallets<T: Config> = StorageDoubleMap<
@@ -80,15 +80,9 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// 每机构初始化完成标记。未完成保持旧读取；完成后缺失钱包绝不回退。
+    /// 当前钱包使用的已批准岗位签名授权引用。仅供岗位校验，不作为管理员或票据身份。
     #[pallet::storage]
-    #[pallet::getter(fn wallets_initialized)]
-    pub type WalletsInitialized<T: Config> =
-        StorageMap<_, Blake2_128Concat, AdminCidNumber, bool, ValueQuery>;
-
-    /// 机构内钱包反向索引。用于已激活机构的唯一性检查，避免每次执行读取整组钱包。
-    #[pallet::storage]
-    pub type WalletOwners<T: Config> = StorageDoubleMap<
+    pub type WalletRoleBindings<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         AdminCidNumber,
@@ -129,14 +123,14 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// 注册局或机构治理写入公权机构管理员人员集合。
+        /// 注册局或机构治理写入实际管理员钱包集合。
         InstitutionAdminsSet {
             cid_number: AdminCidNumber,
             institution_code: InstitutionCode,
             admins_len: u32,
             created: bool,
         },
-        /// 钱包内部初始化完成，不表示已切换现有业务授权。
+        /// 名册登记同步建立钱包版本。事件编码位置保留，登录不再执行初始化。
         InstitutionAdminWalletInitialized {
             cid_number: AdminCidNumber,
             admin_account: T::AccountId,
@@ -169,8 +163,6 @@ pub mod pallet {
         CitizenIdentityMismatch,
         /// 运行期(Operation)公权管理员缺少必填要素(cid/姓/名)。
         IncompleteAdminFields,
-        WalletLegacyUnavailable,
-        WalletLegacyMismatch,
         WalletAdminNotFound,
         WalletAdminStillPresent,
         WalletUninitialized,

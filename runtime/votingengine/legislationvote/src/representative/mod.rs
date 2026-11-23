@@ -346,10 +346,14 @@ impl<T: Config> Pallet<T> {
             engingcore::Error::<T>::NoPermission
         );
         let representative_subject = AuthorizationSubject::Institution(representative_body.clone());
-        // 票据按【规范账户】防重：换绑前后归并为同一张票，杜绝新旧钱包各投一票。
+        // 按该提案冻结的实际钱包去重，版本取自同一不可变快照，不能继承或重置旧票。
         let voter_account_id =
-            <engingcore::Pallet<T>>::resolve_subject_voter(&representative_subject, &who)
-                .unwrap_or_else(|| who.clone());
+            <engingcore::Pallet<T>>::resolve_snapshot_voter(
+            proposal_id,
+            &representative_subject,
+            &who,
+        )
+        .ok_or(engingcore::Error::<T>::NoPermission)?;
         let ticket = engingcore::types::InstitutionVoteTicket {
             role_subject: representative_body,
             voter_account_id,

@@ -30,7 +30,7 @@ use crate::{
 
 pub(crate) const PURPOSE_INSTITUTION_GOVERNANCE: &str = "INSTITUTION_GOVERNANCE";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct InstitutionAdminInput {
@@ -95,8 +95,6 @@ pub struct InstitutionAssignmentChangeInput {
 pub(crate) struct PrepareInstitutionGovernanceInput {
     pub(crate) cid_number: String,
     pub(crate) proposer_role_code: String,
-    #[serde(default)]
-    pub(crate) admins: Vec<InstitutionAdminInput>,
     #[serde(default)]
     pub(crate) role_mutations: Vec<InstitutionRoleMutationInput>,
     #[serde(default)]
@@ -293,15 +291,14 @@ pub fn parse_registration_admin_inputs(
     inputs: &[InstitutionAdminInput],
     snapshot: &chain_roles::RegistrationSnapshot,
 ) -> Result<InstitutionAdminsPayload, axum::response::Response> {
-    if inputs.is_empty() || inputs.len() > 1989 {
+    if inputs.len() > 1989 {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
             1001,
             "管理员人数超出链上范围",
         ));
     }
-    let is_public =
-        !primitives::cid::code::is_private_legal_code(&snapshot.institution.institution_code);
+    let is_public = snapshot.module_tag() == b"pub-mgmt";
     let previous = snapshot
         .admins
         .as_deref()
@@ -337,31 +334,15 @@ pub fn parse_registration_admin_inputs(
     })
 }
 
-fn encode_governance_action<AdminRecord: Encode>(
-    admins: Option<Vec<AdminRecord>>,
+fn encode_governance_action(
     role_mutations: Vec<entitybase::InstitutionRoleMutation<[u8; 32]>>,
     assignment_changes: Vec<entitybase::InstitutionRoleAssignmentChange<[u8; 32]>>,
     legal_representative_change: Option<entitybase::InstitutionLegalRepresentativeChange<[u8; 32]>>,
 ) -> Vec<u8> {
-    match admins {
-        None => entitybase::InstitutionGovernanceAction::<[u8; 32], AdminRecord>::MutateRolesAndAssignments {
-            role_mutations,
-            assignment_changes,
-            legal_representative_change,
-        },
-        Some(admins)
-            if role_mutations.is_empty()
-                && assignment_changes.is_empty()
-                && legal_representative_change.is_none() =>
-        {
-            entitybase::InstitutionGovernanceAction::ReplaceAdmins { admins }
-        }
-        Some(admins) => entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-            admins,
-            role_mutations,
-            assignment_changes,
-            legal_representative_change,
-        },
+    entitybase::InstitutionGovernanceAction::<[u8; 32]>::MutateRolesAndAssignments {
+        role_mutations,
+        assignment_changes,
+        legal_representative_change,
     }
     .encode()
 }
@@ -602,13 +583,89 @@ fn assignment_changes(
 
 /// 登记复用治理输入及校验；新任职由Runtime写入真实Registry引用，存量原记录逐字段保留。
 /// 调用者不能提交来源、引用或法定代表人变更，也不能通过登记改名/删除岗位。
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RegistryWalletChangeInput {
+    pub admin_account: String,
+    pub expected_wallet: String,
+    pub new_wallet: String,
+    pub expected_revision: u64,
+}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RegistryWalletRemovalInput {
+    pub account_id: String,
+    pub expected_revision: u64,
+}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RegistryWalletOperationsInput {
+    pub added: Vec<InstitutionAdminInput>,
+    pub removed: Vec<RegistryWalletRemovalInput>,
+    pub replaced: Vec<RegistryWalletChangeInput>,
+}
+
+pub fn parse_registry_wallet_action(
+    state: &crate::AppState,
+    input: &RegistryWalletOperationsInput,
+    snapshot: &chain_roles::RegistrationSnapshot,
+    actor_role: &str,
+) -> Result<entitybase::InstitutionGovernanceAction<[u8; 32]>, axum::response::Response> {
+    let bad = |message: &str| api_error(StatusCode::BAD_REQUEST, 1001, message);
+    let parse = |value: &str| parse_account_id_bytes(value).ok_or_else(|| bad("钱包账户无效"));
+    let (InstitutionAdminsPayload::Public(added) | InstitutionAdminsPayload::Private(added)) =
+        parse_registration_admin_inputs(state, &input.added, snapshot)?;
+    // Added addresses cannot be retained records or implicitly overwrite existing metadata.
+    if added.iter().any(|a| {
+        snapshot
+            .admins
+            .as_ref()
+            .is_some_and(|rows| rows.iter().any(|old| old.account_id == a.account_id))
+    }) {
+        return Err(bad("新增钱包已在名册"));
+    }
+    let removed = input
+        .removed
+        .iter()
+        .map(|r| Ok((parse(&r.account_id)?, r.expected_revision)))
+        .collect::<Result<Vec<_>, axum::response::Response>>()?;
+    let replaced = input
+        .replaced
+        .iter()
+        .map(|c| {
+            Ok(adminbase::InstitutionAdminWalletChange {
+                admin_account: parse(&c.admin_account)?,
+                expected_wallet: parse(&c.expected_wallet)?,
+                new_wallet: parse(&c.new_wallet)?,
+                expected_revision: c.expected_revision,
+            })
+        })
+        .collect::<Result<Vec<_>, axum::response::Response>>()?;
+    let action = entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
+        added,
+        removed,
+        replaced,
+    };
+    snapshot
+        .validate_wallet_action(&action, actor_role.as_bytes())
+        .map_err(|e| bad(&e))?;
+    Ok(action)
+}
+
 pub fn parse_registration_action(
-    admins: InstitutionAdminsPayload,
     mutations: &[InstitutionRoleMutationInput],
     changes: &[InstitutionAssignmentChangeInput],
     snapshot: &chain_roles::RegistrationSnapshot,
     initial_threshold: Option<u32>,
 ) -> Result<entitybase::InstitutionGovernanceAction<[u8; 32]>, axum::response::Response> {
+    if mutations.is_empty() && changes.is_empty() && initial_threshold.is_none() {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            1001,
+            "请明确选择钱包操作或岗位配置",
+        ));
+    }
     if mutations
         .iter()
         .any(|m| !m.mutation.trim().eq_ignore_ascii_case("CREATE"))
@@ -618,25 +675,18 @@ pub fn parse_registration_action(
         return Err(api_error(
             StatusCode::BAD_REQUEST,
             1001,
-            "首次登记须提交岗位和阈值；已初始化机构只能登记名册和任职",
+            "首次配置须提交岗位和阈值；已初始化机构只能办理合法岗位配置",
         ));
     }
     let role_mutations = role_mutations(mutations, Some(snapshot))?;
     let assignment_changes = assignment_changes(changes, Some(snapshot))?;
-    let (InstitutionAdminsPayload::Public(admins) | InstitutionAdminsPayload::Private(admins)) =
-        admins;
-    if role_mutations.is_empty() && assignment_changes.is_empty() {
-        Ok(entitybase::InstitutionGovernanceAction::ReplaceAdmins { admins })
-    } else {
-        Ok(
-            entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-                admins,
-                role_mutations,
-                assignment_changes,
-                legal_representative_change: None,
-            },
-        )
-    }
+    Ok(
+        entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
+            role_mutations,
+            assignment_changes,
+            legal_representative_change: None,
+        },
+    )
 }
 
 fn legal_representative_change(
@@ -882,42 +932,18 @@ pub(crate) async fn prepare_institution_governance(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let is_public = !primitives::cid::code::is_private_legal_code(&code);
-    let parsed_admins = if input.admins.is_empty() {
-        if role_mutations.is_empty() && assignment_changes.is_empty() && legal.is_none() {
-            return api_error(StatusCode::BAD_REQUEST, 1001, "机构治理内容不能为空");
-        }
-        None
-    } else {
-        let admins = match parse_admin_inputs(&state, &input.admins, is_public) {
-            Ok(v) => v,
-            Err(resp) => return resp,
-        };
-        Some(admins)
-    };
-    let action_payload = match parsed_admins {
-        Some(InstitutionAdminsPayload::Public(admins)) => {
-            encode_governance_action(Some(admins), role_mutations, assignment_changes, legal)
-        }
-        Some(InstitutionAdminsPayload::Private(admins)) => {
-            encode_governance_action(Some(admins), role_mutations, assignment_changes, legal)
-        }
-        None if is_public => encode_governance_action::<adminbase::Admin<[u8; 32]>>(
-            None,
-            role_mutations,
-            assignment_changes,
-            legal,
-        ),
-        None => encode_governance_action::<adminbase::Admin<[u8; 32]>>(
-            None,
-            role_mutations,
-            assignment_changes,
-            legal,
-        ),
+    if role_mutations.is_empty() && assignment_changes.is_empty() && legal.is_none() {
+        return api_error(StatusCode::BAD_REQUEST, 1001, "机构治理内容不能为空");
+    }
+    let action_payload = encode_governance_action(role_mutations, assignment_changes, legal);
+    let snapshot = match chain_roles::fetch_registration_snapshot(cid_number).await {
+        Ok(v) => v,
+        Err(_) => return api_error(StatusCode::BAD_GATEWAY, 5002, "机构链状态读取失败"),
     };
     // 机构治理 = 发起管理员使用签名钱包直接冷签这笔 extrinsic,
     // 授权由 runtime 在 origin 处以 `is_institution_admin`(本机构管理员)+ 岗位码校验。
     let chain = encode_propose_institution_governance(&ProposeInstitutionGovernanceArgs {
+        is_private: snapshot.module_tag() == b"pri-mgmt",
         cid_number: cid_number.as_bytes().to_vec(),
         governance_action: action_payload,
         institution_code: code,
@@ -979,7 +1005,7 @@ pub(super) fn can_read_institution_governance(
         )
 }
 
-/// 治理数据只使用就绪登录会话和只读范围，不重复调用管理员资格守卫。
+/// 中间件先核对当前钱包/版本；治理数据按原只读范围读取，同一FRG不增加省级读取门禁。
 pub(crate) async fn get_governance_state(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1149,7 +1175,7 @@ async fn wallet_call(
                 && !role
                     .assignments
                     .iter()
-                    .any(|a| a.effective && a.account_id == member.account_id)
+                    .any(|a| a.effective && a.account_id == member.authorization_account_id)
             {
                 return Err(bad("只能更换本省专员岗位内的钱包"));
             }

@@ -91,6 +91,16 @@ impl<T: Config> Pallet<T> {
                 | PendingCleanupStage::VoterSnapshots
                 | PendingCleanupStage::InstitutionTicketCounts,
             ) => T::WeightInfo::cleanup_step(limit),
+            Some(PendingCleanupStage::FrozenWalletVersions) => T::WeightInfo::cleanup_step(limit)
+                .saturating_add(
+                    Weight::from_parts(
+                        100_000_000,
+                        u64::from(T::MaxAdminsPerInstitution::get()).saturating_mul(8),
+                    )
+                    .saturating_mul(u64::from(limit).saturating_add(1)),
+                )
+                .saturating_add(Weight::from_parts(0, 4096))
+                .saturating_add(T::DbWeight::get().writes(1)),
             Some(PendingCleanupStage::TrackData) => {
                 <T::TrackHandlers as crate::tracks::ProposalTracks<
                     BlockNumberFor<T>,
@@ -131,6 +141,20 @@ impl<T: Config> Pallet<T> {
                 let next = if result.maybe_cursor.is_some() {
                     PendingCleanupStage::VoterSnapshots
                 } else {
+                    PendingCleanupStage::FrozenWalletVersions
+                };
+                (
+                    Some(next),
+                    db.reads_writes(u64::from(result.loops), u64::from(result.unique)),
+                )
+            }
+            PendingCleanupStage::FrozenWalletVersions => {
+                let result =
+                    FrozenWalletVersions::<T>::clear_prefix(proposal_id, cleanup_limit, None);
+                let next = if result.maybe_cursor.is_some() {
+                    PendingCleanupStage::FrozenWalletVersions
+                } else {
+                    FrozenGovernanceWalletState::<T>::remove(proposal_id);
                     PendingCleanupStage::InstitutionTicketCounts
                 };
                 (

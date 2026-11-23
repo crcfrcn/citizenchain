@@ -2,7 +2,6 @@
 #![cfg(feature = "runtime-benchmarks")]
 use crate::{pallet::*, Call, Config, InstitutionAccountInfo, Pallet, RegisteredInstitution};
 use adminbase::{Admin, InstitutionAdminLifecycle, InstitutionAdminQuery as _};
-use codec::Encode;
 use entitybase::{
     BusinessActionId, InstitutionAdminAssignment, InstitutionAssignmentSource,
     InstitutionAssignmentStatus, InstitutionRole, InstitutionRoleStatus, RoleBusinessPermission,
@@ -81,7 +80,7 @@ fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
             created_at: 1u32.into(),
         },
     );
-    <T as Config>::AdminLifecycle::set_institution_admins(
+    <T as Config>::AdminLifecycle::benchmark_set_institution_admins(
         crate::MODULE_TAG,
         cid.to_vec(),
         *b"SFGY",
@@ -178,7 +177,7 @@ struct RegistrationFixture<T: Config> {
     work: (u32, u32, u32, u32),
 }
 
-/// n为名册规模，a为每岗任职规模，名册取max(n,a)保持所有参数组合合法。
+/// 钱包先独立登记，n为准确名册规模，a为每岗任职规模；首次是首次岗位配置。
 /// 校准时必须使用work的真实计数，而非把r*p/r*a误当作单个p/a。
 fn registration_fixture<T: BenchmarkSetup>(
     n: u32,
@@ -202,28 +201,22 @@ fn registration_fixture<T: BenchmarkSetup>(
             .try_into()
             .unwrap();
     }
-    if !existing {
-        // 默认市注册局等已有机构首次登记尚无名册；只清理本基准目标的管理员键。
-        // 使用同一公开storage布局，避免把1989人的旧名册成本误称为空名册首次登记。
-        let mut key =
-            frame_support::storage::storage_prefix(b"PrivateAdmins", b"AdminAccounts").to_vec();
-        key.extend(
-            <frame_support::Blake2_128Concat as frame_support::StorageHasher>::hash(
-                &f.cid.encode(),
-            ),
-        );
-        if frame_support::storage::unhashed::exists(&key) {
-            frame_support::storage::unhashed::kill(&key);
-            assert!(
-                !T::InstitutionAdminQuery::institution_admins_exist(*b"SFGY", f.cid.as_slice()),
-                "首次登记必须从无名册状态开始"
-            );
-        }
-    }
+
+    // 钱包登记与岗位配置分开：setup先登记准确名册，计时只执行本次明确的治理配置。
+    // 不恢复已删除的完整名册替换登记路径，也不清空已有钱包版本/存活引用。
+    T::AdminLifecycle::benchmark_set_institution_admins(
+        crate::MODULE_TAG,
+        f.cid.to_vec(),
+        *b"SFGY",
+        adminbase::AdminAccountKind::PrivateInstitution,
+        admins.clone(),
+    )
+    .unwrap();
     InstitutionGovernanceThresholds::<T>::remove(&f.cid);
     InstitutionRoles::<T>::remove(&f.cid, &f.role);
     InstitutionRoleAssignments::<T>::remove(&f.cid, &f.role);
     InstitutionRolePermissions::<T>::remove(&f.cid, &f.role);
+    InstitutionRoleNonce::<T>::insert(&f.cid, 1u64);
     let permissions = [
         (
             entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
@@ -265,6 +258,7 @@ fn registration_fixture<T: BenchmarkSetup>(
         })
         .collect::<Vec<_>>();
     let mut mutations = Vec::new();
+    let mut existing_changes = Vec::new();
     for index in 0..r {
         let mut name = vec![b'R'; T::MaxAccountNameLength::get() as usize];
         // 差异放末尾，真实覆盖最长共同前缀的名称唯一性比较。
@@ -329,6 +323,10 @@ fn registration_fixture<T: BenchmarkSetup>(
                 .unwrap();
             InstitutionRoleAssignments::<T>::insert(&f.cid, &code, stored);
             UsedRoleCodes::<T>::insert(&f.cid, &code, true);
+            existing_changes.push(entitybase::InstitutionRoleAssignmentChange {
+                role_code: code.to_vec(),
+                assignments: targets.clone(),
+            });
         } else {
             mutations.push(entitybase::InstitutionRoleMutation::Create {
                 role_name: name,
@@ -341,11 +339,14 @@ fn registration_fixture<T: BenchmarkSetup>(
     let threshold = r.saturating_mul(a) / 2 + 1;
     let action = if existing {
         InstitutionGovernanceThresholds::<T>::insert(&f.cid, threshold);
-        InstitutionRoleNonce::<T>::insert(&f.cid, r as u64);
-        entitybase::InstitutionGovernanceAction::ReplaceAdmins { admins }
+        InstitutionRoleNonce::<T>::insert(&f.cid, u64::from(r) + 1);
+        entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
+            role_mutations: Vec::new(),
+            assignment_changes: existing_changes,
+            legal_representative_change: None,
+        }
     } else {
-        entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-            admins,
+        entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
             role_mutations: mutations,
             assignment_changes: Vec::new(),
             legal_representative_change: None,
@@ -384,7 +385,8 @@ fn verify_registration<T: Config>(cid: &CidNumberOf<T>, n: u32, r: u32, p: u32, 
         InstitutionGovernanceThresholds::<T>::get(cid),
         Some(r.saturating_mul(a) / 2 + 1)
     );
-    assert_eq!(InstitutionRoleNonce::<T>::get(cid), u64::from(r) + 1);
+    // 配置调用中的名册一致性写入仍推进原状态nonce，建岗另占r次。
+    assert_eq!(InstitutionRoleNonce::<T>::get(cid), u64::from(r) + 2);
     let info = Institutions::<T>::get(cid).unwrap();
     assert_eq!(
         T::InstitutionAdminQuery::institution_admins_len(info.institution_code, cid),
@@ -517,8 +519,13 @@ mod benchmarks {
     #[benchmark]
     fn propose_institution_governance() {
         let f = prepare::<T>();
-        let action = entitybase::InstitutionGovernanceAction::ReplaceAdmins {
-            admins: f.admins.to_vec(),
+        let action = entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
+            role_mutations: vec![entitybase::InstitutionRoleMutation::Rename {
+                role_code: f.role.to_vec(),
+                role_name: b"Benchmark renamed".to_vec(),
+            }],
+            assignment_changes: vec![],
+            legal_representative_change: None,
         };
         #[extrinsic_call]
         _(
@@ -532,21 +539,14 @@ mod benchmarks {
     #[benchmark]
     fn governance_names() {
         let f = prepare::<T>();
-        let mut admins = f.admins.to_vec();
-        for a in &mut admins {
-            a.family_name = vec![b'F'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
-                .try_into()
-                .unwrap();
-            a.given_name = vec![b'G'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
-                .try_into()
-                .unwrap();
-        }
-        while admins.encoded_size() + 2048
-            > <T as engingcore::Config>::MaxProposalDataLen::get() as usize
-        {
-            admins.pop().expect("基准载荷必须容纳至少一名管理员");
-        }
-        let action = entitybase::InstitutionGovernanceAction::ReplaceAdmins { admins };
+        let action = entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
+            role_mutations: vec![entitybase::InstitutionRoleMutation::Rename {
+                role_code: f.role.to_vec(),
+                role_name: vec![b'R'; T::MaxAccountNameLength::get() as usize],
+            }],
+            assignment_changes: vec![],
+            legal_representative_change: None,
+        };
         #[extrinsic_call]
         propose_institution_governance(
             RawOrigin::Signed(f.caller),

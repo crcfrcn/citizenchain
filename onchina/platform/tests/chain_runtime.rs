@@ -78,20 +78,20 @@ fn onchain_institution_admin_account_decodes_unified_records_only() {
     assert_eq!(decoded.institution_code, *b"CREG");
     assert_eq!(decoded.admins.len(), 1);
     assert_eq!(decoded.admins[0].account_id, [0x42; 32]);
-    // 管理员 CID 由链上名册提供，钱包码无需重复声明；实际签名账户由该 CID
-    // 在同一个 finalized 区块上的当前绑定决定。
+    // 人员CID只作独立资料；实际签名账户始终是本机构当前钱包。
     assert_eq!(
         decoded.admins[0].cid_number.as_slice(),
         "CN220-CTZN2-198805200-2026".as_bytes()
     );
     let resolved = [super::ResolvedOnChainAdminRecord {
+        wallet_revision: 0,
         role_account_id: decoded.admins[0].account_id,
         account_id: [0x43; 32],
         cid_number: decoded.admins[0].cid_number.clone(),
         family_name: decoded.admins[0].family_name.clone(),
         given_name: decoded.admins[0].given_name.clone(),
     }];
-    // 换绑后岗位关联仍保留名册账户，但只有 CID 当前绑定的新账户能签名。
+    // 更换机构钱包后原岗位人员引用保持；公民CID绑定不参与这条映射。
     assert!(resolved.iter().all(|admin| admin.account_id != [0x42; 32]));
     assert!(resolved.iter().any(|admin| admin.account_id == [0x43; 32]));
     assert_eq!(resolved[0].role_account_id, [0x42; 32]);
@@ -159,36 +159,6 @@ fn private_institution_admin_account_decodes_unified_layout() {
 }
 
 #[test]
-fn frozen_public_admin_without_cid_uses_roster_account_only() {
-    let mut decoded = super::OnChainAdminAccount {
-        institution_code: *b"FRG\0",
-        admins: vec![super::OnChainAdminRecord {
-            account_id: [0x31; 32],
-            cid_number: Vec::new(),
-            family_name: Vec::new(),
-            given_name: Vec::new(),
-        }],
-    };
-    assert!(super::matching_roster_admin_by_cid_or_public_account(
-        &decoded,
-        super::AdminPallet::PublicAdmins,
-        &[0x31; 32],
-        Some(b"CN220-CTZN2-198805200-2026"),
-    )
-    .is_some());
-
-    // 一旦名册已有管理员 CID，旧名册账户不得再作为无 CID 例外回退。
-    decoded.admins[0].cid_number = b"CN220-CTZN2-198805200-2026".to_vec();
-    assert!(super::matching_roster_admin_by_cid_or_public_account(
-        &decoded,
-        super::AdminPallet::PublicAdmins,
-        &[0x31; 32],
-        Some(b"CN221-CTZN2-198805200-2026"),
-    )
-    .is_none());
-}
-
-#[test]
 fn console_pallets_allow_all_fixed_institutions_without_changing_membership_scope() {
     assert_eq!(
         super::console_admin_pallets(b"NJD\0").unwrap(),
@@ -249,4 +219,20 @@ fn production_mode_detects_prod_env() {
     } else {
         std::env::remove_var("ONCHINA_ENV");
     }
+}
+
+#[test]
+fn targeted_wallet_lookup_preserves_full_roster_validation(){
+    use codec::Encode;
+    let cid="GZ018-CREGM-159197206-2026";
+    let records=vec![adminbase::Admin{account_id:[0x11u8;32],cid_number:Default::default(),family_name:Default::default(),given_name:Default::default()},adminbase::Admin{account_id:[0x22u8;32],cid_number:Default::default(),family_name:Default::default(),given_name:Default::default()}];
+    let encoded=adminbase::InstitutionAdmins{institution_code:*b"CREG",admins:records.clone()}.encode();
+    let decode=||super::decode_onchain_admin_account(&encoded,super::AdminPallet::PublicAdmins).unwrap();
+    assert_eq!(super::select_admin_records(decode(),cid,None).unwrap().admins.len(),2);
+    let selected=super::select_admin_records(decode(),cid,Some(&format!("0x{}","22".repeat(32)))).unwrap();
+    assert_eq!(selected.admins.len(),1);assert_eq!(selected.admins[0].account_id,[0x22;32]);
+    assert!(super::select_admin_records(decode(),cid,Some(&format!("0x{}","33".repeat(32)))).unwrap().admins.is_empty());
+    let duplicate=adminbase::InstitutionAdmins{institution_code:*b"CREG",admins:vec![records[0].clone(),records[0].clone()]}.encode();
+    assert!(super::decode_onchain_admin_account(&duplicate,super::AdminPallet::PublicAdmins).is_err());
+    assert!(super::select_admin_records(decode(),"another-institution",None).is_err());
 }

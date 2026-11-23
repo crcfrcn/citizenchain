@@ -3,6 +3,8 @@
 #![cfg(test)]
 
 use super::*;
+use engingcore::types::{AuthorizationSubject, VotingEngineKind};
+use engingcore::InstitutionRoleProvider as _;
 use frame_support::{
     assert_noop, assert_ok, derive_impl, parameter_types,
     traits::{ConstU32, Hooks},
@@ -12,8 +14,6 @@ use primitives::cid::china::china_cb::CHINA_CB;
 use sp_consensus_grandpa::AuthorityId as GrandpaAuthorityId;
 use sp_core::{ed25519, Pair, Void};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use engingcore::types::{AuthorizationSubject, VotingEngineKind};
-use engingcore::InstitutionRoleProvider as _;
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -114,6 +114,19 @@ impl TestInternalAdminProvider {
 }
 
 impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+    fn institution_wallet_snapshot(
+        _cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        Some(
+            references
+                .iter()
+                .cloned()
+                .map(|wallet| (wallet, 0))
+                .collect(),
+        )
+    }
+
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],

@@ -487,3 +487,40 @@ fn login_waits_for_binding_lock_and_rejects_a_concurrent_rebind() {
         0
     );
 }
+
+
+#[test]
+fn wallet_revision_and_namespace_are_mandatory_and_old_sessions_never_revive(){
+    use crate::authentication::login::{AdminAuthContext,AdminSession};
+    let mut ctx=AdminAuthContext{wallet_revision:"0".into(),wallet_namespace:crate::chain_runtime::AdminPallet::PublicAdmins,account_id:format!("0x{}","11".repeat(32)),institution_cid_number:"original".into(),institution_code:"FRG".into(),admin_level:None,family_name:String::new(),given_name:String::new(),scope_province_name:None,scope_city_name:None,scope_town_name:None,cid_short_name:None};
+    let mut live=crate::chain_runtime::OnChainAdmin{wallet_revision:0,wallet_namespace:ctx.wallet_namespace,account_id:ctx.account_id.clone(),role_account_id:[0x11;32],cid_number:String::new(),family_name:String::new(),given_name:String::new()};
+    assert!(ctx.matches_wallet(&live));live.wallet_revision=2;assert!(!ctx.matches_wallet(&live));
+    ctx.wallet_revision="2".into();assert!(ctx.matches_wallet(&live));live.wallet_namespace=crate::chain_runtime::AdminPallet::PrivateAdmins;assert!(!ctx.matches_wallet(&live));
+    let now=chrono::Utc::now().timestamp_millis();
+    let mut raw=serde_json::json!({"accountId":ctx.account_id,"institutionCode":"FRG","candidateId":"candidate","institutionCidNumber":"original","adminLevel":null,"familyName":"","givenName":"","scopeProvinceName":null,"scopeCityName":null,"scopeTownName":null,"cidShortName":null,"capabilities":crate::modules::capability::EMPTY,"workspace":{"workspace_kind":"registry","workspace_title":"fixture","workspace_sections":[],"workspace_modules":[]},"setupRequired":false,"expiresAt":now+60000,"lastActiveAt":now});
+    assert!(serde_json::from_value::<AdminSession>(raw.clone()).is_err());
+    raw["walletRevision"]="0".into();assert!(serde_json::from_value::<AdminSession>(raw.clone()).is_err());
+    raw["walletNamespace"]="PublicAdmins".into();assert!(serde_json::from_value::<AdminSession>(raw.clone()).is_ok());
+    raw["walletRevision"]=0.into();assert!(serde_json::from_value::<AdminSession>(raw).is_err());
+}
+
+#[tokio::test]
+#[ignore = "使用独立onchina_test数据库和显式权威快照验证真实Router"]
+async fn protected_http_rejects_retired_readded_wallet_and_cross_scope_session(){
+    use tower::ServiceExt;
+    let sandbox=crate::database::IsolatedTestDb::new();
+    let(state,_,session)=crate::testing::session_fixture(&sandbox.db,false);
+    let app=crate::build_routes(state);
+    let call=|token:&str|axum::http::Request::builder().uri("/api/admin/auth/check").header("authorization",format!("Bearer {token}")).body(axum::body::Body::empty()).unwrap();
+    assert_eq!(app.clone().oneshot(call(&session.token)).await.unwrap().status(),axum::http::StatusCode::OK);
+    for mutation in ["version","wallet","namespace","province","institution"] {
+        let mut actual=session.context();
+        match mutation {"version"=>actual.wallet_revision="2".into(),"wallet"=>actual.account_id=format!("0x{}","22".repeat(32)),"namespace"=>actual.wallet_namespace=crate::chain_runtime::AdminPallet::PrivateAdmins,"province"=>actual.scope_province_name=Some("广东省".into()),_=>actual.institution_cid_number="another-institution".into()}
+        *sandbox.db.wallet_snapshot.lock().unwrap()=Some(actual);
+        assert_eq!(app.clone().oneshot(call(&session.token)).await.unwrap().status(),axum::http::StatusCode::UNAUTHORIZED,"{mutation}");
+    }
+    let mut current=session.clone();current.token="returned-wallet-session".into();current.wallet_revision="2".into();
+    *sandbox.db.wallet_snapshot.lock().unwrap()=Some(current.context());
+    sandbox.db.with_client(|conn|insert_admin_session_conn(conn,&current)).unwrap();
+    assert_eq!(app.oneshot(call(&current.token)).await.unwrap().status(),axum::http::StatusCode::OK);
+}

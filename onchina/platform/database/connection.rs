@@ -39,6 +39,9 @@ const SCHEMA_FORMAT: &str = "onchina:3";
 
 #[derive(Clone)]
 pub struct Db {
+    /// 仅单元/隔离HTTP测试注入明确的钱包权威快照；正式构建不存在此字段。
+    #[cfg(test)]
+    pub(crate) wallet_snapshot: Arc<Mutex<Option<crate::authentication::login::AdminAuthContext>>>,
     clients: Arc<Vec<Mutex<postgres::Client>>>,
     next_client_idx: Arc<AtomicUsize>,
 }
@@ -85,6 +88,8 @@ impl Db {
             Err(_) => return Err("postgres init thread panicked".to_string()),
         };
         Ok(Self {
+            #[cfg(test)]
+            wallet_snapshot: Arc::new(Mutex::new(None)),
             clients: Arc::new(clients),
             next_client_idx: Arc::new(AtomicUsize::new(0)),
         })

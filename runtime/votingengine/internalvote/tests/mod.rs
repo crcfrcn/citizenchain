@@ -1,4 +1,4 @@
-//! 装配内部投票测试Runtime、机构岗位和CID换绑夹具。
+//! 装配内部投票测试Runtime、机构岗位和冻结钱包版本夹具。
 
 use super::*;
 use core::cell::RefCell;
@@ -12,7 +12,6 @@ use frame_system as system;
 // 引擎核心 storage / 类型 / trait(住在 engingcore 主 crate)。
 // `use super::*` 拉进 internalvote 自有的 pallet items(Pallet/Event/Error/Config/InternalVotesByTicket/...);
 // 这里追加 engingcore 的 storage 与 trait 名,让测试代码用短名引用。
-use primitives::cid::code::PRS;
 use engingcore::pallet::{
     AdminSnapshot, AutoFinalizeDeadLetters, AutoFinalizeRetryStates, CurrentProposalYear,
     ExecutionRetryDeadlines, NextProposalId, PendingCleanupQueue, PendingCleanupQueueHead,
@@ -25,6 +24,7 @@ use engingcore::pallet::{
 use engingcore::types::{
     code_bytes, CidNumber, InstitutionCode, ProposalSubject, RoleSubject, NJD, NRC, PMUL, PRB, PRC,
 };
+use primitives::cid::code::PRS;
 // 个人多签按账户键测试；公权、私权法人按机构 CID 键测试。
 const PERSONAL_CODE: InstitutionCode = PMUL;
 const PUBLIC_CODE: InstitutionCode = code_bytes("CGOV");
@@ -32,13 +32,6 @@ const PRIVATE_CODE: InstitutionCode = code_bytes("SFLP");
 // 六个永久国家单例中的总统府：用于验证“不读取 CID 动态阈值、按提案快照过半”。
 const PERMANENT_SINGLETON_CODE: InstitutionCode = PRS;
 // joint mode storage 在 jointvote sub-pallet
-use primitives::cid::china::china_cb::CHINA_CB;
-use primitives::cid::china::china_ch::CHINA_CH;
-use primitives::cid::china::china_sf::{CHINA_SF, NATIONAL_JUDICIAL_YUAN_ADMINS};
-use sp_runtime::{
-    traits::{Hash as _, IdentityLookup},
-    AccountId32, BuildStorage, DispatchError,
-};
 use engingcore::traits::{
     InternalAdminProvider, InternalVoteEngine, InternalVoteResultCallback, JointVoteEngine,
     JointVoteResultCallback,
@@ -47,6 +40,13 @@ use engingcore::{
     PendingCleanupStage, Proposal, ProposalExecutionOutcome, VoteCountU32, VoteCountU64,
     PROPOSAL_KIND_JOINT, STAGE_INTERNAL, STAGE_JOINT, STAGE_REFERENDUM, STATUS_EXECUTED,
     STATUS_EXECUTION_FAILED, STATUS_PASSED, STATUS_REJECTED, STATUS_VOTING,
+};
+use primitives::cid::china::china_cb::CHINA_CB;
+use primitives::cid::china::china_ch::CHINA_CH;
+use primitives::cid::china::china_sf::{CHINA_SF, NATIONAL_JUDICIAL_YUAN_ADMINS};
+use sp_runtime::{
+    traits::{Hash as _, IdentityLookup},
+    AccountId32, BuildStorage, DispatchError,
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -173,15 +173,16 @@ thread_local! {
 thread_local! {
     static INTERNAL_TERMINAL_CLEANUP_SHOULD_FAIL: RefCell<bool> = const { RefCell::new(false) };
 }
-// 换绑模拟：(名册规范账户, 该身份当前绑定的钱包)。
-// None = 未换绑 → 投票人解析恒按账户（与生产创世期/无 CID 管理员语义一致）。
+// 测试当前凭据事实：(原岗位引用, 实际钱包, 该钱包版本)。
+// 未另设时，这批固定夹具明确为初始钱包/版本0；生产提供器不存在默认版本。
 thread_local! {
-    static REBIND: RefCell<Option<(AccountId32, AccountId32)>> = const { RefCell::new(None) };
+    static CURRENT_INSTITUTION_WALLET: RefCell<Option<(AccountId32, AccountId32,u64)>> = const { RefCell::new(None) };
 }
 
-/// 模拟某名册规范账户的公民 CID 换绑到新钱包：新钱包解析到该规范账户，旧钱包掉权。
-pub fn set_rebind(canonical: AccountId32, current_wallet: AccountId32) {
-    REBIND.with(|cell| *cell.borrow_mut() = Some((canonical, current_wallet)));
+/// 只改变此后建案所读的当前凭据，已经冻结的名单和版本不能随之改变。
+pub fn set_institution_wallet(reference: AccountId32, current_wallet: AccountId32, revision: u64) {
+    CURRENT_INSTITUTION_WALLET
+        .with(|cell| *cell.borrow_mut() = Some((reference, current_wallet, revision)));
 }
 
 pub struct TestCitizenIdentityReader;
@@ -372,16 +373,23 @@ impl InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
         }
     }
 
-    /// 换绑感知的投票人解析：未设 REBIND 时恒按账户（现状语义，故现有用例不受影响）。
-    fn resolve_institution_voter(_cid_number: &[u8], caller: &AccountId32) -> Option<AccountId32> {
-        REBIND.with(|cell| match cell.borrow().as_ref() {
-            // 新钱包 → 解析到名册规范账户（换绑不掉权）
-            Some((canonical, current)) if caller == current => Some(canonical.clone()),
-            // 旧钱包（= 规范账户本身）→ CID 已不绑定它 → 掉权
-            Some((canonical, _)) if caller == canonical => None,
-            // 其余管理员按账户
-            _ => Some(caller.clone()),
-        })
+    fn institution_wallet_snapshot(
+        _cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        Some(
+            references
+                .iter()
+                .map(|reference| {
+                    CURRENT_INSTITUTION_WALLET.with(|cell| match cell.borrow().as_ref() {
+                        Some((record, wallet, revision)) if reference == record => {
+                            (wallet.clone(), *revision)
+                        }
+                        _ => (reference.clone(), 0),
+                    })
+                })
+                .collect(),
+        )
     }
 
     fn institution_threshold(_institution_code: InstitutionCode, cid_number: &[u8]) -> Option<u32> {
@@ -575,7 +583,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         INTERNAL_CALLBACK_LOG.with(|log| log.borrow_mut().clear());
         INTERNAL_TERMINAL_CLEANUP_LOG.with(|log| log.borrow_mut().clear());
         INTERNAL_TERMINAL_CLEANUP_SHOULD_FAIL.with(|flag| *flag.borrow_mut() = false);
-        REBIND.with(|cell| *cell.borrow_mut() = None); // 默认未换绑 → 投票人解析按账户
+        CURRENT_INSTITUTION_WALLET.with(|cell| *cell.borrow_mut() = None); // 夹具初始实际钱包与岗位引用相同
         set_personal_threshold(3);
         set_institution_threshold(public_cid(), 3);
         set_institution_threshold(private_cid(), 3);
@@ -593,7 +601,8 @@ fn subject_cids_for(actor_cid_number: &CidNumber) -> Vec<Vec<u8>> {
     sp_std::vec![actor_cid_number.to_vec()]
 }
 
-fn internal_mutex_for(actor_cid_number: CidNumber) -> Option<engingcore::InternalProposalMutexState> {
+fn internal_mutex_for(actor_cid_number: CidNumber,
+) -> Option<engingcore::InternalProposalMutexState> {
     VotingEngine::internal_proposal_mutex(ProposalSubject::InstitutionCid(actor_cid_number))
 }
 
@@ -1019,7 +1028,8 @@ fn reset_cleanup_sequence(_current_block: u64) {
 
 fn fill_retry_deadline_window(from: u64) {
     for offset in 0..100u64 {
-        ExecutionRetryDeadlines::<Test>::insert(from + offset, full_retry_deadline_bucket(u128::from(offset)));
+        ExecutionRetryDeadlines::<Test>::insert(from + offset, full_retry_deadline_bucket(u128::from(offset)),
+        );
     }
 }
 

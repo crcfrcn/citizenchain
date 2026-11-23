@@ -107,6 +107,19 @@ const VOTER_ROLE: &[u8] = b"LAW_VOTER";
 
 /// legislator() 是测试发起机构 CID 的唯一管理员；其它一律不是。
 impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+    fn institution_wallet_snapshot(
+        _cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        Some(
+            references
+                .iter()
+                .cloned()
+                .map(|wallet| (wallet, 0))
+                .collect(),
+        )
+    }
+
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],

@@ -7,12 +7,12 @@ const role = { roleCode: 'GOV', roleName: '治理委员', active: true, fixed: f
     permissions: [{ moduleTag: 'pri-mgmt', actionCode: 3, operation: 'PROPOSE' as const }],
     assignments: [{ accountId: anchor, termStart: 0, termEnd: 0, active: true, effective: true, sourceLabel: '机构内部治理', sourceRef: '0x01' }] };
 const state: GovernanceState = { cidNumber: 'fixture-institution', blockHash: '0x01', blockNumber: 1, currentDay: 20000, moduleTag: 'pri-mgmt', legalRoleCode: 'LR',
-    members: [{ accountId: anchor, signerId: signer, cidNumber: 'fixture-citizen', familyName: '测', givenName: '试' }],
+    members: [{ accountId: signer, authorizationAccountId: anchor, signerId: signer, cidNumber: 'fixture-citizen', familyName: '测', givenName: '试' }],
     roles: [role, { ...role, roleCode: 'LR', roleName: '法定代表人', fixed: true, assignmentLocked: true, maxAssignments: 1 }],
     representative: { familyName: '测', givenName: '试', cidNumber: 'fixture-citizen', accountId: anchor } };
-const auth = { setupRequired: false, accessToken: 'fixture-session', accountId: signer, institutionCidNumber: state.cidNumber, institutionCode: 'SFGY', familyName: '测', givenName: '试' };
+const auth = { walletRevision: '0', walletNamespace: 'PrivateAdmins' as const, setupRequired: false, accessToken: 'fixture-session', accountId: signer, institutionCidNumber: state.cidNumber, institutionCode: 'SFGY', familyName: '测', givenName: '试' };
 describe('独立治理页载荷及身份边界', () => {
-    it('发起岗位按当前钱包解析，任职写入仍保留名册锚点，其他机构只读', () => {
+    it('发起岗位按当前钱包解析，任职写入仍保留原岗位引用，其他机构只读', () => {
         expect(governanceProposers(auth, state).map(r => r.roleCode)).toEqual(['GOV', 'LR']);
         expect(governanceProposers({ ...auth, institutionCidNumber: 'another' } as never, state)).toEqual([]);
         expect(governanceProposers({ ...auth, accountId: anchor } as never, state)).toEqual([]);
@@ -289,20 +289,20 @@ describe('机构钱包统一双签与投票更换协议', () => {
         const g = await import('../institutions/governance');
         const mode = options.mode ?? 'SELF', moduleTag = options.moduleTag ?? 'pub-mgmt';
         const actor = mode === 'SELF' ? account(3) : account(5);
-        const authentication = { setupRequired: false, accessToken: 'wallet-session', accountId: actor, institutionCidNumber: cid, institutionCode: options.code ?? 'NRC', familyName: '测', givenName: '试' };
+        const authentication = { walletRevision: '0', walletNamespace: 'PublicAdmins' as const, setupRequired: false, accessToken: 'wallet-session', accountId: actor, institutionCidNumber: cid, institutionCode: options.code ?? 'NRC', familyName: '测', givenName: '试' };
         const snapshot: import('../institutions/governance').GovernanceState = {
             cidNumber: cid, blockHash: account(9), blockNumber: 10, currentDay: 20000, moduleTag, legalRoleCode: 'LR', representative: null,
-            members: [{ accountId: account(2), signerId: account(3), walletRevision: 7, cidNumber: 'person-cid', familyName: '张', givenName: '三' },
-                { accountId: account(6), signerId: account(5), walletRevision: 0, cidNumber: '', familyName: '李', givenName: '四' }],
+            members: [{ accountId: account(3), authorizationAccountId: account(2), signerId: account(3), walletRevision: 7, cidNumber: 'person-cid', familyName: '张', givenName: '三' },
+                { accountId: account(5), authorizationAccountId: account(6), signerId: account(5), walletRevision: 0, cidNumber: '', familyName: '李', givenName: '四' }],
             roles: [{ ...role, roleCode: 'PROVINCE-GZ', permissions: [{ moduleTag, actionCode: 3, operation: 'PROPOSE' }, { moduleTag, actionCode: 3, operation: 'VOTE' }],
                 assignments: [account(2), account(6)].map(accountId => ({ ...role.assignments[0], accountId })) }],
         };
-        const draft = g.buildInstitutionWalletDraft(authentication, snapshot, mode, account(2), account(4), mode === 'GOVERNANCE' ? 'PROVINCE-GZ' : '');
+        const draft = g.buildInstitutionWalletDraft(authentication, snapshot, mode, account(3), account(4), mode === 'GOVERNANCE' ? 'PROVINCE-GZ' : '');
         const calls: string[] = [];
         const proof = '0x' + 'ab'.repeat(options.signatureBytes ?? 64);
         const now = Math.floor(Date.now() / 1000), expires = now + (mode === 'SELF' ? 160 : 86400), qrExpiry = now + 100;
         const { blake2b } = await import('@noble/hashes/blake2.js');
-        const material = [...Array(32).fill(1), cid.length << 2, ...Buffer.from(cid), ...bytes(account(2)), ...bytes(account(3)), ...bytes(account(4)), ...u64(7), mode === 'SELF' ? 0 : 1, ...u64(expires)];
+        const material = [...Array(32).fill(1), cid.length << 2, ...Buffer.from(cid), ...bytes(account(3)), ...bytes(account(3)), ...bytes(account(4)), ...u64(7), mode === 'SELF' ? 0 : 1, ...u64(expires)];
         const requestId = 'institution-wallet-' + Buffer.from(blake2b(Uint8Array.from(material), { dkLen: 32 })).toString('hex');
         const qr = (id: string, signer: string, action: number, payload: number[], expiry: number) => JSON.stringify({ p: 'QR_V1', k: 1, i: id, e: expiry, b: { a: action, g: 0, u: encode(bytes(signer)), d: encode(payload) } });
         let failSubmit = options.failSubmit ?? false;
@@ -318,7 +318,7 @@ describe('机构钱包统一双签与投票更换协议', () => {
                     return new Response(JSON.stringify({ code: 0, data: { requestId, expiresAt: expires, acceptancePayloadHex: hex(acceptance), signRequest: qr(requestId, account(4), 21, acceptance, options.tamper === 'expiry' ? now - 1 : qrExpiry) } }));
                 }
                 calls.push('prepare'); expect(new Headers(init?.headers).get('x-passkey-assertion')).toBe('wallet-assertion');
-                expect(input).toEqual({ cidNumber: cid, adminAccount: account(2), newWallet: account(4), mode, proposerRoleCode: draft.proposerRoleCode, expiresAt: expires, newWalletResponse: consentResponse });
+                expect(input).toEqual({ cidNumber: cid, adminAccount: account(3), newWallet: account(4), mode, proposerRoleCode: draft.proposerRoleCode, expiresAt: expires, newWalletResponse: consentResponse });
                 let call = g.institutionWalletCall(draft, expires, proof, moduleTag);
                 if (options.tamper === 'call') call = hex([...bytes(call).slice(0, -1), 0]);
                 const tail = [0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, ...Array(64).fill(1), 0];
@@ -379,14 +379,14 @@ describe('机构钱包统一双签与投票更换协议', () => {
     it('机构隔离、本人/他人及FRG省组都只能按原有效岗位选择', async () => {
         const f = await fixture({ mode: 'GOVERNANCE', code: 'FRG' });
         try {
-            expect(f.g.institutionWalletRoles(f.authentication, f.snapshot, account(2))).toHaveLength(1);
+            expect(f.g.institutionWalletRoles(f.authentication, f.snapshot, account(3))).toHaveLength(1);
             const otherProvince = { ...f.snapshot, roles: [{ ...f.snapshot.roles[0], assignments: f.snapshot.roles[0].assignments.filter(a => a.accountId === account(6)) }] };
-            expect(f.g.institutionWalletRoles(f.authentication, otherProvince, account(2))).toEqual([]);
-            expect(() => f.g.buildInstitutionWalletDraft(f.authentication, otherProvince, 'GOVERNANCE', account(2), account(4), 'PROVINCE-GZ')).toThrow('提案权限');
-            expect(() => f.g.buildInstitutionWalletDraft(f.authentication, f.snapshot, 'SELF', account(2), account(4))).toThrow('本人');
-            expect(() => f.g.buildInstitutionWalletDraft({ ...f.authentication, institutionCidNumber: 'other' }, f.snapshot, 'GOVERNANCE', account(2), account(4), 'PROVINCE-GZ')).toThrow('本机构');
-            expect(() => f.g.buildInstitutionWalletDraft(f.authentication, f.snapshot, 'GOVERNANCE', account(2), account(5), 'PROVINCE-GZ')).toThrow('已被');
-            expect(() => f.g.buildInstitutionWalletDraft(f.authentication, { ...f.snapshot, members: [{ ...f.snapshot.members[0], walletRevision: Number.MAX_SAFE_INTEGER + 1 }, f.snapshot.members[1]] }, 'GOVERNANCE', account(2), account(4), 'PROVINCE-GZ')).toThrow('版本');
+            expect(f.g.institutionWalletRoles(f.authentication, otherProvince, account(3))).toEqual([]);
+            expect(() => f.g.buildInstitutionWalletDraft(f.authentication, otherProvince, 'GOVERNANCE', account(3), account(4), 'PROVINCE-GZ')).toThrow('提案权限');
+            expect(() => f.g.buildInstitutionWalletDraft(f.authentication, f.snapshot, 'SELF', account(3), account(4))).toThrow('本人');
+            expect(() => f.g.buildInstitutionWalletDraft({ ...f.authentication, institutionCidNumber: 'other' }, f.snapshot, 'GOVERNANCE', account(3), account(4), 'PROVINCE-GZ')).toThrow('本机构');
+            expect(() => f.g.buildInstitutionWalletDraft(f.authentication, f.snapshot, 'GOVERNANCE', account(3), account(5), 'PROVINCE-GZ')).toThrow('已被');
+            expect(() => f.g.buildInstitutionWalletDraft(f.authentication, { ...f.snapshot, members: [{ ...f.snapshot.members[0], walletRevision: Number.MAX_SAFE_INTEGER + 1 }, f.snapshot.members[1]] }, 'GOVERNANCE', account(3), account(4), 'PROVINCE-GZ')).toThrow('版本');
         } finally { f.dispose(); }
     });
     it('错误新钱包、取消、陈旧版本和篡改证明不触发Passkey或原钱包签名', async () => {
@@ -460,7 +460,7 @@ describe('机构钱包统一双签与投票更换协议', () => {
         const f = await fixture({ failSubmit: true });
         try {
             await expect(f.run()).rejects.toThrow(); const pending = f.g.readInstitutionWalletReceipts(f.authentication)[0];
-            f.setLatest({ ...f.snapshot, blockNumber: 11, members: [{ ...f.snapshot.members[0], signerId: account(4), walletRevision: 8 }, f.snapshot.members[1]] });
+            f.setLatest({ ...f.snapshot, blockNumber: 11, members: [{ ...f.snapshot.members[0], accountId: account(4), signerId: account(4), walletRevision: 0 }, f.snapshot.members[1]] });
             f.fetcher.mockImplementationOnce(async () => new Response(JSON.stringify({ code: 1004, message: 'missing' }), { status: 404 }));
             const observed = await f.run({ auth: { ...f.authentication, accountId: account(4) }, state: undefined, draft: undefined, pending });
             expect(observed.observed).toBe(true); expect(observed.receipt).toBeUndefined();
@@ -641,4 +641,16 @@ describe('机构钱包统一双签与投票更换协议', () => {
         } finally {await c.disposePage();}
     },15000);
 
+});
+
+it('旧名单字段在认证与签名前拒绝，不自动转换为纯岗位动作', async () => {
+  const {prepareInstitutionGovernance}=await import('../institutions/governance');
+  const client=await import('../authentication/passkeyClient');
+  const passkey=vi.spyOn(client,'assertPasskey').mockResolvedValue('not-consumed');
+  const fetcher=vi.spyOn(globalThis,'fetch');
+  try{
+    passkey.mockClear();
+    await expect(prepareInstitutionGovernance(auth,{cidNumber:state.cidNumber,proposerRoleCode:'GOV',admins:[]} as never)).rejects.toThrow('停用');
+    expect(passkey).not.toHaveBeenCalled();expect(fetcher).not.toHaveBeenCalled();
+  }finally{fetcher.mockRestore();passkey.mockRestore();}
 });

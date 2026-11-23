@@ -46,7 +46,7 @@ export function useGovernanceState({ auth, cidNumber }: GovernanceViewProps) {
                 setLoading(false);
         });
         return () => { cancelled = true; };
-    }, [auth.accessToken, auth.accountId, cidNumber, revision]);
+    }, [auth.walletRevision, auth.walletNamespace, auth.accessToken, auth.accountId, cidNumber, revision]);
     return { state, error, loading, reload };
 }
 export function GovernanceStatus({ loading, error, reload }: {
@@ -70,7 +70,7 @@ export function GovernanceReview({ auth, state, draft, onClose, onSubmitted }: {
     const [roleCode, setRoleCode] = useState<string>();
     const [busy, setBusy] = useState(false);
     const operation = useRef<AbortController | null>(null);
-    useEffect(() => () => { operation.current?.abort(); }, [auth.accessToken, auth.accountId, state.cidNumber]);
+    useEffect(() => () => { operation.current?.abort(); }, [auth.walletRevision, auth.walletNamespace, auth.accessToken, auth.accountId, state.cidNumber]);
     const { signChain, chainSignModal } = useChainSign('机构治理提案签名');
     const roles = governanceProposers(auth, state);
     useEffect(() => { setRoleCode(undefined); }, [draft]);
@@ -140,7 +140,7 @@ export function InstitutionWalletChangeModal({ auth, cidNumber, mode, targetAcco
     const operation = useRef<AbortController | null>(null);
     const running = useRef(false);
     const { signChain, chainSignModal } = useChainSign();
-    useEffect(() => () => { operation.current?.abort(); }, [auth.accessToken, auth.accountId, auth.institutionCidNumber, cidNumber, mode, targetAccount]);
+    useEffect(() => () => { operation.current?.abort(); }, [auth.walletRevision, auth.walletNamespace, auth.accessToken, auth.accountId, auth.institutionCidNumber, cidNumber, mode, targetAccount]);
     const member = state?.members.find(m => targetAccount ? m.accountId === targetAccount : m.signerId.toLowerCase() === auth.accountId.toLowerCase());
     const roles = state && member ? institutionWalletRoles(auth, state, member.accountId) : [];
     const target = pending?.draft.adminAccount ?? member?.accountId;
@@ -225,11 +225,11 @@ export function InstitutionWalletRecoveryPanel({ auth, onSubmitted, mode }: { au
         window.addEventListener('institution-wallet-receipts-changed', update);
         window.addEventListener('storage', update);
         return () => { window.removeEventListener('institution-wallet-receipts-changed', update); window.removeEventListener('storage', update); };
-    }, [auth.accessToken, auth.accountId, auth.institutionCidNumber, mode]);
+    }, [auth.walletRevision, auth.walletNamespace, auth.accessToken, auth.accountId, auth.institutionCidNumber, mode]);
     return <>
       {receipts.map(receipt => <Alert key={receipt.requestId} style={{ marginBottom: 12 }} type="info" showIcon message={receipt.draft.mode === 'SELF' ? '有已签名的本人钱包更换交易待核对' : '有已签名的钱包治理提案待核对'}
         action={<Button onClick={() => setSelected(receipt)}>恢复原交易</Button>}/>)}
-      {selected && <InstitutionWalletChangeModal key={`${auth.accessToken}|${selected.requestId}`} auth={auth} cidNumber={selected.draft.cidNumber} mode={selected.draft.mode}
+      {selected && <InstitutionWalletChangeModal key={`${auth.walletNamespace}|${auth.walletRevision}|${auth.accessToken}|${selected.requestId}`} auth={auth} cidNumber={selected.draft.cidNumber} mode={selected.draft.mode}
         targetAccount={selected.draft.adminAccount} initialReceipt={selected} onClose={() => setSelected(null)} onSubmitted={onSubmitted}/>}
     </>;
 }
@@ -248,6 +248,6 @@ export function InstitutionWalletGovernancePanel({ auth, cidNumber, canWrite = t
         { title: '操作', render: (_, member) => member.signerId.toLowerCase() === auth.accountId.toLowerCase() ? <Typography.Text type="secondary">本人请从管理员列表更换</Typography.Text>
             : <Button disabled={!canWrite || !state || !institutionWalletRoles(auth, state, member.accountId).length} onClick={() => setTarget(member.accountId)}>提案更换钱包</Button> },
       ]}/>
-      {target && <InstitutionWalletChangeModal key={`${auth.accessToken}|${cidNumber}|${target}`} auth={auth} cidNumber={cidNumber} mode="GOVERNANCE" targetAccount={target} onClose={() => setTarget(null)} onSubmitted={reload}/>}
+      {target && <InstitutionWalletChangeModal key={`${auth.walletNamespace}|${auth.walletRevision}|${auth.accessToken}|${cidNumber}|${target}`} auth={auth} cidNumber={cidNumber} mode="GOVERNANCE" targetAccount={target} onClose={() => setTarget(null)} onSubmitted={reload}/>}
     </Card>;
 }

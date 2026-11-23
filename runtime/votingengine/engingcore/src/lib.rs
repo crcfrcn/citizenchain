@@ -279,6 +279,29 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// 冻结的钱包版本与VoterSnapshot逐项对应；不改变原名单和既有票据编码。
+    /// 缺失元数据明确拒绝投票，不能从当前管理员/个人CID/默认0猜测。
+    #[pallet::storage]
+    #[pallet::getter(fn frozen_wallet_versions)]
+    pub type FrozenWalletVersions<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        u128,
+        Blake2_128Concat,
+        crate::types::AuthorizationSubject<
+            crate::types::CidNumber,
+            crate::types::RoleCode,
+            T::AccountId,
+        >,
+        BoundedVec<(T::AccountId, u64), T::MaxAdminsPerInstitution>,
+        OptionQuery,
+    >;
+
+    /// 完整管理员名单动作的创建时钱包版本指纹；不保存或重建旧名单/票据。
+    #[pallet::storage]
+    pub type FrozenGovernanceWalletState<T: Config> =
+        StorageMap<_, Blake2_128Concat, u128, [u8; 32], OptionQuery>;
+
     /// 提案创建时冻结的机构岗位票据总数。
     ///
     /// 数量等于该机构全部投票岗位快照中的有效任职席位之和，不按账户去重；

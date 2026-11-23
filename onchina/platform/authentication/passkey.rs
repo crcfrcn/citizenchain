@@ -428,6 +428,8 @@ pub(crate) fn has_credential(
 /// 8 个冷签会话创建点里有 4 个漏做 passkey 的根因。
 #[derive(Debug)]
 pub struct PasskeyProof {
+    pub(crate) wallet_revision: String,
+    pub(crate) wallet_namespace: crate::chain_runtime::AdminPallet,
     account_id: String,
     binding: crate::authentication::login::NodeInstitutionBinding,
 }
@@ -461,6 +463,14 @@ pub fn require_passkey_assertion(
         tracing::error!(error = %err, "passkey config invalid; rejecting step-up");
         return Err(passkey_config_error());
     }
+    let session = admin_session(state, headers)?;
+    if session.account_id != account_id {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            2003,
+            "Passkey account differs from session",
+        ));
+    }
     let assertion_id = headers
         .get(PASSKEY_ASSERTION_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -488,6 +498,8 @@ pub fn require_passkey_assertion(
             }
             tx.commit().map_err(|e| e.to_string())?;
             Ok(Some(PasskeyProof {
+                wallet_revision: session.wallet_revision,
+                wallet_namespace: session.wallet_namespace,
                 account_id,
                 binding,
             }))

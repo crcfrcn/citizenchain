@@ -1,4 +1,4 @@
-//! 维护公权机构岗位和任职，并按当前CID绑定解析管理员权限。
+//! 维护公权机构岗位和任职，按实际钱包的既有岗位授权引用判断权限。
 
 extern crate alloc;
 
@@ -400,8 +400,8 @@ impl<T: Config> InstitutionRoleQuery<T::AccountId> for Pallet<T> {
         let Some(institution) = Institutions::<T>::get(&cid_number) else {
             return false;
         };
-        // 把调用者钱包解析为名册规范账户（运行期按 CID 绑定、否则 account_id）；None = 非该机构管理员。
-        let Some(canonical) = T::InstitutionAdminQuery::resolve_admin_account(
+        // 把调用者钱包解析为已批准岗位签名授权引用（与个人CID绑定独立）；None = 非该机构管理员。
+        let Some(canonical) = T::InstitutionAdminQuery::resolve_role_authorization(
             institution.institution_code,
             cid_number.as_slice(),
             admin,
@@ -441,7 +441,7 @@ impl<T: Config> InstitutionRoleQuery<T::AccountId> for Pallet<T> {
         InstitutionRoleAssignments::<T>::get(&cid_number, role_code)
             .into_iter()
             .filter(|assignment| {
-                T::InstitutionAdminQuery::is_institution_admin(
+                T::InstitutionAdminQuery::has_role_authorization(
                     institution.institution_code,
                     cid_number.as_slice(),
                     &assignment.account_id,
@@ -458,17 +458,24 @@ impl<T: Config> InstitutionRoleQuery<T::AccountId> for Pallet<T> {
         let Some(institution) = Institutions::<T>::get(&cid_number) else {
             return Vec::new();
         };
+        let Some(reference) = T::InstitutionAdminQuery::resolve_role_authorization(
+            institution.institution_code,
+            &cid_number,
+            admin,
+        ) else {
+            return Vec::new();
+        };
         InstitutionRoles::<T>::iter_prefix(&cid_number)
             .filter(|(_, role)| role.role_status == InstitutionRoleStatus::Active)
             .filter_map(|(role_code, role)| {
                 let active = InstitutionRoleAssignments::<T>::get(&cid_number, &role_code)
                     .into_iter()
                     .any(|assignment| {
-                        &assignment.account_id == admin
-                            && T::InstitutionAdminQuery::is_institution_admin(
+                        assignment.account_id == reference
+                            && T::InstitutionAdminQuery::has_role_authorization(
                                 institution.institution_code,
                                 cid_number.as_slice(),
-                                admin,
+                                &reference,
                             )
                             && Pallet::<T>::is_assignment_effective(&role, &assignment)
                     });
@@ -520,7 +527,7 @@ impl<T: Config> InstitutionRoleAuthorizationQuery<T::AccountId> for Pallet<T> {
         let Ok(cid_number) = CidNumberOf::<T>::try_from(role_subject.cid_number.clone()) else {
             return false;
         };
-        // 名册成员校验已并入 is_active_assignment 内的 resolve_admin_account，不再单独调 is_institution_admin。
+        // 当前钱包资格已并入 is_active_assignment 内的 resolve_role_authorization，不再单独调 is_institution_admin。
         <Self as InstitutionRoleQuery<T::AccountId>>::is_active_assignment(
             cid_number.as_slice(),
             admin,
@@ -570,5 +577,42 @@ impl<T: Config> InstitutionRoleAuthorizationQuery<T::AccountId> for Pallet<T> {
         subjects.sort_by(|left, right| left.role_code.cmp(&right.role_code));
         subjects.dedup_by(|left, right| left.role_code == right.role_code);
         subjects
+    }
+}
+
+impl<T: Config> Pallet<T> {
+    /// 建案专用：完整有效任职引用。不能先按现任钱包过滤而静默缩小原分母。
+    /// 钱包或版本缺失由投票引擎整笔拒绝；此查询不改变人员、权限或当前业务门。
+    pub fn snapshot_role_references(raw_cid: &[u8], raw_role: &[u8]) -> Vec<T::AccountId> {
+        let Ok(cid) = CidNumberOf::<T>::try_from(raw_cid.to_vec()) else {
+            return Vec::new();
+        };
+        let Ok(code) = RoleCodeOf::try_from(raw_role.to_vec()) else {
+            return Vec::new();
+        };
+        if !Institutions::<T>::contains_key(&cid) {
+            return Vec::new();
+        }
+        let Some(role) = InstitutionRoles::<T>::get(&cid, &code) else {
+            return Vec::new();
+        };
+        if role.role_status != InstitutionRoleStatus::Active
+            || role.cid_number != cid
+            || role.role_code != code
+        {
+            return Vec::new();
+        }
+        let records = InstitutionRoleAssignments::<T>::get(&cid, &code);
+        if records
+            .iter()
+            .any(|a| a.cid_number != cid || a.role_code != code)
+        {
+            return Vec::new();
+        }
+        records
+            .into_iter()
+            .filter(|a| Self::is_assignment_effective(&role, a))
+            .map(|a| a.account_id)
+            .collect()
     }
 }

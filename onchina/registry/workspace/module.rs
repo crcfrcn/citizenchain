@@ -364,6 +364,9 @@ impl ModuleBusiness for Module {
         session: &transactions::session::ChainSignSession,
     ) -> Result<(), axum::response::Response> {
         authorization::rules::ensure_registry_admin(ctx)?;
+        if session.purpose == crate::admins::governance::PURPOSE_INSTITUTION_REGISTER_ADMINS {
+            return crate::admins::governance::recheck_registration(state, ctx, session).await;
+        }
         citizens::authorization::recheck_submit(state, ctx, session).await
     }
     fn validate_submit_context(

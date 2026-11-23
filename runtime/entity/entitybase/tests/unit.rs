@@ -507,7 +507,6 @@ mod roles {
     }
 }
 
-
 mod registration {
     use crate::{
         InstitutionGovernanceAction, InstitutionLegalRepresentativeChange, InstitutionRoleMutation,
@@ -519,7 +518,7 @@ mod registration {
     fn registration_reuses_action_encoding_and_rejects_legal_representative_or_no_roster_actions() {
         let action = InstitutionGovernanceAction::<u64>::ReplaceAdmins { admins: vec![] };
         assert_eq!(action.encode(), vec![0, 0]);
-        assert!(action.clone().into_registration_parts().is_some());
+        assert!(action.clone().into_registration_parts().is_none());
         let encoded = action.encode();
         let decoded = InstitutionGovernanceAction::<u64>::decode(&mut encoded.as_slice()).unwrap();
         assert_eq!(decoded.encode(), encoded);
@@ -535,7 +534,8 @@ mod registration {
             assignment_changes: vec![],
             legal_representative_change: None,
         };
-        assert!(action.into_registration_parts().is_none());
+        assert!(action.allowed_in_registration());
+        assert!(action.into_registration_parts().is_some());
     }
 
     #[test]
@@ -578,4 +578,50 @@ mod registration {
         };
         assert_eq!(action.registration_work(), (1, 1, 1, 0));
     }
+}
+
+#[test]
+fn institutional_write_matrix_preserves_codec_numbers_and_rejects_retired_actions() {
+    use crate::InstitutionGovernanceAction as A;
+    use codec::{DecodeAll, Encode};
+    let old = [
+        A::<u64>::ReplaceAdmins { admins: vec![] },
+        A::ReplaceAdminsAndMutateRoles {
+            admins: vec![],
+            role_mutations: vec![],
+            assignment_changes: vec![],
+            legal_representative_change: None,
+        },
+    ];
+    for (value, index) in old.into_iter().zip([0, 2]) {
+        let bytes = value.encode();
+        assert_eq!(bytes[0], index);
+        let decoded = A::<u64>::decode_all(&mut &bytes[..]).unwrap();
+        assert!(!decoded.allowed_in_governance());
+        assert!(!decoded.allowed_in_registration());
+        assert!(decoded.into_registration_parts().is_none());
+    }
+    let role = A::<u64>::MutateRolesAndAssignments {
+        role_mutations: vec![],
+        assignment_changes: vec![],
+        legal_representative_change: None,
+    };
+    assert_eq!(role.encode()[0], 1);
+    assert!(role.allowed_in_governance());
+    assert!(role.allowed_in_registration());
+    let legal = A::<u64>::MutateRolesAndAssignments {
+        role_mutations: vec![],
+        assignment_changes: vec![],
+        legal_representative_change: Some(crate::InstitutionLegalRepresentativeChange::Clear),
+    };
+    assert!(legal.allowed_in_governance());
+    assert!(!legal.allowed_in_registration());
+    let registry = A::<u64>::RegisterAdminWalletChanges {
+        added: vec![],
+        removed: vec![],
+        replaced: vec![],
+    };
+    assert_eq!(registry.encode()[0], 4);
+    assert!(registry.allowed_in_registration());
+    assert!(!registry.allowed_in_governance());
 }

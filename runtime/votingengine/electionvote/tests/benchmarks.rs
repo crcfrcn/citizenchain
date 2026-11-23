@@ -3,10 +3,10 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use codec::Decode;
+use engingcore::{CitizenIdentityReader, InternalAdminProvider};
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use sp_runtime::traits::SaturatedConversion;
-use engingcore::{CitizenIdentityReader, InternalAdminProvider};
 
 use crate::{
     pallet::{
@@ -111,19 +111,10 @@ fn setup_election<T: Config>(
                 .try_into()
                 .expect("benchmark role code"),
         });
-        let canonical_voter =
-            <T as engingcore::Config>::InternalAdminProvider::resolve_institution_voter(
-                match &subject {
-                    engingcore::AuthorizationSubject::Institution(role) => role.cid_number.as_slice(),
-                    engingcore::AuthorizationSubject::PersonalMultisig(_) => unreachable!(),
-                },
-                &voter,
-            )
-            .expect("benchmark institution voter resolves to a canonical admin account");
         engingcore::Pallet::<T>::snapshot_role_voters(
             proposal_id,
             subject.clone(),
-            sp_runtime::sp_std::vec![canonical_voter],
+            sp_runtime::sp_std::vec![voter.clone()],
         )
         .expect("benchmark mutual role snapshot");
         assert!(

@@ -13,7 +13,7 @@ import { useAuth } from '@gmb/onchina-platform/authentication/useAuth';
 import { ApiError } from '@gmb/onchina-platform/http';
 import { notice } from '@gmb/onchina-platform/controls/notice';
 import { CID_MODAL_Z_INDEX } from '@gmb/onchina-platform/controls/modalStack';
-import { buildInstitutionRegistration, buildInstitutionAdminGovernance, governanceProposers, institutionWalletRoles, dateFromDay, dayFromDate, getGovernanceState, institutionRegistrationPermissions, permissionLabel,
+import { buildInstitutionRegistration, buildInstitutionConfiguration, buildInstitutionAdminGovernance, governanceProposers, institutionWalletRoles, dateFromDay, dayFromDate, getGovernanceState, institutionRegistrationPermissions, permissionLabel,
   type GovernanceState, type InstitutionGovernanceAssignmentTargetInput, type InstitutionGovernanceRoleMutationInput,
   type InstitutionRegistrationInput } from '@gmb/onchina-platform/institutions/governance';
 import { runInstitutionRegistration, readRegistrationReceipt, saveRegistrationReceipt,
@@ -35,8 +35,8 @@ export function AddCityRegistryAdminModal({ state }: { state: RegistryAdminsShar
 }
 
 type RemoveTarget = { id: string; institutionCidNumber: string; rosterAccountId: string; familyName: string; givenName: string };
-export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removing = null, mode = 'registration', label = '机构', onClose, onSubmitted }: {
-  auth: AdminAuth; cidNumber: string | null; open: boolean; removing?: RemoveTarget | null;
+export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removing = null, replacing = null, configuration = false, mode = 'registration', label = '机构', onClose, onSubmitted }: {
+  auth: AdminAuth; cidNumber: string | null; open: boolean; removing?: RemoveTarget | null; replacing?: RemoveTarget | null; configuration?: boolean;
   mode?: InstitutionAdminMode; label?: string; onClose: () => void; onSubmitted: () => void | Promise<void>;
 }) {
   const [snapshot, setSnapshot] = useState<GovernanceState | null>(null);
@@ -54,7 +54,7 @@ export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removi
   const [busy, setBusy] = useState(false);
   const [closedRecovery, setClosedRecovery] = useState(false);
   const [scanIndex, setScanIndex] = useState<number | null>(null);
-  const context = `${auth?.accessToken}|${auth?.accountId}|${auth?.institutionCidNumber}|${cid}|${open}|${mode}`;
+  const context = `${auth?.accessToken}|${auth?.accountId}|${auth?.institutionCidNumber}|${cid}|${open}|${mode}|${configuration}|${removing?.rosterAccountId}|${replacing?.rosterAccountId}`;
   const current = useRef(context);
   current.current = context;
   const operation = useRef<AbortController | null>(null);
@@ -83,10 +83,11 @@ export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removi
     return () => { cancelled = true; };
   }, [context, revision]);
 
-  const candidates = snapshot ? mode === 'governance' ? governanceProposers(auth, snapshot).map(role => ({ roleCode: role.roleCode, roleName: role.roleName })) : snapshot.registrationRoles ?? [] : [];
+  const available = snapshot ? mode === 'governance' ? governanceProposers(auth, snapshot).map(role => ({ roleCode: role.roleCode, roleName: role.roleName })) : snapshot.registrationRoles ?? [] : [];
+  const candidates=available.filter(r=>!replacing || !cid?.includes('-FRG') || snapshot?.roles.some(role=>role.roleCode===r.roleCode && role.assignments.some(a=>a.effective && a.accountId===snapshot.members.find(m=>m.accountId===replacing.rosterAccountId)?.authorizationAccountId)));
   const initial = snapshot?.governanceThreshold === null;
   const permissionOptions = snapshot ? institutionRegistrationPermissions(snapshot) : [];
-  const personOptions = people.flatMap((person, index) => {
+  const personOptions = configuration && snapshot ? snapshot.members.map(m=>({value:m.authorizationAccountId,label:`${m.familyName}${m.givenName}`})) : people.flatMap((person, index) => {
     try { return [{ value: decodeSs58(person.account.trim()), label: `${person.familyName}${person.givenName || '（待填写姓名）'}（第${index + 1}人）` }]; } catch { return []; }
   });
   const remember = (receipt: PendingInstitutionRegistration | null) => {
@@ -107,10 +108,11 @@ export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removi
           if (!option) throw new Error('请选择有效的业务权限');
           return option.permission;
         }), assignments: role.assignments }));
-      const draft = removing ? { removeAccountId: removing.rosterAccountId } : {
+      const draft = replacing ? { replacement: { accountId: replacing.rosterAccountId, newWallet: decodeSs58(people[0].account.trim()) } } : removing ? { removeAccountId: removing.rosterAccountId } : {
         addedAdmins: people.map(person => ({ accountId: decodeSs58(person.account.trim()), familyName: person.familyName, givenName: person.givenName })),
-        ...(initial ? { initialRoles: mutations, initialThreshold: threshold } : { assignments }),
+        ...(mode === 'governance' ? initial ? { initialRoles: mutations, initialThreshold: threshold } : { assignments } : {}),
       };
+      if (configuration) {setReview(buildInstitutionConfiguration(snapshot,{initialRoles:mutations,initialThreshold:threshold},actorRole));return;}
       setReview(mode === 'governance' ? buildInstitutionAdminGovernance(auth, snapshot, draft, actorRole) : buildInstitutionRegistration(snapshot, draft, actorRole));
     } catch (error) { notice.error(error, '登记校验失败'); }
   };
@@ -126,7 +128,7 @@ export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removi
         pending: pendingRef.current, sign: signChain, remember, check: ensureCurrent, signal: controller.signal, mode });
       ensureCurrent();
       setReview(null);
-      notice.success(result.recovered ? '链上管理员变更结果已恢复核对' : mode === 'governance' ? '治理提案已确认上链，投票通过并执行后名册生效' : '管理员登记已在链上确认');
+      notice.success(result.recovered ? '链上管理员变更结果已恢复核对' : mode === 'governance' ? '治理提案已确认上链，投票通过并执行后名册生效' : configuration ? '首次治理配置已在链上确认' : '管理员登记已在链上确认');
       onClose();
       await onSubmitted();
     } catch (error) {
@@ -163,7 +165,7 @@ export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removi
   </Space>;
 
   return <>
-    <Modal title={pending ? '恢复机构管理员变更' : `${mode === 'governance' ? '提案：' : ''}${removing ? '删除' : '新增'}${label}管理员`} open={open} width={900} destroyOnClose
+    <Modal title={pending ? '恢复机构管理员变更' : `${mode === 'governance' ? '提案：' : ''}${configuration ? '首次治理配置：' : replacing ? '更换钱包：' : removing ? '删除' : '新增'}${label}管理员`} open={open} width={900} destroyOnClose
       onCancel={close} closable={!busy} maskClosable={!busy} zIndex={CID_MODAL_Z_INDEX.business}
       footer={<Space><Button disabled={busy} onClick={close}>关闭</Button>
         {pending ? <>{closedRecovery && <Button disabled={busy} onClick={() => void recheckClosedRecovery()}>重新核对当前名册</Button>}<Button type="primary" loading={busy} onClick={() => void submit()}>恢复原会话结果</Button></> : review ? <>
@@ -181,18 +183,18 @@ export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removi
           {!candidates.length && <Alert type="warning" message="当前管理员没有有效的登记办理岗位" />}
           {review ? <>
             <Descriptions column={1} bordered size="small">
-              <Descriptions.Item label="登记名册人数">{review.admins.length}</Descriptions.Item>
+              {review.admins && <Descriptions.Item label="登记名册人数">{review.admins.length}</Descriptions.Item>}
               <Descriptions.Item label="机构阈值">{review.initialThreshold ?? '沿用现有阈值'}</Descriptions.Item>
-              <Descriptions.Item label="登记类型">{removing ? '删除成员并解除相关任职' : initial ? '首次名册、岗位权限与任职初始化' : '追加成员及明确任职'}</Descriptions.Item>
+              <Descriptions.Item label="登记类型">{configuration ? '首次治理配置，钱包名单不变' : mode === 'registration' ? '仅维护管理员钱包，岗位人员和阈值不变' : removing ? '本机构治理删除成员' : '本机构治理新增成员'}</Descriptions.Item>
             </Descriptions>
             <Table rowKey="accountId" pagination={false} dataSource={review.admins} columns={[
               { title: '名册人员', render: (_, m) => { const old = snapshot.members.find(p => p.accountId === m.accountId); return m.familyName ? `${m.familyName}${m.givenName ?? ''}` : old ? `${old.familyName}${old.givenName}` : '资料待完善'; } },
               { title: '名册账户', render: (_, m) => tryEncodeSs58(m.accountId) },
             ]} />
             {(review.roleMutations ?? []).map((role, index) => <Typography.Paragraph key={index}>创建岗位：{role.roleName}；权限：{role.permissions?.map(permissionLabel).join('、')}；任职：{role.assignments?.map(a => `${personOptions.find(p => p.value === a.accountId)?.label ?? tryEncodeSs58(a.accountId)} ${role.termRequired ? `${dateFromDay(a.termStart)}至${dateFromDay(a.termEnd)}` : '无任期'}`).join('、')}</Typography.Paragraph>)}
-            {(review.assignmentChanges ?? []).map(change => <Typography.Paragraph key={change.roleCode}>岗位：{snapshot.roles.find(r => r.roleCode === change.roleCode)?.roleName}；目标任职：{change.assignments.map(a => `${personOptions.find(p => p.value === a.accountId)?.label ?? snapshot.members.find(p => p.accountId === a.accountId)?.familyName ?? tryEncodeSs58(a.accountId)} ${a.termStart ? `${dateFromDay(a.termStart)}至${dateFromDay(a.termEnd)}` : '无任期'}`).join('、') || '空缺'}</Typography.Paragraph>)}
-          </> : removing ? <Typography.Paragraph>删除：{removing.familyName}{removing.givenName}。将同时处理其现有任职，保留其他人员及任职。</Typography.Paragraph> : <>
-            {people.map((person, index) => <Space key={index} wrap align="start" style={{ marginBottom: 12 }}>
+            {(review.assignmentChanges ?? []).map(change => <Typography.Paragraph key={change.roleCode}>岗位：{snapshot.roles.find(r => r.roleCode === change.roleCode)?.roleName}；目标任职：{change.assignments.map(a => `${personOptions.find(p => p.value === a.accountId)?.label ?? snapshot.members.find(p => p.authorizationAccountId === a.accountId)?.familyName ?? tryEncodeSs58(a.accountId)} ${a.termStart ? `${dateFromDay(a.termStart)}至${dateFromDay(a.termEnd)}` : '无任期'}`).join('、') || '空缺'}</Typography.Paragraph>)}
+          </> : replacing ? <><Typography.Paragraph>原钱包：{tryEncodeSs58(replacing.rosterAccountId)}；保留人员、岗位及权限记录。</Typography.Paragraph><Input aria-label="新管理员钱包" placeholder="新钱包账户（SS58）" value={people[0].account} onChange={e => setPeople([{ ...people[0], account: e.target.value }])}/></> : removing ? <Typography.Paragraph>删除钱包：{removing.familyName}{removing.givenName}。岗位人员记录保持原样，钱包退出当前管理员名单。</Typography.Paragraph> : <>
+            {!configuration && <>{people.map((person, index) => <Space key={index} wrap align="start" style={{ marginBottom: 12 }}>
               <Typography.Text>新增人员{index + 1}</Typography.Text>
               <Input aria-label={`管理员姓${index + 1}`} placeholder="姓" value={person.familyName} onChange={e => setPeople(people.map((p, i) => i === index ? { ...p, familyName: e.target.value } : p))} />
               <Input aria-label={`管理员名${index + 1}`} placeholder="名" value={person.givenName} onChange={e => setPeople(people.map((p, i) => i === index ? { ...p, givenName: e.target.value } : p))} />
@@ -200,8 +202,8 @@ export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removi
                 suffix={<Button type="text" size="small" aria-label={`扫描管理员账户${index + 1}`} onClick={() => setScanIndex(index)}><img src={scanIcon} width={18} alt="" /></Button>} />
               <Button danger disabled={people.length === 1} onClick={() => setPeople(people.filter((_, i) => i !== index))}>移除此人员</Button>
             </Space>)}
-            <Button onClick={() => setPeople([...people, emptyPerson()])}>添加名册人员</Button>
-            {initial ? <>
+            <Button onClick={() => setPeople([...people, emptyPerson()])}>添加名册人员</Button></>}
+            {(mode === 'governance' || configuration) && (initial ? <>
               <Alert style={{ marginTop: 16 }} type="info" message="首次登记须明确岗位权限、任职和机构阈值" description="治理票数按有效岗位席位计算，同一人员可兼任不同岗位；岗位名称和权限由办理人明确配置。" />
               {roles.map((role, index) => <div key={index} style={{ marginTop: 16, border: '1px solid #ddd', padding: 12 }}>
                 <Form.Item label="岗位名称"><Input aria-label={`新岗位名称${index + 1}`} value={role.name} onChange={e => setRoles(roles.map((r, i) => i === index ? { ...r, name: e.target.value } : r))} /></Form.Item>
@@ -224,7 +226,7 @@ export function InstitutionAdminChangeModal({ auth, cidNumber: cid, open, removi
                   <Button danger onClick={() => setAssignments(assignments.filter((_, i) => i !== index))}>移除此岗位任职</Button></div>;
               })}
               <Button onClick={() => setAssignments([...assignments, { roleCode: '', assignments: [] }])}>选择任职岗位</Button>
-            </>}
+            </>)}
           </>}
         </>}
       </>}
@@ -243,7 +245,7 @@ export function InstitutionAdministratorsPanel({ auth, cidNumber, canWrite, onSu
   const [error, setError] = useState<string | null>(null);
   const [walletTarget, setWalletTarget] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
-  const [draft, setDraft] = useState<{ mode: InstitutionAdminMode; removing?: RemoveTarget } | null>(null);
+  const [draft, setDraft] = useState<{ mode: InstitutionAdminMode; removing?: RemoveTarget; replacing?: RemoveTarget; configuration?: boolean } | null>(null);
   useEffect(() => {
     let cancelled = false; setSnapshot(null); setError(null); setDraft(null); setWalletTarget(null);
     getGovernanceState(auth, cidNumber).then(state => { if (!cancelled) setSnapshot(state); })
@@ -252,25 +254,27 @@ export function InstitutionAdministratorsPanel({ auth, cidNumber, canWrite, onSu
   }, [auth.accessToken, auth.accountId, auth.institutionCidNumber, cidNumber, revision]);
   const canPropose = canWrite && !!snapshot && governanceProposers(auth, snapshot).length > 0;
   const canRegister = canWrite && !!snapshot?.registrationRoles?.length;
+  const fixed=/^[A-Z0-9]{5}-(FRG|NRC|PRC|PRB|NJD)/.test(cidNumber);
   return <Card title="机构治理">
     {auth.institutionCidNumber === cidNumber && <InstitutionWalletRecoveryPanel auth={auth} mode="GOVERNANCE" onSubmitted={() => { setRevision(r => r + 1); onSubmitted(); }}/>}
     <Typography.Paragraph>管理员集合</Typography.Paragraph>
     {error && <Alert type="error" message="管理员链状态读取失败" description={error} action={<Button onClick={() => setRevision(r => r + 1)}>重试</Button>} />}
     {!snapshot && !error && <Spin tip="读取链上名册"><div style={{ minHeight: 40 }} /></Spin>}
-    <Space wrap><Button disabled={!canPropose} onClick={() => setDraft({ mode: 'governance' })}>发起本机构治理</Button>
-      <Button disabled={!canRegister} onClick={() => setDraft({ mode: 'registration' })}>注册局直接登记管理员</Button></Space>
+    <Space wrap><Typography.Text type="secondary">岗位与任职请使用对应治理页面</Typography.Text>
+      <Button disabled={!canRegister || fixed} onClick={() => setDraft({ mode: 'registration' })}>注册局直接登记管理员</Button>
+      <Button disabled={!canRegister || snapshot?.governanceThreshold!==null || !snapshot.members.length} onClick={()=>setDraft({mode:'registration',configuration:true})}>首次治理配置</Button></Space>
     <Table rowKey="accountId" pagination={false} dataSource={snapshot?.members ?? []} columns={[
       { title: '姓名', render: (_, member) => `${member.familyName}${member.givenName}` || '资料待完善' },
       { title: '绑定钱包账户', render: (_, member) => tryEncodeSs58(member.signerId) },
       { title: '操作', render: (_, member) => <Space>
         {member.signerId.toLowerCase() !== auth.accountId.toLowerCase() && <Button disabled={!canWrite || !snapshot || !institutionWalletRoles(auth, snapshot, member.accountId).length} onClick={() => setWalletTarget(member.accountId)}>提案更换钱包</Button>}
-        <Button danger disabled={!canPropose} onClick={() => setDraft({ mode: 'governance', removing: { id: member.accountId, institutionCidNumber: cidNumber, rosterAccountId: member.accountId, familyName: member.familyName, givenName: member.givenName } })}>提案删除</Button>
-        <Button danger disabled={!canRegister} onClick={() => setDraft({ mode: 'registration', removing: { id: member.accountId, institutionCidNumber: cidNumber, rosterAccountId: member.accountId, familyName: member.familyName, givenName: member.givenName } })}>登记删除</Button>
+        <Button disabled={!canRegister || cidNumber.includes('-FRG') && !snapshot?.registrationRoles?.some(r=>snapshot.roles.some(role=>role.roleCode===r.roleCode && role.assignments.some(a=>a.effective && a.accountId===member.authorizationAccountId)))} onClick={() => setDraft({mode:'registration',replacing:{id:member.accountId,institutionCidNumber:cidNumber,rosterAccountId:member.accountId,familyName:member.familyName,givenName:member.givenName}})}>登记更换钱包</Button>
+        <Button danger disabled={!canRegister || fixed} onClick={() => setDraft({ mode: 'registration', removing: { id: member.accountId, institutionCidNumber: cidNumber, rosterAccountId: member.accountId, familyName: member.familyName, givenName: member.givenName } })}>登记删除</Button>
       </Space> },
     ]} />
     {walletTarget && <InstitutionWalletChangeModal key={`${auth.accessToken}|${cidNumber}|${walletTarget}`} auth={auth} cidNumber={cidNumber} mode="GOVERNANCE" targetAccount={walletTarget}
       onClose={() => setWalletTarget(null)} onSubmitted={() => { setRevision(r => r + 1); onSubmitted(); }}/>}
     <InstitutionAdminChangeModal key={`${auth.accessToken}|${auth.accountId}|${cidNumber}|${draft?.mode ?? ''}`} auth={auth} cidNumber={cidNumber} open={!!draft}
-      mode={draft?.mode} removing={draft?.removing} onClose={() => setDraft(null)} onSubmitted={() => { setRevision(r => r + 1); onSubmitted(); }} />
+      mode={draft?.mode} removing={draft?.removing} replacing={draft?.replacing} configuration={draft?.configuration} onClose={() => setDraft(null)} onSubmitted={() => { setRevision(r => r + 1); onSubmitted(); }} />
   </Card>;
 }

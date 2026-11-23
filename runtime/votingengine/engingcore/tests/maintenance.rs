@@ -84,6 +84,12 @@ fn failed_execution_rolls_back_effect_and_retries_only_when_due() {
 fn delayed_cleanup_waits_for_retention_and_respects_zero_budget() {
     ext().execute_with(|| {
         seed(1, 1);
+        let subject = crate::types::AuthorizationSubject::Institution(crate::types::RoleSubject {
+            cid_number: b"fixture".to_vec().try_into().unwrap(),
+            role_code: b"R".to_vec().try_into().unwrap(),
+        });
+        assert_ok!(VotingEngine::snapshot_role_voters(1, subject, vec![1, 2]));
+        assert_ok!(VotingEngine::record_governance_wallet_state(1, [42; 32]));
         assert_ok!(VotingEngine::register_proposal_data(
             1,
             b"owner",
@@ -111,6 +117,9 @@ fn delayed_cleanup_waits_for_retention_and_respects_zero_budget() {
         assert!(!Proposals::<Test>::contains_key(1));
         assert!(!ProposalOwner::<Test>::contains_key(1));
         assert!(!ProposalData::<Test>::contains_key(1));
+        assert!(!FrozenGovernanceWalletState::<Test>::contains_key(1));
+        assert_eq!(FrozenWalletVersions::<Test>::iter_prefix(1).count(), 0);
+        assert_eq!(VoterSnapshot::<Test>::iter_prefix(1).count(), 0);
     });
 }
 
@@ -230,6 +239,48 @@ fn pending_expiry_rotates_past_future_deadlines() {
         assert_eq!(
             Proposals::<Test>::get(due).unwrap().status,
             STATUS_EXECUTION_FAILED
+        );
+    });
+}
+
+#[test]
+fn frozen_wallet_versions_cleanup_is_budgeted_bounded_and_keeps_old_cursor_codec() {
+    use codec::Encode;
+    assert_eq!(PendingCleanupStage::FinalCleanup.encode(), vec![5]);
+    assert_eq!(PendingCleanupStage::FrozenWalletVersions.encode(), vec![6]);
+    let mut externalities = ext();
+    externalities.execute_with(|| {
+        seed(71, 10);
+        for n in 0..4 {
+            let subject =
+                crate::types::AuthorizationSubject::Institution(crate::types::RoleSubject {
+                    cid_number: b"fixture-cid".to_vec().try_into().unwrap(),
+                    role_code: vec![n].try_into().unwrap(),
+                });
+            assert_ok!(VotingEngine::snapshot_role_voters(71, subject, vec![1, 2]));
+        }
+        PendingProposalCleanups::<Test>::insert(71, PendingCleanupStage::FrozenWalletVersions);
+        assert_ok!(cleanup::enqueue_pending_cleanup::<Test>(71));
+    });
+    externalities.commit_all().unwrap();
+    externalities.execute_with(|| {
+        let before = FrozenWalletVersions::<Test>::iter_prefix(71).count();
+        let budget = <() as crate::weights::WeightInfo>::cleanup_base()
+            .saturating_add(<() as crate::weights::WeightInfo>::cleanup_item())
+            .saturating_add(VotingEngine::cleanup_bound(
+                Some(PendingCleanupStage::FrozenWalletVersions),
+                1,
+                0,
+            ));
+        assert!(VotingEngine::process_pending_cleanup_steps(budget).all_lte(budget));
+        assert_eq!(
+            FrozenWalletVersions::<Test>::iter_prefix(71).count(),
+            before - 1
+        );
+        assert_eq!(
+            VoterSnapshot::<Test>::iter_prefix(71).count(),
+            4,
+            "版本元数据清理不能重写原名单"
         );
     });
 }

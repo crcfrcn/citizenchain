@@ -346,7 +346,7 @@ function CityRegistryAdminsView({ institutionCidNumber, error, onRetry, canEditC
   const { registered: passkeyRegistered, busy: passkeyBusy, register: doRegisterPasskey } =
     usePasskeyRegistration();
   const [detailTarget, setDetailTarget] = useState<CityRegistryAdminRow | null>(null);
-  // 本列表按准确身份CID号读取完整链上名册；人数上限使用统一机构规则。
+  // 本列表按准确身份CID号读取实际钱包；钱包登记不变更岗位人员，完整维护入口在机构治理页。
   const cityLimitReached = cityRegistryAdmins.length >= MAX_INSTITUTION_ADMINS;
   return (
     <Card

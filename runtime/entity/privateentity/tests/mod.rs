@@ -6,6 +6,7 @@ extern crate alloc;
 
 use super::*;
 use adminbase::InstitutionAdminQuery as _;
+use engingcore::types::InstitutionCode;
 use frame_support::{
     derive_impl,
     traits::{ConstU128, ConstU32, Currency, ExistenceRequirement, Hooks, WithdrawReasons},
@@ -13,7 +14,6 @@ use frame_support::{
 };
 use frame_system as system;
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
-use engingcore::types::InstitutionCode;
 
 type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -168,7 +168,8 @@ impl primitives::fee_policy::OnchainFeeCharger<AccountId32, Balance> for TestOnc
         has_remark: bool,
     ) -> Result<Balance, sp_runtime::DispatchError> {
         let fee = primitives::fee_policy::calculate_onchain_fee(transaction_amount)
-            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 });
+            .saturating_add(if has_remark { primitives::fee_policy::FLAT_FEE } else { 0 },
+        );
         let imbalance = Balances::withdraw(
             payer_account_id,
             fee,
@@ -227,6 +228,27 @@ fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<Account
 /// 投票引擎只按机构 CID 查询管理员；机构账户不参与授权寻址。
 pub struct TestInternalAdminProvider;
 impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
+    fn institution_wallet_snapshot(
+        cid: &[u8],
+        references: &[AccountId32],
+    ) -> Option<Vec<(AccountId32, u64)>> {
+        let key = adminbase::AdminCidNumber::try_from(cid.to_vec()).ok()?;
+        let roster = privateadmin::AdminAccounts::<Test>::get(&key)?;
+        let mut entries = std::collections::BTreeMap::new();
+        for admin in roster.admins {
+            let state = privateadmin::AdminWallets::<Test>::get(&key, &admin.account_id)?;
+            let reference = privateadmin::WalletRoleBindings::<Test>::get(&key, &admin.account_id)?;
+            if state.wallet.as_ref() != Some(&admin.account_id)
+                || entries
+                    .insert(reference, (admin.account_id, state.revision))
+                    .is_some()
+            {
+                return None;
+            }
+        }
+        references.iter().map(|r| entries.get(r).cloned()).collect()
+    }
+
     fn is_institution_admin(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -300,10 +322,7 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
     }
 
     fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
-        <crate::Pallet<Test> as entitybase::InstitutionRoleQuery<AccountId32>>::active_accounts_for_role(
-            cid_number,
-            role_code,
-        )
+        crate::Pallet::<Test>::snapshot_role_references(cid_number, role_code)
     }
 }
 
@@ -370,9 +389,6 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
 impl privateadmin::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxAdminsPerInstitution = ConstU32<1989>;
-    type ChainPhase = TestChainPhase; // 复用 Phase 2 可切换相位 mock
-    type CitizenIdentityBinding = TestCitizenBinding;
-    type LegalRepresentativeQuery = PrivateManage; // 读 InstitutionInfo.legal_representative
 }
 
 /// 岗位生命周期单测只验证 entity 约束，允许测试 CID 持有提交的业务动作权限。
@@ -390,9 +406,7 @@ impl entitybase::InstitutionCapabilityPolicy for TestInstitutionCapabilityPolicy
 thread_local! {
     /// 测试相位开关;默认 Genesis(false),每个测试经 new_test_ext 复位。
     static IS_OPERATION: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
-    /// 换绑测试用:某 CID 当前绑定的钱包(再次 bind 即换绑)。
-    static CID_WALLET: core::cell::RefCell<Option<(alloc::vec::Vec<u8>, AccountId32)>> =
-        const { core::cell::RefCell::new(None) };
+
 }
 
 /// 可切换的相位 mock:Genesis(默认)放行、Operation 强制 LR 岗四要素完整。
@@ -403,36 +417,16 @@ impl adminbase::ChainPhaseCheck for TestChainPhase {
     }
 }
 
-/// 可换绑的 identity 绑定 mock:某 CID 只绑定一个钱包,可改绑以模拟换绑。
-pub struct TestCitizenBinding;
-impl adminbase::CitizenIdentityBindingQuery<AccountId32> for TestCitizenBinding {
-    fn current_account(cid_number: &[u8]) -> Option<AccountId32> {
-        CID_WALLET.with(|cell| cell.borrow().as_ref().filter(|(cid, _)| cid.as_slice() == cid_number).map(|(_, wallet)| wallet.clone()))
-    }
-    fn matches_citizen_account(cid_number: &[u8], account: &AccountId32) -> bool {
-        CID_WALLET.with(|cell| {
-            cell.borrow()
-                .as_ref()
-                .map(|(cid, wallet)| cid.as_slice() == cid_number && wallet == account)
-                .unwrap_or(false)
-        })
-    }
-}
-
 pub fn set_operation_phase(is_operation: bool) {
     IS_OPERATION.with(|cell| cell.set(is_operation));
-}
-
-/// 把某 CID 绑定到某钱包(再次调用即换绑,旧钱包随即失去该 CID 的授权)。
-pub fn bind_cid(cid_number: &[u8], wallet: AccountId32) {
-    CID_WALLET.with(|cell| *cell.borrow_mut() = Some((cid_number.to_vec(), wallet)));
 }
 
 /// Observe the production registration callback through real pallet execution.
 pub struct RecordAccountRegistration;
 impl frame_support::traits::OnNewAccount<AccountId32> for RecordAccountRegistration {
     fn on_new_account(account: &AccountId32) {
-        sp_io::storage::set(&codec::Encode::encode(&(b"evm-receive-registration", account)), &[1]);
+        sp_io::storage::set(&codec::Encode::encode(&(b"evm-receive-registration", account)), &[1],
+        );
     }
 }
 impl frame_support::traits::Get<frame_support::weights::Weight> for RecordAccountRegistration {
@@ -444,7 +438,8 @@ impl adminbase::InstitutionWalletSignatureVerifier<AccountId32> for TestInstitut
     fn verify(account: &AccountId32, payload: &[u8], proof: &[u8]) -> bool {
         let Ok(signature) = <[u8;64]>::try_from(proof) else { return false; };
         let raw: [u8;32] = *account.as_ref();
-        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload);
+        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload,
+        );
         sp_io::crypto::sr25519_verify(&signature.into(), &message, &raw.into())
     }
 }
@@ -588,7 +583,7 @@ pub fn create_institution(
         );
     }
     let admins = institution_admins(&target_admins);
-    PrivateManage::set_institution_admins(&cid_number, institution_code, &admins)?;
+    seed_institution_admins(&cid_number, institution_code, &admins)?;
     pallet::InstitutionGovernanceThresholds::<Test>::insert(&cid_number, 2);
     grant_close_role(&cid_number);
 
@@ -676,7 +671,6 @@ pub fn cast_yes_votes(proposal_id: u128) -> sp_runtime::DispatchResult {
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
     set_operation_phase(false); // 每个测试默认 Genesis 期。
-    CID_WALLET.with(|cell| *cell.borrow_mut() = None); // 清空换绑状态
     let mut storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .expect("测试存储必须构建成功");
@@ -698,3 +692,14 @@ mod cases;
 
 // 原仅供测试的账户构造，统一归所属测试目录。
 mod accounts;
+
+
+fn seed_institution_admins(cid:&pallet::CidNumberOf<Test>,code:InstitutionCode,rows:&pallet::InstitutionAdminsInputOf<Test>)->frame_support::dispatch::DispatchResult {
+    use adminbase::{InstitutionAdminLifecycle,InstitutionAdminWalletQuery};
+    let old=PrivateAdmins::institution_admins(code,cid).unwrap_or_default();
+    let removed=old.into_iter().map(|a|{let v=PrivateAdmins::institution_wallet_state(code,cid,&a).unwrap().revision;(a,v)}).collect::<Vec<_>>();
+    if !removed.is_empty(){PrivateAdmins::update_institution_wallets(cid.to_vec(),code,vec![],removed,vec![])?;}
+    if !rows.is_empty(){PrivateAdmins::update_institution_wallets(cid.to_vec(),code,rows.to_vec(),vec![],vec![])?;}
+    pallet::InstitutionRoleNonce::<Test>::mutate(cid,|n|*n+=1);
+    Ok(())
+}

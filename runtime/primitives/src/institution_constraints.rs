@@ -268,3 +268,63 @@ pub fn member_composition_by_identity(
 pub fn national_legislature_components() -> [SingletonInstitution; 2] {
     [singleton_from_lf(NSN), singleton_from_lf(NRP)]
 }
+
+/// 注册局钱包维护的共同辖区规则。权限和有效任职仍由调用者查链验证。
+/// FRG自身按目标管理员原省组继续核验，不能按其中央注册地址扩大权限。
+pub fn registry_wallet_role_in_scope(
+    actor: &[u8],
+    role: &[u8],
+    target: &[u8],
+    code: InstitutionCode,
+) -> bool {
+    use crate::cid::{
+        code::{self, AdminLevel},
+        number,
+    };
+    let Ok(parts) = number::parse_cid_number_parts_bytes(actor) else {
+        return false;
+    };
+    let Ok(target_parts) = number::parse_cid_number_parts_bytes(target) else {
+        return false;
+    };
+    if target_parts.institution != code {
+        return false;
+    }
+    if code::is_fixed_governance_code(&code)
+        && crate::governance_skeleton::fixed_institution_by_identity(code, target).is_none()
+    {
+        return false;
+    }
+    if is_permanent_singleton_code(&code)
+        && !singleton_institutions()
+            .iter()
+            .any(|i| i.code == code && i.cid_number.as_bytes() == target)
+    {
+        return false;
+    }
+    let Ok((province, city)) = number::cid_scope_codes(target) else {
+        return false;
+    };
+    if parts.institution == code::FRG {
+        if actor
+            != crate::governance_skeleton::federal_registry_institution()
+                .cid_number
+                .as_bytes()
+        {
+            return false;
+        }
+        if code == code::FRG {
+            return code::PROVINCE_CODE_INFOS.iter().any(|p| {
+                crate::governance_skeleton::province_commissioner_role_code(p.province_code) == role
+            });
+        }
+        return crate::governance_skeleton::province_commissioner_role_code(province) == role;
+    }
+    parts.institution == *b"CREG"
+        && code != *b"CREG"
+        && !matches!(
+            code::admin_level(&code),
+            Some(AdminLevel::National | AdminLevel::Province)
+        )
+        && number::cid_scope_codes(actor).is_ok_and(|scope| scope == (province, city))
+}

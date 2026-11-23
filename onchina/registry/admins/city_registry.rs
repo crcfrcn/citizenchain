@@ -28,7 +28,7 @@ pub(crate) fn chain_registry_rows(
                         && role
                             .assignments
                             .iter()
-                            .any(|a| a.account_id == member.account_id && a.effective)
+                            .any(|a| a.account_id == member.authorization_account_id && a.effective)
                 })
                 .map(|role| role.role_name.as_str())
                 .collect::<Vec<_>>()

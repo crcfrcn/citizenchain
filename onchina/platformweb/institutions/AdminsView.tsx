@@ -54,7 +54,7 @@ export function OwnInstitutionAdminsView({ layout = 'table' }: OwnInstitutionAdm
     return () => {
       cancelled = true;
     };
-  }, [auth?.accessToken, auth?.accountId, auth?.institutionCidNumber, revision]);
+  }, [auth?.walletRevision, auth?.walletNamespace, auth?.accessToken, auth?.accountId, auth?.institutionCidNumber, revision]);
 
   const passkeyAction = (row: OwnInstitutionAdminRow) => {
     const isSelf = row.isSelf || sameHexAccount(row.accountId, auth?.accountId);
@@ -188,7 +188,7 @@ export function InstitutionWalletSelfAction({ accountId, institutionCidNumber, o
     else onSubmitted?.();
   };
   return <><Button size="small" onClick={event => { event.stopPropagation(); setOpen(true); }}>更换</Button>
-    {open && <InstitutionWalletChangeModal key={`${auth.accessToken}|${auth.accountId}|${auth.institutionCidNumber}`} auth={auth} cidNumber={auth.institutionCidNumber} mode="SELF" onClose={() => setOpen(false)} onSubmitted={completed}/>}
+    {open && <InstitutionWalletChangeModal key={`${auth.walletNamespace}|${auth.walletRevision}|${auth.accessToken}|${auth.accountId}|${auth.institutionCidNumber}`} auth={auth} cidNumber={auth.institutionCidNumber} mode="SELF" onClose={() => setOpen(false)} onSubmitted={completed}/>}
   </>;
 }
 

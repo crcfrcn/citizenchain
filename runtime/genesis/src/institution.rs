@@ -1,4 +1,5 @@
 //! 在创世构建中写入机构、固定岗位任职和独立管理员记录。
+//! 管理员统一经所属lifecycle建立钱包履历及System存活引用，不给钱包充值或改写人员。
 
 extern crate alloc;
 
@@ -36,7 +37,7 @@ use primitives::{
 };
 use sp_runtime::traits::Zero;
 
-use adminbase::{Admin, AdminCidNumber, InstitutionAdmins};
+use adminbase::Admin;
 use publicentity::{
     InstitutionAccountInfo, InstitutionAdminAssignment, InstitutionAssignmentSource,
     InstitutionAssignmentStatus, InstitutionInfo, InstitutionRole, InstitutionRoleStatus,
@@ -64,11 +65,6 @@ type PublicInstitutionAccountInfoOf<T> = InstitutionAccountInfo<
 >;
 type PublicRegisteredInstitutionOf<T> =
     RegisteredInstitution<PublicCidNumberOf<T>, PublicAccountNameOf<T>>;
-type PublicAdminsOf<T> = BoundedVec<
-    Admin<<T as frame_system::Config>::AccountId>,
-    <T as publicadmin::Config>::MaxAdminsPerInstitution,
->;
-type PublicInstitutionAdminsOf<T> = InstitutionAdmins<PublicAdminsOf<T>>;
 type PrivateBalanceOf<T> = <<T as privateentity::Config>::Currency as Currency<
     <T as frame_system::Config>::AccountId,
 >>::Balance;
@@ -148,7 +144,8 @@ fn insert_public_account<T: publicentity::Config>(
             account_name,
         },
     );
-    <<T as publicentity::Config>::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId>>::on_new_account(&account_id);
+    <<T as publicentity::Config>::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId,
+    >>::on_new_account(&account_id);
 }
 
 /// 模板派生机构落地：账户由 CID 号确定性派生，名称为运行态 String。
@@ -252,7 +249,8 @@ fn insert_derived_account<T: publicentity::Config>(
             account_name,
         },
     );
-    <<T as publicentity::Config>::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId>>::on_new_account(&account_id);
+    <<T as publicentity::Config>::OnAccountRegistered as frame_support::traits::OnNewAccount<T::AccountId,
+    >>::on_new_account(&account_id);
 }
 
 fn insert_public_institution<T: publicentity::Config>(
@@ -287,8 +285,7 @@ fn insert_public_institution<T: publicentity::Config>(
                 "genesis institution: {} 默认法定代表人岗位写入失败",
                 cid_number
             )
-        },
-    );
+        });
     // 联邦安全局创世岗位 = 自带的 LR + 局长(创世期不设任期,任期由运行期业务模块规范)。
     // 两岗在此建为空缺,其多签转账 Propose+Vote 权限由固定权限目录随建岗写入;
     // 程伟的实际任职由 insert_fsc_genesis_governance 补齐。
@@ -421,22 +418,12 @@ fn insert_fixed_admins<T>(
         "genesis institution: 固定岗位账户常量不得重复"
     );
 
-    let admins: PublicAdminsOf<T> = admin_records.try_into().unwrap_or_else(|_| {
-        panic!(
-            "genesis institution: cid_number {} 管理员数量超过 MaxAdminsPerInstitution",
-            cid_number
-        )
-    });
-    let admin_cid: AdminCidNumber = cid_number
-        .as_bytes()
-        .to_vec()
-        .try_into()
-        .unwrap_or_else(|_| panic!("genesis institution: {} 管理员CID过长", cid_number));
-    let institution_admins = PublicInstitutionAdminsOf::<T> {
+    publicadmin::Pallet::<T>::store_genesis_institution_admins(
+        cid_number.as_bytes().to_vec(),
         institution_code,
-        admins,
-    };
-    publicadmin::AdminAccounts::<T>::insert(admin_cid, institution_admins);
+        admin_records,
+    )
+    .unwrap_or_else(|_| panic!("genesis institution: {cid_number} 管理员钱包及版本写入失败"));
     let threshold = primitives::cid::code::fixed_governance_pass_threshold(&institution_code)
         .unwrap_or_else(|| panic!("genesis institution: {cid_number} 缺少固定机构阈值"));
     publicentity::InstitutionGovernanceThresholds::<T>::insert(&cid, threshold);
@@ -548,21 +535,12 @@ where
     };
     // FSC 创世管理员名册固定为上述唯一人员记录。
     let admin_records: Vec<Admin<T::AccountId>> = vec![admin];
-    let admins: PublicAdminsOf<T> = admin_records
-        .try_into()
-        .expect("genesis institution: FSC 管理员数量超过 MaxAdminsPerInstitution");
-    let admin_cid: AdminCidNumber = cid_number
-        .as_bytes()
-        .to_vec()
-        .try_into()
-        .expect("genesis institution: FSC 管理员 CID 过长");
-    publicadmin::AdminAccounts::<T>::insert(
-        admin_cid,
-        PublicInstitutionAdminsOf::<T> {
-            institution_code,
-            admins,
-        },
-    );
+    publicadmin::Pallet::<T>::store_genesis_institution_admins(
+        cid_number.as_bytes().to_vec(),
+        institution_code,
+        admin_records,
+    )
+    .expect("genesis institution: FSC 管理员钱包及版本写入失败");
 
     // FSC 内部治理阈值(2/2 严格过半)。
     publicentity::InstitutionGovernanceThresholds::<T>::insert(&cid, FSC_GOVERNANCE_THRESHOLD);

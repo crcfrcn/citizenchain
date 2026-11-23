@@ -1,178 +1,137 @@
-//! 读取内部投票、联合投票、公投计票及当前用户投票状态。
-
+//! 从同一最终块读取原机构票据；未投、反对及读取失败必须分别处理。
+use crate::types::{JointVoteTally, ReferendumVoteTally, UserVoteStatus, VoteTally};
+use codec::Encode;
 use nodeclient::codec::decode_hex_storage;
 
-use crate::query::cid_number_key;
-use crate::query::encode_compact_u32;
-use crate::query::fetch_proposal_meta;
-use crate::types::JointVoteTally;
-use crate::types::ReferendumVoteTally;
-use crate::types::UserVoteStatus;
-use crate::types::VoteTally;
-
-pub(crate) fn fetch_internal_tally(proposal_id: u128) -> Result<VoteTally, String> {
-    let key = nodeclient::query::map_key(
-        "InternalVote",
-        "InternalTallies",
-        &proposal_id.to_le_bytes(),
-    );
-    // (ADR-017):投票计数按 finalized 口径读取,禁止 best。
-    match nodeclient::query::fetch_finalized_storage(&key)? {
-        None => Ok(VoteTally { yes: 0, no: 0 }),
-        Some(hex_data) => {
-            let data = decode_hex_storage(&hex_data)?;
-            if data.len() < 8 {
-                return Ok(VoteTally { yes: 0, no: 0 });
-            }
-            let yes = u32::from_le_bytes(
-                data[0..4]
-                    .try_into()
-                    .map_err(|_| "SCALE 数据长度不足".to_string())?,
-            );
-            let no = u32::from_le_bytes(
-                data[4..8]
-                    .try_into()
-                    .map_err(|_| "SCALE 数据长度不足".to_string())?,
-            );
-            Ok(VoteTally { yes, no })
-        }
-    }
-}
-
-pub(crate) fn fetch_joint_tally(proposal_id: u128) -> Result<JointVoteTally, String> {
-    let key = nodeclient::query::map_key("JointVote", "JointTallies", &proposal_id.to_le_bytes());
-    // (ADR-017):投票计数按 finalized 口径读取,禁止 best。
-    match nodeclient::query::fetch_finalized_storage(&key)? {
-        None => Ok(JointVoteTally { yes: 0, no: 0 }),
-        Some(hex_data) => {
-            let data = decode_hex_storage(&hex_data)?;
-            if data.len() < 8 {
-                return Ok(JointVoteTally { yes: 0, no: 0 });
-            }
-            let yes = u32::from_le_bytes(
-                data[0..4]
-                    .try_into()
-                    .map_err(|_| "SCALE 数据长度不足".to_string())?,
-            );
-            let no = u32::from_le_bytes(
-                data[4..8]
-                    .try_into()
-                    .map_err(|_| "SCALE 数据长度不足".to_string())?,
-            );
-            Ok(JointVoteTally { yes, no })
-        }
-    }
-}
-
-pub(crate) fn fetch_referendum_tally(proposal_id: u128) -> Result<ReferendumVoteTally, String> {
-    let key =
-        nodeclient::query::map_key("JointVote", "ReferendumTallies", &proposal_id.to_le_bytes());
-    // (ADR-017):投票计数按 finalized 口径读取,禁止 best。
-    match nodeclient::query::fetch_finalized_storage(&key)? {
-        None => Ok(ReferendumVoteTally { yes: 0, no: 0 }),
-        Some(hex_data) => {
-            let data = decode_hex_storage(&hex_data)?;
-            if data.len() < 16 {
-                return Ok(ReferendumVoteTally { yes: 0, no: 0 });
-            }
-            let yes = u64::from_le_bytes(
-                data[0..8]
-                    .try_into()
-                    .map_err(|_| "SCALE 数据长度不足".to_string())?,
-            );
-            let no = u64::from_le_bytes(
-                data[8..16]
-                    .try_into()
-                    .map_err(|_| "SCALE 数据长度不足".to_string())?,
-            );
-            Ok(ReferendumVoteTally { yes, no })
-        }
-    }
-}
-
-/// 查询指定用户（管理员公钥）对某提案的投票状态。
-pub(crate) fn fetch_user_vote_status(
-    proposal_id: u128,
-    signer_public_key: &str,
-    cid_number: Option<&str>,
-    voter_role_code: Option<&str>,
-) -> Result<UserVoteStatus, String> {
-    let meta =
-        fetch_proposal_meta(proposal_id)?.ok_or_else(|| format!("提案 {proposal_id} 不存在"))?;
-
-    let signer_public_key_bytes: [u8; 32] = decode_hex_storage(signer_public_key)
-        .map_err(|e| format!("公钥解码失败: {e}"))?
-        .try_into()
-        .map_err(|_| "投票账户公钥必须为 32 字节".to_string())?;
-
-    // 查询内部投票状态（个人账户票或 CID + 岗位码 + 钱包票据）。
-    let internal_vote = {
-        let ticket_key = match (cid_number, voter_role_code) {
-            (Some(cid), Some(role_code)) => {
-                let mut key = vec![1u8]; // InternalVoteTicket::Institution
-                key.extend_from_slice(&cid_number_key(cid)?);
-                key.extend_from_slice(&encode_compact_u32(role_code.len() as u32));
-                key.extend_from_slice(role_code.as_bytes());
-                key.extend_from_slice(&signer_public_key_bytes);
-                key
-            }
-            (None, None) => {
-                let mut key = vec![0u8]; // InternalVoteTicket::Personal
-                key.extend_from_slice(&signer_public_key_bytes);
-                key
-            }
-            _ => return Err("机构投票状态查询必须同时提供 cid_number 和 voter_role_code".into()),
-        };
-        let key = nodeclient::query::double_map_key(
-            "InternalVote",
-            "InternalVotesByTicket",
-            &proposal_id.to_le_bytes(),
-            &ticket_key,
-        );
-        fetch_option_bool(&key)?
+fn count_at(pid: u128, pallet: &str, item: &str, at: &str) -> Result<(u32, u32), String> {
+    let key = nodeclient::query::map_key(pallet, item, &pid.to_le_bytes());
+    let Some(raw) = nodeclient::query::fetch_storage_at(&key, at)? else {
+        return Ok((0, 0));
     };
-
-    // 查询联合岗位票据状态（CID + 岗位码 + 钱包）。
-    let joint_vote = if let (1, Some(cid_number), Some(voter_role_code)) =
-        (meta.kind, cid_number, voter_role_code)
-    {
-        let mut composite_key = cid_number_key(cid_number)?;
-        composite_key.extend_from_slice(&encode_compact_u32(voter_role_code.len() as u32));
-        composite_key.extend_from_slice(voter_role_code.as_bytes());
-        composite_key.extend_from_slice(&signer_public_key_bytes);
-        let key = nodeclient::query::double_map_key(
-            "JointVote",
-            "JointVotesByTicket",
-            &proposal_id.to_le_bytes(),
-            &composite_key,
-        );
-        fetch_option_bool(&key)?
-    } else {
-        None
+    let bytes = decode_hex_storage(&raw)?;
+    if bytes.len() != 8 {
+        return Err(format!("{item}计票数据损坏"));
+    }
+    Ok((
+        u32::from_le_bytes(bytes[..4].try_into().unwrap()),
+        u32::from_le_bytes(bytes[4..].try_into().unwrap()),
+    ))
+}
+pub(crate) fn fetch_internal_tally_at(pid: u128, at: &str) -> Result<VoteTally, String> {
+    let (yes, no) = count_at(pid, "InternalVote", "InternalTallies", at)?;
+    Ok(VoteTally { yes, no })
+}
+pub(crate) fn fetch_joint_tally_at(pid: u128, at: &str) -> Result<JointVoteTally, String> {
+    let (yes, no) = count_at(pid, "JointVote", "JointTallies", at)?;
+    Ok(JointVoteTally { yes, no })
+}
+pub(crate) fn fetch_referendum_tally_at(
+    pid: u128,
+    at: &str,
+) -> Result<ReferendumVoteTally, String> {
+    let key = nodeclient::query::map_key("JointVote", "ReferendumTallies", &pid.to_le_bytes());
+    let Some(raw) = nodeclient::query::fetch_storage_at(&key, at)? else {
+        return Ok(ReferendumVoteTally { yes: 0, no: 0 });
     };
-
-    Ok(UserVoteStatus {
-        proposal_id,
-        kind: meta.kind,
-        stage: meta.stage,
-        voter_role_code: voter_role_code.map(str::to_string),
-        internal_vote,
-        joint_vote,
+    let bytes = decode_hex_storage(&raw)?;
+    if bytes.len() != 16 {
+        return Err("公投计票数据损坏".into());
+    }
+    Ok(ReferendumVoteTally {
+        yes: u64::from_le_bytes(bytes[..8].try_into().unwrap()),
+        no: u64::from_le_bytes(bytes[8..].try_into().unwrap()),
     })
 }
-
-/// 查询链上 Option<bool> 存储值。
-fn fetch_option_bool(storage_key: &str) -> Result<Option<bool>, String> {
-    // (ADR-017):投票状态按 finalized 口径读取,禁止 best。
-    match nodeclient::query::fetch_finalized_storage(storage_key)? {
+pub(crate) fn decode_option_vote(raw: Option<&str>) -> Result<Option<bool>, String> {
+    match raw {
         None => Ok(None),
-        Some(hex_data) => {
-            let data = decode_hex_storage(&hex_data)?;
-            if data.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(data[0] == 1))
-            }
-        }
+        Some(raw) => match decode_hex_storage(raw)?.as_slice() {
+            [0] => Ok(Some(false)),
+            [1] => Ok(Some(true)),
+            _ => Err("原投票记录损坏，不能当作未投票".into()),
+        },
     }
+}
+pub(crate) fn institution_vote_key(
+    pid: u128,
+    kind: u8,
+    cid: &str,
+    role: &str,
+    wallet: &[u8; 32],
+) -> Result<String, String> {
+    let role_subject = engingcore::types::RoleSubject {
+        cid_number: cid
+            .as_bytes()
+            .to_vec()
+            .try_into()
+            .map_err(|_| "机构身份CID号超限")?,
+        role_code: role
+            .as_bytes()
+            .to_vec()
+            .try_into()
+            .map_err(|_| "岗位标识超限")?,
+    };
+    let ticket = engingcore::types::InstitutionVoteTicket {
+        role_subject,
+        voter_account_id: *wallet,
+    };
+    let (mut key, pallet, item) = match kind {
+        0 => (vec![1], "InternalVote", "InternalVotesByTicket"),
+        1 => (vec![], "JointVote", "JointVotesByTicket"),
+        _ => return Err("节点机构治理投票类型不支持".into()),
+    };
+    key.extend(ticket.encode());
+    Ok(nodeclient::query::double_map_key(
+        pallet,
+        item,
+        &pid.to_le_bytes(),
+        &key,
+    ))
+}
+
+/// 输入是32字节账户ID；PQ公钥不属于票据键。机构只查询原快照，个人分支保持原键。
+pub(crate) fn fetch_user_vote_status(
+    pid: u128,
+    wallet: &str,
+    cid: Option<&str>,
+    role: Option<&str>,
+) -> Result<UserVoteStatus, String> {
+    let wallet = nodedesktop::validation::normalize_account_id(wallet)?;
+    let at = nodeclient::query::fetch_finalized_head()?;
+    let meta = crate::query::fetch_proposal_meta_at(pid, &at)?.ok_or("提案不存在")?;
+    let vote = match (cid, role) {
+        (Some(cid), Some(role)) => {
+            let view = crate::query::load_frozen_vote_view_at(pid, &at)?;
+            let entry = view
+                .roles
+                .iter()
+                .find(|r| r.cid_number == cid && r.role_code == role)
+                .and_then(|r| r.voters.iter().find(|v| v.account_id == wallet))
+                .ok_or("此钱包不在原岗位快照")?;
+            if let Some(e) = &entry.vote_error {
+                return Err(e.clone());
+            }
+            entry.vote
+        }
+        (None, None) => {
+            let mut ticket = vec![0];
+            ticket.extend(decode_hex_storage(&wallet)?);
+            let key = nodeclient::query::double_map_key(
+                "InternalVote",
+                "InternalVotesByTicket",
+                &pid.to_le_bytes(),
+                &ticket,
+            );
+            decode_option_vote(nodeclient::query::fetch_storage_at(&key, &at)?.as_deref())?
+        }
+        _ => return Err("必须同时指定完整机构身份CID号和原岗位".into()),
+    };
+    Ok(UserVoteStatus {
+        proposal_id: pid,
+        kind: meta.kind,
+        stage: meta.stage,
+        voter_role_code: role.map(str::to_string),
+        internal_vote: if meta.kind == 0 { vote } else { None },
+        joint_vote: if meta.kind == 1 { vote } else { None },
+    })
 }

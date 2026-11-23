@@ -50,8 +50,8 @@ pub(crate) async fn list_federal_registry_admins(
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
     }
     // A wallet execution in a new finalized block must not reuse an earlier displayed wallet.
-    let cache_block = match chain_runtime::FinalizedChainView::connect().await {
-        Ok(view) => format!("{:#x}", view.block_hash),
+    let cache_block = match chain_runtime::finalized_block_hash().await {
+        Ok(hash) => format!("0x{}", hex::encode(hash)),
         Err(_) => return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable"),
     };
     let cache_key = format!("{province}:{cache_block}");

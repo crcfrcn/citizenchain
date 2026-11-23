@@ -10,7 +10,7 @@ pub fn router_for(module: Arc<dyn modules::model::ModuleBusiness>) -> Router {
     })
 }
 
-/// 真实隔离库内签发一份登录快照；故意不建管理员行，读取不得重新查资格或依赖链RPC。
+/// 真实隔离库内签发一份登录快照；不建本地管理员行，显式注入当前钱包权威快照；本地行不授予资格。
 #[cfg(test)]
 pub(crate) fn session_fixture(
     db: &Db,
@@ -30,7 +30,7 @@ pub(crate) fn session_fixture(
         status: "ACTIVE".into(),
     };
     let session: AdminSession = serde_json::from_value(serde_json::json!({
-        "accountId":actor,"institutionCode":"FRG","candidateId":"fixture-candidate",
+        "walletRevision":"0","walletNamespace":"PublicAdmins","accountId":actor,"institutionCode":"FRG","candidateId":"fixture-candidate",
         "institutionCidNumber":institution,"adminLevel":"NATIONAL","familyName":"测","givenName":"试",
         "scopeProvinceName":"贵州省","scopeCityName":null,"scopeTownName":null,"cidShortName":"联邦注册局",
         "capabilities":modules::capability::EMPTY,
@@ -46,6 +46,7 @@ pub(crate) fn session_fixture(
         authentication::repo::insert_admin_session_conn(conn, &session)
     })
     .unwrap();
+    *db.wallet_snapshot.lock().unwrap()=Some(session.context());
     let mut headers = HeaderMap::new();
     headers.insert("authorization", "Bearer fixture-session".parse().unwrap());
     (

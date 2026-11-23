@@ -1885,9 +1885,9 @@ fn internal_vote_counts_same_account_id_once_per_role_ticket() {
 }
 
 #[test]
-fn rebound_wallet_votes_as_canonical_and_old_wallet_loses_power() {
+fn original_wallet_keeps_frozen_vote_and_new_wallet_cannot_inherit_it() {
     new_test_ext().execute_with(|| {
-        // 本用例只验证换绑后的岗位投票授权迁移；CID 换绑本身不创建或消费投票。
+        // 钱包变更不能迁移旧票权或重置已投状态；个人CID不参与机构票据解析。
         reset_internal_callback_state();
         // 岗位快照 3 席（admin(0..2)），阈值 3：中途不会提前达标终结，便于逐条断言。
         set_institution_threshold(public_cid(), 3);
@@ -1924,55 +1924,61 @@ fn rebound_wallet_votes_as_canonical_and_old_wallet_loses_power() {
         // 建案自动由 admin(0) 投出第一票。
         assert_eq!(InternalTallies::<Test>::get(proposal_id).yes, 1);
 
-        // admin(1) 的公民 CID 换绑到新钱包（快照仍冻结着规范账户 admin(1)）。
-        let rebound_wallet = AccountId32::new([200u8; 32]);
-        set_rebind(test_institution_admin(1), rebound_wallet.clone());
-
-        // 换绑不掉权：新钱包解析到规范账户 admin(1)，命中快照 → 可投。
-        assert_ok!(InternalVote::cast(
+        let subject_key = AuthorizationSubject::Institution(subject.clone());
+        let original_voters =
+            engingcore::VoterSnapshot::<Test>::get(proposal_id, &subject_key).unwrap();
+        let original_versions =
+            engingcore::FrozenWalletVersions::<Test>::get(proposal_id, &subject_key).unwrap();
+        let rebound_wallet = AccountId32::new([200; 32]);
+        set_institution_wallet(test_institution_admin(1), rebound_wallet.clone(), 0);
+        assert_noop!(InternalVote::cast(
             RuntimeOrigin::signed(rebound_wallet.clone()),
             proposal_id,
             InternalVoteTicketClaim::InstitutionRole(role.clone()),
-            true,
+            true
+            ),
+            engingcore::Error::<Test>::NoPermission
+        );
+        assert_ok!(InternalVote::cast(
+            RuntimeOrigin::signed(test_institution_admin(1)),
+            proposal_id,
+            InternalVoteTicketClaim::InstitutionRole(role.clone()),
+            true
         ));
         assert_eq!(InternalTallies::<Test>::get(proposal_id).yes, 2);
-        // 票据按【规范账户】记账而非投票钱包——这正是防双投的关键。
-        assert!(InternalVotesByTicket::<Test>::contains_key(
-            proposal_id,
-            InternalVoteTicket::Institution(engingcore::InstitutionVoteTicket {
-                role_subject: subject.clone(),
-                voter_account_id: test_institution_admin(1),
-            })
-        ));
-        assert!(!InternalVotesByTicket::<Test>::contains_key(
-            proposal_id,
-            InternalVoteTicket::Institution(engingcore::InstitutionVoteTicket {
-                role_subject: subject.clone(),
-                voter_account_id: rebound_wallet.clone(),
-            })
-        ));
-
-        // 旧钱包掉权：CID 已不再绑定它，解析为 None。
+        set_institution_wallet(test_institution_admin(1), test_institution_admin(1), 2);
         assert_noop!(
             InternalVote::cast(
                 RuntimeOrigin::signed(test_institution_admin(1)),
                 proposal_id,
                 InternalVoteTicketClaim::InstitutionRole(role.clone()),
-                true,
-            ),
-            engingcore::Error::<Test>::NoPermission
-        );
-
-        // 新钱包再投：票据已存在 → 双投窗口已闭合。
-        assert_noop!(
-            InternalVote::cast(
-                RuntimeOrigin::signed(rebound_wallet),
-                proposal_id,
-                InternalVoteTicketClaim::InstitutionRole(role),
-                true,
+                false
             ),
             engingcore::Error::<Test>::AlreadyVoted
         );
+        assert_eq!(
+            engingcore::Pallet::<Test>::frozen_voter_identity(
+                proposal_id,
+                &subject_key,
+                &test_institution_admin(1)
+            ),
+            Some((test_institution_admin(1), 0))
+        );
+        assert_eq!(
+            engingcore::VoterSnapshot::<Test>::get(proposal_id, &subject_key),
+            Some(original_voters)
+        );
+        assert_eq!(
+            engingcore::FrozenWalletVersions::<Test>::get(proposal_id, &subject_key),
+            Some(original_versions)
+        );
+        assert!(InternalVotesByTicket::<Test>::contains_key(
+            proposal_id,
+            InternalVoteTicket::Institution(engingcore::InstitutionVoteTicket {
+                role_subject: subject,
+                voter_account_id: test_institution_admin(1)
+            })
+        ));
     });
 }
 
@@ -2508,5 +2514,169 @@ fn internal_vote_rejects_wrong_stage_joint_proposal() {
             cast_internal_vote_via_extrinsic(nrc_admin(0), proposal_id, true),
             engingcore::Error::<Test>::InvalidProposalKind
         );
+    });
+}
+
+#[test]
+fn new_proposal_freezes_current_wallet_and_version_without_old_alias() {
+    new_test_ext().execute_with(|| {
+        reset_internal_callback_state();
+        // 岗位快照 3 席（admin(0..2)），阈值 3：中途不会提前达标终结，便于逐条断言。
+        set_institution_threshold(public_cid(), 3);
+        let data = b"rebind-vote".to_vec();
+        let owner: BoundedVec<u8, ConstU32<32>> = b"test".to_vec().try_into().unwrap();
+        let role: engingcore::types::RoleCode = b"TEST_ROLE".to_vec().try_into().unwrap();
+        let subject = RoleSubject {
+            cid_number: public_cid(),
+            role_code: role.clone(),
+        };
+        let vote_plan = engingcore::types::VotePlanOf::try_new(
+            engingcore::types::BusinessActionId {
+                module_tag: owner.clone(),
+                action_code: 0,
+            },
+            owner,
+            AuthorizationSubject::Institution(subject.clone()),
+            vec![AuthorizationSubject::Institution(subject.clone())],
+            engingcore::types::VotingEngineKind::Internal,
+            sp_io::hashing::blake2_256(&data),
+        )
+        .unwrap();
+        let current = AccountId32::new([200; 32]);
+        set_institution_wallet(test_institution_admin(1), current.clone(), 4);
+        let proposal_id = <InternalVote as InternalVoteEngine<AccountId32>>::
+            create_institution_proposal_with_data(
+                test_institution_admin(0),
+                PUBLIC_CODE,
+                public_cid().to_vec(),
+                None,
+                subject_cids_for(&public_cid()),
+                vote_plan,
+                data,
+            )
+            .unwrap();
+
+        let key = AuthorizationSubject::Institution(subject);
+        assert_eq!(
+            engingcore::Pallet::<Test>::frozen_voter_identity(proposal_id, &key, &current),
+            Some((current.clone(), 4))
+        );
+        assert!(!engingcore::Pallet::<Test>::is_subject_voter_in_snapshot(
+            proposal_id,
+            key.clone(),
+            &test_institution_admin(1)
+        ));
+        assert_ok!(InternalVote::cast(
+            RuntimeOrigin::signed(current),
+            proposal_id,
+            InternalVoteTicketClaim::InstitutionRole(role),
+            true
+        ));
+    });
+}
+
+#[test]
+fn missing_historical_versions_require_explicit_exact_backfill_and_preserve_existing_votes() {
+    new_test_ext().execute_with(|| {
+        reset_internal_callback_state();
+        // 岗位快照 3 席（admin(0..2)），阈值 3：中途不会提前达标终结，便于逐条断言。
+        set_institution_threshold(public_cid(), 3);
+        let data = b"rebind-vote".to_vec();
+        let owner: BoundedVec<u8, ConstU32<32>> = b"test".to_vec().try_into().unwrap();
+        let role: engingcore::types::RoleCode = b"TEST_ROLE".to_vec().try_into().unwrap();
+        let subject = RoleSubject {
+            cid_number: public_cid(),
+            role_code: role.clone(),
+        };
+        let vote_plan = engingcore::types::VotePlanOf::try_new(
+            engingcore::types::BusinessActionId {
+                module_tag: owner.clone(),
+                action_code: 0,
+            },
+            owner,
+            AuthorizationSubject::Institution(subject.clone()),
+            vec![AuthorizationSubject::Institution(subject.clone())],
+            engingcore::types::VotingEngineKind::Internal,
+            sp_io::hashing::blake2_256(&data),
+        )
+        .unwrap();
+        let proposal_id = <InternalVote as InternalVoteEngine<AccountId32>>::
+            create_institution_proposal_with_data(
+                test_institution_admin(0),
+                PUBLIC_CODE,
+                public_cid().to_vec(),
+                None,
+                subject_cids_for(&public_cid()),
+                vote_plan,
+                data,
+            )
+            .unwrap();
+
+        let key = AuthorizationSubject::Institution(subject);
+        let frozen = engingcore::VoterSnapshot::<Test>::get(proposal_id, &key).unwrap();
+        let versions = engingcore::FrozenWalletVersions::<Test>::take(proposal_id, &key).unwrap();
+        let votes = InternalVotesByTicket::<Test>::iter_prefix(proposal_id)
+            .collect::<Vec<_>>()
+            .encode();
+        let tally = InternalTallies::<Test>::get(proposal_id);
+        let count = engingcore::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id)
+            .collect::<Vec<_>>()
+            .encode();
+        set_institution_wallet(test_institution_admin(1), AccountId32::new([201; 32]), 0);
+        assert_noop!(
+            InternalVote::cast(
+                RuntimeOrigin::signed(test_institution_admin(1)),
+                proposal_id,
+                InternalVoteTicketClaim::InstitutionRole(role.clone()),
+                true
+            ),
+            engingcore::Error::<Test>::NoPermission
+        );
+        let mut wrong = versions.to_vec();
+        wrong[1].0 = AccountId32::new([201; 32]);
+        assert_noop!(
+            engingcore::Pallet::<Test>::record_frozen_wallet_versions(
+                proposal_id,
+                key.clone(),
+                wrong
+            ),
+            engingcore::Error::<Test>::InvalidInstitution
+        );
+        assert_ok!(engingcore::Pallet::<Test>::record_frozen_wallet_versions(
+            proposal_id,
+            key.clone(),
+            versions.to_vec()
+        ));
+        assert_noop!(
+            engingcore::Pallet::<Test>::record_frozen_wallet_versions(
+                proposal_id,
+                key.clone(),
+                versions.to_vec()
+            ),
+            engingcore::Error::<Test>::VotePlanAlreadyBound
+        );
+        assert_eq!(
+            engingcore::VoterSnapshot::<Test>::get(proposal_id, &key),
+            Some(frozen)
+        );
+        assert_eq!(
+            InternalVotesByTicket::<Test>::iter_prefix(proposal_id)
+                .collect::<Vec<_>>()
+                .encode(),
+            votes
+        );
+        assert_eq!(InternalTallies::<Test>::get(proposal_id), tally);
+        assert_eq!(
+            engingcore::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id)
+                .collect::<Vec<_>>()
+                .encode(),
+            count
+        );
+        assert_ok!(InternalVote::cast(
+            RuntimeOrigin::signed(test_institution_admin(1)),
+            proposal_id,
+            InternalVoteTicketClaim::InstitutionRole(role),
+            true
+        ));
     });
 }

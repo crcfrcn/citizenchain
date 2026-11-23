@@ -5,11 +5,11 @@ use crate::{
     rules::{representative_decided, representative_final_passed},
     Error, RepresentativeVoteRule,
 };
-use frame_support::{assert_noop, assert_ok};
 use engingcore::{
     STAGE_LEG_CONSTITUTION_GUARD, STAGE_LEG_OVERRIDE, STAGE_LEG_REFERENDUM,
     STAGE_LEG_REPRESENTATIVE, STAGE_LEG_SIGN, STATUS_EXECUTED, STATUS_REJECTED, STATUS_VOTING,
 };
+use frame_support::{assert_noop, assert_ok};
 
 // ───────────────── 阈值纯函数(宪法第45/46条精确端点,五类立法表决)─────────────────
 
@@ -716,5 +716,59 @@ fn non_amend_skips_guard() {
         assert_eq!(stage(pid), STAGE_LEG_SIGN);
         assert_ok!(exec_sign(exec_rep(), pid, true));
         assert_eq!(status(pid), STATUS_EXECUTED);
+    });
+}
+
+#[test]
+fn representative_and_executive_signatures_remain_with_original_proposal_wallets() {
+    new_test_ext().execute_with(|| {
+        let pid = create(member(1), single_house(), RepresentativeVoteRule::Regular);
+        let plan = engingcore::ProposalVotePlans::<Test>::get(pid).unwrap();
+        let body = plan.proposer_subject.clone();
+        let old = member(2);
+        let new = member(202);
+        let engingcore::AuthorizationSubject::Institution(ref body_scope) = body else {
+            unreachable!()
+        };
+        set_fixture_wallet(&body_scope.cid_number, &old, new.clone(), 2);
+        assert_noop!(
+            cast(new, pid, true),
+            engingcore::Error::<Test>::NoPermission
+        );
+        assert_ok!(cast(old.clone(), pid, true));
+        assert_noop!(
+            cast(old.clone(), pid, false),
+            engingcore::Error::<Test>::AlreadyVoted
+        );
+        for i in [1, 3, 4, 5, 6, 7, 8, 9, 10] {
+            assert_ok!(cast(member(i), pid, i <= 7));
+        }
+        assert_eq!(stage(pid), STAGE_LEG_SIGN);
+        let executive = crate::LegislationMetas::<Test>::get(pid)
+            .unwrap()
+            .executive
+            .unwrap();
+        let new_exec = member(203);
+        set_fixture_wallet(&executive.cid_number, &exec_rep(), new_exec.clone(), 4);
+        assert_noop!(
+            exec_sign(new_exec.clone(), pid, true),
+            Error::<Test>::NotLegalRepresentative
+        );
+        assert_ok!(exec_sign(exec_rep(), pid, true));
+        let fresh = create(member(1), single_house(), RepresentativeVoteRule::Regular);
+        let fresh_exec = crate::LegislationMetas::<Test>::get(fresh)
+            .unwrap()
+            .executive
+            .unwrap();
+        assert!(engingcore::Pallet::<Test>::is_subject_voter_in_snapshot(
+            fresh,
+            engingcore::AuthorizationSubject::Institution(fresh_exec.clone()),
+            &new_exec
+        ));
+        assert!(!engingcore::Pallet::<Test>::is_subject_voter_in_snapshot(
+            fresh,
+            engingcore::AuthorizationSubject::Institution(fresh_exec),
+            &exec_rep()
+        ));
     });
 }

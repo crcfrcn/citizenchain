@@ -242,6 +242,27 @@ async fn recheck_chain_submit_authorization(
     ctx: &AdminAuthContext,
     session: &ChainSignSession,
 ) -> Result<(), axum::response::Response> {
+    validate_institution_write(&session.call_data)
+        .map_err(|e| api_error(StatusCode::GONE, 1005, e))?;
+    if session.context["origin_wallet_revision"].as_str() != Some(ctx.wallet_revision.as_str())
+        || session.context["origin_wallet_namespace"] != serde_json::json!(ctx.wallet_namespace)
+    {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            1005,
+            "original signing wallet version changed",
+        ));
+    }
+    crate::authentication::login::validate_current_wallet(state, ctx).await?;
+    recheck_business_submit_authorization(state, ctx, session).await
+}
+
+/// 现有岗位、辖区和所属业务回调；统一钱包复核通过后才进入。
+async fn recheck_business_submit_authorization(
+    state: &AppState,
+    ctx: &AdminAuthContext,
+    session: &ChainSignSession,
+) -> Result<(), axum::response::Response> {
     if session.purpose == crate::institutions::PURPOSE_INSTITUTION_WALLET {
         return crate::institutions::recheck_institution_wallet(state, ctx, session).await;
     }
@@ -358,7 +379,8 @@ pub(crate) async fn submit_chain_sign(
         && session.purpose == crate::institutions::PURPOSE_INSTITUTION_WALLET
         && session.context["walletInput"]["mode"].as_str() == Some("SELF")
         && session.context["walletInput"]["newWallet"].as_str() == Some(ctx.account_id.as_str())
-        && session.context["origin_institution_cid"].as_str() == Some(ctx.institution_cid_number.as_str());
+        && session.context["origin_institution_cid"].as_str()
+            == Some(ctx.institution_cid_number.as_str());
     if !same_account_id(session.account_id.as_str(), ctx.account_id.as_str()) && !wallet_recovery {
         if !has_chain_attempt {
             delete_session_best_effort(&state, session.request_id.as_str(), "actor mismatch");
@@ -621,7 +643,9 @@ async fn finish_finalized_session(
     };
     if session.purpose == crate::institutions::PURPOSE_INSTITUTION_WALLET {
         // The transaction is already final. Cleanup failures never resubmit it; the periodic sweep retries.
-        if let Err(error) = crate::authentication::login::revoke_stale_admin_sessions_once(&state.db).await {
+        if let Err(error) =
+            crate::authentication::login::revoke_stale_admin_sessions_once(&state.db).await
+        {
             tracing::warn!(%error, "finalized institutional wallet session cleanup deferred");
         }
     }
@@ -808,3 +832,39 @@ pub mod tests;
 #[cfg(any(test, feature = "test-support"))]
 #[path = "../tests/transactions_support.rs"]
 pub mod test_support;
+
+/// 精确解码机构call8/9，不以界面文案或管理员名册差集决定权限。
+fn validate_institution_write(call: &[u8]) -> Result<(), &'static str> {
+    use codec::DecodeAll;
+    if !matches!(call.first(), Some(30) | Some(31)) {
+        return Ok(());
+    }
+    match call.get(1) {
+        Some(8) => {
+            let (_, action, _, _): (
+                Vec<u8>,
+                entitybase::InstitutionGovernanceAction<[u8; 32]>,
+                Vec<u8>,
+                Vec<u8>,
+            ) = DecodeAll::decode_all(&mut &call[2..]).map_err(|_| "机构治理调用损坏")?;
+            if !action.allowed_in_governance() {
+                return Err("完整名单动作0、2已停用，不得广播或重提");
+            }
+        }
+        Some(9) => {
+            let (_, action, _, _, _, _): (
+                Vec<u8>,
+                entitybase::InstitutionGovernanceAction<[u8; 32]>,
+                Vec<u8>,
+                Vec<u8>,
+                [u8; 32],
+                Option<u32>,
+            ) = DecodeAll::decode_all(&mut &call[2..]).map_err(|_| "登记调用损坏")?;
+            if !action.allowed_in_registration() {
+                return Err("登记只接收专用钱包维护或纯岗位配置");
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}

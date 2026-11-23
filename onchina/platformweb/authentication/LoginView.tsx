@@ -51,6 +51,8 @@ export function LoginView() {
 
   const finishLogin = useCallback((accessToken: string, admin: AdminIdentifyResult) => {
     const nextAuth: AdminAuth = {
+      walletRevision: admin.walletRevision,
+      walletNamespace: admin.walletNamespace,
       setupRequired: admin.setupRequired,
       accessToken: accessToken,
       accountId: admin.accountId,

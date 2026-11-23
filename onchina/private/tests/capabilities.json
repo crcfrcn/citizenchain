@@ -13,8 +13,8 @@
         "workspace_actions": [
           {
             "action": "manage_own_admins",
-            "title": "变更本机构管理员",
-            "enabled": false
+            "title": "机构管理员钱包治理",
+            "enabled": true
           }
         ]
       },

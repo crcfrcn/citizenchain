@@ -25,7 +25,7 @@ engingcore = { path = "../../votingengine/engingcore", default-features = false 
 [features]
 default = ["std"]
 # 保留空 feature 供 runtime 统一转发；本 pallet 无外部 call，不注册 benchmark。
-runtime-benchmarks = []
+runtime-benchmarks = ["adminbase/runtime-benchmarks"]
 try-runtime = []
 std = [
     "codec/std",

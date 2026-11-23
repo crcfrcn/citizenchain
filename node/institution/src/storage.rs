@@ -166,80 +166,12 @@ fn decode_institution_admins_state(
 ) -> Result<InstitutionAdminsState, String> {
     let data = decode_hex_storage(hex_data)?;
     let decoded = crate::codec::decode_institution_admins(&data, spec == PUBLIC_ADMINS)?;
-    let mut admins = fetch_role_assignments(
+    let admins = fetch_role_assignments(
         spec,
         cid_number.as_bytes(),
         decoded.admins.as_slice(),
         finalized_hash,
     )?;
-    // Join roles using canonical anchors first; project current institutional wallets only afterwards.
-    let initialized = storage_value_at::<bool>(
-        spec.pallet_name,
-        "WalletsInitialized",
-        &[cid_number.as_bytes().to_vec().encode()],
-        finalized_hash,
-    )?
-    .unwrap_or(false);
-    let operation = if initialized {
-        false
-    } else {
-        storage_value_at::<u8>("GenesisPallet", "Phase", &[], finalized_hash)?.unwrap_or(0) == 1
-    };
-    let legal = if !initialized && operation && spec == PRIVATE_ADMINS {
-        storage_value_at::<entitybase::InstitutionInfo<u32, Vec<u8>, Vec<u8>, [u8; 32]>>(
-            spec.entity_pallet_name,
-            "Institutions",
-            &[cid_number.as_bytes().to_vec().encode()],
-            finalized_hash,
-        )?
-        .and_then(|info| info.legal_representative)
-    } else {
-        None
-    };
-    let mut wallets = std::collections::BTreeSet::new();
-    let mut projected = Vec::with_capacity(admins.len());
-    for mut admin in admins.drain(..) {
-        let anchor: [u8; 32] = hex::decode(admin.account_id.trim_start_matches("0x"))
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|_| "invalid administrator anchor")?;
-        let wallet = if initialized {
-            storage_value_at::<adminbase::InstitutionAdminWalletState<[u8; 32]>>(
-                spec.pallet_name,
-                "AdminWallets",
-                &[cid_number.as_bytes().to_vec().encode(), anchor.encode()],
-                finalized_hash,
-            )?
-            .and_then(|s| s.wallet)
-            .ok_or("initialized institution member wallet missing/inactive")?
-        } else if operation {
-            let cid = if !admin.cid_number.is_empty() {
-                admin.cid_number.as_bytes().to_vec()
-            } else {
-                legal
-                    .as_ref()
-                    .filter(|r| r.account_id == anchor)
-                    .map(|r| r.cid_number.clone())
-                    .unwrap_or_default()
-            };
-            if cid.is_empty() {
-                anchor
-            } else {
-                let Some(wallet) = legacy_wallet_at(&cid, finalized_hash)? else {
-                    continue;
-                };
-                wallet
-            }
-        } else {
-            anchor
-        };
-        if !wallets.insert(wallet) {
-            return Err("duplicate effective institution wallet".into());
-        }
-        admin.account_id = format!("0x{}", hex::encode(wallet));
-        projected.push(admin);
-    }
-    let admins = projected;
     Ok(InstitutionAdminsState {
         cid_number: cid_number.to_string(),
         institution_code: decoded.institution_code,
@@ -389,8 +321,29 @@ fn fetch_role_assignments(
     let mut grouped =
         BTreeMap::<String, (&AdminDecoded, Vec<InstitutionRoleAssignmentInfo>)>::new();
     for admin in admin_records {
+        let wallet: [u8; 32] = hex::decode(admin.account_id.trim_start_matches("0x"))
+            .map_err(|e| e.to_string())?
+            .try_into()
+            .map_err(|_| "invalid member wallet")?;
+        let state = storage_value_at::<adminbase::InstitutionAdminWalletState<[u8; 32]>>(
+            spec.pallet_name,
+            "AdminWallets",
+            &[cid_number.to_vec().encode(), wallet.encode()],
+            finalized_hash,
+        )?
+        .ok_or("institution wallet state missing")?;
+        if state.wallet != Some(wallet) {
+            return Err("institution wallet state inactive or mismatched".into());
+        }
+        let reference = storage_value_at::<[u8; 32]>(
+            spec.pallet_name,
+            "WalletRoleBindings",
+            &[cid_number.to_vec().encode(), wallet.encode()],
+            finalized_hash,
+        )?
+        .ok_or("role signing authorization missing")?;
         if grouped
-            .insert(admin.account_id.to_ascii_lowercase(), (admin, Vec::new()))
+            .insert(format!("0x{}", hex::encode(reference)), (admin, Vec::new()))
             .is_some()
         {
             return Err("机构管理员账户重复".to_string());
@@ -439,11 +392,11 @@ fn fetch_role_assignments(
     }
 
     let mut admins = Vec::with_capacity(grouped.len());
-    for (account_id, (admin, mut assignments)) in grouped {
+    for (_reference, (admin, mut assignments)) in grouped {
         // 管理员身份和岗位任职是两套独立状态；新任管理员可以尚未取得岗位。
         assignments.sort_by(|left, right| left.role_code.cmp(&right.role_code));
         admins.push(InstitutionAdminInfo {
-            account_id,
+            account_id: admin.account_id.clone(),
             cid_number: admin.cid_number.clone(),
             family_name: admin.family_name.clone(),
             given_name: admin.given_name.clone(),
@@ -469,7 +422,7 @@ fn decode_hex_storage(hex_str: &str) -> Result<Vec<u8>, String> {
 #[path = "../tests/storage.rs"]
 mod tests;
 
-/// All map keys use the pallet's Blake2_128Concat hashers, including the second stable anchor.
+/// All map keys use the pallet's Blake2_128Concat hashers, including the actual wallet key.
 fn storage_value_at<V: Decode>(
     pallet: &str,
     item: &str,
@@ -483,31 +436,4 @@ fn storage_value_at<V: Decode>(
     nodeclient::query::fetch_storage_at(&nodedesktop::storage::to_hex(&key), at)?
         .map(|raw| decode_exact(&raw, item))
         .transpose()
-}
-
-fn legacy_wallet_at(cid: &[u8], at: &str) -> Result<Option<[u8; 32]>, String> {
-    let keys = [cid.to_vec().encode()];
-    let Some(wallet) =
-        storage_value_at::<[u8; 32]>("CitizenIdentity", "AccountIdByCid", &keys, at)?
-    else {
-        return Ok(None);
-    };
-    let record =
-        storage_value_at::<identity::CidRecord<u32>>("CitizenIdentity", "CidRegistry", &keys, at)?;
-    let voting = storage_value_at::<identity::VotingIdentity<u32>>(
-        "CitizenIdentity",
-        "VotingIdentityByCid",
-        &keys,
-        at,
-    )?;
-    let reverse =
-        storage_value_at::<Vec<u8>>("CitizenIdentity", "CidByAccountId", &[wallet.encode()], at)?;
-    if record.is_some_and(|r| r.status == identity::CidRecordStatus::Active)
-        && voting.is_some_and(|v| v.citizen_status == identity::CitizenStatus::Normal)
-        && reverse.as_deref() == Some(cid)
-    {
-        Ok(Some(wallet))
-    } else {
-        Ok(None)
-    }
 }

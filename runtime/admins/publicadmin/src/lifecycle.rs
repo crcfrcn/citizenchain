@@ -2,6 +2,7 @@
 use crate::*;
 
 impl<T: Config> Pallet<T> {
+    #[cfg(any(test, feature = "runtime-benchmarks"))]
     pub(crate) fn do_set_institution_admins(
         cid_number: Vec<u8>,
         institution_code: InstitutionCode,
@@ -81,6 +82,7 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    #[cfg(any(test, feature = "runtime-benchmarks"))]
     fn merge_frg_admins(
         cid: &AdminCidNumber,
         kind: AdminAccountKind,
@@ -159,7 +161,115 @@ impl<T: Config> Pallet<T> {
 impl<T: pallet::Config> InstitutionAdminLifecycle<T::AccountId, Admin<T::AccountId>>
     for pallet::Pallet<T>
 {
-    fn set_institution_admins(
+    #[frame_support::transactional]
+    fn update_institution_wallets(
+        raw: Vec<u8>,
+        code: InstitutionCode,
+        added: Vec<Admin<T::AccountId>>,
+        removed: Vec<(T::AccountId, u64)>,
+        replaced: Vec<InstitutionAdminWalletChange<T::AccountId>>,
+    ) -> DispatchResult {
+        let cid = Self::bound_cid(raw.clone())?;
+        let old = AdminAccounts::<T>::get(&cid);
+        ensure!(
+            old.as_ref().is_none_or(|r| r.institution_code == code),
+            Error::<T>::InstitutionCodeMismatch
+        );
+        ensure!(
+            added
+                .len()
+                .saturating_add(removed.len())
+                .saturating_add(replaced.len())
+                > 0
+                && added
+                    .len()
+                    .saturating_add(removed.len())
+                    .saturating_add(replaced.len())
+                    <= <T as Config>::MaxAdminsPerInstitution::get() as usize,
+            Error::<T>::InvalidAdminsLen
+        );
+        if adminbase::expected_fixed_governance_admins_len(code, &cid).is_some() {
+            ensure!(
+                added.is_empty() && removed.is_empty(),
+                Error::<T>::InvalidAdminsLen
+            );
+        }
+        let mut sources = BTreeSet::new();
+        let mut targets = BTreeSet::new();
+        for (wallet, revision) in &removed {
+            ensure!(sources.insert(wallet.clone()), Error::<T>::DuplicateAdmin);
+            ensure!(
+                Self::resolve_admin_account(code, &cid, wallet).is_some(),
+                Error::<T>::WalletAdminNotFound
+            );
+            ensure!(
+                AdminWallets::<T>::get(&cid, wallet).is_some_and(|s| s.revision == *revision),
+                Error::<T>::WalletStaleRevision
+            );
+        }
+        for change in &replaced {
+            ensure!(
+                sources.insert(change.admin_account.clone())
+                    && targets.insert(change.new_wallet.clone()),
+                Error::<T>::DuplicateAdmin
+            );
+        }
+        for admin in &added {
+            ensure!(
+                targets.insert(admin.account_id.clone()),
+                Error::<T>::DuplicateAdmin
+            );
+        }
+        ensure!(
+            targets.iter().all(|w| !sources.contains(w)
+                && !old
+                    .as_ref()
+                    .is_some_and(|r| r.admins.iter().any(|a| &a.account_id == w))),
+            Error::<T>::WalletDuplicate
+        );
+        if !added.is_empty() {
+            Self::validate_admin_set(AdminAccountKind::PublicInstitution, code, &cid, &added)?;
+        }
+        for change in replaced {
+            Self::do_change_institution_wallet(code, raw.clone(), change)?;
+        }
+        if !added.is_empty() || !removed.is_empty() {
+            let current = AdminAccounts::<T>::get(&cid);
+            let mut records = current
+                .as_ref()
+                .map(|r| r.admins.to_vec())
+                .unwrap_or_default();
+            records.retain(|a| !removed.iter().any(|(w, _)| w == &a.account_id));
+            records.extend(added);
+            // 保留原公权资料唯一性校验，不因钱包维护绕开既有CID约束。
+            let mut cids = BTreeSet::new();
+            ensure!(
+                records
+                    .iter()
+                    .filter(|a| !a.cid_number.is_empty())
+                    .all(|a| cids.insert(a.cid_number.clone())),
+                Error::<T>::CitizenIdentityMismatch
+            );
+            let next = InstitutionAdmins {
+                institution_code: code,
+                admins: records
+                    .try_into()
+                    .map_err(|_| Error::<T>::InvalidAdminsLen)?,
+            };
+            Self::maintain_institution_wallets(&cid, current.as_ref(), &next)?;
+            let len = next.admins.len() as u32;
+            AdminAccounts::<T>::insert(&cid, next);
+            Self::deposit_event(Event::<T>::InstitutionAdminsSet {
+                cid_number: cid,
+                institution_code: code,
+                admins_len: len,
+                created: old.is_none(),
+            });
+        }
+        Ok(())
+    }
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_set_institution_admins(
         _module_tag: &[u8],
         cid_number: Vec<u8>,
         institution_code: InstitutionCode,
@@ -170,131 +280,141 @@ impl<T: pallet::Config> InstitutionAdminLifecycle<T::AccountId, Admin<T::Account
     }
 }
 
-// 仅供受控实体入口调用：本人双签、投票执行与名册生命周期共用同一状态内核。
 impl<T: Config> Pallet<T> {
-    fn wallet_roster(
-        institution_code: InstitutionCode,
-        cid: &AdminCidNumber,
-    ) -> Result<InstitutionAdminsOf<T>, sp_runtime::DispatchError> {
+    /// 写入固定创世配置并同步登记钱包；不依赖尚未注册的个人CID。
+    pub fn store_genesis_institution_admins(
+        cid: Vec<u8>,
+        code: InstitutionCode,
+        admins: Vec<Admin<T::AccountId>>,
+    ) -> DispatchResult {
+        let cid = Self::bound_cid(cid)?;
         ensure!(
-            !cid.is_empty() && can_store_public_admin_code(&institution_code),
+            !T::ChainPhase::is_operation(),
             Error::<T>::InvalidInstitution
         );
-        let roster = AdminAccounts::<T>::get(cid).ok_or(Error::<T>::InvalidInstitution)?;
         ensure!(
-            roster.institution_code == institution_code,
-            Error::<T>::InstitutionCodeMismatch
+            can_store_public_admin_code(&code),
+            Error::<T>::InvalidAdminAccountKind
         );
+        ensure!(
+            !AdminAccounts::<T>::contains_key(&cid),
+            Error::<T>::InvalidInstitution
+        );
+        ensure!(
+            !admins.is_empty()
+                && admins
+                    .iter()
+                    .map(|a| &a.account_id)
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    == admins.len(),
+            Error::<T>::DuplicateAdmin
+        );
+        if let Some(expected) = adminbase::expected_fixed_governance_admins_len(code, &cid) {
+            ensure!(
+                admins.len() == expected as usize,
+                Error::<T>::InvalidAdminsLen
+            );
+        }
+        let next = InstitutionAdmins {
+            institution_code: code,
+            admins: admins
+                .try_into()
+                .map_err(|_| Error::<T>::InvalidAdminsLen)?,
+        };
+        with_transaction(|| {
+            if let Err(error) = Self::maintain_institution_wallets(&cid, None, &next) {
+                return TransactionOutcome::Rollback(Err(error));
+            }
+            AdminAccounts::<T>::insert(&cid, next);
+            TransactionOutcome::Commit(Ok(()))
+        })
+    }
+}
+
+// 只维护实际钱包名单与版本。岗位人员、任期、余额和提案快照不在本模块写入。
+impl<T: Config> Pallet<T> {
+    fn wallet_roster(
+        code: InstitutionCode,
+        cid: &AdminCidNumber,
+    ) -> Result<InstitutionAdminsOf<T>, DispatchError> {
+        ensure!(!cid.is_empty(), Error::<T>::InvalidInstitution);
+        let roster =
+            Self::get_institution_admins(code, cid).ok_or(Error::<T>::InvalidInstitution)?;
         Ok(roster)
     }
 
-    fn wallet_error(error: adminbase::InstitutionAdminWalletError) -> sp_runtime::DispatchError {
-        use adminbase::InstitutionAdminWalletError as WalletError;
+    fn wallet_error(error: adminbase::InstitutionAdminWalletError) -> DispatchError {
+        use adminbase::InstitutionAdminWalletError as E;
         match error {
-            WalletError::Uninitialized => Error::<T>::WalletUninitialized,
-            WalletError::AlreadyInitialized => Error::<T>::WalletAlreadyInitialized,
-            WalletError::Inactive => Error::<T>::WalletInactive,
-            WalletError::OldWalletMismatch => Error::<T>::WalletOldMismatch,
-            WalletError::StaleRevision => Error::<T>::WalletStaleRevision,
-            WalletError::Unchanged => Error::<T>::WalletUnchanged,
-            WalletError::DuplicateWallet => Error::<T>::WalletDuplicate,
-            WalletError::RevisionOverflow => Error::<T>::WalletRevisionOverflow,
+            E::Uninitialized => Error::<T>::WalletUninitialized,
+            E::AlreadyInitialized => Error::<T>::WalletAlreadyInitialized,
+            E::Inactive => Error::<T>::WalletInactive,
+            E::OldWalletMismatch => Error::<T>::WalletOldMismatch,
+            E::StaleRevision => Error::<T>::WalletStaleRevision,
+            E::Unchanged => Error::<T>::WalletUnchanged,
+            E::DuplicateWallet => Error::<T>::WalletDuplicate,
+            E::RevisionOverflow => Error::<T>::WalletRevisionOverflow,
         }
         .into()
     }
-
-    fn other_institution_wallets(
-        cid: &AdminCidNumber,
-        roster: &InstitutionAdminsOf<T>,
-        admin_account: &T::AccountId,
-        require_initialized: bool,
-    ) -> Result<Vec<T::AccountId>, sp_runtime::DispatchError> {
-        let mut wallets = Vec::new();
-        for admin in &roster.admins {
-            if &admin.account_id == admin_account {
-                continue;
-            }
-            match AdminWallets::<T>::get(cid, &admin.account_id).and_then(|state| state.wallet) {
-                Some(wallet) => wallets.push(wallet),
-                None => ensure!(!require_initialized, Error::<T>::WalletUninitialized),
-            }
-        }
-        Ok(wallets)
-    }
-
-    #[frame_support::transactional]
-    pub(crate) fn do_initialize_institution_wallet(
-        institution_code: InstitutionCode,
-        cid_number: Vec<u8>,
-        admin_account: T::AccountId,
-        wallet: T::AccountId,
-        expected_revision: Option<u64>,
-    ) -> DispatchResult {
-        let cid = Self::bound_cid(cid_number)?;
-        let roster = Self::wallet_roster(institution_code, &cid)?;
-        ensure!(
-            roster
-                .admins
-                .iter()
-                .any(|admin| admin.account_id == admin_account),
-            Error::<T>::WalletAdminNotFound
-        );
-        let previous = AdminWallets::<T>::get(&cid, &admin_account);
-        // 初始化阶段缺失记录保持缺失，绝不回退到名册锚点或个人CID绑定。
-        let others = Self::other_institution_wallets(&cid, &roster, &admin_account, false)?;
-        let next = adminbase::initial_institution_wallet_state(
-            previous.as_ref(),
-            &wallet,
-            expected_revision,
-            &others,
-        )
-        .map_err(Self::wallet_error)?;
-        AdminWallets::<T>::insert(&cid, &admin_account, &next);
-        WalletOwners::<T>::insert(&cid, &wallet, &admin_account);
-        Self::deposit_event(Event::<T>::InstitutionAdminWalletInitialized {
-            cid_number: cid,
-            admin_account,
-            wallet,
-            revision: next.revision,
-        });
-        Ok(())
-    }
-
     #[frame_support::transactional]
     pub(crate) fn do_change_institution_wallet(
-        institution_code: InstitutionCode,
-        cid_number: Vec<u8>,
+        code: InstitutionCode,
+        raw_cid: Vec<u8>,
         change: InstitutionAdminWalletChange<T::AccountId>,
     ) -> DispatchResult {
-        let cid = Self::bound_cid(cid_number)?;
-        let roster = Self::wallet_roster(institution_code, &cid)?;
+        let cid = Self::bound_cid(raw_cid)?;
+        let mut roster = Self::wallet_roster(code, &cid)?;
+        let index = roster
+            .admins
+            .iter()
+            .position(|a| a.account_id == change.admin_account)
+            .ok_or(Error::<T>::WalletAdminNotFound)?;
         ensure!(
-            roster
+            change.admin_account == change.expected_wallet,
+            Error::<T>::WalletOldMismatch
+        );
+        ensure!(
+            change.expected_wallet != change.new_wallet,
+            Error::<T>::WalletUnchanged
+        );
+        ensure!(
+            !roster
                 .admins
                 .iter()
-                .any(|admin| admin.account_id == change.admin_account),
-            Error::<T>::WalletAdminNotFound
+                .any(|a| a.account_id == change.new_wallet),
+            Error::<T>::WalletDuplicate
         );
-        let previous = AdminWallets::<T>::get(&cid, &change.admin_account);
-        // 更新前本机构所有在册成员须初始化，不能遗漏尚未知晓的有效钱包。
-        let others = if WalletsInitialized::<T>::get(&cid) {
+        let previous = AdminWallets::<T>::get(&cid, &change.expected_wallet);
+        let new_previous = AdminWallets::<T>::get(&cid, &change.new_wallet);
+        let reference = WalletRoleBindings::<T>::get(&cid, &change.expected_wallet)
+            .ok_or(Error::<T>::WalletUninitialized)?;
+        let (retired, next) = adminbase::changed_institution_wallet_state(
+            previous.as_ref(),
+            new_previous.as_ref(),
+            &change,
+            &[],
+        )
+        .map_err(Self::wallet_error)?;
+        // 每个(CID,钱包)履历首次建立时持有一次System引用；退役保留，避免nonce归零。
+        if new_previous.is_none() {
+            let refs = frame_system::Account::<T>::get(&change.new_wallet);
             ensure!(
-                WalletOwners::<T>::get(&cid, &change.expected_wallet).as_ref()
-                    == Some(&change.admin_account),
-                Error::<T>::WalletOldMismatch
+                refs.providers
+                    .checked_add(refs.sufficients)
+                    .and_then(|n| n.checked_add(1))
+                    .is_some(),
+                sp_runtime::ArithmeticError::Overflow
             );
-            WalletOwners::<T>::get(&cid, &change.new_wallet)
-                .filter(|owner| owner != &change.admin_account)
-                .map(|_| Vec::from([change.new_wallet.clone()]))
-                .unwrap_or_default()
-        } else {
-            Self::other_institution_wallets(&cid, &roster, &change.admin_account, true)?
-        };
-        let next = adminbase::changed_institution_wallet_state(previous.as_ref(), &change, &others)
-            .map_err(Self::wallet_error)?;
-        AdminWallets::<T>::insert(&cid, &change.admin_account, &next);
-        WalletOwners::<T>::remove(&cid, &change.expected_wallet);
-        WalletOwners::<T>::insert(&cid, &change.new_wallet, &change.admin_account);
+            frame_system::Pallet::<T>::inc_sufficients(&change.new_wallet);
+        }
+        roster.admins[index].account_id = change.new_wallet.clone();
+        AdminAccounts::<T>::insert(&cid, roster);
+        AdminWallets::<T>::insert(&cid, &change.expected_wallet, retired);
+        AdminWallets::<T>::insert(&cid, &change.new_wallet, &next);
+        WalletRoleBindings::<T>::remove(&cid, &change.expected_wallet);
+        WalletRoleBindings::<T>::insert(&cid, &change.new_wallet, reference);
         Self::deposit_event(Event::<T>::InstitutionAdminWalletChanged {
             cid_number: cid,
             admin_account: change.admin_account,
@@ -307,240 +427,129 @@ impl<T: Config> Pallet<T> {
 
     #[frame_support::transactional]
     pub(crate) fn do_retire_institution_wallet(
-        institution_code: InstitutionCode,
-        cid_number: Vec<u8>,
-        admin_account: T::AccountId,
-        expected_revision: u64,
+        code: InstitutionCode,
+        raw_cid: Vec<u8>,
+        wallet: T::AccountId,
+        revision: u64,
     ) -> DispatchResult {
-        let cid = Self::bound_cid(cid_number)?;
+        let cid = Self::bound_cid(raw_cid)?;
         ensure!(
-            !cid.is_empty() && can_store_public_admin_code(&institution_code),
-            Error::<T>::InvalidInstitution
+            primitives::cid::code::institution_code_from_cid_number(
+                core::str::from_utf8(&cid).map_err(|_| Error::<T>::InvalidInstitution)?
+            ) == Some(code),
+            Error::<T>::InstitutionCodeMismatch
         );
         if let Some(roster) = AdminAccounts::<T>::get(&cid) {
             ensure!(
-                roster.institution_code == institution_code,
+                roster.institution_code == code,
                 Error::<T>::InstitutionCodeMismatch
             );
             ensure!(
-                !roster
-                    .admins
-                    .iter()
-                    .any(|admin| admin.account_id == admin_account),
+                !roster.admins.iter().any(|a| a.account_id == wallet),
                 Error::<T>::WalletAdminStillPresent
             );
-        } else {
-            // 名册已关闭时仍核对键中的机构码，不能借错误路由改变历史版本。
-            let text =
-                core::str::from_utf8(cid.as_slice()).map_err(|_| Error::<T>::InvalidInstitution)?;
-            ensure!(
-                primitives::cid::code::institution_code_from_cid_number(text)
-                    == Some(institution_code),
-                Error::<T>::InstitutionCodeMismatch
-            );
         }
-        let previous = AdminWallets::<T>::get(&cid, &admin_account);
-        let next =
-            adminbase::retired_institution_wallet_state(previous.as_ref(), expected_revision)
-                .map_err(Self::wallet_error)?;
-        let previous_wallet = previous
-            .and_then(|state| state.wallet)
-            .ok_or(Error::<T>::WalletInactive)?;
-        AdminWallets::<T>::insert(&cid, &admin_account, &next);
-        if WalletOwners::<T>::get(&cid, &previous_wallet).as_ref() == Some(&admin_account) {
-            WalletOwners::<T>::remove(&cid, &previous_wallet);
-        }
+        let previous = AdminWallets::<T>::get(&cid, &wallet);
+        let retired = adminbase::retired_institution_wallet_state(previous.as_ref(), revision)
+            .map_err(Self::wallet_error)?;
+        AdminWallets::<T>::insert(&cid, &wallet, &retired);
+        WalletRoleBindings::<T>::remove(&cid, &wallet);
         Self::deposit_event(Event::<T>::InstitutionAdminWalletRetired {
             cid_number: cid,
-            admin_account,
-            previous_wallet,
-            revision: next.revision,
+            admin_account: wallet.clone(),
+            previous_wallet: wallet,
+            revision: retired.revision,
         });
         Ok(())
     }
-}
-
-impl<T: pallet::Config> InstitutionAdminWalletLifecycle<T::AccountId> for pallet::Pallet<T> {
-    fn ensure_institution_wallets(code: InstitutionCode, cid: Vec<u8>) -> DispatchResult {
-        Self::do_ensure_institution_wallets(code, cid)
-    }
-
-    fn initialize_institution_wallet(
-        institution_code: InstitutionCode,
-        cid_number: Vec<u8>,
-        admin_account: T::AccountId,
-        wallet: T::AccountId,
-        expected_revision: Option<u64>,
-    ) -> DispatchResult {
-        Self::do_initialize_institution_wallet(
-            institution_code,
-            cid_number,
-            admin_account,
-            wallet,
-            expected_revision,
-        )
-    }
-
-    fn change_institution_wallet(
-        institution_code: InstitutionCode,
-        cid_number: Vec<u8>,
-        change: InstitutionAdminWalletChange<T::AccountId>,
-    ) -> DispatchResult {
-        Self::do_change_institution_wallet(institution_code, cid_number, change)
-    }
-
-    fn retire_institution_wallet(
-        institution_code: InstitutionCode,
-        cid_number: Vec<u8>,
-        admin_account: T::AccountId,
-        expected_revision: u64,
-    ) -> DispatchResult {
-        Self::do_retire_institution_wallet(
-            institution_code,
-            cid_number,
-            admin_account,
-            expected_revision,
-        )
-    }
-}
-
-impl<T: Config> Pallet<T> {
-    #[frame_support::transactional]
-    pub(crate) fn do_ensure_institution_wallets(
-        code: InstitutionCode,
-        cid: Vec<u8>,
-    ) -> DispatchResult {
-        let cid = Self::bound_cid(cid)?;
-        let roster = Self::wallet_roster(code, &cid)?;
-        if WalletsInitialized::<T>::get(&cid) {
-            return Ok(());
-        }
-        let mut used = BTreeSet::new();
-        let mut updates = Vec::new();
-        for admin in &roster.admins {
-            let wallet = Self::legacy_institution_wallet(&cid, admin)
-                .ok_or(Error::<T>::WalletLegacyUnavailable)?;
-            ensure!(used.insert(wallet.clone()), Error::<T>::WalletDuplicate);
-            let previous = AdminWallets::<T>::get(&cid, &admin.account_id);
-            if let Some(state) = &previous {
-                if let Some(existing) = &state.wallet {
-                    ensure!(existing == &wallet, Error::<T>::WalletLegacyMismatch);
-                    WalletOwners::<T>::insert(&cid, &wallet, &admin.account_id);
-                    continue;
-                }
-            }
-            let expected = previous.as_ref().map(|state| state.revision);
-            let next = adminbase::initial_institution_wallet_state(
-                previous.as_ref(),
-                &wallet,
-                expected,
-                &[],
-            )
-            .map_err(Self::wallet_error)?;
-            updates.push((admin.account_id.clone(), wallet, next));
-        }
-        for (anchor, wallet, state) in updates {
-            AdminWallets::<T>::insert(&cid, &anchor, &state);
-            WalletOwners::<T>::insert(&cid, &wallet, &anchor);
-            Self::deposit_event(Event::<T>::InstitutionAdminWalletInitialized {
-                cid_number: cid.clone(),
-                admin_account: anchor,
-                wallet,
-                revision: state.revision,
-            });
-        }
-        WalletsInitialized::<T>::insert(&cid, true);
-        Ok(())
-    }
-
-    /// 名册生命周期与钱包同事务，保留在任人员的钱包，离任退役，重录版本不回退。
+    /// 新登记写入初值，保留钱包延续版本；缺失的在用记录是错误，不能现场补建。
     fn maintain_institution_wallets(
         cid: &AdminCidNumber,
         previous: Option<&InstitutionAdminsOf<T>>,
         next: &InstitutionAdminsOf<T>,
     ) -> DispatchResult {
-        let mut used = BTreeSet::new();
-        let initialized = WalletsInitialized::<T>::get(cid);
+        let mut retained_references = BTreeSet::new();
         if let Some(old) = previous {
             for admin in &old.admins {
-                if let Some(wallet) =
-                    AdminWallets::<T>::get(cid, &admin.account_id).and_then(|state| state.wallet)
-                {
-                    WalletOwners::<T>::remove(cid, wallet);
+                let state = AdminWallets::<T>::get(cid, &admin.account_id)
+                    .ok_or(Error::<T>::WalletUninitialized)?;
+                ensure!(
+                    state.wallet.as_ref() == Some(&admin.account_id),
+                    Error::<T>::WalletInactive
+                );
+                let reference = WalletRoleBindings::<T>::get(cid, &admin.account_id)
+                    .ok_or(Error::<T>::WalletUninitialized)?;
+                if next.admins.iter().any(|a| a.account_id == admin.account_id) {
+                    ensure!(
+                        retained_references.insert(reference),
+                        Error::<T>::WalletDuplicate
+                    );
                 }
             }
         }
         for admin in &next.admins {
-            let retained = previous.is_some_and(|old| {
-                old.admins
-                    .iter()
-                    .any(|item| item.account_id == admin.account_id)
-            });
-            let old_state = AdminWallets::<T>::get(cid, &admin.account_id);
-            let state = if retained && initialized {
-                let state = old_state.ok_or(Error::<T>::WalletUninitialized)?;
-                ensure!(state.wallet.is_some(), Error::<T>::WalletInactive);
-                state
-            } else {
-                let wallet = if retained {
-                    Self::legacy_institution_wallet(cid, admin)
-                        .ok_or(Error::<T>::WalletLegacyUnavailable)?
-                } else {
-                    admin.account_id.clone()
-                };
-                if retained
-                    && old_state
-                        .as_ref()
-                        .is_some_and(|state| state.wallet.is_some())
-                {
-                    let state = old_state.ok_or(Error::<T>::WalletUninitialized)?;
-                    ensure!(
-                        state.wallet.as_ref() == Some(&wallet),
-                        Error::<T>::WalletLegacyMismatch
-                    );
-                    state
-                } else {
-                    let expected = old_state.as_ref().map(|state| state.revision);
-                    adminbase::initial_institution_wallet_state(
-                        old_state.as_ref(),
-                        &wallet,
-                        expected,
-                        &[],
-                    )
-                    .map_err(Self::wallet_error)?
-                }
-            };
-            let wallet = state.wallet.as_ref().ok_or(Error::<T>::WalletInactive)?;
-            ensure!(used.insert(wallet.clone()), Error::<T>::WalletDuplicate);
-            WalletOwners::<T>::insert(cid, wallet, &admin.account_id);
+            if previous
+                .is_some_and(|old| old.admins.iter().any(|a| a.account_id == admin.account_id))
+            {
+                continue;
+            }
+            ensure!(
+                retained_references.insert(admin.account_id.clone()),
+                Error::<T>::WalletDuplicate
+            );
+            let prior = AdminWallets::<T>::get(cid, &admin.account_id);
+            let state = adminbase::initial_institution_wallet_state(
+                prior.as_ref(),
+                &admin.account_id,
+                prior.as_ref().map(|s| s.revision),
+                &[],
+            )
+            .map_err(Self::wallet_error)?;
+            if prior.is_none() {
+                let refs = frame_system::Account::<T>::get(&admin.account_id);
+                ensure!(
+                    refs.providers
+                        .checked_add(refs.sufficients)
+                        .and_then(|n| n.checked_add(1))
+                        .is_some(),
+                    sp_runtime::ArithmeticError::Overflow
+                );
+                frame_system::Pallet::<T>::inc_sufficients(&admin.account_id);
+            }
             AdminWallets::<T>::insert(cid, &admin.account_id, state);
+            WalletRoleBindings::<T>::insert(cid, &admin.account_id, &admin.account_id);
         }
         if let Some(old) = previous {
             for admin in &old.admins {
-                if next
-                    .admins
-                    .iter()
-                    .any(|item| item.account_id == admin.account_id)
-                {
+                if next.admins.iter().any(|a| a.account_id == admin.account_id) {
                     continue;
                 }
-                let before = AdminWallets::<T>::get(cid, &admin.account_id);
-                let revision = before
-                    .as_ref()
-                    .map_or(0, |state| state.revision)
-                    .checked_add(1)
-                    .ok_or(Error::<T>::WalletRevisionOverflow)?;
-                AdminWallets::<T>::insert(
-                    cid,
-                    &admin.account_id,
-                    InstitutionAdminWalletState::<T::AccountId> {
-                        wallet: None,
-                        revision,
-                    },
-                );
+                let prior = AdminWallets::<T>::get(cid, &admin.account_id)
+                    .ok_or(Error::<T>::WalletUninitialized)?;
+                let state =
+                    adminbase::retired_institution_wallet_state(Some(&prior), prior.revision)
+                        .map_err(Self::wallet_error)?;
+                AdminWallets::<T>::insert(cid, &admin.account_id, state);
+                WalletRoleBindings::<T>::remove(cid, &admin.account_id);
             }
         }
-        WalletsInitialized::<T>::insert(cid, true);
         Ok(())
+    }
+}
+impl<T: Config> InstitutionAdminWalletLifecycle<T::AccountId> for Pallet<T> {
+    fn change_institution_wallet(
+        code: InstitutionCode,
+        cid: Vec<u8>,
+        change: InstitutionAdminWalletChange<T::AccountId>,
+    ) -> DispatchResult {
+        Self::do_change_institution_wallet(code, cid, change)
+    }
+    fn retire_institution_wallet(
+        code: InstitutionCode,
+        cid: Vec<u8>,
+        wallet: T::AccountId,
+        revision: u64,
+    ) -> DispatchResult {
+        Self::do_retire_institution_wallet(code, cid, wallet, revision)
     }
 }

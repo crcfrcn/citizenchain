@@ -20,6 +20,8 @@ fn cid(institution: &str, province: &str, city: &str) -> String {
 
 fn context(level: &str, institution: &str, province: &str, city: &str) -> AdminAuthContext {
     AdminAuthContext {
+        wallet_revision: "0".into(),
+        wallet_namespace: onchina::chain_runtime::AdminPallet::PublicAdmins,
         account_id: format!("0x{}", "11".repeat(32)),
         institution_cid_number: cid(institution, province, city),
         institution_code: institution.into(),
