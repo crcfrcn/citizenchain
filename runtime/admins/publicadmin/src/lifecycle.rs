@@ -14,8 +14,8 @@ impl<T: Config> Pallet<T> {
             let mut update = || -> DispatchResult {
                 for (cid, roster) in AdminAccounts::<T>::iter() {
                     let count = roster.admins.len() as u64;
-                    // 覆盖名单、原钱包/引用、System存活引用及新账户事件的保守预算。
-                    weight = weight.saturating_add(db.reads_writes(1 + 8 * count, 6 * count));
+                    // 覆盖名单、钱包/引用、System存活、新账户事件及原有建户回调。
+                    weight = weight.saturating_add(db.reads_writes(1 + 24 * count, 10 * count));
                     weight = weight.saturating_add(Weight::from_parts(
                         0,
                         roster.encoded_size() as u64 + 4096 * count,
