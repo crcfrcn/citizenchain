@@ -11,5 +11,10 @@ export default defineConfig({
   define: { FLAT_FEE: JSON.stringify(FLAT_FEE) },
   resolve: { dedupe: ['react', 'react-dom'] },
   server: { fs: { allow: [fileURLToPath(new URL('../', import.meta.url)), fileURLToPath(new URL('../../../icons', import.meta.url)), fileURLToPath(new URL('../../../crates/scanner', import.meta.url)),fileURLToPath(new URL('../../../runtime/transaction/mldsa', import.meta.url))] } },
-  test: { environment: 'jsdom', include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'], exclude: ['tests/documents.test.tsx'], setupFiles: ['tests/setup.ts'], restoreMocks: true },
+  test: {
+    environment: 'jsdom',
+    // Node 25宿主的实验性WebStorage不得覆盖jsdom提供的浏览器存储。
+    poolOptions: { forks: { execArgv: ['--no-experimental-webstorage'] } },
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'], exclude: ['tests/documents.test.tsx'], setupFiles: ['tests/setup.ts'], restoreMocks: true,
+  },
 });
