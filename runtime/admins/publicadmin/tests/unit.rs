@@ -456,3 +456,152 @@ fn fixed_governance_rosters_keep_count_order_and_person_fields() {
         }
     });
 }
+
+#[test]
+fn wallet_upgrade_repairs_missing_state_once_without_rewriting_rosters() {
+    use frame_support::traits::Hooks;
+    new_test_ext().execute_with(|| {
+        let code = code_bytes("CREG");
+        let cid = AdminCidNumber::try_from(wallet_fixture_cid(code, 77)).unwrap();
+        let roster = InstitutionAdmins::<AdminsOf<Test>> {
+            institution_code: code,
+            admins: admins(3).try_into().unwrap(),
+        };
+        AdminAccounts::<Test>::insert(&cid, &roster);
+        StorageVersion::new(0).put::<PublicAdmins>();
+        frame_system::Account::<Test>::mutate(account(0), |info| {
+            info.nonce = 7;
+            info.providers = 1;
+        });
+        let accounts = (0..3)
+            .map(|n| frame_system::Account::<Test>::get(account(n)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            PublicAdmins::resolve_admin_account(code, &cid, &account(0)),
+            None
+        );
+        <PublicAdmins as Hooks<u64>>::on_runtime_upgrade();
+        assert_eq!(
+            StorageVersion::get::<PublicAdmins>(),
+            StorageVersion::new(1)
+        );
+        assert_eq!(AdminAccounts::<Test>::get(&cid), Some(roster));
+        for n in 0..3 {
+            let wallet = account(n);
+            assert_eq!(
+                AdminWallets::<Test>::get(&cid, &wallet),
+                Some(InstitutionAdminWalletState {
+                    wallet: Some(wallet.clone()),
+                    revision: 0
+                })
+            );
+            assert_eq!(
+                PublicAdmins::resolve_admin_account(code, &cid, &wallet),
+                Some(wallet.clone())
+            );
+            assert_eq!(
+                PublicAdmins::resolve_role_authorization(code, &cid, &wallet),
+                Some(wallet.clone())
+            );
+            let info = frame_system::Account::<Test>::get(&wallet);
+            assert_eq!(info.nonce, accounts[n as usize].nonce);
+            assert_eq!(info.providers, accounts[n as usize].providers);
+            assert_eq!(info.sufficients, accounts[n as usize].sufficients + 1);
+        }
+        let state = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        <PublicAdmins as Hooks<u64>>::on_runtime_upgrade();
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), state);
+    });
+}
+
+#[test]
+fn wallet_upgrade_preserves_existing_versions_references_and_empty_state() {
+    use frame_support::traits::Hooks;
+    for populated in [false, true] {
+        new_test_ext().execute_with(|| {
+            let code = code_bytes("CREG");
+            let cid = AdminCidNumber::try_from(wallet_fixture_cid(code, 78)).unwrap();
+            StorageVersion::new(0).put::<PublicAdmins>();
+            if populated {
+                AdminAccounts::<Test>::insert(
+                    &cid,
+                    InstitutionAdmins::<AdminsOf<Test>> {
+                        institution_code: code,
+                        admins: admins(2).try_into().unwrap(),
+                    },
+                );
+                AdminWallets::<Test>::insert(
+                    &cid,
+                    account(0),
+                    InstitutionAdminWalletState {
+                        wallet: Some(account(0)),
+                        revision: 12,
+                    },
+                );
+                WalletRoleBindings::<Test>::insert(&cid, account(0), account(99));
+                frame_system::Account::<Test>::mutate(account(0), |info| {
+                    info.nonce = 9;
+                    info.sufficients = 3;
+                });
+            }
+            let original = frame_system::Account::<Test>::get(account(0));
+            <PublicAdmins as Hooks<u64>>::on_runtime_upgrade();
+            assert_eq!(
+                StorageVersion::get::<PublicAdmins>(),
+                StorageVersion::new(1)
+            );
+            assert_eq!(frame_system::Account::<Test>::get(account(0)), original);
+            if populated {
+                assert_eq!(
+                    AdminWallets::<Test>::get(&cid, account(0))
+                        .unwrap()
+                        .revision,
+                    12
+                );
+                assert_eq!(
+                    WalletRoleBindings::<Test>::get(&cid, account(0)),
+                    Some(account(99))
+                );
+                assert_eq!(
+                    AdminWallets::<Test>::get(&cid, account(1))
+                        .unwrap()
+                        .revision,
+                    0
+                );
+            } else {
+                assert!(!AdminWallets::<Test>::iter().any(|_| true));
+            }
+        });
+    }
+}
+
+#[test]
+fn wallet_upgrade_rolls_back_incomplete_records_and_reference_overflow() {
+    use frame_support::traits::Hooks;
+    for overflow in [false, true] {
+        new_test_ext().execute_with(|| {
+            let code = code_bytes("CREG");
+            let cid = AdminCidNumber::try_from(wallet_fixture_cid(code, 79)).unwrap();
+            AdminAccounts::<Test>::insert(
+                &cid,
+                InstitutionAdmins::<AdminsOf<Test>> {
+                    institution_code: code,
+                    admins: admins(2).try_into().unwrap(),
+                },
+            );
+            StorageVersion::new(0).put::<PublicAdmins>();
+            if overflow {
+                frame_system::Account::<Test>::mutate(account(1), |info| info.providers = u32::MAX);
+            } else {
+                WalletRoleBindings::<Test>::insert(&cid, account(1), account(1));
+            }
+            let original = sp_io::storage::root(sp_runtime::StateVersion::V1);
+            <PublicAdmins as Hooks<u64>>::on_runtime_upgrade();
+            assert_eq!(
+                StorageVersion::get::<PublicAdmins>(),
+                StorageVersion::new(0)
+            );
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), original);
+        });
+    }
+}

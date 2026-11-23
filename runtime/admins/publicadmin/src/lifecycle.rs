@@ -2,6 +2,53 @@
 use crate::*;
 
 impl<T: Config> Pallet<T> {
+    /// 仅存储版本0升级时补齐现有名单的钱包状态；正常查询和登记不走此入口。
+    /// 原名单、已存在的版本/岗位引用保持原样，失败回滚整个模块且不推进版本。
+    pub(crate) fn upgrade_institution_wallets() -> Weight {
+        let db = T::DbWeight::get();
+        let mut weight = db.reads(1);
+        if StorageVersion::get::<Self>() != StorageVersion::new(0) {
+            return weight;
+        }
+        let result: DispatchResult = with_transaction(|| {
+            let mut update = || -> DispatchResult {
+                for (cid, roster) in AdminAccounts::<T>::iter() {
+                    let count = roster.admins.len() as u64;
+                    // 覆盖名单、原钱包/引用、System存活引用及新账户事件的保守预算。
+                    weight = weight.saturating_add(db.reads_writes(1 + 8 * count, 6 * count));
+                    weight = weight.saturating_add(Weight::from_parts(
+                        0,
+                        roster.encoded_size() as u64 + 4096 * count,
+                    ));
+                    let mut previous = roster.clone();
+                    let mut complete = true;
+                    previous.admins.retain(|admin| {
+                        let state = AdminWallets::<T>::contains_key(&cid, &admin.account_id);
+                        let reference =
+                            WalletRoleBindings::<T>::contains_key(&cid, &admin.account_id);
+                        complete &= state == reference;
+                        state
+                    });
+                    ensure!(complete, Error::<T>::WalletUninitialized);
+                    Self::maintain_institution_wallets(&cid, Some(&previous), &roster)?;
+                }
+                STORAGE_VERSION.put::<Self>();
+                Ok(())
+            };
+            match update() {
+                Ok(()) => TransactionOutcome::Commit(Ok(())),
+                Err(error) => TransactionOutcome::Rollback(Err(error)),
+            }
+        });
+        // 迭代结束读取及版本写入；失败也按本轮尝试的保守上界计费。
+        weight = weight.saturating_add(db.reads_writes(1, 1));
+        if let Err(error) = result {
+            sp_runtime::print("publicadmin：管理员钱包升级补齐失败，状态及存储版本已回滚");
+            sp_runtime::print(error);
+        }
+        weight
+    }
+
     #[cfg(any(test, feature = "runtime-benchmarks"))]
     pub(crate) fn do_set_institution_admins(
         cid_number: Vec<u8>,

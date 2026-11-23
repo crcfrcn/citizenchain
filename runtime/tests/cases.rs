@@ -5476,3 +5476,177 @@ fn frg_retired_roster_actions_and_cross_province_personnel_are_rejected() {
         );
     });
 }
+
+
+#[test]
+fn wallet_upgrade_repairs_existing_91_institutions_and_preserves_all_other_storage() {
+    use adminbase::{InstitutionAdminQuery, InstitutionAdminWalletQuery};
+    use frame_support::traits::{Currency, Hooks, StorageVersion};
+    use std::collections::BTreeMap;
+    new_test_ext().execute_with(|| {
+        let public = publicadmin::AdminAccounts::<Runtime>::iter().collect::<Vec<_>>();
+        let private = privateadmin::AdminAccounts::<Runtime>::iter().collect::<Vec<_>>();
+        assert_eq!((public.len(), private.len()), (90, 1));
+        let mut references = BTreeMap::<AccountId, u32>::new();
+        // 隔离夹具还原实读问题：名单、岗位均已存在，两类钱包记录全为空。
+        for (cid, roster) in &public {
+            for admin in &roster.admins {
+                publicadmin::AdminWallets::<Runtime>::remove(cid, &admin.account_id);
+                publicadmin::WalletRoleBindings::<Runtime>::remove(cid, &admin.account_id);
+                System::dec_sufficients(&admin.account_id);
+                *references.entry(admin.account_id.clone()).or_default() += 1;
+            }
+        }
+        for (cid, roster) in &private {
+            for admin in &roster.admins {
+                privateadmin::AdminWallets::<Runtime>::remove(cid, &admin.account_id);
+                privateadmin::WalletRoleBindings::<Runtime>::remove(cid, &admin.account_id);
+                System::dec_sufficients(&admin.account_id);
+                *references.entry(admin.account_id.clone()).or_default() += 1;
+            }
+        }
+        assert_eq!(references.values().sum::<u32>(), 1025);
+        StorageVersion::new(0).put::<PublicAdmins>();
+        StorageVersion::new(0).put::<PrivateAdmins>();
+        let sample = public[0].1.admins[0].account_id.clone();
+        let _ = Balances::make_free_balance_be(&sample, 12_345);
+        frame_system::Account::<Runtime>::mutate(&sample, |info| info.nonce = 23);
+        let subject = engingcore::AuthorizationSubject::Institution(engingcore::RoleSubject {
+            cid_number: public[0].0.to_vec().try_into().unwrap(),
+            role_code: b"COMMITTEE_MEMBER".to_vec().try_into().unwrap(),
+        });
+        let pid = 998899u128;
+        let frozen: frame_support::BoundedVec<
+            AccountId,
+            <Runtime as engingcore::Config>::MaxAdminsPerInstitution,
+        > = vec![sample.clone()].try_into().unwrap();
+        engingcore::VoterSnapshot::<Runtime>::insert(pid, &subject, &frozen);
+        internalvote::InternalTallies::<Runtime>::insert(
+            pid,
+            engingcore::VoteCountU32 { yes: 7, no: 2 },
+        );
+        let engingcore::AuthorizationSubject::Institution(role_subject) = subject else {
+            unreachable!()
+        };
+        internalvote::InternalVotesByTicket::<Runtime>::insert(
+            pid,
+            internalvote::InternalVoteTicket::Institution(engingcore::InstitutionVoteTicket {
+                role_subject,
+                voter_account_id: sample.clone(),
+            }),
+            true,
+        );
+        let mut expected_accounts =
+            frame_system::Account::<Runtime>::iter().collect::<BTreeMap<_, _>>();
+        for (wallet, count) in &references {
+            expected_accounts
+                .entry(wallet.clone())
+                .or_default()
+                .sufficients += *count;
+        }
+        let mut allowed = Vec::new();
+        for pallet in [b"PublicAdmins".as_slice(), b"PrivateAdmins".as_slice()] {
+            for name in [b"AdminWallets".as_slice(), b"WalletRoleBindings".as_slice()] {
+                allowed.push(frame_support::storage::storage_prefix(pallet, name).to_vec());
+            }
+        }
+        allowed.push(StorageVersion::storage_key::<PublicAdmins>().to_vec());
+        allowed.push(StorageVersion::storage_key::<PrivateAdmins>().to_vec());
+        for name in [
+            b"Account".as_slice(),
+            b"Events".as_slice(),
+            b"EventCount".as_slice(),
+        ] {
+            allowed.push(frame_support::storage::storage_prefix(b"System", name).to_vec());
+        }
+        let protected_state = || {
+            let mut entries = Vec::new();
+            let mut cursor = Vec::new();
+            while let Some(key) = sp_io::storage::next_key(&cursor) {
+                if !allowed.iter().any(|prefix| key.starts_with(prefix)) {
+                    entries.push((key.clone(), sp_io::storage::get(&key).unwrap().to_vec()));
+                }
+                cursor = key;
+            }
+            entries
+        };
+        let before = protected_state();
+        let weight = <PublicAdmins as Hooks<BlockNumber>>::on_runtime_upgrade()
+            .saturating_add(<PrivateAdmins as Hooks<BlockNumber>>::on_runtime_upgrade());
+        assert!(
+            weight.all_lte(RuntimeBlockWeights::get().max_block),
+            "全部1025条补齐必须在区块预算内"
+        );
+        assert_eq!(
+            StorageVersion::get::<PublicAdmins>(),
+            StorageVersion::new(1)
+        );
+        assert_eq!(
+            StorageVersion::get::<PrivateAdmins>(),
+            StorageVersion::new(1)
+        );
+        assert_eq!(
+            protected_state(),
+            before,
+            "名单、岗位、任职、权限、阈值、余额及旧提案所有记录必须逐字节不变"
+        );
+        assert_eq!(
+            frame_system::Account::<Runtime>::iter().collect::<BTreeMap<_, _>>(),
+            expected_accounts
+        );
+        for (cid, roster) in &public {
+            for admin in &roster.admins {
+                assert_eq!(
+                    PublicAdmins::institution_wallet_state(
+                        roster.institution_code,
+                        cid,
+                        &admin.account_id
+                    ),
+                    Some(adminbase::InstitutionAdminWalletState {
+                        wallet: Some(admin.account_id.clone()),
+                        revision: 0
+                    })
+                );
+                assert_eq!(
+                    PublicAdmins::resolve_role_authorization(
+                        roster.institution_code,
+                        cid,
+                        &admin.account_id
+                    ),
+                    Some(admin.account_id.clone())
+                );
+            }
+        }
+        for (cid, roster) in &private {
+            for admin in &roster.admins {
+                assert_eq!(
+                    PrivateAdmins::institution_wallet_state(
+                        roster.institution_code,
+                        cid,
+                        &admin.account_id
+                    ),
+                    Some(adminbase::InstitutionAdminWalletState {
+                        wallet: Some(admin.account_id.clone()),
+                        revision: 0
+                    })
+                );
+                assert_eq!(
+                    PrivateAdmins::resolve_role_authorization(
+                        roster.institution_code,
+                        cid,
+                        &admin.account_id
+                    ),
+                    Some(admin.account_id.clone())
+                );
+            }
+        }
+        let after = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        <PublicAdmins as Hooks<BlockNumber>>::on_runtime_upgrade();
+        <PrivateAdmins as Hooks<BlockNumber>>::on_runtime_upgrade();
+        assert_eq!(
+            sp_io::storage::root(sp_runtime::StateVersion::V1),
+            after,
+            "重复升级不能再次补引用或改写状态"
+        );
+    });
+}

@@ -29,8 +29,8 @@ use engingcore::types::InstitutionCode;
 
 pub use pallet::*;
 
-/// 正式创世只接受统一管理员记录，不保留旧纯账户或单姓名存储迁移。
-const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+/// 版本1：现有统一管理员名单一次性补齐独立钱包记录，不转换名单或岗位人员。
+const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -101,6 +101,10 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        fn on_runtime_upgrade() -> Weight {
+            Self::upgrade_institution_wallets()
+        }
+
         fn integrity_test() {
             assert!(
                 <T as Config>::MaxAdminsPerInstitution::get() >= 1,
