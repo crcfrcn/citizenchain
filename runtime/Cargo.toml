@@ -276,6 +276,8 @@ on-chain-release-build = ["metadata-hash", "sp-api/disable-logging"]
 
 [dev-dependencies]
 ed25519-dalek = "2.2.0"
+# 原生回归需要生成真实ML-DSA测试签名，生产WASM仍只使用正式依赖的验签特性。
+mldsa = { path = "transaction/mldsa", default-features = false, features = ["signing"] }
 
 # 真实节点端到端只注册一次，普通运行明确忽略，完整验收显式执行。
 [[test]]
