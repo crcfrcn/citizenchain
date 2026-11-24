@@ -5,6 +5,7 @@ use std::{env, fs, path::Path, process::Command};
 const DRIVER: &str = r#"
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {X509Certificate} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 const owner=await import(pathToFileURL(process.env.CITIZENCHAIN_RUNTIME_SCRIPT).href);
 const endpoint=new URL(process.env.CITIZENCHAIN_TEST_RPC);
@@ -13,7 +14,8 @@ assert.ok(endpoint.protocol==='https:' && endpoint.hostname==='127.0.0.1' &&
   !endpoint.search && !endpoint.username && !endpoint.password && !endpoint.hash,
   '仅允许无凭据的隔离回环HTTPS根端点');
 const text=readFileSync(process.env.CITIZENCHAIN_TEST_CERTIFICATE,'utf8').trim();
-assert.ok(/^(?:[0-9a-fA-F]{2})+$/.test(text),'公开测试证书格式无效');const certificate=Buffer.from(text,'hex');
+assert.ok(/^(?:[0-9a-fA-F]{2})+$/.test(text),'公开测试证书格式无效');
+const certificate=new X509Certificate(Buffer.from(text,'hex')).toString();
 const rpc=(method,params)=>owner.rpcRequest(endpoint.href,method,params,{certificate});
 const deadline=setTimeout(()=>{process.stderr.write('端到端读取超时\n');process.exit(1);},60000);
 try{

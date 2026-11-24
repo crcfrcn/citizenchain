@@ -191,8 +191,6 @@
   field_label_zh: 机构账户名称
 - field_key: actor_province_name
   field_label_zh: 操作省份
-- field_key: actor_public_key
-  field_label_zh: 操作签名公钥
 - field_key: after_hash
   field_label_zh: 变更后哈希
 - field_key: amount_raw

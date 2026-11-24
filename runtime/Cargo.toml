@@ -272,6 +272,11 @@ on-chain-release-build = ["metadata-hash", "sp-api/disable-logging"]
 
 [dev-dependencies]
 ed25519-dalek = "2.2.0"
+# 全量离线排演使用锁定 SDK 的真实 Wasm 执行器和 FRAME 存储计量后端。
+sc-client-db = { workspace = true }
+sc-executor = { workspace = true }
+sp-state-machine = { workspace = true, features = ["std"] }
+sp-tracing = { workspace = true, features = ["std"] }
 # 原生回归需要生成真实ML-DSA测试签名，生产WASM仍只使用正式依赖的验签特性。
 mldsa = { path = "transaction/mldsa", default-features = false, features = ["signing"] }
 

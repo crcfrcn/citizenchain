@@ -3,7 +3,8 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use qr_protocol::export::{
-    export_qr_bodies_dart, export_qr_bodies_rust, export_qr_bodies_typescript, export_registry_dart,
+    export_qr_bodies_dart, export_qr_bodies_rust, export_qr_bodies_typescript,
+    export_registry_dart, export_registry_json,
 };
 use qr_protocol::registry::{actions, fields, kinds, reject_reasons, SigningCategory};
 use std::collections::HashSet;
@@ -147,6 +148,42 @@ fn self_occupy_cid_is_a_full_chain_transaction() {
     assert_eq!(action.kind, qr_protocol::registry::ActionKind::ChainCall);
     assert!(!action.hash_only_allowed);
     assert_eq!(action.required_fields, vec!["cid_number"]);
+}
+
+/// 操作确认沿用真实OperationPayload的account_id，不新增签名JSON字段或字段别名。
+#[test]
+fn onchina_confirmation_exports_the_existing_account_id_field() {
+    let generated: serde_json::Value =
+        serde_json::from_str(&export_registry_json().expect("原注册表生成器可导出JSON"))
+            .expect("生成JSON可解析");
+    let action = generated["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["action_code"] == 3)
+        .expect("原动作3存在");
+    assert_eq!(action["action_key"], "onchina_confirm");
+    assert_eq!(action["decoder"], "onchina_confirm");
+    assert_eq!(action["hash_only_allowed"], false);
+    assert_eq!(
+        action["required_fields"],
+        serde_json::json!([
+            "action_type",
+            "actor_cid_number",
+            "actor_province_name",
+            "account_id",
+            "target",
+            "before_hash",
+            "after_hash",
+        ])
+    );
+    let fields = generated["fields"].as_array().unwrap();
+    assert!(fields
+        .iter()
+        .any(|field| field["field_key"] == "account_id"));
+    assert!(!fields
+        .iter()
+        .any(|field| field["field_key"] == "actor_public_key"));
 }
 
 /// 两阶段自助换绑与注册局动作、发布动作严格区分。
@@ -368,7 +405,7 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "aa89c6d4e2baafbc3ac30f6dfb928ffa25d73368475dd0782795e82f966519db",
+        "071994dbdead808447d94754d61be5799f6b84c6d87caf05214b79e5314b5bc2",
         "Dart 动作登记表必须匹配岗位和人员任职调用合同"
     );
 }
@@ -382,7 +419,10 @@ fn role_and_registrar_names_preserve_action_coordinates() {
         (5, "role_access", "本机岗位授权"),
         (6, "clearing_decrypt", "清算行解密授权"),
     ] {
-        let row = entries.iter().find(|entry| entry.action_code == code).unwrap();
+        let row = entries
+            .iter()
+            .find(|entry| entry.action_code == code)
+            .unwrap();
         assert_eq!(row.action_key, key);
         assert_eq!(row.decoder, key);
         assert_eq!(row.action_label_zh, label);
@@ -391,11 +431,16 @@ fn role_and_registrar_names_preserve_action_coordinates() {
         (0x0a07, "Identity", "registrar_rebind_cid"),
         (0x1500, "JointVote", "cast_role_vote"),
     ] {
-        let row = entries.iter().find(|entry| entry.action_code == code).unwrap();
+        let row = entries
+            .iter()
+            .find(|entry| entry.action_code == code)
+            .unwrap();
         assert_eq!(row.pallet.as_deref(), Some(pallet));
         assert_eq!(row.call.as_deref(), Some(call));
     }
-    assert!(entries.iter().any(|entry| entry.pallet.as_deref() == Some("VotingEngine")));
+    assert!(entries
+        .iter()
+        .any(|entry| entry.pallet.as_deref() == Some("VotingEngine")));
 }
 
 /// GRANDPA 统一注册名后继续使用既有签名动作码和解码器。
@@ -421,7 +466,9 @@ fn institution_registry_uses_entity_names_and_preserves_coordinates() {
         ("PublicEntity", 30u16, "propose_close_public_institution"),
         ("PrivateEntity", 31u16, "propose_close_private_institution"),
     ] {
-        let actual: Vec<_> = rows.iter().filter(|row| row.pallet.as_deref() == Some(pallet))
+        let actual: Vec<_> = rows
+            .iter()
+            .filter(|row| row.pallet.as_deref() == Some(pallet))
             .map(|row| (row.action_code, row.call.as_deref().unwrap()))
             .collect();
         let expected = [
@@ -430,7 +477,8 @@ fn institution_registry_uses_entity_names_and_preserves_coordinates() {
             (7, "add_institution_account"),
             (8, "propose_institution_governance"),
             (9, "register_institution_roles"),
-        ].map(|(call, name)| ((index << 8) | call, name));
+        ]
+        .map(|(call, name)| ((index << 8) | call, name));
         assert_eq!(actual, expected);
     }
 }

@@ -122,75 +122,73 @@ const PURGE: u8 = (TABLES.len() * 2) as u8;
 const END: u8 = PURGE + (ADMIN_TABLES.len() * 2) as u8;
 const ACTIVE_PROPOSALS: &[u8] = b"ActiveProposalsBySubject";
 
+/// 对齐 FRAME 初始化规则：显式版本沿模块声明，无版本声明时框架写入 0。
+trait InitializedVersion {
+    fn initialized(self) -> StorageVersion;
+}
+
+impl InitializedVersion for StorageVersion {
+    fn initialized(self) -> StorageVersion {
+        self
+    }
+}
+
+impl InitializedVersion for frame_support::traits::NoStorageVersionSet {
+    fn initialized(self) -> StorageVersion {
+        StorageVersion::new(0)
+    }
+}
+
 /// 当前第一方 pallet 的前缀由各自的运行时注册名生成，旧名只用于原链读取。
-pub(crate) fn renamed_pallets() -> [(&'static str, &'static str); 17] {
+pub(crate) fn renamed_pallets() -> [(&'static str, &'static str, StorageVersion); 17] {
+    macro_rules! renamed {
+        ($old:literal, $pallet:ty) => {
+            (
+                $old,
+                <$pallet as PalletInfoAccess>::name(),
+                <$pallet as frame_support::traits::GetStorageVersion>::in_code_storage_version()
+                    .initialized(),
+            )
+        };
+    }
     [
-        (
-            "OnchainTransaction",
-            <crate::Onchain as PalletInfoAccess>::name(),
-        ),
-        (
-            "ProvincialBankInterest",
-            <crate::PrbBankIssue as PalletInfoAccess>::name(),
-        ),
-        (
-            "FullnodeIssuance",
-            <crate::FullnodeIssue as PalletInfoAccess>::name(),
-        ),
-        (
-            "ResolutionIssuance",
-            <crate::ResolutionIssue as PalletInfoAccess>::name(),
-        ),
-        (
-            "CitizenIdentity",
-            <crate::Identity as PalletInfoAccess>::name(),
-        ),
-        (
-            "CitizenIssuance",
-            <crate::CitizenIssue as PalletInfoAccess>::name(),
-        ),
-        (
-            "RuntimeUpgrade",
-            <crate::Upgrade as PalletInfoAccess>::name(),
-        ),
-        (
-            "ResolutionDestroy",
-            <crate::Destroy as PalletInfoAccess>::name(),
-        ),
-        (
-            "PowDifficulty",
-            <crate::Difficulty as PalletInfoAccess>::name(),
-        ),
-        (
-            "MultisigTransfer",
-            <crate::Multisig as PalletInfoAccess>::name(),
-        ),
-        (
-            "GenesisPallet",
-            <crate::Genesis as PalletInfoAccess>::name(),
-        ),
-        (
-            "OffchainTransaction",
-            <crate::Offchain as PalletInfoAccess>::name(),
-        ),
-        (
-            "OnchainIssuance",
-            <crate::OnchainIssue as PalletInfoAccess>::name(),
-        ),
-        (
-            "LegislationYuan",
-            <crate::Legislation as PalletInfoAccess>::name(),
-        ),
-        (
-            "CitizenElection",
-            <crate::Election as PalletInfoAccess>::name(),
-        ),
-        (
-            "AddressRegistry",
-            <crate::Address as PalletInfoAccess>::name(),
-        ),
-        ("SquarePost", <crate::Square as PalletInfoAccess>::name()),
+        renamed!("OnchainTransaction", crate::Onchain),
+        renamed!("ProvincialBankInterest", crate::PrbBankIssue),
+        renamed!("FullnodeIssuance", crate::FullnodeIssue),
+        renamed!("ResolutionIssuance", crate::ResolutionIssue),
+        renamed!("CitizenIdentity", crate::Identity),
+        renamed!("CitizenIssuance", crate::CitizenIssue),
+        renamed!("RuntimeUpgrade", crate::Upgrade),
+        renamed!("ResolutionDestroy", crate::Destroy),
+        renamed!("PowDifficulty", crate::Difficulty),
+        renamed!("MultisigTransfer", crate::Multisig),
+        renamed!("GenesisPallet", crate::Genesis),
+        renamed!("OffchainTransaction", crate::Offchain),
+        renamed!("OnchainIssuance", crate::OnchainIssue),
+        renamed!("LegislationYuan", crate::Legislation),
+        renamed!("CitizenElection", crate::Election),
+        renamed!("AddressRegistry", crate::Address),
+        renamed!("SquarePost", crate::Square),
     ]
+}
+
+/// FRAME 会先为新注册名初始化版本键；仅允许该单键及准确的代码版本，
+/// 任何业务记录、损坏值或不同版本仍是冲突，不覆盖真实目标状态。
+fn check_target_prefix(pallet: &[u8], version: StorageVersion) -> Result<(), DispatchError> {
+    let pallet_prefix = sp_io::hashing::twox_128(pallet);
+    frame_support::ensure!(!sp_io::storage::exists(&pallet_prefix), invalid());
+    let Some(key) =
+        sp_io::storage::next_key(&pallet_prefix).filter(|key| key.starts_with(&pallet_prefix))
+    else {
+        return Ok(());
+    };
+    frame_support::ensure!(
+        key == prefix(pallet, b":__STORAGE_VERSION__:")
+            && get::<StorageVersion>(&key)? == version
+            && !sp_io::storage::next_key(&key).is_some_and(|next| next.starts_with(&pallet_prefix)),
+        DispatchError::Other("pallet 迁移目标前缀已有数据"),
+    );
+    Ok(())
 }
 
 /// 其余升级钩子触发前完成改名，旧存储版本跟随原值搬迁。
@@ -214,7 +212,7 @@ impl RenamePallets {
         let db = RocksDbWeight::get();
         let mut used = Weight::from_parts(0, 4_096);
         let mut rows = Vec::new();
-        for (old, new) in renamed_pallets() {
+        for (old, new, version) in renamed_pallets() {
             let old_prefix = sp_io::hashing::twox_128(old.as_bytes());
             let new_prefix = sp_io::hashing::twox_128(new.as_bytes());
             let mut key =
@@ -224,13 +222,8 @@ impl RenamePallets {
             if key.is_none() {
                 continue;
             }
-            frame_support::ensure!(
-                !sp_io::storage::exists(&new_prefix)
-                    && !sp_io::storage::next_key(&new_prefix)
-                        .is_some_and(|next| next.starts_with(&new_prefix)),
-                DispatchError::Other("pallet 迁移目标前缀已有数据"),
-            );
-            used = used.saturating_add(db.reads(2).saturating_add(Weight::from_parts(0, 1_024)));
+            check_target_prefix(new.as_bytes(), version)?;
+            used = used.saturating_add(db.reads(3).saturating_add(Weight::from_parts(0, 1_024)));
             while let Some(source) = key {
                 frame_support::ensure!(source.len() >= 32, invalid());
                 let length = sp_io::storage::read(&source, &mut [], 0).ok_or_else(invalid)?;
@@ -307,7 +300,11 @@ impl GrandpaKeys {
             let suffix = &source[32..];
             let mut target = new_pallet.to_vec();
             target.extend_from_slice(&source[16..]);
-            frame_support::ensure!(!sp_io::storage::exists(&target), invalid());
+            frame_support::ensure!(
+                !sp_io::storage::exists(&target)
+                    || (table == 6 && get::<StorageVersion>(&target)? == StorageVersion::new(1)),
+                invalid()
+            );
             let value = sp_io::storage::get(&source).ok_or_else(invalid)?;
             frame_support::ensure!(value.len() <= 512, invalid());
 
@@ -362,10 +359,7 @@ impl GrandpaKeys {
                 .reads(1)
                 .saturating_add(Weight::from_parts(10_000_000, 4_096)));
         }
-        frame_support::ensure!(
-            !sp_io::storage::next_key(&new_pallet).is_some_and(|key| key.starts_with(&new_pallet)),
-            invalid()
-        );
+        check_target_prefix(b"GrandpaKey", StorageVersion::new(1))?;
         frame_support::ensure!(
             keys.len() == allowed.len()
                 && owners.len() == allowed.len()
@@ -381,7 +375,7 @@ impl GrandpaKeys {
         StorageVersion::new(1).put::<crate::GrandpaKey>();
         Ok(db
             .reads_writes(
-                count.saturating_mul(3).saturating_add(2),
+                count.saturating_mul(3).saturating_add(5),
                 count.saturating_mul(2).saturating_add(1),
             )
             .saturating_add(Weight::from_parts(
@@ -917,26 +911,176 @@ impl Institutions {
         })
     }
 
-    fn preflight() -> Result<(), DispatchError> {
-        check_founder()?;
-        // 旧活跃提案和待执行机构操作只能在旧版本完成。检查在任何迁移写入前执行。
-        let active_prefix = prefix(b"VotingEngine", ACTIVE_PROPOSALS);
+    /// 共用只读行数预算；历史行与期限桶中的引用均计入，不创建链上游标或计数器。
+    fn inspect_rows(
+        pallet: &[u8],
+        table: &[u8],
+        remaining: &mut u32,
+        mut inspect: impl FnMut(&[u8], &mut u32) -> Result<(), DispatchError>,
+    ) -> Result<(), DispatchError> {
+        let table_prefix = prefix(pallet, table);
         let mut cursor = None;
-        for _ in 0..ACTIVE_CHECK_LIMIT {
-            let Some(key) = next_key(&active_prefix, cursor.as_deref()) else {
-                break;
-            };
-            // 既有引擎会给已结案主体保留 SCALE 空向量，不构成活跃提案。
-            frame_support::ensure!(
-                sp_io::storage::get(&key).is_some_and(|bytes| bytes.as_ref() == [0u8]),
-                DispatchError::Other("旧链仍有活跃提案")
-            );
+        while let Some(key) = next_key(&table_prefix, cursor.as_deref()) {
+            *remaining = remaining
+                .checked_sub(1)
+                .ok_or(DispatchError::Other("旧链提案预检超过有界预算"))?;
+            inspect(&key, remaining)?;
             cursor = Some(key);
         }
+        Ok(())
+    }
+
+    /// 不依赖活跃索引判断结案；通过后释放索引的提案及孤儿执行待办同样拒绝。
+    fn preflight_proposals() -> Result<(), DispatchError> {
+        let mut remaining = ACTIVE_CHECK_LIMIT;
+        let active_prefix = prefix(b"VotingEngine", ACTIVE_PROPOSALS);
+        Self::inspect_rows(
+            b"VotingEngine",
+            ACTIVE_PROPOSALS,
+            &mut remaining,
+            |key, _| {
+                // 已结案主体可保留空向量；非空、损坏或错误单值键均不能作为空闲状态。
+                frame_support::ensure!(
+                    key.len() > active_prefix.len()
+                        && sp_io::storage::get(key).is_some_and(|bytes| bytes.as_ref() == [0u8]),
+                    DispatchError::Other("旧链仍有活跃提案")
+                );
+                Ok(())
+            },
+        )?;
+        let version = StorageVersion::get::<crate::VotingEngine>();
         frame_support::ensure!(
-            next_key(&active_prefix, cursor.as_deref()).is_none(),
-            DispatchError::Other("活跃提案索引预检超过有界预算")
+            version <= StorageVersion::new(1),
+            DispatchError::Other("旧链投票存储版本不受支持")
         );
+        let mut terminal = BTreeMap::new();
+        Self::inspect_rows(b"VotingEngine", b"Proposals", &mut remaining, |key, _| {
+            // 编号扩宽在机构预检之后：版本0读取原u64键，版本1读取现行u128键。
+            let id = if version == StorageVersion::new(0) {
+                u128::from(one_key::<u64>(&key[32..])?)
+            } else {
+                one_key::<u128>(&key[32..])?
+            };
+            let proposal: engingcore::Proposal<BlockNumber, AccountId> = get(key)?;
+            frame_support::ensure!(
+                matches!(
+                    proposal.status,
+                    engingcore::STATUS_REJECTED
+                        | engingcore::STATUS_EXECUTED
+                        | engingcore::STATUS_EXECUTION_FAILED
+                ),
+                DispatchError::Other("旧链仍有未结案提案")
+            );
+            terminal.insert(id, ());
+            Ok(())
+        })?;
+
+        // 这些表会继续执行业务、重试或终态副作用；即使缺提案或状态已终态也属不一致待办。
+        for table in [
+            b"PendingProposalExecutions".as_slice(),
+            b"ProposalExecutionRetryStates",
+            b"PendingExecutionRetryExpirations",
+            b"PendingTerminalFinalizations",
+            b"TerminalFinalizationDeadLetters",
+            b"PendingTerminalCleanups",
+            b"AutoFinalizeRetryStates",
+            b"AutoFinalizeDeadLetters",
+            b"CallbackExecutionScopes",
+            b"PendingProposalCleanups",
+            b"PendingCleanupQueue",
+        ] {
+            frame_support::ensure!(
+                next_key(&prefix(b"VotingEngine", table), None).is_none(),
+                DispatchError::Other("旧链仍有执行或终态待办")
+            );
+        }
+        let queue_position = |table: &[u8]| -> Result<u64, DispatchError> {
+            let key = prefix(b"VotingEngine", table);
+            if sp_io::storage::exists(&key) {
+                get(&key)
+            } else {
+                Ok(0)
+            }
+        };
+        frame_support::ensure!(
+            queue_position(b"PendingCleanupQueueHead")?
+                == queue_position(b"PendingCleanupQueueTail")?,
+            DispatchError::Other("旧链清理队列与游标不一致")
+        );
+        // 成功重试后期限桶可以尚未轮到清除；只允许空桶或指向已核验终态的历史引用。
+        Self::inspect_rows(
+            b"VotingEngine",
+            b"ExecutionRetryDeadlines",
+            &mut remaining,
+            |key, remaining| {
+                let _: BlockNumber = one_key(&key[32..])?;
+                type Limit = <Runtime as engingcore::Config>::MaxExecutionRetryDeadlinesPerBlock;
+                let ids: Vec<u128> = if version == StorageVersion::new(0) {
+                    get::<BoundedVec<u64, Limit>>(key)?
+                        .into_iter()
+                        .map(u128::from)
+                        .collect()
+                } else {
+                    get::<BoundedVec<u128, Limit>>(key)?.into_inner()
+                };
+                *remaining = remaining
+                    .checked_sub(ids.len() as u32)
+                    .ok_or(DispatchError::Other("旧链提案预检超过有界预算"))?;
+                frame_support::ensure!(
+                    ids.iter().all(|id| terminal.contains_key(id)),
+                    DispatchError::Other("旧链重试期限与提案状态不一致")
+                );
+                Ok(())
+            },
+        )?;
+        for (table, empty) in [
+            (b"InternalProposalMutexes".as_slice(), [0u8; 5].as_slice()),
+            (b"ProposalMutexBindings".as_slice(), [0u8; 1].as_slice()),
+        ] {
+            Self::inspect_rows(b"VotingEngine", table, &mut remaining, |key, _| {
+                frame_support::ensure!(
+                    key.len() > 32
+                        && sp_io::storage::get(key).is_some_and(|raw| raw.as_ref() == empty),
+                    DispatchError::Other("旧链提案互斥状态尚未释放")
+                );
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// 旧个人账户不做兼容迁移；只检查业务表，保留版本键和已终态个人历史。
+    fn preflight_personal(legacy: bool) -> Result<(), DispatchError> {
+        for (pallet, table) in [
+            (b"PersonalManage".as_slice(), b"PersonalAccounts".as_slice()),
+            (b"PersonalManage", b"PendingPersonalCreate"),
+            (b"PersonalManage", b"PendingCloseProposal"),
+            (b"PersonalAdmins", b"AdminAccounts"),
+        ] {
+            frame_support::ensure!(
+                next_key(&prefix(pallet, table), None).is_none(),
+                DispatchError::Other("旧个人多签状态非空，不能升级")
+            );
+        }
+        // 共享阈值表只在首次旧链切换前检查；不阻断完成迁移后新Personal的正常治理。
+        if legacy || StorageVersion::get::<PublicEntity>() < StorageVersion::new(VERSION) {
+            for table in [
+                b"ActivePersonalThresholds".as_slice(),
+                b"PendingPersonalThresholds",
+                b"PendingPersonalAdminChangeThresholds",
+            ] {
+                frame_support::ensure!(
+                    next_key(&prefix(b"InternalVote", table), None).is_none(),
+                    DispatchError::Other("旧个人多签阈值非空，不能升级")
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn preflight() -> Result<(), DispatchError> {
+        check_founder()?;
+        // 旧待执行机构操作只能在旧版本完成。检查在任何迁移进度写入前执行。
         for public in [true, false] {
             let (old, new, _) = names(public);
             for table in [
@@ -1215,13 +1359,22 @@ impl Institutions {
 impl OnRuntimeUpgrade for Institutions {
     fn on_runtime_upgrade() -> Weight {
         let db = RocksDbWeight::get();
-        if Self::pending() || !Self::legacy() {
-            return db.reads(5);
+        if Self::pending() {
+            return db.reads(1);
+        }
+        let legacy = Self::legacy();
+        Self::preflight_personal(legacy).expect("旧个人多签预检失败");
+        if legacy || StorageVersion::get::<PublicEntity>() < StorageVersion::new(VERSION) {
+            Self::preflight_proposals().expect("旧链执行状态预检失败");
+        }
+        let weight = db.reads(128 + u64::from(ACTIVE_CHECK_LIMIT) * 3);
+        if !legacy {
+            return weight;
         }
         // 新 Runtime 启动前即核验旧链已处于可迁移状态，避免旧活动提案被新逻辑消费。
         Self::preflight().expect("机构迁移前置检查失败");
         unhashed::put(PROGRESS, &Progress::default());
-        db.reads_writes(48 + u64::from(ACTIVE_CHECK_LIMIT) * 2, 1)
+        weight.saturating_add(db.writes(1))
     }
 }
 
@@ -1278,7 +1431,14 @@ impl frame_support::traits::PostInherents for EvmBackfill {
             frame_support::dispatch::DispatchClass::Mandatory,
         );
         if Institutions::pending() {
-            return;
+            let used = Institutions::step();
+            crate::System::register_extra_weight_unchecked(
+                used,
+                frame_support::dispatch::DispatchClass::Mandatory,
+            );
+            if Institutions::pending() {
+                return;
+            }
         }
         if sp_io::storage::exists(EVM_DEFERRED) {
             unhashed::kill(EVM_DEFERRED);

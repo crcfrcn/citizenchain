@@ -1439,6 +1439,306 @@ fn stop_partial(service: Service) -> sc_service::TaskRegistry {
     service.task_manager.into_task_registry()
 }
 
+/// 将真实Wasm排演的受信离线检查点装入独立节点，只验收生产HTTPS/RPC读取链路。
+/// 排演头没有PoW seal；它们不经过共识导入，也不作为PoW或GRANDPA有效性的证据。
+/// 共识安全由本文件已有真实出块、坏块拒绝、分叉及重启测试分别验证。
+#[cfg(feature = "runtime-tests")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "通过塔塔控制台交付已对账Wasm归档、原链头部及Runtime端到端程序"]
+async fn replay_checkpoint_serves_exact_candidate_over_verified_https() {
+    use codec::DecodeAll;
+    use sc_client_api::backend::{Backend as _, BlockImportOperation as _, NewBlockState};
+    use sp_runtime::traits::{Hash as _, Header as _};
+    use sp_state_machine::Backend as _;
+    use std::{io::BufRead, path::PathBuf};
+    type Header = <Block as BlockT>::Header;
+    let input = |name| PathBuf::from(std::env::var_os(name).expect("缺少显式隔离验收输入"));
+    let root = input("CITIZENCHAIN_RPC_TEST_ROOT");
+    let allowed = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../target/test"))
+        .canonicalize()
+        .unwrap();
+    assert!(root.is_absolute() && root.starts_with(allowed));
+    std::fs::create_dir(&root).expect("只能创建本轮全新隔离现场");
+    let read = |name| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(input(name)).unwrap()).unwrap()
+    };
+    let headers = read("CITIZENCHAIN_TEST_HEADERS");
+    let report = read("CITIZENCHAIN_REPLAY_REPORT");
+    assert_eq!(report["passed"], true);
+    assert_eq!(report["spec_version"], 8);
+    assert_eq!(report["transaction_version"], 7);
+    let genesis = H256::from(primitives::genesis::GENESIS_HASH);
+    assert_eq!(headers["genesis"], serde_json::json!(genesis));
+    let mut lines =
+        std::io::BufReader::new(std::fs::File::open(input("CITIZENCHAIN_REPLAY_ARCHIVE")).unwrap())
+            .lines();
+    let first: serde_json::Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+    let header = |row: &serde_json::Value| {
+        Header::decode_all(
+            &mut hex::decode(row["header"].as_str().unwrap())
+                .unwrap()
+                .as_slice(),
+        )
+        .unwrap()
+    };
+    let from = *header(&first).number();
+    assert!(first["state"].is_array());
+    let mut config = test_config_at(
+        "candidate-checkpoint",
+        tokio::runtime::Handle::current(),
+        root.clone(),
+    );
+    config.chain_spec = Box::new(crate::chain::chain_config().unwrap());
+    assert!(
+        config.network.boot_nodes.is_empty(),
+        "隔离测试不得连接主链引导节点"
+    );
+    // 固定主网创世必须走生产入口；测试创世助手刻意只接受本次内置Wasm。
+    let partial = crate::service::new_partial(&config).unwrap();
+    eprintln!("原冻结创世已装入本轮隔离数据库");
+    assert_eq!(
+        partial.client.info().genesis_hash,
+        genesis,
+        "必须保留冻结创世"
+    );
+    let mut previous = genesis;
+    let mut number = 0;
+    let mut import_header = |next: Header| {
+        assert_eq!(*next.parent_hash(), previous);
+        assert_eq!(*next.number(), number + 1);
+        previous = next.hash();
+        number += 1;
+        let mut op = partial.backend.begin_operation().unwrap();
+        op.set_block_data(next, None, None, None, NewBlockState::Normal, false)
+            .unwrap();
+        partial.backend.commit_operation(op).unwrap();
+        if number % 1000 == 0 {
+            eprintln!("已装配原链与排演头部至 {number}");
+        }
+    };
+    for row in headers["headers"].as_array().unwrap().iter().skip(1) {
+        let next: Header = serde_json::from_value(row["header"].clone()).unwrap();
+        assert_eq!(serde_json::json!(next.hash()), row["hash"]);
+        import_header(next);
+    }
+    for row in report["blocks"].as_array().unwrap() {
+        let next = header(row);
+        if *next.number() >= from {
+            break;
+        }
+        import_header(next);
+    }
+    let mut complete = false;
+    let mut imported = 0;
+    for row in std::iter::once(Ok(serde_json::to_string(&first).unwrap())).chain(lines) {
+        let row: serde_json::Value = serde_json::from_str(&row.unwrap()).unwrap();
+        assert!(!complete, "完成记录后不能追加归档");
+        if row["complete"] == true {
+            assert_eq!(row["genesis"], serde_json::json!(genesis));
+            assert_eq!(row["last_hash"], serde_json::json!(previous));
+            assert_eq!(row["wasm_hash"], report["wasm_hash"]);
+            complete = true;
+            continue;
+        }
+        let next = header(&row);
+        assert_eq!(*next.parent_hash(), previous);
+        assert_eq!(*next.number(), number + 1);
+        let body = row["body"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| {
+                OpaqueExtrinsic::decode_all(
+                    &mut hex::decode(value.as_str().unwrap()).unwrap().as_slice(),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sp_runtime::traits::BlakeTwo256::ordered_trie_root(
+                body.iter().map(Encode::encode).collect(),
+                sp_runtime::StateVersion::V0
+            ),
+            *next.extrinsics_root()
+        );
+        let mut op = partial.backend.begin_operation().unwrap();
+        let root = if let Some(rows) = row["state"].as_array() {
+            assert_eq!(imported, 0);
+            let top = rows
+                .iter()
+                .map(|pair| {
+                    (
+                        hex::decode(pair[0].as_str().unwrap()).unwrap(),
+                        hex::decode(pair[1].as_str().unwrap()).unwrap(),
+                    )
+                })
+                .collect();
+            op.reset_storage(
+                sp_runtime::Storage {
+                    top,
+                    ..Default::default()
+                },
+                sp_runtime::StateVersion::V0,
+            )
+            .unwrap()
+        } else {
+            partial
+                .backend
+                .begin_state_operation(&mut op, previous)
+                .unwrap();
+            let changes = row["changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|pair| {
+                    (
+                        hex::decode(pair[0].as_str().unwrap()).unwrap(),
+                        pair[1].as_str().map(|value| hex::decode(value).unwrap()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let (root, transaction) = op.state().unwrap().unwrap().storage_root(
+                changes
+                    .iter()
+                    .map(|(key, value)| (key.as_slice(), value.as_deref())),
+                sp_runtime::StateVersion::V0,
+            );
+            op.update_db_storage(transaction).unwrap();
+            op.update_storage(changes, Vec::new()).unwrap();
+            root
+        };
+        assert_eq!(root, *next.state_root(), "归档状态根必须逐块准确匹配");
+        previous = next.hash();
+        number += 1;
+        imported += 1;
+        op.set_block_data(next, Some(body), None, None, NewBlockState::Best, true)
+            .unwrap();
+        partial.backend.commit_operation(op).unwrap();
+    }
+    assert!(
+        complete && imported >= 257,
+        "必须完成全部对账且覆盖近期执行父状态"
+    );
+    eprintln!("已逐块重算 {imported} 个近期归档状态与正文根");
+    // 官方后端要求按父子顺序最终化；批量提交仍保留每个真实头的顺序。
+    let mut op = partial.backend.begin_operation().unwrap();
+    for height in 1..=number {
+        op.mark_finalized(
+            partial.backend.blockchain().hash(height).unwrap().unwrap(),
+            None,
+        )
+        .unwrap();
+    }
+    partial.backend.commit_operation(op).unwrap();
+    eprintln!("受信检查点已按原父子顺序最终化");
+    let released = Arc::downgrade(&partial.backend);
+    let tasks = stop_partial(partial);
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while !tasks.running_tasks().is_empty() || released.upgrade().is_some() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("检查点写入服务必须释放数据库");
+    eprintln!("检查点写入服务和数据库已释放，开始重开生产节点");
+
+    // 重新打开生产服务；真实System RPC、Runtime API、Ethereum装配及TLS均不替换。
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    assert_ne!(address.port(), 9944);
+    config.rpc.addr = Some(vec![endpoint(address)]);
+    let credentials =
+        rcgen::generate_simple_self_signed(vec!["localhost".into(), "127.0.0.1".into()]).unwrap();
+    let tls = nodedesktop::tls::RpcTls::from_der(
+        vec![credentials.cert.der().clone()],
+        rustls::pki_types::PrivatePkcs8KeyDer::from(credentials.key_pair.serialize_der()),
+    )
+    .unwrap();
+    let certificate = root.join("public-certificate.hex");
+    // 此文件只有公开证书，私钥不导出、不写日志或环境变量。
+    std::fs::write(&certificate, hex::encode(credentials.cert.der())).unwrap();
+    let failure = Arc::new(std::sync::Mutex::new(None));
+    // 服务装配会创建同步客户端；在阻塞线程调用公开入口，保留当前Tokio Handle。
+    let feedback = failure.clone();
+    let mut manager = tokio::task::spawn_blocking(move || {
+        crate::service::new_full(
+            config,
+            0,
+            None,
+            Some(tls),
+            Some(feedback),
+            None,
+            None,
+            None,
+            None,
+        )
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    let ready = tokio::time::timeout(Duration::from_secs(120), async {
+        loop {
+            let error = failure.lock().unwrap().clone();
+            assert!(error.is_none(), "真实RPC服务装配失败：{error:?}");
+            if tokio::net::TcpStream::connect(address).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+    assert!(ready.is_ok(), "真实HTTPS节点未就绪");
+    let rpc = format!("https://{address}/");
+    let runtime = input("CITIZENCHAIN_TEST_RUNTIME_EXECUTABLE");
+    let node = input("CITIZENCHAIN_TEST_NODEJS");
+    let wasm = input("CITIZENCHAIN_TEST_WASM");
+    let result = tokio::task::spawn_blocking(move || {
+        for (executable, test) in [
+            (
+                std::env::current_exe().unwrap(),
+                "e2e_tests::isolated_node_https_genesis_and_health",
+            ),
+            (
+                runtime,
+                "finalized_runtime_api_and_exact_wasm_match_over_verified_https",
+            ),
+        ] {
+            let status = std::process::Command::new(executable)
+                .args([test, "--exact", "--ignored", "--nocapture"])
+                .env_clear()
+                .env("PATH", "/usr/bin:/bin")
+                .env("CITIZENCHAIN_TEST_RPC", &rpc)
+                .env("CITIZENCHAIN_TEST_CERTIFICATE", &certificate)
+                .env("CITIZENCHAIN_TEST_NODEJS", &node)
+                .env("CITIZENCHAIN_TEST_WASM", &wasm)
+                .status()
+                .unwrap();
+            if !status.success() {
+                return false;
+            }
+        }
+        true
+    });
+    let passed = tokio::select! {
+        result = result => result.unwrap(),
+        result = manager.future() => panic!("真实节点在验收期间退出：{result:?}"),
+    };
+    let tasks = tokio::task::spawn_blocking(move || manager.into_task_registry())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while !tasks.running_tasks().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("真实隔离节点后台任务必须全部停止");
+    assert!(tokio::net::TcpStream::connect(address).await.is_err());
+    assert!(passed, "隔离Node或Runtime端到端失败");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn start_test_network(config: &mut Configuration, partial: Service, voter: bool) -> TestNode {
     type NetworkBackend = sc_network::NetworkWorker<Block, <Block as BlockT>::Hash>;
     let tls = nodedesktop::certificate::load_or_generate_tls_cert(config.base_path.path()).unwrap();

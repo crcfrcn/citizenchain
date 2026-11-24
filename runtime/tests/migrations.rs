@@ -11,6 +11,7 @@ use frame_support::{
     storage::unhashed,
     traits::{OnRuntimeUpgrade, StorageVersion},
     weights::Weight,
+    BoundedVec,
 };
 use primitives::{
     account_derive::{RESERVED_NAME_FEE, RESERVED_NAME_MAIN},
@@ -241,9 +242,296 @@ fn entity_migration_rejects_active_legacy_proposals_before_writing() {
     });
 }
 
-/// 初始化真实 Runtime 区块时，应由 FRAME 暂停普通交易而继续接受固有交易。
+fn idle_proposal(status: u8, personal: bool) -> engingcore::Proposal<BlockNumber, AccountId> {
+    engingcore::Proposal {
+        kind: engingcore::PROPOSAL_KIND_INTERNAL,
+        stage: engingcore::STAGE_INTERNAL,
+        status,
+        internal_code: Some(if personal {
+            engingcore::types::PMUL
+        } else {
+            primitives::cid::code::NRC
+        }),
+        actor_cid_number: (!personal).then(|| test_cid_number(CHINA_CB[0].cid_number.as_bytes())),
+        execution_account_id: personal.then(|| AccountId::new([81; 32])),
+        subject_cid_numbers: Default::default(),
+        start: 1,
+        end: 100,
+    }
+}
+
+fn reject_preflight_without_changes() {
+    let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+    assert!(std::panic::catch_unwind(Institutions::on_runtime_upgrade).is_err());
+    assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+    assert!(!Institutions::ongoing());
+}
+
 #[test]
-fn entity_migration_uses_frame_inherent_only_mode() {
+fn entity_preflight_rejects_passed_proposal_after_engine_releases_active_index() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        fixture();
+        System::set_block_number(1);
+        let proposal = idle_proposal(engingcore::STATUS_VOTING, false);
+        let subject = proposal.subject_keys()[0].clone();
+        engingcore::Proposals::<Runtime>::insert(7, proposal);
+        engingcore::ActiveProposalsBySubject::<Runtime>::insert(
+            &subject,
+            BoundedVec::<u128, <Runtime as engingcore::Config>::MaxActiveProposals>::try_from(
+                vec![7],
+            )
+            .unwrap(),
+        );
+        assert_ok!(VotingEngine::set_status_and_emit(
+            7,
+            engingcore::STATUS_PASSED
+        ));
+        assert!(engingcore::ActiveProposalsBySubject::<Runtime>::get(&subject).is_empty());
+        assert!(engingcore::PendingProposalExecutions::<Runtime>::contains_key(7));
+        reject_preflight_without_changes();
+    });
+}
+
+#[test]
+fn entity_preflight_rejects_unindexed_open_passed_or_invalid_proposals() {
+    for status in [engingcore::STATUS_VOTING, engingcore::STATUS_PASSED, 255] {
+        sp_io::TestExternalities::default().execute_with(|| {
+            fixture();
+            engingcore::Proposals::<Runtime>::insert(7, idle_proposal(status, false));
+            reject_preflight_without_changes();
+        });
+    }
+    sp_io::TestExternalities::default().execute_with(|| {
+        fixture();
+        sp_io::storage::set(
+            &storage_key(b"VotingEngine", b"Proposals", &7u128),
+            &[0, 0, engingcore::STATUS_EXECUTED],
+        );
+        reject_preflight_without_changes();
+    });
+}
+
+#[test]
+fn entity_preflight_rejects_orphan_and_terminal_mismatched_work_queues() {
+    let pending = engingcore::PendingExecutionState {
+        attempts: 0,
+        next_attempt_at: 20u32,
+    }
+    .encode();
+    for (table, value) in [
+        (b"PendingProposalExecutions".as_slice(), pending.clone()),
+        (
+            b"ProposalExecutionRetryStates",
+            engingcore::ExecutionRetryState {
+                manual_attempts: 1,
+                first_auto_failed_at: 1u32,
+                retry_deadline: 20u32,
+                last_attempt_at: None,
+            }
+            .encode(),
+        ),
+        (b"PendingExecutionRetryExpirations", 20u32.encode()),
+        (b"PendingTerminalFinalizations", pending.clone()),
+        (b"TerminalFinalizationDeadLetters", 3u8.encode()),
+        (b"PendingTerminalCleanups", ().encode()),
+        (b"AutoFinalizeRetryStates", pending),
+        (b"AutoFinalizeDeadLetters", 3u8.encode()),
+        (b"CallbackExecutionScopes", ().encode()),
+        (
+            b"PendingProposalCleanups",
+            engingcore::PendingCleanupStage::TrackData.encode(),
+        ),
+        (b"PendingCleanupQueue", 7u128.encode()),
+    ] {
+        for status in [
+            None,
+            Some(engingcore::STATUS_EXECUTED),
+            Some(engingcore::STATUS_EXECUTION_FAILED),
+        ] {
+            sp_io::TestExternalities::default().execute_with(|| {
+                fixture();
+                if let Some(status) = status {
+                    engingcore::Proposals::<Runtime>::insert(7, idle_proposal(status, false));
+                }
+                let key = if table == b"PendingCleanupQueue" {
+                    let encoded = 0u64.encode();
+                    let mut key = prefix(b"VotingEngine", table).to_vec();
+                    key.extend_from_slice(&sp_io::hashing::twox_64(&encoded));
+                    key.extend(encoded);
+                    key
+                } else {
+                    storage_key(b"VotingEngine", table, &7u128)
+                };
+                sp_io::storage::set(&key, &value);
+                reject_preflight_without_changes();
+            });
+        }
+    }
+}
+
+#[test]
+fn entity_preflight_preserves_terminal_history_and_valid_retry_deadline_references() {
+    for legacy_ids in [false, true] {
+        sp_io::TestExternalities::default().execute_with(|| {
+            fixture();
+            StorageVersion::new(if legacy_ids { 0 } else { 1 }).put::<VotingEngine>();
+            let mut saved = Vec::new();
+            for (id, status) in [
+                engingcore::STATUS_EXECUTED,
+                engingcore::STATUS_REJECTED,
+                engingcore::STATUS_EXECUTION_FAILED,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let key = if legacy_ids {
+                    storage_key(b"VotingEngine", b"Proposals", &(id as u64))
+                } else {
+                    storage_key(b"VotingEngine", b"Proposals", &(id as u128))
+                };
+                let value = idle_proposal(status, true).encode();
+                sp_io::storage::set(&key, &value);
+                saved.push((key, value));
+            }
+            // 只有历史个人提案、票据和原保留期，不构成旧个人有效账户或待执行动作。
+            let key = engingcore::ScheduledCleanups::<Runtime>::hashed_key_for(0u64);
+            let value = if legacy_ids {
+                (21703u32, 0u64).encode()
+            } else {
+                (21703u32, 0u128).encode()
+            };
+            sp_io::storage::set(&key, &value);
+            saved.push((key, value));
+            engingcore::ScheduledCleanupTail::<Runtime>::put(1u64);
+            engingcore::PendingCleanupQueueHead::<Runtime>::put(5u64);
+            engingcore::PendingCleanupQueueTail::<Runtime>::put(5u64);
+            let key = storage_key(b"VotingEngine", b"ExecutionRetryDeadlines", &200u32);
+            let value = if legacy_ids {
+                vec![0u64, 1, 2].encode()
+            } else {
+                vec![0u128, 1, 2].encode()
+            };
+            sp_io::storage::set(&key, &value);
+            saved.push((key, value));
+            let key = prefix(b"VotingEngine", b"VoterSnapshot").to_vec();
+            let value = vec![[1u8; 32]; 19].encode();
+            sp_io::storage::set(&key, &value);
+            saved.push((key, value));
+            for pallet in [b"PersonalManage".as_slice(), b"PersonalAdmins"] {
+                let key = prefix(pallet, b":__STORAGE_VERSION__:").to_vec();
+                let value = 0u16.encode();
+                sp_io::storage::set(&key, &value);
+                saved.push((key, value));
+            }
+            Institutions::on_runtime_upgrade();
+            assert!(Institutions::ongoing());
+            for (key, value) in saved {
+                assert_eq!(sp_io::storage::get(&key).unwrap().as_ref(), &value);
+            }
+        });
+    }
+}
+
+#[test]
+fn entity_preflight_rejects_orphan_retry_deadline_and_unreleased_mutex() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        fixture();
+        engingcore::ExecutionRetryDeadlines::<Runtime>::insert(100,
+            BoundedVec::<u128, <Runtime as engingcore::Config>::MaxExecutionRetryDeadlinesPerBlock>::try_from(vec![9]).unwrap());
+        reject_preflight_without_changes();
+    });
+    sp_io::TestExternalities::default().execute_with(|| {
+        fixture();
+        let subject = engingcore::ProposalSubject::PersonalAccount(AccountId::new([81; 32]));
+        assert_ok!(VotingEngine::acquire_internal_proposal_mutex(
+            7,
+            subject,
+            engingcore::InternalProposalMutexKind::Regular
+        ));
+        reject_preflight_without_changes();
+    });
+    sp_io::TestExternalities::default().execute_with(|| {
+        fixture();
+        engingcore::PendingCleanupQueueTail::<Runtime>::put(1u64);
+        reject_preflight_without_changes();
+    });
+}
+
+#[test]
+fn entity_preflight_has_a_shared_bounded_history_scan() {
+    for count in [512u128, 513] {
+        sp_io::TestExternalities::default().execute_with(|| {
+            fixture();
+            for id in 0..count {
+                engingcore::Proposals::<Runtime>::insert(
+                    id,
+                    idle_proposal(engingcore::STATUS_EXECUTED, false),
+                );
+            }
+            if count == 512 {
+                Institutions::on_runtime_upgrade();
+                assert!(Institutions::ongoing());
+            } else {
+                reject_preflight_without_changes();
+            }
+        });
+    }
+}
+
+#[test]
+fn entity_preflight_rejects_each_unmigrated_personal_business_table() {
+    for with_entities in [false, true] {
+        let account = AccountId::new([81; 32]);
+        for key in [
+            storage_key(b"PersonalManage", b"PersonalAccounts", &account),
+            storage_key(b"PersonalManage", b"PendingPersonalCreate", &7u128),
+            storage_key(b"PersonalManage", b"PendingCloseProposal", &account),
+            storage_key(b"PersonalAdmins", b"AdminAccounts", &account),
+            storage_key(b"InternalVote", b"ActivePersonalThresholds", &account),
+            storage_key(b"InternalVote", b"PendingPersonalThresholds", &7u128),
+            storage_key(
+                b"InternalVote",
+                b"PendingPersonalAdminChangeThresholds",
+                &7u128,
+            ),
+        ] {
+            sp_io::TestExternalities::default().execute_with(|| {
+                if with_entities {
+                    fixture();
+                }
+                sp_io::storage::set(&key, &[1]);
+                reject_preflight_without_changes();
+            });
+        }
+    }
+}
+
+#[test]
+fn entity_preflight_allows_empty_legacy_personal_and_current_personal_after_migration() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        for pallet in [b"PersonalManage".as_slice(), b"PersonalAdmins"] {
+            sp_io::storage::set(&prefix(pallet, b":__STORAGE_VERSION__:"), &0u16.encode());
+        }
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        Institutions::on_runtime_upgrade();
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+    });
+    sp_io::TestExternalities::default().execute_with(|| {
+        StorageVersion::new(1).put::<PublicEntity>();
+        let account = AccountId::new([81; 32]);
+        let key = storage_key(b"Personal", b"PersonalAccounts", &account);
+        sp_io::storage::set(&key, &[1]);
+        internalvote::ActivePersonalThresholds::<Runtime>::insert(&account, 2);
+        engingcore::Proposals::<Runtime>::insert(7, idle_proposal(engingcore::STATUS_VOTING, true));
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        Institutions::on_runtime_upgrade();
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+    });
+}
+
+/// 迁移以有界钩子推进，普通签名交易仍可组成合法非空块，治理写入暂停。
+#[test]
+fn entity_migration_keeps_nonempty_blocks_and_rejects_governance_writes() {
     use sp_runtime::traits::Header as _;
 
     sp_io::TestExternalities::default().execute_with(|| {
@@ -257,9 +545,27 @@ fn entity_migration_uses_frame_inherent_only_mode() {
         );
         assert_eq!(
             Executive::initialize_block(&header),
-            sp_runtime::ExtrinsicInclusionMode::OnlyInherents,
+            sp_runtime::ExtrinsicInclusionMode::AllExtrinsics,
         );
         assert!(Institutions::pending());
+        assert!(RuntimeCallFilter::contains(&RuntimeCall::System(
+            frame_system::Call::remark { remark: vec![] }
+        )));
+        assert!(RuntimeCallFilter::contains(&RuntimeCall::Onchain(
+            onchain::pallet::Call::transfer_with_remark {
+                beneficiary_account_id: AccountId::new([99; 32]),
+                amount: 1_000,
+                remark: Default::default()
+            }
+        )));
+        assert!(!RuntimeCallFilter::contains(&RuntimeCall::Identity(
+            identity::Call::self_occupy_cid {
+                cid_number: test_cid_number(b"CN220-CTZN2-198805200-2026")
+            }
+        )));
+        let progress = sp_io::storage::get(crate::migrations::PROGRESS);
+        <crate::migrations::EvmBackfill as frame_support::traits::PostInherents>::post_inherents();
+        assert_ne!(sp_io::storage::get(crate::migrations::PROGRESS), progress);
         finish(80);
         assert!(!Institutions::ongoing());
     });
@@ -940,7 +1246,7 @@ fn top_storage() -> std::collections::BTreeMap<Vec<u8>, Vec<u8>> {
 }
 
 fn expected_renamed_storage() -> (std::collections::BTreeMap<Vec<u8>, Vec<u8>>, usize) {
-    let prefixes = crate::migrations::renamed_pallets().map(|(old, new)| {
+    let prefixes = crate::migrations::renamed_pallets().map(|(old, new, _)| {
         (
             sp_io::hashing::twox_128(old.as_bytes()),
             sp_io::hashing::twox_128(new.as_bytes()),
@@ -969,8 +1275,8 @@ fn first_party_prefix_move_keeps_storage_version_and_voting_engine() {
         let renamed = crate::migrations::renamed_pallets();
         assert!(!renamed
             .iter()
-            .any(|(old, new)| *old == "VotingEngine" || *new == "EngingCore"));
-        for (slot, (old, _)) in renamed.iter().enumerate() {
+            .any(|(old, new, _)| *old == "VotingEngine" || *new == "EngingCore"));
+        for (slot, (old, _, _)) in renamed.iter().enumerate() {
             let slot = slot as u32;
             sp_io::storage::set(
                 &prefix(old.as_bytes(), b":__STORAGE_VERSION__:"),
@@ -1009,6 +1315,57 @@ fn first_party_prefix_move_rolls_back_all_pallets_on_nonmatching_target_key() {
 }
 
 #[test]
+fn prefix_migrations_accept_only_frame_initialized_version_keys() {
+    use frame_support::traits::BeforeAllRuntimeMigrations;
+
+    sp_io::TestExternalities::default().execute_with(|| {
+        for (old, _, _) in crate::migrations::renamed_pallets() {
+            sp_io::storage::set(
+                &prefix(old.as_bytes(), b":__STORAGE_VERSION__:"),
+                &0u16.encode(),
+            );
+            sp_io::storage::set(&prefix(old.as_bytes(), b"Fixture"), &[1, 2, 3]);
+        }
+        let (cid, _) = seed_old_grandpa_keys();
+        // 与 Executive 相同：FRAME 先初始化所有新注册名，再运行本链迁移。
+        AllPalletsWithSystem::before_all_runtime_migrations();
+        crate::migrations::RenamePallets::on_runtime_upgrade();
+        for (old, new, _) in crate::migrations::renamed_pallets() {
+            assert!(sp_io::storage::get(&prefix(old.as_bytes(), b"Fixture")).is_none());
+            assert_eq!(
+                sp_io::storage::get(&prefix(new.as_bytes(), b"Fixture"))
+                    .unwrap()
+                    .as_ref(),
+                &[1, 2, 3]
+            );
+            // 框架刚写的代码版本不能冒充旧模块的实际存储版本。
+            assert_eq!(
+                unhashed::get::<u16>(&prefix(new.as_bytes(), b":__STORAGE_VERSION__:")),
+                Some(0)
+            );
+        }
+        crate::migrations::GrandpaKeys::on_runtime_upgrade();
+        assert!(grandpakey::CurrentGrandpaKeys::<Runtime>::contains_key(cid));
+        assert_eq!(StorageVersion::get::<GrandpaKey>(), StorageVersion::new(1));
+    });
+    for invalid_value in [vec![0xff, 0xff], vec![0]] {
+        sp_io::TestExternalities::default().execute_with(|| {
+            sp_io::storage::set(&prefix(b"OnchainTransaction", b"Fixture"), &[1]);
+            sp_io::storage::set(
+                &prefix(b"Onchain", b":__STORAGE_VERSION__:"),
+                &invalid_value,
+            );
+            let before = top_storage();
+            assert!(
+                std::panic::catch_unwind(crate::migrations::RenamePallets::on_runtime_upgrade)
+                    .is_err()
+            );
+            assert_eq!(top_storage(), before);
+        });
+    }
+}
+
+#[test]
 #[ignore = "通过塔塔控制台显式交付现网最终区块的只读前缀快照"]
 fn first_party_prefix_move_replays_finalized_state_and_keeps_upstream() {
     let path = std::env::var_os("CITIZENCHAIN_PALLET_SNAPSHOT").expect("需要最终状态副本");
@@ -1032,4 +1389,580 @@ fn first_party_prefix_move_replays_finalized_state_and_keeps_upstream() {
             snapshot["at"], moved, observed
         );
     });
+}
+
+/// 必须交付完整最终状态和本轮候选；普通单元测试不连接节点，也不隐式下载候选。
+/// 所有业务迁移均由真实 Wasm API 执行，原生环境仅负责迁移前后对账。
+#[test]
+#[ignore = "通过塔塔控制台显式交付全量最终状态与本轮 Wasm 候选"]
+fn full_state_wasm_migration_replay() {
+    sp_tracing::try_init_simple();
+    use sp_core::traits::{CallContext, RuntimeCode, WrappedRuntimeCode};
+    use sp_runtime::{traits::Header as _, StateVersion, Storage};
+    use sp_state_machine::{Backend, IterArgs, OverlayedChanges, StateMachine};
+    use std::{borrow::Cow, collections::BTreeMap, io::Write, time::Instant};
+
+    type BackendState = sc_client_db::BenchmarkingState<BlakeTwo256>;
+    let path = std::env::var_os("CITIZENCHAIN_FULL_SNAPSHOT").expect("需要完整最终状态");
+    let snapshot: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(snapshot["genesis"].as_str(), Some(GENESIS));
+    assert!(snapshot["children"].as_array().unwrap().is_empty());
+    let bytes =
+        |value: &Value| hex::decode(value.as_str().unwrap().strip_prefix("0x").unwrap()).unwrap();
+    let rows = snapshot["rows"].as_array().unwrap();
+    assert!(rows.len() > 500_000, "禁止以机构样本代替完整状态");
+    let original: BTreeMap<_, _> = rows
+        .iter()
+        .map(|row| (bytes(&row[0]), bytes(&row[1])))
+        .collect();
+    assert_eq!(original.len(), rows.len(), "快照不得包含重复键");
+    // 为真实节点的隔离RPC验收交付近期归档；只保存一个完整基点和后续真实状态差量。
+    // 末尾完成记录必须在全部业务对账通过后写入，不能将中断现场当作通过的检查点。
+    let mut archive = std::env::var_os("CITIZENCHAIN_REPLAY_ARCHIVE").map(|path| {
+        let first = std::env::var("CITIZENCHAIN_REPLAY_ARCHIVE_FROM")
+            .expect("归档起点必须显式交付")
+            .parse::<u32>()
+            .unwrap();
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .unwrap();
+        (first, std::io::BufWriter::new(file))
+    });
+    let state_version =
+        StateVersion::try_from(snapshot["version"]["stateVersion"].as_u64().unwrap() as u8)
+            .unwrap();
+    // SDK 计量后端的构造器固定采用 V1；从空后端按原链真实 V0 布局导入，
+    // 避免重编码长值节点而改变状态根，也不改动锁定 SDK。
+    let backend = BackendState::new(Storage::default(), None, true, true).unwrap();
+    let (root, transaction) = backend.storage_root(
+        original
+            .iter()
+            .map(|(key, value)| (key.as_slice(), Some(value.as_slice()))),
+        state_version,
+    );
+    backend
+        .commit(root, transaction, Vec::new(), Vec::new())
+        .unwrap();
+    assert_eq!(root.as_bytes(), bytes(&snapshot["header"]["stateRoot"]));
+
+    // 先验证未替换代码时的真实状态根；仅离线后端接收候选，不写真实链。
+    let candidate =
+        std::fs::read(std::env::var_os("CITIZENCHAIN_REPLAY_WASM").expect("需要本轮 Wasm 候选"))
+            .unwrap();
+    let fetcher = WrappedRuntimeCode(Cow::Borrowed(&candidate));
+    let code = RuntimeCode {
+        code_fetcher: &fetcher,
+        heap_pages: None,
+        hash: sp_io::hashing::blake2_256(&candidate).to_vec(),
+    };
+    let mut overlay = OverlayedChanges::<BlakeTwo256>::default();
+    overlay.set_storage(b":code".to_vec(), Some(candidate.clone()));
+    // 单独加入公开合成测试账户，用真实 V5 ML-DSA 备注交易组成非空区块。
+    // 原链账户、机构、任职和历史不改；原状态根已在加入夹具前逐字节核对。
+    let child = [0x5c; 32];
+    let public = mldsa::public_key(&child);
+    let signer = AccountId::new(mldsa::account_id(&public));
+    let signer_key = frame_system::Account::<Runtime>::hashed_key_for(&signer);
+    assert!(!original.contains_key(&signer_key));
+    let funding = 1_000_000u128;
+    let mut account =
+        frame_system::AccountInfo::<Nonce, pallet_balances::AccountData<Balance>>::default();
+    account.providers = 1;
+    account.data.free = funding;
+    overlay.set_storage(signer_key, Some(account.encode()));
+    let issuance_key = prefix(b"Balances", b"TotalIssuance").to_vec();
+    let expected_issuance =
+        u128::decode_all(&mut original[&issuance_key].as_slice()).unwrap() + funding;
+    overlay.set_storage(issuance_key.clone(), Some(expected_issuance.encode()));
+    let commit = |overlay: &mut OverlayedChanges<BlakeTwo256>| {
+        let changes = overlay
+            .drain_storage_changes(&backend, state_version)
+            .unwrap();
+        let proof = backend.proof_size().expect("必须启用真实证明记录");
+        let delta = changes.main_storage_changes.clone();
+        backend
+            .commit(
+                changes.transaction_storage_root,
+                changes.transaction,
+                changes.main_storage_changes,
+                changes.child_storage_changes,
+            )
+            .unwrap();
+        (proof, delta)
+    };
+    commit(&mut overlay);
+    let mut executor =
+        sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::builder().build();
+    let invoke = |executor: &sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
+                  overlay: &mut OverlayedChanges<BlakeTwo256>,
+                  method: &str,
+                  data: &[u8]| {
+        StateMachine::new(
+            &backend,
+            overlay,
+            executor,
+            method,
+            data,
+            &mut Default::default(),
+            &code,
+            CallContext::Offchain,
+        )
+        .execute()
+        .unwrap_or_else(|error| panic!("真实 Wasm API {method} 失败：{error:?}"))
+    };
+    let version = sp_version::RuntimeVersion::decode_all(
+        &mut invoke(&executor, &mut overlay, "Core_version", &[]).as_slice(),
+    )
+    .unwrap();
+    assert_eq!(version.spec_version, 8);
+    assert_eq!(version.transaction_version, 7);
+    assert_eq!(version.state_version(), state_version);
+    assert_eq!(
+        invoke(
+            &executor,
+            &mut overlay,
+            "ChainIdentityApi_genesis_hash",
+            &[]
+        ),
+        bytes(&snapshot["genesis"])
+    );
+    let saved = |prefix: &[u8]| -> BTreeMap<Vec<u8>, Vec<u8>> {
+        original
+            .iter()
+            .filter(|(key, _)| key.starts_with(prefix))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    };
+    let source_public = saved(&prefix(b"PublicManage", b"Institutions")).len();
+    let source_private = saved(&prefix(b"PrivateManage", b"Institutions")).len();
+    let source_accounts = saved(&prefix(b"PublicManage", b"InstitutionAccounts")).len()
+        + saved(&prefix(b"PrivateManage", b"InstitutionAccounts")).len();
+    assert_eq!(
+        (source_public, source_private, source_accounts),
+        (49_593, 1, 99_234)
+    );
+    let system_accounts = saved(&prefix(b"System", b"Account"));
+    let mut voting = None;
+    let old_snapshots = saved(&prefix(b"VotingEngine", b"VoterSnapshot"))
+        .into_values()
+        .collect::<Vec<_>>();
+    assert!(!old_snapshots.is_empty());
+    let grandpa = saved(&sp_io::hashing::twox_128(b"Grandpa"));
+    let grandpa_keys = saved(&sp_io::hashing::twox_128(OLD_GRANDPA));
+    let timestamp =
+        u64::decode_all(&mut original[&prefix(b"Timestamp", b"Now").to_vec()].as_slice()).unwrap();
+    let mut parent = Hash::from_slice(&bytes(&snapshot["at"]));
+    let first = u32::from_str_radix(
+        snapshot["header"]["number"]
+            .as_str()
+            .unwrap()
+            .trim_start_matches("0x"),
+        16,
+    )
+    .unwrap()
+        + 1;
+    let mut measurements = Vec::new();
+    let mut resumed = false;
+    let mut completed = false;
+    let call = RuntimeCall::System(frame_system::Call::remark {
+        remark: b"migration-replay".to_vec(),
+    });
+    let mut implicit_ext = sp_io::TestExternalities::default();
+    let implicit = implicit_ext.execute_with(|| {
+        use pallet_revive::evm::runtime::EthExtra;
+        use sp_runtime::traits::TransactionExtension;
+        frame_system::BlockHash::<Runtime>::insert(
+            0,
+            Hash::from_slice(&bytes(&snapshot["genesis"])),
+        );
+        let mut checks: TxExtension = EthExtraImpl::get_eth_extension(0, 0);
+        (checks.11).0 = Default::default();
+        let mut implicit = TransactionExtension::<RuntimeCall>::implicit(&checks).unwrap();
+        implicit.3 = version.spec_version;
+        implicit.4 = version.transaction_version;
+        implicit
+    });
+    for step in 0..12_000u32 {
+        // 丢弃执行器缓存后仅凭已提交后端继续，检验升级和续跑不会依赖进程内状态。
+        if step == 32 {
+            executor =
+                sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::builder().build();
+            resumed = true;
+        }
+        backend.reset_read_write_count();
+        backend.recorder().unwrap().reset();
+        let started = Instant::now();
+        let header = Header::new(
+            first + step,
+            Default::default(),
+            Default::default(),
+            parent,
+            Default::default(),
+        );
+        let mode = sp_runtime::ExtrinsicInclusionMode::decode_all(
+            &mut invoke(
+                &executor,
+                &mut overlay,
+                "Core_initialize_block",
+                &header.encode(),
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        let inherent: UncheckedExtrinsic = generic::UncheckedExtrinsic::new_bare(
+            RuntimeCall::Timestamp(pallet_timestamp::Call::set {
+                now: timestamp + u64::from(step + 1) * 2,
+            }),
+        )
+        .into();
+        let applied = sp_runtime::ApplyExtrinsicResult::decode_all(
+            &mut invoke(
+                &executor,
+                &mut overlay,
+                "BlockBuilder_apply_extrinsic",
+                &inherent.encode(),
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(applied, Ok(Ok(())));
+        use pallet_revive::evm::runtime::EthExtra;
+        let mut checks: TxExtension = EthExtraImpl::get_eth_extension(step, 0);
+        (checks.11).0 = Default::default();
+        let encoded = mldsa::sign_transaction(
+            &child,
+            &(call.clone(), checks.clone(), implicit.clone()).encode(),
+            step > 0,
+            &checks.encode(),
+            &call.encode(),
+        )
+        .unwrap();
+        let signed = sp_runtime::ApplyExtrinsicResult::decode_all(
+            &mut invoke(
+                &executor,
+                &mut overlay,
+                "BlockBuilder_apply_extrinsic",
+                &encoded,
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(signed, Ok(Ok(())), "维护块必须接纳真实签名交易");
+        let finalized = Header::decode_all(
+            &mut invoke(&executor, &mut overlay, "BlockBuilder_finalize_block", &[]).as_slice(),
+        )
+        .unwrap();
+        parent = finalized.hash();
+        let (proof, delta) = commit(&mut overlay);
+        if let Some((from, writer)) = archive.as_mut() {
+            if first + step >= *from {
+                let state = if first + step == *from {
+                    Some(
+                        backend
+                            .pairs(IterArgs::default())
+                            .unwrap()
+                            .map(Result::unwrap)
+                            .map(|(key, value)| (hex::encode(key), hex::encode(value)))
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                };
+                let changes = delta
+                    .into_iter()
+                    .map(|(key, value)| (hex::encode(key), value.map(hex::encode)))
+                    .collect::<Vec<_>>();
+                serde_json::to_writer(&mut *writer, &serde_json::json!({
+                    "header": hex::encode(finalized.encode()), "state": state, "changes": changes,
+                    "body": [hex::encode(inherent.encode()), hex::encode(&encoded)],
+                })).unwrap();
+                writer.write_all(b"\n").unwrap();
+            }
+        }
+        let counts = backend.read_write_count();
+        if step == 0 {
+            let vote_prefix = sp_io::hashing::twox_128(b"VotingEngine");
+            let mut args = IterArgs::default();
+            args.prefix = Some(&vote_prefix);
+            voting = Some(
+                backend
+                    .pairs(args)
+                    .unwrap()
+                    .map(Result::unwrap)
+                    .collect::<BTreeMap<_, _>>(),
+            );
+        }
+        measurements.push(serde_json::json!({
+            "block": first + step, "micros": started.elapsed().as_micros(),
+            "header": hex::encode(finalized.encode()),
+            "proof_bytes": proof, "reads": counts.0, "repeat_reads": counts.1,
+            "writes": counts.2, "repeat_writes": counts.3,
+        }));
+        let mut controls = IterArgs::default();
+        controls.prefix = Some(b":citizenchain:");
+        let control = backend
+            .pairs(controls)
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let mut status = sp_io::TestExternalities::new(Storage {
+            top: control,
+            ..Default::default()
+        });
+        completed = status.execute_with(|| {
+            !Institutions::pending()
+                && !crate::evm_accounts::BackfillEvmAccounts::pending()
+                && !sp_io::storage::exists(b":citizenchain:entity-migration:evm-deferred:v1")
+        });
+        if step % 100 == 0 || completed {
+            eprintln!(
+                "Wasm 排演区块 {}：模式 {:?}，读写 {:?}，证明 {} 字节",
+                first + step,
+                mode,
+                counts,
+                proof
+            );
+        }
+        if completed {
+            assert!(matches!(
+                mode,
+                sp_runtime::ExtrinsicInclusionMode::AllExtrinsics
+            ));
+            break;
+        }
+    }
+    assert!(
+        completed && resumed,
+        "完整迁移及 EVM 回填必须有界完成并跨执行器恢复"
+    );
+    let final_rows: BTreeMap<_, _> = backend
+        .pairs(IterArgs::default())
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let final_saved = |prefix: &[u8]| -> BTreeMap<Vec<u8>, Vec<u8>> {
+        final_rows
+            .iter()
+            .filter(|(key, _)| key.starts_with(prefix))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    };
+    // 即使后续对账失败也保留真实计量，只有全部断言完成后才标记通过。
+    let output = std::env::var_os("CITIZENCHAIN_REPLAY_REPORT").expect("需要计量结果路径");
+    std::fs::write(&output, serde_json::to_vec_pretty(&serde_json::json!({
+        "passed": false, "at": snapshot["at"], "wasm_hash": hex::encode(&code.hash),
+        "spec_version": version.spec_version, "transaction_version": version.transaction_version,
+        "source_keys": rows.len(), "resumed": resumed, "synthetic_signed_account": true,
+        "blocks": measurements,
+    })).unwrap()).unwrap();
+    let mut final_accounts = final_saved(&prefix(b"System", b"Account"));
+    assert_eq!(final_accounts.len(), system_accounts.len() + 1);
+    let synthetic = final_accounts
+        .remove(&frame_system::Account::<Runtime>::hashed_key_for(&signer))
+        .unwrap();
+    let synthetic =
+        frame_system::AccountInfo::<Nonce, pallet_balances::AccountData<Balance>>::decode_all(
+            &mut synthetic.as_slice(),
+        )
+        .unwrap();
+    assert_eq!(synthetic.nonce, measurements.len() as u32);
+    assert_eq!(synthetic.data.free, funding);
+    assert!(
+        final_accounts == system_accounts,
+        "原链账户数据、nonce及引用必须逐字节不变"
+    );
+    assert_eq!(final_rows[&issuance_key], expected_issuance.encode());
+    let mut expected_voting = voting.unwrap();
+    let mut history = sp_io::TestExternalities::new(Storage {
+        top: expected_voting.clone(),
+        ..Default::default()
+    });
+    let expired = history.execute_with(|| {
+        let mut keys = engingcore::ExecutionRetryDeadlines::<Runtime>::iter()
+            .filter(|(deadline, _)| *deadline <= first + measurements.len() as u32 - 1)
+            .map(|(deadline, ids)| {
+                // 正常区块会消费已到期的历史重试桶；只允许预检确认的终态引用，
+                // 原提案、票据、计票及21703清理安排仍逐字节对账。
+                assert!(ids
+                    .iter()
+                    .all(|id| engingcore::Proposals::<Runtime>::get(id).is_some_and(
+                        |proposal| matches!(
+                            proposal.status,
+                            engingcore::STATUS_EXECUTED
+                                | engingcore::STATUS_REJECTED
+                                | engingcore::STATUS_EXECUTION_FAILED
+                        )
+                    )));
+                engingcore::ExecutionRetryDeadlines::<Runtime>::hashed_key_for(deadline)
+            })
+            .collect::<Vec<_>>();
+        for (deadline, ids) in engingcore::ProposalsByExpiry::<Runtime>::iter() {
+            if deadline <= first + measurements.len() as u32 - 1 {
+                assert!(ids
+                    .iter()
+                    .all(|id| engingcore::Proposals::<Runtime>::get(id).is_some_and(
+                        |proposal| matches!(
+                            proposal.status,
+                            engingcore::STATUS_EXECUTED
+                                | engingcore::STATUS_REJECTED
+                                | engingcore::STATUS_EXECUTION_FAILED
+                        )
+                    )));
+                keys.push(engingcore::ProposalsByExpiry::<Runtime>::hashed_key_for(
+                    deadline,
+                ));
+            }
+        }
+        keys
+    });
+    for key in &expired {
+        assert!(expected_voting.remove(key).is_some());
+    }
+    assert!(
+        final_saved(&sp_io::hashing::twox_128(b"VotingEngine")) == expected_voting,
+        "历史提案、票据、计票和清理安排必须不变；仅消费已到期终态期限索引"
+    );
+    assert_eq!(
+        final_saved(&prefix(b"VotingEngine", b"VoterSnapshot"))
+            .into_values()
+            .collect::<Vec<_>>(),
+        old_snapshots
+    );
+    assert_eq!(final_saved(&sp_io::hashing::twox_128(b"Grandpa")), grandpa);
+    let mut moved_grandpa: BTreeMap<_, _> = grandpa_keys
+        .into_iter()
+        .map(|(key, value)| {
+            (
+                [
+                    sp_io::hashing::twox_128(b"GrandpaKey").as_slice(),
+                    &key[16..],
+                ]
+                .concat(),
+                value,
+            )
+        })
+        .collect();
+    moved_grandpa.insert(
+        prefix(b"GrandpaKey", b":__STORAGE_VERSION__:").to_vec(),
+        StorageVersion::new(1).encode(),
+    );
+    assert_eq!(
+        final_saved(&sp_io::hashing::twox_128(b"GrandpaKey")),
+        moved_grandpa
+    );
+    let mut final_ext = sp_io::TestExternalities::new(Storage {
+        top: final_rows.clone(),
+        ..Default::default()
+    });
+    final_ext.execute_with(|| {
+        let counts = unhashed::get::<Counts>(RESULT).unwrap();
+        assert_eq!(counts.public, source_public as u64);
+        assert_eq!(counts.private, source_private as u64);
+        assert_eq!(counts.accounts, source_accounts as u64);
+        assert_eq!(counts.assignments, 7);
+        assert_eq!(counts.missing_people, 1023);
+        assert_eq!(
+            publicentity::Institutions::<Runtime>::iter().count(),
+            source_public
+        );
+        assert_eq!(
+            privateentity::Institutions::<Runtime>::iter().count(),
+            source_private
+        );
+        assert_eq!(
+            publicentity::InstitutionAccounts::<Runtime>::iter().count()
+                + privateentity::InstitutionAccounts::<Runtime>::iter().count(),
+            source_accounts
+        );
+        let person = test_cid_number(
+            primitives::cid::china::citizenchain::LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER
+                .as_bytes(),
+        );
+        let current = Identity::person_account(&person).unwrap();
+        assert_founder_assignments(&person, &current);
+        assert_eq!(
+            identity::BindingRevisionByCid::<Runtime>::get(&person),
+            Some(2)
+        );
+        assert_eq!(Grandpa::grandpa_authorities().len(), 1);
+        assert_eq!(System::account_nonce(&signer), measurements.len() as u32);
+        assert_eq!(Balances::free_balance(&signer), funding);
+        assert!(unhashed::get::<bool>(b":citizenchain:evm-account-mapping:v1").unwrap());
+        use pallet_revive::{AccountId32Mapper, AddressMapper};
+        let mut mapped = std::collections::BTreeSet::new();
+        mapped.extend(
+            frame_system::Account::<Runtime>::iter_keys().filter(|account| account != &signer),
+        );
+        mapped.extend(publicentity::AccountRegisteredCid::<Runtime>::iter_keys());
+        mapped.extend(privateentity::AccountRegisteredCid::<Runtime>::iter_keys());
+        mapped.extend(identity::CidByAccountId::<Runtime>::iter_keys());
+        assert!(mapped.len() >= source_accounts);
+        for account in &mapped {
+            if !AccountId32Mapper::<Runtime>::is_eth_derived(account) {
+                assert!(
+                    AccountId32Mapper::<Runtime>::is_mapped(account),
+                    "原链登记账户缺少EVM映射"
+                );
+                assert_eq!(
+                    AccountId32Mapper::<Runtime>::to_account_id(
+                        &AccountId32Mapper::<Runtime>::to_address(account)
+                    ),
+                    *account
+                );
+            }
+        }
+        eprintln!("已逐项核验 {} 个原链账户的 EVM 映射", mapped.len());
+        eprintln!("完整 Wasm 对账通过：{:?}", counts);
+    });
+    if let Some(path) = std::env::var_os("CITIZENCHAIN_REPLAY_STATE") {
+        // 只给后续隔离RPC测试交付已完成全部对账的公开状态；不是主链升级或共识证明。
+        let rows = final_rows
+            .iter()
+            .map(|(key, value)| {
+                [
+                    format!("0x{}", hex::encode(key)),
+                    format!("0x{}", hex::encode(value)),
+                ]
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            path,
+            serde_json::to_vec(&serde_json::json!({
+                "genesis": snapshot["genesis"], "source_at": snapshot["at"],
+                "last_hash": format!("0x{}", hex::encode(parent.as_bytes())),
+                "rows": rows, "synthetic_signed_account": true,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+    if let Some((from, mut writer)) = archive {
+        assert!(
+            measurements.last().unwrap()["block"].as_u64().unwrap() >= u64::from(from) + 256,
+            "真实RPC近期窗口必须具有全部执行父状态"
+        );
+        serde_json::to_writer(
+            &mut writer,
+            &serde_json::json!({
+                "complete": true, "genesis": snapshot["genesis"],
+                "last_hash": format!("0x{}", hex::encode(parent.as_bytes())),
+                "wasm_hash": hex::encode(&code.hash),
+            }),
+        )
+        .unwrap();
+        writer.write_all(b"\n").unwrap();
+        writer.flush().unwrap();
+    }
+    std::fs::write(
+        output,
+        serde_json::to_vec_pretty(&serde_json::json!({
+        "passed": true, "at": snapshot["at"], "wasm_hash": hex::encode(&code.hash), "spec_version": version.spec_version,
+            "transaction_version": version.transaction_version, "source_keys": rows.len(),
+            "resumed": resumed, "synthetic_signed_account": true, "blocks": measurements,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 }

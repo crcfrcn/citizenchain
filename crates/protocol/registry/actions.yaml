@@ -251,7 +251,7 @@
     - action_type
     - actor_cid_number
     - actor_province_name
-    - actor_public_key
+    - account_id
     - target
     - before_hash
     - after_hash

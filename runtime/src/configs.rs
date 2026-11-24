@@ -503,6 +503,16 @@ pub struct RuntimeCallFilter;
 
 impl Contains<RuntimeCall> for RuntimeCallFilter {
     fn contains(call: &RuntimeCall) -> bool {
+        // 机构存储尚未搬完时，禁止治理、任职及身份写入改变迁移证据。
+        // 保留现有转账和签名备注供非空区块推进有界续跑，不豁免空块规则。
+        if crate::migrations::Institutions::pending() {
+            return matches!(call,
+                RuntimeCall::Timestamp(_)
+                    | RuntimeCall::System(frame_system::Call::remark { .. })
+                    | RuntimeCall::System(frame_system::Call::remark_with_event { .. })
+                    | RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark { .. })
+            );
+        }
         match call {
             // 只开放 Ethereum 外层及验签转换后的执行入口；来源由 SetOrigin 校验。
             // 普通合约不能借原生 dispatch 入口访问业务 pallet。
@@ -599,7 +609,8 @@ impl frame_system::Config for Runtime {
     type OnNewAccount = crate::evm_accounts::EvmAccountMapping;
     type OnKilledAccount = SaveAccountNonce;
     type PostInherents = crate::migrations::EvmBackfill;
-    type MultiBlockMigrator = crate::migrations::Institutions;
+    // FRAME 的 OnlyInherents 模式与本链禁止空块冲突；有界迁移由 PostInherents 计费续跑。
+    type MultiBlockMigrator = ();
     type MaxConsumers = frame_support::traits::ConstU32<16>;
     type SingleBlockMigrations = SingleBlockMigrations;
 }

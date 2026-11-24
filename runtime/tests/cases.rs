@@ -11,39 +11,65 @@ fn engine_core_package_keeps_voting_engine_chain_contract() {
     let metadata = serde_json::to_value(Runtime::metadata().1).expect("真实Runtime元数据");
     let metadata = &metadata["V14"];
     let pallet = metadata["pallets"]
-        .as_array().expect("pallets")
-        .iter().find(|pallet| pallet["name"] == "VotingEngine")
+        .as_array()
+        .expect("pallets")
+        .iter()
+        .find(|pallet| pallet["name"] == "VotingEngine")
         .expect("包名改变不能更改链上VotingEngine名称");
     assert_eq!(pallet["index"], 9);
     assert_eq!(pallet["storage"]["prefix"], "VotingEngine");
     let types = metadata["types"]["types"].as_array().expect("types");
-    let call = &types.iter().find(|ty| ty["id"] == pallet["calls"]["ty"])
+    let call = &types
+        .iter()
+        .find(|ty| ty["id"] == pallet["calls"]["ty"])
         .expect("VotingEngine调用类型")["type"];
     assert_eq!(call["path"][0], "engingcore");
-    let calls = call["def"]["variant"]["variants"].as_array().expect("calls");
-    assert_eq!(calls.iter().map(|call| (
-        call["name"].as_str().expect("call name"),
-        call["index"].as_u64().expect("call index"),
-    )).collect::<Vec<_>>(), [
-        ("finalize_proposal", 3),
-        ("retry_passed_proposal", 4),
-        ("cancel_passed_proposal", 5),
-    ]);
+    let calls = call["def"]["variant"]["variants"]
+        .as_array()
+        .expect("calls");
+    assert_eq!(
+        calls
+            .iter()
+            .map(|call| (
+                call["name"].as_str().expect("call name"),
+                call["index"].as_u64().expect("call index"),
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("finalize_proposal", 3),
+            ("retry_passed_proposal", 4),
+            ("cancel_passed_proposal", 5),
+        ]
+    );
 
     // 固定既有链上调用字节；不使用更名后的类型自行生成期望值。
-    assert_eq!(RuntimeCall::VotingEngine(engingcore::Call::finalize_proposal {
-        proposal_id: 42 }).encode(), [9, 3, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    assert_eq!(RuntimeCall::VotingEngine(engingcore::Call::retry_passed_proposal {
-        proposal_id: 42 }).encode(), [9, 4, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    assert_eq!(RuntimeCall::VotingEngine(engingcore::Call::cancel_passed_proposal {
-        proposal_id: 42, reason: Default::default(),
-    }).encode(), [9, 5, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(
+        RuntimeCall::VotingEngine(engingcore::Call::finalize_proposal { proposal_id: 42 }).encode(),
+        [9, 3, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+    assert_eq!(
+        RuntimeCall::VotingEngine(engingcore::Call::retry_passed_proposal { proposal_id: 42 })
+            .encode(),
+        [9, 4, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+    assert_eq!(
+        RuntimeCall::VotingEngine(engingcore::Call::cancel_passed_proposal {
+            proposal_id: 42,
+            reason: Default::default(),
+        })
+        .encode(),
+        [9, 5, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
 
     // RPC查询键必须继续使用原pallet前缀、存储名称和Blake2_128Concat编码。
     for (name, actual) in [
-        ("Proposals", engingcore::Proposals::<Runtime>::hashed_key_for(42u128),
+        (
+            "Proposals",
+            engingcore::Proposals::<Runtime>::hashed_key_for(42u128),
         ),
-        ("ProposalVotePlans", engingcore::ProposalVotePlans::<Runtime>::hashed_key_for(42u128),
+        (
+            "ProposalVotePlans",
+            engingcore::ProposalVotePlans::<Runtime>::hashed_key_for(42u128),
         ),
     ] {
         let mut expected = sp_io::hashing::twox_128(b"VotingEngine").to_vec();
@@ -113,35 +139,84 @@ fn square_subscription_metadata_uses_canonical_prices() {
 fn first_party_metadata_keeps_registered_indices_and_signed_calls() {
     use scale_info::{TypeDef, TypeInfo};
 
-    let mut actual: Vec<_> = Runtime::metadata_ir().pallets.iter()
-        .map(|pallet| (pallet.index, pallet.name)).collect();
+    let mut actual: Vec<_> = Runtime::metadata_ir()
+        .pallets
+        .iter()
+        .map(|pallet| (pallet.index, pallet.name))
+        .collect();
     actual.sort_unstable();
-    assert_eq!(actual, [
-        (0, "System"), (1, "Timestamp"), (2, "Balances"), (3, "TransactionPayment"),
-        (4, "Onchain"), (5, "PrbBankIssue"), (6, "FullnodeIssue"), (7, "Personal"),
-        (8, "ResolutionIssue"), (9, "VotingEngine"), (10, "Identity"), (11, "CitizenIssue"),
-        (12, "Upgrade"), (13, "Destroy"), (14, "Grandpa"), (15, "GrandpaKey"),
-        (16, "Difficulty"), (17, "Multisig"), (18, "Genesis"), (19, "Offchain"),
-        (20, "InternalVote"), (21, "JointVote"), (22, "ElectionVote"), (23, "OnchainIssue"),
-        (24, "Assets"), (25, "Legislation"), (26, "LegislationVote"), (30, "PublicEntity"),
-        (31, "PrivateEntity"), (32, "Election"), (33, "Address"), (34, "Square"),
-        (35, "Revive"), (36, "Mldsa"),
-    ]);
+    assert_eq!(
+        actual,
+        [
+            (0, "System"),
+            (1, "Timestamp"),
+            (2, "Balances"),
+            (3, "TransactionPayment"),
+            (4, "Onchain"),
+            (5, "PrbBankIssue"),
+            (6, "FullnodeIssue"),
+            (7, "Personal"),
+            (8, "ResolutionIssue"),
+            (9, "VotingEngine"),
+            (10, "Identity"),
+            (11, "CitizenIssue"),
+            (12, "Upgrade"),
+            (13, "Destroy"),
+            (14, "Grandpa"),
+            (15, "GrandpaKey"),
+            (16, "Difficulty"),
+            (17, "Multisig"),
+            (18, "Genesis"),
+            (19, "Offchain"),
+            (20, "InternalVote"),
+            (21, "JointVote"),
+            (22, "ElectionVote"),
+            (23, "OnchainIssue"),
+            (24, "Assets"),
+            (25, "Legislation"),
+            (26, "LegislationVote"),
+            (30, "PublicEntity"),
+            (31, "PrivateEntity"),
+            (32, "Election"),
+            (33, "Address"),
+            (34, "Square"),
+            (35, "Revive"),
+            (36, "Mldsa"),
+        ]
+    );
 
     let metadata = Runtime::metadata_ir();
-    for (_, name) in crate::migrations::renamed_pallets() {
-        let pallet = metadata.pallets.iter().find(|pallet| pallet.name == name).unwrap();
+    for (_, name, _) in crate::migrations::renamed_pallets() {
+        let pallet = metadata
+            .pallets
+            .iter()
+            .find(|pallet| pallet.name == name)
+            .unwrap();
         if let Some(storage) = &pallet.storage {
             assert_eq!(storage.prefix, name);
         }
     }
 
     for (definition, name, index) in [
-        (identity::Call::<Runtime>::type_info(), "registrar_rebind_cid", 7),
+        (
+            identity::Call::<Runtime>::type_info(),
+            "registrar_rebind_cid",
+            7,
+        ),
         (jointvote::Call::<Runtime>::type_info(), "cast_role_vote", 0),
     ] {
-        let TypeDef::Variant(calls) = definition.type_def else { panic!("调用必须是枚举") };
-        assert_eq!(calls.variants.iter().find(|call| call.name == name).unwrap().index, index);
+        let TypeDef::Variant(calls) = definition.type_def else {
+            panic!("调用必须是枚举")
+        };
+        assert_eq!(
+            calls
+                .variants
+                .iter()
+                .find(|call| call.name == name)
+                .unwrap()
+                .index,
+            index
+        );
     }
 }
 
@@ -150,17 +225,28 @@ fn grandpa_key_metadata_keeps_pallet_15_and_call_coordinates() {
     use scale_info::{TypeDef, TypeInfo};
 
     let metadata = Runtime::metadata_ir();
-    let pallet = metadata.pallets.iter().find(|pallet| pallet.index == 15).unwrap();
+    let pallet = metadata
+        .pallets
+        .iter()
+        .find(|pallet| pallet.index == 15)
+        .unwrap();
     assert_eq!(pallet.name, "GrandpaKey");
     assert_eq!(pallet.storage.as_ref().unwrap().prefix, "GrandpaKey");
     let TypeDef::Variant(calls) = grandpakey::Call::<Runtime>::type_info().type_def else {
         panic!("换钥调用需要枚举元数据");
     };
-    let actual: Vec<_> = calls.variants.iter().map(|call| (call.index, call.name)).collect();
-    assert_eq!(actual, [
-        (0, "propose_emergency_grandpa_key_recovery"),
-        (1, "schedule_grandpa_key_rotation"),
-    ]);
+    let actual: Vec<_> = calls
+        .variants
+        .iter()
+        .map(|call| (call.index, call.name))
+        .collect();
+    assert_eq!(
+        actual,
+        [
+            (0, "propose_emergency_grandpa_key_recovery"),
+            (1, "schedule_grandpa_key_rotation"),
+        ]
+    );
 }
 
 #[test]
@@ -169,21 +255,36 @@ fn entity_metadata_preserves_pallet_and_call_indices() {
 
     let metadata = Runtime::metadata_ir();
     for (name, index) in [("PublicEntity", 30), ("PrivateEntity", 31)] {
-        let pallet = metadata.pallets.iter().find(|pallet| pallet.name == name).unwrap();
+        let pallet = metadata
+            .pallets
+            .iter()
+            .find(|pallet| pallet.name == name)
+            .unwrap();
         assert_eq!(pallet.index, index);
         assert_eq!(pallet.storage.as_ref().unwrap().prefix, name);
     }
-    assert!(metadata.pallets.iter().all(|pallet| ![27, 28, 29].contains(&pallet.index)));
+    assert!(metadata
+        .pallets
+        .iter()
+        .all(|pallet| ![27, 28, 29].contains(&pallet.index)));
     for call in [
         publicentity::Call::<Runtime>::type_info(),
         privateentity::Call::<Runtime>::type_info(),
     ] {
-        let TypeDef::Variant(def) = call.type_def else { panic!("机构调用必须是枚举") };
+        let TypeDef::Variant(def) = call.type_def else {
+            panic!("机构调用必须是枚举")
+        };
         let mut indices: Vec<_> = def.variants.iter().map(|variant| variant.index).collect();
         indices.sort_unstable();
         assert_eq!(indices, [1, 6, 7, 8, 9]);
-        assert_eq!(def.variants.iter().find(|variant| variant.index == 9).unwrap().name,
-            "register_institution_roles");
+        assert_eq!(
+            def.variants
+                .iter()
+                .find(|variant| variant.index == 9)
+                .unwrap()
+                .name,
+            "register_institution_roles"
+        );
     }
 }
 
@@ -204,7 +305,6 @@ fn citizen_election_reserves_index_32_without_business_entries() {
 
 // 簇 1:Runtime 整体自检(4 个用例)
 
-
 #[test]
 fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
     use entitybase::{
@@ -221,8 +321,15 @@ fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
     let person_cid = test_cid_number(LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER.as_bytes());
     let chengwei = AccountId::new(foundation_fixture_wallet());
     let mut cfg = RuntimeGenesisConfig::default();
-    cfg.identity.initial_cid_bindings = vec![(person_cid.clone(), chengwei.clone(),
-        test_cid_number(primitives::governance_skeleton::federal_registry_institution().cid_number.as_bytes()))];
+    cfg.identity.initial_cid_bindings = vec![(
+        person_cid.clone(),
+        chengwei.clone(),
+        test_cid_number(
+            primitives::governance_skeleton::federal_registry_institution()
+                .cid_number
+                .as_bytes(),
+        ),
+    )];
     sp_io::TestExternalities::new(cfg.build_storage().unwrap()).execute_with(|| {
         let fsc = CHINA_ZF
             .iter()
@@ -318,7 +425,15 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
             .to_vec()
             .try_into()
             .expect("NRC CID fits");
-        fixture_public_role_people(&cid_number, primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER, &fixture_seat_wallets(nrc.cid_number).iter().copied().map(AccountId::new).collect::<Vec<_>>());
+        fixture_public_role_people(
+            &cid_number,
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &fixture_seat_wallets(nrc.cid_number)
+                .iter()
+                .copied()
+                .map(AccountId::new)
+                .collect::<Vec<_>>(),
+        );
         let proposal_id = 9001;
         let dynamic_code = entitybase::generate_dynamic_role_code(
             publicentity::MODULE_TAG,
@@ -333,7 +448,8 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
                 proposal_id,
                 role_mutations: vec![InstitutionRoleMutation::Create {
                     role_name: "审计工作人员".as_bytes().to_vec(),
-                    term_required: false, seats: 1989,
+                    term_required: false,
+                    seats: 1989,
                     permissions: vec![entitybase::RolePermissionSpec {
                         business_action_id: entitybase::BusinessActionId {
                             module_tag: publicentity::MODULE_TAG.to_vec(),
@@ -342,7 +458,11 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
                         operation: RolePermissionOperation::Propose,
                     }],
                     assignments: vec![entitybase::InstitutionAssignmentTarget {
-                        person_cid: fixture_person(&AccountId::new(fixture_seat_wallets(nrc.cid_number)[0]), "CTZN").to_vec(),
+                        person_cid: fixture_person(
+                            &AccountId::new(fixture_seat_wallets(nrc.cid_number)[0]),
+                            "CTZN"
+                        )
+                        .to_vec(),
                         term_start: 0,
                         term_end: 0,
                         assignment_source:
@@ -380,9 +500,7 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
             .to_vec()
             .try_into()
             .expect("foundation CID fits");
-        let foundation_wallet = AccountId::new(
-            foundation_fixture_wallet(),
-        );
+        let foundation_wallet = AccountId::new(foundation_fixture_wallet());
         let foundation_person = fixture_person(&foundation_wallet, "CTZN");
         for role in primitives::cid::china::citizenchain::CITIZENCHAIN_FIXED_ROLES {
             if primitives::institution_constraints::is_legal_representative_role(role.role_code) {
@@ -422,7 +540,8 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
                 proposal_id: foundation_proposal_id,
                 role_mutations: vec![InstitutionRoleMutation::Create {
                     role_name: "安全工作人员".as_bytes().to_vec(),
-                    term_required: false, seats: 1989,
+                    term_required: false,
+                    seats: 1989,
                     permissions: vec![entitybase::RolePermissionSpec {
                         business_action_id: entitybase::BusinessActionId {
                             module_tag: privateentity::MODULE_TAG.to_vec(),
@@ -555,7 +674,9 @@ fn nrc_he_fund_transfer_debits_he_and_pays_execution_fee_from_nrc_fee_account() 
         ));
         let pid = VotingEngine::next_proposal_id() - 1;
         assert_eq!(Balances::free_balance(&he), he_before);
-        for admin in &fixture_seat_wallets(nrc.cid_number)[1..primitives::count_const::NRC_INTERNAL_THRESHOLD as usize] {
+        for admin in &fixture_seat_wallets(nrc.cid_number)
+            [1..primitives::count_const::NRC_INTERNAL_THRESHOLD as usize]
+        {
             assert_ok!(InternalVote::cast(
                 RuntimeOrigin::signed(AccountId::new(*admin)),
                 pid,
@@ -601,7 +722,8 @@ fn native_signed_transactions_require_balance_and_keep_nonce_after_reap() {
         let wallet = AccountId::new(mldsa::account_id(&public));
         let person = test_cid_number(&real_cid_number("runtime-nonce", "CTZN", "1"));
         assert_ok!(Identity::self_occupy_cid(
-            RuntimeOrigin::signed(wallet.clone()), person.clone()
+            RuntimeOrigin::signed(wallet.clone()),
+            person.clone()
         ));
         assert_eq!(Identity::person_account(&person), Some(wallet.clone()));
         assert_eq!(System::sufficients(&wallet), 0);
@@ -610,7 +732,11 @@ fn native_signed_transactions_require_balance_and_keep_nonce_after_reap() {
         let nrc = &CHINA_CB[0];
         let institution = test_cid_number(nrc.cid_number.as_bytes());
         let code = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER;
-        let mut members: Vec<_> = fixture_seat_wallets(nrc.cid_number).iter().copied().map(AccountId::new).collect();
+        let mut members: Vec<_> = fixture_seat_wallets(nrc.cid_number)
+            .iter()
+            .copied()
+            .map(AccountId::new)
+            .collect();
         members[0] = wallet.clone();
         fixture_public_role_people(&institution, code, &members);
         let main = AccountId::new(nrc.main_account);
@@ -625,7 +751,11 @@ fn native_signed_transactions_require_balance_and_keep_nonce_after_reap() {
             remark: Default::default(),
         });
         let header = Header::new(
-            2, Default::default(), Default::default(), Default::default(), Default::default(),
+            2,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
         );
         Executive::initialize_block(&header);
         let sign = |call: RuntimeCall, nonce, registered| {
@@ -634,21 +764,30 @@ fn native_signed_transactions_require_balance_and_keep_nonce_after_reap() {
             let implicit = TransactionExtension::<RuntimeCall>::implicit(&checks).unwrap();
             let review = (call.clone(), checks.clone(), implicit).encode();
             let encoded = mldsa::sign_transaction(
-                &child, &review, registered, &checks.encode(), &call.encode(),
-            ).unwrap();
+                &child,
+                &review,
+                registered,
+                &checks.encode(),
+                &call.encode(),
+            )
+            .unwrap();
             UncheckedExtrinsic::decode_all(&mut encoded.as_slice()).unwrap()
         };
-        let apply = |tx| with_transaction_unchecked(|| {
-            let result = Executive::apply_extrinsic(tx);
-            if result.is_ok() {
-                TransactionOutcome::Commit(result)
-            } else {
-                TransactionOutcome::Rollback(result)
-            }
-        });
+        let apply = |tx| {
+            with_transaction_unchecked(|| {
+                let result = Executive::apply_extrinsic(tx);
+                if result.is_ok() {
+                    TransactionOutcome::Commit(result)
+                } else {
+                    TransactionOutcome::Rollback(result)
+                }
+            })
+        };
 
         let tx = sign(sponsor, 0, false);
-        let remark = RuntimeCall::System(frame_system::Call::remark { remark: b"nonce".to_vec() });
+        let remark = RuntimeCall::System(frame_system::Call::remark {
+            remark: b"nonce".to_vec(),
+        });
         let payment_error = TransactionValidityError::Invalid(InvalidTransaction::Payment);
         let fee_before = Balances::set_balance(&fee, 2_000);
         assert_eq!(Balances::free_balance(&wallet), 0);
@@ -657,7 +796,9 @@ fn native_signed_transactions_require_balance_and_keep_nonce_after_reap() {
 
         // 模拟旧机构已写入的引用，证明零余额限制独立于 CheckNonce 的账户存在检查。
         System::inc_sufficients(&wallet);
-        assert!(frame_system::CheckNonce::<Runtime>::validate_nonce_for_account(&wallet, 0).is_ok());
+        assert!(
+            frame_system::CheckNonce::<Runtime>::validate_nonce_for_account(&wallet, 0).is_ok()
+        );
         assert_eq!(apply(tx.clone()), Err(payment_error));
         assert_eq!(apply(sign(remark.clone(), 0, false)), Err(payment_error));
         assert_eq!(Balances::free_balance(&fee), fee_before);
@@ -783,9 +924,6 @@ fn institution_operation_debits_only_exact_fee_account_without_signer_fallback()
 /// 认领自己的提案。若两个模块碰撞,同一个提案可能被两个 Executor 同时执行,
 /// 产生数据层异常。本测试在编译时固定捕获。
 
-
-
-
 /// benchmark 模式使用既有回调桩，必须返回 Ignored 且不执行生产发行。
 #[cfg(feature = "runtime-benchmarks")]
 #[test]
@@ -862,12 +1000,11 @@ fn joint_vote_callback_routes_to_resolution_issuance_and_executes() {
             u8,
             <Runtime as engingcore::Config>::MaxProposalDataLen,
         > = encoded.try_into().expect("proposal data bound");
-        let owner: frame_support::BoundedVec<
-            u8,
-            <Runtime as engingcore::Config>::MaxModuleTagLen> = resolutionissue::MODULE_TAG
-            .to_vec()
-            .try_into()
-            .expect("module tag bound");
+        let owner: frame_support::BoundedVec<u8, <Runtime as engingcore::Config>::MaxModuleTagLen> =
+            resolutionissue::MODULE_TAG
+                .to_vec()
+                .try_into()
+                .expect("module tag bound");
         engingcore::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
         engingcore::ProposalOwner::<Runtime>::insert(proposal_id, owner);
         engingcore::Proposals::<Runtime>::insert(
@@ -938,7 +1075,9 @@ fn resolution_destro_internal_vote_flow_executes_destroy_and_reduces_issuance() 
         let issuance_before = Balances::total_issuance();
 
         assert_ok!(Destroy::propose_destroy(
-            RuntimeOrigin::signed(AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0])),
+            RuntimeOrigin::signed(AccountId::new(
+                fixture_seat_wallets(CHINA_CB[0].cid_number)[0]
+            )),
             CHINA_CB[0]
                 .cid_number
                 .as_bytes()
@@ -958,7 +1097,9 @@ fn resolution_destro_internal_vote_flow_executes_destroy_and_reduces_issuance() 
         // 提案人 admins[0] 在 propose_destroy 时已自动计一票,从 admins[1] 起补足到阈值 13。
         for i in 1..13 {
             assert_ok!(InternalVote::cast(
-                RuntimeOrigin::signed(AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[i])),
+                RuntimeOrigin::signed(AccountId::new(
+                    fixture_seat_wallets(CHINA_CB[0].cid_number)[i]
+                )),
                 pid,
                 internalvote::InternalVoteTicketClaim::InstitutionRole(
                     primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
@@ -1089,21 +1230,20 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
 
         let nrc_admin = AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0]);
         let nrc_institution_account = AccountId::new(CHINA_CB[0].main_account);
-        let resolution_destro_call =
-            RuntimeCall::Destroy(destroy::pallet::Call::propose_destroy {
-                actor_cid_number: CHINA_CB[0]
-                    .cid_number
-                    .as_bytes()
-                    .to_vec()
-                    .try_into()
-                    .expect("NRC CID fits"),
-                proposer_role_code: primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
-                    .to_vec()
-                    .try_into()
-                    .expect("committee role fits"),
-                institution_account_id: nrc_institution_account,
-                amount: 456,
-            });
+        let resolution_destro_call = RuntimeCall::Destroy(destroy::pallet::Call::propose_destroy {
+            actor_cid_number: CHINA_CB[0]
+                .cid_number
+                .as_bytes()
+                .to_vec()
+                .try_into()
+                .expect("NRC CID fits"),
+            proposer_role_code: primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+                .to_vec()
+                .try_into()
+                .expect("committee role fits"),
+            institution_account_id: nrc_institution_account,
+            amount: 456,
+        });
         let resolution_kind =
             <RuntimeFeeRouter as CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
                 &nrc_admin,
@@ -1156,23 +1296,22 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
             &fixture_seat_wallets(clearing_bank.cid_number),
         );
         let clearing_admin = AccountId::new(fixture_seat_wallets(clearing_bank.cid_number)[0]);
-        let offchain_call =
-            RuntimeCall::Offchain(offchain::pallet::Call::submit_offchain_batch {
-                actor_cid_number: clearing_bank
-                    .cid_number
-                    .as_bytes()
-                    .to_vec()
-                    .try_into()
-                    .expect("clearing bank CID fits"),
-                actor_role_code: primitives::governance_skeleton::ROLE_CODE_DIRECTOR
-                    .to_vec()
-                    .try_into()
-                    .expect("director role fits"),
-                institution_account_id: AccountId::new(clearing_bank.main_account),
-                batch_seq: 1,
-                batch: Default::default(),
-                batch_signature: Default::default(),
-            });
+        let offchain_call = RuntimeCall::Offchain(offchain::pallet::Call::submit_offchain_batch {
+            actor_cid_number: clearing_bank
+                .cid_number
+                .as_bytes()
+                .to_vec()
+                .try_into()
+                .expect("clearing bank CID fits"),
+            actor_role_code: primitives::governance_skeleton::ROLE_CODE_DIRECTOR
+                .to_vec()
+                .try_into()
+                .expect("director role fits"),
+            institution_account_id: AccountId::new(clearing_bank.main_account),
+            batch_seq: 1,
+            batch: Default::default(),
+            batch_signature: Default::default(),
+        });
         let offchain_kind =
             <RuntimeFeeRouter as CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
                 &clearing_admin,
@@ -1210,8 +1349,16 @@ fn institution_retry_fee_requires_current_frozen_role_of_paying_institution() {
         let prb = &primitives::cid::china::china_ch::CHINA_CH[0];
         let committee = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER;
         let director = primitives::governance_skeleton::ROLE_CODE_DIRECTOR;
-        fixture_fixed_role_wallets(nrc.cid_number, committee, &fixture_seat_wallets(nrc.cid_number)[..2]);
-        fixture_fixed_role_wallets(prb.cid_number, director, &fixture_seat_wallets(prb.cid_number)[..1]);
+        fixture_fixed_role_wallets(
+            nrc.cid_number,
+            committee,
+            &fixture_seat_wallets(nrc.cid_number)[..2],
+        );
+        fixture_fixed_role_wallets(
+            prb.cid_number,
+            director,
+            &fixture_seat_wallets(prb.cid_number)[..1],
+        );
         let nrc_cid = test_cid_number(nrc.cid_number.as_bytes());
         let prb_cid = test_cid_number(prb.cid_number.as_bytes());
         let nrc_role = engingcore::RoleSubject {
@@ -1264,16 +1411,18 @@ fn institution_retry_fee_requires_current_frozen_role_of_paying_institution() {
             prb_subject,
             vec![fixture_person(&prb_wallet, "CTZN").to_vec()],
         ));
-        let call = RuntimeCall::VotingEngine(engingcore::Call::retry_passed_proposal {
-            proposal_id,
-        });
+        let call =
+            RuntimeCall::VotingEngine(engingcore::Call::retry_passed_proposal { proposal_id });
         let route = |wallet: &AccountId| {
             <RuntimeFeeRouter as CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
                 wallet, &call,
             )
         };
         assert_eq!(route(&prb_wallet), FeeRoute::Reject);
-        assert_eq!(route(&AccountId::new(fixture_seat_wallets(nrc.cid_number)[1])), FeeRoute::Reject);
+        assert_eq!(
+            route(&AccountId::new(fixture_seat_wallets(nrc.cid_number)[1])),
+            FeeRoute::Reject
+        );
         assert_eq!(
             route(&nrc_wallet),
             FeeRoute::Onchain {
@@ -1319,13 +1468,12 @@ fn runtime_fee_router_treats_proposals_as_operations_not_votes() {
             .try_into()
             .expect("account_name should fit");
 
-        let create_call =
-            RuntimeCall::Personal(personal::pallet::Call::propose_create {
-                account_name,
-                admins: admins.clone(),
-                regular_threshold: 2,
-                amount: 1_000,
-            });
+        let create_call = RuntimeCall::Personal(personal::pallet::Call::propose_create {
+            account_name,
+            admins: admins.clone(),
+            regular_threshold: 2,
+            amount: 1_000,
+        });
         let create_kind =
             <RuntimeFeeRouter as CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
                 &who,
@@ -1371,27 +1519,26 @@ fn runtime_fee_router_treats_proposals_as_operations_not_votes() {
 
         let institution =
             AccountId::new(primitives::cid::china::china_cb::CHINA_CB[0].main_account);
-        let transfer_call =
-            RuntimeCall::Multisig(multisig::pallet::Call::propose_transfer {
-                actor_cid_number: Some(
-                    CHINA_CB[0]
-                        .cid_number
-                        .as_bytes()
-                        .to_vec()
-                        .try_into()
-                        .expect("NRC CID fits"),
-                ),
-                proposer_role_code: Some(
-                    primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
-                        .to_vec()
-                        .try_into()
-                        .expect("committee role fits"),
-                ),
-                funding_account_id: institution,
-                beneficiary_account_id: AccountId::new([79u8; 32]),
-                amount: 88_888,
-                remark: frame_support::BoundedVec::default(),
-            });
+        let transfer_call = RuntimeCall::Multisig(multisig::pallet::Call::propose_transfer {
+            actor_cid_number: Some(
+                CHINA_CB[0]
+                    .cid_number
+                    .as_bytes()
+                    .to_vec()
+                    .try_into()
+                    .expect("NRC CID fits"),
+            ),
+            proposer_role_code: Some(
+                primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+                    .to_vec()
+                    .try_into()
+                    .expect("committee role fits"),
+            ),
+            funding_account_id: institution,
+            beneficiary_account_id: AccountId::new([79u8; 32]),
+            amount: 88_888,
+            remark: frame_support::BoundedVec::default(),
+        });
         let transfer_kind =
             <RuntimeFeeRouter as CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
                 &nrc_admin,
@@ -1418,221 +1565,225 @@ fn multisig_reserved_checker_rejects_stake_and_fee_accounts() {
 
 #[test]
 fn runtime_call_filter_blocks_disabled_and_low_level_calls() {
-    let stake = AccountId::new(primitives::cid::china::china_ch::CHINA_CH[0].stake_account);
-    let dst = AccountId::new([9u8; 32]);
+    // 过滤器包含链上迁移状态，按FRAME真实调用环境验证原有禁用矩阵。
+    sp_io::TestExternalities::default().execute_with(|| {
+        let stake = AccountId::new(primitives::cid::china::china_ch::CHINA_CH[0].stake_account);
+        let dst = AccountId::new([9u8; 32]);
 
-    let blocked_by_id = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
-        source: sp_runtime::MultiAddress::Id(stake),
-        dest: sp_runtime::MultiAddress::Id(dst.clone()),
-        value: 1,
-    });
-    assert!(!RuntimeCallFilter::contains(&blocked_by_id));
-
-    let stake_raw = primitives::cid::china::china_ch::CHINA_CH[0].stake_account;
-    let blocked_by_32 = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
-        source: sp_runtime::MultiAddress::Address32(stake_raw),
-        dest: sp_runtime::MultiAddress::Id(dst.clone()),
-        value: 1,
-    });
-    assert!(!RuntimeCallFilter::contains(&blocked_by_32));
-
-    let blocked_by_raw = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
-        source: sp_runtime::MultiAddress::Raw(stake_raw.to_vec()),
-        dest: sp_runtime::MultiAddress::Id(dst.clone()),
-        value: 1,
-    });
-    assert!(!RuntimeCallFilter::contains(&blocked_by_raw));
-
-    let blocked_from_regular_account =
-        RuntimeCall::Balances(pallet_balances::Call::force_transfer {
-            source: sp_runtime::MultiAddress::Id(AccountId::new([8u8; 32])),
-            dest: sp_runtime::MultiAddress::Id(dst),
+        let blocked_by_id = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
+            source: sp_runtime::MultiAddress::Id(stake),
+            dest: sp_runtime::MultiAddress::Id(dst.clone()),
             value: 1,
         });
-    assert!(!RuntimeCallFilter::contains(&blocked_from_regular_account));
+        assert!(!RuntimeCallFilter::contains(&blocked_by_id));
 
-    let blocked_force_unreserve = RuntimeCall::Balances(pallet_balances::Call::force_unreserve {
-        who: sp_runtime::MultiAddress::Id(AccountId::new(
-            primitives::cid::china::china_ch::CHINA_CH[0].stake_account,
-        )),
-        amount: 1,
-    });
-    assert!(!RuntimeCallFilter::contains(&blocked_force_unreserve));
-
-    let blocked_force_set_balance =
-        RuntimeCall::Balances(pallet_balances::Call::force_set_balance {
-            who: sp_runtime::MultiAddress::Id(AccountId::new(
-                primitives::cid::china::china_ch::CHINA_CH[0].stake_account,
-            )),
-            new_free: 1,
+        let stake_raw = primitives::cid::china::china_ch::CHINA_CH[0].stake_account;
+        let blocked_by_32 = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
+            source: sp_runtime::MultiAddress::Address32(stake_raw),
+            dest: sp_runtime::MultiAddress::Id(dst.clone()),
+            value: 1,
         });
-    assert!(!RuntimeCallFilter::contains(&blocked_force_set_balance));
+        assert!(!RuntimeCallFilter::contains(&blocked_by_32));
 
-    let blocked_transfer_allow_death =
-        RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+        let blocked_by_raw = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
+            source: sp_runtime::MultiAddress::Raw(stake_raw.to_vec()),
+            dest: sp_runtime::MultiAddress::Id(dst.clone()),
+            value: 1,
+        });
+        assert!(!RuntimeCallFilter::contains(&blocked_by_raw));
+
+        let blocked_from_regular_account =
+            RuntimeCall::Balances(pallet_balances::Call::force_transfer {
+                source: sp_runtime::MultiAddress::Id(AccountId::new([8u8; 32])),
+                dest: sp_runtime::MultiAddress::Id(dst),
+                value: 1,
+            });
+        assert!(!RuntimeCallFilter::contains(&blocked_from_regular_account));
+
+        let blocked_force_unreserve =
+            RuntimeCall::Balances(pallet_balances::Call::force_unreserve {
+                who: sp_runtime::MultiAddress::Id(AccountId::new(
+                    primitives::cid::china::china_ch::CHINA_CH[0].stake_account,
+                )),
+                amount: 1,
+            });
+        assert!(!RuntimeCallFilter::contains(&blocked_force_unreserve));
+
+        let blocked_force_set_balance =
+            RuntimeCall::Balances(pallet_balances::Call::force_set_balance {
+                who: sp_runtime::MultiAddress::Id(AccountId::new(
+                    primitives::cid::china::china_ch::CHINA_CH[0].stake_account,
+                )),
+                new_free: 1,
+            });
+        assert!(!RuntimeCallFilter::contains(&blocked_force_set_balance));
+
+        let blocked_transfer_allow_death =
+            RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+                dest: sp_runtime::MultiAddress::Id(AccountId::new([7u8; 32])),
+                value: 1,
+            });
+        assert!(!RuntimeCallFilter::contains(&blocked_transfer_allow_death));
+
+        let blocked_transfer_keep_alive =
+            RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+                dest: sp_runtime::MultiAddress::Id(AccountId::new([7u8; 32])),
+                value: 1,
+            });
+        assert!(!RuntimeCallFilter::contains(&blocked_transfer_keep_alive));
+
+        let blocked_transfer_all = RuntimeCall::Balances(pallet_balances::Call::transfer_all {
             dest: sp_runtime::MultiAddress::Id(AccountId::new([7u8; 32])),
+            keep_alive: true,
+        });
+        assert!(!RuntimeCallFilter::contains(&blocked_transfer_all));
+
+        let blocked_burn = RuntimeCall::Balances(pallet_balances::Call::burn {
             value: 1,
+            keep_alive: true,
         });
-    assert!(!RuntimeCallFilter::contains(&blocked_transfer_allow_death));
+        assert!(!RuntimeCallFilter::contains(&blocked_burn));
 
-    let blocked_transfer_keep_alive =
-        RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
-            dest: sp_runtime::MultiAddress::Id(AccountId::new([7u8; 32])),
-            value: 1,
-        });
-    assert!(!RuntimeCallFilter::contains(&blocked_transfer_keep_alive));
+        let remark =
+            frame_support::BoundedVec::<u8, frame_support::traits::ConstU32<99>>::try_from(
+                b"ordinary transfer remark".to_vec(),
+            )
+            .expect("remark should fit");
+        let allowed_onchain_transfer =
+            RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
+                beneficiary_account_id: AccountId::new([7u8; 32]),
+                amount: 1,
+                remark,
+            });
+        assert!(RuntimeCallFilter::contains(&allowed_onchain_transfer));
 
-    let blocked_transfer_all = RuntimeCall::Balances(pallet_balances::Call::transfer_all {
-        dest: sp_runtime::MultiAddress::Id(AccountId::new([7u8; 32])),
-        keep_alive: true,
+        let disabled_issuance =
+            RuntimeCall::OnchainIssue(onchainissue::pallet::Call::propose_mint {
+                actor_cid_number: CHINA_CB[0]
+                    .cid_number
+                    .as_bytes()
+                    .to_vec()
+                    .try_into()
+                    .expect("NRC CID fits"),
+                actor_role_code: primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
+                    .to_vec()
+                    .try_into()
+                    .expect("committee role fits"),
+                asset_id: 1,
+                to_account_id: AccountId::new([6u8; 32]),
+                amount: 100,
+            });
+        assert!(!RuntimeCallFilter::contains(&disabled_issuance));
     });
-    assert!(!RuntimeCallFilter::contains(&blocked_transfer_all));
-
-    let blocked_burn = RuntimeCall::Balances(pallet_balances::Call::burn {
-        value: 1,
-        keep_alive: true,
-    });
-    assert!(!RuntimeCallFilter::contains(&blocked_burn));
-
-    let remark = frame_support::BoundedVec::<u8, frame_support::traits::ConstU32<99>>::try_from(
-        b"ordinary transfer remark".to_vec(),
-    )
-    .expect("remark should fit");
-    let allowed_onchain_transfer =
-        RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
-            beneficiary_account_id: AccountId::new([7u8; 32]),
-            amount: 1,
-            remark,
-        });
-    assert!(RuntimeCallFilter::contains(&allowed_onchain_transfer));
-
-    let disabled_issuance =
-        RuntimeCall::OnchainIssue(onchainissue::pallet::Call::propose_mint {
-            actor_cid_number: CHINA_CB[0]
-                .cid_number
-                .as_bytes()
-                .to_vec()
-                .try_into()
-                .expect("NRC CID fits"),
-            actor_role_code: primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
-                .to_vec()
-                .try_into()
-                .expect("committee role fits"),
-            asset_id: 1,
-            to_account_id: AccountId::new([6u8; 32]),
-            amount: 100,
-        });
-    assert!(!RuntimeCallFilter::contains(&disabled_issuance));
 }
 
 #[test]
 fn runtime_call_filter_blocks_every_offchain_transaction_call() {
-    let clearing_bank = &primitives::cid::china::china_ch::CHINA_CH[0];
-    let actor_cid_number: offchain::InstitutionCidNumber = clearing_bank
-        .cid_number
-        .as_bytes()
-        .to_vec()
-        .try_into()
-        .expect("clearing bank CID fits");
-    let actor_role_code: offchain::ActorRoleCode =
-        primitives::governance_skeleton::ROLE_CODE_DIRECTOR
+    // 过滤器包含链上迁移状态，按FRAME真实调用环境验证原有禁用矩阵。
+    sp_io::TestExternalities::default().execute_with(|| {
+        let clearing_bank = &primitives::cid::china::china_ch::CHINA_CH[0];
+        let actor_cid_number: offchain::InstitutionCidNumber = clearing_bank
+            .cid_number
+            .as_bytes()
             .to_vec()
             .try_into()
-            .expect("director role fits");
-    let peer_id: offchain::ClearingPeerId = b"12D3KooW12345678901234567890123456789012345678"
-        .to_vec()
-        .try_into()
-        .expect("test PeerId fits");
-    let rpc_domain: frame_support::BoundedVec<u8, sp_core::ConstU32<128>> = b"clearing.example"
-        .to_vec()
-        .try_into()
-        .expect("test RPC domain fits");
+            .expect("clearing bank CID fits");
+        let actor_role_code: offchain::ActorRoleCode =
+            primitives::governance_skeleton::ROLE_CODE_DIRECTOR
+                .to_vec()
+                .try_into()
+                .expect("director role fits");
+        let peer_id: offchain::ClearingPeerId = b"12D3KooW12345678901234567890123456789012345678"
+            .to_vec()
+            .try_into()
+            .expect("test PeerId fits");
+        let rpc_domain: frame_support::BoundedVec<u8, sp_core::ConstU32<128>> = b"clearing.example"
+            .to_vec()
+            .try_into()
+            .expect("test RPC domain fits");
 
-    // Offchain 当前整体禁用；调用索引 30-34、40-41、50-52
-    // 必须全部经过同一 fail-closed 分支，不能只锁住批次提交入口。
-    let disabled_calls = [
-        (
-            "bind_clearing_bank",
-            RuntimeCall::Offchain(offchain::pallet::Call::bind_clearing_bank {
-                bank_cid: actor_cid_number.clone(),
-            }),
-        ),
-        (
-            "deposit",
-            RuntimeCall::Offchain(offchain::pallet::Call::deposit { amount: 1 }),
-        ),
-        (
-            "withdraw",
-            RuntimeCall::Offchain(offchain::pallet::Call::withdraw { amount: 1 }),
-        ),
-        (
-            "switch_bank",
-            RuntimeCall::Offchain(offchain::pallet::Call::switch_bank {
-                new_bank_cid: actor_cid_number.clone(),
-            }),
-        ),
-        (
-            "submit_offchain_batch",
-            RuntimeCall::Offchain(offchain::pallet::Call::submit_offchain_batch {
-                actor_cid_number: actor_cid_number.clone(),
-                actor_role_code: actor_role_code.clone(),
-                institution_account_id: AccountId::new(clearing_bank.main_account),
-                batch_seq: 1,
-                batch: Default::default(),
-                batch_signature: Default::default(),
-            }),
-        ),
-        (
-            "propose_l2_fee_rate",
-            RuntimeCall::Offchain(offchain::pallet::Call::propose_l2_fee_rate {
-                actor_cid_number: actor_cid_number.clone(),
-                actor_role_code: actor_role_code.clone(),
-                institution_account_id: AccountId::new(clearing_bank.main_account),
-                new_rate_bp: 1,
-            }),
-        ),
-        (
-            "set_max_l2_fee_rate",
-            RuntimeCall::Offchain(offchain::pallet::Call::set_max_l2_fee_rate {
-                new_max: 1,
-            }),
-        ),
-        (
-            "register_clearing_bank",
-            RuntimeCall::Offchain(offchain::pallet::Call::register_clearing_bank {
-                actor_cid_number: actor_cid_number.clone(),
-                actor_role_code: actor_role_code.clone(),
-                peer_id,
-                rpc_domain: rpc_domain.clone(),
-                rpc_port: 9_944,
-            }),
-        ),
-        (
-            "update_clearing_bank_endpoint",
-            RuntimeCall::Offchain(
-                offchain::pallet::Call::update_clearing_bank_endpoint {
+        // Offchain 当前整体禁用；调用索引 30-34、40-41、50-52
+        // 必须全部经过同一 fail-closed 分支，不能只锁住批次提交入口。
+        let disabled_calls = [
+            (
+                "bind_clearing_bank",
+                RuntimeCall::Offchain(offchain::pallet::Call::bind_clearing_bank {
+                    bank_cid: actor_cid_number.clone(),
+                }),
+            ),
+            (
+                "deposit",
+                RuntimeCall::Offchain(offchain::pallet::Call::deposit { amount: 1 }),
+            ),
+            (
+                "withdraw",
+                RuntimeCall::Offchain(offchain::pallet::Call::withdraw { amount: 1 }),
+            ),
+            (
+                "switch_bank",
+                RuntimeCall::Offchain(offchain::pallet::Call::switch_bank {
+                    new_bank_cid: actor_cid_number.clone(),
+                }),
+            ),
+            (
+                "submit_offchain_batch",
+                RuntimeCall::Offchain(offchain::pallet::Call::submit_offchain_batch {
+                    actor_cid_number: actor_cid_number.clone(),
+                    actor_role_code: actor_role_code.clone(),
+                    institution_account_id: AccountId::new(clearing_bank.main_account),
+                    batch_seq: 1,
+                    batch: Default::default(),
+                    batch_signature: Default::default(),
+                }),
+            ),
+            (
+                "propose_l2_fee_rate",
+                RuntimeCall::Offchain(offchain::pallet::Call::propose_l2_fee_rate {
+                    actor_cid_number: actor_cid_number.clone(),
+                    actor_role_code: actor_role_code.clone(),
+                    institution_account_id: AccountId::new(clearing_bank.main_account),
+                    new_rate_bp: 1,
+                }),
+            ),
+            (
+                "set_max_l2_fee_rate",
+                RuntimeCall::Offchain(offchain::pallet::Call::set_max_l2_fee_rate { new_max: 1 }),
+            ),
+            (
+                "register_clearing_bank",
+                RuntimeCall::Offchain(offchain::pallet::Call::register_clearing_bank {
+                    actor_cid_number: actor_cid_number.clone(),
+                    actor_role_code: actor_role_code.clone(),
+                    peer_id,
+                    rpc_domain: rpc_domain.clone(),
+                    rpc_port: 9_944,
+                }),
+            ),
+            (
+                "update_clearing_bank_endpoint",
+                RuntimeCall::Offchain(offchain::pallet::Call::update_clearing_bank_endpoint {
                     actor_cid_number: actor_cid_number.clone(),
                     actor_role_code: actor_role_code.clone(),
                     new_domain: rpc_domain,
                     new_port: 9_945,
-                },
+                }),
             ),
-        ),
-        (
-            "unregister_clearing_bank",
-            RuntimeCall::Offchain(offchain::pallet::Call::unregister_clearing_bank {
-                actor_cid_number,
-                actor_role_code,
-            }),
-        ),
-    ];
+            (
+                "unregister_clearing_bank",
+                RuntimeCall::Offchain(offchain::pallet::Call::unregister_clearing_bank {
+                    actor_cid_number,
+                    actor_role_code,
+                }),
+            ),
+        ];
 
-    for (call_name, call) in disabled_calls {
-        assert!(
-            !RuntimeCallFilter::contains(&call),
-            "Offchain::{call_name} 在业务未启用时必须被 RuntimeCallFilter 拒绝"
-        );
-    }
+        for (call_name, call) in disabled_calls {
+            assert!(
+                !RuntimeCallFilter::contains(&call),
+                "Offchain::{call_name} 在业务未启用时必须被 RuntimeCallFilter 拒绝"
+            );
+        }
+    });
 }
 
 #[test]
@@ -1656,8 +1807,6 @@ fn runtime_call_filter_has_no_wildcard_arm() {
         "RuntimeCallFilter 不得出现 `_ =>` 通配分支;新增 pallet 必须显式归类为放行或拒绝"
     );
 }
-
-
 
 #[cfg(not(feature = "runtime-benchmarks"))]
 #[test]
@@ -1697,12 +1846,11 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
             u8,
             <Runtime as engingcore::Config>::MaxProposalDataLen,
         > = encoded.try_into().expect("proposal data bound");
-        let owner: frame_support::BoundedVec<
-            u8,
-            <Runtime as engingcore::Config>::MaxModuleTagLen> = upgrade::MODULE_TAG
-            .to_vec()
-            .try_into()
-            .expect("module tag bound");
+        let owner: frame_support::BoundedVec<u8, <Runtime as engingcore::Config>::MaxModuleTagLen> =
+            upgrade::MODULE_TAG
+                .to_vec()
+                .try_into()
+                .expect("module tag bound");
         engingcore::ProposalData::<Runtime>::insert(proposal_id, bounded_data);
         engingcore::ProposalOwner::<Runtime>::insert(proposal_id, owner);
         let code_vec = code.into_inner();
@@ -2346,7 +2494,6 @@ fn nrc_member_authorization_requires_current_person_binding_and_assignment() {
     });
 }
 
-
 // 机构自定义账户关闭已改为「机构在册管理员直接冷签 propose_close(不含凭证)」,由 pallet 在
 // origin 处以 `is_institution_admin` 鉴权;该授权属性的回归覆盖在 publicentity/privateentity
 // 的 `close_requires_matching_actor_cid_and_an_institution_admin` 等 pallet 级用例。原
@@ -2773,12 +2920,17 @@ fn genesis_citizenchain_foundation_is_complete_and_protected() {
         // 默认测试播种未提供已核验人员，岗位仍必须完整，不能按历史钱包填补。
         assert!(info.legal_representative.is_none());
         for fixed_role in primitives::cid::china::citizenchain::CITIZENCHAIN_FIXED_ROLES {
-            let role_code: privateentity::RoleCodeOf = fixed_role.role_code.to_vec().try_into().unwrap();
-            let role = privateentity::InstitutionRoles::<Runtime>::get(&cid, &role_code).expect("基金会固定岗位");
+            let role_code: privateentity::RoleCodeOf =
+                fixed_role.role_code.to_vec().try_into().unwrap();
+            let role = privateentity::InstitutionRoles::<Runtime>::get(&cid, &role_code)
+                .expect("基金会固定岗位");
             assert_eq!(role.role_name.as_slice(), fixed_role.role_name);
             assert_eq!(role.seats, fixed_role.seats);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
-            assert!(privateentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code).is_empty());
+            assert!(
+                privateentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code)
+                    .is_empty()
+            );
             let permissions =
                 privateentity::InstitutionRolePermissions::<Runtime>::get(&cid, &role_code);
             let expected = entitybase::fixed_role_permission_specs(
@@ -2927,7 +3079,8 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
                     .to_vec()
                     .try_into()
                     .expect("member role name fits"),
-                term_required: false, seats: spec.max_members,
+                term_required: false,
+                seats: spec.max_members,
                 role_status: entitybase::InstitutionRoleStatus::Active,
             },
         );
@@ -2986,7 +3139,8 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
             publicentity::Error::<Runtime>::RequiredMemberCountOutOfRange
         );
         assert_eq!(
-            publicentity::InstitutionRoleAssignments::<Runtime>::get(cid_number, member_role_code).len() as u32,
+            publicentity::InstitutionRoleAssignments::<Runtime>::get(cid_number, member_role_code)
+                .len() as u32,
             spec.min_members
         );
     });
@@ -3002,10 +3156,18 @@ fn institution_governance_can_clear_legal_representative_atomically() {
                 .expect("CHINA_CB CID must contain institution code");
         let cid: publicentity::CidNumberOf<Runtime> =
             cid_number.clone().try_into().expect("CID fits");
-        let representative_account_id = AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0]);
+        let representative_account_id =
+            AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0]);
         let person_cid = fixture_person(&representative_account_id, "CTZN");
-        fixture_public_role_people(&cid, primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
-            &fixture_seat_wallets(CHINA_CB[0].cid_number).iter().copied().map(AccountId::new).collect::<Vec<_>>());
+        fixture_public_role_people(
+            &cid,
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &fixture_seat_wallets(CHINA_CB[0].cid_number)
+                .iter()
+                .copied()
+                .map(AccountId::new)
+                .collect::<Vec<_>>(),
+        );
         let result =
             |legal_representative_change, assignments| entitybase::InstitutionGovernanceResult {
                 institution_code,
@@ -3044,10 +3206,7 @@ fn institution_governance_can_clear_legal_representative_atomically() {
         let stored_representative = stored
             .legal_representative
             .expect("legal representative should be stored");
-        assert_eq!(
-            stored_representative.person_cid,
-            person_cid
-        );
+        assert_eq!(stored_representative.person_cid, person_cid);
 
         assert_ok!(
             publicentity::Pallet::<Runtime>::apply_institution_governance_result(result(
@@ -3121,7 +3280,8 @@ fn national_singletons_without_member_ranges_can_be_composed_once() {
                 proposal_id: 100,
                 role_mutations: vec![entitybase::InstitutionRoleMutation::Create {
                     role_name: "运行期成员".as_bytes().to_vec(),
-                    term_required: false, seats: 1989,
+                    term_required: false,
+                    seats: 1989,
                     permissions: vec![entitybase::RolePermissionSpec {
                         business_action_id: entitybase::BusinessActionId {
                             module_tag: publicentity::MODULE_TAG.to_vec(),
@@ -3151,8 +3311,12 @@ fn national_singletons_without_member_ranges_can_be_composed_once() {
             assert_ok!(
                 publicentity::Pallet::<Runtime>::apply_institution_governance_result(result)
             );
-            assert_eq!(publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid_number)
-                .map(|(_, rows)| rows.len()).sum::<usize>(), admins.len());
+            assert_eq!(
+                publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid_number)
+                    .map(|(_, rows)| rows.len())
+                    .sum::<usize>(),
+                admins.len()
+            );
             publicentity::InstitutionGovernanceThresholds::<Runtime>::insert(&cid_number, 2);
         }
     });
@@ -3168,16 +3332,35 @@ fn genesis_fixed_institution_roles_and_assignments_are_complete() {
         for institution in institutions {
             let cid = test_cid_number(institution.cid_number.as_bytes());
             let lr = publicentity::RoleCodeOf::try_from(b"LR".to_vec()).unwrap();
-            assert_eq!(publicentity::InstitutionRoles::<Runtime>::get(&cid, lr).unwrap().seats, 1);
+            assert_eq!(
+                publicentity::InstitutionRoles::<Runtime>::get(&cid, lr)
+                    .unwrap()
+                    .seats,
+                1
+            );
             let expected = if institution.code == FRG {
-                frg_province_groups().into_iter().map(|(province,seats)| (province_commissioner_role_code(province), seats)).collect::<Vec<_>>()
+                frg_province_groups()
+                    .into_iter()
+                    .map(|(province, seats)| (province_commissioner_role_code(province), seats))
+                    .collect::<Vec<_>>()
             } else {
-                fixed_role_specs(institution.code).into_iter().map(|role| (role.role_code.to_vec(), role.seats)).collect()
+                fixed_role_specs(institution.code)
+                    .into_iter()
+                    .map(|role| (role.role_code.to_vec(), role.seats))
+                    .collect()
             };
             for (code, seats) in expected {
                 let role_code = publicentity::RoleCodeOf::try_from(code).unwrap();
-                assert_eq!(publicentity::InstitutionRoles::<Runtime>::get(&cid, &role_code).unwrap().seats, seats);
-                assert!(publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code).is_empty());
+                assert_eq!(
+                    publicentity::InstitutionRoles::<Runtime>::get(&cid, &role_code)
+                        .unwrap()
+                        .seats,
+                    seats
+                );
+                assert!(
+                    publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code)
+                        .is_empty()
+                );
             }
         }
     });
@@ -3445,7 +3628,9 @@ fn runtime_prc_sweep_accepts_exactly_111_fen_left_and_rejects_less() {
                 amount,
             ));
             let pid = VotingEngine::next_proposal_id() - 1;
-            for admin in &fixture_seat_wallets(prc.cid_number)[1..primitives::count_const::PRC_INTERNAL_THRESHOLD as usize] {
+            for admin in &fixture_seat_wallets(prc.cid_number)
+                [1..primitives::count_const::PRC_INTERNAL_THRESHOLD as usize]
+            {
                 assert_ok!(InternalVote::cast(
                     RuntimeOrigin::signed(AccountId::new(*admin)),
                     pid,
@@ -3730,7 +3915,6 @@ fn square_subscription_calldata_matches_owner_fixture_and_real_runtime_index() {
     assert_eq!(hex::encode(call.encode()), vector["hex"].as_str().unwrap());
 }
 
-
 /// 基准专属主体必须通过实际Runtime的FRG岗位及辖区授权，不消费合成权限替身。
 #[cfg(feature = "runtime-benchmarks")]
 #[test]
@@ -3764,7 +3948,8 @@ fn address_benchmark_authority_uses_real_runtime_roles_and_scope() {
                     &actor.city_code,
                     action,
                 ));
-                let other = primitives::cid::code::PROVINCE_CODE_INFOS.iter()
+                let other = primitives::cid::code::PROVINCE_CODE_INFOS
+                    .iter()
                     .find(|entry| entry.province_code.as_slice() != actor.province_code.as_slice())
                     .expect("行政区真源必须提供另一真实省份");
                 assert!(!RuntimeAddressAuthority::can_update_address(
@@ -3789,7 +3974,8 @@ fn address_benchmark_authority_initializes_missing_runtime_state() {
     use address::AddressUpdateAuthority;
 
     let storage = frame_system::GenesisConfig::<Runtime>::default()
-        .build_storage().expect("系统初始存储必须可构建");
+        .build_storage()
+        .expect("系统初始存储必须可构建");
     sp_io::TestExternalities::new(storage).execute_with(|| {
         System::set_block_number(1);
         let actor = RuntimeAddressAuthority::benchmark_authority(3)
@@ -3807,7 +3993,6 @@ fn address_benchmark_authority_initializes_missing_runtime_state() {
         assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
     });
 }
-
 
 #[test]
 fn creg_capability_requires_one_existing_public_entity() {
@@ -3919,55 +4104,86 @@ fn creg_business_requires_binding_permission_effective_assignment_and_local_scop
     });
 }
 
-
 #[test]
 fn frg_registration_initializes_creg_people_and_capacity() {
-    use entitybase::{business_action::ACTION_INSTITUTION_GOVERNANCE, InstitutionRoleMutation, InstitutionRoleRegistration, RolePermissionOperation};
+    use entitybase::{
+        business_action::ACTION_INSTITUTION_GOVERNANCE, InstitutionRoleMutation,
+        InstitutionRoleRegistration, RolePermissionOperation,
+    };
     new_test_ext().execute_with(|| {
         let (_, signer, actor, role) = setup_frg_citizen_identity_admin(b"NX");
         let target = test_cid_number(b"NX013-CREGN-937676656-2026");
-        let actions = |people: Vec<entitybase::InstitutionAssignmentTarget>| InstitutionRoleRegistration {
-            role_mutations: vec![InstitutionRoleMutation::Create {
-                role_name: "登记岗位".as_bytes().to_vec(),
-                term_required: false,
-                seats: 2,
-                permissions: [RolePermissionOperation::Propose, RolePermissionOperation::Vote]
-                    .into_iter().map(|operation| entitybase::RolePermissionSpec {
+        let actions =
+            |people: Vec<entitybase::InstitutionAssignmentTarget>| InstitutionRoleRegistration {
+                role_mutations: vec![InstitutionRoleMutation::Create {
+                    role_name: "登记岗位".as_bytes().to_vec(),
+                    term_required: false,
+                    seats: 2,
+                    permissions: [
+                        RolePermissionOperation::Propose,
+                        RolePermissionOperation::Vote,
+                    ]
+                    .into_iter()
+                    .map(|operation| entitybase::RolePermissionSpec {
                         business_action_id: entitybase::BusinessActionId {
                             module_tag: publicentity::MODULE_TAG.to_vec(),
                             action_code: ACTION_INSTITUTION_GOVERNANCE,
-                        }, operation,
-                    }).collect(),
-                assignments: people,
-            }],
-            assignment_changes: vec![],
-        };
+                        },
+                        operation,
+                    })
+                    .collect(),
+                    assignments: people,
+                }],
+                assignment_changes: vec![],
+            };
         let people = [AccountId::new([91; 32]), AccountId::new([92; 32])];
-        let targets = people.iter().map(|wallet| entitybase::InstitutionAssignmentTarget {
-            person_cid: fixture_person(wallet, "CTZN").to_vec(),
-            term_start: 0, term_end: 0,
-            assignment_source: entitybase::InstitutionAssignmentSource::Registry,
-            assignment_source_ref: vec![],
-            assignment_status: entitybase::InstitutionAssignmentStatus::Active,
-        }).collect::<Vec<_>>();
+        let targets = people
+            .iter()
+            .map(|wallet| entitybase::InstitutionAssignmentTarget {
+                person_cid: fixture_person(wallet, "CTZN").to_vec(),
+                term_start: 0,
+                term_end: 0,
+                assignment_source: entitybase::InstitutionAssignmentSource::Registry,
+                assignment_source_ref: vec![],
+                assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+            })
+            .collect::<Vec<_>>();
         let state = PublicEntity::registration_state_hash(&target).unwrap();
-        let send = |targets| PublicEntity::register_institution_roles(
-            RuntimeOrigin::signed(signer.clone()), target.clone(), actions(targets),
-            actor.to_vec(), role.to_vec(), state, Some(2),
+        let send = |targets| {
+            PublicEntity::register_institution_roles(
+                RuntimeOrigin::signed(signer.clone()),
+                target.clone(),
+                actions(targets),
+                actor.to_vec(),
+                role.to_vec(),
+                state,
+                Some(2),
+            )
+        };
+        assert_noop!(
+            send(vec![targets[0].clone(), targets[0].clone()]),
+            publicentity::Error::<Runtime>::DuplicateAssignment
         );
-        assert_noop!(send(vec![targets[0].clone(), targets[0].clone()]), publicentity::Error::<Runtime>::DuplicateAssignment);
         assert_ok!(send(targets.clone()));
-        assert_eq!(publicentity::InstitutionGovernanceThresholds::<Runtime>::get(&target), Some(2));
+        assert_eq!(
+            publicentity::InstitutionGovernanceThresholds::<Runtime>::get(&target),
+            Some(2)
+        );
         let created = publicentity::InstitutionRoles::<Runtime>::iter_prefix(&target)
-            .find(|(_, role)| role.role_name.as_slice() == "登记岗位".as_bytes()).unwrap();
+            .find(|(_, role)| role.role_name.as_slice() == "登记岗位".as_bytes())
+            .unwrap();
         assert_eq!(created.1.seats, 2);
         let assigned = publicentity::InstitutionRoleAssignments::<Runtime>::get(&target, created.0);
         assert_eq!(assigned.len(), 2);
-        assert!(assigned.iter().zip(targets).all(|(actual, planned)| actual.person_cid.as_slice() == planned.person_cid.as_slice()));
+        assert!(
+            assigned
+                .iter()
+                .zip(targets)
+                .all(|(actual, planned)| actual.person_cid.as_slice()
+                    == planned.person_cid.as_slice())
+        );
     });
 }
-
-
 
 #[test]
 fn evm_account_creation_weights_cover_fee_rewards_and_background_payouts() {
@@ -4216,12 +4432,18 @@ fn proposal_id_upgrade_rejects_invalid_old_layout_without_partial_writes() {
     use frame_support::traits::{OnRuntimeUpgrade, StorageVersion};
     new_test_ext().execute_with(|| {
         StorageVersion::new(0).put::<engingcore::Pallet<Runtime>>();
-        sp_io::storage::set(&engingcore::CurrentProposalYear::<Runtime>::hashed_key(), &2026u16.to_le_bytes(),
+        sp_io::storage::set(
+            &engingcore::CurrentProposalYear::<Runtime>::hashed_key(),
+            &2026u16.to_le_bytes(),
         );
-        sp_io::storage::set(&engingcore::NextProposalId::<Runtime>::hashed_key(), &[1, 2, 3],
+        sp_io::storage::set(
+            &engingcore::NextProposalId::<Runtime>::hashed_key(),
+            &[1, 2, 3],
         );
         let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
-        assert!(std::panic::catch_unwind(|| AddPrcFeeSweepPermissions::on_runtime_upgrade()).is_err());
+        assert!(
+            std::panic::catch_unwind(|| AddPrcFeeSweepPermissions::on_runtime_upgrade()).is_err()
+        );
         assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
     });
 }
@@ -4246,12 +4468,11 @@ fn ordinary_transfer_remark_fee_keeps_multisig_creation_fee_unchanged() {
                     } else {
                         primitives::fee_policy::FLAT_FEE
                     };
-                let call =
-                    RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
-                        beneficiary_account_id: AccountId::new([0x62; 32]),
-                        amount,
-                        remark: remark.clone().try_into().unwrap(),
-                    });
+                let call = RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
+                    beneficiary_account_id: AccountId::new([0x62; 32]),
+                    amount,
+                    remark: remark.clone().try_into().unwrap(),
+                });
                 assert_eq!(
                     onchain::charge_details::<Runtime, Balances, RuntimeFeeRouter>(
                         &who,
@@ -4262,15 +4483,14 @@ fn ordinary_transfer_remark_fee_keeps_multisig_creation_fee_unchanged() {
                     .unwrap(),
                     Some((who.clone(), expected))
                 );
-                let multisig =
-                    RuntimeCall::Multisig(multisig::pallet::Call::propose_transfer {
-                        actor_cid_number: None,
-                        proposer_role_code: None,
-                        funding_account_id: who.clone(),
-                        beneficiary_account_id: AccountId::new([0x62; 32]),
-                        amount,
-                        remark: remark.try_into().unwrap(),
-                    });
+                let multisig = RuntimeCall::Multisig(multisig::pallet::Call::propose_transfer {
+                    actor_cid_number: None,
+                    proposer_role_code: None,
+                    funding_account_id: who.clone(),
+                    beneficiary_account_id: AccountId::new([0x62; 32]),
+                    amount,
+                    remark: remark.try_into().unwrap(),
+                });
                 assert_eq!(
                     onchain::charge_details::<Runtime, Balances, RuntimeFeeRouter>(
                         &who,
@@ -4294,12 +4514,25 @@ fn multisig_execution_charger_uses_existing_payer_and_shared_remark_fee() {
         sp_io::TestExternalities::default().execute_with(|| {
             System::set_block_number(1);
             let payer = AccountId::new([0x61; 32]);
-            assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), payer.clone().into(), 10_000));
-            assert_eq!(Charger::charge(&payer, 50_000, has_remark).unwrap(), expected);
+            assert_ok!(Balances::force_set_balance(
+                RuntimeOrigin::root(),
+                payer.clone().into(),
+                10_000
+            ));
+            assert_eq!(
+                Charger::charge(&payer, 50_000, has_remark).unwrap(),
+                expected
+            );
             assert_eq!(Balances::free_balance(&payer), 10_000 - expected);
-            assert_eq!(System::events().iter().filter(|event| matches!(&event.event,
+            assert_eq!(
+                System::events()
+                    .iter()
+                    .filter(|event| matches!(&event.event,
                 RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid { account_id, fee })
-                    if account_id == &payer && *fee == expected)).count(), 1);
+                    if account_id == &payer && *fee == expected))
+                    .count(),
+                1
+            );
         });
     }
 }
