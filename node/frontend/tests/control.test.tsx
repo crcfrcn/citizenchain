@@ -342,13 +342,53 @@ import {NodeKeySection} from '../control/NodeKeySection';
 vi.mock('../control/NodeModeSection',()=>({NodeModeSection:()=>null}));
 import {OnChinaPlatformSection} from '../control/OnChinaPlatformSection';
 vi.mock('../control/RewardAccountSection',()=>({RewardAccountSection:()=>null}));
+function settingsStatus(command:string) {
+ if(command==='get_bootnode_key')return {nodeKey:null,peerId:null,cidShortName:null};
+ if(command==='get_grandpa_key')return {key:null,cidShortName:null};
+ if(command==='get_onchina_host_key_status'||command==='has_role_access')return false;
+ return null;
+}
+it.each(['未授权','授权读取失败'])('设置页在%s时保留三个配置区且禁止上传',async(mode)=>{
+ mocks.invoke.mockImplementation(async(command:string)=>{
+  if(command==='has_role_access'){if(mode==='授权读取失败')throw Error('fixture role unavailable');return false;}
+  if(command==='get_chain_status')return {nodeVersion:'1.0.0',specVersion:7,transactionVersion:6};
+  if(command==='get_bootnode_key'||command==='get_grandpa_key')return {peerId:null,cidShortName:null};
+  if(command==='get_onchina_host_key_status')return false;
+  return null;
+ });
+ render(<SettingsSection desktopUpdateInfo={{status:'unavailable',currentVersion:'1.0.0',latestVersion:null,error:null}} onUpdateDesktop={vi.fn()}/>);
+ await screen.findByText('Runtime 7');
+ for(const name of ['引导节点','最终性节点','链上中国主机'])expect(screen.getByRole('heading',{name})).toBeTruthy();
+ for(const field of ['请输入引导节点私钥（Ed25519 十六进制）','请输入最终性节点私钥','请输入链上中国主机HTTPS密钥'])expect(screen.getByPlaceholderText<HTMLInputElement>(field).disabled).toBe(true);
+ expect(screen.queryByText('请先在机构岗位任职页完成有效授权，再管理节点配置。')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'绑定身份'}));
+ fireEvent.click(screen.getByRole('button',{name:'上传链上中国主机私钥'}));
+ expect(screen.queryByText('设备密码验证')).toBeNull();
+ expect(mocks.invoke.mock.calls.some(([command])=>String(command).startsWith('set_'))).toBe(false);
+ expect(mocks.invoke.mock.calls.some(([command])=>command==='get_grandpa_key'||command==='get_onchina_host_key_status')).toBe(false);
+});
+
+it('岗位授权失效立即清空密钥草稿和待确认密码',async()=>{
+ mocks.invoke.mockImplementation(async(command:string)=>command==='get_onchina_host_key_status'?false:{cidShortName:null});
+ const props={nodeKey:{nodeKey:null,peerId:null,cidShortName:null},onUpdated:vi.fn(),onApplied:vi.fn()};
+ const view=render(<NodeKeySection {...props} canManage={true}/>);
+ const input=screen.getByPlaceholderText<HTMLInputElement>('请输入引导节点私钥（Ed25519 十六进制）');
+ fireEvent.change(input,{target:{value:'fixture-node-key'}});
+ fireEvent.click(screen.getByRole('button',{name:'绑定身份'}));
+ fireEvent.change(screen.getByPlaceholderText('请输入设备开机密码'),{target:{value:'fixture-password'}});
+ view.rerender(<NodeKeySection {...props} canManage={false}/>);
+ await waitFor(()=>expect(screen.queryByText('设备密码验证')).toBeNull());
+ expect(input.value).toBe('');expect(input.disabled).toBe(true);
+ expect(mocks.invoke.mock.calls.some(([command])=>command==='set_bootnode_key')).toBe(false);
+});
+
 it.each([
   ['available','安装更新',false,0], ['downloading','下载中',true,45],
   ['ready','安装更新',false,100], ['installing','安装中',true,100],
   ['error','重试下载',false,0],
 ] as const)('设置更新状态%s显示正确按钮与实际进度',async(status,label,disabled,downloaded)=>{
   mocks.invoke.mockImplementation(async(command:string)=>command==='get_chain_status'
-    ? {nodeVersion:'1.0.0',specVersion:2,transactionVersion:1} : null);
+    ? {nodeVersion:'1.0.0',specVersion:2,transactionVersion:1} : settingsStatus(command));
   const onUpdateDesktop=vi.fn().mockResolvedValue(undefined);
   const view=render(<SettingsSection desktopUpdateInfo={{status,currentVersion:'1.0.0',latestVersion:'1.0.1',
     downloaded,total:100,error:status==='error'?'下载中断':null}} onUpdateDesktop={onUpdateDesktop}/>);
@@ -368,7 +408,7 @@ it.each([[0, '0'], [null, '未取得链上版本']] as const)(
   async (transactionVersion, expected) => {
     mocks.invoke.mockImplementation(async (command: string) => command === 'get_chain_status'
       ? { nodeVersion: '1.0.3', specVersion: 7, transactionVersion }
-      : null);
+      : settingsStatus(command));
     render(<SettingsSection desktopUpdateInfo={{ status: 'unavailable', currentVersion: '1.0.0',
       latestVersion: null, error: null }} onUpdateDesktop={vi.fn()}/>);
     const label = await screen.findByText('交易签名版本');
@@ -386,7 +426,7 @@ it('设置页显示引导节点和最终性节点的标题、私钥占位和空�
     if (command === 'has_role_access') return true;
     if (command === 'get_bootnode_key') return { nodeKey: null, peerId: null, cidShortName: null };
     if (command === 'get_grandpa_key') return { key: null, cidShortName: null };
-    return null;
+    return settingsStatus(command);
   });
   render(<SettingsSection desktopUpdateInfo={{ status: 'unavailable', currentVersion: '1.0.0',
     latestVersion: null, error: null }} onUpdateDesktop={vi.fn()}/>);
@@ -394,6 +434,7 @@ it('设置页显示引导节点和最终性节点的标题、私钥占位和空�
   expect(screen.getByRole('heading', { name: /^最终性节点/ })).toBeTruthy();
   expect(screen.getByPlaceholderText('请输入引导节点私钥（Ed25519 十六进制）')).toBeTruthy();
   expect(screen.getByPlaceholderText('请输入最终性节点私钥')).toBeTruthy();
+  await waitFor(() => expect((screen.getByRole('button', {name: '绑定身份'}) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: '绑定身份' }));
   expect(screen.getByText('请输入引导节点私钥')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '上传私钥' }));
@@ -415,6 +456,7 @@ it('链上中国主机在设备密码验证后提交完整多行 PEM 并更新�
   const hostRow = within(heading.closest<HTMLElement>('.settings-credential-row')!);
   await hostRow.findByText('未设置');
   const field = hostRow.getByPlaceholderText<HTMLInputElement>('请输入链上中国主机HTTPS密钥');
+  await waitFor(() => expect(field.disabled).toBe(false));
   const pem = '-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----';
   fireEvent.paste(field, { clipboardData: { getData: () => pem } });
   fireEvent.click(hostRow.getByRole('button', { name: '上传链上中国主机私钥' }));
@@ -427,7 +469,7 @@ it('链上中国主机在设备密码验证后提交完整多行 PEM 并更新�
 });
 
 it('主机状态在重新进入及查询失败时保留上次结果，后续查询仍可刷新', async () => {
-  const props = { nodeKey: {nodeKey: null, peerId: null, cidShortName: null}, onUpdated: vi.fn(), onApplied: vi.fn() };
+  const props = { canManage: true, nodeKey: {nodeKey: null, peerId: null, cidShortName: null}, onUpdated: vi.fn(), onApplied: vi.fn() };
   const hostRow = () => within(screen.getByRole('heading', {name: '链上中国主机'}).closest<HTMLElement>('.settings-credential-row')!);
   mocks.invoke.mockImplementation(async (command: string) => command === 'get_onchina_host_key_status' ? true : {cidShortName: null});
   const first = render(<NodeKeySection {...props}/>);
@@ -453,7 +495,7 @@ it('主机密钥上传成功后不会被较早发出的状态查询覆盖', asyn
   let resolveStatus!: (configured: boolean) => void;
   mocks.invoke.mockImplementation((command: string) => command === 'get_onchina_host_key_status'
     ? new Promise<boolean>((resolve) => {resolveStatus = resolve;}) : Promise.resolve({cidShortName: null}));
-  const view = render(<NodeKeySection nodeKey={{nodeKey: null, peerId: null, cidShortName: null}} onUpdated={vi.fn()} onApplied={vi.fn()}/>);
+  const view = render(<NodeKeySection canManage={true} nodeKey={{nodeKey: null, peerId: null, cidShortName: null}} onUpdated={vi.fn()} onApplied={vi.fn()}/>);
   const row = within(screen.getByRole('heading', {name: '链上中国主机'}).closest<HTMLElement>('.settings-credential-row')!);
   fireEvent.change(row.getByPlaceholderText('请输入链上中国主机HTTPS密钥'), {target: {value: 'fixture-private-key'}});
   fireEvent.click(row.getByRole('button', {name: '上传链上中国主机私钥'}));

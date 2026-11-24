@@ -217,11 +217,11 @@ function EmptyView({
         <button className="primary-button" onClick={onAdd}>+ 添加清算行</button>
       </div>
       {knownCids.length > 0 && (
-        <div className="institution-grid">
+        <div className="institution-row-grid">
           {knownCids.map((s) => (
             <div
               key={s.cidNumber}
-              className="metric-card institution-card"
+              className="metric-card institution-row-card"
               role="button"
               tabIndex={0}
               onClick={() => onOpen(s)}

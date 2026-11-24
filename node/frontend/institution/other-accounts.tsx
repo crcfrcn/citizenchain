@@ -24,9 +24,9 @@ export function OtherAccountsListPage({ cidNumber, otherAccounts, onBack }: Prop
       {otherAccounts.length === 0 ? (
         <p className="no-data">该机构没有其他账户(仅主账户 + 费用账户)</p>
       ) : (
-        <div className="institution-grid">
+        <div className="institution-row-grid">
           {otherAccounts.map((acc) => (
-            <div key={acc.accountId} className="metric-card institution-card">
+            <div key={acc.accountId} className="metric-card institution-row-card">
               <div>
                 <strong>{acc.accountName}</strong>
                 {acc.accountKind !== 'named' && (

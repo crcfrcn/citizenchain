@@ -64,15 +64,14 @@ export function SettingsSection({
         rewardAccount={rewardAccount}
         onUpdated={setRewardAccount}
       />
-      {hasAccess && (
-        <NodeKeySection
-          nodeKey={nodeKey}
-          onUpdated={setNodeKey}
-          onApplied={() => {
-            void loadSettings();
-          }}
-        />
-      )}
+      <NodeKeySection
+        canManage={hasAccess}
+        nodeKey={nodeKey}
+        onUpdated={setNodeKey}
+        onApplied={() => {
+          void loadSettings();
+        }}
+      />
       {chainStatus && (
         <div className="settings-version-section">
           <div className="settings-version-row">

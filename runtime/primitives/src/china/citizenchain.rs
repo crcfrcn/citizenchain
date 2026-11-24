@@ -15,7 +15,7 @@ pub const ROLE_NAME_GENESIS_PRODUCT_MANAGER: &[u8] = "创世产品经理".as_byt
 /// 创世程序员固定岗位名称。
 pub const ROLE_NAME_GENESIS_PROGRAMMER: &[u8] = "创世程序员".as_bytes();
 
-/// 法定代表人对应的公民 CID；注册局后续直接从链上读取该公民资料。
+/// 法定代表人对应的创世公民 CID；注册局后续直接从链上读取该创世公民资料。
 pub const LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER: &str = "CN220-CTZN2-198805200-2026";
 /// 法定代表人的姓；全仓人员姓名只使用 `family_name` 与 `given_name` 两个字段。
 pub const LEGAL_REPRESENTATIVE_FAMILY_NAME: &str = "程";

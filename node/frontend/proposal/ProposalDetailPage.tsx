@@ -165,7 +165,7 @@ export function ProposalDetailPage({ proposalId, roleSigners: externalSigners, c
           <h3>原提案冻结资格（{walletCount} 个当前绑定 / {ticketCount} 张岗位票）</h3>
           {view.scopeError && <p className="error">{view.scopeError}</p>}
           {!roles.length && <p className="error">原提案中没有该机构的冻结票据</p>}
-          <div className="institution-grid proposal-detail-vote-grid">
+          <div className="institution-row-grid proposal-detail-vote-grid">
             {roles.map(role => <div key={role.cidNumber + ':' + role.roleCode}>
               {role.error && <p className="error">{role.error}</p>}
               {role.voters.map(voter => {

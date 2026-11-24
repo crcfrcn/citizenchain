@@ -2399,13 +2399,13 @@ select option:checked {
   color: #64748b;
 }
 
-.institution-grid {
+.institution-row-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
-.institution-card {
+.institution-row-card {
   display: flex;
   align-items: center;
   gap: 8px;

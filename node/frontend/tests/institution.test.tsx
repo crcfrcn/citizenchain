@@ -1,6 +1,8 @@
 // 验证机构岗位与升级提案交互、IPC参数及失败重试状态。
 
 import {beforeEach, expect, it, vi} from 'vitest';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
 import {rolesApi} from '../institution/roles';
 import {TransferProposalDialog} from '../multisig/TransferProposalDialog';
 import {open as pickUpgradeFile} from '@tauri-apps/plugin-dialog';
@@ -23,6 +25,96 @@ import { InstitutionDetailPage } from '../institution/InstitutionDetailPage';
 import { accountIdToSs58 } from '../client/ss58';
 import {AssignmentsPage} from '../institution/AssignmentsPage';
 import { InstitutionAssignmentCard } from '../institution/InstitutionAssignmentCard';
+
+// 2da4e79：本轮重构前省级目录的原始布局金标。
+const originalDirectoryStyles = `
+.institution-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+/* 两个省级机构列表填满面板，四周沿用面板的 24px 内边距。 */
+.app:has(> .content > .institution-list-view),
+.app:has(> .content > .institution-list-view) > .content,
+.institution-list-view {
+  display: flex;
+  flex-direction: column;
+}
+
+.app:has(> .content > .institution-list-view) > .content,
+.institution-list-view,
+.institution-list-view > .institution-grid {
+  flex: 1;
+}
+
+.institution-list-view {
+  padding: 0;
+}
+
+.institution-list-view > .institution-grid {
+  grid-auto-rows: minmax(min-content, 1fr);
+}
+
+.institution-list-view .institution-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.institution-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.institution-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 1px 4px rgba(6, 182, 212, 0.2);
+}
+
+.institution-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.institution-card-meta {
+  margin-top: 4px;
+}
+
+.institution-card-type {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+`;
+it('省级目录与原版完整样式一致，不继承其他卡片的居中和间距', () => {
+ const actual=readFileSync(resolve(process.cwd(),'desktop/global.css'),'utf8');
+ const start=actual.indexOf('.institution-grid {');
+ expect(actual.slice(start,actual.indexOf('/* 机构详情页 */',start))).toBe(originalDirectoryStyles.slice(1));
+ const capture=(css:string)=>{
+  const style=document.createElement('style');style.textContent=css;document.head.append(style);
+  const host=document.createElement('div');
+  host.innerHTML='<div class="app"><main class="content"><div class="governance-section institution-list-view"><div class="institution-grid"><div class="institution-card"><div class="institution-card-name">省级机构</div><div class="institution-card-meta"><span class="institution-card-type">省储委会</span></div></div></div></div></main></div><div class="institution-row-grid">其他账户</div>';
+  document.body.append(host);
+  const read=(selector:string,properties:string[])=>{const value=getComputedStyle(host.querySelector(selector)!);return properties.map(property=>value.getPropertyValue(property));};
+  try{return {
+   view:read('.institution-list-view',['display','flex-direction','flex-grow','padding']),
+   grid:read('.institution-grid',['display','grid-template-columns','grid-auto-rows','gap','flex-grow']),
+   card:read('.institution-card',['display','flex-direction','align-items','justify-content','row-gap','column-gap','padding','border-radius']),
+   name:read('.institution-card-name',['font-size','font-weight']),
+   meta:read('.institution-card-meta',['margin-top']),
+   type:read('.institution-card-type',['font-size']),
+   other:read('.institution-row-grid',['grid-template-columns']),
+  };}finally{host.remove();style.remove();}
+ };
+ const actualLayout=capture(actual),originalLayout=capture(originalDirectoryStyles);
+ expect(actualLayout).toEqual({...originalLayout,other:['1fr 1fr']});
+});
 
 // 卡片以一个人员岗位任职为单位，姓名、序号、真实绑定、席位及操作均保留。
 it.each([{familyName:'合成',givenName:'人员',name:'合成人员'},{familyName:'',givenName:'',name:'姓名未填写'},{familyName:'  ',givenName:'\t',name:'姓名未填写'}])('岗位任职卡片显示$name并保留操作',({familyName,givenName,name})=>{

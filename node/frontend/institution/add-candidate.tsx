@@ -68,11 +68,11 @@ export function ClearingBankAddPage({ onBack, onSelectCandidate, onSelectKnownCi
       {error && <div className="error">{error}</div>}
 
       {!loading && results.length > 0 && (
-        <div className="institution-grid">
+        <div className="institution-row-grid">
           {results.map((r) => (
             <div
               key={r.cidNumber}
-              className="metric-card institution-card"
+              className="metric-card institution-row-card"
               role="button"
               tabIndex={0}
               onClick={() => onSelectCandidate(r)}

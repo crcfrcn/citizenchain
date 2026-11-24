@@ -138,15 +138,17 @@ test('原HTTP方法路径、路由分区和迁移后的handler归属逐项一致
 });
 
 // 跨目录消费者必须纳入扫描；负例夹具只在其所有者测试中解释。
-test('仓库消费者不再引用退役OnChina输入，Runtime生成器读取唯一现行字典',()=>{
+test('仓库消费者不再引用退役输入，Runtime继续使用既有冻结行政区产物',()=>{
  const paths=layout.consumerRoots.flatMap(path=>files(join(root,path))).filter(path=>/\.(?:rs|ts|tsx|py|mjs|json|toml|ya?ml|md)$/u.test(path));
  for(const file of paths){
   const text=readFileSync(file,'utf8');
   for(const pattern of layout.consumerPatterns)assert.doesNotMatch(text,new RegExp(pattern,'u'),relative(root,file));
  }
- const generator=readFileSync(join(root,'runtime/primitives/gen_area_data.py'),'utf8');
- assert.match(generator,/onchina\/platform\/codes\/china\.sqlite/u);
- assert.match(generator,/\?mode=ro/u);
+ const area=readFileSync(join(root,'runtime/primitives/src/china/area.rs'),'utf8');
+ assert.match(area,/include_bytes!\("area_data\.bin"\)/u);
+ assert.ok(statSync(join(root,'runtime/primitives/src/china/area_data.bin')).size>0);
+ // 只断言退役工具不存在，不重建或改写冻结产物。
+ for(const name of ['gen_area_data.py','rederive_accounts.py'])assert.equal(existsSync(join(root,'runtime/primitives',name)),false);
 });
 
 test('十二项修复保留统一分配、上传约束与真实路由语法',()=>{
